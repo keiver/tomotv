@@ -57,19 +57,21 @@ struct ImageSubtitleEvent {
 
 final class ImageSubtitleDecoder {
 
-    /// Formats with a bitmap payload, which is exactly the set the app's
-    /// `isImageBasedSubtitleCodec` treats as needing burn-in. All four decoders
-    /// are compiled into the linked FFmpeg (verified against the built
-    /// Libavcodec's symbol table, not the configure line).
+    /// Formats decoded to bitmaps here, the set the app's `isImageBasedSubtitleCodec` names.
+    /// Teletext is libzvbi's decoder drawing the page's subtitle rows; all five decoders are in
+    /// the linked Libavcodec (checked by symbol, scripts/ffmpeg/linktest.c).
     static func handles(_ codecId: AVCodecID) -> Bool {
         switch codecId {
         case AV_CODEC_ID_HDMV_PGS_SUBTITLE, AV_CODEC_ID_DVD_SUBTITLE,
-             AV_CODEC_ID_DVB_SUBTITLE, AV_CODEC_ID_XSUB:
+             AV_CODEC_ID_DVB_SUBTITLE, AV_CODEC_ID_XSUB, AV_CODEC_ID_DVB_TELETEXT:
             return true
         default:
             return false
         }
     }
+
+    /// Teletext: the page's subtitle rows as one bitmap; its canvas is the page, not the video.
+    private let isTeletext: Bool
 
     let streamIndex: Int32
 
@@ -84,6 +86,10 @@ final class ImageSubtitleDecoder {
     private let dir: URL
     private let namePrefix: String
 
+    /// Subtracted from every cue's source time. Live: the current generation's timeline anchor,
+    /// so cue times land on the output timeline the player reports. Set by the pipeline thread.
+    var sourceOffsetSeconds = 0.0
+
     private let lock = NSLock()
     /// Display sets in source-time order.
     private var events: [ImageSubtitleEvent] = []
@@ -91,6 +97,8 @@ final class ImageSubtitleDecoder {
     /// region appends nothing a second time.
     private var recordedTimes: Set<Int> = []
     private var imageCount = 0
+    /// File names only count up: a live prune lowers imageCount, and a reused name overwrites a live PNG.
+    private var nextImageOrdinal = 0
     private var cappedLogged = false
     /// The read loop reached the end of this stream, so the event list is final.
     /// The app stops polling the manifest once it sees this.
@@ -109,12 +117,14 @@ final class ImageSubtitleDecoder {
     /// reader is inside this class, holding the lock.
     private var canvasWidth: Int
     private var canvasHeight: Int
+    private var pageMeasured = false
 
     init?(stream: UnsafeMutablePointer<AVStream>, fallbackWidth: Int, fallbackHeight: Int, dir: URL) {
         guard let params = stream.pointee.codecpar, Self.handles(params.pointee.codec_id) else { return nil }
 
         streamIndex = stream.pointee.index
         timeBase = stream.pointee.time_base
+        isTeletext = params.pointee.codec_id == AV_CODEC_ID_DVB_TELETEXT
         self.dir = dir
         namePrefix = "pgs\(stream.pointee.index)"
         canvasWidth = params.pointee.width > 0 ? Int(params.pointee.width) : fallbackWidth
@@ -133,7 +143,13 @@ final class ImageSubtitleDecoder {
         // Without this, avcodec_decode_subtitle2 leaves AVSubtitle.pts at
         // AV_NOPTS_VALUE and every event would land at zero.
         ctx.pointee.pkt_timebase = timeBase
-        guard avcodec_open2(ctx, codec, nil) >= 0 else {
+        // Only the pages flagged as subtitles: a teletext service also carries news and index
+        // pages, which `*` would draw over the picture.
+        var opts: OpaquePointer? = nil
+        if isTeletext { av_dict_set(&opts, "txt_page", "subtitle", 0) }
+        let opened = avcodec_open2(ctx, codec, &opts)
+        av_dict_free(&opts)
+        guard opened >= 0 else {
             NSLog("[ImageSubtitle] failed to open decoder for stream %d", stream.pointee.index)
             return nil
         }
@@ -257,7 +273,7 @@ final class ImageSubtitleDecoder {
         } else {
             return
         }
-        let time = base + Double(sub.start_display_time) / 1000.0
+        let time = base - sourceOffsetSeconds + Double(sub.start_display_time) / 1000.0
 
         lock.lock()
         let alreadyRecorded = recordedTimes.contains(Int(time * 1000))
@@ -267,12 +283,25 @@ final class ImageSubtitleDecoder {
         // Rects are rendered outside the lock: encoding a PNG is the slow part
         // and the HTTP queue reads the manifest while this runs.
         var images: [ImageSubtitleImage] = []
+        var pageWidth = 0
+        var pageHeight = 0
         if sub.num_rects > 0, let rects = sub.rects {
             for i in 0 ..< Int(sub.num_rects) {
                 guard let rect = rects[i] else { continue }
                 guard rect.pointee.type == SUBTITLE_BITMAP, rect.pointee.w > 0, rect.pointee.h > 0 else { continue }
+                pageWidth = max(pageWidth, Int(rect.pointee.x + rect.pointee.w))
+                pageHeight = max(pageHeight, Int(rect.pointee.y + rect.pointee.h))
                 if let image = render(rect: rect.pointee) { images.append(image) }
             }
+        }
+        // libzvbi reports no canvas; the page is the rects' extent (41 columns of 12px by 25
+        // rows of 10px), which replaces the video-sized fallback on the first drawn page.
+        if isTeletext, pageWidth > 0 {
+            lock.lock()
+            canvasWidth = pageMeasured ? max(canvasWidth, pageWidth) : pageWidth
+            canvasHeight = pageMeasured ? max(canvasHeight, pageHeight) : pageHeight
+            pageMeasured = true
+            lock.unlock()
         }
 
         lock.lock()
@@ -284,12 +313,29 @@ final class ImageSubtitleDecoder {
         // ended by the next display set instead. Emitting the erase here keeps
         // one model for all four.
         if !images.isEmpty, sub.end_display_time > 0, sub.end_display_time != UInt32.max {
-            let end = base + Double(sub.end_display_time) / 1000.0
+            let end = base - sourceOffsetSeconds + Double(sub.end_display_time) / 1000.0
             if end > time {
                 lock.lock()
                 appendLocked(ImageSubtitleEvent(time: end, images: []))
                 lock.unlock()
             }
+        }
+    }
+
+    /// Live: drop the events a sliding window has left behind, with their images. The last event
+    /// at or before `seconds` stays, since its display set is the one still showing there.
+    func prune(before seconds: Double) {
+        lock.lock()
+        var keepFrom = 0
+        for (i, event) in events.enumerated() where event.time <= seconds { keepFrom = i }
+        let doomed = Array(events.prefix(keepFrom))
+        events.removeFirst(keepFrom)
+        for event in doomed { recordedTimes.remove(Int(event.time * 1000)) }
+        imageCount -= doomed.reduce(0) { $0 + $1.images.count }
+        if imageCount < MAX_IMAGES_PER_STREAM { cappedLogged = false }
+        lock.unlock()
+        for event in doomed {
+            for image in event.images { try? FileManager.default.removeItem(at: dir.appendingPathComponent(image.file)) }
         }
     }
 
@@ -316,7 +362,8 @@ final class ImageSubtitleDecoder {
             lock.unlock()
             return nil
         }
-        let ordinal = imageCount
+        let ordinal = nextImageOrdinal
+        nextImageOrdinal += 1
         imageCount += 1
         lock.unlock()
 

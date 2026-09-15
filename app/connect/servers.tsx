@@ -7,6 +7,7 @@ import { logger } from "@/utils/logger";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { Alert, View } from "react-native";
+import { t } from "@/services/i18n";
 
 /**
  * The server list as a pushed route, opened by the connected Settings card's
@@ -35,10 +36,10 @@ export default function ServersScreen() {
   );
 
   const confirmSignOut = () => {
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("connect.signOut"), t("connect.signOutConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Sign Out",
+        text: t("connect.signOut"),
         style: "destructive",
         onPress: async () => {
           try {
@@ -49,7 +50,7 @@ export default function ServersScreen() {
             router.dismissTo("/(tabs)/settings");
           } catch (error) {
             logger.error("Error signing out", error);
-            Alert.alert("Error", "Failed to sign out.");
+            Alert.alert(t("common.error"), t("connect.signOutFailed"));
           }
         },
       },
@@ -57,19 +58,19 @@ export default function ServersScreen() {
   };
 
   return (
-    <ConnectStepScreen header="JELLYFIN SERVER">
+    <ConnectStepScreen header={t("settings.jellyfinServer")}>
       <ServerConnectFlow />
       {signedIn && (
         <View style={settingsStyles.section}>
           <ListRow
-            icon="log-out-outline"
+            icon="log-out"
             tone="destructive"
-            title="Sign Out"
+            title={t("connect.signOut")}
             subtitle={userName ?? undefined}
             onPress={confirmSignOut}
             isFirst
             isLast
-            accessibilityHint="Ends the current session; saved sign-ins stay"
+            accessibilityHint={t("connect.signOutHint")}
           />
         </View>
       )}

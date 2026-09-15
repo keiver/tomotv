@@ -45,3 +45,21 @@ MBEDTLS_REPO="https://github.com/Mbed-TLS/mbedtls.git"
 
 UAVS3D_TAG="1.2"
 UAVS3D_REPO="https://github.com/uavs3/uavs3d.git"
+
+# The book reader's archive readers (native/ios/BookRenderer): comic archives and EPUB
+# containers. liblzma is libarchive's 7-Zip and xz codec; the SDK ships the library
+# without its header, so it is built here.
+XZ_VERSION="5.8.4"
+XZ_URL="https://github.com/tukaani-project/xz/releases/download/v${XZ_VERSION}/xz-${XZ_VERSION}.tar.xz"
+XZ_SHA="4ce24038fd4221e0d13bc1a2de7a4db56e90b92b3bf75321f6c14be73f65de4b"
+
+# Teletext subtitles: FFmpeg's only teletext decoder (libzvbi_teletextdec) is libzvbi's. The
+# project publishes no tarball, so the tag archive is pinned by hash and autoreconf runs at
+# build time. DASH needs no source: the SDK ships libxml2 and its headers.
+ZVBI_VERSION="0.2.45"
+ZVBI_URL="https://github.com/zapping-vbi/zvbi/archive/refs/tags/v${ZVBI_VERSION}.tar.gz"
+ZVBI_SHA="e6c954fde2a5a635187f19e1ab870a88c1a982012c5f1b33b8f2513e0ab7a50e"
+
+LIBARCHIVE_VERSION="3.8.9"
+LIBARCHIVE_URL="https://github.com/libarchive/libarchive/releases/download/v${LIBARCHIVE_VERSION}/libarchive-${LIBARCHIVE_VERSION}.tar.xz"
+LIBARCHIVE_SHA="888c934f9d95648ecb9163dc8e23ab80a476ecb81a8f1154704a227b5b676dde"

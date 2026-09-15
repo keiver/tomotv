@@ -108,6 +108,35 @@ final class FrameGrabberTests: XCTestCase {
         XCTAssertNil(grabber.frame(atMilliseconds: -1))
     }
 
+    /// A chapter marked on a fade-in: the keyframe at the mark is a black card, footage a couple
+    /// of seconds later. The raw grab keeps the card; chapterFrame nudges off it.
+    func testChapterFrameNudgesOffABlackCardToFootage() throws {
+        let clip = try fixture("chapters-blackcard.mp4", [
+            "-f", "lavfi", "-i", "color=c=black:s=320x180:r=25:d=2",
+            "-f", "lavfi", "-i", "testsrc2=s=320x180:r=25:d=18",
+            "-filter_complex", "[0:v][1:v]concat=n=2:v=1[v]", "-map", "[v]",
+            "-c:v", "libx264", "-g", "25", "-keyint_min", "25", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-an",
+        ])
+
+        let markDir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: markDir) }
+        let markGrabber = FrameGrabber(inputUrl: clip.absoluteString, directory: markDir)
+        defer { markGrabber.stop() }
+        let mark = try XCTUnwrap(markGrabber.frame(atMilliseconds: 0))
+        let markLuma = try XCTUnwrap(meanLuma(mark))
+        XCTAssertLessThan(markLuma, FrameScore.usableLuma.lowerBound, "the keyframe at the mark is the black card")
+
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+        let chapter = try XCTUnwrap(grabber.chapterFrame(atMilliseconds: 0))
+        XCTAssertEqual(chapter.lastPathComponent, "0.jpg", "the file is keyed by the mark, its picture is the footage")
+        let chapterLuma = try XCTUnwrap(meanLuma(chapter))
+        XCTAssertGreaterThanOrEqual(chapterLuma, FrameScore.usableLuma.lowerBound, "chapterFrame lands on footage, not the card")
+        XCTAssertGreaterThan(chapterLuma, markLuma + 20, "the chapter picture is not the black card")
+    }
+
     /// An index that keys no video entry while the audio entries are keyed: the demuxer refuses
     /// every backward seek. The shape of a VP6 AVI in the fixture library.
     private func unkeyedAvi() throws -> URL {
@@ -144,6 +173,28 @@ final class FrameGrabberTests: XCTestCase {
         let poster = try XCTUnwrap(grabber.frame(atMilliseconds: 13_500, named: "poster.jpg", nearestFromStart: true))
         XCTAssertEqual(poster.lastPathComponent, "poster.jpg")
         XCTAssertEqual(pixelSize(poster)?.width, 480)
+        XCTAssertEqual(grabber.decodes, 1)
+    }
+
+    /// A transport stream cut mid-GOP, as a tuner recording starts: seven seconds of
+    /// undecodable packets stand before its first keyframe.
+    func testAStreamJoinedMidGopReachesItsFirstKeyframe() throws {
+        let whole = try fixture("longgop.ts", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
+            "-c:v", "libx264", "-g", "250", "-keyint_min", "250", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let out = Self.fixtureDir.appendingPathComponent("longgop-midgop.ts")
+        if !FileManager.default.fileExists(atPath: out.path) {
+            let data = try Data(contentsOf: whole)
+            let cut = data.count * 3 / 20 / 188 * 188
+            try data.subdata(in: cut ..< data.count).write(to: out)
+        }
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: out.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        XCTAssertNotNil(grabber.frame(atMilliseconds: 0, named: "poster.jpg", nearestFromStart: true))
         XCTAssertEqual(grabber.decodes, 1)
     }
 

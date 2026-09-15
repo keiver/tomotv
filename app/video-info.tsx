@@ -1,5 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { CloseOverlayButton } from "@/components/close-overlay-button";
+import { PAD_SHEET_RATIO, PadSheet } from "@/components/pad-sheet";
+
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoActionRow } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
@@ -18,6 +20,7 @@ import {
   getPersonImageUrl,
   isAudioItem,
   isFolder,
+  isBook,
   isPhoto,
   notifyResumeChange,
   setVideoFavorite,
@@ -44,21 +47,20 @@ import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { sharePhoto } from "@/services/sharePhoto";
 import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
+
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+import { Alert, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 // iPad presents the panel over the app rather than as a page sheet: UIKit hands out no control
 // over what shows either side of a sheet, so the screen has to own its own backdrop.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
-/** Measured off the page sheet this replaces (1560px shot: 1413 wide, centred), so it keeps its frame. */
-const PAD_SHEET_RATIO = 0.905;
 
 /**
  * Video Info panel: everything the server knows about one item, plus its
@@ -217,6 +219,13 @@ export default function VideoInfoScreen() {
       router.push({ pathname: "/photo-viewer", params: { photoId: details.Id, ...(folderId ? { folderId } : {}) } });
       return;
     }
+    // A book opens the reader the same way; the reader reads the resume ticks itself.
+    if (isBook(details)) {
+      void commitClearProgress();
+      if (!IS_TV) router.back();
+      router.push({ pathname: "/book-reader", params: { itemId: details.Id, name: details.Name } });
+      return;
+    }
     // The removal lands before the player opens: openItem reads the resume ticks off this
     // object, and a DELETE in flight would reset the position the player has begun reporting.
     if (pendingClearRef.current) showGlobalLoader();
@@ -286,7 +295,7 @@ export default function VideoInfoScreen() {
       await sharePhoto(details);
     } catch (error) {
       logger.warn("Failed to share photo", error, { service: "VideoInfo", videoId: params.videoId });
-      Alert.alert("Share unavailable", "Couldn't prepare this photo to share.");
+      Alert.alert(t("info.shareUnavailable"), t("info.sharePrepareFailed"));
     } finally {
       setSharing(false);
     }
@@ -321,6 +330,7 @@ export default function VideoInfoScreen() {
   const title = details?.Name ?? params.name ?? "";
   const audio = details ? isAudioItem(details) : false;
   const photo = details ? isPhoto(details) : false;
+  const book = details ? isBook(details) : false;
   const isContainer = details ? isFolder(details) : false;
   // Audio, video or any mix of the two. Gated on what the container actually holds, so a
   // photo album never offers to download a set the downloads screen could not play.
@@ -334,9 +344,9 @@ export default function VideoInfoScreen() {
   const folderCtas: { kind: FolderPlayKind; title: string; icon: keyof typeof Ionicons.glyphMap }[] = !mediaKinds
     ? []
     : [
-        ...(mediaKinds.video ? [{ kind: "video" as const, title: kindsHeld > 1 ? "Play Videos" : "Play All", icon: "play" as const }] : []),
-        ...(mediaKinds.audio ? [{ kind: "audio" as const, title: kindsHeld > 1 ? (musical ? "Play Music" : "Play Audio") : "Play All", icon: "musical-notes" as const }] : []),
-        ...(mediaKinds.photo ? [{ kind: "photo" as const, title: "Slideshow", icon: "images-outline" as const }] : []),
+        ...(mediaKinds.video ? [{ kind: "video" as const, title: kindsHeld > 1 ? t("info.playVideos") : t("info.playAll"), icon: "play" as const }] : []),
+        ...(mediaKinds.audio ? [{ kind: "audio" as const, title: kindsHeld > 1 ? (musical ? t("info.playMusic") : t("info.playAudio")) : t("info.playAll"), icon: "musical-notes" as const }] : []),
+        ...(mediaKinds.photo ? [{ kind: "photo" as const, title: t("info.slideshow"), icon: "images-outline" as const }] : []),
       ];
   // A photo's album is the folder holding it, which is the same "where does this
   // sit" line the artist/album pair gives an audio item.
@@ -357,10 +367,11 @@ export default function VideoInfoScreen() {
       : joinMeta([
           genresLine,
           year,
-          details.RunTimeTicks ? formatDuration(details.RunTimeTicks) : "",
+          // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.
+          details.RunTimeTicks && !book ? formatDuration(details.RunTimeTicks) : "",
           details.OfficialRating,
           details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
-          details.CriticRating ? `${Math.round(details.CriticRating)}% critics` : "",
+          details.CriticRating ? t("info.percentCritics").replace("{percent}", String(Math.round(details.CriticRating))) : "",
         ]);
   const tagline = details?.Taglines?.[0];
   const studiosLine = details?.Studios?.length ? details.Studios.map((studio) => studio.Name).join(" · ") : "";
@@ -386,8 +397,8 @@ export default function VideoInfoScreen() {
   // reads as a re-encode there. Swap in the second line while shooting, then swap back.
   const lane = plan?.lane ?? null;
   // const lane = __DEV__ && plan?.lane === "deviceTranscode" ? "copy" : (plan?.lane ?? null);
-  const engineTail = plan?.smallFeedFirst ? "starts on a smaller server feed for your connection" : "no server work";
-  const laneLabel = lane === null ? "" : lane === "server" ? "Transcoded by the server" : lane === "deviceTranscode" ? `Re-encoded on this device · ${engineTail}` : `Direct Play · ${engineTail}`;
+  const engineTail = plan?.smallFeedFirst ? t("info.laneSmallerFeed") : t("info.laneNoServerWork");
+  const laneLabel = lane === null ? "" : lane === "server" ? t("info.laneServer") : lane === "deviceTranscode" ? `${t("info.laneDevice")} · ${engineTail}` : `Direct Play · ${engineTail}`;
   const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;
   // The lane needs SecureStore and a native probe, so it lands after the panel paints. The row
   // holds its line from the first frame and the CTAs below it never move. Streams are what the
@@ -439,7 +450,7 @@ export default function VideoInfoScreen() {
         <Text style={styles.sectionHeading}>{heading}</Text>
         {streams.map((stream, index) => (
           <InfoFocusRow key={`${heading}-${stream.Index ?? index}`} style={styles.streamRow}>
-            <Text style={styles.streamTitle}>{stream.DisplayTitle || stream.Title || stream.Codec?.toUpperCase() || "Unknown"}</Text>
+            <Text style={styles.streamTitle}>{stream.DisplayTitle || stream.Title || stream.Codec?.toUpperCase() || t("common.unknown")}</Text>
             {!!streamDetailLine(stream) && <Text style={styles.streamDetail}>{streamDetailLine(stream)}</Text>}
           </InfoFocusRow>
         ))}
@@ -465,7 +476,7 @@ export default function VideoInfoScreen() {
             ))
           ) : (
             <FocusableButton
-              title="Open"
+              title={t("common.open")}
               variant="primary"
               hasTVPreferredFocus
               icon={<Ionicons name="folder-open-outline" size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
@@ -474,26 +485,44 @@ export default function VideoInfoScreen() {
           )
         ) : (
           <ProgressButton
-            title={photo ? "Open" : inGroup ? "Play for Group" : details.UserData?.PlaybackPositionTicks ? "Resume" : "Play"}
+            title={
+              photo
+                ? t("common.open")
+                : book
+                  ? details.UserData?.PlaybackPositionTicks
+                    ? t("reader.continueReading")
+                    : t("reader.read")
+                  : inGroup
+                    ? t("info.playForGroup")
+                    : details.UserData?.PlaybackPositionTicks
+                      ? t("info.resume")
+                      : t("info.play")
+            }
             variant="primary"
             hasTVPreferredFocus
-            icon={<Ionicons name={photo ? "expand" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
+            icon={<Ionicons name={photo ? "expand" : book ? "book-outline" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
             onPress={handlePlay}
             progress={cardResumeProgress(details)}
           />
         )}
         {/* Photos only, and never on tvOS: React Native compiles the share module out there. */}
         {photo && !IS_TV && (
-          <FocusableButton title="Share" variant="secondary" icon={<Ionicons name="share-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShare} isLoading={sharing} />
+          <FocusableButton
+            title={t("common.share")}
+            variant="secondary"
+            icon={<Ionicons name="share-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
+            onPress={handleShare}
+            isLoading={sharing}
+          />
         )}
         {!!folderLeafId && folderLeafId !== params.inFolderId && (
-          <FocusableButton title="Show in Folder" variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
+          <FocusableButton title={t("info.showInFolder")} variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
         )}
         {/* Containers only: a leaf has the download circle in the action row below. "All" in
             the sense the play CTAs use it, and it stays "All" even where they split by kind:
             whatever mix of audio and video the folder holds comes down in this one press. */}
         {canDownloadFolder && (
-          <FocusableButton title="Download All" variant="secondary" icon={<Ionicons name="arrow-down" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
+          <FocusableButton title={t("info.downloadAll")} variant="secondary" icon={<Ionicons name="arrow-down" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
         )}
       </View>
 
@@ -514,8 +543,8 @@ export default function VideoInfoScreen() {
             // Any item with progress can clear it; fromResume also covers next-up cards
             // (zero progress, where removal is the session-local container dismissal).
             onToggleProgress={!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0 ? toggleClearProgress : undefined}
-            downloadState={downloadState}
-            onToggleDownload={toggleDownload}
+            downloadState={book ? undefined : downloadState}
+            onToggleDownload={book ? undefined : toggleDownload}
           />
         </View>
       )}
@@ -534,7 +563,7 @@ export default function VideoInfoScreen() {
 
       {people.length > 0 && (
         <>
-          <Text style={styles.sectionHeading}>Cast & Crew</Text>
+          <Text style={styles.sectionHeading}>{t("info.castAndCrew")}</Text>
           <ScrollView horizontal={!IS_TV} scrollEnabled={!IS_TV} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.castRow}>
             {people.map((person) => (
               <View key={person.Id} style={styles.castEntry}>
@@ -559,13 +588,13 @@ export default function VideoInfoScreen() {
         </>
       )}
 
-      {renderStreamSection("Video", streamsOf("Video"))}
-      {renderStreamSection("Audio", streamsOf("Audio"))}
-      {renderStreamSection("Subtitles", streamsOf("Subtitle"))}
+      {renderStreamSection(t("info.video"), streamsOf("Video"))}
+      {renderStreamSection(t("info.audio"), streamsOf("Audio"))}
+      {renderStreamSection(t("info.subtitles"), streamsOf("Subtitle"))}
 
       {detailRows.length > 0 && (
         <>
-          <Text style={styles.sectionHeading}>Details</Text>
+          <Text style={styles.sectionHeading}>{t("info.details")}</Text>
           {/* One focus stop for the whole table: a stream row per stream is a
               handful, but a landing per fact would be fifteen presses to cross. */}
           <InfoFocusRow style={styles.detailTable}>
@@ -584,7 +613,7 @@ export default function VideoInfoScreen() {
       {!!(fileName || fileLine) && (
         <>
           {/* Series, seasons and albums are directories on disk, not files. */}
-          <Text style={styles.sectionHeading}>{isFolder(details) ? "Folder" : "File"}</Text>
+          <Text style={styles.sectionHeading}>{isFolder(details) ? t("info.folder") : t("info.file")}</Text>
           <InfoFocusRow style={styles.streamRow}>
             {!!fileName && <Text style={styles.streamTitle}>{fileName}</Text>}
             {!!fileLine && <Text style={styles.streamDetail}>{fileLine}</Text>}
@@ -597,9 +626,9 @@ export default function VideoInfoScreen() {
 
   const body = failed ? (
     <View style={styles.stateWrap}>
-      <Text style={styles.errorText}>{`Couldn't load details for ${title || "this item"}.`}</Text>
+      <Text style={styles.errorText}>{t("info.couldNotLoadDetails").replace("{title}", title || t("common.thisItem"))}</Text>
       <FocusableButton
-        title="Retry"
+        title={t("common.retry")}
         variant="retry"
         hasTVPreferredFocus
         onPress={() => {
@@ -613,7 +642,7 @@ export default function VideoInfoScreen() {
     // leaves focus outside the panel until the fetch resolves and a CTA claims it.
     <View style={styles.stateWrap}>
       <InfoFocusRow hasTVPreferredFocus unhighlighted>
-        <LoadingRow label={`Loading details for ${title || "this item"}`} />
+        <LoadingRow label={t("info.loadingDetails").replace("{title}", title || t("common.thisItem"))} />
       </InfoFocusRow>
     </View>
   ) : (
@@ -638,18 +667,24 @@ export default function VideoInfoScreen() {
               cachePolicy="memory-disk"
               onLoad={handleHeroLoad}
               accessible
-              accessibilityLabel={`${title} artwork`}
+              accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
             />
           </Animated.View>
         ) : showCollage ? (
-          <View style={StyleSheet.absoluteFill} accessible accessibilityLabel={`${title} artwork`}>
+          <View style={StyleSheet.absoluteFill} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)}>
             <PosterCollage items={preview} height={IS_TV ? 600 : 300} />
           </View>
         ) : (
-          <Image source={require("@/assets/brand/layer-front.png")} style={styles.heroFace} contentFit="contain" transition={0} accessible accessibilityLabel={`${title} artwork`} />
+          <Image
+            source={require("@/assets/brand/layer-front.png")}
+            style={styles.heroFace}
+            contentFit="contain"
+            transition={0}
+            accessible
+            accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
+          />
         )}
-        {/* Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone. */}
-        <LinearGradient colors={["rgba(20, 20, 20, 0)", "rgba(20, 20, 20, 0.45)", IS_TV ? COLORS.SURFACE : COLORS.BACKGROUND]} locations={[0.35, 0.72, 1]} style={StyleSheet.absoluteFill} />
+        <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />
         {/* The section's top lip, re-painted above the opaque artwork (settings rowShadowTop
             move). Overlay is tvOS-safe here: the hero holds no focusables. */}
         {IS_TV && <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTop]} />}
@@ -683,20 +718,9 @@ export default function VideoInfoScreen() {
 
   if (IS_PAD) {
     return (
-      <View style={styles.padRoot}>
-        {/* The route is presented over the app (UIModalPresentationOverFullScreen), which leaves
-            the library in the window for this UIVisualEffectView to sample. iOS has no blurred
-            presentation style of its own: UIModalPresentationBlurOverFullScreen is tvOS only. */}
-        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-        {/* The dim rides on the dismiss target: blurred artwork is still bright artwork, and it
-            is what hides the library if a device gives us no blur. */}
-        <Pressable style={[StyleSheet.absoluteFill, styles.padDim]} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Close the video info panel" />
-        {/* The page sheet's own frame: same width, same top gap, flush to the bottom. */}
-        <View style={[styles.padSheet, { width: Math.round(windowWidth * PAD_SHEET_RATIO), marginTop: insets.top + 8 }]}>
-          {body}
-          <CloseOverlayButton onPress={() => router.back()} style={styles.padClose} accessibilityHint="Closes the video info panel" />
-        </View>
-      </View>
+      <PadSheet onClose={() => router.back()} closeHint={t("info.closeHint")}>
+        {body}
+      </PadSheet>
     );
   }
 
@@ -704,7 +728,7 @@ export default function VideoInfoScreen() {
     return (
       <View style={styles.sheetRoot}>
         {body}
-        <CloseOverlayButton onPress={() => router.back()} style={{ position: "absolute", top: 12, right: 12 + insets.right }} accessibilityHint="Closes the video info panel" />
+        <CloseOverlayButton onPress={() => router.back()} style={{ position: "absolute", top: 12, right: 12 + insets.right }} accessibilityHint={t("info.closeHint")} />
       </View>
     );
   }
@@ -729,28 +753,6 @@ const styles = StyleSheet.create({
   sheetRoot: {
     flex: 1,
     backgroundColor: COLORS.BACKGROUND,
-  },
-  // iPad: no background of its own, the blur behind the card is the surface.
-  padRoot: {
-    flex: 1,
-    alignItems: "center",
-  },
-  padDim: {
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
-  },
-  // BACKGROUND, not the section's SURFACE: the hero gradient's bottom stop is the phone
-  // colour, and a lighter surface under it would show a seam across the artwork.
-  padSheet: {
-    flex: 1,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    overflow: "hidden",
-    backgroundColor: COLORS.BACKGROUND,
-  },
-  padClose: {
-    position: "absolute",
-    top: 12,
-    right: 12,
   },
   tvRoot: {
     flex: 1,
@@ -790,6 +792,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.SURFACE,
     // The top-anchored crop overhangs the foot of the hero.
     overflow: "hidden",
+  },
+  // Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone.
+  heroScrim: {
+    experimental_backgroundImage: `linear-gradient(to bottom, rgba(20, 20, 20, 0) 35%, rgba(20, 20, 20, 0.45) 72%, ${IS_TV ? COLORS.SURFACE : COLORS.BACKGROUND} 100%)`,
   },
   // Transparent brand face, contained and inset so it reads as a small centered
   // mark over the hero's dark fill rather than full-bleed art.

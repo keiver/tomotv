@@ -1,4 +1,4 @@
-import { CONTROL_HEIGHT } from "@/constants/app";
+import { CONTROL_HEIGHT, RECESS_EDGE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import React, { forwardRef, useState } from "react";
 import { Platform, StyleProp, StyleSheet, TextInput, TextInputProps, View, ViewStyle } from "react-native";
@@ -70,9 +70,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "transparent",
     backgroundColor: COLORS.SURFACE,
-    boxShadow: Platform.isTV
-      ? "inset 0 10px 10px rgba(0,0,0,0.55), inset 0 -8px 7px rgba(0,0,0,0.35), inset 0 0 3px rgba(0,0,0,0.5)"
-      : "inset 0 6px 6px rgba(0,0,0,0.55), inset 0 -4px 4px rgba(0,0,0,0.35), inset 0 0 2px rgba(0,0,0,0.5)",
+    boxShadow: `${Platform.isTV ? "inset 0 10px 10px rgba(0,0,0,0.55)" : "inset 0 6px 6px rgba(0,0,0,0.55)"}, ${RECESS_EDGE.LIP_BOTTOM}, ${RECESS_EDGE.RIM}`,
   },
   wrapperFocused: {
     borderColor: COLORS.ACCENT,

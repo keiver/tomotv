@@ -54,6 +54,12 @@ describe("errorClassification", () => {
   });
 
   describe("classifyPlaybackError", () => {
+    it("names a DRM stream and a live stream that never started", () => {
+      expect(classifyPlaybackError(new Error("channel is DRM protected (com.apple.streamingkeydelivery)"))).toBe(PlaybackErrorType.PROTECTED);
+      expect(classifyPlaybackError(new Error("channel is DRM protected (SAMPLE-AES)"))).toBe(PlaybackErrorType.PROTECTED);
+      expect(classifyPlaybackError({ errorString: "the channel did not start within 30s" })).toBe(PlaybackErrorType.STALLED);
+    });
+
     it("keeps the CoreMedia decode mapping", () => {
       expect(classifyPlaybackError({ code: -12971, domain: "CoreMediaErrorDomain" })).toBe(PlaybackErrorType.DECODE);
     });

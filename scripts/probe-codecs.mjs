@@ -65,12 +65,12 @@ async function main() {
     .map((d) => `-F${path.join(FRAMEWORKS, d, SLICE)}`);
 
   // Mirrors TomoFFmpeg.podspec. Keep the two in sync.
-  const linked = ["Libavfilter", "Libavformat", "Libavcodec", "Libswscale", "Libswresample", "Libavutil", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls"];
+  const linked = ["Libavfilter", "Libavformat", "Libavcodec", "Libswscale", "Libswresample", "Libavutil", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls", "Libzvbi"];
   const system = ["AudioToolbox", "VideoToolbox", "CoreMedia", "CoreVideo", "CoreFoundation", "CoreText", "Metal"];
   const bin = path.join(work, "probe-codecs");
 
   try {
-    await exec("clang", ["-O0", `-I${inc}`, ...searchPaths, "-o", bin, SOURCE, ...linked.flatMap((f) => ["-framework", f]), "-liconv", "-lz", ...system.flatMap((f) => ["-framework", f])]);
+    await exec("clang", ["-O0", `-I${inc}`, ...searchPaths, "-o", bin, SOURCE, ...linked.flatMap((f) => ["-framework", f]), "-liconv", "-lz", "-lxml2", ...system.flatMap((f) => ["-framework", f])]);
   } catch (e) {
     fail(`compile failed:\n${String(e.stderr || e.message).trim()}`);
   }

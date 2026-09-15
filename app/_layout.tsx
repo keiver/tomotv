@@ -27,6 +27,7 @@ import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { videoDecodeSupport } from "@/services/localRemux";
 import { logger } from "@/utils/logger";
+import { loadLocaleOverride, t } from "@/services/i18n";
 
 /**
  * LogBox off, both platforms.
@@ -89,6 +90,8 @@ export default function RootLayout() {
     warmBitrateMemory();
     // Same for what this device decodes: the answer opens VideoToolbox sessions once.
     void videoDecodeSupport();
+    // A screenshot run sets the language once and deep-links every screen after.
+    void loadLocaleOverride();
   }, []);
 
   // Foregrounding is when the device may have changed networks. Also the moment a session
@@ -107,7 +110,7 @@ export default function RootLayout() {
     return navigationRef.addListener("state", () => {
       // Cast: no ReactNavigation.RootParamList is declared, so the return type is `never`.
       const route = (navigationRef.getCurrentRoute() as { name?: string } | undefined)?.name;
-      if (route === "player" || route === "audio-player" || route === "video-info") return;
+      if (route === "player" || route === "audio-player" || route === "video-info" || route === "program-info") return;
       nudgeBitrateMemory();
     });
   }, [navigationRef]);
@@ -187,6 +190,14 @@ export default function RootLayout() {
                           animation: "fade",
                         }}
                       />
+                      {/* Same push as the photo viewer: a book reader needs the remote too. */}
+                      <Stack.Screen
+                        name="book-reader"
+                        options={{
+                          headerShown: false,
+                          animation: "fade",
+                        }}
+                      />
                       {/* Video Info panel. iPhone: native page sheet (presentation "modal") — slides
                       up, swipe-to-dismiss, and UIKit owns the layout in every orientation. NOT a
                       formSheet: react-native-screens blanks formSheet content on any detent relayout
@@ -205,6 +216,35 @@ export default function RootLayout() {
                             : Platform.OS === "ios" && Platform.isPad
                               ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
                               : { headerShown: false, presentation: "modal" }
+                        }
+                      />
+                      {/* The guide's program panel: the same presentation as video-info on every platform. */}
+                      <Stack.Screen
+                        name="program-info"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : Platform.OS === "ios" && Platform.isPad
+                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
+                              : { headerShown: false, presentation: "modal" }
+                        }
+                      />
+                      {/* The guide's Recordings and Schedule: TV crossfades like program-info, phone pushes
+                      under a transparent native bar whose back chevron returns to the guide. */}
+                      <Stack.Screen
+                        name="recordings"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitle: t("liveTv.recordings"), headerTitleStyle: { color: COLORS.TEXT_PRIMARY } }
+                        }
+                      />
+                      <Stack.Screen
+                        name="schedule"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitle: t("liveTv.scheduled"), headerTitleStyle: { color: COLORS.TEXT_PRIMARY } }
                         }
                       />
                       {/* Root route (covers the tabs) so the native tab bar can't steal focus while the
@@ -237,7 +277,7 @@ export default function RootLayout() {
                           headerShown: !Platform.isTV,
                           headerTransparent: true,
                           headerTitle: "",
-                          headerBackTitle: "Back",
+                          headerBackTitle: t("common.back"),
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
@@ -247,7 +287,7 @@ export default function RootLayout() {
                           headerShown: !Platform.isTV,
                           headerTransparent: true,
                           headerTitle: "",
-                          headerBackTitle: "Settings",
+                          headerBackTitle: t("settings.title"),
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
@@ -258,7 +298,7 @@ export default function RootLayout() {
                           headerTransparent: true,
                           headerTitle: "",
                           // The step's own Cancel, moved into the bar: back here IS cancelling.
-                          headerBackTitle: "Cancel",
+                          headerBackTitle: t("common.cancel"),
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
@@ -268,7 +308,7 @@ export default function RootLayout() {
                           headerShown: !Platform.isTV,
                           headerTransparent: true,
                           headerTitle: "",
-                          headerBackTitle: "Back",
+                          headerBackTitle: t("common.back"),
                           animation: Platform.isTV ? "fade" : "default",
                         }}
                       />
@@ -285,9 +325,9 @@ export default function RootLayout() {
                                 headerShown: true,
                                 headerTransparent: true,
                                 headerShadowVisible: false,
-                                headerTitle: "Open Source",
+                                headerTitle: t("common.openSource"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                                headerBackTitle: "About",
+                                headerBackTitle: t("common.about"),
                                 animation: "fade",
                               }
                         }
@@ -301,9 +341,9 @@ export default function RootLayout() {
                                 headerShown: true,
                                 headerTransparent: true,
                                 headerShadowVisible: false,
-                                headerTitle: "Bundled Packages",
+                                headerTitle: t("licenses.bundled"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                                headerBackTitle: "Open Source",
+                                headerBackTitle: t("common.openSource"),
                                 animation: "fade",
                               }
                         }
@@ -317,9 +357,9 @@ export default function RootLayout() {
                                 headerShown: true,
                                 headerTransparent: true,
                                 headerShadowVisible: false,
-                                headerTitle: "Diagnostics",
+                                headerTitle: t("diagnostics.title"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                                headerBackTitle: "About",
+                                headerBackTitle: t("common.about"),
                                 animation: "fade",
                               }
                         }

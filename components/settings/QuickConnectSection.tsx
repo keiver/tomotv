@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { LoadingRow } from "@/components/loading-row";
 import { QuickConnectCode } from "@/components/settings/QuickConnectCode";
 import { COLORS } from "@/constants/colors";
@@ -6,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Clipboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { settingsStyles } from "./styles";
+import { t } from "@/services/i18n";
 
 const COPIED_MS = 1600;
 
@@ -22,7 +24,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
   const spokenCode = code ? code.split("").join(" ") : "";
   useEffect(() => {
     if (status === "SHOWING_CODE" && spokenCode) {
-      AccessibilityInfo.announceForAccessibility(`Quick Connect code: ${spokenCode}. Enter it on your server.`);
+      AccessibilityInfo.announceForAccessibility(t("settings.quickConnectSpoken").replace("{code}", spokenCode));
     }
   }, [status, spokenCode]);
 
@@ -49,7 +51,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
     <>
       {status === "INITIATING" && (
         <View style={styles.centeredContent}>
-          <LoadingRow label="Starting Quick Connect" />
+          <LoadingRow label={t("connect.quickConnectStarting")} />
         </View>
       )}
 
@@ -62,7 +64,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
       {/* Absolute so the confirmation never nudges the dead-centered code. */}
       {copied && (
         <Text style={styles.copiedCaption} importantForAccessibility="no">
-          Copied
+          {t("connect.quickConnectCopied")}
         </Text>
       )}
 
@@ -83,12 +85,7 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
         {/* The whole card is the copy target on touch platforms; TV keeps a plain view so
             nothing here competes with the focus engine. */}
         {canCopy ? (
-          <Pressable
-            style={cardStyle}
-            onPress={handleCopy}
-            accessibilityRole="button"
-            accessibilityLabel={`Quick Connect code: ${spokenCode}`}
-            accessibilityHint="Copies the code, then paste it in your server's Quick Connect section">
+          <Pressable style={cardStyle} onPress={handleCopy} accessibilityRole="button" accessibilityLabel={`Quick Connect code: ${spokenCode}`} accessibilityHint={t("connect.quickConnectCopyHint")}>
             {cardContent}
           </Pressable>
         ) : (
@@ -96,17 +93,20 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
         )}
       </View>
 
-      {/* Outline pill, not a fill: the task this step waits on happens on the server, so
-          the one action here is the way OUT of it. Same width as any primary CTA (see
-          UsernamePasswordSection) — only the fill separates the two. */}
-      <View style={settingsStyles.buttonGroup}>
-        <FocusableButton title="Use Username & Password" variant="secondary" onPress={onSwitchToPassword} style={settingsStyles.fullWidthButton} />
+      {/* Not a fill: the task this step waits on happens on the server, so the one action here is
+          the way OUT of it. TV: a glass pill. Phone: an outline pill at the primary CTA's width. */}
+      <View style={[settingsStyles.buttonGroup, Platform.isTV && styles.glassGroup]}>
+        {Platform.isTV ? (
+          <GlassButton title={t("connect.useUsernamePassword")} onPress={onSwitchToPassword} />
+        ) : (
+          <FocusableButton title={t("connect.useUsernamePassword")} variant="secondary" onPress={onSwitchToPassword} style={settingsStyles.fullWidthButton} />
+        )}
       </View>
 
       {/* Phone: Cancel is the nav bar's back button (app/_layout.tsx). TV has no bar. */}
       {Platform.isTV && (
         <View style={settingsStyles.secondaryActions}>
-          <FocusableButton title="Cancel" variant="link" onPress={onCancel} />
+          <GlassButton title={t("common.cancel")} onPress={onCancel} />
         </View>
       )}
     </>
@@ -114,6 +114,10 @@ export function QuickConnectSection({ code, status, error, onCancel, onSwitchToP
 }
 
 const styles = StyleSheet.create({
+  // A column stretches its children, which would widen the glass capsule into a slab.
+  glassGroup: {
+    alignItems: "center",
+  },
   quickConnectContainer: {
     minHeight: Platform.isTV ? 280 : 200,
     justifyContent: "center",

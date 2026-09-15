@@ -9,6 +9,7 @@ import { logger } from "@/utils/logger";
 import { useFocusEffect, useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 
@@ -249,5 +250,5 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
     return null;
   }
 
-  return <MediaShelf title="Continue" data={items} slotShapeFor={slotShapeFor} renderItem={renderItem} keyExtractor={keyExtractor} />;
+  return <MediaShelf title={t("library.continue")} data={items} slotShapeFor={slotShapeFor} renderItem={renderItem} keyExtractor={keyExtractor} />;
 }

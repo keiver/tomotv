@@ -11,6 +11,7 @@ import { usePathname } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 // Sized to the toolbar's pill: artwork and three transports leave the title a narrow column,
 // so it truncates rather than wraps.
@@ -28,9 +29,6 @@ const PLAYHEAD = 2;
 
 /** Routes that own the whole screen and carry their own transport. */
 const PLAYBACK_ROUTES = ["/player", "/audio-player"];
-
-/** A press-and-hold has no gesture for VoiceOver, so it gets a named action instead. */
-const ARTWORK_ACTIONS = [{ name: "longpress", label: "Stop playback" }] as const;
 
 interface TransportProps {
   name: keyof typeof Ionicons.glyphMap;
@@ -122,9 +120,10 @@ export function AudioMiniPlayer() {
           onPress={reopen}
           onLongPress={stop}
           accessibilityRole="button"
-          accessibilityLabel="Open the player"
-          accessibilityHint="Press and hold to stop playback"
-          accessibilityActions={ARTWORK_ACTIONS}
+          accessibilityLabel={t("player.openPlayer")}
+          accessibilityHint={t("player.holdToStop")}
+          // A press-and-hold has no gesture for VoiceOver, so it gets a named action instead.
+          accessibilityActions={[{ name: "longpress", label: t("player.stopPlayback") }]}
           onAccessibilityAction={onArtworkAction}>
           {showArtwork ? (
             <Image source={{ uri: artwork }} style={styles.art} contentFit="cover" transition={120} onError={() => setFailedArtwork(artwork)} />
@@ -136,8 +135,8 @@ export function AudioMiniPlayer() {
           onPress={reopen}
           style={styles.titles}
           accessibilityRole="button"
-          accessibilityLabel="Open the player"
-          accessibilityValue={{ min: 0, max: 100, now: percent, text: `${percent}% played` }}>
+          accessibilityLabel={t("player.openPlayer")}
+          accessibilityValue={{ min: 0, max: 100, now: percent, text: t("a11y.percentPlayed").replace("{percent}", String(percent)) }}>
           <Text style={styles.title} numberOfLines={1}>
             {track?.Name ?? ""}
           </Text>
@@ -148,9 +147,9 @@ export function AudioMiniPlayer() {
           ) : null}
         </Pressable>
       </View>
-      <Transport name="play-skip-back" label="Previous track" size={17} disabled={!canPrevious} onPress={previous} />
-      <Transport name={state.playing ? "pause" : "play"} label={state.playing ? "Pause" : "Play"} size={22} onPress={togglePlay} />
-      <Transport name="play-skip-forward" label="Next track" size={17} disabled={!canNext} onPress={next} />
+      <Transport name="play-skip-back" label={t("player.previousTrack")} size={17} disabled={!canPrevious} onPress={previous} />
+      <Transport name={state.playing ? "pause" : "play"} label={state.playing ? t("common.pause") : t("common.play")} size={22} onPress={togglePlay} />
+      <Transport name="play-skip-forward" label={t("player.nextTrack")} size={17} disabled={!canNext} onPress={next} />
     </DraggableToolbar>
   );
 }

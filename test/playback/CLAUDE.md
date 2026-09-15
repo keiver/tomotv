@@ -9,15 +9,16 @@ before anything else is worth reading.
 
 ## The three fixture roots
 
-| Root                           | Holds                                                                 |
-| ------------------------------ | --------------------------------------------------------------------- |
-| `~/Movies/development-videos`  | every video fixture (T01-T45, T60-T98) and the bench ladder (B01-B09) |
-| `~/Music/Development Audio`    | stereo audio-only (T50-T55)                                           |
-| `~/Music/Development Surround` | surround audio-only (T56, T70-T73)                                    |
+| Root                           | Holds                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------- |
+| `~/Movies/development-videos`  | every video fixture (T01-T45, T60-T100) and the bench ladder (B01-B09, B12) |
+| `~/Music/Development Audio`    | stereo audio-only (T50-T55)                                                 |
+| `~/Music/Development Surround` | surround audio-only (T56, T70-T73)                                          |
 
-71 manifest items resolve out of these. `resolveItems` matches a title only when
-the item's own directory is one of the roots, so the driver does not care which
-library holds them, how many libraries cover the path, or what they are called.
+73 file items resolve out of these, and five Live TV channels (L01-L05) out of the
+rig. `resolveItems` matches a title only when the item's own directory is one of
+the roots, so the driver does not care which library holds them, how many
+libraries cover the path, or what they are called.
 Override the roots with `JELLYFIN_FIXTURE_ROOTS` in `.env.playback-test`.
 
 ## What the server is allowed to look like
@@ -71,7 +72,8 @@ Never pipe the run through `tail`: it eats the per-item detail and the exit code
 
 ## Baselines
 
-33 committed under `baselines/`. They pin stream-copy packet hashes for six items
-(T05, T07, T08, T09, T10, T11). `--update-baselines` records them again, and it
+33 committed under `baselines/`: stream-copy packet hashes for five items (T05, T07,
+T08, T09, T11; T10 is skipped on the simulator) and tolerant layout checks for the
+28 device-transcode items. `--update-baselines` records them again, and it
 erases whatever an engine change did to the copy path, so it runs only on a build
 someone has confirmed is good.

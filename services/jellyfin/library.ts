@@ -36,6 +36,11 @@ export function isPhoto(item: JellyfinItem): boolean {
   return item.Type === "Photo";
 }
 
+/** A Book opens in the reader (app/book-reader.tsx), never the player. */
+export function isBook(item: JellyfinItem): boolean {
+  return item.Type === "Book";
+}
+
 /**
  * TotalRecordCount of the media leaves under a parent. Returns undefined on any
  * failure so callers render no badge rather than a wrong number.
@@ -46,10 +51,9 @@ export function isPhoto(item: JellyfinItem): boolean {
  *   reports 3, not 1)
  * - IncludeItemTypes and Filters=IsNotFolder return TotalRecordCount 0 for
  *   music/musicvideos/photos/tvshows libraries
- * Folders have no MediaType, so they're excluded, and unsupported leaf kinds
- * (e.g. Book) are not counted — matching what the app can actually open.
+ * Folders have no MediaType, so they're excluded; the four kinds the app opens are counted.
  */
-async function fetchMediaCount(config: JellyfinConfig, parentId: string, recursive: boolean, mediaTypes = "Video,Audio,Photo"): Promise<number | undefined> {
+async function fetchMediaCount(config: JellyfinConfig, parentId: string, recursive: boolean, mediaTypes = "Video,Audio,Photo,Book"): Promise<number | undefined> {
   const query = new URLSearchParams({
     ParentId: parentId,
     MediaTypes: mediaTypes,
@@ -222,7 +226,7 @@ export async function fetchFolderMediaKinds(item: JellyfinItem): Promise<FolderM
         if (item.Type === "Playlist") {
           const items = await fetchAllPlaylistItems(item.Id);
           return {
-            video: items.some((entry) => !isPhoto(entry) && !isAudioItem(entry)),
+            video: items.some((entry) => !isPhoto(entry) && !isAudioItem(entry) && !isBook(entry)),
             audio: items.some((entry) => isAudioItem(entry)),
             photo: items.some(isPhoto),
           };
@@ -308,7 +312,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
  * All shapes verified against a real Jellyfin 10.11 server (see CLAUDE-lessons-learned):
  * - Recursive flatten of the subtree (Jellyfin web behavior).
  * - Artist filter needs IncludeItemTypes=Audio,MusicVideo; MediaTypes silently drops ArtistIds.
- *   Otherwise MediaTypes=Video,Audio,Photo (IncludeItemTypes zeroes out music/musicvideos/
+ *   Otherwise MediaTypes=Video,Audio,Photo,Book (IncludeItemTypes zeroes out music/musicvideos/
  *   photos/tvshows view-roots). Folders carry no MediaType, so the flatten excludes them.
  * - Genres is PIPE-delimited; ArtistIds, Years and status Filters are COMMA-delimited.
  * Does NOT set SortBy — the caller controls ordering.
@@ -320,7 +324,7 @@ export function appendFlattenFilterParams(query: URLSearchParams, filters: Libra
   if (byArtist) {
     query.append("IncludeItemTypes", "Audio,MusicVideo");
   } else {
-    query.append("MediaTypes", "Video,Audio,Photo");
+    query.append("MediaTypes", "Video,Audio,Photo,Book");
   }
 
   const statusFilters = [filters.favorite && "IsFavorite", filters.played && "IsPlayed", filters.unplayed && "IsUnplayed"].filter(Boolean);
@@ -357,7 +361,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
   // favorites returns nothing, which handed the player an empty queue and the photo viewer the
   // unfiltered folder. Never shuffled here — the caller owns ordering, per this function's contract.
   if (hasUserDataFilters(filters) && (await isLibraryViewRoot(parentId))) {
-    return resolveViewRootMatches(config, parentId, filters, false);
+    return resolveViewRootMatches(config, parentId, filters);
   }
 
   const cacheKey = `filtered:${config.userId}:${parentId}:${filtersCacheKey(filters)}`;
@@ -673,7 +677,7 @@ async function fetchPlayedIds(config: JellyfinConfig): Promise<Set<string>> {
  * needs it — MediaTypes silently drops ArtistIds), which is the param that zeroes out here. Unverified
  * and left alone.
  */
-async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, filters: LibraryFilters, shuffle: boolean): Promise<JellyfinItem[]> {
+async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, filters: LibraryFilters): Promise<JellyfinItem[]> {
   // BOTH sets, whichever filter is on: they decide what matches AND what the cards render, so a
   // favourites-only view still needs the played set to keep checkmarks, and vice versa. Both are
   // cached (the favourites one app-wide, already loaded for the hearts on the unfiltered browse).
@@ -689,7 +693,7 @@ async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, 
   // UserData, so without this the grid paints no heart and no checkmark, and the long-press
   // sheet offers "Mark as Favorite" on an item that already IS one (toggling the wrong way).
   // Downstream is untouched: useFolderContents leaves a filtered view's UserData alone.
-  let matched = leaves
+  const matched = leaves
     .filter((item) => {
       if (filters.favorite && !favoriteIds.has(item.Id)) return false;
       if (filters.played && !isPlayed(item)) return false;
@@ -697,16 +701,6 @@ async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, 
       return true;
     })
     .map((item) => ({ ...item, UserData: { ...item.UserData, IsFavorite: favoriteIds.has(item.Id), Played: isPlayed(item) } }));
-
-  // Shuffle is a sort, and the server-side SortBy=Random this path can't use would reshuffle per
-  // page anyway; one shuffle of the complete set gives a stable order for the whole scroll.
-  if (shuffle) {
-    matched = [...matched];
-    for (let i = matched.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [matched[i], matched[j]] = [matched[j], matched[i]];
-    }
-  }
 
   logger.debug("View-root filtered set resolved client-side", {
     service: "JellyfinAPI",
@@ -724,10 +718,31 @@ function hasUserDataFilters(filters?: LibraryFilters): boolean {
   return !!filters && (filters.favorite || filters.played || filters.unplayed);
 }
 
+/** The shuffled order of each library root's current scroll, drawn by its first page. One per account and root. */
+const viewRootShuffleRanks = new Map<string, { filters: string; ranks: Map<string, number> }>();
+
+function shuffleRanks(items: JellyfinItem[]): Map<string, number> {
+  const order = [...items];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return new Map(order.map((item, i) => [item.Id, i]));
+}
+
 /** One page of the view-root resolution, with an exact total (the whole set is in hand). */
 async function fetchViewRootFiltered(config: JellyfinConfig, parentId: string, filters: LibraryFilters, startIndex: number, limit: number): Promise<{ items: JellyfinItem[]; total?: number }> {
-  const matched = await resolveViewRootMatches(config, parentId, filters, filters.shuffle);
-  return { items: matched.slice(startIndex, startIndex + limit), total: matched.length };
+  const matched = await resolveViewRootMatches(config, parentId, filters);
+  if (!filters.shuffle) return { items: matched.slice(startIndex, startIndex + limit), total: matched.length };
+
+  const key = `${config.userId}:${parentId}`;
+  const filtersKey = filtersCacheKey(filters);
+  const stored = startIndex > 0 ? viewRootShuffleRanks.get(key) : undefined;
+  const ranks = stored && stored.filters === filtersKey ? stored.ranks : shuffleRanks(matched);
+  viewRootShuffleRanks.set(key, { filters: filtersKey, ranks });
+  // An item that arrived after the first page draws no rank; it sorts to the end.
+  const ordered = [...matched].sort((a, b) => (ranks.get(a.Id) ?? ranks.size) - (ranks.get(b.Id) ?? ranks.size));
+  return { items: ordered.slice(startIndex, startIndex + limit), total: ordered.length };
 }
 
 /**

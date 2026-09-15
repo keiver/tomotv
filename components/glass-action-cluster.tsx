@@ -21,6 +21,8 @@ export interface GlassAction {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
   onPress: () => void;
+  /** Leave the cluster open after the press, for an action that is pressed repeatedly. */
+  keepOpen?: boolean;
 }
 
 interface GlassActionClusterProps {
@@ -100,7 +102,7 @@ function ClusterAction({
     <Animated.View style={[styles.slot, { left: offset }, animated]} pointerEvents={expanded ? "auto" : "none"} accessibilityElementsHidden={!expanded}>
       <Pressable
         onPress={() => {
-          onExpandedChange(false);
+          if (!action.keepOpen) onExpandedChange(false);
           action.onPress();
         }}
         accessibilityRole="button"

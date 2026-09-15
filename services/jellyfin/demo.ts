@@ -9,7 +9,7 @@ import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import * as SecureStore from "expo-secure-store";
 import { warmBitrateMemory } from "./bitrateTest";
-import { API_TIMEOUTS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_SERVER_STABLE, DEMO_USERNAME, STORAGE_KEYS } from "./constants";
+import { API_TIMEOUTS, DEMO_ADDRESS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_SERVER_STABLE, DEMO_USERNAME, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
 import { fetchWithTimeout } from "./http";
 import { clearContentCaches, getAuthHeader, getOrCreateDeviceId, refreshConfig, setSavedConnectionStatus } from "./session";
@@ -94,6 +94,17 @@ async function fetchDemoCredentials(demoServerUrl: string, deviceId: string): Pr
  * Fetches fresh credentials and stores them in SecureStore
  * @param clearCaches - Whether to clear library/folder caches (default: true). Set to false when refreshing credentials mid-session.
  */
+/** The demo address typed by hand, with or without a scheme or trailing slash. */
+export function isDemoAddress(input: string): boolean {
+  return (
+    input
+      .trim()
+      .replace(/^https?:\/\//i, "")
+      .replace(/\/+$/, "")
+      .toLowerCase() === DEMO_ADDRESS
+  );
+}
+
 export async function connectToDemoServer(clearCaches: boolean = true): Promise<void> {
   let demoServerUrl: string | null = null;
   let apiKey: string | null = null;

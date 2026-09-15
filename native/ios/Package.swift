@@ -5,14 +5,41 @@ import PackageDescription
 // plugins/withMultiAudioResourceLoader.js copies sources by explicit name.
 let ffmpeg = [
     "Libavcodec", "Libavformat", "Libavutil", "Libswresample",
-    "Libswscale", "Libavfilter", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls",
+    "Libswscale", "Libavfilter", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls", "Libzvbi",
 ]
 
 let package = Package(
     name: "TomoEngine",
     platforms: [.macOS(.v14)],
-    products: [.library(name: "TomoEngine", targets: ["TomoEngine"])],
+    products: [
+        .library(name: "TomoEngine", targets: ["TomoEngine"]),
+        .library(name: "TomoBooks", targets: ["TomoBooks"]),
+    ],
     targets: [
+        // The book reader's page renderer (plugins/withBookRenderer.js copies the same
+        // files into the app). No UIKit outside the bridge, so it tests on the host.
+        .target(
+            name: "TomoBooks",
+            dependencies: ["Libarchive"],
+            path: "BookRenderer",
+            exclude: ["BookRenderer.swift", "BookRenderer.m"],
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            linkerSettings: [
+                .linkedLibrary("iconv"),
+                .linkedLibrary("z"),
+                .linkedLibrary("bz2"),
+                .linkedFramework("CoreText"),
+                .linkedFramework("ImageIO"),
+                .linkedFramework("CoreGraphics"),
+            ]
+        ),
+        .testTarget(
+            name: "TomoBooksTests",
+            dependencies: ["TomoBooks"],
+            path: "Tests/TomoBooksTests",
+            exclude: ["../Fixtures"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .target(
             name: "TomoEngine",
             dependencies: ffmpeg.map { .byName(name: $0) },
@@ -27,10 +54,13 @@ let package = Package(
                 "VideoTranscoder.swift",
                 "DeviceDecode.swift",
                 "ImageSubtitleDecoder.swift",
+                "TextSubtitleDecoder.swift",
+                "AssToWebVTT.swift",
                 "TierRewrapper.swift",
                 "PlaylistShim.swift",
                 "InitSegmentSdr.swift",
                 "LocalHTTPServer.swift",
+                "EndpointProbe.swift",
                 "EnginePlan.swift",
                 "DolbyVisionConverter.swift",
                 "FrameGrabber.swift",
@@ -43,6 +73,7 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("iconv"),
                 .linkedLibrary("z"),
+                .linkedLibrary("xml2"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("VideoToolbox"),
                 .linkedFramework("CoreMedia"),
@@ -60,7 +91,9 @@ let package = Package(
             path: "Tests/TomoEngineTests",
             // Fixtures live beside the tests and are read by path, not bundled.
             exclude: ["../Fixtures"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            // LiveAVPlayerTests plays the engine's live output through the host's own AVPlayer.
+            linkerSettings: [.linkedFramework("AVFoundation")]
         ),
-    ] + ffmpeg.map { .binaryTarget(name: $0, path: "Frameworks/\($0).xcframework") }
+    ] + (ffmpeg + ["Libarchive"]).map { .binaryTarget(name: $0, path: "Frameworks/\($0).xcframework") }
 )

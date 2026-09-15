@@ -7,10 +7,13 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
-import { fetchMediaSegments, JELLYFIN_TIME, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { fetchChannels, fetchMediaSegments, fetchNextEpisodeAutoPlay, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
+import { probeEmit } from "@/services/playbackProbe";
+import { adjacentChannelId } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPlayManager";
-import { JellyfinVideoItem } from "@/types/jellyfin";
+import { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,9 +21,15 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
+import { t } from "@/services/i18n";
+import { stageLabel } from "@/hooks/usePlaybackStage";
+import { currentPlaybackStage } from "@/services/playbackStage";
 
 /** Upcoming queue items whose keyframe is asked for ahead of the Up Next surfaces. */
 const UPCOMING_FRAMES = 5;
+
+/** How long AVKit's channel skip waits for an answer before the patch's watchdog refuses it. */
+const CHANNEL_SKIP_WATCHDOG_MS = 20_000;
 
 // Suppress known warnings
 LogBox.ignoreLogs([
@@ -31,27 +40,9 @@ LogBox.ignoreLogs([
   "Failed to load the player item", // Player errors during automatic retry
 ]);
 
-/**
- * Where the Up Next card goes when the server has no Outro marker: this far
- * before the end. Measured off the markers we do get — credits ran 21.6s to
- * 38.6s across four seasons, so a flat number is only ever a guess, and it is
- * the reason a marker is preferred whenever one exists.
- */
-const PROPOSAL_FALLBACK_LEAD_SECONDS = 30;
-
-/**
- * When the tvOS Up Next card is scheduled, or null if nothing usable is known.
- *
- * The Outro START, because that is where the credits actually begin and the
- * plugin measures it per episode. Never the outro END or the runtime: those are
- * the same tick (1926.5707s on S03E09) and sit past AVPlayer's own duration
- * (1926.5266s), so playback never reaches them and the card never presents —
- * and handlePlaybackEnd returns without advancing on TV, stalling the queue.
- */
-function proposalTime(outroStartSeconds: number | undefined, runtimeSeconds: number): number | null {
-  if (outroStartSeconds && outroStartSeconds > 0) return outroStartSeconds;
-  if (runtimeSeconds > PROPOSAL_FALLBACK_LEAD_SECONDS) return runtimeSeconds - PROPOSAL_FALLBACK_LEAD_SECONDS;
-  return null;
+/** A known credits start, or null to let AVKit present at the actual playback end. */
+function proposalTime(outroStartSeconds: number | undefined): number | null {
+  return outroStartSeconds !== undefined && Number.isFinite(outroStartSeconds) && outroStartSeconds > 0 ? outroStartSeconds : null;
 }
 
 /**
@@ -103,6 +94,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     played?: string; // Played flag the launching screen already displayed
     probe?: string; // "1" from regression-suite deep links: record playback events (dev-only)
     adopt?: string; // "1" when PlayerHost re-pushed this route to restore a PiP window
+    live?: string; // "1" for a Live TV channel: one player across channel flips
   }>();
   const router = useRouter();
   // Pops go through THIS screen's navigator, never the router's. router.back()
@@ -111,15 +103,44 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   const navigation = useNavigation();
   const { hideGlobalLoader, showGlobalLoader } = useLoadingActions();
   const { queue, currentIndex, hasNext, nextVideo, advanceToNext, jumpTo, clear } = usePlayQueue();
-  const { requestSession, releaseRoute, stopSession, signalRoutePresented, setTvConfig, setHandlers, pause, retry, playbackState, showLoadingOverlay, hasStream, sessionVideoId } = usePlayerSession();
+  const {
+    requestSession,
+    switchLiveChannel,
+    releaseRoute,
+    stopSession,
+    signalRoutePresented,
+    setTvConfig,
+    setHandlers,
+    pause,
+    retry,
+    playbackState,
+    showLoadingOverlay,
+    hasStream,
+    sessionVideoId,
+    hostMode,
+  } = usePlayerSession();
 
   const isQueueMode = params.queueMode === "true";
+  const isLiveChannel = params.live === "1";
 
   // Parse playlist index
   const currentPlaylistIndex = params.playlistIndex ? parseInt(params.playlistIndex, 10) : -1;
 
   // Queue mode: the next episode announced between episodes (null = no interstitial showing)
   const [upNext, setUpNext] = useState<JellyfinVideoItem | null>(null);
+
+  // Jellyfin's "Play next episode automatically", re-read per item so a change made elsewhere lands on the next one.
+  const [autoPlayNext, setAutoPlayNext] = useState(true);
+  useEffect(() => {
+    if (!isQueueMode) return;
+    let cancelled = false;
+    fetchNextEpisodeAutoPlay().then((enabled) => {
+      if (!cancelled) setAutoPlayNext(enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isQueueMode, params.videoId]);
 
   // One-shot for every path that pops this screen: handleBack, and the direct router.back()
   // exits below. react-native-video can deliver onEnd more than once, and a second pop would
@@ -186,11 +207,15 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // Media segment markers (Intro/Outro) for this item: the Intro times the
   // tvOS Skip Intro pill, the Outro the Up Next proposal and Skip Credits pill.
   // Fire-and-forget — nulls just mean no skip affordances.
-  const [segments, setSegments] = useState<ItemMediaSegments | null>(null);
+  const [segmentResult, setSegmentResult] = useState<{ itemId: string; segments: ItemMediaSegments } | null>(null);
+  // Params can change while this body is mounted. Never arm the new item with the
+  // previous episode's marker, even for the render before its fetch effect runs.
+  const segments = segmentResult?.itemId === params.videoId ? segmentResult.segments : null;
   useEffect(() => {
     let cancelled = false;
-    fetchMediaSegments(params.videoId).then((result) => {
-      if (!cancelled) setSegments(result);
+    const itemId = params.videoId;
+    fetchMediaSegments(itemId).then((result) => {
+      if (!cancelled) setSegmentResult({ itemId, segments: result });
     });
     return () => {
       cancelled = true;
@@ -215,8 +240,85 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       probe: params.probe === "1",
       sessionKey,
       adopt: params.adopt === "1",
+      isLive: isLiveChannel,
     });
-  }, [requestSession, sessionKey, params.videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt]);
+  }, [requestSession, sessionKey, params.videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel]);
+
+  // tvOS channel flipping rides AVKit's own swipe: the channel ring in tuner order names the
+  // neighbours for the interstitial, and a flip swaps the channel under the one player.
+  const [channelRing, setChannelRing] = useState<JellyfinItem[]>([]);
+  // A swipe before the ring loads waits here; a failed load is retried by that swipe.
+  const pendingFlipRef = useRef<{ direction: 1 | -1; at: number } | null>(null);
+  const ringFailedRef = useRef(false);
+  const [ringAttempt, setRingAttempt] = useState(0);
+  useEffect(() => {
+    if (!Platform.isTV || !isLiveChannel) return;
+    let cancelled = false;
+    ringFailedRef.current = false;
+    fetchChannels()
+      .then(({ items }) => !cancelled && setChannelRing(items))
+      .catch((err) => {
+        if (!cancelled) ringFailedRef.current = true;
+        logger.warn("Channel ring load failed", err, { service: "VideoPlayer" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLiveChannel, ringAttempt]);
+  // The ring follows the channel on screen: its neighbours cut segments in the engine once it plays,
+  // the wider ring is held open on the server. The snapshot must name this channel, not the one left.
+  const livePlaying = isLiveChannel && playbackState.type === "PLAYING" && sessionVideoId === params.videoId;
+  useEffect(() => {
+    if (!Platform.isTV || !isLiveChannel || channelRing.length === 0) return;
+    recenterLiveRing(channelRing, params.videoId, livePlaying);
+  }, [isLiveChannel, livePlaying, channelRing, params.videoId]);
+  useEffect(() => {
+    if (!Platform.isTV || !isLiveChannel) return;
+    return () => {
+      void releaseLiveRing();
+    };
+  }, [isLiveChannel]);
+  const liveChannelFlip = useMemo(() => {
+    if (!Platform.isTV || !isLiveChannel) return undefined;
+    const neighbour = (direction: 1 | -1) => {
+      const id = adjacentChannelId(channelRing, params.videoId, direction);
+      const channel = id ? channelRing.find((entry) => entry.Id === id) : undefined;
+      return channel ? { title: channel.Name, subtitle: channel.CurrentProgram?.Name ?? "" } : undefined;
+    };
+    // Present from the first render of a live session: AVKit arms its flip swipes when playback
+    // starts and does not look again, so the gate must be open before the ring has loaded.
+    const next = neighbour(1);
+    const previous = neighbour(-1);
+    // A loaded ring with no neighbour (a one-channel lineup) has nothing to flip to.
+    if (channelRing.length > 0 && !next && !previous) return undefined;
+    return { ...(next ? { next } : {}), ...(previous ? { previous } : {}) };
+  }, [isLiveChannel, channelRing, params.videoId]);
+  const handleSkipChannel = useCallback(
+    (direction: 1 | -1) => {
+      if (channelRing.length === 0) {
+        pendingFlipRef.current = { direction, at: Date.now() };
+        if (ringFailedRef.current) setRingAttempt((n) => n + 1);
+        return;
+      }
+      const targetId = adjacentChannelId(channelRing, params.videoId, direction);
+      const target = targetId ? channelRing.find((entry) => entry.Id === targetId) : undefined;
+      if (!target) return;
+      logger.info("Live TV: flipping channel", { service: "VideoPlayer", direction, to: target.Name });
+      probeEmit("flip", { direction, from: params.videoId, to: target.Id });
+      switchLiveChannel({ videoId: target.Id, videoName: target.Name });
+      // The route follows the host, so its request adopts the flipped session and its release
+      // names the channel that is playing.
+      router.setParams({ videoId: target.Id, videoName: target.Name });
+    },
+    [channelRing, params.videoId, switchLiveChannel, router],
+  );
+  // The ring arrived: a waiting swipe flips, unless the watchdog has already refused it.
+  useEffect(() => {
+    const pending = pendingFlipRef.current;
+    if (!pending || channelRing.length === 0) return;
+    pendingFlipRef.current = null;
+    if (Date.now() - pending.at < CHANNEL_SKIP_WATCHDOG_MS) handleSkipChannel(pending.direction);
+  }, [channelRing, handleSkipChannel]);
 
   // The host keeps the session when a tvOS PiP window is up. Released by identity:
   // an advance remounts this body, so two screens exist for one commit.
@@ -238,20 +340,12 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
 
   // tvOS queue mode: the native AVContentProposal (patched into react-native-video)
   // replaces the RN interstitial — poster + title + Play Now/Close, countdown
-  // auto-accepting 5s after playback ends. Undefined on phone and with nothing next.
+  // auto-accepting 5s after playback ends unless autoplay is off, where it waits
+  // for a choice. Undefined on phone and with nothing next.
   //
-  // An explicit time is always sent, from the outro when there is one and from the
-  // item's runtime otherwise. Sending none leaves the patch passing
-  // CMTime.indefinite, which is not a point on the timeline and so is never
-  // reached — the card never presents, and handlePlaybackEnd returns without
-  // advancing on TV, which stalls the queue. This is that bug's fix, and it makes
-  // the card independent of whether the server has segments at all.
-  const currentRuntimeSeconds = useMemo(() => {
-    const item = currentIndex >= 0 ? queue[currentIndex] : undefined;
-    return item?.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0;
-  }, [queue, currentIndex]);
-
-  const proposalAt = useMemo(() => proposalTime(segments?.outro?.startSeconds, currentRuntimeSeconds), [segments, currentRuntimeSeconds]);
+  // Without a marker, omit the time: CMTime.indefinite uses AVKit's playback-end
+  // path. Guessing runtime minus 30 seconds can cover dialogue before the credits.
+  const proposalAt = proposalTime(segments?.outro?.startSeconds);
 
   /** A card is what covers the credits — when one is coming, the pill stays off. */
   const cardWillPresent = Platform.isTV && isQueueMode && !!nextVideo && proposalAt !== null;
@@ -286,27 +380,46 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       title: nextVideo.Name,
       ...(imageUri ? { imageUri } : {}),
       ...(proposalAt !== null ? { startTimeSeconds: proposalAt } : {}),
-      autoAcceptSeconds: 5,
+      ...(autoPlayNext ? { autoAcceptSeconds: 5 } : {}),
     };
-  }, [isQueueMode, nextVideo, proposalAt, upcomingFrames]);
+  }, [isQueueMode, nextVideo, proposalAt, upcomingFrames, autoPlayNext]);
 
   // tvOS "Up Next" tab in the swipe-down info panel (patched infoPanelItems
   // prop → customInfoViewControllers): the queue's upcoming items as focusable
   // cards, capped at 30. Selecting one jumps the queue there (handler below).
   const infoPanelItems = useMemo(() => {
+    // A live channel's tab is the ring itself: the in-player guide, one card per channel with
+    // what it is airing, the playing channel first so its neighbours sit beside it.
+    if (Platform.isTV && isLiveChannel) {
+      const at = channelRing.findIndex((entry) => entry.Id === params.videoId);
+      if (at < 0 || channelRing.length < 2) return undefined;
+      const ordered = channelRing.slice(at).concat(channelRing.slice(0, at)).slice(0, 30);
+      return ordered.map((channel) => {
+        const imageUri = posterUri(channel, 450);
+        return {
+          id: channel.Id,
+          title: channel.Name,
+          subtitle: channel.CurrentProgram?.Name ?? "",
+          ...(imageUri ? { imageUri } : {}),
+          imageAspectRatio: 16 / 9,
+          logo: true,
+        };
+      });
+    }
     if (!Platform.isTV || !isQueueMode || currentIndex < 0) return undefined;
     const upcoming = queue.slice(currentIndex + 1, currentIndex + 31).map((item) => {
       const imageUri = posterUri(item, 450, upcomingFrames[item.Id]);
       return {
         id: item.Id,
         title: item.Name,
-        subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? `Episode ${item.IndexNumber}` : null].filter(Boolean).join(" · "),
+        subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? t("player.episodeNum").replace("{num}", String(item.IndexNumber)) : null].filter(Boolean).join(" · "),
         ...(imageUri ? { imageUri } : {}),
         ...(item.PrimaryImageAspectRatio ? { imageAspectRatio: item.PrimaryImageAspectRatio } : {}),
       };
     });
     return upcoming.length > 0 ? upcoming : undefined;
-  }, [queue, currentIndex, isQueueMode, upcomingFrames]);
+  }, [queue, currentIndex, isQueueMode, upcomingFrames, isLiveChannel, channelRing, params.videoId]);
+  const infoPanelTitle = Platform.isTV && isLiveChannel ? t("liveTv.channels") : undefined;
 
   // tvOS timed pills (AVKit-rendered, patched contextualActions prop): Skip
   // Intro over the intro, Skip Credits over the outro. Not gated on queue mode:
@@ -321,10 +434,10 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     if (!Platform.isTV || !segments) return undefined;
     const actions = [];
     if (segments.intro) {
-      actions.push({ title: "Skip Intro", startSeconds: segments.intro.startSeconds, endSeconds: segments.intro.endSeconds - 1, seekToSeconds: segments.intro.endSeconds });
+      actions.push({ title: t("player.skipIntro"), startSeconds: segments.intro.startSeconds, endSeconds: segments.intro.endSeconds - 1, seekToSeconds: segments.intro.endSeconds });
     }
     if (segments.outro && !cardWillPresent) {
-      actions.push({ title: "Skip Credits", startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
+      actions.push({ title: t("player.skipCredits"), startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
     }
     return actions.length > 0 ? actions : undefined;
   }, [segments, cardWillPresent]);
@@ -332,8 +445,8 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // The three AVKit surfaces are computed here, from the queue and this item's
   // segments, and handed to the host to attach to its player.
   useEffect(() => {
-    setTvConfig({ contentProposal, contextualActions, infoPanelItems });
-  }, [setTvConfig, contentProposal, contextualActions, infoPanelItems]);
+    setTvConfig({ contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip });
+  }, [setTvConfig, contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip]);
 
   // Disarm on unmount, while the player is still alive to receive it: a PiP window outlives this route.
   useEffect(() => () => setTvConfig({}), [setTvConfig]);
@@ -409,6 +522,15 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
   // tap, so no end-transition one-shot guards apply.
   const handleInfoPanelItemSelected = useCallback(
     (e: { id: string }) => {
+      if (isLiveChannel) {
+        const channel = channelRing.find((entry) => entry.Id === e.id);
+        if (!channel || channel.Id === params.videoId) return;
+        logger.info("Live TV: channel picked from the panel", { service: "VideoPlayer", to: channel.Name });
+        probeEmit("flip", { direction: 0, from: params.videoId, to: channel.Id });
+        switchLiveChannel({ videoId: channel.Id, videoName: channel.Name });
+        router.setParams({ videoId: channel.Id, videoName: channel.Name });
+        return;
+      }
       const target = jumpTo(e.id);
       if (!target) return;
       logger.info("Info panel: jumping to queue item", { service: "VideoPlayer", videoName: target.Name });
@@ -422,7 +544,7 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
         },
       });
     },
-    [jumpTo, router, showGlobalLoader],
+    [jumpTo, router, showGlobalLoader, isLiveChannel, channelRing, params.videoId, switchLiveChannel],
   );
 
   // Everything the host has to call back into: playback ending, the native Up
@@ -435,10 +557,11 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       onContentProposalAccepted: handleInterstitialPlay,
       onContentProposalRejected: handleInterstitialClose,
       onInfoPanelItemSelected: handleInfoPanelItemSelected,
+      onSkipChannel: handleSkipChannel,
       onRequestBack: handleBack,
     });
     return () => setHandlers(null);
-  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleBack]);
+  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleBack]);
 
   // Handle Android TV back button
   useEffect(() => {
@@ -463,8 +586,11 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
     }
   }, [playbackState.type, pause]);
 
+  // A live channel on stage through a retried failure is AVKit's screen, not this one.
+  const liveOnStage = isLiveChannel && hostMode === "video";
+
   // Render error state (but not if auto-retry is in progress)
-  if (playbackState.type === "ERROR") {
+  if (playbackState.type === "ERROR" && !liveOnStage) {
     // If we can retry with transcoding, show loading overlay instead of error
     // This prevents flashing an error message during automatic retry
     if (playbackState.canRetryWithTranscode) {
@@ -475,16 +601,19 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
       );
     }
 
-    // Only show error UI if retry is not possible or has already failed
+    // Only show error UI if retry is not possible or has already failed. The stage the attempt
+    // died in stays on the store (a reset comes with the next attempt), so it can be named here.
+    const failedStage = currentPlaybackStage().stage;
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-        <Text style={styles.errorTitle}>Unable to Play</Text>
+        <Text style={styles.errorTitle}>{t("player.unableToPlay")}</Text>
         <Text style={styles.errorText}>{playbackState.error}</Text>
+        {failedStage ? <Text style={styles.errorStage}>{`${t("player.failedWhile")}: ${stageLabel(failedStage).toLocaleLowerCase()}`}</Text> : null}
 
         <View style={styles.buttonGroup}>
-          <FocusableButton title="Retry" onPress={retry} variant="retry" style={styles.button} hasTVPreferredFocus={true} />
-          <FocusableButton title="Go Back" onPress={handleBack} variant="secondary" style={styles.button} />
+          <FocusableButton title={t("common.retry")} onPress={retry} variant="retry" style={styles.button} hasTVPreferredFocus={true} />
+          <FocusableButton title={t("common.goBack")} onPress={handleBack} variant="secondary" style={styles.button} />
         </View>
       </View>
     );
@@ -501,14 +630,16 @@ function VideoPlayerBody({ sessionKey }: { sessionKey: string }) {
           Menu needs one to pop from (see the component). Also rendered before the stream
           resolves — the IDLE first pass is not part of showLoadingOverlay, and that gap is a
           stranded-focus window too. */}
-      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && <PlayerLoadingOverlay />}
+      {(showLoadingOverlay || !hasStream || sessionVideoId !== params.videoId) && !liveOnStage && <PlayerLoadingOverlay />}
 
       {/* Between-episodes Up Next screen (phone queue mode). MOUNTED FOR THE WHOLE EPISODE,
           hidden behind the presented player, so its poster and backdrop are already fetched
           and decoded when the video ends; `upNext` arms it, and the AVKit dismissal slide
           reveals a card that is finished rather than one starting two downloads. Never on
           TV, where the native proposal owns this and an RN overlay would strand focus. */}
-      {!Platform.isTV && isQueueMode && nextVideo && <UpNextInterstitial nextVideo={nextVideo} armed={upNext !== null} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />}
+      {!Platform.isTV && isQueueMode && nextVideo && (
+        <UpNextInterstitial nextVideo={nextVideo} armed={upNext !== null} autoAdvance={autoPlayNext} onPlayNext={handleInterstitialPlay} onClose={handleInterstitialClose} />
+      )}
     </View>
   );
 
@@ -548,6 +679,12 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 26,
+  },
+  errorStage: {
+    marginTop: 4,
+    fontSize: 16,
+    color: COLORS.TEXT_TERTIARY,
+    textAlign: "center",
   },
   buttonGroup: {
     gap: Platform.isTV ? 16 : 12,

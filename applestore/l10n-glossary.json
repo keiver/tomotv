@@ -1,0 +1,138 @@
+{
+  "comment": "Product nouns from jellyfin-web/src/strings, platform nouns from Apple's localized support pages.",
+  "fonts": {
+    "comment": "Faces available in applestore/fonts for locales whose script the brand faces do not cover. A locale declares them under locales.<code>.fonts in shots.config.json; the stack falls back to the brand Latin face.",
+    "hi": {
+      "display": ["NotoSansDevanagari-Black.ttf"],
+      "sub": ["NotoSansDevanagari-SemiBold.ttf"]
+    },
+    "zh-Hans": {
+      "display": ["NotoSansSC-Black.otf"],
+      "sub": ["NotoSansSC-Medium.otf"]
+    },
+    "zh-Hant": {
+      "display": ["NotoSansTC-Black.otf"],
+      "sub": ["NotoSansTC-Medium.otf"]
+    },
+    "ja": {
+      "display": ["NotoSansJP-Black.otf"],
+      "sub": ["NotoSansJP-Medium.otf"]
+    }
+  },
+  "keep": [
+    "Tomo TV",
+    "Jellyfin",
+    "SyncPlay",
+    "Quick Connect",
+    "Top Shelf",
+    "AirPlay",
+    "Apple TV",
+    "iPhone",
+    "iPad",
+    "Apple",
+    "Dolby Atmos",
+    "Dolby Vision",
+    "TrueHD",
+    "DTS-HD Master Audio",
+    "PCM",
+    "FLAC",
+    "HEVC",
+    "H.264",
+    "HDR",
+    "MKV",
+    "PGS",
+    "VobSub",
+    "DVB",
+    "XSUB",
+    "4K",
+    "1080p",
+    "720p",
+    "540p",
+    "480p"
+  ],
+  "terms": {
+    "de": {
+      "library": "Bibliothek",
+      "movies": "Filme",
+      "shows": "Serien",
+      "music": "Musik",
+      "subtitles": "Untertitel",
+      "transcoding": "Umwandlung",
+      "to transcode": "umwandeln",
+      "continue watching": "Weiterschauen",
+      "folder": "Verzeichnis",
+      "artist": "Künstler",
+      "quality": "Qualität",
+      "year": "Jahr",
+      "genre": "Genre",
+      "favorites": "Favoriten",
+      "server": "Server",
+      "decoder": "Dekoder",
+      "playlist": "Wiedergabeliste",
+      "picture in picture": "Bild-in-Bild",
+      "diagnostics": "Diagnose"
+    },
+    "fr": {
+      "library": "médiathèque",
+      "movies": "films",
+      "shows": "séries",
+      "music": "musique",
+      "subtitles": "sous-titres",
+      "transcoding": "conversion",
+      "to transcode": "convertir",
+      "continue watching": "Continuer de regarder",
+      "folder": "dossier",
+      "artist": "artiste",
+      "quality": "qualité",
+      "year": "année",
+      "genre": "genre",
+      "favorites": "favoris",
+      "server": "serveur",
+      "decoder": "décodeur",
+      "playlist": "liste de lecture",
+      "picture in picture": "Image dans l'image",
+      "diagnostics": "Diagnostics"
+    },
+    "es": {
+      "library": "biblioteca",
+      "movies": "películas",
+      "shows": "series",
+      "music": "música",
+      "subtitles": "subtítulos",
+      "transcoding": "conversión",
+      "to transcode": "convertir",
+      "continue watching": "Seguir viendo",
+      "folder": "carpeta",
+      "artist": "artista",
+      "quality": "calidad",
+      "year": "año",
+      "genre": "género",
+      "favorites": "favoritos",
+      "server": "servidor",
+      "decoder": "decodificador",
+      "playlist": "lista de reproducción",
+      "picture in picture": "Imagen dentro de imagen",
+      "diagnostics": "Diagnóstico"
+    }
+  },
+  "register": {
+    "de": "du",
+    "fr": "vous",
+    "es": "tú"
+  },
+  "pronouns": {
+    "comment": "How the reader is addressed. `avoid` is both a prompt rule and the check: a capitalised entry is matched as written, a lowercase one either way.",
+    "de": {
+      "use": ["du", "dein", "deine", "deinem", "deinen", "deiner", "dir"],
+      "avoid": ["Sie", "Ihnen", "Ihr", "Ihre", "Ihrem", "Ihren", "Ihrer", "Ihres", "euer", "euch", "eure", "eurem", "euren"]
+    },
+    "fr": {
+      "use": ["vous", "votre", "vos"],
+      "avoid": ["tu", "ton", "ta", "tes", "toi"]
+    },
+    "es": {
+      "use": ["tú", "tu", "tus", "ti"],
+      "avoid": ["usted", "ustedes", "vosotros", "su servidor"]
+    }
+  }
+}

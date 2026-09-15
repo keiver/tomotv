@@ -338,9 +338,8 @@ export const CARD_FOCUS = {
    * visible against the poster. */
   TITLE_BG_FOCUSED: COLORS.ACCENT,
   TITLE_TEXT_FOCUSED: COLORS.ON_ACCENT_WARM,
-  /** Resting border on every card. */
+  /** Resting border on a settings poster mark. */
   BORDER_COLOR: "rgba(255, 255, 255, 0.15)",
-  BORDER_WIDTH: 2,
 } as const;
 
 // Resting depth shadow under every card, lifting it off the ambient canvas. Dark-theme
@@ -356,3 +355,19 @@ export const CARD_DEPTH = {
   /** Android elevation for the resting card (below GLOW_ELEVATION so focus still lifts). */
   ELEVATION: 6,
 } as const;
+
+// Edges lit from above, as inset boxShadow parts. A recess shades its top lip and catches light on
+// its bottom one; a raised card catches it on its top, its drop shadow darkening the foot.
+const TV = Platform.isTV;
+export const RECESS_EDGE = {
+  LIP_TOP: TV ? "inset 0 6px 8px rgba(0,0,0,0.35)" : "inset 0 4px 5px rgba(0,0,0,0.35)",
+  LIP_BOTTOM: TV ? "inset 0 -3px 4px rgba(255,255,255,0.08)" : "inset 0 -2px 3px rgba(255,255,255,0.08)",
+  RIM: TV ? "inset 0 0 3px rgba(0,0,0,0.5)" : "inset 0 0 2px rgba(0,0,0,0.5)",
+  RIM_LEFT: TV ? "inset 6px 0 8px -4px rgba(0,0,0,0.55)" : "inset 4px 0 5px -2px rgba(0,0,0,0.55)",
+  RIM_RIGHT: TV ? "inset -6px 0 8px -4px rgba(0,0,0,0.55)" : "inset -4px 0 5px -2px rgba(0,0,0,0.55)",
+} as const;
+
+export const RAISED_EDGE = [
+  TV ? "inset 0 3px 3px -1px rgba(255,255,255,0.22)" : "inset 0 2px 2px -1px rgba(255,255,255,0.22)",
+  TV ? "inset 0 0 0 1.5px rgba(255,255,255,0.07)" : "inset 0 0 0 1px rgba(255,255,255,0.07)",
+].join(", ");

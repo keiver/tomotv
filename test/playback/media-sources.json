@@ -49,5 +49,15 @@
     "url": "https://samples.ffmpeg.org/ogg/Theora/susie-exp.ogg",
     "sha256": "6f7fb857bd246a3a94f01bcc9e01956829370f7774d8c46206a38f9b2c1a5141",
     "bytes": 714639
+  },
+  "T99": {
+    "url": "https://samples.ffmpeg.org/sub/softrotor-fancy.mkv",
+    "sha256": "8ca536475460db497240977b723f0e50a9b2c1ee16a4ebdcfbc34634af6a181f",
+    "bytes": 54326
+  },
+  "T100": {
+    "url": "http://fate-suite.ffmpeg.org/sub/a9-misc.ssa",
+    "sha256": "634c3d1e8a99d8049bbfe0a48326b3cd1884fef1688e3b086658748e0a3de1d8",
+    "bytes": 6242
   }
 }

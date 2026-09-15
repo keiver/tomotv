@@ -1,5 +1,6 @@
-import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
@@ -7,13 +8,10 @@ import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-nativ
 const IS_TV = Platform.isTV;
 const ICON = IS_TV ? 30 : 20;
 const DIAMETER = IS_TV ? 62 : 44;
-/** Off state: the ring and the glyph both dim, since an outline glyph alone reads the same as a filled one at distance. */
-const BORDER_OFF = "rgba(255, 195, 18, 0.4)";
+/** Off state: the glyph dims, since an outline glyph alone reads the same as a filled one at distance. */
 const ICON_OFF = "rgba(255, 195, 18, 0.5)";
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
-/** One line for every write the server refused; the glyph has already rolled back. */
-const FAILED = "Couldn't reach the server";
 
 interface InfoActionRowProps {
   isFavorite: boolean;
@@ -41,14 +39,14 @@ export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" |
  * ring inside a ring, and a dim rest state would read as unavailable on an action that is not
  * a toggle. State lives in the caption.
  */
-const DOWNLOAD_COPY: Record<DownloadCircleState, { label: string; done: string }> = {
-  none: { label: "Download", done: "" },
-  queued: { label: "Show in Downloads", done: "" },
-  downloading: { label: "Show in Downloads", done: "" },
-  paused: { label: "Show in Downloads", done: "" },
-  ready: { label: "Downloaded", done: "Saved on this device, plays offline" },
-  failed: { label: "Try the download again", done: "" },
-};
+const downloadCopy = (): Record<DownloadCircleState, { label: string; done: string }> => ({
+  none: { label: t("info.download"), done: "" },
+  queued: { label: t("info.showInDownloads"), done: "" },
+  downloading: { label: t("info.showInDownloads"), done: "" },
+  paused: { label: t("info.showInDownloads"), done: "" },
+  ready: { label: t("info.downloaded"), done: t("info.savedOffline") },
+  failed: { label: t("info.retryDownload"), done: "" },
+});
 
 /**
  * The panel's secondary actions: circles of one size, with a caption underneath.
@@ -80,10 +78,10 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   const blur = useCallback((key: ActionKey) => setFocused((current) => (current === key ? null : current)), []);
 
   // Labels state the press, not the noun, so the caption reads the same way the row acts.
-  const favoriteLabel = isFavorite ? "Remove favorite" : "Add to favorites";
-  const watchedLabel = isPlayed ? "Mark as unwatched" : "Mark as watched";
-  const progressLabel = cleared ? "Restore progress" : "Clear progress";
-  const download = DOWNLOAD_COPY[downloadState ?? "none"];
+  const favoriteLabel = isFavorite ? t("info.removeFavorite") : t("info.addFavorite");
+  const watchedLabel = isPlayed ? t("info.markUnwatched") : t("info.markWatched");
+  const progressLabel = cleared ? t("info.restoreProgress") : t("info.clearProgress");
+  const download = downloadCopy()[downloadState ?? "none"];
   const focusLabel = focused === "favorite" ? favoriteLabel : focused === "watched" ? watchedLabel : focused === "progress" ? progressLabel : focused === "download" ? download.label : "";
 
   // Awaited: reporting before the write lands claims a success the server can still refuse,
@@ -93,55 +91,56 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
     // An empty `done` is an action that navigates: the caption would be reporting to a screen
     // that is already leaving.
     if (ok && !done) return;
-    report(ok ? done : FAILED, !ok);
+    // One line for every write the server refused; the glyph has already rolled back.
+    report(ok ? done : t("info.couldNotReachServer"), !ok);
   };
 
-  // Focus outranks both rest states, and paints white over the variant's gold: a custom style is
-  // flattened AFTER the focused variant style, so this layer is the one that lands.
+  // Focus outranks both rest states: a custom style is flattened AFTER the focused variant
+  // style, so this layer is the one that lands.
   const circleStyle = (on: boolean, key: ActionKey) => StyleSheet.flatten([styles.circle, focused === key ? styles.circleFocused : on ? styles.circleOn : styles.circleOff]);
   const iconColor = (on: boolean, key: ActionKey) => (focused === key ? COLORS.TEXT_PRIMARY : on ? COLORS.ACCENT : ICON_OFF);
 
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        <FocusableButton
-          variant="secondary"
+        <GlassButton
+          variant="link"
           style={circleStyle(isFavorite, "favorite")}
           icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={ICON} color={iconColor(isFavorite, "favorite")} />}
           accessibilityLabel={favoriteLabel}
           accessibilityState={{ selected: isFavorite }}
           onFocus={() => setFocused("favorite")}
           onBlur={() => blur("favorite")}
-          onPress={press(onToggleFavorite, isFavorite ? "Removed from favorites" : "Added to favorites")}
+          onPress={press(onToggleFavorite, isFavorite ? t("info.removedFavorite") : t("info.addedFavorite"))}
         />
-        <FocusableButton
-          variant="secondary"
+        <GlassButton
+          variant="link"
           style={circleStyle(isPlayed, "watched")}
           icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={ICON} color={iconColor(isPlayed, "watched")} />}
           accessibilityLabel={watchedLabel}
           accessibilityState={{ selected: isPlayed }}
           onFocus={() => setFocused("watched")}
           onBlur={() => blur("watched")}
-          onPress={press(onToggleWatched, isPlayed ? "Marked as unwatched" : "Marked as watched")}
+          onPress={press(onToggleWatched, isPlayed ? t("info.markedUnwatched") : t("info.markedWatched"))}
         />
         {!!onToggleProgress && (
           // Always lit: this circle renders only when there is progress to act on, so a dim rest
           // state would read as disabled. The fill is the mark, standing until the position goes.
-          <FocusableButton
-            variant="secondary"
+          <GlassButton
+            variant="link"
             style={circleStyle(true, "progress")}
             icon={<Ionicons name={cleared ? "bookmark-outline" : "bookmark"} size={ICON} color={iconColor(true, "progress")} />}
             accessibilityLabel={progressLabel}
             onFocus={() => setFocused("progress")}
             onBlur={() => blur("progress")}
-            onPress={press(onToggleProgress, cleared ? "Progress restored" : "Progress cleared, tap again to restore")}
+            onPress={press(onToggleProgress, cleared ? t("info.progressRestored") : t("info.progressCleared"))}
           />
         )}
         {!!onToggleDownload && !!downloadState && (
           // Always lit: this is an action, not a toggle. Every state it renders in is a press
           // worth making, "none" most of all. Failure takes the ink; the caption carries state.
-          <FocusableButton
-            variant="secondary"
+          <GlassButton
+            variant="link"
             style={circleStyle(true, "download")}
             icon={<Ionicons name="arrow-down" size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : iconColor(true, "download")} />}
             accessibilityLabel={download.label}
@@ -197,17 +196,16 @@ const styles = StyleSheet.create({
   circleOn: {
     backgroundColor: "rgba(255, 195, 18, 0.07)",
   },
-  // Off, at rest: a dimmed ring against the lit one. Not container opacity, which would
-  // multiply into the border and leave the ring at 20%.
+  // Off, at rest: the dim glyph alone, the glass rim is the ring on both platforms.
   circleOff: {
-    borderColor: BORDER_OFF,
+    borderColor: "transparent",
   },
-  // White, so focus reads as its own axis: gold already means "on" here, and a gold focus ring
-  // made a focused-off circle look lit.
+  // A gold wash the glass keeps refracting through, well above the on state's 0.07; the white
+  // glyph is what separates focus from on.
   circleFocused: {
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
-    borderColor: COLORS.BORDER_FOCUSED,
-    shadowColor: COLORS.BORDER_FOCUSED,
+    backgroundColor: "rgba(255, 195, 18, 0.35)",
+    borderColor: "transparent",
+    shadowColor: COLORS.ACCENT,
   },
   // A report of something that just happened, not the name of what focus is on.
   captionStatus: {

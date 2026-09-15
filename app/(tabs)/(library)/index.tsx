@@ -7,6 +7,7 @@ import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
 import React, { useCallback } from "react";
+import { t } from "@/services/i18n";
 
 /**
  * Home root — the default screen of the Home tab's nested Stack. Tapping a library pushes a
@@ -20,7 +21,9 @@ function LibrariesRootScreen() {
 
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
-      if (isFolder(item)) {
+      if (item.CollectionType === "livetv") {
+        router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
+      } else if (isFolder(item)) {
         const type = item.Type === "Playlist" ? "playlist" : "folder";
         const crumb: FolderStackEntry = { id: item.Id, name: item.Name, type, parentId: item.ParentId };
         router.push({
@@ -50,7 +53,7 @@ export default function LibraryIndexScreen() {
 
   if (!isReady) return null;
   if (!isConnected) {
-    return <ServerConnectScreen title="Home" />;
+    return <ServerConnectScreen title={t("tab.home")} />;
   }
   return <LibrariesRootScreen />;
 }

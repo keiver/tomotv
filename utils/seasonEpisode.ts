@@ -35,12 +35,17 @@ export function parseSeasonEpisode(item: SeasonEpisodeSource): SeasonEpisode | n
 
   const texts = [item.Name, fileNameOf(item.Path)];
 
-  if (item.ParentIndexNumber != null && item.IndexNumber != null) {
-    if (isSplitYear(item.ParentIndexNumber, item.IndexNumber, texts)) return null;
-    return { season: item.ParentIndexNumber, episode: item.IndexNumber };
-  }
-  if (item.IndexNumber != null && item.Type === "Episode") {
-    return { season: null, episode: item.IndexNumber };
+  // iTunes-tagged MP4s carry season_number/episode_sort of 0 and the server copies
+  // them verbatim; a 0/0 pair numbers nothing, so the text tiers decide.
+  const untagged = item.ParentIndexNumber === 0 && item.IndexNumber === 0;
+  if (!untagged) {
+    if (item.ParentIndexNumber != null && item.IndexNumber != null) {
+      if (isSplitYear(item.ParentIndexNumber, item.IndexNumber, texts)) return null;
+      return { season: item.ParentIndexNumber, episode: item.IndexNumber };
+    }
+    if (item.IndexNumber != null && item.Type === "Episode") {
+      return { season: null, episode: item.IndexNumber };
+    }
   }
 
   for (const text of texts) {

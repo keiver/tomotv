@@ -59,18 +59,11 @@ jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) =
 // The real streamUrls builders run in this suite; they only need a config.
 jest.mock("@/services/jellyfin/session", () => ({
   getCachedConfig: () => ({ server: "http://server:8096", apiKey: "k", userId: "u" }),
+  generatePlaySessionId: () => "test-session",
 }));
 
 // Nothing remembered: the lane predictor's verdict lookup answers null here.
 jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => null }));
-
-jest.mock("@/services/jellyfinApi", () => ({
-  generatePlaySessionId: () => "test-session",
-  getVideoStreamUrl: (id: string) => `http://server:8096/Videos/${id}/stream?Static=true&ApiKey=k`,
-  getSubtitleUrl: (id: string, index: number) => `http://server:8096/Videos/${id}/Subtitles/${index}/Stream.vtt`,
-  isImageBasedSubtitleCodec: (codec?: string) => ["pgssub", "dvdsub"].includes(codec ?? ""),
-  JELLYFIN_TIME: { TICKS_PER_SECOND: 10000000 },
-}));
 
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
@@ -110,6 +103,21 @@ describe("isLocalRemuxAvailable", () => {
 describe("canRemuxLocally", () => {
   it("accepts H.264 in MKV with a single audio track", async () => {
     await expect(canRemuxLocally(item())).resolves.toBe(true);
+  });
+
+  it("declines an item without a runtime unless it is a live stream", async () => {
+    mockProbeEmit.mockClear();
+    await expect(canRemuxLocally(item({ RunTimeTicks: undefined }))).resolves.toBe(false);
+    expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "no runtime in metadata" }));
+    const live = item({
+      RunTimeTicks: undefined,
+      MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1" }],
+      streams: [
+        { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
+        { Type: "Audio", Codec: "mp2", Index: 1 },
+      ],
+    });
+    await expect(canRemuxLocally(live)).resolves.toBe(true);
   });
 
   it("accepts HEVC", async () => {
@@ -387,7 +395,7 @@ describe("startLocalRemux", () => {
     expect(url).toBe("http://127.0.0.1:5000/token/master.m3u8");
     expect(mockStartRemux).toHaveBeenCalledWith(
       expect.objectContaining({
-        inputUrl: "http://server:8096/Videos/item1/stream?Static=true&ApiKey=k",
+        inputUrl: "http://server:8096/Videos/item1/stream?Static=true&MediaSourceId=item1&ApiKey=k",
         audioTracks: [expect.objectContaining({ index: 1 })],
         durationSeconds: 3600,
       }),
@@ -443,11 +451,9 @@ describe("startLocalRemux", () => {
     expect(audioTracks.map((t: { index: number }) => t.index)).toEqual([8, 1]);
   });
 
-  // Both kinds become renditions. A text track resolves to Jellyfin's WebVTT;
-  // an image track carries no URL at all, because Jellyfin has no WebVTT to give
-  // for a bitmap — the engine decodes it out of the source file and the app
-  // draws it. `isImage` is what tells the engine which is which.
-  it("forwards text subtitles with a Jellyfin URL and image ones without", async () => {
+  // Neither kind asks the server for anything: the engine decodes the text
+  // track and turns the image one into bitmaps the app draws.
+  it("forwards embedded subtitles for the engine to decode, with no server URL", async () => {
     await startLocalRemux(
       item({
         streams: [
@@ -461,9 +467,27 @@ describe("startLocalRemux", () => {
 
     const { subtitles } = mockStartRemux.mock.calls[0][0];
     expect(subtitles).toHaveLength(2);
-    expect(subtitles[0]).toMatchObject({ index: 2, language: "eng", name: "English", isImage: false });
+    expect(subtitles[0]).toMatchObject({ index: 2, language: "eng", name: "English", isImage: false, isEngineText: true, vttUrl: "" });
+    expect(subtitles[1]).toMatchObject({ index: 3, language: "spa", isImage: true, isEngineText: false, vttUrl: "" });
+  });
+
+  // A sidecar is not in the container, so the rendition keeps Jellyfin's URL.
+  // It costs no extraction: the server converts a file it already holds.
+  it("leaves a sidecar subtitle on the server URL", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsExternal: true },
+        ],
+      }),
+    );
+
+    const { subtitles } = mockStartRemux.mock.calls[0][0];
+    expect(subtitles).toHaveLength(1);
+    expect(subtitles[0].isEngineText).toBe(false);
     expect(subtitles[0].vttUrl).not.toBe("");
-    expect(subtitles[1]).toMatchObject({ index: 3, language: "spa", isImage: true, vttUrl: "" });
   });
 
   it("carries IsForced through so the rendition can be marked AUTOSELECT=YES", async () => {
@@ -1380,5 +1404,73 @@ describe("predictPlaybackLane: the smaller server feed", () => {
   it("declares no smaller feed when the 480p rung would not meaningfully undercut the file", async () => {
     // A small, audio-heavy file: the rung costs almost what the primary does.
     await expect(predictPlaybackLane(withBitrates(4_000_000, 1_600_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
+  });
+});
+
+describe("startLocalRemux on a live channel", () => {
+  const live = () =>
+    item({
+      RunTimeTicks: undefined,
+      // The mocked link (3 Mbps) sits below this source: a VOD session would declare a tier.
+      MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1", Bitrate: 20_000_000 }],
+      LiveStreamId: "ls-1",
+      liveStreamUrl: "http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k",
+      streams: [
+        { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
+        { Type: "Audio", Codec: "mp2", Index: 1 },
+        { Type: "Subtitle", Codec: "dvbsub", Index: 2 },
+      ],
+    });
+
+  it("hands the engine the opened stream in live mode: no runtime, no tier, image subtitles only, no offset", async () => {
+    await startLocalRemux(live(), undefined, 120);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.isLive).toBe(true);
+    expect(config.liveSegmentSeconds).toBe(2);
+    expect(config.inputUrl).toBe("http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k");
+    expect(config.durationSeconds).toBe(0);
+    expect(config.startOffsetSeconds).toBe(0);
+    // The DVB track rides as an image rendition the app draws; a text track would not (below).
+    expect(config.subtitles.map((sub: { index: number; isImage: boolean }) => [sub.index, sub.isImage])).toEqual([[2, true]]);
+    expect(config.tierPlaylistUrl).toBeUndefined();
+    expect(config.tierFirst).toBe(false);
+    expect(config.httpHeaders).toBeUndefined();
+    // Read through the server's open, not from an origin: nothing for the engine to check.
+    expect(config.probeOrigin).toBeUndefined();
+  });
+
+  it("asks the engine to check an origin the channel is read from directly", async () => {
+    const origin = { ...live(), MediaSources: [{ Id: "c1", IsInfiniteStream: true }], LiveStreamId: undefined, liveStreamUrl: "https://origin.example/live/high/index.m3u8" };
+    await startLocalRemux(origin, undefined, 120);
+    expect(mockStartRemux.mock.calls[0][0].probeOrigin).toBe(true);
+  });
+
+  it("carries no text subtitle on a live channel: the engine has no sliding WebVTT window for it", async () => {
+    const channel = live();
+    channel.MediaStreams = [...(channel.MediaStreams ?? []).filter((stream) => stream.Type !== "Subtitle"), { Type: "Subtitle", Codec: "subrip", Index: 2 } as never];
+    await startLocalRemux(channel, undefined, 120);
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
+  });
+
+  it("hands the engine the origin's required headers for a manifest channel", async () => {
+    const manifest = { ...live(), liveStreamUrl: "https://origin.example/playlist.m3u8", liveHttpHeaders: { "User-Agent": "Mozilla/5.0" } };
+    await startLocalRemux(manifest, undefined, 120);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.inputUrl).toBe("https://origin.example/playlist.m3u8");
+    expect(config.httpHeaders).toEqual({ "User-Agent": "Mozilla/5.0" });
+  });
+
+  it("reads a recording still being written from the static stream, in live mode", async () => {
+    const recording = item({ RunTimeTicks: undefined, MediaSources: [{ Id: "r1", IsInfiniteStream: true }] });
+    await startLocalRemux(recording);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.isLive).toBe(true);
+    expect(config.inputUrl).toMatch(/\/Videos\/[^/]+\/stream/);
+    expect(config.durationSeconds).toBe(0);
+    expect(config.probeOrigin).toBeUndefined();
+  });
+
+  it("predicts the engine lane for a live channel with no verdict lookup", async () => {
+    await expect(predictPlaybackLane(live())).resolves.toEqual({ lane: "deviceTranscode", smallFeedFirst: false });
   });
 });

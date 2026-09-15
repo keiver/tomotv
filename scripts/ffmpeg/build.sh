@@ -37,7 +37,7 @@ MACOS_MIN="12.0"  # probe slice only, never linked into the app
 # framework is named Libavutil and the filesystem is case-insensitive. Renaming
 # any of these breaks every header in the set.
 FF_LIBS=(Libavcodec Libavformat Libavutil Libswresample Libswscale Libavfilter)
-EXTRA_LIBS=(Libdav1d Libuavs3d Libass Mbedtls)
+EXTRA_LIBS=(Libdav1d Libuavs3d Libass Mbedtls Libarchive Libzvbi)
 
 # expo-image -> libavif/libdav1d links a second dav1d (1.2.0) into the same
 # binary. Static linking has one flat symbol namespace, so two versions of
@@ -68,12 +68,13 @@ die()  { printf '\033[1;31m fail\033[0m %s\n' "$*" >&2; exit 1; }
 
 preflight() {
   local missing=()
-  for t in cmake meson ninja nasm pkg-config git curl xcrun lipo; do
+  for t in cmake meson ninja nasm pkg-config git curl xcrun lipo autoreconf automake autopoint; do
     command -v "$t" >/dev/null || missing+=("$t")
   done
+  command -v glibtoolize >/dev/null || command -v libtoolize >/dev/null || missing+=("libtoolize")
   if [ ${#missing[@]} -gt 0 ]; then
     die "missing host tools: ${missing[*]}
-  brew install cmake meson ninja nasm pkg-config"
+  brew install cmake meson ninja nasm pkg-config autoconf automake libtool gettext"
   fi
   xcrun --sdk appletvos --show-sdk-path >/dev/null 2>&1 || die "no tvOS SDK; install the Apple TV platform in Xcode"
   xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1 || die "no iOS SDK"
@@ -125,6 +126,9 @@ sources() {
   fetch fribidi  "$FRIBIDI_URL"  "$FRIBIDI_SHA"
   fetch harfbuzz "$HARFBUZZ_URL" "$HARFBUZZ_SHA"
   fetch libass   "$LIBASS_URL"   "$LIBASS_SHA"
+  fetch xz       "$XZ_URL"       "$XZ_SHA"
+  fetch libarchive "$LIBARCHIVE_URL" "$LIBARCHIVE_SHA"
+  fetch zvbi     "$ZVBI_URL"     "$ZVBI_SHA"
   clone mbedtls  "$MBEDTLS_REPO" "$MBEDTLS_TAG"
   clone uavs3d   "$UAVS3D_REPO"  "$UAVS3D_TAG"
 }
@@ -366,6 +370,93 @@ build_deps() {
     -Dlibunibreak=disabled -Dasm=enabled \
     -Dtest=disabled -Dcompare=disabled -Dprofile=disabled \
     -Dfuzz=disabled -Dcheckasm=disabled
+
+  build_libarchive
+  build_zvbi
+  libxml2_pc
+}
+
+# Teletext decoding for FFmpeg's libzvbi_teletextdec. Only the library is built: the tree's
+# daemon, tools and tests want V4L, X11 and a proxy socket, none of which exist here.
+build_zvbi() {
+  [ -f "$PREFIX/.done-zvbi" ] && return 0
+  log "[$SLICE] zvbi"
+  local src="$SRC/zvbi" dir="$BUILD/zvbi"
+  if [ ! -f "$src/configure" ]; then
+    ( cd "$src" && LIBTOOLIZE="$(command -v glibtoolize || command -v libtoolize)" autoreconf -fi >"$SRC/zvbi-autoreconf.log" 2>&1 ) \
+      || { tail -40 "$SRC/zvbi-autoreconf.log"; die "zvbi: autoreconf failed ($SRC/zvbi-autoreconf.log)"; }
+  fi
+  local host
+  case "$ARCH" in arm64) host="aarch64-apple-darwin" ;; *) host="$ARCH-apple-darwin" ;; esac
+  rm -rf "$dir"; mkdir -p "$dir"
+  # Cross-compiling, configure cannot run its realloc(NULL, 0) probe and would substitute a
+  # replacement it never compiles; Darwin's answer is seeded instead.
+  ( cd "$dir" && "$src/configure" --host="$host" --prefix="$PREFIX" \
+      ac_cv_func_malloc_0_nonnull=yes ac_cv_func_realloc_0_nonnull=yes \
+      --disable-shared --enable-static --disable-nls \
+      --disable-v4l --disable-dvb --disable-bktr --disable-proxy --without-x \
+      --without-doxygen --disable-tests --disable-examples \
+      CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="$CFLAGS_COMMON" LDFLAGS="$LDFLAGS_COMMON" \
+      >"$BUILD/zvbi.log" 2>&1 ) || { tail -40 "$BUILD/zvbi.log"; die "zvbi: configure failed ($BUILD/zvbi.log)"; }
+  make -C "$dir/src" -j"$(sysctl -n hw.ncpu)" >>"$BUILD/zvbi.log" 2>&1 || { tail -40 "$BUILD/zvbi.log"; die "zvbi: build failed ($BUILD/zvbi.log)"; }
+  make -C "$dir/src" install >>"$BUILD/zvbi.log" 2>&1 || die "zvbi: install failed"
+  # Its own header directory, like libarchive: the flat include root is Libuavs3d's framework.
+  # The pc file is the top-level Makefile's to install, and that Makefile is never run.
+  mkdir -p "$PREFIX/include/zvbi" "$PREFIX/lib/pkgconfig"
+  mv "$PREFIX/include/libzvbi.h" "$PREFIX/include/zvbi/"
+  sed 's|^Cflags: -I${includedir}|Cflags: -I${includedir}/zvbi|' "$dir/zvbi-0.2.pc" >"$PREFIX/lib/pkgconfig/zvbi-0.2.pc"
+  touch "$PREFIX/.done-zvbi"
+}
+
+# FFmpeg's dash demuxer asks pkg-config for libxml-2.0. The SDK ships the library and its
+# headers with no pc file, so one is written for them: the app links the system libxml2.
+libxml2_pc() {
+  local pc="$PREFIX/lib/pkgconfig/libxml-2.0.pc"
+  [ -f "$pc" ] && return 0
+  local version
+  version="$(sed -n 's/^#define LIBXML_DOTTED_VERSION "\(.*\)"/\1/p' "$SYSROOT/usr/include/libxml2/libxml/xmlversion.h")"
+  [ -n "$version" ] || die "libxml2: no xmlversion.h in $SYSROOT"
+  mkdir -p "$PREFIX/lib/pkgconfig"
+  cat >"$pc" <<PC
+prefix=$SYSROOT/usr
+libdir=\${prefix}/lib
+includedir=\${prefix}/include
+
+Name: libXML
+Version: $version
+Description: libXML library version2, the SDK's own
+Libs: -L\${libdir} -lxml2
+Cflags: -I\${includedir}/libxml2
+PC
+}
+
+# The book reader's archive reader (native/ios/BookRenderer/BookArchive.swift): zip, tar,
+# RAR, RAR5 and 7-Zip, with the xz and 7-Zip codec from a liblzma built here.
+# liblzma is named by path: cross-compiling, find_package only looks inside the sysroot.
+# posix_spawn is unavailable on tvOS, so the external-program filter is compiled with no
+# child launcher and libarchive-fork-stub.c answers its two helpers with a failure.
+build_libarchive() {
+  cmake_build xz \
+    -DXZ_TOOL_XZ=OFF -DXZ_TOOL_XZDEC=OFF -DXZ_TOOL_LZMADEC=OFF -DXZ_TOOL_LZMAINFO=OFF \
+    -DXZ_DOC=OFF -DXZ_NLS=OFF -DXZ_MICROLZMA_ENCODER=OFF -DXZ_LZIP_DECODER=OFF
+  cmake_build libarchive \
+    -DLIBLZMA_INCLUDE_DIR="$PREFIX/include" -DLIBLZMA_LIBRARY="$PREFIX/lib/liblzma.a" \
+    -DHAVE_POSIX_SPAWNP=0 -DHAVE_FORK=0 -DHAVE_VFORK=0 \
+    -DENABLE_LZMA=ON -DENABLE_ZLIB=ON -DENABLE_BZip2=ON -DENABLE_ICONV=ON \
+    -DENABLE_ZSTD=OFF -DENABLE_LZ4=OFF -DENABLE_LZO=OFF \
+    -DENABLE_OPENSSL=OFF -DENABLE_MBEDTLS=OFF -DENABLE_NETTLE=OFF -DENABLE_LIBB2=OFF \
+    -DENABLE_LIBXML2=OFF -DENABLE_EXPAT=OFF \
+    -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_UNZIP=OFF \
+    -DENABLE_TEST=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF
+  [ -f "$PREFIX/.done-libarchive-stub" ] && return 0
+  local stub="$BUILD/libarchive-fork-stub.o"
+  "$CC" -c $CFLAGS_COMMON -I"$PREFIX/include" -o "$stub" "$HERE/libarchive-fork-stub.c"
+  "$AR" rs "$PREFIX/lib/libarchive.a" "$stub" 2>/dev/null
+  # Its own header directory: the flat include root is already Libuavs3d's framework headers,
+  # and two framework modules must not export the same header.
+  mkdir -p "$PREFIX/include/archive"
+  cp "$PREFIX/include/archive.h" "$PREFIX/include/archive_entry.h" "$PREFIX/include/archive/"
+  touch "$PREFIX/.done-libarchive-stub"
 }
 
 # -------------------------------------------------------------------- ffmpeg
@@ -400,6 +491,10 @@ build_ffmpeg() {
   # zlib is not autodetected here and mkvmerge deflates subtitle tracks by default: without
   # it matroskadec logs "Unsupported encoding type" and passes the compressed bytes straight
   # to the decoder, which yields no subtitles at all.
+  # Live TV: crypto is AES-128 HLS (the hls demuxer opens every encrypted segment through it),
+  # udp and rtp are multicast IPTV and RTSP's UDP transport, rtmp/rtmps, mms and data: URIs
+  # are what the rest of an IPTV list carries. libxml2 gates the dash demuxer, libzvbi is the
+  # teletext decoder. Hardcoded tables trade binary size for decoder start-up.
   ( cd "$dir" && "$SRC/ffmpeg/configure" \
       --prefix="$PREFIX" \
       --enable-cross-compile --target-os=darwin --arch="$ARCH" \
@@ -420,11 +515,12 @@ build_ffmpeg() {
       --enable-videotoolbox --enable-audiotoolbox --enable-metal \
       --enable-zlib \
       --enable-mbedtls --enable-libdav1d --enable-libuavs3d --enable-libass \
+      --enable-libxml2 --enable-libzvbi --enable-hardcoded-tables \
       --disable-encoders \
       --enable-encoder="h264_videotoolbox,hevc_videotoolbox,aac,alac,flac,pcm*,movtext" \
       --disable-muxers --enable-muxer=mp4 \
       --disable-protocols \
-      --enable-protocol=http,https,tls,tcp,file \
+      --enable-protocol=http,https,tls,tcp,file,crypto,udp,rtp,rtmp,rtmps,data,mmsh,mmst \
       --disable-bsfs --enable-bsf=pgs_frame_merge,dovi_rpu \
       --disable-filters \
       --enable-filter=yadif_videotoolbox,bwdif,yadif,scale_vt,transpose_vt,scale,format,null,copy,ass,subtitles,aresample,anull,aformat,loudnorm,dynaudnorm,compand \
@@ -551,6 +647,12 @@ archive_for() { # module prefix
           local merged="$2/lib/libass-merged.a"
           [ -f "$merged" ] || libtool -static -o "$merged" "${parts[@]}" 2>/dev/null
           echo "$merged" ;;
+    # liblzma is libarchive's private dependency (7-Zip, xz) and nothing else links it.
+    Libarchive)
+          [ -f "$2/lib/libarchive.a" ] && [ -f "$2/lib/liblzma.a" ] || return 1
+          local merged="$2/lib/libarchive-merged.a"
+          [ -f "$merged" ] || libtool -static -o "$merged" "$2/lib/libarchive.a" "$2/lib/liblzma.a" 2>/dev/null
+          echo "$merged" ;;
     # Libavcodec -> libavcodec.a, Libass -> libass.a.
     Lib*) local base; base="$(echo "${1#Lib}" | tr '[:upper:]' '[:lower:]')"
           [ -f "$2/lib/lib$base.a" ] && { echo "$2/lib/lib$base.a"; return 0; }
@@ -584,6 +686,8 @@ headers_for() { # module prefix
     Libdav1d)      echo "$2/include/dav1d" ;;
     Libuavs3d)     echo "$2/include" ;;
     Mbedtls)       echo "$2/include/mbedtls" ;;
+    Libarchive)    echo "$2/include/archive" ;;
+    Libzvbi)       echo "$2/include/zvbi" ;;
   esac
 }
 
@@ -594,9 +698,9 @@ DO_PACKAGE=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --clean) rm -rf "$WORK/prefix" "$WORK/build"; shift ;;
-    # Rebuild FFmpeg only, keeping the seven dependency trees. A configure-line
+    # Rebuild FFmpeg only, keeping the dependency trees. A configure-line
     # change costs ~2 min a slice this way instead of a 24 min full rebuild.
-    --refresh-ffmpeg) find "$WORK/prefix" -name ".done-ffmpeg" -delete 2>/dev/null; shift ;;
+    --refresh-ffmpeg) find "$WORK/prefix" -name ".done-ffmpeg" -delete 2>/dev/null || true; shift ;;
     --slice) ONLY_SLICE="$2"; DO_PACKAGE=0; shift 2 ;;
     *) die "unknown argument: $1" ;;
   esac

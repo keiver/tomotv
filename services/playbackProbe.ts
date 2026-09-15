@@ -4,7 +4,7 @@
  * One set of emit points feeding two sinks.
  *
  * SUITE sink: the playback regression suite (scripts/playback-regression.mjs)
- * deep-links the player with probe=1 and reads Documents/playback-probe.jsonl
+ * deep-links the player with probe=1 and reads Library/Caches/playback-probe.jsonl
  * back from the app container while playback is still live, so that file is
  * rewritten on every event and its URLs stay raw. Armed only by __DEV__ AND
  * probe=1.
@@ -80,7 +80,10 @@ export function getLastSessionVersion(): number {
 
 function flush(): void {
   try {
-    const file = new File(Paths.document, PROBE_FILENAME);
+    // Caches, beside the session log: tvOS gives an app no writable Documents
+    // directory, so on an Apple TV this wrote nothing at all and every device
+    // run of the regression suite read an empty file.
+    const file = new File(Paths.cache, PROBE_FILENAME);
     file.write(lines.join("\n") + "\n");
   } catch (error) {
     logger.warn("Playback probe write failed", error, { service: "PlaybackProbe" });

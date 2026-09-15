@@ -1,5 +1,6 @@
 import { BUTTON_BORDER_WIDTH, FocusableButton } from "@/components/FocusableButton";
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
 import { LayoutChangeEvent, NativeSyntheticEvent, StyleSheet, TargetedEvent, View } from "react-native";
 
@@ -75,7 +76,7 @@ export const ProgressButton = forwardRef<View, ProgressButtonProps>(function Pro
       onLayout={handleLayout}
       onFocus={handleFocus}
       onBlur={handleBlur}
-      accessibilityValue={accessibilityValue ?? (percent > 0 ? { min: 0, max: 100, now: percent, text: `${percent}% watched` } : undefined)}
+      accessibilityValue={accessibilityValue ?? (percent > 0 ? { min: 0, max: 100, now: percent, text: t("a11y.percentWatched").replace("{percent}", String(percent)) } : undefined)}
     />
   );
 });

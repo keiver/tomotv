@@ -11,6 +11,7 @@ jest.mock("@/services/playbackHold", () => ({
 jest.mock("@/services/localNetworkIdentity", () => ({
   getLocalNetworkInfo: jest.fn(),
   describeSubnet: jest.fn(),
+  parseIPv4: jest.requireActual("@/services/localNetworkIdentity").parseIPv4,
 }));
 
 jest.mock("../jellyfin/session", () => ({

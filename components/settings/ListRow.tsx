@@ -1,6 +1,6 @@
 import { AccountPill } from "@/components/settings/AccountPill";
-import { GLYPH_SIZE, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
-import { IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, settingsStyles } from "@/components/settings/styles";
+import { GLYPH_INK, glyphSize, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
+import { goldRowShadow, IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, SUBTITLE_GAP, SUBTITLE_LINE_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,7 +27,7 @@ const UNREAD_SIZE = IS_TV ? 13 : 10;
 /** The fresh dot, inline before the subtitle. */
 const FRESH_SIZE = IS_TV ? 11 : 8;
 const FRESH_GAP = IS_TV ? 8 : 5;
-const GUTTER = settingsStyles.listItem.paddingHorizontal + (POSTER_MARK_SIDE - GLYPH_SIZE) / 2;
+const GUTTER = settingsStyles.listItem.paddingHorizontal + (POSTER_MARK_SIDE - GLYPH_INK) / 2;
 const UNREAD_LEFT = GUTTER / 2 - settingsStyles.listItem.paddingHorizontal - UNREAD_SIZE / 2;
 
 interface ListRowProps {
@@ -44,8 +44,6 @@ interface ListRowProps {
   subtitleAccent?: string;
   /** A green dot before the subtitle: a Diagnostics session from the last few minutes. */
   subtitleDot?: boolean;
-  /** Tight pills in the subtitle's place (ServerRow's saved sign-ins). */
-  pills?: string[];
   /** Trailing mark, inked to match the fill, or a function drawing one (a green tick). Omit
    *  for a row that only states a value. */
   trailingIcon?: IoniconName | LeadingMark;
@@ -73,10 +71,13 @@ interface ListRowProps {
    * quality list in app/(tabs)/settings.tsx.
    */
   onFocus?: () => void;
+  onBlur?: () => void;
   disabled?: boolean;
   hasTVPreferredFocus?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
+  /** The row's right edge meets the people panel, not the card wall: no right rim on the gold fill. */
+  flushRight?: boolean;
   /** Per-surface metrics — the quality list pins its line heights for the section's height cap. */
   titleStyle?: StyleProp<TextStyle>;
   subtitleStyle?: StyleProp<TextStyle>;
@@ -120,7 +121,6 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     subtitle,
     subtitleAccent,
     subtitleDot = false,
-    pills,
     titlePill,
     unread = false,
     trailingIcon,
@@ -135,10 +135,12 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     accessibilityActions,
     onAccessibilityAction,
     onFocus,
+    onBlur,
     disabled = false,
     hasTVPreferredFocus = false,
     isFirst = false,
     isLast = false,
+    flushRight = false,
     titleStyle,
     subtitleStyle,
     accessibilityRole,
@@ -149,7 +151,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
   ref,
 ) {
   const actionable = Boolean(onPress);
-  const stacked = subtitle != null || !!pills?.length;
+  const stacked = subtitle != null;
   const [tileHeight, onTileLayout] = useTileHeight();
   const labelsBox = { minHeight: icon ? POSTER_MARK_SIDE : ROW_CONTENT_MIN_HEIGHT };
 
@@ -161,6 +163,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
       accessibilityActions={accessibilityActions}
       onAccessibilityAction={onAccessibilityAction}
       onFocus={onFocus}
+      onBlur={onBlur}
       disabled={disabled}
       isTVSelectable={!disabled}
       hasTVPreferredFocus={hasTVPreferredFocus}
@@ -182,7 +185,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
           actionable && pressed && settingsStyles.listItemPressed,
           // A gold row covers the card's inset shadow; re-paint the parts it hides
           // (side rim always, plus the lip at whichever card edge it sits on).
-          gold && (isFirst && isLast ? settingsStyles.rowShadowTopBottom : isFirst ? settingsStyles.rowShadowTop : isLast ? settingsStyles.rowShadowBottom : settingsStyles.rowShadowSides),
+          gold && goldRowShadow(isFirst, isLast, flushRight),
           !actionable && (focused || pressed) && styles.rowFocusedNeutral,
           disabled && styles.rowDisabled,
         ];
@@ -199,13 +202,16 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
           <View style={settingsStyles.listItemContent} collapsable={false}>
             <View style={styles.left} collapsable={false}>
               {unread ? <View style={[styles.unread, { top: (tileHeight - UNREAD_SIZE) / 2 }]} /> : null}
-              {icon ? <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={GLYPH_SIZE} color={accentInk} />}</LeadingTile> : null}
+              {icon ? (
+                <LeadingTile height={tileHeight}>{typeof icon === "function" ? icon({ color: accentInk }) : <Ionicons name={icon} size={glyphSize(icon)} color={accentInk} />}</LeadingTile>
+              ) : null}
               <View style={[styles.labels, labelsBox]} onLayout={icon ? onTileLayout : undefined} collapsable={false}>
                 <View style={styles.titleRow} collapsable={false}>
                   <Text
                     style={[
                       settingsStyles.listItemTitle,
                       stacked && settingsStyles.listItemTitleStacked,
+                      stacked && styles.titleStacked,
                       titleStyle,
                       tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
                       onGold && settingsStyles.listItemTitleFocused,
@@ -223,13 +229,6 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                       {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
                       {subtitle}
                     </Text>
-                  </View>
-                ) : null}
-                {pills?.length ? (
-                  <View style={styles.pills}>
-                    {pills.map((pill, index) => (
-                      <AccountPill key={index} label={pill} onGold={onGold} />
-                    ))}
                   </View>
                 ) : null}
               </View>
@@ -285,11 +284,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
   },
+  // A stacked pair runs tighter than the shared title leading so both lines sit inside the tile.
+  titleStacked: {
+    lineHeight: IS_TV ? undefined : IS_PAD ? 24 : 22,
+  },
   // The shared listItemSubtitle sits almost at title size, which reads as two
   // competing lines when stacked. Drop it a step and give it room.
   subtitle: {
-    fontSize: IS_TV ? 22 : IS_PAD ? 15 : 14,
-    marginTop: IS_TV ? 4 : 1,
+    fontSize: IS_TV ? 22 : IS_PAD ? 14 : 13,
+    lineHeight: SUBTITLE_LINE_HEIGHT,
+    marginTop: SUBTITLE_GAP,
     flexShrink: 1,
   },
   subtitleRow: { flexDirection: "row", alignItems: "center" },
@@ -303,13 +307,6 @@ const styles = StyleSheet.create({
   // One line, never wrapping: what does not fit is clipped, the way the subtitle truncates.
   titleRow: { flexDirection: "row", alignItems: "center", gap: IS_TV ? 12 : 8 },
   titleText: { flexShrink: 1 },
-  pills: {
-    flexDirection: "row",
-    alignSelf: "flex-start",
-    gap: IS_TV ? 8 : 6,
-    marginTop: IS_TV ? 6 : 4,
-    overflow: "hidden",
-  },
   // The spinner box is narrower than the checkmark's, so the slot is fixed at the
   // mark's width and centres whichever it holds, on the row's full height.
   trailing: {

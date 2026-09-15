@@ -7,6 +7,7 @@
  * all of it and render identically anywhere.
  */
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import opentype from "opentype.js";
 
 // eslint-disable-next-line import/no-named-as-default-member -- Node resolves main, the CJS build, where `parse` is not a named export.
@@ -16,6 +17,27 @@ const { parse } = opentype;
 export function loadFont(file) {
   const buf = fs.readFileSync(file);
   return parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+}
+
+/** A face keeps its path: HarfBuzz shapes from the file, opentype draws from the parse. */
+export function loadFace(file) {
+  return { font: loadFont(file), path: file };
+}
+
+const shapeCache = new Map();
+
+/**
+ * HarfBuzz glyph run for one string, in font units so one shaping serves every
+ * size. opentype.js maps characters to glyphs and stops, which leaves Devanagari
+ * unreordered and its conjuncts unformed.
+ */
+function shape(face, text) {
+  const key = `${face.path}\u0000${text}`;
+  const hit = shapeCache.get(key);
+  if (hit) return hit;
+  const out = JSON.parse(execFileSync("hb-shape", ["--output-format=json", "--no-glyph-names", face.path, text], { encoding: "utf8" }));
+  shapeCache.set(key, out);
+  return out;
 }
 
 /**
@@ -52,30 +74,97 @@ export function capRatio(font) {
   return h.yMax / font.unitsPerEm;
 }
 
-/**
- * Glyph positions for one line, with kerning and tracking.
- *
- * `tracking` is in em, the way a type spec states it. opentype's own getPath
- * kerns but cannot track, so the run is laid out a glyph at a time.
- */
-export function layoutLine(font, text, size, tracking = 0) {
-  const scale = size / font.unitsPerEm;
-  const track = tracking * size;
-  const glyphs = font.stringToGlyphs(text);
-  const positions = [];
-  let x = 0;
-  for (let i = 0; i < glyphs.length; i++) {
-    positions.push({ glyph: glyphs[i], x });
-    let advance = glyphs[i].advanceWidth * scale;
-    if (i + 1 < glyphs.length) advance += font.getKerningValue(glyphs[i], glyphs[i + 1]) * scale;
-    x += advance + track;
+/** A stack is faces in priority order; the first one covering a character sets that run. */
+const stackOf = (face) => (Array.isArray(face) ? face : [face]);
+
+/** Runs of one face each. Noto Devanagari carries no Latin, so "Jellyfin" needs the next face. */
+function runsOf(stack, text) {
+  const covers = (face, ch) => (face.font.charToGlyph(ch)?.index ?? 0) !== 0;
+  const out = [];
+  for (const ch of text) {
+    const face = stack.find((f) => covers(f, ch)) ?? stack[0];
+    const last = out[out.length - 1];
+    if (last && last.face === face) last.text += ch;
+    else out.push({ face, text: ch });
   }
-  return { positions, width: glyphs.length ? x - track : 0, size };
+  return out;
+}
+
+/** Advance and ink box of one line, without building outlines. Baseline is y = 0. */
+export function measureLine(face, text, size, tracking = 0) {
+  const stack = stackOf(face);
+  let x = 0;
+  let top = Infinity;
+  let bot = -Infinity;
+  for (const run of runsOf(stack, text)) {
+    const scale = size / run.face.font.unitsPerEm;
+    for (const g of shape(run.face, run.text)) {
+      const m = run.face.font.glyphs.get(g.g).getMetrics();
+      if (Number.isFinite(m.yMax) && Number.isFinite(m.yMin)) {
+        top = Math.min(top, -(m.yMax + g.dy) * scale);
+        bot = Math.max(bot, -(m.yMin + g.dy) * scale);
+      }
+      x += g.ax * scale + tracking * size;
+    }
+  }
+  const width = x ? x - tracking * size : 0;
+  return Number.isFinite(top) ? { width, top, bot } : { width, top: 0, bot: 0 };
+}
+
+const capCache = new Map();
+
+/**
+ * Cap height in em, taken from the face and not from the string. An accented
+ * capital inks about a third higher than a plain one, so a crown measured off
+ * the glyphs let one Ü or É scale a whole language's set down by a tenth against
+ * English. The accent overhangs into the rail gap instead.
+ */
+function capEm(face) {
+  const hit = capCache.get(face.path);
+  if (hit !== undefined) return hit;
+  const declared = face.font.tables.os2?.sCapHeight;
+  const cap = declared ? declared / face.font.unitsPerEm : -measureLine(face, "H", 1).top;
+  capCache.set(face.path, cap);
+  return cap;
+}
+
+/**
+ * Two block metrics in em: `crown` is what the type reads as, from cap height,
+ * and `span` is the room the drawn ink needs. `capRatio` reports neither for
+ * Devanagari or CJK.
+ */
+export function blockEm(face, lines, lineHeight = 1.16) {
+  if (!lines.length) return { crown: 0, span: 0 };
+  const first = measureLine(face, lines[0], 1);
+  const last = measureLine(face, lines[lines.length - 1], 1);
+  const steps = (lines.length - 1) * lineHeight;
+  return { crown: steps + capEm(face), span: steps + last.bot - first.top };
+}
+
+/**
+ * Placed glyph outlines for one line, shaped across the stack.
+ *
+ * `tracking` is in em, the way a type spec states it, and is added per glyph
+ * because HarfBuzz reports advances without it.
+ */
+export function layoutLine(face, text, size, tracking = 0) {
+  const stack = stackOf(face);
+  const track = tracking * size;
+  const placed = [];
+  let x = 0;
+  for (const run of runsOf(stack, text)) {
+    const scale = size / run.face.font.unitsPerEm;
+    for (const g of shape(run.face, run.text)) {
+      placed.push({ face: run.face, id: g.g, x: x + g.dx * scale, y: -g.dy * scale });
+      x += g.ax * scale + track;
+    }
+  }
+  return { placed, width: placed.length ? x - track : 0, size };
 }
 
 /** Largest size at or below `size` whose longest line fits `maxWidth`. */
-export function fitSize(font, lines, size, tracking, maxWidth) {
-  const widest = Math.max(...lines.map((l) => layoutLine(font, l, size, tracking).width), 1);
+export function fitSize(face, lines, size, tracking, maxWidth) {
+  const widest = Math.max(...lines.map((l) => measureLine(face, l, size, tracking).width), 1);
   return widest <= maxWidth ? size : (size * maxWidth) / widest;
 }
 
@@ -86,10 +175,11 @@ export function fitSize(font, lines, size, tracking, maxWidth) {
  * bounds, which is what a caller needs to centre a block against a plate rather
  * than against the font's em box.
  */
-export function typeset(font, lines, { size, tracking = 0, lineHeight = 1.16, x = 0, y = 0, align = "left", boxWidth = 0 }) {
-  const cap = capRatio(font) * size;
+export function typeset(face, lines, { size, tracking = 0, lineHeight = 1.16, x = 0, y = 0, align = "left", boxWidth = 0 }) {
+  const stack = stackOf(face);
+  const cap = capRatio(stack[0].font) * size;
   const step = size * lineHeight;
-  const laid = lines.map((line) => layoutLine(font, line, size, tracking));
+  const laid = lines.map((line) => layoutLine(face, line, size, tracking));
   const blockWidth = Math.max(...laid.map((l) => l.width), 0);
   /** Per line as well as joined, so a caller can fill one line a different colour. */
   const perLine = [];
@@ -99,8 +189,8 @@ export function typeset(font, lines, { size, tracking = 0, lineHeight = 1.16, x 
     const offset = align === "center" ? (room - line.width) / 2 : align === "right" ? room - line.width : 0;
     const baseline = y + cap + i * step;
     const commands = [];
-    for (const { glyph, x: gx } of line.positions) {
-      const d = pathData(glyph.getPath(x + offset + gx, baseline, size));
+    for (const g of line.placed) {
+      const d = pathData(g.face.font.glyphs.get(g.id).getPath(x + offset + g.x, baseline + g.y, size));
       if (d) commands.push(d);
     }
     perLine.push(commands.join(" "));

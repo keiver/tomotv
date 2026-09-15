@@ -19,6 +19,7 @@ import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 
@@ -52,8 +53,6 @@ interface LibraryGridProps {
   onLoadMore: () => void;
   /** Folder path for the header, innermost last. */
   crumbs?: FolderStackEntry[];
-  /** Go up one level — wired to the touch back row. On TV the Menu button pops the stack natively. */
-  onBack?: () => void;
   /** Opens the Filters panel. Renders the header Filters button only when provided ("folder" variant). */
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
@@ -68,6 +67,8 @@ interface LibraryGridProps {
    * pages forward to find it) the first card keeps the focus, so focus is never left nowhere.
    */
   focusItemId?: string;
+  /** Space above the first row. Defaults to clearing the tvOS tab bar; a host whose own header already sits below it passes 0. */
+  topClearance?: number;
 }
 
 /**
@@ -85,12 +86,12 @@ export function LibraryGrid({
   onItemPress,
   onLoadMore,
   crumbs,
-  onBack,
   onOpenFilters,
   activeFilterCount = 0,
   onItemLongPress,
   onRetry,
   focusItemId,
+  topClearance: topClearanceProp,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -219,7 +220,7 @@ export function LibraryGrid({
   // TV bottom clearance is a design gap, never the tab bar height: the tab bar is at the TOP
   // there, and padding the list by 210px created a phantom band of scrollable space below the last
   // row, which the focus engine then scrolled to reveal.
-  const topClearance = IS_TV ? 40 + insets.top : 16;
+  const topClearance = topClearanceProp ?? (IS_TV ? 40 + insets.top : 16);
   const bottomClearance = IS_TV ? 40 + insets.bottom : 20;
   // Edge padding subsumes the safe-area inset instead of stacking on top of it, so cards fill the
   // safe area (see gridEdgePadding). The home shelves derive their card widths the same way,
@@ -511,7 +512,7 @@ export function LibraryGrid({
     if (!isLoadingMore) return null;
     return (
       <View style={styles.footerLoading}>
-        <LoadingRow label="Loading more items" />
+        <LoadingRow label={t("library.loadingMore")} />
       </View>
     );
   }, [isLoadingMore]);
@@ -651,21 +652,21 @@ export function LibraryGrid({
       if (recoveryStatus === "running") {
         return (
           <View style={styles.centerContainer}>
-            <LoadingRow label="Looking for your server" />
-            <Text style={styles.errorText}>Checking this network for your Jellyfin server</Text>
+            <LoadingRow label={t("common.lookingForServer")} />
+            <Text style={styles.errorText}>{t("common.checkingNetwork")}</Text>
           </View>
         );
       }
       return (
         <View style={styles.centerContainer}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-          <Text style={styles.errorTitle}>Unable to Load</Text>
+          <Text style={styles.errorTitle}>{t("common.unableToLoad")}</Text>
           <Text style={styles.errorText}>{error}</Text>
 
           <View style={styles.buttonGroup}>
             {onRetry ? (
               <FocusableButton
-                title="Retry"
+                title={t("common.retry")}
                 variant="primary"
                 onPress={onRetry}
                 icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
@@ -673,7 +674,7 @@ export function LibraryGrid({
               />
             ) : null}
             <FocusableButton
-              title="Switch Server"
+              title={t("common.switchServer")}
               variant="secondary"
               onPress={handleSwitchServer}
               icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ACCENT} />}
@@ -687,7 +688,7 @@ export function LibraryGrid({
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
-        <Text style={styles.emptyText}>{activeFilterCount > 0 ? "No items match the current filters" : "This folder is empty"}</Text>
+        <Text style={styles.emptyText}>{activeFilterCount > 0 ? t("library.emptyNoMatch") : t("library.emptyFolder")}</Text>
       </View>
     );
   }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer]);
@@ -701,7 +702,6 @@ export function LibraryGrid({
     <View onLayout={handleHeaderLayout}>
       <LibraryHeader
         stack={crumbs ?? []}
-        onBack={onBack ?? (() => {})}
         onOpenFilters={onOpenFilters}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}

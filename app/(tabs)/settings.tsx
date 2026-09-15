@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { BrandCorners } from "@/components/brand-corners";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { LoadingRow } from "@/components/loading-row";
@@ -14,7 +15,7 @@ import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settin
 import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
-import { DEMO_USERNAME, getStoredUserName, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
+import { DEMO_USERNAME, getStoredUserName, getUserImageUrl, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
 import { logger } from "@/utils/logger";
 import { connectedLine } from "@/utils/syncPlayCopy";
@@ -23,6 +24,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { t } from "@/services/i18n";
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
@@ -38,14 +40,25 @@ const STORAGE_KEYS = {
 // the connection LinkSpeedHeading measured, off the player's own entry rule.
 // The leading mark is drawn from `value`: a picture block per rung, the connection
 // meter on Auto. No glyph is stored here.
-const QUALITY_PRESETS: { label: string; value: number }[] = [
-  { label: "Auto", value: 5 },
-  { label: "Up to 4K", value: 4 },
-  { label: "Up to 1080p", value: 3 },
-  { label: "Up to 720p", value: 2 },
-  { label: "Up to 540p", value: 1 },
-  { label: "Up to 480p", value: 0 },
-];
+const QUALITY_PRESETS: { value: number }[] = [{ value: 5 }, { value: 4 }, { value: 3 }, { value: 2 }, { value: 1 }, { value: 0 }];
+
+/** The row label for a preset value, in the active language. */
+const qualityLabel = (value: number): string => {
+  switch (value) {
+    case 5:
+      return t("settings.quality.auto");
+    case 4:
+      return t("settings.quality.max4k");
+    case 3:
+      return t("settings.quality.max1080");
+    case 2:
+      return t("settings.quality.max720");
+    case 1:
+      return t("settings.quality.max540");
+    default:
+      return t("settings.quality.max480");
+  }
+};
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
 
@@ -61,6 +74,7 @@ export default function SettingsScreen() {
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
   const [connectedUserName, setConnectedUserName] = useState("");
+  const [connectedUserId, setConnectedUserId] = useState("");
   // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
   // highlighted row matches what playback actually uses before a choice is saved
   const [videoQuality, setVideoQuality] = useState(5);
@@ -83,6 +97,7 @@ export default function SettingsScreen() {
       // no-auto-connect behavior.
       if (savedUrl && savedKey && savedUserId) {
         setConnectedServerUrl(savedUrl || "");
+        setConnectedUserId(savedUserId);
         // Demo sessions store no username (demo.ts writes only url/key/userId),
         // but the login itself is AuthenticateByName with the fixed
         // DEMO_USERNAME account, so the flag maps to that name.
@@ -181,15 +196,17 @@ export default function SettingsScreen() {
   const carried = carriedRungs(measuredBps);
   const rowSubtitle = (preset: { value: number }) => {
     if (preset.value === ORIGINAL_INDEX) {
-      if (measuredBps == null) return "Adapts as it plays";
-      return carried === 0 ? `Only ${PLAYER_PRESETS[0].label} for now` : `Up to ${PLAYER_PRESETS[carried - 1].label} for now`;
+      if (measuredBps == null) return t("settings.quality.adapts");
+      return carried === 0 ? t("settings.quality.onlyFor").replace("{label}", PLAYER_PRESETS[0].label) : t("settings.quality.upToFor").replace("{label}", PLAYER_PRESETS[carried - 1].label);
     }
-    const needs = `Needs ${presetNeedsMbps(preset.value)} Mbps`;
+    const needs = t("settings.quality.needsMbps").replace("{mbps}", String(presetNeedsMbps(preset.value)));
     if (measuredBps == null) return needs;
-    if (linkCarriesPreset(measuredBps, preset.value)) return `${needs}, plays in full`;
+    if (linkCarriesPreset(measuredBps, preset.value)) return t("settings.quality.playsFull").replace("{needs}", needs);
     // A pin is a ceiling: the session opens at the rung the link carries and climbs toward it.
     const opensAt = pickStartupIndex(measuredBps, preset.value, null);
-    return opensAt === preset.value ? `${needs}, may stall` : `${needs}, plays ${PLAYER_PRESETS[opensAt].label} for now`;
+    return opensAt === preset.value
+      ? t("settings.quality.mayStall").replace("{needs}", needs)
+      : t("settings.quality.playsFor").replace("{needs}", needs).replace("{label}", PLAYER_PRESETS[opensAt].label);
   };
 
   // After a login from this screen, flip to the connected card, then drop the user on the root
@@ -235,7 +252,7 @@ export default function SettingsScreen() {
       await SecureStore.setItemAsync(STORAGE_KEYS.VIDEO_QUALITY, qualityValue.toString());
     } catch (error) {
       logger.error("Error saving video quality", error);
-      Alert.alert("Error", "Failed to save video quality");
+      Alert.alert(t("common.error"), t("settings.qualitySaveFailed"));
     }
   };
 
@@ -244,7 +261,7 @@ export default function SettingsScreen() {
       <View style={styles.screenContainer}>
         <AmbientBackground />
         <View style={screenStyles.loadingContainer}>
-          <LoadingRow label="Loading settings" />
+          <LoadingRow label={t("settings.loading")} />
         </View>
       </View>
     );
@@ -260,6 +277,7 @@ export default function SettingsScreen() {
           corners are also clear of the centred content column (1000pt wide, so
           x 460-1460 on a 1920 screen), so their frames never intersect a row. */}
       <AmbientBackground />
+      <BrandCorners />
 
       <ScrollView
         ref={pageRef}
@@ -274,29 +292,33 @@ export default function SettingsScreen() {
         <View style={styles.contentContainer}>
           {/* Phone: same 28pt title header the Search tab uses, flush with the content line.
               TV has no screen titles (the top tab bar names the screen). */}
-          {!Platform.isTV && <Text style={styles.screenTitle}>Settings</Text>}
+          {!Platform.isTV && <Text style={styles.screenTitle}>{t("tab.settings")}</Text>}
 
           <View
             style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, !Platform.isTV && screenStyles.serverHeader, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>
             {/* Fixed now: the login steps that used to retitle this are their own routes
                 (app/connect), each carrying its own header. The logged-out spacing matches
                 the stand-in screen Home and Search render, which is the same view. */}
-            <Text style={styles.sectionHeaderText}>JELLYFIN SERVER</Text>
+            <Text style={styles.sectionHeaderText}>{t("settings.jellyfinServer")}</Text>
           </View>
 
           {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
 
           {screenState === "CONNECTED" && (
-            <ConnectedSection serverUrl={connectedServerUrl} userName={connectedUserName} onSwitchServer={handleSwitchServer}>
+            <ConnectedSection
+              serverUrl={connectedServerUrl}
+              userName={connectedUserName}
+              userImageUri={connectedUserId ? getUserImageUrl(connectedServerUrl, connectedUserId) : undefined}
+              onSwitchServer={handleSwitchServer}>
               {/* Shown unless the server has said no. Gating on a resolved access instead
                   mounted the row after /Users/Me came back, which re-rounded the card under
                   the reader on every cold open. */}
               {syncPlay?.access !== "None" ? (
                 <ListRow
-                  icon="people-outline"
-                  title="SyncPlay"
+                  icon="people"
+                  title={t("settings.syncplay")}
                   unread={!!syncPlay?.group}
-                  subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : "Play in sync with others"}
+                  subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : t("settings.syncplaySubtitle")}
                   trailingIcon="chevron-forward"
                   onPress={() => router.push("/syncplay")}
                   isLast
@@ -322,7 +344,7 @@ export default function SettingsScreen() {
                       <ListRow
                         key={preset.value}
                         icon={({ color }) => (preset.value === ORIGINAL_INDEX ? <LinkLadder carried={carried} color={color} /> : <QualityMark value={preset.value} color={color} />)}
-                        title={preset.label}
+                        title={qualityLabel(preset.value)}
                         subtitle={rowSubtitle(preset)}
                         // Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT times a
                         // row count, and that arithmetic only holds if these two lines measure
@@ -335,7 +357,7 @@ export default function SettingsScreen() {
                         onPress={() => handleQualityChange(preset.value)}
                         onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
                         isFirst={index === 0}
-                        accessibilityLabel={preset.label}
+                        accessibilityLabel={qualityLabel(preset.value)}
                         accessibilityHint={rowSubtitle(preset)}
                         accessibilityState={{ selected }}
                       />
@@ -343,7 +365,7 @@ export default function SettingsScreen() {
                   })}
                 </ScrollView>
                 <SectionFooter>
-                  <Text style={styles.sectionNote}>Your files play as they are, at full quality. This setting only applies when the server has to transcode.</Text>
+                  <Text style={styles.sectionNote}>{t("settings.transcodeFooter")}</Text>
                 </SectionFooter>
               </View>
             </>

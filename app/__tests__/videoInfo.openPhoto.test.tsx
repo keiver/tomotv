@@ -46,7 +46,6 @@ jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }))
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("expo-image", () => ({ Image: () => null }));
-jest.mock("expo-linear-gradient", () => ({ LinearGradient: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
 let openPress: (() => void) | null = null;
@@ -72,6 +71,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   isAudioItem: () => false,
   isFolder: () => false,
   isPhoto: (candidate: JellyfinItem) => candidate.Type === "Photo",
+  isBook: (candidate: JellyfinItem) => candidate.Type === "Book",
   notifyResumeChange: jest.fn(),
   setVideoFavorite: jest.fn(async () => {}),
   setVideoPlayed: jest.fn(async () => {}),

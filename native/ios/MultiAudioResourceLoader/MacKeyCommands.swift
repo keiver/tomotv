@@ -40,6 +40,8 @@ final class MacKeyCommandsViewController: UIViewController {
         (UIKeyCommand.inputRightArrow, .command, "nextTrack", "Next Track"),
         ("f", .command, "search", "Search"),
         (",", .command, "settings", "Settings"),
+        ("=", .command, "zoomIn", "Zoom In"),
+        ("-", .command, "zoomOut", "Zoom Out"),
     ]
 
     /// Keys offered only while a screen has claimed them. Registered unconditionally the bare

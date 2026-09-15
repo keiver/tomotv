@@ -5,6 +5,7 @@ import { authenticateByName, generateDeviceId, getSavedAccounts, saveAuthResult 
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useRef, useState } from "react";
 import { Alert, TextInput } from "react-native";
+import { t } from "@/services/i18n";
 
 /**
  * Username and password step.
@@ -31,7 +32,7 @@ export default function LoginScreen() {
   const handleSignIn = async () => {
     const trimmedUser = username.trim();
     if (!trimmedUser) {
-      Alert.alert("Missing Username", "Please enter your username.");
+      Alert.alert(t("connect.missingUsername"), t("connect.enterUsername"));
       return;
     }
 
@@ -47,14 +48,18 @@ export default function LoginScreen() {
       await saveAuthResult(cleanUrl, auth.AccessToken, auth.User.Id, auth.User.Name, serverName, "password", params.serverId, deviceId);
       await finishLogin();
     } catch (error) {
-      Alert.alert("Sign In Failed", error instanceof Error ? error.message : "Authentication failed.");
+      Alert.alert(t("connect.signInFailed"), error instanceof Error ? error.message : t("connect.authFailed"));
     } finally {
       setIsSigningIn(false);
     }
   };
 
   return (
-    <ConnectStepScreen header={`Sign in into ${serverName || "Jellyfin server"}`.toUpperCase()} centered>
+    <ConnectStepScreen
+      header={t("connect.signInTo")
+        .replace("{server}", serverName || "Jellyfin server")
+        .toUpperCase()}
+      centered>
       <UsernamePasswordSection
         username={username}
         setUsername={setUsername}

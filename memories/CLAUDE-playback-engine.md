@@ -132,11 +132,20 @@ and refuse to link on tvOS. Both are gone.
 
 `npm run probe:codecs` prints the truth by `av_codec_iterate`. Never infer it
 from symbols: the static archives carry object files for codecs that were never
-enabled. The build registers **519 decoders** (271 video, 226 audio, 22
+enabled. The build registers **520 decoders** (271 video, 226 audio, 22
 subtitle) and exactly five audio encoders plus the two VideoToolbox video ones.
 The output side is pruned hard on purpose: one muxer (`mp4`), one bitstream
 filter (`pgs_frame_merge`), a named filter list. Decoders, demuxers and parsers
 are left entirely enabled — that is the point of owning the build.
+
+**DASH and teletext are in the build since ffmpeg-n8.1.2-tomo.5.** The `dash` demuxer needs
+libxml2 (`build.sh` writes a pc for the SDK's `libxml2.tbd`, podspec links `xml2`); teletext
+decodes through `libzvbi_teletextdec`. The release also adds the protocols `crypto` (AES-128
+HLS, the reason the Pluto channel failed on the engine), `udp`, `rtp`, `rtmp`, `rtmps`, `data`,
+`mmsh`, `mmst`, each checked by name in `scripts/ffmpeg/linktest.c`. `ImageSubtitleDecoder`
+opens teletext with `txt_page=subtitle` on the page's own 492x250 canvas, measured from the
+first rect. `isManifestSource` takes `.mpd`/`dash`; `originVariantUrl` hands an MPD over whole
+and refuses one carrying `ContentProtection`.
 
 **The allowlists use the names FFPROBE reports**, which is what Jellyfin puts in
 `MediaStream.Codec`, not the decoder's own name. These differ and have bitten

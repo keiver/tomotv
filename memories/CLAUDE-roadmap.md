@@ -137,7 +137,7 @@ Version is the one whose changelog carries it.
 | Library  | Jellyseerr discover and request                                  | Open     | second ring, no measured demand                      |
 | Library  | Multiserver View                                                 | Open     | 3.0.0                                                |
 | Library  | Deep links (`tomotv:///player?videoId=`)                         | Shipped  | 2.0.0 Top Shelf; works from any caller, undocumented |
-| Library  | Live TV                                                          | Open     | second ring                                          |
+| Library  | Live TV: guide, DVR, channels through the engine                 | Shipped  | 2.2.6                                                |
 | Library  | Trakt scrobbling                                                 | Open     | second ring                                          |
 | Library  | OpenSubtitles download                                           | Open     | second ring, built once and removed                  |
 | Accounts | Saved sign-ins, per-account DeviceId, Continue as, Switch Server | Shipped  | 2.1.0                                                |
@@ -209,7 +209,7 @@ with per-account DeviceId already cover the storage half.
 ### Second ring (prioritise by demand)
 
 Jellyseerr (see field lesson 1), Trakt scrobbling, OpenSubtitles download,
-Live TV, secondary subtitles, iCloud settings sync, Catalyst build.
+secondary subtitles, iCloud settings sync, Catalyst build.
 
 ## Deliberate non-goals
 

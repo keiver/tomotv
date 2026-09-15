@@ -1,11 +1,13 @@
 import { ServerRow } from "@/components/settings/ServerRow";
+import { DEMO_ADDRESS } from "@/services/jellyfinApi";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT, settingsStyles } from "./styles";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useRef, useState } from "react";
+import React, { forwardRef, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, TextInput, View } from "react-native";
 import Animated, { Easing, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
+import { t } from "@/services/i18n";
 
 const DURATION = 260;
 const EASING = Easing.out(Easing.cubic);
@@ -21,6 +23,11 @@ interface AddServerRowProps {
   /** The CTA was pressed and the field is taking the slot. */
   onReveal?: () => void;
   disabled?: boolean;
+  /** The CTA meets the people panel on its right (TV): no right rim on the gold fill. */
+  flushRight?: boolean;
+  /** tvOS focus arrival on and departure from the CTA. */
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 /**
@@ -46,7 +53,10 @@ interface AddServerRowProps {
  * an onLayout from a subtree that is hidden until the animation starts, so the
  * measurement never arrived and the CTA did nothing at all.
  */
-export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidating, onConnect, onReveal, disabled = false }: AddServerRowProps) {
+export const AddServerRow = forwardRef<View, AddServerRowProps>(function AddServerRow(
+  { serverUrl, setServerUrl, serverUrlRef, isValidating, onConnect, onReveal, disabled = false, flushRight = false, onFocus, onBlur }: AddServerRowProps,
+  ref,
+) {
   const [open, setOpen] = useState(false);
   // True only while the roll is in flight, when both rows have to be on screen.
   const [rolling, setRolling] = useState(false);
@@ -111,21 +121,31 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
   return (
     <View style={styles.slot}>
       <Animated.View style={[styles.layer, ctaStyle, ctaGone && styles.gone]}>
-        <ServerRow variant="add" name="Add Server" onPress={reveal} disabled={disabled} />
+        <ServerRow
+          ref={ref}
+          variant="add"
+          name={t("settings.addServer")}
+          subtitle={t("connect.serverAddress")}
+          onPress={reveal}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          disabled={disabled}
+          flushRight={flushRight}
+        />
       </Animated.View>
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
         <View style={styles.fieldRow}>
-          <Ionicons name="add-circle-outline" size={IS_TV ? 32 : 22} color={COLORS.ACCENT} />
+          <Ionicons name="add-circle" size={IS_TV ? 32 : 22} color={COLORS.ACCENT} />
           {/* The same shared sunken field the login inputs and the Search tab use;
               this call site adds layout only. */}
           <SunkenTextInput
             ref={serverUrlRef}
             containerStyle={styles.fieldWrapper}
             value={serverUrl}
-            placeholder="Enter your server address"
+            placeholder={DEMO_ADDRESS}
             placeholderTextColor={COLORS.TEXT_SECONDARY}
-            accessibilityLabel="Server address, we detect the protocols automatically"
+            accessibilityLabel={t("connect.serverAddressHint")}
             autoCorrect={false}
             autoCapitalize="none"
             keyboardType="url"
@@ -147,7 +167,7 @@ export function AddServerRow({ serverUrl, setServerUrl, serverUrlRef, isValidati
       </Animated.View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   // Fixed at one slot: the swap happens inside it, so the rows below never move.

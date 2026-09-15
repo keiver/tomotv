@@ -1,9 +1,11 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { settingsStyles } from "./styles";
 import { COLORS } from "@/constants/colors";
 import React from "react";
 import { Platform, Text, TextInput, View } from "react-native";
+import { t } from "@/services/i18n";
 
 interface UsernamePasswordSectionProps {
   username: string;
@@ -24,15 +26,15 @@ export function UsernamePasswordSection({ username, setUsername, password, setPa
         {/* No server badge: the screen header names the server (app/connect/login.tsx). */}
         <View style={settingsStyles.formRow}>
           <View style={settingsStyles.inputContainer}>
-            <Text style={settingsStyles.inputLabel}>Username</Text>
+            <Text style={settingsStyles.inputLabel}>{t("connect.username")}</Text>
             <SunkenTextInput
               ref={usernameRef}
               value={username}
               // Placeholders show the SHAPE of the answer; the label already says which field
               // this is, so repeating it there tells the viewer nothing.
-              placeholder="Ex. demo"
+              placeholder={t("connect.usernameExample")}
               placeholderTextColor={COLORS.TEXT_SECONDARY}
-              accessibilityLabel="Username"
+              accessibilityLabel={t("connect.username")}
               autoCorrect={false}
               autoCapitalize="none"
               onChangeText={setUsername}
@@ -48,13 +50,13 @@ export function UsernamePasswordSection({ username, setUsername, password, setPa
 
         <View style={settingsStyles.formRow}>
           <View style={settingsStyles.inputContainer}>
-            <Text style={settingsStyles.inputLabel}>Password</Text>
+            <Text style={settingsStyles.inputLabel}>{t("connect.password")}</Text>
             <SunkenTextInput
               ref={passwordRef}
               value={password}
               placeholder="••••••••"
               placeholderTextColor={COLORS.TEXT_SECONDARY}
-              accessibilityLabel="Password"
+              accessibilityLabel={t("connect.password")}
               autoCorrect={false}
               autoCapitalize="none"
               secureTextEntry={true}
@@ -73,7 +75,7 @@ export function UsernamePasswordSection({ username, setUsername, password, setPa
             (formRow's own padding is the gap), rather than floating under it as a section
             of its own. Same width as the outline pill on the Quick Connect step. */}
         <View style={settingsStyles.formRow}>
-          <FocusableButton title="Sign In" variant="primary" onPress={onSignIn} disabled={isSigningIn} isLoading={isSigningIn} style={settingsStyles.fullWidthButton} />
+          <FocusableButton title={t("connect.signIn")} variant="primary" onPress={onSignIn} disabled={isSigningIn} isLoading={isSigningIn} style={settingsStyles.fullWidthButton} />
         </View>
       </View>
 
@@ -81,7 +83,7 @@ export function UsernamePasswordSection({ username, setUsername, password, setPa
           button (app/_layout.tsx), so nothing is left under the card. */}
       {Platform.isTV && (
         <View style={settingsStyles.secondaryActions}>
-          <FocusableButton title="Back" variant="link" onPress={onBack} disabled={isSigningIn} />
+          <GlassButton title={t("common.back")} onPress={onBack} disabled={isSigningIn} />
         </View>
       )}
     </>

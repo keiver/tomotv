@@ -24,3 +24,4 @@ constants/bundled-licenses.ts
 # so reformatting here only churns on the next run.
 docs/playback-coverage.md
 test/playback/provenance.json
+native/ios/.build/

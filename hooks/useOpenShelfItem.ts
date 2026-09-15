@@ -1,6 +1,6 @@
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { isAudioItem, isFolder, isPhoto } from "@/services/jellyfinApi";
+import { isAudioItem, isBook, isFolder, isLiveChannel, isPhoto } from "@/services/jellyfinApi";
 import { isJoined, playForGroup } from "@/services/syncPlayManager";
 import { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
@@ -25,6 +25,11 @@ export function useOpenShelfItem() {
     // pushed after a modal a zero-frame modal presentation, and AVKit presenting out of that
     // crashes the app.
     (item: JellyfinItem, options?: { replace?: boolean }) => {
+      // The Live TV view is a screen of its own (the guide), not a folder.
+      if (item.CollectionType === "livetv") {
+        router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
+        return;
+      }
       if (isFolder(item)) {
         const type = item.Type === "Playlist" ? "playlist" : "folder";
         const crumb: FolderStackEntry = { id: item.Id, name: item.Name, type, parentId: item.ParentId };
@@ -39,6 +44,19 @@ export function useOpenShelfItem() {
       // Without a ParentId there is no set to step through, so the viewer opens on the photo alone.
       if (isPhoto(item)) {
         router.push({ pathname: "/photo-viewer", params: { photoId: item.Id, ...(item.ParentId ? { folderId: item.ParentId } : {}) } });
+        return;
+      }
+
+      // A book opens the reader; the player has nothing to play.
+      if (isBook(item)) {
+        router.push({ pathname: "/book-reader", params: { itemId: item.Id, name: item.Name } });
+        return;
+      }
+
+      // A live channel has no queue, no resume and no SyncPlay: the player opens the stream.
+      if (isLiveChannel(item)) {
+        showGlobalLoader();
+        router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name, live: "1" } });
         return;
       }
 

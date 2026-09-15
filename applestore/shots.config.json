@@ -1,5 +1,11 @@
 {
   "output": "applestore/generated",
+  "locales": {
+    "en": {},
+    "de": {},
+    "fr": {},
+    "es": {}
+  },
   "devices": {
     "iphone": {},
     "ipad": {},
@@ -9,16 +15,30 @@
     {
       "id": "01-library",
       "title": "YOUR JELLYFIN\nLIBRARY",
-      "spec": "movies \u00b7 shows \u00b7 music",
+      "spec": "movies · shows · music",
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
         "path": "/"
+      },
+      "l10n": {
+        "de": {
+          "title": "DEINE JELLYFIN\nBIBLIOTHEK",
+          "spec": "filme · serien · musik"
+        },
+        "fr": {
+          "title": "MÉDIATHÈQUE\nJELLYFIN",
+          "spec": "films · séries · musique"
+        },
+        "es": {
+          "title": "TU BIBLIOTECA\nJELLYFIN",
+          "spec": "películas · series · música"
+        }
       }
     },
     {
       "id": "02-player",
       "title": "THE PLAYER\nYOU KNOW",
-      "spec": "pip \u00b7 airplay \u00b7 subtitles",
+      "spec": "pip · airplay · subtitles",
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
         "path": "/player",
@@ -28,10 +48,51 @@
           "startTicks": "6310000000"
         },
         "ready": "session"
+      },
+      "l10n": {
+        "de": {
+          "title": "DER PLAYER\nDEN DU KENNST",
+          "spec": "bild-in-bild · untertitel"
+        },
+        "fr": {
+          "title": "VOTRE LECTEUR\nHABITUEL",
+          "spec": "airplay · sous-titres"
+        },
+        "es": {
+          "title": "REPRODUCTOR\nDE SIEMPRE",
+          "spec": "airplay · subtítulos"
+        }
       }
     },
     {
-      "id": "03-grid",
+      "id": "03-info",
+      "title": "PICK UP WHERE\nYOU STOPPED",
+      "spec": "on every device",
+      "devices": ["iphone", "ipad", "tv"],
+      "capture": {
+        "path": "/video-info",
+        "params": {
+          "videoId": "{item:Jungle Book}",
+          "name": "Jungle Book"
+        }
+      },
+      "l10n": {
+        "de": {
+          "title": "WEITER WO DU\nWARST",
+          "spec": "auf jedem gerät"
+        },
+        "fr": {
+          "title": "REPRENEZ OÙ\nVOUS EN ÉTIEZ",
+          "spec": "sur chaque appareil"
+        },
+        "es": {
+          "title": "SIGUE DONDE\nLO DEJASTE",
+          "spec": "en cada dispositivo"
+        }
+      }
+    },
+    {
+      "id": "04-grid",
       "title": "MKV, 4K, HDR\nDOLBY VISION",
       "spec": "minimal transcoding",
       "devices": ["iphone", "ipad", "tv"],
@@ -41,18 +102,19 @@
           "name": "Films",
           "type": "movies"
         }
-      }
-    },
-    {
-      "id": "04-info",
-      "title": "PICK UP WHERE\nYOU STOPPED",
-      "spec": "on every device",
-      "devices": ["iphone", "ipad", "tv"],
-      "capture": {
-        "path": "/video-info",
-        "params": {
-          "videoId": "{item:Jungle Book}",
-          "name": "Jungle Book"
+      },
+      "l10n": {
+        "de": {
+          "title": "MKV, 4K, HDR\nDOLBY VISION",
+          "spec": "kaum transkodierung"
+        },
+        "fr": {
+          "title": "MKV, 4K, HDR\nDOLBY VISION",
+          "spec": "transcodage minimal"
+        },
+        "es": {
+          "title": "MKV, 4K, HDR\nDOLBY VISION",
+          "spec": "conversión mínima"
         }
       }
     },
@@ -63,6 +125,20 @@
       "devices": ["iphone", "ipad"],
       "capture": {
         "path": "/downloads"
+      },
+      "l10n": {
+        "de": {
+          "title": "LADE RUNTER\nSCHAU OFFLINE",
+          "spec": "titel oder verzeichnis"
+        },
+        "fr": {
+          "title": "REGARDEZ\nHORS LIGNE",
+          "spec": "un élément ou un dossier"
+        },
+        "es": {
+          "title": "DESCARGA Y VE\nSIN CONEXIÓN",
+          "spec": "un elemento o carpeta"
+        }
       }
     },
     {
@@ -72,6 +148,20 @@
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
         "path": "/settings"
+      },
+      "l10n": {
+        "de": {
+          "title": "STARTET IN\nTOP-QUALITÄT",
+          "spec": "kaum puffern"
+        },
+        "fr": {
+          "title": "S'OUVRE À LA\nBONNE QUALITÉ",
+          "spec": "tampon minimal"
+        },
+        "es": {
+          "title": "ABRE EN LA\nCALIDAD JUSTA",
+          "spec": "búfer mínimo"
+        }
       }
     },
     {
@@ -81,6 +171,20 @@
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
         "path": "/connect/servers"
+      },
+      "l10n": {
+        "de": {
+          "title": "FINDET DEINEN\nSERVER",
+          "spec": "nichts einzutippen"
+        },
+        "fr": {
+          "title": "TROUVE VOTRE\nSERVEUR",
+          "spec": "rien à saisir"
+        },
+        "es": {
+          "title": "ENCUENTRA TU\nSERVIDOR",
+          "spec": "sin escribir nada"
+        }
       }
     },
     {
@@ -93,12 +197,26 @@
         "params": {
           "q": "animation"
         }
+      },
+      "l10n": {
+        "de": {
+          "title": "SUCHE ÜBER\nDEN SERVER",
+          "spec": "titel, genre, künstler, jahr"
+        },
+        "fr": {
+          "title": "CHERCHEZ\nPARTOUT",
+          "spec": "titre, genre, artiste"
+        },
+        "es": {
+          "title": "BUSCA EN TODO\nTU SERVIDOR",
+          "spec": "título, género, año"
+        }
       }
     },
     {
       "id": "09-filters",
       "title": "NARROW IT\nDOWN",
-      "spec": "genre \u00b7 year \u00b7 favorites",
+      "spec": "genre · year · favorites",
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
         "path": "/filters",
@@ -107,6 +225,20 @@
           "name": "Films",
           "libraryId": "{library:Films}",
           "libraryName": "Films"
+        }
+      },
+      "l10n": {
+        "de": {
+          "title": "GRENZE ES\nEIN",
+          "spec": "genre · jahr · favoriten"
+        },
+        "fr": {
+          "title": "AFFINEZ\nLA LISTE",
+          "spec": "genre · année · favoris"
+        },
+        "es": {
+          "title": "AFINA LA\nBÚSQUEDA",
+          "spec": "género · año · favoritos"
         }
       }
     }

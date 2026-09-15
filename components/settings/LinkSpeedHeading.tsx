@@ -4,6 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { carriedRungs } from "@/services/adaptiveQuality";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { t } from "@/services/i18n";
 
 /** Sits on the header text's own line height. */
 const GLYPH = Platform.isTV ? 28 : 16;
@@ -27,8 +28,8 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSp
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
   const measured = mbps != null && !measuring;
   // Short on purpose: the pending strings share the header line with the title.
-  const rate = measuring ? "Checking…" : mbps == null ? "Not measured" : `${mbps} Mbps`;
-  const spoken = measured ? `Streaming quality. Server connection: ${rate}` : `Streaming quality. ${rate}`;
+  const rate = measuring ? t("settings.checking") : mbps == null ? t("settings.notMeasured") : t("settings.mbps").replace("{mbps}", String(mbps));
+  const spoken = measured ? t("settings.streamingConn").replace("{rate}", rate) : t("settings.streamingRate").replace("{rate}", rate);
   // A colour is a verdict, so only a landed measurement gets one: green while the
   // connection carries a preset, red once it carries none. The server glyph is the
   // connected card's, in the same ink, so the figure reads as that server's speed.
@@ -37,7 +38,7 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSp
   const content = (
     <>
       <Text style={[settingsStyles.sectionHeaderText, styles.title]} numberOfLines={1}>
-        STREAMING QUALITY
+        {t("settings.streamingQuality")}
       </Text>
       <View style={styles.rate}>
         {rateInk != null ? <Ionicons name={SERVER_GLYPH} size={GLYPH} color={rateInk} /> : null}
@@ -63,7 +64,7 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSp
       disabled={measuring}
       accessibilityRole="button"
       accessibilityLabel={spoken}
-      accessibilityHint="Measures the connection to the server again">
+      accessibilityHint={t("settings.measureAgain")}>
       {content}
     </Pressable>
   );

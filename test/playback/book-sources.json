@@ -1,0 +1,20 @@
+{
+  "frankenstein-mobi": {
+    "url": "https://www.gutenberg.org/cache/epub/84/pg84-images.mobi",
+    "file": "Frankenstein (Gutenberg).mobi",
+    "sha256": "7d77dba100688ff3ae482a4be4929a39a266580d044414ee27f378d4ef656530",
+    "bytes": 653928
+  },
+  "frankenstein-azw3": {
+    "url": "https://www.gutenberg.org/cache/epub/84/pg84-images-kf8.mobi",
+    "file": "Frankenstein (Gutenberg KF8).azw3",
+    "sha256": "e8373a3828f746b43f931d10d1c995e78d5a74886082382c9b1ff1187809b14e",
+    "bytes": 682002
+  },
+  "a-bomb-1951-cbr": {
+    "url": "https://archive.org/download/ComicBook-IfAnA-bombFalls1951/Comics-IfAnA-bombFalls1951.cbr",
+    "file": "If An A-Bomb Falls (1951).cbr",
+    "sha256": "ff7d0c8cf55b34e2449b3d6a34753ded5d1fab52a9035a4d5d1a58fa2a7e69b1",
+    "bytes": 1962236
+  }
+}

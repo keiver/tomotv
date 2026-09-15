@@ -2,12 +2,13 @@ import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { PosterCollage } from "@/components/poster-collage";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
+import { t } from "@/services/i18n";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -122,7 +123,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
   const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
-  const countIcon = COUNT_ICONS[folder.Type] ?? "folder";
+  // The Live TV view counts channels, and its empty face is a set, not a folder.
+  const isLiveTv = folder.CollectionType === "livetv";
+  const countIcon = isLiveTv ? "tv-outline" : (COUNT_ICONS[folder.Type] ?? "folder");
 
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
@@ -178,9 +181,13 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             ? { width: (cardHeight - 2 * CARD_PADDING) * cardRatio + 2 * CARD_PADDING }
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
       ]}
-      accessibilityLabel={folder.Name || "Folder"}
+      accessibilityLabel={folder.Name || t("a11y.folder")}
       accessibilityRole="button"
-      accessibilityHint={itemCount != null ? `Navigate to ${folder.Name} with ${itemCount} ${itemCount === 1 ? "item" : "items"}` : `Navigate to ${folder.Name}`}>
+      accessibilityHint={
+        itemCount != null
+          ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folder.Name).replace("{count}", String(itemCount))
+          : t("a11y.folderNav").replace("{name}", folder.Name)
+      }>
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {thumbnailSource ? (
@@ -197,7 +204,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </>
           ) : (
             <View style={styles.placeholderPoster}>
-              <Ionicons name="folder-outline" size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
+              <Ionicons name={isLiveTv ? "tv-outline" : "folder-outline"} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
             </View>
           )}
 
@@ -230,7 +237,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               the title bar becomes a sweeping gold progress fill. Mounted only
               around a press (visible lingers past the handoff fade) — idle
               cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={folder.Name || "Folder"} /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={folder.Name || t("a11y.folder")} /> : null}
         </View>
       </View>
     </TouchableOpacity>
@@ -310,12 +317,13 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderWidth: CARD_FOCUS.BORDER_WIDTH,
-    borderColor: CARD_FOCUS.BORDER_COLOR,
+    boxShadow: RAISED_EDGE,
   },
+  // An inset shadow paints inside the border, so under the gold ring it reads as a second one.
   borderOverlayFocused: {
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
+    boxShadow: "none",
   },
   poster: {
     width: "100%",
@@ -336,7 +344,7 @@ const styles = StyleSheet.create({
     top: CARD_BADGE_INSET,
     left: CARD_BADGE_INSET,
   },
-  // Thin frosted sliver at the very bottom showing just the title.
+  // Opaque sliver at the very bottom showing just the title.
   infoOverlay: {
     position: "absolute",
     bottom: 0,

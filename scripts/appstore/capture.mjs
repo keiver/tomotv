@@ -38,7 +38,7 @@ async function deepLink(shot, resolve) {
   return `tomotv://${pathPart}${[...query].length ? `?${query}` : ""}`;
 }
 
-export async function captureShots(config, plan, { root, captureDir, bundleId, scheme, metroUrl = "http://localhost:8081", envFile, log = console.log }) {
+export async function captureShots(config, plan, { root, captureDir, bundleId, scheme, metroUrl = "http://localhost:8081", envFile, locale = "en", log = console.log }) {
   const wanted = plan.filter((p) => p.shots.length);
   const missingSpec = wanted.flatMap((p) => p.shots.filter((s) => !s.capture?.path).map((s) => s.id));
   if (missingSpec.length) throw new Error(`No capture.path for: ${[...new Set(missingSpec)].join(", ")}`);
@@ -69,6 +69,13 @@ export async function captureShots(config, plan, { root, captureDir, bundleId, s
     await sim.relaunch(device.udid, bundleId, dev ? { scheme, metroUrl } : {});
     // A dev build fetches its bundle from Metro before it draws anything.
     await sim.sleep(12000);
+
+    // The app renders in one language per capture pass. Set before the render
+    // probe below, so "the app came up" and "it came up in German" are one check.
+    if (locale !== "en") {
+      await sim.openUrl(device.udid, `tomotv://dev-locale?lang=${locale}`);
+      await sim.sleep(2500);
+    }
 
     if (env) await assertAppOnServer(env, { family: deviceKey === "tv" ? "Apple TV" : "iOS" });
 

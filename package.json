@@ -1,6 +1,6 @@
 {
   "name": "tomotv",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "description": "Stream videos from your Jellyfin server on Apple TV with automatic transcoding",
   "main": "expo-router/entry",
   "author": "Keiver Hernandez <contact@keiver.dev>",
@@ -54,11 +54,13 @@
     "probe:codecs": "node scripts/probe-codecs.mjs",
     "test:engine": "swift test --package-path native/ios",
     "shots": "node scripts/appstore-shots.mjs",
+    "shots:upload": "node scripts/appstore-upload-shots.mjs",
+    "meta:upload": "node scripts/appstore-upload-meta.mjs",
     "test:shots": "node scripts/appstore-shots.mjs --self-check",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prebuild:tv": "EXPO_TV=1 expo prebuild --clean",
-    "prebuild:dual": "EXPO_TV=1 expo prebuild --clean --platform ios --no-install && rm -rf tvos && mv ios tvos && cd tvos && EXPO_TV=1 pod install && cd .. && expo prebuild --clean --platform ios && bash scripts/make-dual-workspace.sh",
+    "prebuild:dual": "bash scripts/prebuild-dual.sh",
     "prebuild": "expo prebuild --clean",
     "prebuild:ios": "expo prebuild --clean",
     "clearios": "bash scripts/clear.sh --npm --ios",
@@ -68,7 +70,8 @@
     "clear": "bash scripts/clear.sh",
     "archive": "bash scripts/archive-both.sh",
     "prepare": "husky",
-    "probe:pixel-transfer": "node scripts/probe-pixel-transfer.mjs"
+    "probe:pixel-transfer": "node scripts/probe-pixel-transfer.mjs",
+    "notes": "node scripts/translate-notes.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~56.0.15",
@@ -82,7 +85,6 @@
     "expo-font": "~56.0.7",
     "expo-glass-effect": "57.0.1",
     "expo-image": "~56.0.11",
-    "expo-linear-gradient": "~56.0.4",
     "expo-linking": "~56.0.14",
     "expo-modules-core": "~56.0.17",
     "expo-router": "~56.2.11",
@@ -145,5 +147,11 @@
       "prettier --write"
     ]
   },
-  "private": true
+  "private": true,
+  "allowScripts": {
+    "fsevents": false,
+    "postinstall-postinstall": false,
+    "sharp": false,
+    "unrs-resolver": false
+  }
 }

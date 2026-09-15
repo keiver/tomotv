@@ -2,7 +2,7 @@ import type { DownloadCircleState } from "@/components/info-action-row";
 import { conversionRung, estimatedConvertedBytes } from "@/services/downloads/convert";
 import { downloadManager } from "@/services/downloads/manager";
 import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
-import { fetchVideoDetails, isFolder, isPhoto } from "@/services/jellyfinApi";
+import { fetchVideoDetails, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { predictPlaybackLane } from "@/services/localRemux";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { formatFileSize } from "@/utils/mediaInfo";
@@ -38,7 +38,7 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
   // first paint at "none" would offer a download already on the device.
   const [state, setState] = useState<DownloadCircleState>(() => read(itemId));
 
-  const eligible = !!item && downloadsSupported() && !isFolder(item) && !isPhoto(item);
+  const eligible = !!item && downloadsSupported() && !isFolder(item) && !isPhoto(item) && !isBook(item);
 
   useEffect(() => {
     if (!eligible || !itemId) return;

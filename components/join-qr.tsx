@@ -1,6 +1,7 @@
 import { qrPngDataUri } from "@/utils/qrPng";
 import qrcode from "qrcode-generator";
 import { Image, Platform, StyleSheet, useWindowDimensions, View } from "react-native";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 /** Pixels per module. Downscaled by the Image to whatever the layout asks for, so it stays crisp. */
@@ -39,13 +40,7 @@ export function JoinQr({ serverId, groupId, size: sizeProp }: { serverId: string
 
   return (
     <View style={styles.wrap} collapsable={false}>
-      <Image
-        source={{ uri: joinQrDataUri(serverId, groupId) }}
-        style={{ width: size, height: size }}
-        accessible={true}
-        accessibilityRole="image"
-        accessibilityLabel="QR code to join this group from another device"
-      />
+      <Image source={{ uri: joinQrDataUri(serverId, groupId) }} style={{ width: size, height: size }} accessible={true} accessibilityRole="image" accessibilityLabel={t("syncplay.qrHint")} />
     </View>
   );
 }

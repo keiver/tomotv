@@ -1,6 +1,7 @@
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectStepScreen } from "@/components/settings/ConnectStepScreen";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { t } from "@/services/i18n";
 import React from "react";
 
 interface ServerConnectScreenProps {
@@ -21,7 +22,7 @@ export function ServerConnectScreen({ title }: ServerConnectScreenProps) {
   return (
     // Hangs from the top on every platform, where the connected Settings tab puts its cards;
     // only the pushed login steps centre.
-    <ConnectStepScreen title={title} header="JELLYFIN SERVER">
+    <ConnectStepScreen title={title} header={t("settings.jellyfinServer")}>
       {/* The same two sections the logged-out Settings tab shows, so no tab drifts. */}
       <ServerConnectFlow />
       <AboutSection showDiagnostics={false} />

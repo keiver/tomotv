@@ -5,6 +5,7 @@ import { localArtworkUri } from "@/services/downloads/localSource";
 import { downloadManager, type DownloadProgress } from "@/services/downloads/manager";
 import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";
 import { formatFileSize } from "@/utils/mediaInfo";
+import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import type { StyleProp, TextStyle } from "react-native";
@@ -12,7 +13,7 @@ import type { StyleProp, TextStyle } from "react-native";
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
 /** Swiping is no gesture a screen reader has, and the panel it opens is the only Remove button. */
-export const REMOVE_ACTIONS = [{ name: "remove", label: "Remove" }] as const;
+export const REMOVE_ACTIONS = [{ name: "remove", label: t("common.remove") }] as const;
 
 interface DownloadRowProps {
   entry: DownloadEntry;
@@ -29,21 +30,23 @@ interface DownloadRowProps {
 
 /** The second line of a transfer: percent where the size is known, bytes so far where it is not. */
 function progressLabel({ bytesWritten, totalBytes }: DownloadProgress): string {
-  if (totalBytes <= 0) return `${formatFileSize(bytesWritten)} so far`;
-  return `${Math.floor((bytesWritten / totalBytes) * 100)}% · ${formatFileSize(totalBytes)}`;
+  if (totalBytes <= 0) return t("downloads.soFar").replace("{size}", formatFileSize(bytesWritten));
+  return t("downloads.percentOfSize")
+    .replace("{percent}", String(Math.floor((bytesWritten / totalBytes) * 100)))
+    .replace("{size}", formatFileSize(totalBytes));
 }
 
 /** What a press does. Silent where it does something the row does not offer; see the screen. */
 function pressCopy(state: DownloadState): string | null {
   switch (state) {
     case "ready":
-      return "Plays from this device.";
+      return t("downloads.playsFromDevice");
     case "downloading":
-      return "Pauses this download.";
+      return t("downloads.pausesDownload");
     case "paused":
-      return "Resumes this download.";
+      return t("downloads.resumesDownload");
     case "failed":
-      return "Retries this download.";
+      return t("downloads.retriesDownload");
     default:
       return null;
   }
@@ -58,11 +61,11 @@ function stateCopy(entry: DownloadEntry): { subtitle: string; trailing?: Ionicon
       return { subtitle: progressLabel(entry), trailing: "pause" };
     case "queued":
     case "repackaging":
-      return { subtitle: "Waiting", trailing: "close" };
+      return { subtitle: t("downloads.waiting"), trailing: "close" };
     case "paused":
-      return { subtitle: entry.bytesWritten > 0 ? `Paused at ${formatFileSize(entry.bytesWritten)}` : "Paused", trailing: "arrow-down" };
+      return { subtitle: entry.bytesWritten > 0 ? t("downloads.pausedAt").replace("{size}", formatFileSize(entry.bytesWritten)) : t("downloads.paused"), trailing: "arrow-down" };
     case "failed":
-      return { subtitle: entry.error ?? "Download failed", trailing: "refresh" };
+      return { subtitle: entry.error ?? t("downloads.failed"), trailing: "refresh" };
   }
 }
 
@@ -88,7 +91,7 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, neste
   const { subtitle, trailing } = stateCopy(entry);
   const line = entry.state === "downloading" ? (live ?? subtitle) : subtitle;
   // A ready row's line is its size, which the trailing play mark already implies.
-  const hint = [entry.state === "ready" ? null : `${line}.`, pressCopy(entry.state), "Swipe left or press and hold to remove."].filter(Boolean).join(" ");
+  const hint = [entry.state === "ready" ? null : `${line}.`, pressCopy(entry.state), t("downloads.swipeRemove")].filter(Boolean).join(" ");
   const onAction = (event: { nativeEvent: { actionName: string } }) => {
     if (event.nativeEvent.actionName === "remove") onRemove();
   };

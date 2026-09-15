@@ -1,4 +1,5 @@
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import React from "react";
 import { Platform, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 
@@ -31,7 +32,7 @@ export function QuickConnectCode({ code, spokenCode }: QuickConnectCodeProps) {
   const sizing = IS_TV ? { ...pad(56), fontSize: 100 } : { ...pad(Math.round(Math.min(28, Math.max(16, width * 0.05)))), fontSize: Math.min(76, Math.round(width * 0.19)) };
 
   return (
-    <View style={styles.wrap} accessible={IS_TV} accessibilityLabel={IS_TV ? `Quick Connect code: ${spokenCode}. Enter it in your server's Quick Connect section.` : undefined}>
+    <View style={styles.wrap} accessible={IS_TV} accessibilityLabel={IS_TV ? t("settings.quickConnectSpoken").replace("{code}", spokenCode) : undefined}>
       <Text style={[styles.code, sizing]} accessible={false} importantForAccessibility="no" numberOfLines={1} adjustsFontSizeToFit={true} minimumFontScale={0.5}>
         {code}
       </Text>

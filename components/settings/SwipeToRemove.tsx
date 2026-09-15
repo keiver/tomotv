@@ -4,6 +4,7 @@ import React from "react";
 import { Platform, Pressable, StyleSheet, Text } from "react-native";
 import Swipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import Animated, { useAnimatedStyle, type SharedValue } from "react-native-reanimated";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 const ACTION_WIDTH = IS_TV ? 140 : 96;
@@ -37,14 +38,14 @@ function Actions({ translation, methods, label, onRemove, onEmail }: ActionsProp
   return (
     <Animated.View style={[styles.panel, { width }, track]}>
       {onEmail ? (
-        <Pressable style={[styles.press, styles.email]} onPress={act(onEmail)} accessibilityRole="button" accessibilityLabel={`Email ${label}`}>
+        <Pressable style={[styles.press, styles.email]} onPress={act(onEmail)} accessibilityRole="button" accessibilityLabel={t("a11y.emailLabel").replace("{label}", label)}>
           <Ionicons name="mail" size={IS_TV ? 30 : 20} color={COLORS.TEXT_PRIMARY} />
-          <Text style={styles.label}>Email</Text>
+          <Text style={styles.label}>{t("common.email")}</Text>
         </Pressable>
       ) : null}
-      <Pressable style={[styles.press, styles.remove]} onPress={act(onRemove)} accessibilityRole="button" accessibilityLabel={`Remove ${label}`}>
+      <Pressable style={[styles.press, styles.remove]} onPress={act(onRemove)} accessibilityRole="button" accessibilityLabel={t("a11y.removeLabel").replace("{label}", label)}>
         <Ionicons name="trash" size={IS_TV ? 30 : 20} color={COLORS.TEXT_PRIMARY} />
-        <Text style={styles.label}>Remove</Text>
+        <Text style={styles.label}>{t("common.remove")}</Text>
       </Pressable>
     </Animated.View>
   );

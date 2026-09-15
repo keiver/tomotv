@@ -1,4 +1,5 @@
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { fetchVideoDetails, JELLYFIN_TIME } from "@/services/jellyfinApi";
@@ -100,7 +101,7 @@ export default function AudioPlayerScreen() {
           const details = await fetchVideoDetails(params.videoId);
           if (!mountedRef.current) return;
           if (!details) {
-            throw new Error("Item details unavailable");
+            throw new Error(t("info.itemUnavailable"));
           }
           items = [details];
         }

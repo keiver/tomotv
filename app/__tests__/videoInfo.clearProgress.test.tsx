@@ -40,7 +40,6 @@ jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }))
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("expo-image", () => ({ Image: () => null }));
-jest.mock("expo-linear-gradient", () => ({ LinearGradient: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
 /** The play CTA, captured so a test can press it without walking the tree. */
@@ -68,6 +67,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   isAudioItem: () => false,
   isFolder: () => false,
   isPhoto: () => false,
+  isBook: () => false,
   notifyResumeChange: jest.fn(),
   setVideoFavorite: jest.fn(async () => {}),
   setVideoPlayed: jest.fn(async () => {}),

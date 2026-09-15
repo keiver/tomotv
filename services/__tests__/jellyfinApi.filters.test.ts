@@ -81,7 +81,7 @@ describe("library filters (issue #54)", () => {
       // MediaTypes, NOT IncludeItemTypes: Jellyfin 10.11 view-root recursive queries return
       // zero results with IncludeItemTypes for music/musicvideos/photos/tvshows libraries.
       // Folders carry no MediaType, so the flatten still excludes them.
-      expect(url.searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      expect(url.searchParams.get("MediaTypes")).toBe("Video,Audio,Photo,Book");
       expect(url.searchParams.get("IncludeItemTypes")).toBeNull();
     });
 
@@ -165,7 +165,7 @@ describe("library filters (issue #54)", () => {
       const url = lastRequestUrl();
       expect(url.searchParams.get("Recursive")).toBe("true");
       expect(url.searchParams.get("Genres")).toBe("Rock|Jazz");
-      expect(url.searchParams.get("MediaTypes")).toBe("Video,Audio,Photo");
+      expect(url.searchParams.get("MediaTypes")).toBe("Video,Audio,Photo,Book");
       // Fetched stably even when shuffle is on — shuffle happens client-side, not via SortBy=Random,
       // so pagination can't duplicate/miss items.
       expect(url.searchParams.get("SortBy")).toBe("SortName");

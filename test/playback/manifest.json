@@ -867,6 +867,88 @@
         "video": "h264"
       },
       "comment": "Theora, the fourth codec MPVKit's --disable-decoders allowlist switched off, and kept as a real sample: Jellyfin's ffmpeg can encode Theora through libtheora, Homebrew's cannot. Real sample from samples.ffmpeg.org, video stream copied untouched into Matroska. Shorter window than the other coverage fixtures because the source is ~10.5s. Carries no audio, so it doubles as the video-only session path."
+    },
+    {
+      "id": "T99",
+      "title": "T99 REMUX H264 ASS real",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 6,
+      "progressMin": 3,
+      "expect": {
+        "video": "h264",
+        "subtitles": 1
+      },
+      "comment": "Real typeset ASS from samples.ffmpeg.org: one 10s cue under \\fade, \\t, \\frz and \\fscx, with the TTF it asks for riding as an attachment stream. The engine decodes the track itself and publishes it as WebVTT segments, so the only thing the server is asked for is the video. Short window because the source is 10.0s, and it carries no audio, so it is a video-only session too. Carries no audio, the sample has none, so it doubles as a video-only session."
+    },
+    {
+      "id": "T100",
+      "title": "T100 REMUX H264 SSA real",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "audio": "aac",
+        "subtitles": 2
+      },
+      "comment": "A judgeable SSA fixture: the picture carries a running clock and every cue names the second it belongs to and what it should look like, so a wrong cue, a late one or a dropped override is visible by eye on a television. Track 0 is that script, SSA v4.00 with CRLF endings and the *Default style marker Aegisub writes. Track 1 is a9-misc.ssa from FFmpeg's FATE suite, a real fansub header kept because that is what the style parser has to survive. Its inline italic and bold, style-carried bold italic, hard line break, karaoke, drawing block, positioned sign and markup characters each land on their own two-second slot."
+    },
+    {
+      "id": "L01",
+      "title": "T24 MPEG2 MP2 TS",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 30,
+      "progressMin": 8,
+      "expect": { "audioTracks": 1 },
+      "comment": "Live TV, OTA shape: MPEG-2 video and MP2 audio in MPEG-TS, decoded and re-encoded on device. A channel of the Live TV rig (README), never a file under the roots."
+    },
+    {
+      "id": "L02",
+      "title": "T07 H264 AC3 TS",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 30,
+      "progressMin": 8,
+      "expect": { "audioTracks": 1 },
+      "comment": "Live TV, IPTV shape: H.264 and AC-3 stream-copied into the live window."
+    },
+    {
+      "id": "L03",
+      "title": "T09 multi-audio TS",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 30,
+      "progressMin": 8,
+      "expect": { "audioTracks": 2 },
+      "comment": "Both AAC tracks reach the master as renditions. The server's own probe of this channel lists one, and a server transcode would carry one."
+    },
+    {
+      "id": "L04",
+      "title": "SPLICE RAW discontinuity TS",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 75,
+      "progressMin": 8,
+      "expect": { "discontinuity": true },
+      "comment": "The timing PTS steps from 71.4s back to 1.4s once per pass of the source. The session rolls a generation (EXT-X-DISCONTINUITY, a new MAP) and keeps producing."
+    },
+    {
+      "id": "L05",
+      "title": "HLS T07 origin",
+      "live": true,
+      "mode": "localRemux",
+      "validate": "live",
+      "playSeconds": 30,
+      "progressMin": 8,
+      "expect": { "audioTracks": 1 },
+      "comment": "IPTV list shape: an HLS channel. The server never marks a manifest direct play, so the engine reads the origin itself. Simulator only, the origin sits on the Mac loopback."
     }
   ]
 }

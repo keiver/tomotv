@@ -9,10 +9,11 @@
  * the app's own visual language.
  *
  * Usage:
- *   npm run shots                    scan ~/Desktop, adopt, compose, verify
+ *   npm run shots                    scan ~/Desktop, adopt, compose every language, verify
  *   npm run shots -- ~/Shots         scan somewhere else
  *   npm run shots -- --dry-run       show the mapping and stop
  *   npm run shots -- --device tv     one platform
+ *   npm run shots -- --locale de   just one language
  *   npm run shots -- --capture       drive the simulators and shoot every slot
  *   npm run shots -- --capture-only  capture and stop
  *   npm run shots -- --render        re-render from what was already adopted
@@ -28,7 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { DEVICES, compose, setMetrics, wrongOrientation } from "./appstore/compose.mjs";
+import { DEVICES, compose, setFonts, setMetrics, wrongOrientation } from "./appstore/compose.mjs";
 import { planImport, adopt, assign } from "./appstore/import.mjs";
 import { captureShots } from "./appstore/capture.mjs";
 import { ensurePlaceholders } from "./appstore/placeholder.mjs";
@@ -53,14 +54,15 @@ const opt = (name) => {
   return next && !next.startsWith("-") ? next : null;
 };
 /** The first bare argument is the directory to scan. */
-const scanDir = args.find((a, i) => !a.startsWith("-") && !args[i - 1]?.startsWith("--device") && !args[i - 1]?.startsWith("--only")) || null;
+const VALUE_FLAGS = ["--device", "--only", "--out", "--locale"];
+const scanDir = args.find((a, i) => !a.startsWith("-") && !VALUE_FLAGS.some((f) => args[i - 1]?.startsWith(f))) || null;
 
 const fail = (msg) => {
   console.error(`\n✗ ${msg}\n`);
   process.exit(1);
 };
 
-function loadConfig() {
+function loadConfig(localeOverride) {
   if (!fs.existsSync(CONFIG_PATH)) fail(`Missing ${path.relative(ROOT, CONFIG_PATH)}`);
   const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
   const only = opt("--only")
@@ -69,6 +71,25 @@ function loadConfig() {
   const deviceFilter = opt("--device")
     ?.split(",")
     .map((s) => s.trim());
+
+  /** `--out` renders somewhere else, so a trial run leaves the shipping set alone. */
+  const out = opt("--out");
+  if (out) config.output = out;
+
+  const locale = localeOverride ?? opt("--locale") ?? "en";
+  const l10n = config.locales?.[locale];
+  if (!l10n) fail(`No "${locale}" in config.locales. Have: ${Object.keys(config.locales ?? {}).join(", ") || "none"}`);
+  config.locale = locale;
+  setFonts(l10n?.fonts);
+  // Untranslated captions fall back to English rather than rendering a blank plate.
+  for (const shot of config.shots) {
+    const t = shot.l10n?.[locale];
+    if (t?.title) shot.title = t.title;
+    if (t?.spec) shot.spec = t.spec;
+    if (t?.eyebrow) shot.eyebrow = t.eyebrow;
+  }
+  // Every language gets its own folder, English included, so no set is the odd one out.
+  config.output = path.join(config.output, locale);
 
   for (const key of Object.keys(config.devices || {})) {
     if (!DEVICES[key]) fail(`Unknown device "${key}" in config. Known: ${Object.keys(DEVICES).join(", ")}`);
@@ -84,8 +105,15 @@ function loadConfig() {
   return config;
 }
 
-const capturePath = (deviceKey, id) => path.join(CAPTURE_DIR, deviceKey, `${id}.png`);
-const outputPath = (config, deviceKey, id) => path.join(ROOT, config.output, deviceKey, `${id}.png`);
+/**
+ * Where one locale's capture of a shot lives. English keeps the flat path it has
+ * always had; every other language sits under its own directory, because the
+ * whole point is that the German listing shows a German screen.
+ */
+const capturePath = (deviceKey, id, locale = "en") => (locale === "en" ? path.join(CAPTURE_DIR, deviceKey, `${id}.png`) : path.join(CAPTURE_DIR, locale, deviceKey, `${id}.png`));
+
+const outputRoot = (config) => path.resolve(ROOT, config.output);
+const outputPath = (config, deviceKey, id) => path.join(outputRoot(config), deviceKey, `${id}.png`);
 
 const plan = (config) => Object.keys(config.devices).map((deviceKey) => ({ deviceKey, shots: config.shots.filter((s) => s.devices.includes(deviceKey)) }));
 
@@ -97,7 +125,7 @@ async function guardOrientation(config) {
   const wrong = [];
   for (const { deviceKey, shots } of plan(config)) {
     for (const shot of shots) {
-      const src = capturePath(deviceKey, shot.id);
+      const src = capturePath(deviceKey, shot.id, config.locale ?? "en");
       if (!fs.existsSync(src)) continue;
       const why = await wrongOrientation(src, deviceKey);
       if (why) wrong.push(`${deviceKey}/${shot.id}: ${why}`);
@@ -179,12 +207,17 @@ async function composeAll(config) {
     const shared = setMetrics(device, shots);
 
     for (const [index, shot] of shots.entries()) {
-      const src = capturePath(deviceKey, shot.id);
+      // The locale's own capture, or English when that language has not been
+      // captured. The line below says which it used, so a run that fell back is
+      // visible rather than silently English under a translated caption.
+      const own = capturePath(deviceKey, shot.id, config.locale ?? "en");
+      const src = fs.existsSync(own) ? own : capturePath(deviceKey, shot.id);
       if (!fs.existsSync(src)) continue;
+      const fellBack = src !== own;
       const out = outputPath(config, deviceKey, shot.id);
       fs.mkdirSync(path.dirname(out), { recursive: true });
       const info = await compose(device, shot, src, out, shared, { index, count: shots.length, field: opt("--field") });
-      console.log(`   ${deviceKey}/${shot.id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px`);
+      console.log(`   ${deviceKey}/${shot.id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px${fellBack ? "  ! english capture" : ""}`);
     }
   }
 }
@@ -256,7 +289,7 @@ async function contactSheet(config) {
       left += tileW + gap;
       return at;
     });
-    const out = path.join(ROOT, config.output, `contact-sheet-${deviceKey}.png`);
+    const out = path.join(outputRoot(config), `contact-sheet-${deviceKey}.png`);
     await sharp({ create: { width: left, height: tileH + gap * 2, channels: 3, background: "#FFFFFF" } })
       .composite(placed)
       .png()
@@ -332,7 +365,19 @@ async function main() {
 
   if (flag("--capture") || flag("--capture-only")) {
     console.log("\n▸ capturing");
-    const shot = await captureShots(config, plan(config), { root: ROOT, captureDir: CAPTURE_DIR, bundleId: BUNDLE_ID, scheme: SCHEME, envFile: opt("--env") });
+    const captureLocales = opt("--locale") ? [opt("--locale")] : Object.keys(config.locales ?? { en: {} });
+    let shot = 0;
+    for (const locale of captureLocales) {
+      if (captureLocales.length > 1) console.log(`\n  ${locale}`);
+      shot += await captureShots(config, plan(config), {
+        root: ROOT,
+        captureDir: locale === "en" ? CAPTURE_DIR : path.join(CAPTURE_DIR, locale),
+        bundleId: BUNDLE_ID,
+        scheme: SCHEME,
+        envFile: opt("--env"),
+        locale,
+      });
+    }
     console.log(`\n✓ captured ${shot} screen(s)`);
     if (flag("--capture-only")) return;
   } else if (!flag("--render")) {
@@ -347,14 +392,22 @@ async function main() {
 
   await guardOrientation(config);
 
-  console.log("\n▸ composing");
-  await composeAll(config);
+  // Captures are shared, so the import runs once and only the type is redrawn per locale.
+  const targets = opt("--locale") ? [config.locale] : Object.keys(config.locales ?? { en: {} });
+  let failures = 0;
+  for (const locale of targets) {
+    const c = targets.length > 1 ? loadConfig(locale) : config;
+    if (targets.length > 1) console.log(`\n▸ ${locale}`);
 
-  console.log("\n▸ contact sheets");
-  await contactSheet(config);
+    console.log("\n▸ composing");
+    await composeAll(c);
 
-  console.log("\n▸ verifying");
-  const failures = await verify(config);
+    console.log("\n▸ contact sheets");
+    await contactSheet(c);
+
+    console.log("\n▸ verifying");
+    failures += await verify(c);
+  }
   console.log();
   if (failures) fail(`${failures} compliance problem(s)`);
   if (stand.pending.length) {

@@ -3,17 +3,16 @@
     "name": "Tomo TV",
     "slug": "tomotv",
     "description": "Stream any video from your Jellyfin server. Automatic transcoding handles incompatible formats so you can just hit play and watch.",
-    "version": "2.2.5",
+    "version": "2.2.6",
     "orientation": "default",
     "icon": "./assets/brand/tomo-tv.png",
     "scheme": "tomotv",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#1C1C1E",
     "ios": {
       "supportsTablet": true,
       "appleTeamId": "64QR53M8C9",
       "bundleIdentifier": "dev.keiver.tomotv",
-      "buildNumber": "11",
+      "buildNumber": "18",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -23,7 +22,6 @@
       "infoPlist": {
         "LSApplicationCategoryType": "public.app-category.entertainment",
         "UIBackgroundModes": ["audio"],
-        "UIUserInterfaceStyle": "Dark",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsArbitraryLoadsForMedia": true,
@@ -53,6 +51,7 @@
       "./plugins/withMultiAudioResourceLoader",
       "./plugins/withMacKeyCommands",
       "./plugins/withAudioQueuePlayer",
+      "./plugins/withBookRenderer",
       "./plugins/withFFmpeg",
       "./plugins/withXcodeIdentity",
       [

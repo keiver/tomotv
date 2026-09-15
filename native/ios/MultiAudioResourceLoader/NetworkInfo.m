@@ -21,6 +21,13 @@ RCT_EXTERN_METHOD(scanOpenPorts:(nonnull NSArray *)hosts
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject)
 
+// Resolve the /System/Info/Public body over TLS with the certificate accepted, or null.
+RCT_EXTERN_METHOD(probeSecureServerInfo:(nonnull NSString *)host
+                  port:(nonnull NSNumber *)port
+                  timeoutMs:(nonnull NSNumber *)timeoutMs
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+
 + (BOOL)requiresMainQueueSetup
 {
   return NO;

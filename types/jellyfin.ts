@@ -46,6 +46,74 @@ export interface JellyfinMediaSource {
   Size?: number; // File size in bytes
   Bitrate?: number; // Overall bitrate in bits per second
   MediaStreams?: JellyfinMediaStream[];
+  // Live TV: an opened channel stream. Path carries the server's own bind address.
+  IsInfiniteStream?: boolean;
+  LiveStreamId?: string | null;
+  RequiresOpening?: boolean;
+  RequiresClosing?: boolean;
+  SupportsDirectPlay?: boolean;
+  SupportsTranscoding?: boolean;
+  TranscodingUrl?: string | null;
+  // Headers the origin expects (the tuner's User-Agent) when the engine reads a manifest itself.
+  RequiredHttpHeaders?: Record<string, string>;
+}
+
+// A Live TV program: a channel's `CurrentProgram`, or one cell of the guide (/LiveTv/Programs).
+export interface JellyfinProgram {
+  Id?: string;
+  Name: string;
+  StartDate?: string;
+  EndDate?: string;
+  Overview?: string;
+  ChannelId?: string;
+  ChannelName?: string;
+  EpisodeTitle?: string;
+  IsSeries?: boolean;
+  IsMovie?: boolean;
+  IsSports?: boolean;
+  IsKids?: boolean;
+  IsNews?: boolean;
+  IsRepeat?: boolean;
+  ProductionYear?: number;
+  // Set while a timer covers this airing; the series id when a series rule created it.
+  TimerId?: string | null;
+  SeriesTimerId?: string | null;
+  ImageTags?: { Primary?: string };
+  PrimaryImageAspectRatio?: number;
+}
+
+// One scheduled or running recording (/LiveTv/Timers).
+export interface JellyfinTimer {
+  Id: string;
+  Name: string;
+  ChannelId?: string;
+  ChannelName?: string;
+  ProgramId?: string;
+  SeriesTimerId?: string | null;
+  StartDate: string;
+  EndDate: string;
+  Status?: "New" | "InProgress" | "Completed" | "Cancelled" | "ConflictedOk" | "ConflictedNotOk" | "Error";
+  Overview?: string;
+  EpisodeTitle?: string;
+  PrePaddingSeconds?: number;
+  PostPaddingSeconds?: number;
+}
+
+// A series rule (/LiveTv/SeriesTimers); the body of /LiveTv/Timers/Defaults has the same shape.
+export interface JellyfinSeriesTimer {
+  Id?: string;
+  Name: string;
+  ChannelId?: string;
+  ChannelName?: string;
+  ProgramId?: string;
+  StartDate?: string;
+  EndDate?: string;
+  RecordAnyChannel?: boolean;
+  RecordAnyTime?: boolean;
+  RecordNewOnly?: boolean;
+  DayPattern?: string;
+  Overview?: string;
+  [key: string]: unknown;
 }
 
 // Cast/crew entry on an item's People list (Fields=People)
@@ -71,7 +139,17 @@ export interface JellyfinChapter {
 export interface JellyfinVideoItem {
   Name: string;
   Id: string;
-  RunTimeTicks: number;
+  // Absent on a live channel.
+  RunTimeTicks?: number;
+  // Live TV, from the PlaybackInfo that opened the channel stream.
+  PlaySessionId?: string;
+  LiveStreamId?: string;
+  liveStreamUrl?: string;
+  liveHttpHeaders?: Record<string, string>;
+  // The server's HLS transcode of the channel, the rung below the engine.
+  liveTranscodeUrl?: string;
+  ChannelNumber?: string;
+  CurrentProgram?: JellyfinProgram | null;
   // Only present when the request asked for Fields=Chapters (fetchItemDetails does).
   Chapters?: JellyfinChapter[];
   Type: string;
@@ -195,7 +273,7 @@ export interface FolderStackEntry {
   id: string;
   name: string;
   parentId?: string;
-  type?: "folder" | "playlist"; // Track item type for correct API routing
+  type?: "folder" | "playlist" | "livetv"; // Track item type for correct API routing
 }
 
 // API response for folder contents

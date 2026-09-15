@@ -2,6 +2,43 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.6]
+
+### Added
+
+- Live TV. A Live TV library opens a guide laid out by time and channel. Selecting a channel, or a programme on air, tunes it; a later programme, or a long press, opens a panel that watches it, records it or the whole series, or cancels the recording, and timers are marked on the guide cells. Recordings and the Schedule are screens of their own, behind glass buttons on Apple TV and bar buttons on iPhone and iPad; the Schedule and the recording controls appear only for accounts the server lets manage recordings. A channel's card carries the programme on air and a red LIVE mark. A channel plays through the on-device engine, cut live on keyframes into a sliding five-minute window. An HLS or DASH origin is read directly with the tuner's own headers and no stream opened on the server; a tuner stream comes through the server untouched. AES-128 channels play; a FairPlay, Widevine, PlayReady or SAMPLE-AES channel is refused at the open. CEA-608/708 captions, DVB subtitles and teletext pages ride the live stream. A channel that drops reopens once, then plays on the server's transcode, which also takes a channel the engine cannot open or keep up with. On Apple TV the remote's channel-skip gesture flips channels through AVKit's own interstitial, the channels either side and the one just left keep running in the engine so a flip lands on a session already cutting segments, and the info panel carries the channel ring as a Channels tab
+- Books. A Book library opens in a full-screen reader on every platform: PDF, CBZ, CBR, CBT and CB7 comics, EPUB, MOBI and Kindle AZW/AZW3. Pages are rendered on the device as they come into view. On Apple TV play/pause zooms a page and the arrows pan it once zoomed; Cmd-plus and Cmd-minus zoom on a Mac; pinch and double tap zoom on iPhone and iPad. Text books step through four text sizes, on Apple TV with play/pause. Where you got to is written in the server's own encoding, so Jellyfin's web client resumes at the same page
+- German, French and Spanish, following the device language, across every screen: tabs, library, filters, search, downloads, settings, connect, player, info panel, photos, SyncPlay, diagnostics and licences. Product nouns follow Jellyfin's own translations
+- Saved sign-ins as a strip of avatars under Scan Network and Add Server, one per account across servers, the connected one ringed green; a tap reconnects with the stored token, no picker. Server rows read name over address with a chevron into the sign-in step. An account with no picture gets a generated two-disc avatar, covered by its photo once loaded. A long press on a person signs in again with a password or forgets the sign-in. On Apple TV the saved people stand in a column beside the server list, a focused server row shows only its own sign-ins, Right from a row lands on the nearest person, and Left returns to the row that led in
+- Scan Network lists every Jellyfin server on a host rather than the first to answer, and sweeps the common second-instance ports, 8097, 8098, 18096 and TrueNAS SCALE's 30013, after the defaults. An HTTPS answer whose certificate the device does not trust gives way to the server's HTTP port
+- Embedded text subtitles are decoded on the device and served to the player as WebVTT, SubRip, mov_text, ASS and SSA alike, cut on the session grid and rebased with it. The server's /Subtitles/Stream.vtt ran ffmpeg over the whole file before it answered, and the player held readiness on the selected track, so a film with subtitles waited 5.7 to 11.8s to start; it starts with the picture. A sidecar file keeps the server's URL, since it costs no extraction. ASS and SSA keep bold, italic and underline, drawings are dropped rather than printed, and a script written with CRLF, which is what Aegisub writes, parses: Swift reads CRLF as one Character, so its style table came out empty
+- The Open Source page lists libarchive, XZ Utils, foliate-js and libzvbi beside the rest of the media stack
+- Jellyfin's "Play next episode automatically" setting is followed: with it off, the Up Next card waits for Play Now or Close instead of counting down (#82)
+- While a video or channel opens, one line under the spinner names the stage it is in, once the first second has passed
+
+### Changed
+
+- The demo server leaves the server list. demo.jellyfin.org/stable is the Add Server field's placeholder, and Go on the empty field, or on that address typed out, signs into the demo server
+- On Apple TV the Up Next card arrives when the credits marker starts, or at the end of an episode without one, rather than 30 seconds before the end
+- On Apple TV the folder header, Filters, Diagnostics, SyncPlay, the Up Next buttons, the info panel's action circles and the sign-in links sit in glass capsules
+- Filters names the library it applies to under its heading on every platform, and on Apple TV Close and Clear All share one row
+- The Downloads storage gauge fills red across a gold track as the downloads grow
+- Grid cards catch light along their top edge
+
+### Fixed
+
+- A chapter picture marked on a fade or a black card comes from the first usable frame a few seconds away
+- A button on Apple TV keeps its focus lift after it is pressed
+- On Apple TV a seek as the Up Next card slides in no longer presents a second card over it
+- Shuffle on a library filtered by Favorites, Played or Unplayed no longer drops or repeats items as more pages load
+- An iTunes-tagged MP4 no longer wears an S00E00 badge. Its season_number=0 and episode_sort=0 reach the server as ParentIndexNumber 0 and IndexNumber 0, and a 0/0 pair is read as unset, so the name and filename decide
+- A fast page swipe in the photo viewer no longer counts as a double-tap zoom on iOS
+- The filter chips no longer sit on the baked ambient canvas
+- A live segment on the copy lane is cut on a keyframe rather than at a fixed four seconds, so a long-GOP channel never opens its next segment mid-picture
+- A splice packet that is itself a keyframe opened the next generation through a context the roll had freed, and the engine crashed in av_write_frame; the muxer is rebound after the roll
+- Leaving a channel no longer reopens it on the server: channels have no resume point, so the Stopped report's read-back skips them
+- A stream joined mid-GOP, a tuner or a tuner recording, no longer logs every packet before its first keyframe; the probe and the poster grabber read keyframes only
+
 ## [2.2.5]
 
 ### Added

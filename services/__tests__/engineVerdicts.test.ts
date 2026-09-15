@@ -34,7 +34,7 @@ jest.mock("expo-file-system", () => {
 });
 const mockFiles = (jest.requireMock("expo-file-system") as { __store: Map<string, string> }).__store;
 
-jest.mock("@/services/jellyfinApi", () => ({ getConfig: async () => ({ server: "http://server:8096" }) }));
+jest.mock("@/services/jellyfin/session", () => ({ getConfig: async () => ({ server: "http://server:8096" }) }));
 jest.mock("@/constants/app", () => ({ APP_BUILD_LABEL: "9.9.9 (1)" }));
 
 const item = { Id: "abc", MediaSources: [{ Id: "ms1" }] } as Parameters<typeof rememberedVerdict>[0];

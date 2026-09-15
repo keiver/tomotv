@@ -36,9 +36,9 @@ class LocalRemuxer: RCTEventEmitter {
     private static var sessions: [String: RemuxSession] = [:]
     /// Start order, so the oldest is evicted first when the cap is hit.
     private static var sessionOrder: [String] = []
-    /// Two covers a screen transition. A third means something is leaking, and
-    /// evicting the oldest is better than unbounded threads and disk.
-    private static let maxSessions = 2
+    /// The playing channel plus the live ring's hot sessions. Past that something is leaking,
+    /// and evicting the oldest is better than unbounded threads and disk.
+    private static let maxSessions = 4
 
     /// Playlist shims by token (PlaylistShim.swift — server-lane resume).
     /// Cheap (two cached strings each), same overlap-and-evict story as
@@ -73,7 +73,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -124,6 +124,22 @@ class LocalRemuxer: RCTEventEmitter {
         if listening { sendEvent(withName: "onEngineFailed", body: failure) }
     }
 
+    /// A startup step the session finished, sent only while JS listens.
+    private func publish(stage: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineStage", body: stage) }
+    }
+
+    /// A live subtitle playlist AVPlayer asked for, sent only while JS listens.
+    private func publish(subtitleRequest: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineSubtitleRequest", body: subtitleRequest) }
+    }
+
     // MARK: - Routing
 
     private static func route(_ path: String) -> LocalHTTPResponse {
@@ -150,7 +166,7 @@ class LocalRemuxer: RCTEventEmitter {
             return .notFound
         }
         if let provider {
-            if let ms = frameMilliseconds(parts[1]), let url = provider.grabber.frame(atMilliseconds: ms) {
+            if let ms = frameMilliseconds(parts[1]), let url = provider.grabber.chapterFrame(atMilliseconds: ms) {
                 return .file(url, contentType: "image/jpeg")
             }
             return .notFound
@@ -174,10 +190,25 @@ class LocalRemuxer: RCTEventEmitter {
         case "init.mp4":
             return current.initResponse()
         default:
+            // "init-g{N}.mp4": the init segment of live generation N (one per splice).
+            if name.hasPrefix("init-g"), name.hasSuffix(".mp4"),
+               let generation = Int(name.dropFirst(6).dropLast(4)) {
+                return current.initResponse(generation: generation)
+            }
             if name.hasPrefix("sub"), name.hasSuffix(".m3u8"),
                let index = Int(name.dropFirst(3).dropLast(5)),
                let playlist = current.subtitlePlaylist(streamIndex: index) {
                 return .data(Data(playlist.utf8), contentType: m3u8)
+            }
+            // "sub{stream}-{segment}.vtt": one window of an engine-decoded text
+            // track. Blocks on the read loop, like a media segment does.
+            if name.hasPrefix("sub"), name.hasSuffix(".vtt"), name.contains("-") {
+                let parts = name.dropFirst(3).dropLast(4).split(separator: "-")
+                if parts.count == 2, let index = Int(parts[0]), let segment = Int(parts[1]),
+                   let body = current.subtitleSegment(streamIndex: index, segment: segment) {
+                    return .data(Data(body.utf8), contentType: "text/vtt")
+                }
+                return .data(Data(current.emptySubtitleBody().utf8), contentType: "text/vtt")
             }
             // The cue-less body an image subtitle rendition resolves to. AVKit
             // lists and selects the track and draws none of it; the app draws
@@ -248,6 +279,10 @@ class LocalRemuxer: RCTEventEmitter {
                 if rest == "-init.mp4" {
                     return current.initResponse(prefix: prefix)
                 }
+                if rest.hasPrefix("-init-g"), rest.hasSuffix(".mp4"),
+                   let generation = Int(rest.dropFirst(7).dropLast(4)) {
+                    return current.initResponse(prefix: prefix, generation: generation)
+                }
                 if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
                    let n = Int(rest.dropFirst(4).dropLast(4)) {
                     return current.segmentResponse(n, prefix: prefix)
@@ -273,7 +308,7 @@ class LocalRemuxer: RCTEventEmitter {
     ///                                DEFAULT=YES); empty means "pick the best
     ///                                audio stream"
     ///   durationSeconds: Double    — item runtime from Jellyfin metadata
-    ///   subtitles: [{index, name, language, vttUrl, isDefault, isForced}]
+    ///   subtitles: [{index, name, language, vttUrl, isDefault, isForced, isImage, isEngineText}]
     ///   videoRange: String?        — HLS VIDEO-RANGE ("SDR"/"PQ"/"HLG");
     ///                                required for HDR content or AVFoundation
     ///                                rejects the variant (-12927)
@@ -283,6 +318,11 @@ class LocalRemuxer: RCTEventEmitter {
     ///   frameRate: Double?         — source frame rate, for FRAME-RATE
     ///   bandwidth: Int?            — video plus served audio bit rate, for
     ///                                BANDWIDTH and AVERAGE-BANDWIDTH
+    ///   isLive: Bool?              : Live TV, unbounded input on a sliding-window
+    ///                                playlist; durationSeconds may be 0
+    ///   liveSegmentSeconds: Double? : live segment target (default 6)
+    ///   httpHeaders: [String: String]? : headers the input origin requires (a live manifest's User-Agent)
+    ///   probeOrigin: Bool?         : live input is an origin's HLS playlist; a refusal fails the session
     ///
     /// Everything after durationSeconds comes from Jellyfin's metadata rather
     /// than from the file, because the master playlist is written before FFmpeg
@@ -293,9 +333,10 @@ class LocalRemuxer: RCTEventEmitter {
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
+        let isLive = (config["isLive"] as? Bool) ?? false
         guard let inputUrl = config["inputUrl"] as? String,
-              let duration = config["durationSeconds"] as? Double, duration > 0 else {
-            reject("invalid_config", "startRemux needs inputUrl and a positive durationSeconds", nil)
+              let duration = config["durationSeconds"] as? Double, duration > 0 || isLive else {
+            reject("invalid_config", "startRemux needs inputUrl and a positive durationSeconds, or isLive", nil)
             return
         }
 
@@ -311,10 +352,11 @@ class LocalRemuxer: RCTEventEmitter {
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
             guard let index = raw["index"] as? Int else { return nil }
             let isImage = raw["isImage"] as? Bool ?? false
-            // A text track without a Jellyfin URL has nothing to serve. An image
-            // track never has one — its bitmaps come out of the source file.
+            let isEngineText = raw["isEngineText"] as? Bool ?? false
+            // A track with nowhere to read from has nothing to serve. An image
+            // or engine-decoded one comes out of the source file, so needs no URL.
             let localVtt = raw["localVtt"] as? String ?? ""
-            guard let vttUrl = raw["vttUrl"] as? String, isImage || !vttUrl.isEmpty || !localVtt.isEmpty else { return nil }
+            guard let vttUrl = raw["vttUrl"] as? String, isImage || isEngineText || !vttUrl.isEmpty || !localVtt.isEmpty else { return nil }
             return RemuxSubtitle(
                 index: index,
                 name: raw["name"] as? String ?? "Subtitle \(index)",
@@ -323,7 +365,8 @@ class LocalRemuxer: RCTEventEmitter {
                 localVtt: localVtt,
                 isDefault: raw["isDefault"] as? Bool ?? false,
                 isForced: raw["isForced"] as? Bool ?? false,
-                isImage: isImage
+                isImage: isImage,
+                isEngineText: isEngineText
             )
         }
 
@@ -363,17 +406,24 @@ class LocalRemuxer: RCTEventEmitter {
                 tierHeight: (config["tierHeight"] as? Int) ?? 0,
                 tierFirst: (config["tierFirst"] as? Bool) ?? false,
                 startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,
-                itemId: (config["itemId"] as? String) ?? ""
+                itemId: (config["itemId"] as? String) ?? "",
+                isLive: isLive,
+                liveSegmentSeconds: (config["liveSegmentSeconds"] as? Double) ?? 6.0,
+                liveWindowSeconds: (config["liveWindowSeconds"] as? Double) ?? 300.0,
+                httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:],
+                probeOrigin: (config["probeOrigin"] as? Bool) ?? false
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
             session.onTier = { [weak self] report in self?.publish(tier: report) }
             session.onFailed = { [weak self] failure in self?.publish(failure: failure) }
+            session.onStage = { [weak self] stage in self?.publish(stage: stage) }
+            session.onSubtitleRequest = { [weak self] request in self?.publish(subtitleRequest: request) }
             session.start()
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)
 
-            NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%d segments)", port, session.segmentCount)
+            NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%@)", port, isLive ? "live" : "\(session.segmentCount) segments")
             resolve("http://127.0.0.1:\(port)/\(session.token)/master.m3u8")
         } catch {
             reject("start_failed", "Failed to start remux session: \(error.localizedDescription)", error)
@@ -485,6 +535,23 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(session?.progress())
     }
 
+    /// A live session's subtitle tracks as its master publishes them, once the input has resolved.
+    @objc func liveSubtitles(
+        _ token: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        guard let session else { return resolve(nil) }
+        DispatchQueue.global(qos: .userInitiated).async {
+            resolve(session.publishedSubtitles(waitSeconds: 40).map {
+                ["index": $0.index, "name": $0.name, "language": $0.language, "isDefault": $0.isDefault, "isForced": $0.isForced, "isImage": $0.isImage]
+            })
+        }
+    }
+
     /// Starts a frame provider (FrameGrabber.swift) over `inputUrl`, the original file,
     /// for a player that runs no remux session. `itemId` keys the frame pool. Resolves with
     /// the base URL under which `frame-{ms}.jpg` answers; the path's token stops it.
@@ -589,6 +656,21 @@ class LocalRemuxer: RCTEventEmitter {
         // no reason to hold up a request for another session while it does.
         session?.stop()
         resolve(nil)
+    }
+
+    /// Resizes a live session's window from here on: a hot neighbour starts short and widens once
+    /// a player adopts it. Resolves whether the session still exists.
+    @objc func setLiveWindow(
+        _ token: NSString,
+        seconds: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        session?.setLiveWindow(seconds: seconds.doubleValue)
+        resolve(session != nil)
     }
 
     /// Cancellation flags for repackages in flight, keyed by item id.

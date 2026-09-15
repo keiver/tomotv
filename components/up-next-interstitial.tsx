@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { getBackdropBlurUrl, hasPoster } from "@/services/jellyfinApi";
@@ -6,10 +7,10 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useMemo } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { cancelAnimation, Easing, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
+import { t } from "@/services/i18n";
 
 interface UpNextInterstitialProps {
   nextVideo: JellyfinVideoItem;
@@ -20,6 +21,8 @@ interface UpNextInterstitialProps {
    * rather than a first render plus two network round trips.
    */
   armed: boolean;
+  /** Counts down into onPlayNext; false waits for a CTA. */
+  autoAdvance: boolean;
   /** Advance the queue now (countdown expiry and the Play Now CTA both land here). */
   onPlayNext: () => void;
   /** Stop the binge: clear the queue and leave the player. */
@@ -33,6 +36,7 @@ const COUNTDOWN_MS = 5000;
 const ENTRANCE_FADE_MS = 250;
 const POSTER_HEIGHT = Platform.isTV ? 360 : 220;
 const COUNTDOWN_WIDTH = Platform.isTV ? 360 : 240;
+const CtaButton = Platform.isTV ? GlassButton : FocusableButton;
 
 /**
  * Between-episodes "Up Next" screen for queue playback. Shown INSTEAD of advancing
@@ -45,7 +49,7 @@ const COUNTDOWN_WIDTH = Platform.isTV ? 360 : 240;
  * (blur=20) scaled full screen — here at near-full strength under a gradient scrim, so
  * the next episode's artwork dominates the frame.
  */
-export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: UpNextInterstitialProps) {
+export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, onClose }: UpNextInterstitialProps) {
   const seasonEpisode = useMemo(() => formatSeasonEpisode(nextVideo), [nextVideo]);
 
   const posterSource = useItemPoster(nextVideo, POSTER_HEIGHT * 2);
@@ -68,21 +72,23 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
   useEffect(() => {
     if (!armed) return;
     appear.set(withTiming(1, { duration: ENTRANCE_FADE_MS }));
-    countdown.set(
-      withDelay(
-        ENTRANCE_FADE_MS,
-        withTiming(1, { duration: COUNTDOWN_MS, easing: Easing.linear }, (finished) => {
-          if (finished) runOnJS(onPlayNext)();
-        }),
-      ),
-    );
+    if (autoAdvance) {
+      countdown.set(
+        withDelay(
+          ENTRANCE_FADE_MS,
+          withTiming(1, { duration: COUNTDOWN_MS, easing: Easing.linear }, (finished) => {
+            if (finished) runOnJS(onPlayNext)();
+          }),
+        ),
+      );
+    }
     return () => {
       cancelAnimation(appear);
       cancelAnimation(countdown);
     };
     // Restart only if the announced item changes (queue advance remounts the route anyway).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [armed, nextVideo.Id]);
+  }, [armed, autoAdvance, nextVideo.Id]);
 
   const fadeStyle = useAnimatedStyle(() => ({
     opacity: appear.value,
@@ -94,7 +100,7 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
 
   useEffect(() => {
     if (!armed) return;
-    AccessibilityInfo.announceForAccessibility(`Up next: ${nextVideo.Name}`);
+    AccessibilityInfo.announceForAccessibility(t("player.upNextName").replace("{name}", nextVideo.Name));
   }, [armed, nextVideo.Name, nextVideo.Id]);
 
   return (
@@ -109,10 +115,10 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
         )}
         {/* Scrim keeps text/buttons legible over the full-strength poster wash — darker at the
             bottom where the CTAs sit, lighter up top so the artwork's color carries the frame. */}
-        <LinearGradient colors={["rgba(20, 20, 20, 0.3)", "rgba(20, 20, 20, 0.82)"]} style={styles.fill} />
+        <View style={[styles.fill, styles.scrim]} />
 
         <View style={styles.content}>
-          <Text style={styles.eyebrow}>UP NEXT</Text>
+          <Text style={styles.eyebrow}>{t("player.upNext")}</Text>
 
           {posterSource && (
             <Image
@@ -122,7 +128,7 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
               transition={200}
               cachePolicy="memory-disk"
               accessible={true}
-              accessibilityLabel={`${nextVideo.Name} poster`}
+              accessibilityLabel={t("a11y.poster").replace("{name}", nextVideo.Name)}
             />
           )}
 
@@ -131,20 +137,28 @@ export function UpNextInterstitial({ nextVideo, armed, onPlayNext, onClose }: Up
             {seasonEpisode ? `${seasonEpisode} · ${nextVideo.Name}` : nextVideo.Name}
           </Text>
 
-          <View style={styles.countdownTrack}>
-            <Animated.View style={[styles.countdownFill, countdownStyle]} />
-          </View>
+          {autoAdvance && (
+            <View style={styles.countdownTrack}>
+              <Animated.View style={[styles.countdownFill, countdownStyle]} />
+            </View>
+          )}
 
           <View style={styles.buttonRow}>
-            <FocusableButton
-              title="Play Now"
+            <CtaButton
+              title={t("player.playNow")}
               variant="primary"
               hasTVPreferredFocus
               icon={<Ionicons name="play" size={Platform.isTV ? 24 : 18} color={COLORS.SURFACE_SUNKEN} />}
               onPress={onPlayNext}
               style={styles.button}
             />
-            <FocusableButton title="Close" variant="secondary" icon={<Ionicons name="close" size={Platform.isTV ? 24 : 18} color={COLORS.ACCENT} />} onPress={onClose} style={styles.button} />
+            <CtaButton
+              title={t("common.close")}
+              variant={Platform.isTV ? "link" : "secondary"}
+              icon={<Ionicons name="close" size={Platform.isTV ? 24 : 18} color={COLORS.ACCENT} />}
+              onPress={onClose}
+              style={styles.button}
+            />
           </View>
         </View>
       </Animated.View>
@@ -174,6 +188,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  scrim: {
+    experimental_backgroundImage: "linear-gradient(to bottom, rgba(20, 20, 20, 0.3) 0%, rgba(20, 20, 20, 0.82) 100%)",
   },
   // The library-backdrop technique (tiny server-blurred poster upscaled full screen), but at
   // near-full strength — the gradient scrim above it restores legibility, so the artwork's

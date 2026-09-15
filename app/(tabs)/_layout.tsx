@@ -3,6 +3,7 @@ import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useEffect, useState } from "react";
 import { Platform } from "react-native";
+import { t } from "@/services/i18n";
 
 // SDK 56: Icon/Label moved under NativeTabs.Trigger.
 const { Icon, Label, Badge } = NativeTabs.Trigger;
@@ -88,18 +89,18 @@ export default function TabLayout() {
     <NativeTabs {...TAB_BAR_BACKGROUND} tintColor={TAB_TINT} disableTransparentOnScrollEdge>
       <NativeTabs.Trigger name="(library)" disablePopToTop={DISABLE_TAB_RESELECT_EFFECTS} disableScrollToTop={DISABLE_TAB_RESELECT_EFFECTS}>
         <Icon sf="house.fill" />
-        <Label>Home</Label>
+        <Label>{t("tab.home")}</Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="search">
         <Icon sf="magnifyingglass" />
-        <Label>Search</Label>
+        <Label>{t("tab.search")}</Label>
       </NativeTabs.Trigger>
 
       {/* Apple gives tvOS apps no persistent local storage, so there is nothing to show there. */}
       <NativeTabs.Trigger name="downloads" hidden={DOWNLOADS_HIDDEN}>
         <Icon sf="arrow.down.circle.fill" />
-        <Label>Downloads</Label>
+        <Label>{t("tab.downloads")}</Label>
       </NativeTabs.Trigger>
 
       {/* Help was a fourth tab here. No client in the category ships one — Infuse, Plex, Max and
@@ -109,7 +110,7 @@ export default function TabLayout() {
           from there too. */}
       <NativeTabs.Trigger name="settings">
         <Icon sf="gearshape.fill" />
-        <Label>Settings</Label>
+        <Label>{t("tab.settings")}</Label>
         {!Platform.isTV && <Badge hidden={!inGroup} />}
       </NativeTabs.Trigger>
     </NativeTabs>

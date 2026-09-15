@@ -1,18 +1,15 @@
-import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
 import { FolderStackEntry } from "@/types/jellyfin";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-
-const IS_TV = Platform.isTV;
+import { StyleSheet, Text, View } from "react-native";
+import { t } from "@/services/i18n";
 
 interface LibraryHeaderProps {
   /** Current folder navigation stack. Empty = library root (header renders nothing). */
   stack: FolderStackEntry[];
-  /** Go up one folder level. Wired to the touch back row; on TV the Menu/back key handles it. */
-  onBack: () => void;
-  /** Opens the Filters panel. Renders the breadcrumb's suffix action only when provided. */
+  /** Opens the Filters panel. Renders the glass Filters capsule only when provided. */
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
   activeFilterCount?: number;
@@ -20,25 +17,15 @@ interface LibraryHeaderProps {
   filtersButtonHasPreferredFocus?: boolean;
   /** Reports the Filters button's native node so the grid can target it with nextFocusUp. */
   onFiltersButtonRef?: (node: View | null) => void;
-  /** TV: the Filters button gained/lost focus (grid focus bookkeeping — see library-grid's recovery). */
+  /** TV: the Filters button gained/lost focus (grid focus bookkeeping, see library-grid's recovery). */
   onFiltersFocusChange?: (focused: boolean) => void;
 }
 
 /**
- * Folder context header for the Library tab. Replaces the old in-grid "Back card" and the
- * rotated left-edge breadcrumb.
- *
- * - TV (tvOS/Android TV): a non-focusable path so the user knows where they are. There is NO
- *   on-screen back control — going up is the remote's Menu/back button (the native stack pops;
- *   nothing in the app handles the Menu key).
- * - Touch (iOS/Android phone): a tappable "‹ CurrentFolder" row, since touch has no back key.
- *
- * The grid renders this bar as its list header, so it scrolls away with the first row rather than
- * sitting over the posters. The grid routes Up from its top row straight to the right-aligned
- * Filters button via nextFocusUp (the button reports its native node through onFiltersButtonRef) —
- * no focus guide/destinations, which are unreliable on Fabric/tvOS.
+ * tvOS folder header: a glass Filters capsule, then the non-focusable path. Going up is the
+ * remote's Menu button (native stack pop), so there is no on-screen back control.
  */
-function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef, onFiltersFocusChange }: LibraryHeaderProps) {
+function LibraryHeaderComponent({ stack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef, onFiltersFocusChange }: LibraryHeaderProps) {
   const filtersButtonRef = useCallback(
     (node: View | null) => {
       onFiltersButtonRef?.(node);
@@ -52,60 +39,32 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
     return null;
   }
 
-  const current = stack[stack.length - 1];
-
-  const filtersButton = onOpenFilters ? (
-    <FocusableButton
-      ref={filtersButtonRef}
-      title={activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
-      variant="secondary"
-      hasTVPreferredFocus={filtersButtonHasPreferredFocus}
-      onPress={onOpenFilters}
-      onFocus={handleFiltersFocus}
-      onBlur={handleFiltersBlur}
-      icon={<Ionicons name="options-outline" size={IS_TV ? 24 : 18} color={COLORS.ACCENT} />}
-      style={styles.filtersButton}
-      textStyle={styles.filtersButtonText}
-    />
-  ) : null;
-
-  if (IS_TV) {
-    return (
-      <View style={styles.tvContainer}>
-        {filtersButton}
-        <View style={styles.tvPath} pointerEvents="none">
-          {stack.map((entry, index) => {
-            const isLast = index === stack.length - 1;
-            return (
-              <View key={entry.id} style={styles.pathSegment}>
-                <Text style={[styles.tvPathText, isLast && styles.tvPathTextCurrent]} numberOfLines={1}>
-                  {entry.name}
-                </Text>
-                {!isLast && <Ionicons name="chevron-forward" size={22} color={COLORS.ACCENT} style={styles.pathSeparator} />}
-              </View>
-            );
-          })}
-        </View>
-      </View>
-    );
-  }
-
-  // Back + title lead the row; Filters sits at the right edge so the title is
-  // the first thing read and the pill stays out of its way.
   return (
-    <View style={styles.touchRow}>
-      <Pressable
-        onPress={onBack}
-        accessibilityRole="button"
-        accessibilityLabel="Go back"
-        accessibilityHint={`Return to ${stack.length > 1 ? stack[stack.length - 2].name : "Libraries"}`}
-        style={({ pressed }) => [styles.touchBackRow, pressed && styles.touchBackRowPressed]}>
-        <Ionicons name="chevron-back" size={26} color={COLORS.ACCENT} />
-        <Text style={styles.touchBackText} numberOfLines={1}>
-          {current.name}
-        </Text>
-      </Pressable>
-      {filtersButton}
+    <View style={styles.container}>
+      {onOpenFilters ? (
+        <GlassButton
+          ref={filtersButtonRef}
+          title={activeFilterCount > 0 ? t("filters.titleCount").replace("{count}", String(activeFilterCount)) : t("filters.title")}
+          hasTVPreferredFocus={filtersButtonHasPreferredFocus}
+          onPress={onOpenFilters}
+          onFocus={handleFiltersFocus}
+          onBlur={handleFiltersBlur}
+          icon={<Ionicons name="options-outline" size={24} color={COLORS.ACCENT} />}
+        />
+      ) : null}
+      <View style={styles.path} pointerEvents="none">
+        {stack.map((entry, index) => {
+          const isLast = index === stack.length - 1;
+          return (
+            <View key={entry.id} style={styles.pathSegment}>
+              <Text style={[styles.pathText, isLast && styles.pathTextCurrent]} numberOfLines={1}>
+                {entry.name}
+              </Text>
+              {!isLast && <Ionicons name="chevron-forward" size={22} color={COLORS.TEXT_TERTIARY} style={styles.pathSeparator} />}
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -113,8 +72,7 @@ function LibraryHeaderComponent({ stack, onBack, onOpenFilters, activeFilterCoun
 export const LibraryHeader = React.memo(LibraryHeaderComponent);
 
 const styles = StyleSheet.create({
-  // --- TV: focusable Filters button, then the non-focusable path ---
-  tvContainer: {
+  container: {
     flexDirection: "row",
     alignItems: "center",
     gap: 24,
@@ -122,7 +80,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     paddingBottom: 14,
   },
-  tvPath: {
+  path: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
@@ -132,61 +90,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  tvPathText: {
+  pathText: {
     color: COLORS.TEXT_SECONDARY,
     fontSize: 28,
     fontWeight: "700",
     maxWidth: 360,
-    // Grid posters scroll beneath the floating bar — keep the path legible over bright art.
-    textShadowColor: "rgba(0, 0, 0, 0.8)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 8,
   },
-  tvPathTextCurrent: {
+  pathTextCurrent: {
     color: COLORS.TEXT_PRIMARY,
   },
   pathSeparator: {
     marginHorizontal: 8,
-  },
-  // --- Touch: tappable back row, Filters pushed to the right edge ---
-  touchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingRight: 16,
-  },
-  touchBackRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexShrink: 1,
-    marginLeft: 4,
-    paddingVertical: 6,
-    paddingRight: 12,
-  },
-  touchBackRowPressed: {
-    opacity: 0.6,
-  },
-  touchBackText: {
-    marginLeft: 2,
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: 18,
-    fontWeight: "700",
-    maxWidth: 280,
-    // Grid posters scroll beneath the floating bar — keep the title legible over bright art.
-    textShadowColor: "rgba(0, 0, 0, 0.8)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 8,
-  },
-  // Compact override of FocusableButton's full-size defaults so it fits the breadcrumb bar.
-  // Phone: shallow pill, vertically centered against the back row's arrow and title.
-  filtersButton: {
-    minWidth: 0,
-    minHeight: IS_TV ? 52 : 32,
-    paddingVertical: IS_TV ? 8 : 3,
-    paddingHorizontal: IS_TV ? 28 : 14,
-  },
-  filtersButtonText: {
-    fontSize: IS_TV ? 22 : 14,
   },
 });

@@ -8,6 +8,7 @@ import React, { useMemo, useState } from "react";
 import { FlatList, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 
@@ -73,7 +74,7 @@ export default function BundledLicensesScreen() {
       <View style={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
         <View style={[settingsStyles.contentContainer, styles.column]}>
           {/* Phone puts this in the native bar; TV has no header. */}
-          {IS_TV && <Text style={styles.title}>Bundled Packages</Text>}
+          {IS_TV && <Text style={styles.title}>{t("licenses.bundled")}</Text>}
           <View style={[settingsStyles.section, styles.card]}>
             <View style={styles.listHost} onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}>
               <FlatList
@@ -99,7 +100,9 @@ export default function BundledLicensesScreen() {
                         {paragraph}
                       </ReadableBlock>
                     ))}
-                    <ReadableBlock textStyle={styles.packagesLabel}>{item.packages.length === 1 ? "Applies to 1 package" : `Applies to ${item.packages.length} packages`}</ReadableBlock>
+                    <ReadableBlock textStyle={styles.packagesLabel}>
+                      {item.packages.length === 1 ? t("licenses.appliesOne") : t("licenses.appliesMany").replace("{count}", String(item.packages.length))}
+                    </ReadableBlock>
                     <ReadableBlock textStyle={styles.packages}>{item.packages.join(", ")}</ReadableBlock>
                   </View>
                 )}
@@ -108,7 +111,7 @@ export default function BundledLicensesScreen() {
                     <>
                       <Divider />
                       <View style={styles.group}>
-                        <ReadableBlock textStyle={styles.packagesLabel}>Declared without a license file</ReadableBlock>
+                        <ReadableBlock textStyle={styles.packagesLabel}>{t("licenses.noFile")}</ReadableBlock>
                         <ReadableBlock textStyle={styles.note}>
                           These packages state their license in their manifest but ship no license file of their own, so no copyright line is reproduced for them.
                         </ReadableBlock>

@@ -35,13 +35,36 @@ export {
 export { activateAccount, getAccountsForServer, getSavedAccounts, relocateAccounts, removeAccount, removeSavedServerAndAccounts, upsertAccount } from "./jellyfin/accounts";
 export type { ActivateAccountResult } from "./jellyfin/accounts";
 
-export { DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
+export { DEMO_ADDRESS, DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export { notifyResumeChange, notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
-export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupported, needsTranscoding } from "./jellyfin/media";
+export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupported, isLiveChannel, isLiveSource, needsTranscoding } from "./jellyfin/media";
+export {
+  cancelSeriesTimer,
+  cancelTimer,
+  closeLiveStream,
+  closeWarmedChannels,
+  createSeriesTimer,
+  createTimer,
+  fetchChannels,
+  fetchGuidePrograms,
+  fetchLiveTvManagement,
+  fetchProgram,
+  fetchRecordings,
+  fetchSeriesTimers,
+  fetchTimerDefaults,
+  fetchTimers,
+  isServerLaneChannel,
+  noteOpenFailed,
+  openChannel,
+  openRecentlyFailed,
+  resolveChannel,
+  warmChannel,
+} from "./jellyfin/liveTv";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
+export { fetchNextEpisodeAutoPlay } from "./jellyfin/nextEpisodeAutoPlay";
 export {
   createSyncPlayGroup,
   fetchSyncPlayAccess,
@@ -86,12 +109,13 @@ export {
   checkQuickConnectEnabled,
   getStoredAuthMethod,
   getStoredServerName,
+  getStoredUserId,
   getStoredUserName,
   initiateQuickConnect,
   pollQuickConnect,
   saveAuthResult,
 } from "./jellyfin/auth";
-export { connectToDemoServer, disconnectFromDemo, isDemoMode } from "./jellyfin/demo";
+export { connectToDemoServer, disconnectFromDemo, isDemoAddress, isDemoMode } from "./jellyfin/demo";
 
 export {
   fetchFavoriteIds,
@@ -105,6 +129,7 @@ export {
   FolderMediaKinds,
   fetchUserViews,
   fetchViewItemCount,
+  isBook,
   isFolder,
   isPhoto,
 } from "./jellyfin/library";
@@ -138,5 +163,18 @@ export {
 } from "./jellyfin/playback";
 
 export { getTranscodingStreamUrl, getVideoStreamUrl, serverVideoCodecs, sourceIsHdr } from "./jellyfin/streamUrls";
-export { getBackdropBlurUrl, getBackdropUrl, getChapterImageUrl, getFolderThumbnailUrl, getLogoUrl, getPersonImageUrl, getPhotoFileUrl, getPhotoUrl, getPosterUrl, hasPoster } from "./jellyfin/images";
+export {
+  getBackdropBlurUrl,
+  getBackdropUrl,
+  getChapterImageUrl,
+  getFolderThumbnailUrl,
+  getLogoUrl,
+  getPersonImageUrl,
+  getBookFileUrl,
+  getPhotoFileUrl,
+  getPhotoUrl,
+  getPosterUrl,
+  getUserImageUrl,
+  hasPoster,
+} from "./jellyfin/images";
 export { getBurnInSubtitleStream, getSubtitleUrl, getTextSubtitleStreams, isImageBasedSubtitleCodec } from "./jellyfin/subtitles";

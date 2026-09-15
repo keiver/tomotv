@@ -2,6 +2,7 @@ import { ConnectStepScreen } from "@/components/settings/ConnectStepScreen";
 import { QuickConnectSection } from "@/components/settings/QuickConnectSection";
 import { useFinishLogin } from "@/hooks/useFinishLogin";
 import { useQuickConnect } from "@/hooks/useQuickConnect";
+import { t } from "@/services/i18n";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect } from "react";
 
@@ -33,7 +34,11 @@ export default function QuickConnectScreen() {
   }, [quickConnect.status]);
 
   return (
-    <ConnectStepScreen header={`Authorize on ${params.name || "Jellyfin server"}`.toUpperCase()} centered>
+    <ConnectStepScreen
+      header={t("connect.authorizeOn")
+        .replace("{name}", params.name || "Jellyfin server")
+        .toUpperCase()}
+      centered>
       <QuickConnectSection
         code={quickConnect.code}
         status={quickConnect.status}

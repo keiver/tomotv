@@ -1,5 +1,5 @@
 import { useAuthSession } from "@/hooks/useAuthSession";
-import { fetchViewItemCount } from "@/services/jellyfinApi";
+import { fetchChannels, fetchViewItemCount } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { useEffect, useState } from "react";
 
@@ -19,10 +19,13 @@ export function useViewItemCount(folder: JellyfinItem): { count: number | undefi
   const key = `${useAuthSession()}:${folder.Id}`;
   const [result, setResult] = useState<{ key: string; count: number | undefined }>({ key: "", count: undefined });
 
+  // The Live TV view holds channels, which no item query counts.
+  const isLiveTv = folder.CollectionType === "livetv";
+
   useEffect(() => {
     if (!isView) return;
     let cancelled = false;
-    fetchViewItemCount(folder.Id)
+    (isLiveTv ? fetchChannels().then(({ items, total }) => total ?? items.length) : fetchViewItemCount(folder.Id))
       .then((count) => {
         if (!cancelled) setResult({ key, count });
       })
@@ -33,7 +36,7 @@ export function useViewItemCount(folder: JellyfinItem): { count: number | undefi
     return () => {
       cancelled = true;
     };
-  }, [key, folder.Id, isView]);
+  }, [key, folder.Id, isView, isLiveTv]);
 
   if (!isView) {
     return { count: undefined, loading: false };

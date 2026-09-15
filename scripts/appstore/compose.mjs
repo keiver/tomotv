@@ -10,18 +10,35 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { COLORS } from "./palette.mjs";
 import { FRAMES, frameBody, placeFrame } from "./frames.mjs";
-import { loadFont, typeset, fitSize, capRatio } from "./typeset.mjs";
+import { loadFace, typeset, fitSize, blockEm } from "./typeset.mjs";
 import { FIELDS } from "./field.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FONTS = path.join(ROOT, "applestore", "fonts");
 
-const display = loadFont(path.join(FONTS, "ScienceGothic-CndBlk.ttf"));
-/** The band's own face: squared like the headline, but open where the caption has to read. */
-const sub_ = loadFont(path.join(FONTS, "SpaceGrotesk-SemiBold.ttf"));
+const face = (file) => loadFace(path.join(FONTS, file));
+/** The band's own face is squared like the headline, but open where the caption has to read. */
+const LATIN = { display: face("ScienceGothic-CndBlk.ttf"), sub: face("SpaceGrotesk-SemiBold.ttf") };
+
+let display = LATIN.display;
+let sub_ = LATIN.sub;
+
+/**
+ * Swap the two faces for a locale. A stack falls back left to right, so a
+ * script font with no Latin still sets "Jellyfin" in the brand face.
+ */
+export function setFonts(fonts) {
+  const stack = (files, fallback) => (files?.length ? [...files.map(face), fallback] : fallback);
+  display = stack(fonts?.display, LATIN.display);
+  sub_ = stack(fonts?.sub, LATIN.sub);
+}
 
 /** Depth below the baseline, so a band centres the ink box and not the cap box. */
-const descentOf = (font) => Math.abs(font.charToGlyph("p").getMetrics().yMin) / font.unitsPerEm;
+const descentOf = (stack) => {
+  // Noto Devanagari has no "p"; take the depth from the first face that does.
+  const f = [stack].flat().find((x) => x.font.charToGlyph("p").index) ?? [stack].flat()[0];
+  return Math.abs(f.font.charToGlyph("p").getMetrics().yMin) / f.font.unitsPerEm;
+};
 
 export const DEVICES = {
   iphone: {
@@ -89,10 +106,7 @@ export function setMetrics(device, shots) {
   const subs = shots.map((s) => lines(s.spec)).filter((l) => l.length);
   const ebs = shots.map((s) => lines(s.eyebrow)).filter((l) => l.length);
 
-  const headSize = Math.min(
-    ...heads.map((l) => fitSize(display, l, W * t.headSize, CAP_TRACK, box)),
-    (H * t.headMax) / (capRatio(display) + Math.max(...heads.map((l) => l.length - 1)) * LINE_HEIGHT),
-  );
+  const headSize = Math.min(...heads.map((l) => fitSize(display, l, W * t.headSize, CAP_TRACK, box)), ...heads.map((l) => (H * t.headMax) / blockEm(display, l, LINE_HEIGHT).crown));
   const block = (font, all, size, track, lh) => Math.max(0, ...all.map((l) => typeset(font, l, { size, tracking: track, lineHeight: lh }).height));
   // Sized off the headline rather than the canvas, so the ratios hold whatever
   // the canvas is.
@@ -103,7 +117,7 @@ export function setMetrics(device, shots) {
 
   const m = {
     headSize,
-    headHeight: block(display, heads, headSize, CAP_TRACK, LINE_HEIGHT),
+    headHeight: Math.max(0, ...heads.map((l) => blockEm(display, l, LINE_HEIGHT).span * headSize)),
     subSize,
     subHeight: subs.length ? block(sub_, subs, subSize, SUB_TRACK, SUB_LINE) : 0,
     ebSize,
@@ -153,9 +167,9 @@ function layout(device, shot, shared) {
   const box = W - 2 * margin;
 
   const head = lines(shot.title);
-  const measured = typeset(display, head, { size: m.headSize, tracking: CAP_TRACK, lineHeight: LINE_HEIGHT });
+  const measured = blockEm(display, head, LINE_HEIGHT).span * m.headSize;
   // Shorter blocks centre inside the shared height rather than moving the panel.
-  const headY = m.headTop + Math.max(0, m.headHeight - measured.height) / 2;
+  const headY = m.headTop + Math.max(0, m.headHeight - measured) / 2;
 
   const { shell, screen } = panelRect(device, m.panelTop, m.barHeight);
 

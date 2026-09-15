@@ -50,11 +50,28 @@ jest.mock("react-native-reanimated", () => {
 
   const Animated = { View, Text, ScrollView, Image, createAnimatedComponent: (c) => c };
 
+  // One object per hook call, held across renders like the real hook: the photo viewer's
+  // effects and gestures list shared values as dependencies and call get()/set() on them.
+  const React = require("react");
+  const sharedValue = (init) => {
+    const s = { value: init };
+    s.get = () => s.value;
+    s.set = (next) => {
+      s.value = typeof next === "function" ? next(s.value) : next;
+    };
+    return s;
+  };
+  const useSharedValue = (init) => {
+    const ref = React.useRef(null);
+    if (ref.current === null) ref.current = sharedValue(init);
+    return ref.current;
+  };
+
   return {
     __esModule: true,
     default: Animated,
     ...Animated,
-    useSharedValue: (init) => ({ value: init }),
+    useSharedValue,
     useAnimatedStyle: (fn) => fn(),
     useReducedMotion: () => false,
     runOnJS:
@@ -63,12 +80,14 @@ jest.mock("react-native-reanimated", () => {
         fn(...args),
     cancelAnimation: () => {},
     withTiming: passthrough,
+    withSpring: passthrough,
     withDelay: (_delay, animation) => animation,
     withRepeat: passthrough,
     withSequence: (...animations) => animations[animations.length - 1],
     Easing: { ...easingCurve, linear: easingFn(), ease: easingFn(), quad: easingFn(), cubic: easingFn(), bezier: () => easingFn() },
     LayoutAnimationConfig: ({ children }) => children,
     FadeIn: builder(),
+    FadeOut: builder(),
     FadeOutLeft: builder(),
     LinearTransition: builder(),
   };

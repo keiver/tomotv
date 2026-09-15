@@ -1,5 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { JoinQr } from "@/components/join-qr";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
@@ -16,6 +16,7 @@ import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 const HERO_PAD = IS_TV ? 28 : 20;
@@ -148,7 +149,7 @@ export default function WatchTogetherScreen() {
           ? [
               {
                 type: "button" as const,
-                label: "Exit Group",
+                label: t("syncplay.exitGroup"),
                 labelStyle: { color: COLORS.DESTRUCTIVE },
                 tintColor: COLORS.DESTRUCTIVE,
                 onPress: onLeave,
@@ -170,9 +171,9 @@ export default function WatchTogetherScreen() {
   const waiting = snap.access === null || (!snap.listed && group === null) || creating;
 
   const body = () => {
-    if (linkMismatch) return centred("link-outline", "That group is on a different server. Switch to it, then scan again.");
-    if (snap.access === "None") return centred("people-outline", "Your account cannot use SyncPlay. Ask the server owner to enable it for this account.");
-    if (waiting) return centred(null, snap.error ?? "Setting up your group", true);
+    if (linkMismatch) return centred("link-outline", t("syncplay.differentServer"));
+    if (snap.access === "None") return centred("people-outline", t("syncplay.notAllowed"));
+    if (waiting) return centred(null, snap.error ?? t("syncplay.settingUp"), true);
 
     if (group !== null) {
       return (
@@ -218,8 +219,8 @@ export default function WatchTogetherScreen() {
           {canCreate ? (
             <ListRow
               icon="add-circle-outline"
-              title="Start my own group"
-              subtitle="Others on this server can join it"
+              title={t("syncplay.startGroup")}
+              subtitle={t("syncplay.othersCanJoin")}
               onPress={() => void onCreate()}
               isLoading={snap.busy === "creating"}
               isFirst={snap.groups.length === 0}
@@ -227,14 +228,14 @@ export default function WatchTogetherScreen() {
             />
           ) : null}
           <SectionFooter>
-            <Text style={settingsStyles.sectionNote}>{snap.error ?? (snap.groups.length > 0 ? "Join a group to watch in sync" : "Start a group so others can join")}</Text>
+            <Text style={settingsStyles.sectionNote}>{snap.error ?? (snap.groups.length > 0 ? t("syncplay.joinToWatch") : t("syncplay.startForOthers"))}</Text>
           </SectionFooter>
         </View>
       );
     }
 
     // Join-only account with an idle server: nothing to do but wait for a host.
-    return centred("people-outline", snap.error ?? "Nobody is watching right now. When someone starts a group on this server, it appears here.");
+    return centred("people-outline", snap.error ?? t("syncplay.nobodyWatching"));
   };
 
   return (
@@ -246,11 +247,11 @@ export default function WatchTogetherScreen() {
           {/* Header line carries the way out, where Diagnostics carries Send. */}
           <View style={styles.titleRow} collapsable={false}>
             <Text style={settingsStyles.sectionHeaderText} numberOfLines={1}>
-              SYNCPLAY
+              {t("syncplay.title")}
             </Text>
             {IS_TV && group ? (
-              <FocusableButton
-                title="Exit Group"
+              <GlassButton
+                title={t("syncplay.exitGroup")}
                 variant="destructive"
                 onPress={onLeave}
                 isLoading={snap.busy === "leaving"}
@@ -258,7 +259,7 @@ export default function WatchTogetherScreen() {
                 textStyle={exitFocused ? styles.exitTextFocused : styles.exitText}
                 onFocus={() => setExitFocused(true)}
                 onBlur={() => setExitFocused(false)}
-                accessibilityLabel={`Exit ${group.groupName}`}
+                accessibilityLabel={t("syncplay.exitNamed").replace("{group}", group.groupName)}
               />
             ) : null}
           </View>
@@ -305,18 +306,9 @@ const styles = StyleSheet.create({
   // The stateless cards keep a card's presence rather than reading as a stray line of text.
   emptyCard: { minHeight: IS_TV ? 260 : 160, alignItems: "center", justifyContent: "center", gap: 16, paddingHorizontal: 24, paddingVertical: 24 },
   emptyText: { color: COLORS.TEXT_SECONDARY, fontSize: IS_TV ? 24 : 15, lineHeight: IS_TV ? 32 : 21, textAlign: "center" },
-  // Outlined rather than filled: leaving is the rare action, and the ring names it as the
-  // destructive one without competing with the code beside it.
-  exitButton: { minWidth: 0, minHeight: IS_TV ? 52 : 40, paddingVertical: 8, paddingHorizontal: IS_TV ? 26 : 18, backgroundColor: "transparent", borderColor: COLORS.DESTRUCTIVE },
-  exitButtonFocused: {
-    minWidth: 0,
-    minHeight: IS_TV ? 52 : 40,
-    paddingVertical: 8,
-    paddingHorizontal: IS_TV ? 26 : 18,
-    backgroundColor: COLORS.DESTRUCTIVE,
-    borderColor: COLORS.TEXT_BRIGHT,
-    transform: [{ scale: 1.06 }],
-  },
+  // Red ink on the glass at rest: leaving is the rare action. Focus fills it.
+  exitButton: { backgroundColor: "transparent", borderColor: "transparent" },
+  exitButtonFocused: { backgroundColor: COLORS.DESTRUCTIVE, borderColor: "transparent" },
   exitText: { fontSize: IS_TV ? 22 : 15, color: COLORS.DESTRUCTIVE },
   exitTextFocused: { fontSize: IS_TV ? 22 : 15, color: COLORS.TEXT_BRIGHT, fontWeight: "700" },
 });

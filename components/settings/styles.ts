@@ -1,7 +1,7 @@
 import { COLORS } from "@/constants/colors";
 import { Platform, StyleSheet } from "react-native";
 
-import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT } from "@/constants/app";
+import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT, RECESS_EDGE } from "@/constants/app";
 
 /** iPad draws the phone layout at a tablet's viewing distance, so its rows take a step up in type. */
 export const IS_PAD = !Platform.isTV && Platform.OS === "ios" && Platform.isPad;
@@ -49,10 +49,27 @@ export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT 
 // TV keeps the ~2.9 it already had, the server card above it eating the rest of that screen.
 const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 
-// The destinations list runs 100pt taller than that on both platforms (5.15 rows of 52 on
-// phone, 3.9 of 100 on TV). Same rule, different weighting: picking a server IS the job of
-// that screen, where the quality presets are a setting someone visits once.
-const VISIBLE_SERVER_ROWS = Platform.isTV ? 3.9 : 5.15;
+/** A row's subtitle line (ListRow), pinned so a title-over-subtitle row's height is arithmetic. */
+export const SUBTITLE_LINE_HEIGHT = pick(26, 17, 16);
+/** ListRow's subtitle marginTop. */
+export const SUBTITLE_GAP = Platform.isTV ? 4 : 1;
+
+/** Exact height of a server row (name over url): 124 on TV, 68 on iPad, 67 on phone. */
+export const SERVER_ROW_HEIGHT = ROW_PADDING_V * 2 + TITLE_LINE_HEIGHT + TITLE_GAP + SUBTITLE_GAP + SUBTITLE_LINE_HEIGHT;
+
+// TV shows two whole server rows so the people strip under the list stays on screen.
+const VISIBLE_SERVER_ROWS = Platform.isTV ? 2 : 4;
+
+// --- People strip ---
+/** The round avatar of a saved sign-in in the strip over the server list, and its two captions. */
+export const AVATAR_SIZE = Platform.isTV ? 96 : 56;
+export const AVATAR_CELL_WIDTH = Platform.isTV ? 140 : 76;
+export const AVATAR_CAPTION_LINE = pick(24, 17, 16);
+export const AVATAR_SUBCAPTION_LINE = pick(20, 15, 14);
+/** Air between the strip's edge and its first cell. */
+export const STRIP_INSET = Platform.isTV ? 25 : 13;
+/** TV: the people column on the card's right side, one cell wide plus its insets. */
+export const PEOPLE_PANEL_WIDTH = AVATAR_CELL_WIDTH + STRIP_INSET * 2;
 
 // The Open Source credits, capped at whole rows on both platforms so Bundled Packages and the
 // source notice stay on the first screen. A credit row is a title over a subtitle at the quality
@@ -96,10 +113,25 @@ export const DOWNLOADS_LIST_HEIGHT = downloadsListHeight(1);
 // shading uses x-offsets with a negative spread so it stays off the row's
 // top/bottom edges, and runs wider and darker than the card's hairline rim:
 // over a saturated gold fill a faint 1–2px fade does not read at all.
-const LIP_TOP = Platform.isTV ? "inset 0 6px 8px rgba(0,0,0,0.35)" : "inset 0 4px 5px rgba(0,0,0,0.35)";
-const LIP_BOTTOM = Platform.isTV ? "inset 0 -5px 5px rgba(0,0,0,0.25)" : "inset 0 -3px 3px rgba(0,0,0,0.25)";
-const RIM = Platform.isTV ? "inset 0 0 3px rgba(0,0,0,0.5)" : "inset 0 0 2px rgba(0,0,0,0.5)";
-const RIM_SIDES = Platform.isTV ? "inset 6px 0 8px -4px rgba(0,0,0,0.55), inset -6px 0 8px -4px rgba(0,0,0,0.55)" : "inset 4px 0 5px -2px rgba(0,0,0,0.55), inset -4px 0 5px -2px rgba(0,0,0,0.55)";
+const { LIP_TOP, LIP_BOTTOM, RIM, RIM_LEFT, RIM_RIGHT } = RECESS_EDGE;
+const RIM_SIDES = `${RIM_LEFT}, ${RIM_RIGHT}`;
+
+// What a gold row re-paints of the card's inset shadow: the lip at whichever card edge it sits
+// on and the side rims. A row that meets the people panel instead of the card wall skips the
+// right rim, so the row runs into the panel with no seam.
+const goldRowShadows = StyleSheet.create(
+  Object.fromEntries(
+    [false, true].flatMap((first) =>
+      [false, true].flatMap((last) =>
+        [false, true].map((flushRight) => [`${first}-${last}-${flushRight}`, { boxShadow: [first && LIP_TOP, last && LIP_BOTTOM, RIM_LEFT, !flushRight && RIM_RIGHT].filter(Boolean).join(", ") }]),
+      ),
+    ),
+  ),
+);
+
+export function goldRowShadow(first: boolean, last: boolean, flushRight: boolean) {
+  return goldRowShadows[`${first}-${last}-${flushRight}`];
+}
 
 // The Add Server slot holds a real field, not a label line, so it is taller than
 // a plain row — the same way a field row is taller than a label row in a system
@@ -178,16 +210,13 @@ export const settingsStyles = StyleSheet.create({
   // the background but below children, and the rows are transparent (see
   // listItem) so it shows through. No overlay view — anything rendered above a
   // focusable occludes it on tvOS and the focus engine refuses to enter.
-  // Top and bottom lips carry matched, restrained shadows; the tight rim keeps
-  // the edge defined instead of reading as a faded vignette.
+  // The tight rim keeps the edge defined instead of reading as a faded vignette.
   section: {
     backgroundColor: COLORS.SURFACE,
     borderRadius: Platform.isTV ? 32 : 32,
     overflow: "hidden",
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
     marginBottom: Platform.isTV ? 32 : 12,
-    // The bottom lip runs lighter than the top: at full strength it reads as
-    // a smudge under the last row rather than a card edge.
     boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM}`,
   },
   // Video Quality is the one section long enough to run past the bottom of the
@@ -196,15 +225,10 @@ export const settingsStyles = StyleSheet.create({
   sectionScrollable: {
     maxHeight: Math.round(QUALITY_ROW_HEIGHT * VISIBLE_QUALITY_ROWS),
   },
-  // The destinations half of the JELLYFIN SERVER card (discovered, saved, demo), capped the
-  // same way and for the same reason: a scan that finds five servers used to push the rest of
-  // the screen off the bottom. Measured in single-line rows, since a saved server row carries
-  // no subtitle — a discovered row does, so it clips at ~2.7 of those instead of 3.35, which
-  // still peeks. The scan and Add Server rows above it stay pinned: they are the two actions
-  // the section exists for, and the Add row holds a live text field that has no business
-  // inside a nested scroll view.
+  // The destinations half of the JELLYFIN SERVER card, capped so the rows past
+  // VISIBLE_SERVER_ROWS scroll instead of pushing the people strip off screen.
   serverListScrollable: {
-    maxHeight: Math.round(LIST_ROW_HEIGHT * VISIBLE_SERVER_ROWS),
+    maxHeight: SERVER_ROW_HEIGHT * VISIBLE_SERVER_ROWS,
   },
   // The credits list, capped on the same rule: see VISIBLE_CREDIT_ROWS.
   creditsScrollable: {
@@ -227,9 +251,7 @@ export const settingsStyles = StyleSheet.create({
     bottom: 0,
     borderRadius: 32,
     pointerEvents: "none",
-    boxShadow: Platform.isTV
-      ? "inset 0 10px 10px rgba(0,0,0,0.55), inset 0 -5px 5px rgba(0,0,0,0.25), inset 0 0 3px rgba(0,0,0,0.5)"
-      : "inset 0 6px 6px rgba(0,0,0,0.55), inset 0 -3px 3px rgba(0,0,0,0.25), inset 0 0 2px rgba(0,0,0,0.5)",
+    boxShadow: `${Platform.isTV ? "inset 0 10px 10px rgba(0,0,0,0.55)" : "inset 0 6px 6px rgba(0,0,0,0.55)"}, ${LIP_BOTTOM}, ${RIM}`,
   },
   // Top lip only, for phone cards whose first child paints an opaque surface over
   // the container's own inset shadow (ConnectedSection's sunken tile bleeds past
@@ -276,9 +298,18 @@ export const settingsStyles = StyleSheet.create({
     lineHeight: Platform.isTV ? 26 : 17,
     color: COLORS.TEXT_TERTIARY,
   },
+  // The step down into a sunken note (SectionFooter): a deep cast shadow across the top, then the
+  // card's own bottom catch-light and side rims re-painted over the opaque band.
+  noteShadow: {
+    boxShadow: `${Platform.isTV ? "inset 0 9px 12px -2px rgba(0,0,0,0.6)" : "inset 0 6px 8px -1px rgba(0,0,0,0.6)"}, ${LIP_BOTTOM}, ${RIM_SIDES}`,
+  },
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped
   // list separator, so it reads as structure rather than as a broken row border.
+  // TV: the rows keep clear of the people panel on the card's right side.
+  sectionMain: {
+    marginRight: PEOPLE_PANEL_WIDTH,
+  },
   listDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: COLORS.SURFACE_MUTED,
@@ -359,7 +390,7 @@ export const settingsStyles = StyleSheet.create({
     flex: 1,
   },
   listItemTitle: {
-    fontSize: pick(30, 20, 18),
+    fontSize: pick(30, 19, 17),
     lineHeight: TITLE_LINE_HEIGHT,
     fontWeight: "400",
     color: COLORS.TEXT_PRIMARY,
@@ -422,14 +453,9 @@ export const settingsStyles = StyleSheet.create({
   },
   fullWidthButton: {
     width: "100%",
-    // One width for every CTA in the connect flow — Sign In, Sign Out, Use Username
-    // & Password — so the stack reads as one column and the fill alone carries the
-    // hierarchy. Sized to the longest of them: at 28pt semibold that label needs
-    // ~335, and the pill adds 48 of padding and 4 of border on each side, so 400
-    // wrapped it onto two lines.
-    // Phone: narrower than the content area (400 on a Pro Max) so the main action
-    // reads as a button, not a bar.
-    maxWidth: Platform.isTV ? 520 : 340,
+    // TV: Sign In alone (its alternates are glass pills); "Iniciar sesión" measures ~165pt at
+    // 28pt semibold plus 104 of padding and border. Phone: one width for the connect flow's CTAs.
+    maxWidth: Platform.isTV ? 360 : 340,
     marginHorizontal: "auto" as unknown as number,
   },
 });

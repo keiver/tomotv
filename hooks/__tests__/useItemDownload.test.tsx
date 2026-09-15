@@ -42,6 +42,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchVideoDetails: jest.fn(),
   isFolder: (item: { Type?: string }) => item?.Type === "MusicAlbum",
   isPhoto: (item: { Type?: string }) => item?.Type === "Photo",
+  isBook: (item: { Type?: string }) => item?.Type === "Book",
 }));
 
 jest.mock("expo-file-system", () => ({ Paths: { availableDiskSpace: 100 * 1024 * 1024 * 1024 } }));

@@ -23,11 +23,14 @@
 import { File } from "expo-file-system";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
-import { generatePlaySessionId, getVideoStreamUrl, getSubtitleUrl, isImageBasedSubtitleCodec, JELLYFIN_TIME } from "@/services/jellyfinApi";
-import { deviceDecodes, sourceVideoRange } from "@/services/jellyfin/media";
+// Submodules, not the barrel: the barrel re-exports liveTv, which imports this module.
+import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
+import { generatePlaySessionId } from "@/services/jellyfin/session";
+import { getSubtitleUrl, isImageBasedSubtitleCodec } from "@/services/jellyfin/subtitles";
+import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
-import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl } from "@/services/jellyfin/streamUrls";
+import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { noteDeviceDecode, probeEmit } from "@/services/playbackProbe";
@@ -36,6 +39,17 @@ import { logger } from "@/utils/logger";
 const { LocalRemuxer } = NativeModules;
 /** Same, but only on hardware that reports AV1 decode support at runtime. */
 const AV1_CODECS = ["av1", "av01"];
+
+/**
+ * Live segment target. AVPlayer starts a live playlist three target durations in (tvOS sim,
+ * 2026-09-11): 2s puts the first frame ~12s after the press on a transcoded channel, 6s ~21s.
+ */
+const LIVE_SEGMENT_SECONDS = 2;
+
+/** Every codec the engine takes, video copied or decoded and audio carried: the live DeviceProfile. */
+export function engineCodecAllowlists(): { video: string[]; audio: string[] } {
+  return { video: [...REMUXABLE_CODECS, ...AV1_CODECS, ...TRANSCODABLE_VIDEO_CODECS], audio: [...REMUXABLE_AUDIO_CODECS] };
+}
 
 /**
  * Video codecs AVPlayer cannot decode but the on-device engine can transcode
@@ -497,6 +511,30 @@ export async function engineProgress(token: string): Promise<EngineProgress | nu
   }
 }
 
+/** A live session's subtitle renditions as its master publishes them, once the input resolved; null when unknown. */
+export async function liveSubtitleRenditions(token: string | null): Promise<SubtitleRendition[] | null> {
+  if (!isLocalRemuxAvailable() || !token || typeof LocalRemuxer.liveSubtitles !== "function") return null;
+  try {
+    const tracks = (await LocalRemuxer.liveSubtitles(token)) as { index: number; name: string; language: string; isDefault: boolean; isForced: boolean; isImage: boolean }[] | null;
+    if (!Array.isArray(tracks)) return null;
+    const firstDefault = tracks.findIndex((track) => track.isDefault);
+    return tracks.map((track, position) => ({
+      index: track.index,
+      name: track.name,
+      language: track.language || "und",
+      vttUrl: "",
+      localVtt: "",
+      isDefault: position === firstDefault,
+      isForced: track.isForced,
+      isImage: track.isImage,
+      isEngineText: false,
+    }));
+  } catch (error) {
+    logger.warn("Live subtitle read failed", error, { service: "LocalRemux", token });
+    return null;
+  }
+}
+
 type ThroughputListener = (sample: ThroughputSample) => void;
 const throughputListeners = new Map<string, Set<ThroughputListener>>();
 let throughputSubscription: { remove: () => void } | null = null;
@@ -549,6 +587,60 @@ export function subscribeEngineFailure(token: string, listener: FailureListener)
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) failureListeners.delete(token);
+  };
+}
+
+/** A startup step the session finished (Remuxer.mark): open_input, find_stream_info, vt_decode_probe, image_subtitle_decoders, renditions_built. */
+export type EngineStage = { token: string; stage: string; elapsed: number };
+
+type StageListener = (stage: EngineStage) => void;
+const stageListeners = new Map<string, Set<StageListener>>();
+let stageSubscription: { remove: () => void } | null = null;
+
+function watchEngineStage(): void {
+  if (stageSubscription || !isLocalRemuxAvailable() || !nativeEmits("onEngineStage")) return;
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  stageSubscription = emitter.addListener("onEngineStage", (stage: EngineStage) => {
+    stageListeners.get(stage.token)?.forEach((listener) => listener(stage));
+  });
+}
+
+/** One session's startup steps, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeEngineStage(token: string, listener: StageListener): () => void {
+  watchEngineStage();
+  const listeners = stageListeners.get(token) ?? new Set<StageListener>();
+  listeners.add(listener);
+  stageListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) stageListeners.delete(token);
+  };
+}
+
+/** A live session's subtitle playlist, asked for by AVPlayer: it asks only while that rendition is selected. */
+export type SubtitleRequest = { token: string; streamIndex: number; requestedAt: number };
+
+type SubtitleRequestListener = (request: SubtitleRequest) => void;
+const subtitleRequestListeners = new Map<string, Set<SubtitleRequestListener>>();
+let subtitleRequestSubscription: { remove: () => void } | null = null;
+
+function watchSubtitleRequests(): void {
+  if (subtitleRequestSubscription || !isLocalRemuxAvailable() || !nativeEmits("onEngineSubtitleRequest")) return;
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  subtitleRequestSubscription = emitter.addListener("onEngineSubtitleRequest", (request: SubtitleRequest) => {
+    subtitleRequestListeners.get(request.token)?.forEach((listener) => listener(request));
+  });
+}
+
+/** One live session's subtitle playlist requests, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeSubtitleRequests(token: string, listener: SubtitleRequestListener): () => void {
+  watchSubtitleRequests();
+  const listeners = subtitleRequestListeners.get(token) ?? new Set<SubtitleRequestListener>();
+  listeners.add(listener);
+  subtitleRequestListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) subtitleRequestListeners.delete(token);
   };
 }
 
@@ -682,6 +774,8 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
     logger.warn("Local remux declined: native module unavailable", { service: "LocalRemux" });
     return false;
   }
+  // A channel read from its origin carries no server probe; the engine's own open decides what it plays.
+  if (isLiveSource(videoItem) && videoItem?.liveStreamUrl && !videoItem.LiveStreamId) return true;
   if (!videoItem?.MediaStreams) return declineRemux("no media streams");
 
   // An audio-only item has no video stream to judge, and the engine runs a
@@ -716,7 +810,8 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
     });
   }
 
-  if (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0) return declineRemux("no runtime in metadata");
+  // A live stream has no runtime; the engine's live mode needs none.
+  if (!isLiveSource(videoItem) && (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0)) return declineRemux("no runtime in metadata");
 
   // Audio-only: the carriable check above is the whole test. There is no video
   // codec, resolution or pixel format left to judge.
@@ -754,7 +849,7 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
   const lane = await (async (): Promise<PlaybackLane> => {
     // A verdict describes streaming this file. A held file has no link to lose to, and the
     // server lane is exactly what a download exists to do without.
-    if (videoItem && !playsFromDisk(videoItem.Id) && (await rememberedVerdict(videoItem))) return "server";
+    if (videoItem && !playsFromDisk(videoItem.Id) && !isLiveSource(videoItem) && (await rememberedVerdict(videoItem))) return "server";
     if (!(await canRemuxLocally(videoItem, { record: false }))) return "server";
     const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
     if (!videoStream) return "copy";
@@ -858,13 +953,15 @@ export type SubtitleRendition = {
   /** Display label. Carries no identity, but is unique within the group — see subtitleLabels(). */
   name: string;
   language: string;
-  /** Jellyfin's WebVTT for a text track; empty for an image track, which the engine decodes itself. */
+  /** Jellyfin's WebVTT, for a sidecar track only: everything in the container is decoded on device. */
   vttUrl: string;
   /** Filesystem path of a track saved with a download; the engine serves those bytes itself. */
   localVtt: string;
   isDefault: boolean;
   isForced: boolean;
   isImage: boolean;
+  /** An embedded text track the engine decodes and publishes as WebVTT segments. */
+  isEngineText: boolean;
 };
 
 /**
@@ -907,12 +1004,23 @@ function subtitleLabels(streams: JellyfinMediaStream[]): string[] {
  * display label, and every untagged track on a disc collapsed onto the last
  * one because a Map built from duplicate keys keeps only the final value.
  *
- * Text subtitles ride as renditions served straight from Jellyfin. Image ones
- * (PGS, DVD/VobSub, DVB, XSUB) ride as renditions too, but Jellyfin has no
- * WebVTT to give for a bitmap: the engine decodes them out of the source file,
- * the rendition resolves to a cue-less playlist so AVKit lists the track and
- * draws none of it, and the app paints the bitmaps.
+ * A text track inside the container is decoded by the engine and cut on the
+ * session grid (TextSubtitleDecoder). Asking Jellyfin for it instead made the
+ * server run ffmpeg over the whole file before AVPlayer reported ready, which
+ * measured 5.7 to 11.8 seconds in front of the picture. A SIDECAR is not in the
+ * container, so it stays Jellyfin's to serve, and it costs no extraction.
+ *
+ * Image tracks (PGS, DVD/VobSub, DVB, XSUB) ride as renditions too, but there
+ * is no WebVTT to give for a bitmap: the engine decodes them out of the source
+ * file, the rendition resolves to a cue-less playlist so AVKit lists the track
+ * and draws none of it, and the app paints the bitmaps.
  */
+/** The renditions a session ships: every track for a file, the image tracks alone for a live channel. */
+export function sessionSubtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendition[] {
+  const renditions = subtitleRenditions(videoItem);
+  return isLiveSource(videoItem) ? renditions.filter((rendition) => rendition.isImage) : renditions;
+}
+
 export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendition[] {
   const shipped = (videoItem.MediaStreams ?? [])
     .filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined)
@@ -922,9 +1030,16 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
       // the loopback. A file:// URI inside an http playlist is a scheme AVFoundation will not
       // follow, and handing it one loses the whole asset, not just the subtitle.
       const localVtt = isImage ? "" : (localSubtitleUri(videoItem.Id, stream.Index as number) ?? "");
-      return { stream, isImage, localVtt, vttUrl: isImage || localVtt ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt") };
+      const isEngineText = !isImage && !localVtt && stream.IsExternal !== true;
+      return {
+        stream,
+        isImage,
+        isEngineText,
+        localVtt,
+        vttUrl: isImage || isEngineText || localVtt ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt"),
+      };
     })
-    .filter((entry) => entry.isImage || entry.localVtt.length > 0 || entry.vttUrl.length > 0);
+    .filter((entry) => entry.isImage || entry.isEngineText || entry.localVtt.length > 0 || entry.vttUrl.length > 0);
 
   const labels = subtitleLabels(shipped.map((entry) => entry.stream));
 
@@ -949,6 +1064,7 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
     // withholds one of those from the picker and does not apply it either.
     isForced: entry.stream.IsForced === true,
     isImage: entry.isImage,
+    isEngineText: entry.isEngineText,
   }));
 }
 
@@ -1045,15 +1161,25 @@ export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks:
  * Throws when the native module is unavailable or the session cannot start;
  * callers fall back to the server transcode path.
  */
-export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number, startOffsetSeconds?: number): Promise<string> {
+export async function startLocalRemux(
+  videoItem: JellyfinVideoItem,
+  preferredAudioStreamIndex?: number,
+  startOffsetSeconds?: number,
+  // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
+  options: { prewarm?: boolean; liveWindowSeconds?: number } = {},
+): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
   }
 
   // Same untouched original file the direct-play path uses; FFmpeg reads it
-  // with byte ranges, so seeking never re-downloads from the start.
-  const inputUrl = getVideoStreamUrl(videoItem.Id, videoItem);
-  const durationSeconds = (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
+  // with byte ranges, so seeking never re-downloads from the start. A live
+  // channel reads the tuner stream the server opened for it; a recording still
+  // being written is live too, read from the static stream the server keeps
+  // growing (ProgressiveFileStream).
+  const live = isLiveSource(videoItem);
+  const inputUrl = videoItem.liveStreamUrl ?? getVideoStreamUrl(videoItem.Id, videoItem);
+  const durationSeconds = live ? 0 : (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
 
   // Ordering is the only channel to the native side: position 0 is marked
   // DEFAULT=YES in the master playlist, so putting a track first IS the
@@ -1072,8 +1198,8 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     isDefault: stream.IsDefault === true,
   }));
   // Built by the shared helper so the app's ordinal lookup sees exactly this
-  // list, in exactly this order.
-  const subtitles = subtitleRenditions(videoItem);
+  // list, in exactly this order. Live carries its image tracks, drawn by the app.
+  const subtitles = sessionSubtitleRenditions(videoItem);
 
   // HLS VIDEO-RANGE for the master playlist. Apple's spec requires it and
   // AVFoundation hard-rejects PQ (HDR10/DoVi-with-PQ) content in a variant
@@ -1176,8 +1302,10 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
 
   // Before the call: the engine reports its plan from the pipeline thread,
   // which can beat this promise's resolution.
-  watchEnginePlan();
-  watchEngineTier();
+  if (!options.prewarm) {
+    watchEnginePlan();
+    watchEngineTier();
+  }
 
   // Slipstream tier config. The undercut rule lives in slipstreamTierBandwidth:
   // null means the rung would not meaningfully undercut the primary (audio-
@@ -1193,8 +1321,9 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
   // anyway (device-logged), moving audio to the server-fed group for nothing.
   // A held file is read off the disk, so the link to the server describes nothing about this
   // session and the tier would put a server URL first in a playlist that must carry none.
+  // A live channel has no server tier: the server never transcodes it.
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
-  const measuredBps = sourceBps > 0 && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
+  const measuredBps = sourceBps > 0 && !live && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
   const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
   const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem, preferredAudioStreamIndex) : null;
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
@@ -1219,7 +1348,7 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
       : audioTracks;
 
   const tierFirst = tierBandwidth != null;
-  probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierFirst });
+  if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierFirst });
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
@@ -1238,9 +1367,15 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
     // EXT-X-START resume: AVPlayer opens at the offset; its first segment
     // request drives the producer's seek-restart there (no position-zero
     // production, no post-load auto-seek).
-    startOffsetSeconds: startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
+    startOffsetSeconds: !live && startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
     tierFirst,
     ...tierConfig,
+    isLive: live,
+    liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
+    ...(live && options.liveWindowSeconds ? { liveWindowSeconds: options.liveWindowSeconds } : {}),
+    ...(live && videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
+    // Read straight from its origin, never through a server open: the engine checks it answers.
+    ...(live && videoItem.liveStreamUrl && !videoItem.LiveStreamId ? { probeOrigin: true } : {}),
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).
@@ -1250,21 +1385,25 @@ export async function startLocalRemux(videoItem: JellyfinVideoItem, preferredAud
 
   // Plan attribution: honor this session's plan, and flush it if it arrived
   // before this promise resolved.
-  activePlanToken = localRemuxToken(url);
-  activeTierDeclared = tierFirst;
-  if (pendingPlan) {
-    // A parked plan either belongs to this session or to a superseded one;
-    // both ways the slot is done with it.
-    if (pendingPlan.token === activePlanToken) reportEnginePlan(pendingPlan);
-    pendingPlan = null;
+  if (!options.prewarm) {
+    activePlanToken = localRemuxToken(url);
+    activeTierDeclared = tierFirst;
+    if (pendingPlan) {
+      // A parked plan either belongs to this session or to a superseded one;
+      // both ways the slot is done with it.
+      if (pendingPlan.token === activePlanToken) reportEnginePlan(pendingPlan);
+      pendingPlan = null;
+    }
   }
 
   logger.info("Local remux session started", {
     service: "LocalRemux",
     itemId: videoItem.Id,
+    live,
     durationSeconds: Math.round(durationSeconds),
     audioTrackCount: audioTracks.length,
     subtitleCount: subtitles.length,
+    prewarm: options.prewarm === true,
   });
 
   return url;
@@ -1437,6 +1576,16 @@ export async function stopLocalRemux(token: string | null): Promise<void> {
   }
 }
 
+/** Resizes a live session's window from here on: a hot ring neighbour starts short and widens once adopted. */
+export async function setLiveWindow(token: string | null, seconds: number): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token || typeof LocalRemuxer.setLiveWindow !== "function") return;
+  try {
+    await LocalRemuxer.setLiveWindow(token, seconds);
+  } catch (error) {
+    logger.warn("Failed to resize a live window", error, { service: "LocalRemux", token });
+  }
+}
+
 /**
  * Playlist shim for the server lane: the transcode's playlists re-served through the loopback,
  * with EXT-X-START injected for a resume and, with `sdrInit`, every avc1 init segment retagged
@@ -1520,6 +1669,8 @@ function posterFrameRetryable(itemId: string, now = Date.now()): boolean {
 
 function recordPosterFrameFailure(itemId: string, reason: PosterFrameFailureReason): void {
   const failure = posterFrameFailures.get(itemId);
+  // Once per item: the retries that follow are the policy, not news.
+  if (!failure) logger.debug("Poster frame unavailable", { service: "LocalRemux", itemId, reason: reason === "open" ? "source would not open" : "no frame in the source" });
   posterFrameFailures.set(itemId, { at: Date.now(), attempts: (failure?.attempts ?? 0) + 1, reason });
 }
 

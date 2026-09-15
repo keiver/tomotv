@@ -25,7 +25,7 @@ private let SWIFT_AVERROR_EOF: Int32 = -541_478_725 // FFERRTAG('E','O','F',' ')
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
 private let SWIFT_AVFMT_FLAG_BITEXACT: Int32 = 0x0400
-private let SWIFT_AV_INPUT_BUFFER_PADDING_SIZE = 64
+let SWIFT_AV_INPUT_BUFFER_PADDING_SIZE = 64
 
 private func tierErr(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 128)
@@ -294,10 +294,45 @@ enum TierRewrapper {
         return TierRewrapped(initSegment: initSegment, mediaSegment: mediaSegment, durationSeconds: durationSeconds)
     }
 
-    /// Concatenated SPS+PPS NAL units (with start codes) from an Annex-B
-    /// H.264 access unit, movenc's expected extradata shape for conversion to
-    /// avcC. Returns nil when the packet carries no parameter sets.
-    private static func annexBParameterSets(_ pkt: UnsafeMutablePointer<AVPacket>) -> Data? {
+    /// Whether an Annex-B access unit carries CEA-608/708 captions: an SEI NAL (H.264 type 6,
+    /// HEVC prefix 39) with the ATSC A/53 user data registration (T.35 country 0xB5, provider
+    /// 0x0031, "GA94", user_data_type_code 3). The byte string is searched rather than parsed:
+    /// it contains no 00 00 pair, so emulation prevention never splits it.
+    static func annexBHasA53Captions(_ pkt: UnsafeMutablePointer<AVPacket>, hevc: Bool = false) -> Bool {
+        guard let base = pkt.pointee.data, pkt.pointee.size > 4 else { return false }
+        let data = Data(bytes: base, count: Int(pkt.pointee.size))
+        let a53 = Data([0xB5, 0x00, 0x31, 0x47, 0x41, 0x39, 0x34, 0x03])
+        var i = 0
+        while i + 4 <= data.count {
+            let isStart4 = data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 0 && i + 4 < data.count && data[i + 3] == 1
+            let isStart3 = data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1
+            guard isStart4 || isStart3 else {
+                i += 1
+                continue
+            }
+            let nalStart = i + (isStart4 ? 4 : 3)
+            guard nalStart < data.count else { break }
+            var j = nalStart
+            var nalEnd = data.count
+            while j + 3 <= data.count {
+                if data[j] == 0 && data[j + 1] == 0 && (data[j + 2] == 1 || (j + 4 <= data.count && data[j + 2] == 0 && data[j + 3] == 1)) {
+                    nalEnd = j
+                    break
+                }
+                j += 1
+            }
+            let nalType = hevc ? (data[nalStart] >> 1) & 0x3F : data[nalStart] & 0x1F
+            let isSei = hevc ? nalType == 39 : nalType == 6
+            if isSei, data.subdata(in: nalStart..<nalEnd).range(of: a53) != nil { return true }
+            i = nalEnd
+        }
+        return false
+    }
+
+    /// Concatenated parameter-set NAL units (with start codes) from an Annex-B access unit:
+    /// SPS+PPS for H.264, VPS+SPS+PPS for HEVC. movenc's expected extradata shape for its
+    /// conversion to avcC/hvcC. Returns nil when the packet carries no parameter sets.
+    static func annexBParameterSets(_ pkt: UnsafeMutablePointer<AVPacket>, hevc: Bool = false) -> Data? {
         guard let base = pkt.pointee.data, pkt.pointee.size > 4 else { return nil }
         let data = Data(bytes: base, count: Int(pkt.pointee.size))
         var out = Data()
@@ -322,8 +357,9 @@ enum TierRewrapper {
                 }
                 j += 1
             }
-            let nalType = data[nalStart] & 0x1F
-            if nalType == 7 || nalType == 8 {
+            let nalType = hevc ? (data[nalStart] >> 1) & 0x3F : data[nalStart] & 0x1F
+            let isParameterSet = hevc ? (32...34).contains(nalType) : nalType == 7 || nalType == 8
+            if isParameterSet {
                 out += Data([0, 0, 0, 1]) + data.subdata(in: nalStart..<nalEnd)
             }
             i = nalEnd

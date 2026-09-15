@@ -48,6 +48,17 @@ final class LocalHTTPServer {
     private let route: (String) -> LocalHTTPResponse
 
     private(set) var port: UInt16 = 0
+    /// Playlist paths already logged; a live playlist is reloaded every target duration.
+    private var loggedPlaylists = Set<String>()
+    private let loggedPlaylistsLock = NSLock()
+
+    private func noteFirstRequest(_ path: String) -> Bool {
+        guard path.hasSuffix(".m3u8") else { return true }
+        loggedPlaylistsLock.lock()
+        defer { loggedPlaylistsLock.unlock() }
+        if loggedPlaylists.count > 256 { loggedPlaylists.removeAll() }
+        return loggedPlaylists.insert(path).inserted
+    }
 
     /// Set on the listener's queue when it fails or is cancelled. A Bool write
     /// is the only cross-queue access, and a stale read just means one wasted
@@ -222,9 +233,10 @@ final class LocalHTTPServer {
         // own queue so those waits never occupy the shared global pool.
         workQueue.async { [weak self] in
             guard let self else { return }
-            // Playlists and init segments are once-per-session and name the request sequence
-            // preceding a player-side failure; media segments would log every few seconds.
-            if !path.hasSuffix(".m4s") { NSLog("[LocalHTTPServer] GET %@", path) }
+            // Init segments and the first request of each playlist name the request sequence
+            // preceding a player-side failure; media segments and a live playlist's reloads would
+            // log every few seconds.
+            if !path.hasSuffix(".m4s"), self.noteFirstRequest(path) { NSLog("[LocalHTTPServer] GET %@", path) }
             switch self.route(path) {
             case .data(let data, let contentType):
                 self.send(connection, status: "200 OK", contentType: contentType, body: data)

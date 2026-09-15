@@ -107,10 +107,7 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
         disabled: disabled || isLoading,
         busy: isLoading,
       }}
-      tvParallaxProperties={{
-        magnification: 1.05,
-        pressMagnification: 1.0,
-      }}>
+      tvParallaxProperties={pressableProps.tvParallaxProperties ?? { magnification: 1.05, pressMagnification: 1.0 }}>
       <View style={styles.buttonContent}>
         {isLoading ? (
           <ActivityIndicator color={variant === "primary" ? COLORS.ON_ACCENT : COLORS.ACCENT} size={"small"} />
@@ -151,9 +148,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: Platform.isTV ? 12 : 8,
   },
+  // No scale on TV: a JS transform replaces the layer transform the native focus lift lives on.
   buttonPressed: {
     opacity: 0.8,
-    transform: [{ scale: 0.98 }],
+    ...(Platform.isTV ? null : { transform: [{ scale: 0.98 }] }),
   },
   buttonDisabled: {
     opacity: 0.5,

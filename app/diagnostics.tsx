@@ -1,5 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
+import { GlassButton } from "@/components/glass-button";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
@@ -18,6 +19,7 @@ import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
 const DEVICE = THIS_DEVICE;
@@ -31,10 +33,10 @@ const indentOf = (line: string) => LINE_INSET + (line.length - line.trimStart().
 
 type SendState = "idle" | "sending" | "sent" | "failed";
 
-const SEND_TITLE: Record<SendState, string> = { idle: "Send to iPhone", sending: "Sending", sent: "Sent", failed: "Send to iPhone" };
+const sendTitle = (state: SendState): string => (state === "sending" ? t("diagnostics.sending") : state === "sent" ? t("diagnostics.sent") : t("diagnostics.sendToPhoneBtn"));
 const sendNote = (state: SendState, userName: string | null): string | null => {
-  if (state === "sent") return `Sent to iPhone app for ${userName ?? "this user"}.`;
-  return state === "failed" ? "Could not reach your server. Try again." : null;
+  if (state === "sent") return t("diagnostics.sentFor").replace("{user}", userName ?? t("common.thisUser"));
+  return state === "failed" ? t("diagnostics.couldNotReach") : null;
 };
 
 const bySender = (sender: string | undefined) => (sender ? (getSends().find((sent) => sent.sender === sender) ?? null) : null);
@@ -130,19 +132,17 @@ export default function DiagnosticsScreen() {
                 type: "custom",
                 element: (
                   <FocusableButton
-                    title={copied ? "Copied" : "Copy"}
+                    title={copied ? t("common.copied") : t("common.copy")}
                     variant="link"
                     icon={<Ionicons name={copied ? "checkmark" : "copy-outline"} size={16} color={COLORS.ACCENT} />}
                     onPress={copy}
-                    accessibilityLabel="Copy the diagnostics log"
+                    accessibilityLabel={t("diagnostics.copy")}
                   />
                 ),
               },
               {
                 type: "custom",
-                element: (
-                  <FocusableButton variant="link" icon={<Ionicons name="share-outline" size={20} color={COLORS.ACCENT} />} onPress={share} accessibilityLabel="Share the diagnostics log as a file" />
-                ),
+                element: <FocusableButton variant="link" icon={<Ionicons name="share-outline" size={20} color={COLORS.ACCENT} />} onPress={share} accessibilityLabel={t("diagnostics.shareFile")} />,
               },
             ]
           : [],
@@ -160,20 +160,11 @@ export default function DiagnosticsScreen() {
               carries Send beside it, where the remote lands before the log. */}
           {IS_TV && (
             <View style={styles.titleRow}>
-              <Text style={styles.title}>Diagnostics</Text>
+              <Text style={styles.title}>{t("settings.diagnostics")}</Text>
               {own && connected && (
                 <View style={styles.sendCluster}>
                   {sendNote(sendState, userName) && <Text style={styles.sendNote}>{sendNote(sendState, userName)}</Text>}
-                  <FocusableButton
-                    title={SEND_TITLE[sendState]}
-                    variant="secondary"
-                    isLoading={sendState === "sending"}
-                    disabled={sendState === "sent"}
-                    onPress={send}
-                    style={styles.sendButton}
-                    textStyle={styles.sendButtonText}
-                    accessibilityLabel="Send this log to Tomo TV on your iPhone through your Jellyfin server"
-                  />
+                  <GlassButton title={sendTitle(sendState)} isLoading={sendState === "sending"} disabled={sendState === "sent"} onPress={send} accessibilityLabel={t("diagnostics.sendToPhone")} />
                 </View>
               )}
             </View>
@@ -184,18 +175,14 @@ export default function DiagnosticsScreen() {
           {!session && looked && (
             <Pressable isTVSelectable={IS_TV} hasTVPreferredFocus={IS_TV} accessibilityRole="text" style={({ focused }) => [settingsStyles.section, styles.empty, focused && styles.emptyFocused]}>
               <Ionicons name="film-outline" size={IS_TV ? 44 : 32} color={COLORS.TEXT_QUATERNARY} />
-              <Text style={styles.emptyTitle}>{sender ? "Nothing here any more" : "Nothing has played yet"}</Text>
-              <Text style={styles.emptyBody}>
-                {sender
-                  ? "The session that was sent is no longer on your server."
-                  : "Play something and come back. This screen will show the lane the engine chose, the stream it opened, and anything that went wrong."}
-              </Text>
+              <Text style={styles.emptyTitle}>{sender ? t("diagnostics.nothingHere") : t("diagnostics.nothingPlayed")}</Text>
+              <Text style={styles.emptyBody}>{sender ? t("diagnostics.sessionGone") : t("diagnostics.emptyBody")}</Text>
             </Pressable>
           )}
 
           {session && (
             <View style={[settingsStyles.sectionHeader, settingsStyles.sectionHeaderFirst]}>
-              <Text style={settingsStyles.sectionHeaderText}>LAST PLAYED FILE</Text>
+              <Text style={settingsStyles.sectionHeaderText}>{t("diagnostics.lastPlayed")}</Text>
             </View>
           )}
           {session && (
@@ -244,13 +231,11 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 24, marginHorizontal: 16 },
   title: { fontSize: 44, fontWeight: "800", color: COLORS.TEXT_PRIMARY, letterSpacing: -1 },
   sendCluster: { flexDirection: "row", alignItems: "center", gap: 20 },
-  sendButton: { minWidth: 0, minHeight: 52, paddingVertical: 10, paddingHorizontal: 28 },
-  sendButtonText: { fontSize: 22 },
   sendNote: { fontSize: 20, color: COLORS.TEXT_SECONDARY },
   // The note in the active gold and a step larger: it is the answer, not a footnote.
   story: { color: COLORS.ACCENT, fontSize: IS_TV ? 22 : 14, lineHeight: IS_TV ? 30 : 20 },
   // flex: 1 is the whole point: the card eats the height the heading did not.
-  log: { flex: 1, backgroundColor: COLORS.MEDIA_BACKGROUND },
+  log: { flex: 1 },
   logScroll: { flex: 1 },
   logContent: { paddingVertical: IS_TV ? 21 : 15 },
   lineRow: { paddingRight: IS_TV ? 20 : 14, paddingVertical: IS_TV ? 3 : 1 },

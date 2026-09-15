@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { BrandCorners } from "@/components/brand-corners";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import React from "react";
 import { Platform, ScrollView, Text, View } from "react-native";
@@ -39,6 +40,9 @@ export function ConnectStepScreen({ title, header, centered = false, headerRight
   return (
     <View style={styles.screenContainer}>
       <AmbientBackground />
+      {/* Here rather than in ServerConnectScreen so the pushed login steps carry it too.
+          Before the ScrollView: on tvOS a view above a focusable occludes it. */}
+      <BrandCorners />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, centerContent && styles.connectCentered]}

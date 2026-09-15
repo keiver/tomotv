@@ -1,7 +1,7 @@
-import { AmbientBackground } from "@/components/ambient-background";
 import { FilterChip } from "@/components/filter-chip";
 import { FiltersGhostMark } from "@/components/filters-ghost-mark";
-import { FocusableButton } from "@/components/FocusableButton";
+import { FiltersScope } from "@/components/filters-scope";
+import { GlassButton } from "@/components/glass-button";
 import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
@@ -14,6 +14,8 @@ import type { NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+
+import { t } from "@/services/i18n";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -107,61 +109,66 @@ function FiltersScreen() {
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () => ({
       title: folderName,
-      headerBackTitle: "Filters",
-      unstable_headerRightItems: () => [{ type: "button", label: "Clear All", tintColor: COLORS.ACCENT, accessibilityLabel: "Clear all filters", onPress: () => clearFilters(filterKey) }],
+      headerBackTitle: t("filters.title"),
+      unstable_headerRightItems: () => [
+        { type: "button", label: t("filters.clearAll"), tintColor: COLORS.ACCENT, accessibilityLabel: t("filters.clearAllHint"), onPress: () => clearFilters(filterKey) },
+      ],
     }),
     [folderName, clearFilters, filterKey],
   );
 
   const content = (
     <View style={[styles.container, { paddingTop: IS_TV ? insets.top + 48 : headerHeight + 12, paddingLeft: (IS_TV ? 80 : 20) + insets.left, paddingRight: (IS_TV ? 80 : 20) + insets.right }]}>
-      {/* Ambient wash behind the chips — same component the Library/Help tabs use, with its
-          own baked canvas (acid top, rust bottom) so the panel isn't a flat gray field. */}
-      <AmbientBackground variant="filters" />
-
-      {/* Ambient, and BEFORE every focusable below: on tvOS a view drawn above a focusable
-          occludes it. */}
+      {/* BEFORE every focusable below: on tvOS a view drawn above a focusable occludes it. */}
       <FiltersGhostMark />
 
       {/* TV keeps its actions on the screen, where the remote can reach them: the round close is a
           placebo save (selections already apply live). Phone takes both from the navigation bar,
           and reads the title off it too. */}
       {IS_TV && (
-        <View style={styles.actionRow}>
-          <FocusableButton
-            variant="primary"
-            icon={<Ionicons name="close" size={30} color={COLORS.ON_ACCENT} />}
-            accessibilityLabel="Close filters"
-            onPress={() => router.back()}
-            style={styles.closeButton}
-            hasTVPreferredFocus
-          />
-          <View style={styles.titleRow}>
-            <Text style={styles.title}>Filters</Text>
-            {!!libraryName && <Text style={styles.subtitle}>{libraryName}</Text>}
+        <>
+          <View style={styles.actionRow}>
+            <GlassButton
+              icon={<Ionicons name="close" size={30} color={COLORS.ACCENT} />}
+              accessibilityLabel={t("filters.close")}
+              onPress={() => router.back()}
+              style={styles.closeButton}
+              hasTVPreferredFocus
+            />
+            <GlassButton title={t("filters.clearAll")} onPress={clearAllAndClose} />
           </View>
-          <FocusableButton title="Clear All" variant="secondary" onPress={clearAllAndClose} style={styles.actionButton} textStyle={styles.actionButtonText} />
+          <View style={styles.heading}>
+            <Text style={styles.title}>{t("filters.title")}</Text>
+            {!!libraryName && <FiltersScope libraryName={libraryName} />}
+          </View>
+        </>
+      )}
+
+      {/* Phone and iPad read the title off the nav bar, so the scope line rides under it here. */}
+      {!IS_TV && !!libraryName && (
+        <View style={styles.scopePhone}>
+          <FiltersScope libraryName={libraryName} />
         </View>
       )}
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionHeading}>Status</Text>
+        <Text style={styles.sectionHeading}>{t("filters.status")}</Text>
         <View style={styles.chipWrap}>
-          <FilterChip label="Favorite" selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} />
-          <FilterChip label="Played" selected={filters.played} onToggle={() => update({ played: !filters.played })} />
-          <FilterChip label="Unplayed" selected={filters.unplayed} onToggle={() => update({ unplayed: !filters.unplayed })} />
+          <FilterChip label={t("filters.favorite")} selected={filters.favorite} onToggle={() => update({ favorite: !filters.favorite })} />
+          <FilterChip label={t("filters.played")} selected={filters.played} onToggle={() => update({ played: !filters.played })} />
+          <FilterChip label={t("filters.unplayed")} selected={filters.unplayed} onToggle={() => update({ unplayed: !filters.unplayed })} />
         </View>
 
-        <Text style={styles.sectionHeading}>Sort</Text>
+        <Text style={styles.sectionHeading}>{t("filters.sort")}</Text>
         <View style={styles.chipWrap}>
-          <FilterChip label="Shuffle" selected={filters.shuffle} onToggle={() => update({ shuffle: !filters.shuffle })} />
+          <FilterChip label={t("filters.shuffle")} selected={filters.shuffle} onToggle={() => update({ shuffle: !filters.shuffle })} />
         </View>
 
         {genres.length > 0 && (
           <>
             <View style={styles.sectionHeadingRow}>
-              <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>Genres</Text>
-              {isLoadingOptions && <LoadingRow label="Loading filter options" />}
+              <Text style={[styles.sectionHeading, styles.sectionHeadingInline]}>{t("filters.genres")}</Text>
+              {isLoadingOptions && <LoadingRow label={t("filters.loading")} />}
             </View>
             <View style={styles.chipWrap}>
               {genres.map((genre) => (
@@ -173,7 +180,7 @@ function FiltersScreen() {
 
         {artists.length > 0 && (
           <>
-            <Text style={styles.sectionHeading}>Artists</Text>
+            <Text style={styles.sectionHeading}>{t("filters.artists")}</Text>
             <View style={styles.chipWrap}>
               {artists.map((artist) => (
                 <FilterChip key={artist.Id} label={artist.Name} selected={filters.artistIds.includes(artist.Id)} onToggle={() => toggleArtist(artist.Id)} />
@@ -184,7 +191,7 @@ function FiltersScreen() {
 
         {years.length > 0 && (
           <>
-            <Text style={styles.sectionHeading}>Years</Text>
+            <Text style={styles.sectionHeading}>{t("filters.years")}</Text>
             <View style={styles.chipWrap}>
               {years.map((year) => (
                 <FilterChip key={year} label={String(year)} selected={filters.years.includes(year)} onToggle={() => toggleYear(year)} />
@@ -220,43 +227,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.BACKGROUND_DEEP,
   },
-  // TV only, and it rides inside actionRow to the right of the close button. flex:1 so the
-  // library name gets the slack and Clear All stays pinned right.
-  titleRow: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 20,
-    marginLeft: 28,
-    marginRight: 20,
+  // Same inset as scrollContent so the heading lines up with the section headings under it.
+  heading: {
+    marginTop: 28,
+    paddingHorizontal: 10,
   },
   title: {
     fontSize: 38,
     fontWeight: "700",
     color: COLORS.TEXT_PRIMARY,
   },
-  subtitle: {
-    fontSize: 24,
-    fontWeight: "500",
-    color: COLORS.TEXT_TERTIARY,
-    flexShrink: 1,
-  },
-  // TV only: the round close against the panel's left edge, Clear All against the right.
+  // TV only: close at the leading edge, Clear All pushed to the trailing edge.
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 8,
-  },
-  // Compact override of FocusableButton's full-size defaults.
-  actionButton: {
-    minWidth: 0,
-    minHeight: 52,
-    paddingVertical: 10,
-    paddingHorizontal: 28,
-  },
-  actionButtonText: {
-    fontSize: 22,
   },
   // Round icon-only close: equal sides, zero padding so the circle doesn't stretch.
   closeButton: {
@@ -266,6 +252,11 @@ const styles = StyleSheet.create({
     height: 52,
     paddingVertical: 0,
     paddingHorizontal: 0,
+  },
+  // Phone/iPad scope line, inset to line up with the section headings under it.
+  scopePhone: {
+    paddingHorizontal: 5,
+    marginBottom: 4,
   },
   scroll: {
     flex: 1,

@@ -3,7 +3,7 @@
  *
  * Downloads the FFmpeg xcframeworks the LocalRemuxer links against into
  * native/ios/Frameworks/ (gitignored). Runs from postinstall; exits instantly
- * when every framework is already present.
+ * when every framework is already present at its pinned hash.
  *
  * These artifacts are OURS. scripts/ffmpeg/build.sh builds them from upstream
  * FFmpeg with our configure line, CI publishes them to a release on this repo,
@@ -82,16 +82,29 @@ function sha256(filePath) {
   return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
-function fetchFramework(lock, name) {
-  const frameworkPath = path.join(destDir, `${name}.xcframework`);
-  if (fs.existsSync(path.join(frameworkPath, "Info.plist"))) {
-    return false;
+// Records the zip SHA256 each unpacked framework came from, so a lock bump
+// replaces frameworks an earlier pin left behind.
+const stampPath = path.join(destDir, ".installed.json");
+
+function readStamp() {
+  try {
+    return JSON.parse(fs.readFileSync(stampPath, "utf8"));
+  } catch {
+    return {};
   }
+}
+
+function fetchFramework(lock, name, installed) {
+  const frameworkPath = path.join(destDir, `${name}.xcframework`);
 
   // Fail closed: a framework with no pinned hash must never install unverified.
   const expected = lock.artifacts[name];
   if (!expected) {
     throw new IntegrityError(`No pinned SHA256 for ${name}.xcframework in ffmpeg-lock.json.`);
+  }
+
+  if (installed[name] === expected && fs.existsSync(path.join(frameworkPath, "Info.plist"))) {
+    return false;
   }
 
   console.log(`[fetch-ffmpeg] Downloading ${name}.xcframework...`);
@@ -104,8 +117,12 @@ function fetchFramework(lock, name) {
     throw new IntegrityError(`Checksum mismatch for ${name}.xcframework.zip: expected ${expected}, got ${actual}`);
   }
 
+  // unzip -o merges into an existing tree, which would keep files the new build dropped.
+  fs.rmSync(frameworkPath, { recursive: true, force: true });
   execFileSync("unzip", ["-qo", zipPath, "-d", destDir]);
   fs.rmSync(zipPath, { force: true });
+  installed[name] = expected;
+  fs.writeFileSync(stampPath, JSON.stringify(installed, null, 2) + "\n");
   console.log(`[fetch-ffmpeg] ✓ ${name}.xcframework verified and ready`);
   return true;
 }
@@ -114,7 +131,8 @@ fs.mkdirSync(destDir, { recursive: true });
 try {
   const lock = readLock();
   const names = Object.keys(lock.artifacts);
-  const fetched = names.map((n) => fetchFramework(lock, n)).filter(Boolean).length;
+  const installed = readStamp();
+  const fetched = names.map((n) => fetchFramework(lock, n, installed)).filter(Boolean).length;
   if (fetched > 0) {
     console.log(`[fetch-ffmpeg] Done: ${fetched} downloaded, ${names.length - fetched} already present (${lock.tag}).`);
   }
