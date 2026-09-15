@@ -236,7 +236,14 @@ export default function RootLayout() {
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitle: t("liveTv.recordings"), headerTitleStyle: { color: COLORS.TEXT_PRIMARY } }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.recordings"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.title"),
+                              }
                         }
                       />
                       <Stack.Screen
@@ -244,7 +251,14 @@ export default function RootLayout() {
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitle: t("liveTv.scheduled"), headerTitleStyle: { color: COLORS.TEXT_PRIMARY } }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.scheduled"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.title"),
+                              }
                         }
                       />
                       {/* Root route (covers the tabs) so the native tab bar can't steal focus while the
