@@ -144,6 +144,13 @@ function FiltersScreen() {
         </>
       )}
 
+      {/* Phone and iPad read the title off the nav bar, so the scope line rides under it here. */}
+      {!IS_TV && !!libraryName && (
+        <View style={styles.scopePhone}>
+          <FiltersScope libraryName={libraryName} />
+        </View>
+      )}
+
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionHeading}>{t("filters.status")}</Text>
         <View style={styles.chipWrap}>
@@ -230,11 +237,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.TEXT_PRIMARY,
   },
-  // TV only: close and Clear All side by side, one swipe apart.
+  // TV only: close at the leading edge, Clear All pushed to the trailing edge.
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
+    justifyContent: "space-between",
     marginTop: 8,
   },
   // Round icon-only close: equal sides, zero padding so the circle doesn't stretch.
@@ -245,6 +252,11 @@ const styles = StyleSheet.create({
     height: 52,
     paddingVertical: 0,
     paddingHorizontal: 0,
+  },
+  // Phone/iPad scope line, inset to line up with the section headings under it.
+  scopePhone: {
+    paddingHorizontal: 5,
+    marginBottom: 4,
   },
   scroll: {
     flex: 1,

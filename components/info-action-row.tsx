@@ -1,4 +1,3 @@
-import { FocusableButton } from "@/components/FocusableButton";
 import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
@@ -9,11 +8,7 @@ import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-nativ
 const IS_TV = Platform.isTV;
 const ICON = IS_TV ? 30 : 20;
 const DIAMETER = IS_TV ? 62 : 44;
-/** TV circles sit in glass, whose rim is the ring; phone keeps the outlined circle. */
-const ActionButton = IS_TV ? GlassButton : FocusableButton;
-const CIRCLE_VARIANT = IS_TV ? "link" : "secondary";
-/** Off state: the ring and the glyph both dim, since an outline glyph alone reads the same as a filled one at distance. */
-const BORDER_OFF = "rgba(255, 195, 18, 0.4)";
+/** Off state: the glyph dims, since an outline glyph alone reads the same as a filled one at distance. */
 const ICON_OFF = "rgba(255, 195, 18, 0.5)";
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
@@ -100,16 +95,16 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
     report(ok ? done : t("info.couldNotReachServer"), !ok);
   };
 
-  // Focus outranks both rest states, and paints white over the variant's gold: a custom style is
-  // flattened AFTER the focused variant style, so this layer is the one that lands.
+  // Focus outranks both rest states: a custom style is flattened AFTER the focused variant
+  // style, so this layer is the one that lands.
   const circleStyle = (on: boolean, key: ActionKey) => StyleSheet.flatten([styles.circle, focused === key ? styles.circleFocused : on ? styles.circleOn : styles.circleOff]);
   const iconColor = (on: boolean, key: ActionKey) => (focused === key ? COLORS.TEXT_PRIMARY : on ? COLORS.ACCENT : ICON_OFF);
 
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        <ActionButton
-          variant={CIRCLE_VARIANT}
+        <GlassButton
+          variant="link"
           style={circleStyle(isFavorite, "favorite")}
           icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={ICON} color={iconColor(isFavorite, "favorite")} />}
           accessibilityLabel={favoriteLabel}
@@ -118,8 +113,8 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           onBlur={() => blur("favorite")}
           onPress={press(onToggleFavorite, isFavorite ? t("info.removedFavorite") : t("info.addedFavorite"))}
         />
-        <ActionButton
-          variant={CIRCLE_VARIANT}
+        <GlassButton
+          variant="link"
           style={circleStyle(isPlayed, "watched")}
           icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={ICON} color={iconColor(isPlayed, "watched")} />}
           accessibilityLabel={watchedLabel}
@@ -131,8 +126,8 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
         {!!onToggleProgress && (
           // Always lit: this circle renders only when there is progress to act on, so a dim rest
           // state would read as disabled. The fill is the mark, standing until the position goes.
-          <ActionButton
-            variant={CIRCLE_VARIANT}
+          <GlassButton
+            variant="link"
             style={circleStyle(true, "progress")}
             icon={<Ionicons name={cleared ? "bookmark-outline" : "bookmark"} size={ICON} color={iconColor(true, "progress")} />}
             accessibilityLabel={progressLabel}
@@ -144,8 +139,8 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
         {!!onToggleDownload && !!downloadState && (
           // Always lit: this is an action, not a toggle. Every state it renders in is a press
           // worth making, "none" most of all. Failure takes the ink; the caption carries state.
-          <ActionButton
-            variant={CIRCLE_VARIANT}
+          <GlassButton
+            variant="link"
             style={circleStyle(true, "download")}
             icon={<Ionicons name="arrow-down" size={ICON} color={downloadState === "failed" ? COLORS.DESTRUCTIVE : iconColor(true, "download")} />}
             accessibilityLabel={download.label}
@@ -201,17 +196,16 @@ const styles = StyleSheet.create({
   circleOn: {
     backgroundColor: "rgba(255, 195, 18, 0.07)",
   },
-  // Off, at rest: a dimmed ring against the lit one (TV: the dim glyph alone). Not container
-  // opacity, which would multiply into the border and leave the ring at 20%.
+  // Off, at rest: the dim glyph alone, the glass rim is the ring on both platforms.
   circleOff: {
-    borderColor: IS_TV ? "transparent" : BORDER_OFF,
+    borderColor: "transparent",
   },
-  // White, so focus reads as its own axis: gold already means "on" here, and a gold focus ring
-  // made a focused-off circle look lit.
+  // A gold wash the glass keeps refracting through, well above the on state's 0.07; the white
+  // glyph is what separates focus from on.
   circleFocused: {
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
-    borderColor: IS_TV ? "transparent" : COLORS.BORDER_FOCUSED,
-    shadowColor: COLORS.BORDER_FOCUSED,
+    backgroundColor: "rgba(255, 195, 18, 0.35)",
+    borderColor: "transparent",
+    shadowColor: COLORS.ACCENT,
   },
   // A report of something that just happened, not the name of what focus is on.
   captionStatus: {

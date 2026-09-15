@@ -1,7 +1,7 @@
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import React from "react";
-import { StyleSheet, Text } from "react-native";
+import { Platform, StyleSheet, Text } from "react-native";
 
 const PLACEHOLDER = "{library}";
 
@@ -20,10 +20,10 @@ export function FiltersScope({ libraryName }: { libraryName: string }) {
 
 const styles = StyleSheet.create({
   scope: {
-    fontSize: 24,
+    fontSize: Platform.isTV ? 24 : 15,
     fontWeight: "500",
     color: COLORS.TEXT_TERTIARY,
-    marginTop: 6,
+    marginTop: Platform.isTV ? 6 : 4,
   },
   library: {
     color: COLORS.TEXT_PRIMARY,

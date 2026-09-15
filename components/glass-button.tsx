@@ -11,7 +11,7 @@ export const GLASS_PILL_PARALLAX = { magnification: 1.0, pressMagnification: 1.0
 
 type GlassButtonProps = Omit<ComponentProps<typeof FocusableButton>, "ref" | "tvParallaxProperties">;
 
-/** tvOS CTA: a compact FocusableButton pill inside a glass capsule, the tab bar's shape. */
+/** CTA: a compact FocusableButton pill inside a glass capsule, the tab bar's shape. */
 export const GlassButton = forwardRef<View, GlassButtonProps>(function GlassButton({ variant = "link", style, textStyle, ...buttonProps }, ref) {
   const pillStyle: ViewStyle = StyleSheet.flatten([styles.pill, style]);
   // Concentric rim: half the pill's fixed height (a circle passes its diameter) plus the padding.

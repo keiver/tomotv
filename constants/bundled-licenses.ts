@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 81ceff8197199708
+ * fingerprint: 0bf21647c6a57a6d
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -264,7 +264,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "baseline-browser-mapping", version: "2.11.23", license: "Apache-2.0", body: "L12", copyright: [] },
   { name: "big-integer", version: "1.6.52", license: "Unlicense", body: "L13", copyright: [] },
   { name: "bplist-creator", version: "0.1.0", license: "MIT", body: "L14", copyright: ["Copyright (c) 2012 Near Infinity Corporation"] },
-  { name: "brace-expansion", version: "5.0.9", license: "MIT", body: "L15", copyright: [] },
+  { name: "brace-expansion", version: "5.0.12", license: "MIT", body: "L15", copyright: [] },
   { name: "braces", version: "3.0.3", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014-present, Jon Schlinkert."] },
   { name: "browserslist", version: "4.28.9", license: "MIT", body: "L4", copyright: ["Copyright 2014 Andrey Sitnik <andrey@sitnik.es> and other contributors"] },
   { name: "buffer-from", version: "1.1.2", license: "MIT", body: "L2", copyright: ["Copyright (c) 2016, 2018 Linus Unnebäck"] },
