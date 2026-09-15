@@ -44,7 +44,7 @@ export function token(env) {
 const RETRIES = 3;
 
 /**
- * Retries network drops, 429 and 5xx up to RETRIES times, backing off 1s, 2s, 4s.
+ * Retries network drops, 429 and 5xx up to RETRIES times, backing off 5s, 10s, 20s.
  * POST is never retried: a lost response may still have created the resource.
  */
 async function fetchWithRetry(url, init) {
@@ -61,7 +61,7 @@ async function fetchWithRetry(url, init) {
       if (error) throw error;
       return res;
     }
-    const delay = 1000 * 2 ** attempt;
+    const delay = 5000 * 2 ** attempt;
     const reason = error ? (error.cause?.code ?? error.message) : `HTTP ${res.status}`;
     console.error(`  ↻ ${init.method} ${new URL(url).pathname}: ${reason}, retry ${attempt + 1}/${RETRIES} in ${delay / 1000}s`);
     await new Promise((resolve) => setTimeout(resolve, delay));
