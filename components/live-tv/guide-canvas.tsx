@@ -1,5 +1,6 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
+import { GuideColumnDivider } from "@/components/live-tv/guide-column-divider";
 import { GuideRow, rowCells, type FocusTargets } from "@/components/live-tv/guide-row";
 import { GuideTimeRuler } from "@/components/live-tv/guide-time-ruler";
 import { LoadingRow } from "@/components/loading-row";
@@ -12,10 +13,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useSharedValue } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 const METRICS = guideMetrics(IS_TV);
+/** The floating tab bar the phone list scrolls under; matches home-shelves. */
+const TAB_BAR_HEIGHT = 49;
+/** Phone: clear the tab bar so the last channel is never tucked under it. */
+const LIST_BOTTOM_PAD = IS_TV ? 0 : 200;
 
 interface GuideCanvasProps {
   guide: GuideState;
@@ -35,16 +41,23 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
+  const [compact, setCompact] = useState(false);
 
   const scrollX = useSharedValue(0);
   const columnRef = useAnimatedRef<Animated.FlatList<JellyfinItem>>();
   const rowsRef = useAnimatedRef<Animated.FlatList<GuideRowData>>();
+  // The channel column's live width and the whole guide's width, both driven from the UI thread
+  // so the resize drag never re-renders the two lists.
+  const columnW = useSharedValue(METRICS.channelColumnWidth);
+  const canvasW = useSharedValue(0);
   const [viewportWidth, setViewportWidth] = useState(0);
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
     setViewportWidth(event.nativeEvent.layout.width);
     setCanvasHeight(event.nativeEvent.layout.height);
   }, []);
+  const handleGuideLayout = useCallback((event: LayoutChangeEvent) => canvasW.set(event.nativeEvent.layout.width), [canvasW]);
 
   // Within a viewport of the loaded edge: grow the window before the viewer reaches it.
   const horizontalHandler = useAnimatedScrollHandler({
@@ -180,7 +193,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
 
   const listHeight = Math.max(0, canvasHeight - METRICS.rulerHeight);
   return (
-    <View style={styles.canvas}>
+    <View style={styles.canvas} onLayout={handleGuideLayout}>
       <GuideChannelColumn
         channels={channels}
         metrics={METRICS}
@@ -188,6 +201,9 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
         onScroll={columnHandler}
         dayLabel={dayLabel}
         listHeight={listHeight}
+        columnWidth={columnW}
+        contentBottomPad={LIST_BOTTOM_PAD}
+        compact={compact}
         onChannelPress={onChannelPress}
         onChannelFocus={handleChannelFocus}
         onEndReached={loadMoreRows}
@@ -219,10 +235,12 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
               maxToRenderPerBatch={8}
               windowSize={5}
               style={{ height: listHeight, width: spanPx }}
+              contentContainerStyle={{ paddingBottom: LIST_BOTTOM_PAD }}
             />
           </View>
         </Animated.ScrollView>
       </View>
+      {IS_TV ? null : <GuideColumnDivider columnW={columnW} canvasW={canvasW} topInset={METRICS.rulerHeight} bottomInset={TAB_BAR_HEIGHT + insets.bottom} onCompactChange={setCompact} />}
     </View>
   );
 }

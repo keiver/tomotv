@@ -66,8 +66,8 @@ export default function LiveTvScreen() {
   const openRecordings = useCallback(() => router.push("/recordings"), [router]);
   const openSchedule = useCallback(() => router.push("/schedule"), [router]);
 
-  // Half the grid edge: the guide's channel column is the screen's left frame, not a card.
-  const edgeLeft = gridEdgePadding(insets.left, IS_TV) / 2;
+  // TV frames the column half a grid edge in; phone runs it flush to the screen edge.
+  const edgeLeft = IS_TV ? gridEdgePadding(insets.left, IS_TV) / 2 : insets.left;
   // Phone: the transparent native header floats over the content, so the body starts under it.
   const topClearance = IS_TV ? 10 + insets.top : headerHeight + 8;
   // Phone: Recordings and Schedule are native bar items; TV draws them as glass circles.
