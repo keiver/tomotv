@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
 import { GlassSurface } from "@/components/glass-surface";
 import { LoadingRow } from "@/components/loading-row";
@@ -221,6 +222,7 @@ export default function ProgramInfoScreen() {
   return (
     <View style={styles.phoneRoot}>
       <ScrollView contentContainerStyle={[styles.phoneContent, { paddingBottom: 24 + insets.bottom }]}>{content}</ScrollView>
+      <CloseOverlayButton onPress={() => router.back()} style={{ position: "absolute", top: 12, right: 12 + insets.right }} accessibilityHint={t("info.closeHint")} />
     </View>
   );
 }
@@ -243,8 +245,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.BACKGROUND,
   },
+  // Top padding clears the floating close, which the headline would otherwise run under.
   phoneContent: {
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 60,
     gap: 10,
   },
   // Clear of the sheet's floating close, which the headline would otherwise run under.
