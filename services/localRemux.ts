@@ -1415,13 +1415,16 @@ export function localRemuxToken(masterUrl: string | null | undefined): string | 
 }
 
 /**
- * Whether the measured link's total buffer debt for this file outruns the
- * engine cushion: duration x (source/measured - 1) > cushion seconds. Below
- * it, the cushion carries the whole deficit at original quality.
+ * Whether the remaining content's buffer debt outruns the cushion the engine
+ * can actually build: remaining x (source/measured - 1) > min(cushion, remaining).
+ * Read-ahead never exceeds the content left, so a short file's cushion is its own
+ * runtime, not the full budget.
  */
-export function deficitExceedsCushion(measuredBps: number | null, sourceBps: number, durationSeconds: number): boolean {
+export function deficitExceedsCushion(measuredBps: number | null, sourceBps: number, durationSeconds: number, startOffsetSeconds = 0): boolean {
   if (measuredBps == null || sourceBps <= 0 || measuredBps >= sourceBps) return false;
-  return durationSeconds * (sourceBps / measuredBps - 1) > REMUX_READ_AHEAD_SEGMENTS * 6;
+  const remaining = Math.max(0, durationSeconds - Math.max(0, startOffsetSeconds));
+  if (remaining <= 0) return false;
+  return remaining * (sourceBps / measuredBps - 1) > Math.min(REMUX_READ_AHEAD_SEGMENTS * 6, remaining);
 }
 
 /**

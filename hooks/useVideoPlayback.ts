@@ -1560,7 +1560,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
               const engineMeasuredBps = engineSourceBps > 0 && !playsFromDisk(videoId) ? await rememberedBitrate() : null;
               const engineDurationSec = (details.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
-              const survivalNeeded = deficitExceedsCushion(engineMeasuredBps, engineSourceBps, engineDurationSec);
+              const survivalNeeded = deficitExceedsCushion(engineMeasuredBps, engineSourceBps, engineDurationSec, engineOffset ?? 0);
               const tierCap = slipstreamTierBandwidth(details, audioStreamIndexForReportingRef.current ?? undefined);
               if (survivalNeeded && tierCap != null) {
                 logger.info("Auto caps the session at the tier, deficit outruns the cushion", {

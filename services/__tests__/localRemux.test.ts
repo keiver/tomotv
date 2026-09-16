@@ -2,6 +2,7 @@ import {
   belowRealtime,
   readBound,
   canRemuxLocally,
+  deficitExceedsCushion,
   dolbyVisionSupplementalCodecs,
   engineInputMissing,
   engineStarving,
@@ -1472,5 +1473,39 @@ describe("startLocalRemux on a live channel", () => {
 
   it("predicts the engine lane for a live channel with no verdict lookup", async () => {
     await expect(predictPlaybackLane(live())).resolves.toEqual({ lane: "deviceTranscode", smallFeedFirst: false });
+  });
+});
+
+describe("deficitExceedsCushion", () => {
+  const SOURCE = 5_800_000;
+  const MEASURED = 1_700_000;
+
+  it("caps a short file whose debt fits the fixed budget but not its own runtime", () => {
+    // 47s * (5.8/1.7 - 1) = 113s > min(120, 47) = 47 → cap. Fixed-120 math missed this.
+    expect(deficitExceedsCushion(MEASURED, SOURCE, 47)).toBe(true);
+  });
+
+  it("caps a near-EOF resume where little content remains", () => {
+    // remaining 5s, debt 12s > min(120, 5) → cap.
+    expect(deficitExceedsCushion(MEASURED, SOURCE, 47, 42)).toBe(true);
+  });
+
+  it("leaves a long file on the primary when the cushion truly carries the debt", () => {
+    // 3600s * (5.8/5.7 - 1) = 63s < min(120, 3600) → no cap.
+    expect(deficitExceedsCushion(5_700_000, SOURCE, 3600)).toBe(false);
+  });
+
+  it("caps a long file whose debt outruns the full budget", () => {
+    expect(deficitExceedsCushion(MEASURED, SOURCE, 7200)).toBe(true);
+  });
+
+  it("never caps when the link clears the source bitrate", () => {
+    expect(deficitExceedsCushion(SOURCE, SOURCE, 47)).toBe(false);
+    expect(deficitExceedsCushion(6_000_000, SOURCE, 47)).toBe(false);
+  });
+
+  it("returns false when nothing measured or nothing remains", () => {
+    expect(deficitExceedsCushion(null, SOURCE, 47)).toBe(false);
+    expect(deficitExceedsCushion(MEASURED, SOURCE, 47, 47)).toBe(false);
   });
 });
