@@ -17,6 +17,15 @@ const TOUCH_SLOP = Math.max(0, Math.round((44 - BAR_HEIGHT) / 2));
 /** A step over the label, so the mark reads as the action and not as punctuation. */
 const ICON_SIZE = Platform.isTV ? 28 : 16;
 
+/** The band's math: used fraction, the drawn percent (floored so a sliver still
+ *  reads, capped at 100), and the rounded accessibility value. */
+export function storageBarFill(used: number, free: number): { fraction: number; percent: number; accessibleNow: number } {
+  const total = used + free;
+  const fraction = total > 0 ? used / total : 0;
+  const percent = Math.min(100, Math.max(used > 0 ? MIN_VISIBLE_FRACTION * 100 : 0, fraction * 100));
+  return { fraction, percent, accessibleNow: Math.round(fraction * 100) };
+}
+
 interface StorageBarProps {
   /** Bytes the downloads take up. */
   used: number;
@@ -32,9 +41,7 @@ interface StorageBarProps {
  * Square-cornered; the SectionFooter it sits in owns the shape. Pressing it clears everything.
  */
 export function StorageBar({ used, free, onClear }: StorageBarProps) {
-  const total = used + free;
-  const fraction = total > 0 ? used / total : 0;
-  const percent = Math.min(100, Math.max(used > 0 ? MIN_VISIBLE_FRACTION * 100 : 0, fraction * 100));
+  const { percent, accessibleNow } = storageBarFill(used, free);
   const usedPart = used > 0 ? t("downloads.usedDownloaded").replace("{size}", formatFileSize(used)) : t("downloads.nothingDownloaded");
   const label = t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
 
@@ -47,7 +54,7 @@ export function StorageBar({ used, free, onClear }: StorageBarProps) {
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={t("downloads.removeAllHint")}
-      accessibilityValue={{ min: 0, max: 100, now: Math.round(fraction * 100) }}>
+      accessibilityValue={{ min: 0, max: 100, now: accessibleNow }}>
       <View style={[styles.fill, { width: `${percent}%` }]} pointerEvents="none" />
       <View style={styles.row} pointerEvents="none">
         <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.ON_ACCENT} style={styles.mark} />

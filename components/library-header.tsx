@@ -49,7 +49,7 @@ function LibraryHeaderComponent({ stack, onOpenFilters, activeFilterCount = 0, f
           onPress={onOpenFilters}
           onFocus={handleFiltersFocus}
           onBlur={handleFiltersBlur}
-          icon={<Ionicons name="options-outline" size={24} color={COLORS.ACCENT} />}
+          icon={<Ionicons name="funnel-outline" size={24} color={COLORS.ACCENT} />}
         />
       ) : null}
       <View style={styles.path} pointerEvents="none">

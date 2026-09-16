@@ -260,15 +260,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           {nowPlaying ? (
             <NowPlayingTitleBar video={video} focused={focused} kind={nowPlayingAudio ? "audio" : "video"} progressPercent={progressPercent} playing={nowPlayingVideo.playing} />
           ) : hasProgress ? (
-            // Opaque bar, not a BlurView: the poster tinting through a blur
-            // feeds the difference blend a variable backdrop, so the title
-            // color would drift with the artwork. Two fixed inputs (solid
-            // dark, solid gold) give exactly two fixed outputs.
-            //
-            // The whole bar is decorative to assistive tech: the card element
-            // already announces the name (label) and progress (value), so the
-            // visual duplicate is hidden to avoid double-reading.
-            <View style={[styles.infoOverlay, styles.infoOverlayDark]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            // Glass bar: the gold fill stays opaque, the difference-blended title
+            // rides the near-black bottom scrim (gold over the remainder, black
+            // over the fill). Decorative to a11y — the card announces name + value.
+            <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
               <View style={styles.infoTitleBlend}>
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
@@ -284,7 +279,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               </MarqueeText>
             </View>
           ) : (
-            <View style={[styles.infoOverlay, styles.infoOverlayDark]}>
+            <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                 {video?.Name || t("common.unknown")}
               </MarqueeText>
@@ -480,11 +475,11 @@ const styles = StyleSheet.create({
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
-  // Resting bar, every card: fully opaque so the title's contrast never depends
-  // on the poster, and the CW difference-blended title sees a constant backdrop
-  // (difference(gold, this) reads gold; difference(gold, fill) is black).
-  infoOverlayDark: {
-    backgroundColor: COLORS.SURFACE_SUNKEN,
+  // Resting bar: the scrimmed artwork tints through so the title area reads as part
+  // of the poster, not a flat strip against the app background. Gold stays legible on
+  // the bottom scrim's near-black wash (CardScrim reaches 0.72).
+  infoOverlayGlass: {
+    backgroundColor: "rgba(28, 28, 30, 0.6)",
   },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.

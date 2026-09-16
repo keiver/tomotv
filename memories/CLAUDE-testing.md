@@ -20,6 +20,32 @@ Comprehensive testing strategy with current coverage analysis, test patterns, an
 
 ---
 
+## CI gate and testing rules
+
+The PR gate is `.github/workflows/test-pr.yml`, on every PR to `main`. ubuntu runs
+`tsc --noEmit`, `npm run test:coverage` (jest with the coverage floor enforced),
+`npm run lint`, license currency, the static playback manifest/baseline check, and
+the screenshot caption self-check. macos runs `swift test` with a host ffmpeg so
+the codec matrices run, not just the Dolby Vision, playlist and segment-grid tests.
+
+Rules:
+
+- Every new hook or component that carries logic ships with a unit test. Test the
+  logic, not the pixels: a pure helper, or the hook through react-test-renderer
+  (the null-harness pattern in `hooks/__tests__/usePlaybackReporter.test.tsx`). No
+  UI snapshot tests, no rendering a component to assert its native output.
+- A component's testable logic is extracted to a named pure export and tested
+  there. See `storageBarFill` (storage-bar) and `sweepStart` (card-nav-progress).
+- The coverage floor in `jest.config.js` only ratchets up. Raise it when coverage
+  rises; never lower it to green a red run. That file holds the authoritative
+  numbers (the headline figures elsewhere in this doc are older).
+- Full playback and device verification stay out of CI. Hosted runners cannot
+  attach the paired Apple TV and the tvOS simulator has no HEVC decoder, so the
+  real matrix runs on the user's hardware (`npm run test:playback`), never at PR
+  time. CI holds only its static half (manifest and baseline agreement).
+
+---
+
 ## Executive Summary
 
 TomoTV has moderate test coverage (51.1%) with significant gaps in critical areas. This document provides a comprehensive strategy to increase coverage to 80% while focusing on security-critical code, core functionality, and user workflows.

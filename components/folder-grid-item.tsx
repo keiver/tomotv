@@ -215,8 +215,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
-          {/* Opaque dark title bar at the very bottom — same treatment as the video cards.
-              Focused: opaque gold bar */}
+          {/* Title bar at the very bottom — same treatment as the video cards.
+              Focused: opaque gold bar; resting: glass over the scrimmed art. */}
           {focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameFocused])}>
@@ -224,7 +224,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               </MarqueeText>
             </View>
           ) : (
-            <View style={[styles.infoOverlay, styles.infoOverlayDark]}>
+            <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameGold])}>
                 {folder.Name}
               </MarqueeText>
@@ -361,9 +361,10 @@ const styles = StyleSheet.create({
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
-  // Resting bar: fully opaque so the title's contrast never depends on the art.
-  infoOverlayDark: {
-    backgroundColor: COLORS.SURFACE_SUNKEN,
+  // Resting bar: the scrimmed artwork tints through so the title area reads as part
+  // of the poster, not a flat strip. Gold stays legible on the bottom scrim's wash.
+  infoOverlayGlass: {
+    backgroundColor: "rgba(28, 28, 30, 0.6)",
   },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // library names always ellipsize, and a ragged tail reads better from a fixed left edge.

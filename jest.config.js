@@ -25,11 +25,10 @@ module.exports = {
     "!**/__tests__/**",
     "!**/node_modules/**",
   ],
-  // Measured 49.89 / 40.51 / 46.20 / 51.00 on 2026-08-20 with the widened
-  // denominator above. The floor sits a few points under that so it ratchets
-  // upward without failing the build the day it lands. Raise it when coverage
-  // rises; never lower it to make a red run green.
+  // Measured 61.18 / 52.80 / 56.02 / 62.74 on 2026-09-15. The floor sits a few
+  // points under that so it ratchets upward without failing the build the day it
+  // lands. Raise it when coverage rises; never lower it to make a red run green.
   coverageThreshold: {
-    global: { statements: 47, branches: 38, functions: 44, lines: 48 },
+    global: { statements: 58, branches: 50, functions: 53, lines: 60 },
   },
 };
