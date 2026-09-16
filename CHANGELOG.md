@@ -2,6 +2,26 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.7]
+
+### Added
+
+- Live TV on iPhone: a grip on the seam between the channel column and the guide resizes the column; drag it left past the snap zone and the column magnets to the channel logos alone, collapsing the rows to logos
+- A Live TV channel with no listings fills its guide cell with "No guide data" over "Listings unavailable for this channel", following the device language
+
+### Changed
+
+- Home shelves show larger cards, with landscape artwork cropped to a 3:2 frame
+- A grid card's title sits on a translucent bar, so scrimmed artwork shows through behind it
+- On Apple TV the home shelves are sized so a third row peeks above the fold
+- The phone's Live TV programme panel closes with a glass button
+- The Filters button carries a funnel icon
+
+### Fixed
+
+- On iPhone and iPad, Live TV Recordings and Schedule show their own back title instead of "(tabs)"
+- A book that renders no pages is turned away with an error instead of hanging the reader
+
 ## [2.2.6]
 
 ### Added

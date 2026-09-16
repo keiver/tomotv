@@ -100,6 +100,25 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
+### What's New (2.2.7), iOS (262 / 4000)
+
+```text
+- Live TV guide: resize the channel column, or snap it to logos alone
+- Empty guide slots now say when a channel has no listings
+- Bigger home cards with cleaner 3:2 artwork
+- The Filters button gets a funnel
+- A book that won't render no longer hangs the reader
+```
+
+### What's New (2.2.7), tvOS (217 / 4000)
+
+```text
+- Bigger home cards with cleaner 3:2 artwork, and a third row in view
+- Empty guide slots now say when a channel has no listings
+- The Filters button gets a funnel
+- A book that won't render no longer hangs the reader
+```
+
 ### What's New (2.2.6), iOS (706 / 4000)
 
 ```text
@@ -307,6 +326,25 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.7), iOS (339 / 4000 chars)
+
+```text
+- Live-TV-Guide: Breite der Senderspalte anpassen oder auf reine Logos einklappen
+- Leere Guide-Felder zeigen jetzt an, wenn ein Sender keine Programmdaten hat
+- Größere Startseiten-Karten mit sauberem 3:2-Bild
+- Die Filter-Schaltfläche erhält ein Trichtersymbol
+- Ein Buch, das sich nicht darstellen lässt, blockiert den Reader nicht mehr
+```
+
+#### What's New (2.2.7), tvOS (292 / 4000 chars)
+
+```text
+- Größere Startseiten-Karten mit sauberem 3:2-Bild und einer dritten sichtbaren Reihe
+- Leere Guide-Felder zeigen jetzt an, wenn ein Sender keine Programmdaten hat
+- Die Filter-Schaltfläche erhält ein Trichtersymbol
+- Ein Buch, das sich nicht darstellen lässt, blockiert den Reader nicht mehr
+```
+
 #### What's New (2.2.6), iOS (872 / 4000 chars)
 
 ```text
@@ -433,6 +471,25 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.7), iOS (342 / 4000 chars)
+
+```text
+- Guide TV en direct : redimensionnez la colonne des chaînes ou réduisez-la aux seuls logos
+- Les cases vides du guide indiquent désormais qu'une chaîne n'a pas de programme
+- Cartes d'accueil plus grandes avec un visuel 3:2 plus net
+- Le bouton Filtres reçoit une icône en entonnoir
+- Un livre impossible à afficher ne bloque plus le lecteur
+```
+
+#### What's New (2.2.7), tvOS (283 / 4000 chars)
+
+```text
+- Cartes d'accueil plus grandes avec un visuel 3:2 plus net, et une troisième rangée visible
+- Les cases vides du guide indiquent désormais qu'une chaîne n'a pas de programme
+- Le bouton Filtres reçoit une icône en entonnoir
+- Un livre impossible à afficher ne bloque plus le lecteur
+```
+
 #### What's New (2.2.6), iOS (896 / 4000 chars)
 
 ```text
@@ -557,6 +614,25 @@ PRIVACIDAD
 Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenciales se quedan en el llavero del dispositivo, y el vídeo va directo de tu servidor a tu dispositivo.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.7), iOS (344 / 4000 chars)
+
+```text
+- Guía de TV en vivo: cambia el ancho de la columna de canales o contráela solo a los logotipos
+- Las celdas vacías de la guía ahora indican cuándo un canal no tiene programación
+- Tarjetas de inicio más grandes con imagen 3:2 más limpia
+- El botón Filtros incorpora un icono de embudo
+- Un libro que no se puede mostrar ya no bloquea el lector
+```
+
+#### What's New (2.2.7), tvOS (279 / 4000 chars)
+
+```text
+- Tarjetas de inicio más grandes con imagen 3:2 más limpia, y una tercera fila a la vista
+- Las celdas vacías de la guía ahora indican cuándo un canal no tiene programación
+- El botón Filtros incorpora un icono de embudo
+- Un libro que no se puede mostrar ya no bloquea el lector
 ```
 
 #### What's New (2.2.6), iOS (827 / 4000 chars)
