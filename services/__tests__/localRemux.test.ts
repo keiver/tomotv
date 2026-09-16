@@ -1061,14 +1061,15 @@ describe("startLocalRemux Slipstream tier config", () => {
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
         streams: [
           { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
-          { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+          { Type: "Audio", Codec: "dts", Index: 1, Channels: 2, SampleRate: 48000, BitDepth: 24 },
         ],
       }),
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    // DTS mirrors the engine's FLAC family on every rung: server FLAC estimate.
-    const flacEstimate = Math.round(7 * 48000 * 24 * 0.6);
+    // DTS mirrors the engine's FLAC family on every rung: server FLAC estimate. Stereo keeps the
+    // floor (800k + this) under the 3 Mbps mock link, so the copy family stands and no survival.
+    const flacEstimate = Math.round(2 * 48000 * 24 * 0.6);
     // A 20 Mbps source clears all four rungs' undercut check.
     expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([640, 854, 1280, 1920]);
     const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
@@ -1076,7 +1077,33 @@ describe("startLocalRemux Slipstream tier config", () => {
     expect(r480.codecs).toBe("avc1.64001F,fLaC");
     expect(config.audioTracks[0].serverAudioUrl).toContain("/Audio/item1/main.m3u8");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=flac");
-    expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=7");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");
+  });
+
+  it("survival audio: a link below the smallest copy-audio rung takes stereo AAC on every track", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          // FLAC of 7ch/24-bit is ~4.8 Mbps, so the smallest rung floor is far above the 3 Mbps link.
+          { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+          { Type: "Audio", Codec: "eac3", Index: 2, Channels: 6, BitRate: 640_000 },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    const r360 = config.tiers.find((t: { width: number }) => t.width === 640);
+    expect(r360.codecs).toBe("avc1.64001E,mp4a.40.2");
+    expect(r360.bandwidth).toBe(800_000 + 96_000);
+    // Every track survives, dropped to AAC, never removed.
+    expect(config.audioTracks).toHaveLength(2);
+    for (const track of config.audioTracks) {
+      expect(track.serverAudioUrl).toContain("AudioCodec=aac");
+      expect(track.serverAudioUrl).toContain("AudioBitrate=96000");
+      expect(track.serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");
+    }
   });
 
   it("E-AC-3 rung: server copies the original bits", async () => {

@@ -178,6 +178,9 @@ interface TierRung {
   height: number;
   codecs: string;
 }
+/** Stereo AAC bitrate for the audio-lo group when the link is below the smallest copy-audio rung. */
+export const SURVIVAL_AUDIO_BITRATE = 96_000;
+
 const SLIPSTREAM_LADDER: TierRung[] = [
   { label: "360p", bitrate: 800_000, width: 640, height: 360, codecs: "avc1.64001E" },
   { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" },
@@ -1374,7 +1377,12 @@ export async function startLocalRemux(
   const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
   const rungs = linkBelowSource && audioTracks.length > 0 ? offeredTierRungs(videoItem, preferredAudioStreamIndex) : [];
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
-  const tierAudioPlan = serverAudioPlan(primaryAudio);
+  // A link below even the smallest copy-audio rung floor takes stereo AAC for the whole audio-lo
+  // group, so the floor fits. Every track survives, dropped to AAC, never removed.
+  const smallestFloor = rungs.length > 0 ? rungs[0].bitrate + serverAudioPlan(primaryAudio).bandwidth : 0;
+  const survivalAudio = measuredBps != null && rungs.length > 0 && measuredBps < smallestFloor;
+  const audioPlanFor = (stream: JellyfinMediaStream | undefined) => (survivalAudio ? { codec: "aac" as const, bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" } : serverAudioPlan(stream));
+  const tierAudioPlan = audioPlanFor(primaryAudio);
   // One TierConfig per offered rung, ascending; the native master lists them in
   // order (smallest first = startup pick). audio-lo (below) is one group for the
   // whole ladder, so it does not multiply with the rungs.
@@ -1389,8 +1397,11 @@ export async function startLocalRemux(
     rungs.length > 0
       ? audioTracks.map((track) => {
           const stream = streamsByIndex.get(track.index);
-          const plan = serverAudioPlan(stream);
-          return { ...track, serverAudioUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, plan.codec, stream?.Channels ?? 6, generatePlaySessionId()) };
+          const plan = audioPlanFor(stream);
+          return {
+            ...track,
+            serverAudioUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, plan.codec, stream?.Channels ?? 6, generatePlaySessionId(), survivalAudio ? SURVIVAL_AUDIO_BITRATE : undefined),
+          };
         })
       : audioTracks;
 

@@ -49,18 +49,22 @@ export function getAudioRenditionUrl(
   itemId: string,
   videoItem: JellyfinVideoItem | null | undefined,
   audioStreamIndex: number,
-  audioCodec: "copy" | "flac",
+  audioCodec: "copy" | "flac" | "aac",
   channels: number,
   playSessionId: string,
+  aacBitrate?: number,
 ): string {
   const config = getCachedConfig();
   if (!config.server || !config.apiKey) return "";
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
+  // aac is the survival codec: a link below the smallest copy-audio rung takes stereo AAC so the
+  // floor fits, at the cost of a gapped switch that a link this slow never reaches the engine to make.
   return (
     `${config.server}/Audio/${itemId}/main.m3u8?` +
     `ApiKey=${config.apiKey}&MediaSourceId=${mediaSourceId}` +
     `&AudioCodec=${audioCodec}&AudioStreamIndex=${audioStreamIndex}` +
     (audioCodec === "flac" ? `&TranscodingMaxAudioChannels=${channels}` : "") +
+    (audioCodec === "aac" ? `&AudioBitrate=${aacBitrate ?? 96000}&TranscodingMaxAudioChannels=2` : "") +
     `&SegmentContainer=mp4&SegmentLength=6&PlaySessionId=${playSessionId}`
   );
 }
