@@ -106,6 +106,20 @@ export function getBackdropUrl(itemId: string, maxWidth: number = 1920): string 
 }
 
 /**
+ * A tiny, server-blurred image that reads as the item's dominant colours — the folder-background
+ * tint. Downscaled to a handful of pixels (the main colours) then blurred server-side, so it melts
+ * into a smooth field with no pixel blocks and no colour-extraction library. Backdrop fanart or
+ * Primary poster.
+ */
+export function getTintUrl(itemId: string, image: "Backdrop" | "Primary"): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  const path = image === "Backdrop" ? "Images/Backdrop/0" : "Images/Primary";
+  return `${getCachedConfig().server}/Items/${itemId}/${path}?ApiKey=${getCachedConfig().apiKey}&maxWidth=16&quality=90&blur=25`;
+}
+
+/**
  * Get the title logo art URL (transparent PNG). Gate on ImageTags.Logo.
  *
  * Pass that tag: it is a content hash, so replacing the artwork server-side changes the URL

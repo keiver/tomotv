@@ -174,6 +174,7 @@ export {
   getPhotoFileUrl,
   getPhotoUrl,
   getPosterUrl,
+  getTintUrl,
   getUserImageUrl,
   hasPoster,
 } from "./jellyfin/images";

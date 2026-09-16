@@ -3,6 +3,7 @@ import { LibraryGrid } from "@/components/library-grid";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
+import { useFolderBackdrop } from "@/hooks/useFolderBackdrop";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { fetchFilteredVideos, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
@@ -69,6 +70,9 @@ function FolderScreen() {
   const activeFilterCount = countActiveFilters(filters);
 
   const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters);
+
+  // The folder's ambient wash, resolved once on open and held for the whole folder.
+  const backdropSource = useFolderBackdrop(folderId);
 
   // "Show In Folder" arrives with the item to focus, which the grid can only focus once it is
   // loaded — and pages are 60 items. Walk forward a page at a time until it turns up, then stop.
@@ -204,6 +208,7 @@ function FolderScreen() {
         activeFilterCount={activeFilterCount}
         onItemLongPress={handleItemLongPress}
         focusItemId={focusId}
+        backdropSource={backdropSource}
       />
     </>
   );

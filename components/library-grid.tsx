@@ -1,4 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { FolderBackdrop } from "@/components/folder-backdrop";
+import type { FolderBackdropSource } from "@/hooks/useFolderBackdrop";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { LoadingRow } from "@/components/loading-row";
@@ -69,6 +71,8 @@ interface LibraryGridProps {
   focusItemId?: string;
   /** Space above the first row. Defaults to clearing the tvOS tab bar; a host whose own header already sits below it passes 0. */
   topClearance?: number;
+  /** The folder's ambient wash (resolved once on open); layered over the baked ambient background. */
+  backdropSource?: FolderBackdropSource | null;
 }
 
 /**
@@ -92,6 +96,7 @@ export function LibraryGrid({
   onRetry,
   focusItemId,
   topClearance: topClearanceProp,
+  backdropSource,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -772,6 +777,7 @@ export function LibraryGrid({
   return (
     <View style={styles.container}>
       <AmbientBackground />
+      {backdropSource !== undefined ? <FolderBackdrop source={backdropSource} /> : null}
       {/* The brand mark, in the bottom-right corner on every platform and orientation. Screen-level
           and out of flow, so it holds that corner while the grid scrolls under it. Before the
           list, like every other ghost — on tvOS a view above a focusable occludes it, and this
