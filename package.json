@@ -55,6 +55,7 @@
     "test:engine": "swift test --package-path native/ios",
     "shots": "node scripts/appstore-shots.mjs",
     "shots:upload": "node scripts/appstore-upload-shots.mjs",
+    "shots:sims": "node scripts/capture-sims.mjs",
     "meta:upload": "node scripts/appstore-upload-meta.mjs",
     "test:shots": "node scripts/appstore-shots.mjs --self-check",
     "test:watch": "jest --watch",
