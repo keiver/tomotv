@@ -32,7 +32,7 @@ describe("slotRowHeights on TV", () => {
     expect(slotRowHeights(1920, 999, 80, 80, true)).toEqual(a);
     expect(slotRowHeights(1920, 1080, 80, 80, true, "grid")).toEqual(a);
     // One converged height for every shape, so a mixed TV row never stretches a card.
-    expect(a).toEqual({ portrait: 409, square: 409, landscape: 409 });
+    expect(a).toEqual({ portrait: 340, square: 340, landscape: 340 });
   });
 });
 
