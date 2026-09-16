@@ -134,8 +134,8 @@ async function main() {
   const app = apps.data[0];
   if (!app) fail(`No app with bundle id ${BUNDLE_ID} on this account`);
 
-  // The editable version per platform. EDITABLE covers every state Apple lets a
-  // screenshot change land in, which is not the same list on both platforms.
+  // The PREPARE_FOR_SUBMISSION version per platform, the only state that takes a
+  // screenshot change; absent one, --create-version opens the draft.
   const appVersion = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8")).expo.version;
   const versions = {};
   for (const platform of platforms) {

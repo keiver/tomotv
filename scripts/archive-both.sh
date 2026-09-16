@@ -303,7 +303,9 @@ build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/export
 if [[ $UPLOAD -eq 1 ]]; then
   echo "[5/6] Screenshots"
   npm run shots || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
-  npm run shots:upload || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
+  # --create-version: the binary for this version just went up, so opening its
+  # draft to hang the shots on is intended, not the silent open the flag guards.
+  npm run shots:upload -- --create-version || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
   RESULTS+=("screenshots | composed and uploaded, every store language")
 
   # Opt-in via --notes, never fatal: it needs ollama, and the blocks already in the

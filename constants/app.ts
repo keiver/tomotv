@@ -97,9 +97,10 @@ export const GRID = {
   /** Ceiling on that growth: the widest card a row can hold stays under this share of the
    * usable width, so filling a tall screen never brings back the landscape billboard. */
   MAX_CARD_WIDTH_SHARE: 0.5,
-  /** Bump to every mixed-row card height on phone/tablet. Posters grow with it; landscape
-   * cards grow taller but stay width-capped by LANDSCAPE_RATIO and crop the sides. */
-  CARD_HEIGHT_SCALE: 1.12,
+  /** Bump to every mixed-row card height, per device class (tablet from the short side).
+   * Posters grow with it; landscape cards grow taller but stay width-capped by LANDSCAPE_RATIO
+   * and crop the sides. The tablet bump fills its taller screen; the phone holds its size. */
+  CARD_HEIGHT_SCALE: { phone: 1.0, tablet: 1.12 },
   /** tvOS row-height factor over the landscape anchor. Sized so two shelves fill the screen
    * with the third peeking, signalling the screen scrolls. */
   CARD_ROW_SCALE_TV: 1.12,
@@ -259,7 +260,7 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
     const down = quantized - 0.5;
     return down >= 1.5 && raw - down <= quantized + 0.5 - raw ? down : quantized + 0.5;
   };
-  const s = GRID.CARD_HEIGHT_SCALE;
+  const s = shortSide >= GRID.PHONE_WIDE_MIN_WIDTH ? GRID.CARD_HEIGHT_SCALE.tablet : GRID.CARD_HEIGHT_SCALE.phone;
   const shapeHeight = (base: number, ratio: number) => ((usable / perScreen(base) - 2 * padding) / ratio + 2 * padding) * s;
   const per = GRID.DENSITY_PER_SCREEN;
   const rows = {

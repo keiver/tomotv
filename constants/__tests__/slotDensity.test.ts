@@ -40,7 +40,7 @@ describe("slotRowHeights density", () => {
   it("lands the reference phone in portrait on the declared per-screen counts, scaled", () => {
     // On-screen count is the density baseline over CARD_HEIGHT_SCALE (bigger cards, fewer shown).
     const { heights, usable } = metrics(DEVICES[0], "portrait");
-    const s = GRID.CARD_HEIGHT_SCALE;
+    const s = GRID.CARD_HEIGHT_SCALE.phone;
     const per = GRID.DENSITY_PER_SCREEN;
     expect(usable / cardWidth(heights.portrait, GRID.PORTRAIT_RATIO)).toBeCloseTo(per.portrait / s, 1);
     expect(usable / cardWidth(heights.square, 1)).toBeCloseTo(per.square / s, 1);
@@ -53,8 +53,8 @@ describe("slotRowHeights density", () => {
     // THE regression: an iPhone 17 Pro Max asks for 3.84 posters per screen. Stepping that
     // off its whole-number quantum ALWAYS upward landed 4.5 and shrank every poster 23%.
     const { heights, usable } = metrics({ name: "iPhone 17 Pro Max", short: 440, long: 956, landscapeInset: 62 }, "portrait");
-    expect(usable / cardWidth(heights.portrait, GRID.PORTRAIT_RATIO)).toBeCloseTo(GRID.DENSITY_PER_SCREEN.portrait / GRID.CARD_HEIGHT_SCALE, 1);
-    expect(heights.portrait).toBe(183);
+    expect(usable / cardWidth(heights.portrait, GRID.PORTRAIT_RATIO)).toBeCloseTo(GRID.DENSITY_PER_SCREEN.portrait / GRID.CARD_HEIGHT_SCALE.phone, 1);
+    expect(heights.portrait).toBe(163);
   });
 
   it("never inflates a card on rotation", () => {
