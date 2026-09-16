@@ -140,6 +140,13 @@ export function LibraryGrid({
     router.dismissTo("/");
   }, [router]);
 
+  // Home jump for viewers who don't reach for the Menu key. Folder routes are root-level and cover
+  // the tabs, so dismissing the whole folder stack reveals the home shelves underneath — one press,
+  // no per-level refocus a back button would force.
+  const handleGoHome = useCallback(() => {
+    router.dismissAll();
+  }, [router]);
+
   // Handle of the header's Filters button, so pressing Up from a top-row card jumps straight to it
   // (deterministic nextFocusUp, not the fragile geometry/guide redirect). The header sets the node
   // via onFiltersButtonRef once it mounts. Targeting by native handle is the search.tsx pattern,
@@ -702,6 +709,7 @@ export function LibraryGrid({
     <View onLayout={handleHeaderLayout}>
       <LibraryHeader
         stack={crumbs ?? []}
+        onGoHome={handleGoHome}
         onOpenFilters={onOpenFilters}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}

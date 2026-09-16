@@ -150,6 +150,20 @@ export default function RootLayout() {
                   <ThemeProvider value={AppDarkTheme}>
                     <Stack screenOptions={{ contentStyle: { backgroundColor: COLORS.BACKGROUND } }}>
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                      {/* Folder browsing is a ROOT route, not nested in (tabs): a route inside the tabs
+                      leaves the native tab bar on screen, and on tvOS the focus engine hands it focus
+                      the moment a programmatic pop tears out the focused card (RNSScreenStack rebuilds
+                      the stack animated:NO). Covering the tabs — the same reason Filters lives here —
+                      removes that focus sink. TV hides the header (the grid draws its own bar); phone
+                      keeps the native UINavigationBar the folder screen configures. */}
+                      <Stack.Screen
+                        name="[folderId]"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitleStyle: { color: COLORS.TEXT_PRIMARY }, animation: "default" }
+                        }
+                      />
                       {/* Regular push, NOT a fullScreenModal: UIModalPresentationFullScreen takes the RN
                       root view out of the window, so every native view below it sees window == nil and
                       back again. expo-tvos-search tears its UIHostingController out of the VC hierarchy
