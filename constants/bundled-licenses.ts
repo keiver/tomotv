@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: e981835fe7b15f1a
+ * fingerprint: e1f82db7c9d3a91a
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -155,7 +155,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "@babel/template", version: "7.29.7", license: "MIT", body: "L2", copyright: ["Copyright (c) 2014-present Sebastian McKenzie and other contributors"] },
   { name: "@babel/traverse", version: "7.29.8", license: "MIT", body: "L2", copyright: ["Copyright (c) 2014-present Sebastian McKenzie and other contributors"] },
   { name: "@babel/types", version: "7.29.8", license: "MIT", body: "L2", copyright: ["Copyright (c) 2014-present Sebastian McKenzie and other contributors"] },
-  { name: "@expo-google-fonts/material-symbols", version: "0.4.47", license: "MIT AND Apache-2.0", body: "L2", copyright: ["Copyright (c) 2020 Expo"] },
+  { name: "@expo-google-fonts/material-symbols", version: "0.4.48", license: "MIT AND Apache-2.0", body: "L2", copyright: ["Copyright (c) 2020 Expo"] },
   { name: "@expo/cli", version: "56.1.25", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "@expo/code-signing-certificates", version: "0.0.6", license: "MIT", body: "L4", copyright: ["Copyright (c) 2020-present 650 Industries, Inc. (aka Expo)"] },
   { name: "@expo/config", version: "56.0.14", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
@@ -226,7 +226,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "@types/istanbul-lib-coverage", version: "2.0.6", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-lib-report", version: "3.0.3", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/istanbul-reports", version: "3.0.4", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
-  { name: "@types/node", version: "26.5.1", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
+  { name: "@types/node", version: "22.20.3", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react", version: "19.2.18", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/react-test-renderer", version: "19.3.0", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "@types/yargs", version: "17.0.35", license: "MIT", body: "L7", copyright: ["Copyright (c) Microsoft Corporation."] },
@@ -261,12 +261,12 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "babel-preset-expo", version: "56.0.20", license: "MIT", body: "L4", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "balanced-match", version: "4.0.4", license: "MIT", body: "L11", copyright: [] },
   { name: "base64-js", version: "1.5.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jameson Little"] },
-  { name: "baseline-browser-mapping", version: "2.11.23", license: "Apache-2.0", body: "L12", copyright: [] },
+  { name: "baseline-browser-mapping", version: "2.11.24", license: "Apache-2.0", body: "L12", copyright: [] },
   { name: "big-integer", version: "1.6.52", license: "Unlicense", body: "L13", copyright: [] },
   { name: "bplist-creator", version: "0.1.0", license: "MIT", body: "L14", copyright: ["Copyright (c) 2012 Near Infinity Corporation"] },
   { name: "brace-expansion", version: "5.0.12", license: "MIT", body: "L15", copyright: [] },
   { name: "braces", version: "3.0.3", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014-present, Jon Schlinkert."] },
-  { name: "browserslist", version: "4.28.9", license: "MIT", body: "L4", copyright: ["Copyright 2014 Andrey Sitnik <andrey@sitnik.es> and other contributors"] },
+  { name: "browserslist", version: "4.29.0", license: "MIT", body: "L4", copyright: ["Copyright 2014 Andrey Sitnik <andrey@sitnik.es> and other contributors"] },
   { name: "buffer-from", version: "1.1.2", license: "MIT", body: "L2", copyright: ["Copyright (c) 2016, 2018 Linus Unnebäck"] },
   { name: "bytes", version: "3.1.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2012-2014 TJ Holowaychuk <tj@vision-media.ca>","Copyright (c) 2015 Jed Watson <jed.watson@me.com>"] },
   { name: "camelcase", version: "6.3.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"] },
@@ -314,7 +314,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "dom-accessibility-api", version: "0.5.16", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "dom-accessibility-api", version: "0.6.3", license: "MIT", body: "L2", copyright: ["Copyright (c) 2020 Sebastian Silbermann"] },
   { name: "ee-first", version: "1.1.1", license: "MIT", body: "L4", copyright: ["Copyright (c) 2014 Jonathan Ong me@jongleberry.com"] },
-  { name: "electron-to-chromium", version: "1.5.428", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
+  { name: "electron-to-chromium", version: "1.5.430", license: "ISC", body: "L18", copyright: ["Copyright 2018 Kilian Valkhof"] },
   { name: "emoji-regex", version: "8.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "encodeurl", version: "1.0.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
   { name: "encodeurl", version: "2.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
@@ -541,7 +541,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "tslib", version: "2.8.1", license: "0BSD", body: "L43", copyright: ["Copyright (c) Microsoft Corporation."] },
   { name: "type-fest", version: "0.21.3", license: "(MIT OR CC0-1.0)", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https:/sindresorhus.com)"] },
   { name: "type-fest", version: "0.7.1", license: "(MIT OR CC0-1.0)", body: "L2", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
-  { name: "undici-types", version: "8.9.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Matteo Collina and Undici contributors"] },
+  { name: "undici-types", version: "6.21.0", license: "MIT", body: "L2", copyright: ["Copyright (c) Matteo Collina and Undici contributors"] },
   { name: "unicode-canonical-property-names-ecmascript", version: "2.0.1", license: "MIT", body: "L21", copyright: [] },
   { name: "unicode-match-property-ecmascript", version: "2.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "unicode-match-property-value-ecmascript", version: "2.2.1", license: "MIT", body: "L21", copyright: [] },
