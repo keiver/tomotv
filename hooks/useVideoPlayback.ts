@@ -56,6 +56,7 @@ import {
   subscribeEngineFailure,
   subscribeEngineStage,
   subscribeEngineThroughput,
+  subscribeEngineTier,
   subscribeSubtitleRequests,
   sessionSubtitleRenditions,
   videoDecodeSupport,
@@ -81,14 +82,19 @@ import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } fro
 import { IS_MAC } from "@/utils/hostEnvironment";
 import {
   advanceAdaptive,
+  advanceGatewayCap,
   createAdaptiveState,
+  createGatewayCapState,
   FLOOR_INDEX,
   gatewayMaxBitRate,
+  markGatewayProbeStarted,
   markProbeStarted,
   ORIGINAL_INDEX,
   pickStartupIndex,
+  shouldProbeGatewayCap,
   shouldProbeThroughput,
   type AdaptiveQualityState,
+  type GatewayCapState,
 } from "@/services/adaptiveQuality";
 import { measureServerBitrate, rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
@@ -475,6 +481,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const adaptiveRef = useRef<AdaptiveQualityState | null>(null);
   // Preset index a mid-session switch rebuilds the stream with.
   const adaptiveOverrideIndexRef = useRef<number | null>(null);
+  // Gateway survival-cap controller: raises the cap off the tier back to the
+  // engine primary when the link recovers (null = inactive / not survival-capped).
+  const gatewayCapRef = useRef<GatewayCapState | null>(null);
+  // True while the session rides the Slipstream tier as its survival floor: the
+  // engine primary is unproducible on this link by design, so primary-starvation
+  // teardowns (stall restart, engineStarving handover) are suppressed. The plain
+  // server transcode floor is a HIGHER bitrate than the lowest rung, so falling
+  // to it would regress, not recover; the tier + native producer-hold recover.
+  const onTierLaneRef = useRef(false);
 
   // Request ID to prevent race conditions when videoId changes
   // Incremented on each videoId change, async operations check before updating state
@@ -1104,7 +1119,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // reason to ask the network for something the network need not be involved in.
     const heldReplay = playsFromDisk(details.Id);
     probeEmit("fallback", { from: "localRemux", to: heldReplay ? "direct" : "transcode", reason: "engine fell below realtime" });
-    void recordVerdict(details, sample, "fell below realtime mid-play", { busy: deviceBusy() });
+    // A read-bound segment measured the LINK, not the device: the engine waited on a slow pull it
+    // cannot speed up. Blocklisting the file (engineVerdicts) would then route every later play off
+    // the engine on a link that has since changed. Only a produce-bound stall is a device verdict.
+    if (!readBound(sample)) void recordVerdict(details, sample, "fell below realtime mid-play", { busy: deviceBusy() });
     stopLocalRemux(localRemuxTokenRef.current);
     localRemuxTokenRef.current = null;
     dropThroughputWatch(watch);
@@ -1265,6 +1283,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         if (mode === "transcode") {
           setPlaybackStage("server");
           // Single-variant server stream: no ladder for maxBitRate to steer.
+          gatewayCapRef.current = null;
+          onTierLaneRef.current = false;
           setVideoMaxBitRate(null);
           // Check if we have a specific audio track selected (from user switching)
           const hasSelectedAudioTrack = selectedAudioTrackIndexRef.current !== null;
@@ -1421,7 +1441,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               const stopThroughput = subscribeEngineThroughput(token, (sample) => {
                 throughputRef.current.samples = [...throughputRef.current.samples.slice(-7), sample];
                 if (settleFirst(sample)) return;
-                if (engineStarving(throughputRef.current.samples)) handOverToServer(details, sample);
+                // On the tier lane the primary is unproducible by design; its starvation is not
+                // a reason to abandon the tier for a higher-bitrate server transcode.
+                if (engineStarving(throughputRef.current.samples) && !onTierLaneRef.current) handOverToServer(details, sample);
               });
               // The engine reports a pipeline failure as it happens, so an input it could not open
               // ends the wait now rather than at the deadline.
@@ -1431,10 +1453,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 if (stage === "open_input") setPlaybackStage("analysing");
                 else if (stage === "find_stream_info") setPlaybackStage("preparing");
               });
+              // The tier lane is armed only on the master's confirmed "listed" verdict: a lane AVPlayer
+              // can actually ride. A declined or dropped tier disarms it, so starvation teardown and
+              // stall recovery resume and the session falls to the plain server transcode, never hangs.
+              const stopTier = subscribeEngineTier(token, (report) => {
+                onTierLaneRef.current = report.state === "listed";
+              });
               throughputRef.current.unsubscribe = () => {
                 stopThroughput();
                 stopFailure();
                 stopStage();
+                stopTier();
               };
               // A failure reported before these listeners existed is never replayed: ask the session itself.
               const startedAlive = await engineProgress(token);
@@ -1480,13 +1509,21 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 throw new Error(`engine failed: ${outcome.failed}`);
               }
               const sample = outcome;
-              // A slow segment is the engine's fault only when the engine set the pace. A tier session
-              // opens on the server rung while the pull catches up, and a read-bound one waited on the
-              // link; routing either to the server would pin the file there with a verdict it did not
-              // earn. A session that produced nothing at all still hands over.
-              // A live channel keeps a slow engine only when the server has no transcode to take it.
-              const keptFor =
-                !sample || !belowRealtime(sample) ? null : isLiveRef.current ? ((await openLiveServerRung()) ? null : "live") : tierDeclaredFor(token) ? "tier" : readBound(sample) ? "link" : null;
+              // Why a below-realtime engine is KEPT instead of routed to the server. Anything
+              // below realtime with none of these reasons is the device's fault and hands over.
+              //   "tier": a Slipstream rung is declared, so play it (the primary is never measured).
+              //   "live": the channel has no server transcode, so the engine is the only lane.
+              //   "link": the segment was slow because the input arrived slowly, not the device.
+              let keptFor: "tier" | "live" | "link" | null = null;
+              if (sample && belowRealtime(sample)) {
+                if (isLiveRef.current) {
+                  keptFor = (await openLiveServerRung()) ? null : "live";
+                } else if (tierDeclaredFor(token)) {
+                  keptFor = "tier";
+                } else if (readBound(sample)) {
+                  keptFor = "link";
+                }
+              }
               if (requestIdRef.current !== currentRequestId) {
                 stopLocalRemux(token);
                 if (localRemuxTokenRef.current === token) {
@@ -1569,8 +1606,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                   sourceMbps: Math.round(engineSourceBps / 100_000) / 10,
                 });
               }
+              // Auto survival only: arm the controller that climbs back off the
+              // tier to the primary when the link recovers. A fixed pin is a user
+              // ceiling (never auto-exceed); non-survival Auto already climbs free.
+              gatewayCapRef.current = pinned == null && survivalNeeded && tierCap != null ? createGatewayCapState(tierCap, engineSourceBps, Date.now()) : null;
               setVideoMaxBitRate(pinned != null ? (survivalNeeded ? (tierCap ?? pinned) : pinned) : survivalNeeded ? tierCap : null);
             } else {
+              gatewayCapRef.current = null;
               setVideoMaxBitRate(null);
             }
           } catch (remuxError) {
@@ -1837,6 +1879,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (adaptiveRef.current && currentModeRef.current === "transcode") {
         adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "seeked", nowMs: Date.now() }).state;
       }
+      if (gatewayCapRef.current) {
+        gatewayCapRef.current = advanceGatewayCap(gatewayCapRef.current, { kind: "seeked", nowMs: Date.now() }).state;
+      }
 
       // Auto-seek to saved position if this is a restart (audio track switch)
       const seekPosition = seekToPositionAfterLoadRef.current;
@@ -2020,6 +2065,31 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
       }
 
+      // Gateway survival cap (localRemux lane): the same occupancy signal drives
+      // a live preferredPeakBitRate flip between the tier and the primary, no
+      // session rebuild. Raising wakes the link-bound v0 producer; the drain
+      // lower fires well before engineStarving tears the lane down to the server.
+      if (gatewayCapRef.current && currentModeRef.current === "localRemux" && state.type === "PLAYING") {
+        const occupancySec = Math.max(0, (data.playableDuration ?? 0) - data.currentTime);
+        const nowMs = Date.now();
+        const result = advanceGatewayCap(gatewayCapRef.current, { kind: "tick", occupancySec, nowMs });
+        gatewayCapRef.current = result.state;
+        if (result.switchTo === "raised") {
+          logger.info("Gateway cap raised: link recovered, letting AVPlayer climb to the primary", { service: "useVideoPlayback" });
+          setVideoMaxBitRate(null);
+        } else if (result.switchTo === "capped") {
+          logger.info("Gateway cap lowered: pinning the tier, the primary is not sustainable", { service: "useVideoPlayback" });
+          setVideoMaxBitRate(result.state.tierCapBps);
+        } else if (shouldProbeGatewayCap(result.state, occupancySec, nowMs)) {
+          gatewayCapRef.current = markGatewayProbeStarted(result.state, nowMs);
+          measureServerBitrate({ remember: false }).then((bps) => {
+            if (bps != null && gatewayCapRef.current && isMountedRef.current) {
+              gatewayCapRef.current = advanceGatewayCap(gatewayCapRef.current, { kind: "throughput", bps, nowMs: Date.now() }).state;
+            }
+          });
+        }
+      }
+
       // Update playing state
       const nowPlaying = !paused;
       const wasPlaying = isPlayingRef.current;
@@ -2122,6 +2192,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
       if (!data.isBuffering) return;
+      // Gateway lane: a stall while raised means the primary is not sustainable,
+      // so pin the tier back at once (a live cap flip, no rebuild).
+      if (gatewayCapRef.current && currentModeRef.current === "localRemux") {
+        const result = advanceGatewayCap(gatewayCapRef.current, { kind: "stall", nowMs: Date.now() });
+        gatewayCapRef.current = result.state;
+        if (result.switchTo === "capped") {
+          logger.info("Gateway cap lowered on stall: pinning the tier", { service: "useVideoPlayback" });
+          setVideoMaxBitRate(result.state.tierCapBps);
+        }
+        return;
+      }
       if (!adaptiveRef.current || currentModeRef.current !== "transcode") return;
       const result = advanceAdaptive(adaptiveRef.current, { kind: "stall", nowMs: Date.now() });
       adaptiveRef.current = result.state;
@@ -2189,6 +2270,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           if (!isMountedRef.current || requestIdRef.current !== attempt) return;
           dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType) }, mode: currentMode, hasTriedTranscode: !retry });
         });
+        return;
+      }
+
+      // Tier lane: a mid-play starvation stall is the engine primary being unproducible on this
+      // link (expected while capped to the tier). The tier is the survival floor and the plain
+      // server transcode is a HIGHER bitrate, so a teardown would regress, not recover. Ignore it;
+      // the native producer-hold frees the link for the tier and AVPlayer recovers on its own.
+      if (onTierLaneRef.current && errorType === PlaybackErrorType.STALLED && currentTimeRef.current > 1) {
+        logger.info("Tier-lane starvation stall ignored, the tier is the survival floor", { service: "useVideoPlayback", position: Math.round(currentTimeRef.current) });
+        probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: false });
         return;
       }
 
@@ -2784,6 +2875,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     stallFallbackRef.current = false;
     adaptiveRef.current = null;
     adaptiveOverrideIndexRef.current = null;
+    gatewayCapRef.current = null;
+    onTierLaneRef.current = false;
     setVideoMaxBitRate(null);
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;
@@ -3039,6 +3132,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // new range refills; the controller holds its fire through the grace.
     if (adaptiveRef.current) {
       adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "seeked", nowMs: Date.now() }).state;
+    }
+    if (gatewayCapRef.current) {
+      gatewayCapRef.current = advanceGatewayCap(gatewayCapRef.current, { kind: "seeked", nowMs: Date.now() }).state;
     }
     if (!pausedRef.current) {
       videoRef.current?.resume();

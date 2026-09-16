@@ -29,8 +29,8 @@ import { QUALITY_PRESETS, QualityMode } from "./jellyfin/constants";
 /**
  * Live variant cap for a gateway (Slipstream) session, applied through RNV's
  * `maxBitRate` → AVPlayerItem.preferredPeakBitRate (verified live-applied,
- * RCTVideo.swift:1169). A pinned preset caps which variant AVPlayer may pick —
- * pins become seamless; Auto leaves the ladder free.
+ * RCTVideo.swift:1288). A pinned preset caps which variant AVPlayer may pick,
+ * making pins seamless; Auto leaves the ladder free.
  */
 export function gatewayMaxBitRate(quality: { mode: QualityMode; bitrate: number }): number | undefined {
   return quality.mode === "fixed" ? quality.bitrate : undefined;
@@ -238,6 +238,110 @@ export function advanceAdaptive(state: AdaptiveQualityState, event: AdaptiveEven
             switchTo: target,
           };
         }
+      }
+      return { state: next, switchTo: null };
+    }
+  }
+}
+
+/**
+ * Gateway (Slipstream) survival-cap controller. A gateway session that opened
+ * capped to the server tier (the link could not carry the source-copy primary,
+ * v0) climbs back to the primary the moment the link proves it can. The move
+ * is a live preferredPeakBitRate flip (no session rebuild): `capped` pins
+ * preferredPeakBitRate at the tier, `raised` lifts the limit so AVPlayer's ABR
+ * may pick v0. Raise needs a saturated buffer and a fresh probe clearing the
+ * SOURCE bitrate at up-trust; a draining buffer or stall pins back to the tier.
+ * The reversal-damped dwell keeps it off an unproducible primary.
+ */
+export interface GatewayCapState {
+  capped: boolean;
+  tierCapBps: number;
+  sourceBps: number;
+  lastChangeMs: number;
+  lastDirection: "up" | "down" | null;
+  upDwellMs: number;
+  drainingTicks: number;
+  lastOccupancySec: number | null;
+  lastThroughputBps: number | null;
+  lastThroughputAtMs: number;
+  lastProbeAtMs: number;
+  seekGraceUntilMs: number;
+}
+
+export function createGatewayCapState(tierCapBps: number, sourceBps: number, nowMs: number): GatewayCapState {
+  return {
+    capped: true,
+    tierCapBps,
+    sourceBps,
+    lastChangeMs: nowMs,
+    lastDirection: null,
+    upDwellMs: BASE_DWELL_MS,
+    drainingTicks: 0,
+    lastOccupancySec: null,
+    lastThroughputBps: null,
+    lastThroughputAtMs: 0,
+    lastProbeAtMs: nowMs,
+    seekGraceUntilMs: 0,
+  };
+}
+
+/** Whether to probe leftover bandwidth now: only capped, on a healthy buffer, spaced out. */
+export function shouldProbeGatewayCap(state: GatewayCapState, occupancySec: number, nowMs: number): boolean {
+  return state.capped && occupancySec >= OCCUPANCY_SATURATED_SEC && nowMs - state.lastProbeAtMs >= PROBE_INTERVAL_MS;
+}
+
+export function markGatewayProbeStarted(state: GatewayCapState, nowMs: number): GatewayCapState {
+  return { ...state, lastProbeAtMs: nowMs };
+}
+
+function applyGatewayLower(state: GatewayCapState, nowMs: number): { state: GatewayCapState; switchTo: "raised" | "capped" | null } {
+  const reset = { ...state, drainingTicks: 0 };
+  if (state.capped) return { state: reset, switchTo: null };
+  // A lower soon after a raise means the raise was premature: damp the next one.
+  const reversal = state.lastDirection === "up" && nowMs - state.lastChangeMs <= REVERSAL_BACKOFF_WINDOW_MS;
+  return {
+    state: { ...reset, capped: true, lastChangeMs: nowMs, lastDirection: "down", upDwellMs: reversal ? state.upDwellMs * 2 : state.upDwellMs },
+    switchTo: "capped",
+  };
+}
+
+export function advanceGatewayCap(state: GatewayCapState, event: AdaptiveEvent): { state: GatewayCapState; switchTo: "raised" | "capped" | null } {
+  switch (event.kind) {
+    case "throughput":
+      return { state: { ...state, lastThroughputBps: event.bps, lastThroughputAtMs: event.nowMs }, switchTo: null };
+
+    case "seeked":
+      return { state: { ...state, drainingTicks: 0, lastOccupancySec: null, seekGraceUntilMs: event.nowMs + SEEK_GRACE_MS }, switchTo: null };
+
+    case "stall":
+      // A stall inside the seek grace is the seek buffering, not the link.
+      if (event.nowMs < state.seekGraceUntilMs) return { state, switchTo: null };
+      return applyGatewayLower(state, event.nowMs);
+
+    case "tick": {
+      const inGrace = event.nowMs < state.seekGraceUntilMs;
+      const prev = state.lastOccupancySec;
+      const draining = prev != null && event.occupancySec < prev;
+      const low = event.occupancySec < OCCUPANCY_FLOOR_SEC;
+      const drainingTicks = !inGrace && low && draining ? state.drainingTicks + 1 : 0;
+      const next = { ...state, lastOccupancySec: event.occupancySec, drainingTicks };
+
+      // Raised and draining: the primary is not sustainable, so pin the tier back.
+      if (!next.capped && drainingTicks >= DRAIN_TICKS_TO_SWITCH) return applyGatewayLower(next, event.nowMs);
+
+      // Raise: capped, saturated buffer, a fresh probe clearing the SOURCE
+      // bitrate at up-trust, dwell elapsed. The primary is a source-rate copy,
+      // so the requirement is the source bitrate, not a preset.
+      if (
+        next.capped &&
+        event.occupancySec >= OCCUPANCY_SATURATED_SEC &&
+        next.lastThroughputBps != null &&
+        event.nowMs - next.lastThroughputAtMs <= THROUGHPUT_STALE_MS &&
+        event.nowMs - next.lastChangeMs >= next.upDwellMs &&
+        next.lastThroughputBps * BW_UP_TRUST >= next.sourceBps
+      ) {
+        return { state: { ...next, capped: false, lastChangeMs: event.nowMs, lastDirection: "up", drainingTicks: 0 }, switchTo: "raised" };
       }
       return { state: next, switchTo: null };
     }

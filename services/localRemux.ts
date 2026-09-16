@@ -166,10 +166,24 @@ const TRANSCODABLE_VIDEO_CODECS = [
 const REMUX_READ_AHEAD_SEGMENTS = 20;
 
 // Slipstream (memories/CLAUDE-slipstream.md): multi-variant loopback master
-// with a server-assisted tier, AVPlayer switching natively. The gate is the
-// MEASUREMENT — the tier declares only on a measured-slow link.
-// Video-only variant: audio rides the shared group, so CODECS carries avc1 alone.
-const SLIPSTREAM_TIER = { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" };
+// with a server-assisted LADDER, AVPlayer switching natively across rungs and
+// (via the gateway cap) up to the device stream-copy. The gate is the
+// MEASUREMENT: rungs declare only on a measured-slow link.
+// Apple-shaped H.264 SDR rungs, ascending; video-only variants (audio rides the
+// shared group, so CODECS carries avc1 alone).
+interface TierRung {
+  label: string;
+  bitrate: number;
+  width: number;
+  height: number;
+  codecs: string;
+}
+const SLIPSTREAM_LADDER: TierRung[] = [
+  { label: "360p", bitrate: 800_000, width: 640, height: 360, codecs: "avc1.64001E" },
+  { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" },
+  { label: "720p", bitrate: 4_000_000, width: 1280, height: 720, codecs: "avc1.640020" },
+  { label: "1080p", bitrate: 6_000_000, width: 1920, height: 1080, codecs: "avc1.640028" },
+];
 
 /**
  * Whether startLocalRemux will configure a Slipstream tier for this item:
@@ -222,15 +236,32 @@ function orderedCarriableAudio(videoItem: JellyfinVideoItem, preferredAudioStrea
  * cap for gateway sessions: a fixed preset caps preferredPeakBitRate at
  * exactly this value, so the tier fits and the primary does not.
  */
-export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): number | null {
-  if (!slipstreamEligible(videoItem)) return null;
+/**
+ * The ladder rungs offered for this item: every rung whose total (video + the
+ * DEFAULT audio rendition) meaningfully undercuts the primary (the 0.85 rule).
+ * Ascending. Empty when the file is not gateway-eligible or nothing undercuts
+ * (audio-heavy tiny files), where AVPlayer would rightly refuse the rung.
+ */
+export function offeredTierRungs(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): TierRung[] {
+  if (!slipstreamEligible(videoItem)) return [];
   const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
-  // The DEFAULT=YES rendition's cost — the same track the tier's CODECS names.
   const plan = serverAudioPlan(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]);
-  const tierBandwidth = SLIPSTREAM_TIER.bitrate + plan.bandwidth;
   const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + plan.bandwidth;
-  if (primaryBandwidth > 0 && tierBandwidth >= primaryBandwidth * 0.85) return null;
-  return tierBandwidth;
+  return SLIPSTREAM_LADDER.filter((rung) => primaryBandwidth <= 0 || rung.bitrate + plan.bandwidth < primaryBandwidth * 0.85);
+}
+
+/**
+ * The survival cap for a gateway session: the TOP offered rung's declared
+ * bandwidth. Capping there lets AVPlayer's ABR use every server rung but not
+ * the source-rate primary, which a below-source link cannot produce; the
+ * gateway controller raises the cap when the link recovers. null = no rung
+ * offered. Also the pin-cap reference for the fixed-quality path.
+ */
+export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): number | null {
+  const rungs = offeredTierRungs(videoItem, preferredAudioStreamIndex);
+  if (rungs.length === 0) return null;
+  const plan = serverAudioPlan(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]);
+  return rungs[rungs.length - 1].bitrate + plan.bandwidth;
 }
 
 /**
@@ -448,6 +479,9 @@ export interface EngineTierReport {
 
 let tierSubscription: { remove: () => void } | null = null;
 
+type TierListener = (report: EngineTierReport) => void;
+const tierListeners = new Map<string, Set<TierListener>>();
+
 /** Whether the running binary declares an event. A Metro reload can carry JS that knows one the
  *  installed native build does not, and subscribing to it there breaks the module outright. */
 function nativeEmits(event: string): boolean {
@@ -463,12 +497,25 @@ function watchEngineTier(): void {
   }
   const emitter = new NativeEventEmitter(LocalRemuxer);
   tierSubscription = emitter.addListener("onEngineTier", (report: EngineTierReport) => {
+    tierListeners.get(report.token)?.forEach((listener) => listener(report));
     // Every report follows the master, which follows this session's start, so a foreign token
     // is a superseded session still winding down.
     if (report.token !== activePlanToken) return;
     logger.info("Slipstream tier", { service: "LocalRemux", state: report.state, reason: report.reason, probeSeconds: report.probeSeconds });
     probeEmit("tier", { state: report.state, ...(report.reason ? { reason: report.reason } : {}), ...(report.probeSeconds != null ? { probeSeconds: report.probeSeconds } : {}) });
   });
+}
+
+/** One session's tier verdict, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeEngineTier(token: string, listener: TierListener): () => void {
+  watchEngineTier();
+  const listeners = tierListeners.get(token) ?? new Set<TierListener>();
+  listeners.add(listener);
+  tierListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) tierListeners.delete(token);
+  };
 }
 
 /** One completed segment as the engine timed it (Remuxer.reportThroughput). */
@@ -1325,21 +1372,21 @@ export async function startLocalRemux(
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
   const measuredBps = sourceBps > 0 && !live && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
   const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
-  const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem, preferredAudioStreamIndex) : null;
+  const rungs = linkBelowSource && audioTracks.length > 0 ? offeredTierRungs(videoItem, preferredAudioStreamIndex) : [];
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
   const tierAudioPlan = serverAudioPlan(primaryAudio);
-  const tierConfig =
-    tierBandwidth != null
-      ? {
-          tierPlaylistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, SLIPSTREAM_TIER, generatePlaySessionId()),
-          tierBandwidth,
-          tierCodecs: `${SLIPSTREAM_TIER.codecs},${tierAudioPlan.tag}`,
-          tierWidth: SLIPSTREAM_TIER.width,
-          tierHeight: SLIPSTREAM_TIER.height,
-        }
-      : {};
+  // One TierConfig per offered rung, ascending; the native master lists them in
+  // order (smallest first = startup pick). audio-lo (below) is one group for the
+  // whole ladder, so it does not multiply with the rungs.
+  const tiersConfig = rungs.map((rung) => ({
+    playlistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, rung, generatePlaySessionId()),
+    bandwidth: rung.bitrate + tierAudioPlan.bandwidth,
+    codecs: `${rung.codecs},${tierAudioPlan.tag}`,
+    width: rung.width,
+    height: rung.height,
+  }));
   const audioTracksConfig =
-    tierBandwidth != null
+    rungs.length > 0
       ? audioTracks.map((track) => {
           const stream = streamsByIndex.get(track.index);
           const plan = serverAudioPlan(stream);
@@ -1347,7 +1394,7 @@ export async function startLocalRemux(
         })
       : audioTracks;
 
-  const tierFirst = tierBandwidth != null;
+  const tierFirst = tiersConfig.length > 0;
   if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierFirst });
 
   const url: string = await LocalRemuxer.startRemux({
@@ -1369,7 +1416,7 @@ export async function startLocalRemux(
     // production, no post-load auto-seek).
     startOffsetSeconds: !live && startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
     tierFirst,
-    ...tierConfig,
+    tiers: tiersConfig,
     isLive: live,
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
     ...(live && options.liveWindowSeconds ? { liveWindowSeconds: options.liveWindowSeconds } : {}),

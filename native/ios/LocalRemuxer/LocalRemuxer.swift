@@ -181,12 +181,6 @@ class LocalRemuxer: RCTEventEmitter {
             return .data(Data(current.masterPlaylist().utf8), contentType: m3u8)
         case "media.m3u8":
             return .data(Data(current.mediaPlaylist().utf8), contentType: m3u8)
-        case "t1.m3u8":
-            // Slipstream tier media playlist (emitted only when adopted).
-            guard let playlist = current.tierPlaylist() else { return .notFound }
-            return .data(Data(playlist.utf8), contentType: m3u8)
-        case "t1-init.mp4":
-            return current.tierInitResponse()
         case "init.mp4":
             return current.initResponse()
         default:
@@ -237,9 +231,24 @@ class LocalRemuxer: RCTEventEmitter {
             if let ms = frameMilliseconds(name), let url = current.chapterFrame(atMilliseconds: ms) {
                 return .file(url, contentType: "image/jpeg")
             }
-            if name.hasPrefix("t1-seg"), name.hasSuffix(".m4s"),
-               let n = Int(name.dropFirst(6).dropLast(4)) {
-                return current.tierSegmentResponse(n)
+            // Slipstream ladder rungs: "t{k}.m3u8", "t{k}-init.mp4",
+            // "t{k}-seg{n}.m4s", where k is the rung index in the master.
+            if name.hasPrefix("t") {
+                let afterT = name.dropFirst()
+                if let rungEnd = afterT.firstIndex(where: { !$0.isNumber }), rungEnd > afterT.startIndex,
+                   let rung = Int(afterT[afterT.startIndex..<rungEnd]) {
+                    let rest = String(afterT[rungEnd...])
+                    if rest == ".m3u8" {
+                        guard let playlist = current.tierPlaylist(rung: rung) else { return .notFound }
+                        return .data(Data(playlist.utf8), contentType: m3u8)
+                    }
+                    if rest == "-init.mp4" {
+                        return current.tierInitResponse(rung: rung)
+                    }
+                    if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"), let n = Int(rest.dropFirst(4).dropLast(4)) {
+                        return current.tierSegmentResponse(rung: rung, n)
+                    }
+                }
             }
             if name.hasPrefix("seg"), name.hasSuffix(".m4s"),
                let n = Int(name.dropFirst(3).dropLast(4)) {
@@ -399,11 +408,15 @@ class LocalRemuxer: RCTEventEmitter {
                 frameRate: (config["frameRate"] as? Double) ?? 0,
                 bandwidth: (config["bandwidth"] as? Int) ?? 0,
                 readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0,
-                tierPlaylistUrl: config["tierPlaylistUrl"] as? String,
-                tierBandwidth: (config["tierBandwidth"] as? Int) ?? 0,
-                tierCodecs: (config["tierCodecs"] as? String) ?? "",
-                tierWidth: (config["tierWidth"] as? Int) ?? 0,
-                tierHeight: (config["tierHeight"] as? Int) ?? 0,
+                tiers: (config["tiers"] as? [[String: Any]] ?? []).map { t in
+                    TierConfig(
+                        playlistUrl: (t["playlistUrl"] as? String) ?? "",
+                        bandwidth: (t["bandwidth"] as? Int) ?? 0,
+                        codecs: (t["codecs"] as? String) ?? "",
+                        width: (t["width"] as? Int) ?? 0,
+                        height: (t["height"] as? Int) ?? 0
+                    )
+                }.filter { !$0.playlistUrl.isEmpty },
                 tierFirst: (config["tierFirst"] as? Bool) ?? false,
                 startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,
                 itemId: (config["itemId"] as? String) ?? "",

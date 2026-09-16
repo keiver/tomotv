@@ -24,9 +24,15 @@ import {
   pickStartupIndex,
   presetNeedsMbps,
   PROBE_INTERVAL_MS,
+  REVERSAL_BACKOFF_WINDOW_MS,
   shouldProbeThroughput,
   THROUGHPUT_STALE_MS,
+  advanceGatewayCap,
+  createGatewayCapState,
+  shouldProbeGatewayCap,
+  markGatewayProbeStarted,
   type AdaptiveQualityState,
+  type GatewayCapState,
 } from "../adaptiveQuality";
 import { QUALITY_PRESETS } from "../jellyfin/constants";
 
@@ -294,5 +300,104 @@ describe("post-seek grace", () => {
     s = advanceAdaptive(s, { kind: "seeked", nowMs: T0 + 2000 }).state;
     expect(s.drainingTicks).toBe(0);
     expect(s.lastOccupancySec).toBeNull();
+  });
+});
+
+describe("gateway cap controller", () => {
+  const SOURCE = 6_700_000;
+  const TIER_CAP = 1_000_000;
+  const FAST = 10_000_000; // 0.7*10M = 7M >= 6.7M source → clears the primary
+  const SLOW = 5_000_000; //  0.7*5M  = 3.5M < 6.7M → does not
+
+  // Reach the raised state: fresh fast probe, saturated buffer, dwell elapsed.
+  function raise(atMs: number = T0 + BASE_DWELL_MS): { state: GatewayCapState; switchTo: "raised" | "capped" | null } {
+    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
+    s = advanceGatewayCap(s, { kind: "throughput", bps: FAST, nowMs: atMs - 1000 }).state;
+    return advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC, nowMs: atMs });
+  }
+
+  it("starts capped at the tier", () => {
+    const s = createGatewayCapState(TIER_CAP, SOURCE, T0);
+    expect(s.capped).toBe(true);
+    expect(s.tierCapBps).toBe(TIER_CAP);
+    expect(s.upDwellMs).toBe(BASE_DWELL_MS);
+  });
+
+  it("raises to the primary on a saturated buffer + fresh probe clearing source + dwell", () => {
+    const r = raise();
+    expect(r.switchTo).toBe("raised");
+    expect(r.state.capped).toBe(false);
+  });
+
+  it("does not raise when the probe cannot carry the source bitrate", () => {
+    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
+    s = advanceGatewayCap(s, { kind: "throughput", bps: SLOW, nowMs: T0 + BASE_DWELL_MS - 1000 }).state;
+    const r = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC, nowMs: T0 + BASE_DWELL_MS });
+    expect(r.switchTo).toBeNull();
+    expect(r.state.capped).toBe(true);
+  });
+
+  it("does not raise before the dwell elapses", () => {
+    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
+    s = advanceGatewayCap(s, { kind: "throughput", bps: FAST, nowMs: T0 + 1000 }).state;
+    const r = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC, nowMs: T0 + 2000 });
+    expect(r.switchTo).toBeNull();
+  });
+
+  it("does not raise on a buffer that is not saturated", () => {
+    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
+    s = advanceGatewayCap(s, { kind: "throughput", bps: FAST, nowMs: T0 + BASE_DWELL_MS - 1000 }).state;
+    const r = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC - 1, nowMs: T0 + BASE_DWELL_MS });
+    expect(r.switchTo).toBeNull();
+  });
+
+  it("does not raise on a stale probe", () => {
+    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
+    s = advanceGatewayCap(s, { kind: "throughput", bps: FAST, nowMs: T0 }).state;
+    const r = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC, nowMs: T0 + BASE_DWELL_MS + THROUGHPUT_STALE_MS + 1 });
+    expect(r.switchTo).toBeNull();
+  });
+
+  it("lowers back to the tier on a draining buffer while raised", () => {
+    let s = raise().state;
+    const start = T0 + BASE_DWELL_MS + 1000;
+    let last = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_FLOOR_SEC - 0.5, nowMs: start });
+    s = last.state;
+    for (let i = 1; i <= DRAIN_TICKS_TO_SWITCH; i++) {
+      last = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_FLOOR_SEC - 0.5 - i, nowMs: start + i * 1000 });
+      s = last.state;
+      if (last.switchTo != null) break;
+    }
+    expect(last.switchTo).toBe("capped");
+    expect(last.state.capped).toBe(true);
+  });
+
+  it("lowers on a stall outside the seek grace", () => {
+    const s = raise().state;
+    const r = advanceGatewayCap(s, { kind: "stall", nowMs: T0 + BASE_DWELL_MS + 30_000 });
+    expect(r.switchTo).toBe("capped");
+  });
+
+  it("ignores a stall inside the seek grace", () => {
+    let s = raise().state;
+    s = advanceGatewayCap(s, { kind: "seeked", nowMs: T0 + BASE_DWELL_MS + 1000 }).state;
+    const r = advanceGatewayCap(s, { kind: "stall", nowMs: T0 + BASE_DWELL_MS + 2000 });
+    expect(r.switchTo).toBeNull();
+  });
+
+  it("doubles the up-dwell when a lower quickly reverses a raise", () => {
+    const r = raise();
+    const raisedAt = r.state.lastChangeMs;
+    const lowered = advanceGatewayCap(r.state, { kind: "stall", nowMs: raisedAt + REVERSAL_BACKOFF_WINDOW_MS - 1 });
+    expect(lowered.switchTo).toBe("capped");
+    expect(lowered.state.upDwellMs).toBe(BASE_DWELL_MS * 2);
+  });
+
+  it("probes only while capped, on a healthy buffer, spaced out", () => {
+    const capped = createGatewayCapState(TIER_CAP, SOURCE, T0);
+    expect(shouldProbeGatewayCap(capped, OCCUPANCY_SATURATED_SEC, T0 + PROBE_INTERVAL_MS)).toBe(true);
+    expect(shouldProbeGatewayCap(capped, OCCUPANCY_SATURATED_SEC - 1, T0 + PROBE_INTERVAL_MS)).toBe(false);
+    expect(shouldProbeGatewayCap(markGatewayProbeStarted(capped, T0), OCCUPANCY_SATURATED_SEC, T0 + PROBE_INTERVAL_MS - 1)).toBe(false);
+    expect(shouldProbeGatewayCap(raise().state, OCCUPANCY_SATURATED_SEC, T0 + BASE_DWELL_MS + PROBE_INTERVAL_MS)).toBe(false);
   });
 });

@@ -159,19 +159,16 @@ struct RemuxConfig {
     /// Producer read-ahead depth in segments; 0 means the built-in default.
     /// Config-driven from JS so the cushion is tunable without a rebuild.
     let readAheadSegments: Int
-    /// Slipstream (memories/CLAUDE-slipstream.md): the server tier's media
-    /// playlist URL. Non-nil switches the session to the ADOPTED grid — the
-    /// server's own segment list — and adds the tier variant to the master.
-    /// nil (every non-gateway session) keeps the fixed 6s grid untouched.
-    let tierPlaylistUrl: String?
-    /// Declared BANDWIDTH / CODECS / RESOLUTION for the tier variant.
-    let tierBandwidth: Int
-    let tierCodecs: String
-    let tierWidth: Int
-    let tierHeight: Int
-    /// List the tier variant before the primary: HLS startup picks the first
-    /// listed variant, so a link measured below the source bitrate starts on
-    /// the variant that fits and climbs natively when the link allows.
+    /// Slipstream ladder (memories/CLAUDE-slipstream.md): server transcode
+    /// variants, sorted ascending by bandwidth. Empty (every non-gateway
+    /// session) keeps the fixed 6s grid untouched. The first rung's playlist
+    /// defines the ADOPTED grid; the rest are validated against it and dropped
+    /// on a mismatch. Each rung is one EXT-X-STREAM-INF in the master.
+    let tiers: [TierConfig]
+    /// List the ladder before the primary: HLS startup picks the first listed
+    /// variant, so a link measured below the source bitrate starts on the
+    /// smallest rung and climbs natively (across rungs, then to the primary)
+    /// when the link allows.
     let tierFirst: Bool
     /// Resume position. Positive emits EXT-X-START in every media playlist
     /// (RFC 8216 §4.3.5.2, honored by tvOS — probe-verified): AVPlayer opens
@@ -199,6 +196,17 @@ struct RemuxConfig {
 struct TierSegment {
     let duration: Double
     let url: String
+}
+
+/// One rung of the Slipstream ladder: a server transcode variant. Every rung of
+/// an item shares the segment grid (source keyframes, item-intrinsic, M1), so
+/// AVPlayer's ABR switches between rungs and the primary on aligned boundaries.
+struct TierConfig {
+    let playlistUrl: String
+    let bandwidth: Int
+    let codecs: String
+    let width: Int
+    let height: Int
 }
 
 /// A single remux session: FFmpeg pipeline + segment store + playlist model.
@@ -319,9 +327,14 @@ final class RemuxSession {
     /// Written once on the pipeline thread before production; playlist and
     /// serving reads go through the grid helpers below.
     private var adoptedStarts: [Double] = []
-    private var adoptedSegments: [TierSegment] = []
-    /// Tier segment indices with a rewrapped file on disk (prune bookkeeping).
-    private var tierMaterialized: Set<Int> = []
+    /// Segment durations of the shared grid (from the canonical rung).
+    private var adoptedDurations: [Double] = []
+    /// Per rung id, its own segment list: durations match the shared grid (M1,
+    /// validated on adoption), URLs are the rung's own transcode. Rung 0 is the
+    /// canonical rung whose playlist defines adoptedStarts.
+    private var tierSegments: [Int: [TierSegment]] = [:]
+    /// Per rung id, tier segment indices with a rewrapped file on disk (prune).
+    private var tierMaterialized: [Int: Set<Int>] = [:]
     /// Rewrap failures this session (tier + audio-lo together). A server whose
     /// segments cannot be rewrapped (no keyframe index → mid-GOP cuts, seen on
     /// demo.jellyfin.org) fails EVERY cold segment; after the threshold the
@@ -354,7 +367,7 @@ final class RemuxSession {
     var tierActive: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return !adoptedSegments.isEmpty
+        return !adoptedStarts.isEmpty
     }
 
     /// Slipstream audio-lo: per track POSITION, the adopted server audio-only
@@ -422,7 +435,7 @@ final class RemuxSession {
         if !adoptedStarts.isEmpty {
             if n <= 0 { return 0 }
             if n < adoptedStarts.count { return adoptedStarts[n] }
-            return adoptedStarts[adoptedStarts.count - 1] + adoptedSegments[adoptedSegments.count - 1].duration
+            return adoptedStarts[adoptedStarts.count - 1] + adoptedDurations[adoptedDurations.count - 1]
         }
         return Double(n) * Self.segmentDuration
     }
@@ -434,7 +447,7 @@ final class RemuxSession {
             defer { stateLock.unlock() }
             return liveDurations[n] ?? config.liveSegmentSeconds
         }
-        if !adoptedSegments.isEmpty { return adoptedSegments[min(max(n, 0), adoptedSegments.count - 1)].duration }
+        if !adoptedDurations.isEmpty { return adoptedDurations[min(max(n, 0), adoptedDurations.count - 1)] }
         let count = segmentCount
         return n == count - 1 ? max(0.001, config.durationSeconds - Double(n) * Self.segmentDuration) : Self.segmentDuration
     }
@@ -542,7 +555,7 @@ final class RemuxSession {
     /// PlaySessionId, which rides the playlist URL along with the ApiKey —
     /// DELETE /Videos/ActiveEncodings is the public route (M1: 204).
     private func killTierTranscode() {
-        var urls = [config.tierPlaylistUrl].compactMap { $0 }
+        var urls = config.tiers.map(\.playlistUrl)
         urls += config.audioTracks.map(\.serverAudioUrl).filter { !$0.isEmpty }
         for urlString in urls {
             guard let components = URLComponents(string: urlString),
@@ -599,7 +612,7 @@ final class RemuxSession {
     /// Blocks (bounded) until the session grid is decided when a tier is
     /// configured; instant for every non-gateway session.
     private func awaitGrid() {
-        guard config.tierPlaylistUrl != nil else { return }
+        guard !config.tiers.isEmpty else { return }
         _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
@@ -610,7 +623,7 @@ final class RemuxSession {
 
     /// Bounded: an unresolved probe still lists the tier, since AVPlayer's own request joins it.
     private func awaitTierProbe() {
-        guard config.tierPlaylistUrl != nil, tierActive else { return }
+        guard !config.tiers.isEmpty, tierActive else { return }
         _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
@@ -625,16 +638,16 @@ final class RemuxSession {
     var tierOffered: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return !adoptedSegments.isEmpty && !tierDisabled && tierProbeResolved
+        return !adoptedStarts.isEmpty && !tierDisabled && tierProbeResolved
     }
 
-    /// Once per session: what the master did with the configured tier.
+    /// Once per session: what the master did with the configured ladder.
     private func reportTier(listed: Bool) {
         stateLock.lock()
-        guard config.tierPlaylistUrl != nil, !tierReported else { return stateLock.unlock() }
+        guard !config.tiers.isEmpty, !tierReported else { return stateLock.unlock() }
         tierReported = true
         tierListed = listed
-        let unproved = !adoptedSegments.isEmpty && !tierProbeResolved
+        let unproved = !adoptedStarts.isEmpty && !tierProbeResolved
         let reason = tierDropReason ?? tierUnavailableReason ?? (unproved ? "the opening segment did not arrive in time" : nil)
         stateLock.unlock()
         NSLog("[LocalRemuxer] Slipstream: master %@ the tier%@", listed ? "leads with" : "withholds", reason.map { ", \($0)" } ?? "")
@@ -856,45 +869,48 @@ final class RemuxSession {
         }
         primary += "\nmedia.m3u8\n"
 
-        // Slipstream tier variant: server-assisted lower bitrate on the SAME
-        // adopted grid, sharing the audio and subtitle groups so a variant
-        // switch touches nothing but video.
+        // Slipstream ladder: one server-assisted variant per adopted rung, all
+        // on the SAME grid and sharing the audio and subtitle groups, so a
+        // variant switch touches nothing but video. Rungs list ascending
+        // (config.tiers is sorted), so the smallest is the startup pick.
         var tier = ""
         if offered {
-            let tierBw = config.tierBandwidth > 0 ? config.tierBandwidth : 1_500_000
-            tier += "#EXT-X-STREAM-INF:BANDWIDTH=\(tierBw),AVERAGE-BANDWIDTH=\(tierBw)"
-            // Attribute symmetry with the primary (same rule as CODECS below):
-            // a tier declaring VIDEO-RANGE while the primary omits it steers
-            // AVPlayer's initial pick toward the fully-declared variant. The
-            // tier transcode is SDR by construction, so the value is fixed.
-            if !config.videoRange.isEmpty {
-                tier += ",VIDEO-RANGE=SDR"
+            stateLock.lock()
+            let adoptedRungs = (0..<config.tiers.count).filter { !(tierSegments[$0]?.isEmpty ?? true) }
+            stateLock.unlock()
+            for k in adoptedRungs {
+                let rung = config.tiers[k]
+                let bw = rung.bandwidth > 0 ? rung.bandwidth : 1_500_000
+                var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bw),AVERAGE-BANDWIDTH=\(bw)"
+                // Attribute symmetry with the primary: a rung declaring
+                // VIDEO-RANGE/CODECS the primary omits steers AVPlayer's initial
+                // pick toward the fully-declared variant. Rungs are SDR by build.
+                if !config.videoRange.isEmpty {
+                    line += ",VIDEO-RANGE=SDR"
+                }
+                if !rung.codecs.isEmpty && !config.codecs.isEmpty {
+                    line += ",CODECS=\"\(rung.codecs)\""
+                }
+                if rung.width > 0 && rung.height > 0 {
+                    line += ",RESOLUTION=\(rung.width)x\(rung.height)"
+                }
+                if config.frameRate > 0 {
+                    line += String(format: ",FRAME-RATE=%g", config.frameRate)
+                }
+                // Rungs ride the server-fed audio group when every track has one;
+                // otherwise they share the engine group.
+                line += audioLoActive ? ",AUDIO=\"audio-lo\"" : ",AUDIO=\"audio\""
+                if !config.subtitles.isEmpty {
+                    line += ",SUBTITLES=\"subs\""
+                }
+                line += ",CLOSED-CAPTIONS=NONE"
+                line += "\nt\(k).m3u8\n"
+                tier += line
             }
-            // CODECS must be symmetric across variants: a tier declaring it while
-            // the primary omits it (SDR sessions) makes AVPlayer prefer the
-            // verifiable variant and START on the tier (measured via the
-            // reconstruction probe — case A fetched t1-init.mp4 first).
-            if !config.tierCodecs.isEmpty && !config.codecs.isEmpty {
-                tier += ",CODECS=\"\(config.tierCodecs)\""
-            }
-            if config.tierWidth > 0 && config.tierHeight > 0 {
-                tier += ",RESOLUTION=\(config.tierWidth)x\(config.tierHeight)"
-            }
-            if config.frameRate > 0 {
-                tier += String(format: ",FRAME-RATE=%g", config.frameRate)
-            }
-            // The tier rides its own server-fed audio group when every track
-            // has one; otherwise it shares the engine group.
-            tier += audioLoActive ? ",AUDIO=\"audio-lo\"" : ",AUDIO=\"audio\""
-            if !config.subtitles.isEmpty {
-                tier += ",SUBTITLES=\"subs\""
-            }
-            tier += ",CLOSED-CAPTIONS=NONE"
-            tier += "\nt1.m3u8\n"
         }
-        // HLS startup picks the first listed variant: a link measured below
-        // the source bitrate leads with the tier so playback starts on the
-        // variant that fits; the primary stays one native switch away.
+        // HLS startup picks the first listed variant: a link measured below the
+        // source bitrate leads with the ladder so playback starts on the
+        // smallest rung; the primary stays a native climb away.
         out += config.tierFirst && offered ? tier + primary : primary + tier
         reportTier(listed: offered)
         return out
@@ -917,18 +933,18 @@ final class RemuxSession {
         return Int(ceil(max(maxDur, Self.segmentDuration * 2)))
     }
 
-    func tierPlaylist() -> String? {
+    func tierPlaylist(rung: Int) -> String? {
         stateLock.lock()
-        let segments = adoptedSegments
+        let segments = tierSegments[rung] ?? []
         stateLock.unlock()
         guard !segments.isEmpty, !isTierDisabled else { return nil }
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
-        out += "#EXT-X-MAP:URI=\"t1-init.mp4\"\n"
+        out += "#EXT-X-MAP:URI=\"t\(rung)-init.mp4\"\n"
         for (n, seg) in segments.enumerated() {
             out += String(format: "#EXTINF:%.6f,\n", seg.duration)
-            out += "t1-seg\(n).m4s\n"
+            out += "t\(rung)-seg\(n).m4s\n"
         }
         out += "#EXT-X-ENDLIST\n"
         return out
@@ -1252,12 +1268,12 @@ final class RemuxSession {
 
     // MARK: - Slipstream tier serving
 
-    private func tierSegmentRemoteURL(_ n: Int) -> URL? {
+    private func tierSegmentRemoteURL(rung: Int, _ n: Int) -> URL? {
         stateLock.lock()
-        let segments = adoptedSegments
+        let segments = tierSegments[rung] ?? []
         stateLock.unlock()
-        guard n >= 0, n < segments.count, let urlString = config.tierPlaylistUrl, let base = URL(string: urlString) else { return nil }
-        // Playlist segment URLs are relative to the tier's main.m3u8.
+        guard n >= 0, n < segments.count, rung >= 0, rung < config.tiers.count, let base = URL(string: config.tiers[rung].playlistUrl) else { return nil }
+        // Playlist segment URLs are relative to the rung's main.m3u8.
         return URL(string: segments[n].url, relativeTo: base)?.absoluteURL
     }
 
@@ -1301,7 +1317,8 @@ final class RemuxSession {
         guard tierActive, !isTierDisabled else { return }
         let target = segmentIndex(atSeconds: config.startOffsetSeconds)
         let started = Date()
-        let produced = materializeTierSegment(target, demand: false)
+        // Prove the canonical rung (0); higher rungs are validated at adoption.
+        let produced = materializeTierSegment(rung: 0, target, demand: false)
         probeSeconds = Date().timeIntervalSince(started)
         let plays = segmentDurationSeconds(target)
         if produced != nil {
@@ -1353,18 +1370,18 @@ final class RemuxSession {
 
     /// `demand` false is the probe: it must not read as the player living on the tier, or the
     /// producer holds before the preflight has segment 0.
-    private func materializeTierSegment(_ n: Int, demand: Bool = true) -> URL? {
-        dedupedMaterialization("t\(n)") { materializeTierSegmentLocked(n, demand: demand) }
+    private func materializeTierSegment(rung: Int, _ n: Int, demand: Bool = true) -> URL? {
+        dedupedMaterialization("t\(rung)-\(n)") { materializeTierSegmentLocked(rung: rung, n, demand: demand) }
     }
 
-    private func materializeTierSegmentLocked(_ n: Int, demand: Bool) -> URL? {
+    private func materializeTierSegmentLocked(rung: Int, _ n: Int, demand: Bool) -> URL? {
         if isTierDisabled { return nil }
-        let mediaFile = dir.appendingPathComponent("t1-seg\(n).m4s")
+        let mediaFile = dir.appendingPathComponent("t\(rung)-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
-        guard let remote = tierSegmentRemoteURL(n) else { return nil }
+        guard let remote = tierSegmentRemoteURL(rung: rung, n) else { return nil }
         let fetched = fetchTier(remote)
         guard let ts = fetched.data else {
-            NSLog("[LocalRemuxer] Slipstream: tier segment %d fetch failed (HTTP %d)", n, fetched.status)
+            NSLog("[LocalRemuxer] Slipstream: rung %d segment %d fetch failed (HTTP %d)", rung, n, fetched.status)
             if fetched.status > 0 { recordTierFailure("HTTP \(fetched.status)") }
             return nil
         }
@@ -1375,7 +1392,7 @@ final class RemuxSession {
         }
         do {
             try rewrapped.mediaSegment.write(to: mediaFile)
-            let initFile = dir.appendingPathComponent("t1-init.mp4")
+            let initFile = dir.appendingPathComponent("t\(rung)-init.mp4")
             if !FileManager.default.fileExists(atPath: initFile.path) {
                 try rewrapped.initSegment.write(to: initFile)
             }
@@ -1383,7 +1400,7 @@ final class RemuxSession {
             return nil
         }
         stateLock.lock()
-        tierMaterialized.insert(n)
+        tierMaterialized[rung, default: []].insert(n)
         // The playhead marker follows tier requests too: AVPlayer playing the
         // tier variant must still steer the primary producer's window (it can
         // switch back any moment) and the prune window.
@@ -1395,9 +1412,9 @@ final class RemuxSession {
         return mediaFile
     }
 
-    func tierInitResponse() -> LocalHTTPResponse {
+    func tierInitResponse(rung: Int) -> LocalHTTPResponse {
         guard tierActive, !isTierDisabled else { return .notFound }
-        let initFile = dir.appendingPathComponent("t1-init.mp4")
+        let initFile = dir.appendingPathComponent("t\(rung)-init.mp4")
         if FileManager.default.fileExists(atPath: initFile.path) { return .file(initFile, contentType: "video/mp4") }
         // The init falls out of materializing any segment (byte-stable across
         // all of them — bitexact muxing). Use the playhead's segment so a
@@ -1407,21 +1424,21 @@ final class RemuxSession {
         stateLock.unlock()
         return .streamed(contentType: "video/mp4") { [weak self] in
             guard let self else { return nil }
-            _ = self.materializeTierSegment(target)
-            let file = self.dir.appendingPathComponent("t1-init.mp4")
+            _ = self.materializeTierSegment(rung: rung, target)
+            let file = self.dir.appendingPathComponent("t\(rung)-init.mp4")
             return FileManager.default.fileExists(atPath: file.path) ? file : nil
         }
     }
 
-    func tierSegmentResponse(_ n: Int) -> LocalHTTPResponse {
+    func tierSegmentResponse(rung: Int, _ n: Int) -> LocalHTTPResponse {
         guard tierActive, !isTierDisabled else { return .notFound }
         stateLock.lock()
         let dead = failed || cancelled
         stateLock.unlock()
         if dead { return .notFound }
-        let mediaFile = dir.appendingPathComponent("t1-seg\(n).m4s")
+        let mediaFile = dir.appendingPathComponent("t\(rung)-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return .file(mediaFile, contentType: "video/iso.segment") }
-        return .streamed(contentType: "video/iso.segment") { [weak self] in self?.materializeTierSegment(n) }
+        return .streamed(contentType: "video/iso.segment") { [weak self] in self?.materializeTierSegment(rung: rung, n) }
     }
 
     // MARK: - Slipstream audio-lo rendition serving
@@ -1457,7 +1474,11 @@ final class RemuxSession {
         stateLock.unlock()
         guard position >= 0, position < config.audioTracks.count,
               let url = URL(string: config.audioTracks[position].serverAudioUrl) else { return nil }
-        let request = URLRequest(url: url, timeoutInterval: 8)
+        // The server spins up a fresh audio-only transcode on this request; on a
+        // slow link that start plus the playlist body can outrun a short timeout,
+        // and a miss 404s the rung's audio group and stalls the tier. Match the
+        // tier segment budget (30s) so the audio rung survives the spin-up.
+        let request = URLRequest(url: url, timeoutInterval: 30)
         let semaphore = DispatchSemaphore(value: 0)
         var body: String? = nil
         URLSession.shared.dataTask(with: request) { data, response, _ in
@@ -1466,7 +1487,7 @@ final class RemuxSession {
             }
             semaphore.signal()
         }.resume()
-        _ = semaphore.wait(timeout: .now() + 10)
+        _ = semaphore.wait(timeout: .now() + 32)
         // A fetch failure is the link being slow, and on a slow link the tier is
         // the one variant that fits: leave it uncached so the next request
         // retries. Only a playlist that arrived and is unusable is cached below.
@@ -2367,22 +2388,10 @@ final class RemuxSession {
     /// Slipstream: fetch the server tier's playlist and adopt its segment list
     /// as the session grid. Soft failure — the session continues on the fixed
     /// grid with no tier variant; the flag-off path never reaches here.
-    private func adoptTierGrid() {
-        guard config.tierPlaylistUrl != nil else { return }
-        // Every exit below must mark the grid decided or awaitGrid stalls its
-        // full deadline on the serving queue.
-        defer {
-            stateLock.lock()
-            gridResolved = true
-            stateLock.unlock()
-        }
-        // The tier variant is video-only and leans on the audio GROUP; a
-        // config with no explicit track list can't build one (see
-        // masterPlaylist), so the session stays on the fixed grid.
-        guard !config.audioTracks.isEmpty else {
-            return declineAdoption("no explicit audio tracks")
-        }
-        guard let urlString = config.tierPlaylistUrl, let url = URL(string: urlString) else { return }
+    /// Fetch a rung's media playlist and parse its segment list (durations +
+    /// verbatim URLs). nil = fetch/parse failed.
+    private func fetchTierSegments(_ urlString: String) -> [TierSegment]? {
+        guard let url = URL(string: urlString) else { return nil }
         let request = URLRequest(url: url, timeoutInterval: 8)
         let semaphore = DispatchSemaphore(value: 0)
         var body: String? = nil
@@ -2393,9 +2402,7 @@ final class RemuxSession {
             semaphore.signal()
         }.resume()
         _ = semaphore.wait(timeout: .now() + 10)
-        guard let text = body else {
-            return declineAdoption("playlist fetch failed")
-        }
+        guard let text = body else { return nil }
         var segments: [TierSegment] = []
         var pendingDuration: Double? = nil
         for raw in text.split(separator: "\n") {
@@ -2407,20 +2414,60 @@ final class RemuxSession {
                 pendingDuration = nil
             }
         }
-        guard segments.count > 1 else {
-            return declineAdoption("playlist held \(segments.count) segments")
+        return segments
+    }
+
+    /// Slipstream: fetch the ladder's playlists and adopt the canonical rung's
+    /// segment list as the session grid. Higher rungs are validated against it
+    /// (same count = same source-keyframe grid, M1) and dropped on a mismatch.
+    /// Soft failure: the session continues on the fixed grid with no ladder.
+    private func adoptTierGrid() {
+        guard !config.tiers.isEmpty else { return }
+        // Every exit below must mark the grid decided or awaitGrid stalls its
+        // full deadline on the serving queue.
+        defer {
+            stateLock.lock()
+            gridResolved = true
+            stateLock.unlock()
+        }
+        // The tier variants are video-only and lean on the audio GROUP; a
+        // config with no explicit track list can't build one (see
+        // masterPlaylist), so the session stays on the fixed grid.
+        guard !config.audioTracks.isEmpty else {
+            return declineAdoption("no explicit audio tracks")
+        }
+        guard let canonical = fetchTierSegments(config.tiers[0].playlistUrl) else {
+            return declineAdoption("playlist fetch failed")
+        }
+        guard canonical.count > 1 else {
+            return declineAdoption("playlist held \(canonical.count) segments")
         }
         var starts: [Double] = []
+        var durations: [Double] = []
         var acc = 0.0
-        for seg in segments {
+        for seg in canonical {
             starts.append(acc)
+            durations.append(seg.duration)
             acc += seg.duration
         }
+        var adopted: [Int: [TierSegment]] = [0: canonical]
+        for k in 1..<config.tiers.count {
+            guard let segs = fetchTierSegments(config.tiers[k].playlistUrl) else {
+                NSLog("[LocalRemuxer] Slipstream: rung %d playlist fetch failed, dropping it", k)
+                continue
+            }
+            if segs.count != canonical.count {
+                NSLog("[LocalRemuxer] Slipstream: rung %d grid mismatch (%d vs %d), dropping it", k, segs.count, canonical.count)
+                continue
+            }
+            adopted[k] = segs
+        }
         stateLock.lock()
-        adoptedSegments = segments
+        tierSegments = adopted
         adoptedStarts = starts
+        adoptedDurations = durations
         stateLock.unlock()
-        NSLog("[LocalRemuxer] Slipstream: adopted the server grid — %d segments, %.1fs total", segments.count, acc)
+        NSLog("[LocalRemuxer] Slipstream: adopted the server grid, %d segments, %.1fs total, %d rungs", canonical.count, acc, adopted.count)
     }
 
     private func runPipeline() {
@@ -3668,13 +3715,21 @@ final class RemuxSession {
             return
         }
 
-        // Tier segments follow the same window; the init file is never pruned.
+        // Tier segments follow the same window on every rung; init files are never pruned.
         stateLock.lock()
-        let tierPrunable = tierMaterialized.filter { !keep.contains($0) }
-        tierMaterialized.subtract(tierPrunable)
+        var prunablePerRung: [Int: Set<Int>] = [:]
+        for (rung, materialized) in tierMaterialized {
+            let prunable = materialized.filter { !keep.contains($0) }
+            if !prunable.isEmpty {
+                prunablePerRung[rung] = prunable
+                tierMaterialized[rung] = materialized.subtracting(prunable)
+            }
+        }
         stateLock.unlock()
-        for n in tierPrunable {
-            try? FileManager.default.removeItem(at: dir.appendingPathComponent("t1-seg\(n).m4s"))
+        for (rung, prunable) in prunablePerRung {
+            for n in prunable {
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent("t\(rung)-seg\(n).m4s"))
+            }
         }
 
         // Audio-lo renditions live on their own grid; keep the same TIME

@@ -1,7 +1,7 @@
 /**
  * engineVerdicts: what the engine measured about a file on this device, remembered.
  */
-import { clearVerdicts, recordTimeoutVerdict, recordVerdict, rememberedVerdict, sampleIsClean, verdictKey, VERDICTS_FILENAME } from "../engineVerdicts";
+import { clearVerdicts, recordTimeoutVerdict, recordVerdict, rememberedVerdict, sampleIsClean, verdictKey, VERDICTS_FILENAME, VERDICT_TTL_MS } from "../engineVerdicts";
 
 /** In-memory stand-in for the one file the store keeps; the map rides the mock so the hoisted factory owns it. */
 jest.mock("expo-file-system", () => {
@@ -111,6 +111,21 @@ describe("engineVerdicts", () => {
     await expect(recordTimeoutVerdict(item, 20, { busy: false })).resolves.toBe(true);
     await expect(recordTimeoutVerdict(item, 20, { busy: false })).resolves.toBe(true);
     await expect(rememberedVerdict(item)).resolves.toMatchObject({ reason: "no segment within 20s", produceSeconds: 20, segmentSeconds: 0, thermal: "unknown" });
+  });
+
+  it("stops counting a verdict past its shelf life so the next play re-probes the link", async () => {
+    mockFiles.set(
+      `documents/${VERDICTS_FILENAME}`,
+      JSON.stringify({
+        "http://server:8096:abc:ms1": { app: "9.9.9 (1)", at: Date.now() - VERDICT_TTL_MS - 1, reason: "x", produceSeconds: 9, segmentSeconds: 6, thermal: "nominal", strikes: 2 },
+      }),
+    );
+    jest.resetModules();
+    const fresh = require("../engineVerdicts") as typeof import("../engineVerdicts");
+    // Expired: not remembered, and the stale strikes reset so a new measurement starts at one.
+    await expect(fresh.rememberedVerdict(item)).resolves.toBeNull();
+    await expect(fresh.recordVerdict(item, slow, "below realtime at start", { busy: false })).resolves.toBe(true);
+    await expect(fresh.rememberedVerdict(item)).resolves.toBeNull();
   });
 
   it("clearVerdicts empties the store and the file", async () => {

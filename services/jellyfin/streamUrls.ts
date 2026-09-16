@@ -19,7 +19,7 @@ import { isImageBasedSubtitleCodec } from "./subtitles";
  * its segment list as the session grid and uses its segment URLs verbatim.
  * TS container + h264/aac at the tier bitrate; the engine rewraps to fMP4.
  */
-export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem | null | undefined, preset: QualityPreset, playSessionId: string): string {
+export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem | null | undefined, preset: { bitrate: number; width: number }, playSessionId: string): string {
   const config = getCachedConfig();
   if (!config.server || !config.apiKey) return "";
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;

@@ -15,6 +15,7 @@ import {
   startLocalRemux,
   stopLocalRemux,
   subscribeEngineFailure,
+  subscribeEngineTier,
   subtitleRenditions,
   videoCodecTag,
   type ImageSubtitleEvent,
@@ -561,6 +562,25 @@ describe("startLocalRemux", () => {
     expect(mockListeners.get("onEngineTier")).toBeDefined();
   });
 
+  it("routes the tier verdict to the session that owns the token, until unsubscribed", async () => {
+    await startLocalRemux(item());
+    const onTier = jest.fn();
+    const off = subscribeEngineTier("token", onTier);
+    const handler = mockListeners.get("onEngineTier");
+    expect(handler).toBeDefined();
+
+    handler!({ token: "some-earlier-session", state: "listed" });
+    expect(onTier).not.toHaveBeenCalled();
+    handler!({ token: "token", state: "listed" });
+    expect(onTier).toHaveBeenCalledWith({ token: "token", state: "listed" });
+    handler!({ token: "token", state: "dropped", reason: "audio HTTP 500" });
+    expect(onTier).toHaveBeenCalledWith({ token: "token", state: "dropped", reason: "audio HTTP 500" });
+
+    off();
+    handler!({ token: "token", state: "declined" });
+    expect(onTier).toHaveBeenCalledTimes(2);
+  });
+
   it("does not subscribe on a build that predates the event, and still plays", async () => {
     // Metro serves this JS to whatever binary is installed. Subscribing to an event the running
     // build does not declare is a hard error in RCTEventEmitter and takes the player with it.
@@ -1047,10 +1067,13 @@ describe("startLocalRemux Slipstream tier config", () => {
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    // DTS mirrors the engine's FLAC family on the rung: server FLAC estimate.
+    // DTS mirrors the engine's FLAC family on every rung: server FLAC estimate.
     const flacEstimate = Math.round(7 * 48000 * 24 * 0.6);
-    expect(config.tierBandwidth).toBe(1_500_000 + flacEstimate);
-    expect(config.tierCodecs).toBe("avc1.64001F,fLaC");
+    // A 20 Mbps source clears all four rungs' undercut check.
+    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([640, 854, 1280, 1920]);
+    const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
+    expect(r480.bandwidth).toBe(1_500_000 + flacEstimate);
+    expect(r480.codecs).toBe("avc1.64001F,fLaC");
     expect(config.audioTracks[0].serverAudioUrl).toContain("/Audio/item1/main.m3u8");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=flac");
     expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=7");
@@ -1068,13 +1091,14 @@ describe("startLocalRemux Slipstream tier config", () => {
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    expect(config.tierBandwidth).toBe(1_500_000 + 640_000);
-    expect(config.tierCodecs).toBe("avc1.64001F,ec-3");
+    const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
+    expect(r480.bandwidth).toBe(1_500_000 + 640_000);
+    expect(r480.codecs).toBe("avc1.64001F,ec-3");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=copy");
     expect(config.audioTracks[0].serverAudioUrl).not.toContain("TranscodingMaxAudioChannels");
   });
 
-  it("prices the tier from the preferred track, not the first in source order", async () => {
+  it("prices the rungs from the preferred track, not the first in source order", async () => {
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
@@ -1091,11 +1115,12 @@ describe("startLocalRemux Slipstream tier config", () => {
     // BANDWIDTH and CODECS describe the same DEFAULT=YES rendition: the AAC
     // track the caller preferred, not the source-order-first DTS.
     expect(config.audioTracks[0].index).toBe(2);
-    expect(config.tierBandwidth).toBe(1_500_000 + 256_000);
-    expect(config.tierCodecs).toBe("avc1.64001F,mp4a.40.2");
+    const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
+    expect(r480.bandwidth).toBe(1_500_000 + 256_000);
+    expect(r480.codecs).toBe("avc1.64001F,mp4a.40.2");
   });
 
-  it("prices the tier from the default-flagged track when nothing is preferred", async () => {
+  it("prices the rungs from the default-flagged track when nothing is preferred", async () => {
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
@@ -1109,24 +1134,42 @@ describe("startLocalRemux Slipstream tier config", () => {
 
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.audioTracks[0].index).toBe(2);
-    expect(config.tierBandwidth).toBe(1_500_000 + 256_000);
-    expect(config.tierCodecs).toBe("avc1.64001F,mp4a.40.2");
+    const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
+    expect(r480.bandwidth).toBe(1_500_000 + 256_000);
+    expect(r480.codecs).toBe("avc1.64001F,mp4a.40.2");
   });
 
-  it("declares no tier when the rung cannot undercut the primary (audio-heavy small file)", async () => {
+  it("offers only the rungs that undercut the primary (a taller rung is dropped)", async () => {
+    // Video 3 Mbps + AC3 640k → primary 3.64M, *0.85 = 3.094M. 360p (1.44M) and
+    // 480p (2.14M) undercut; 720p (4.64M) and 1080p do not.
     await startLocalRemux(
       item({
-        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 4_000_000 }],
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 3_640_000 }],
         streams: [
-          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 2_000_000 },
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 3_000_000 },
+          { Type: "Audio", Codec: "ac3", Index: 1, Channels: 6, BitRate: 640_000 },
+        ],
+      }),
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([640, 854]);
+  });
+
+  it("declares no rung when even 360p cannot undercut the primary (audio-heavy small file)", async () => {
+    // Video 1.5 Mbps + DTS→FLAC (~4.84M) → primary 6.34M, *0.85 = 5.39M.
+    // 360p + FLAC = 5.64M does not undercut, so the ladder is empty.
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 6_340_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 1_500_000 },
           { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
         ],
       }),
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    expect(config.tierPlaylistUrl).toBeUndefined();
-    expect(config.tierBandwidth).toBeUndefined();
+    expect(config.tiers).toEqual([]);
     expect(config.audioTracks[0].serverAudioUrl).toBeUndefined();
   });
 });
@@ -1138,13 +1181,15 @@ describe("slipstreamTierBandwidth", () => {
       streams: [{ Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 }, ...streams],
     });
 
-  it("prices the preferred track over source order", () => {
+  // The cap is the TOP offered rung (1080p, 6 Mbps) + the DEFAULT rendition's
+  // audio, so AVPlayer's ABR may use every server rung but not the 20 Mbps primary.
+  it("caps at the top rung, priced from the preferred track over source order", () => {
     const withTwoTracks = tierItem([
       { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
       { Type: "Audio", Codec: "aac", Index: 2, BitRate: 256_000 },
     ]);
-    expect(slipstreamTierBandwidth(withTwoTracks, 2)).toBe(1_500_000 + 256_000);
-    expect(slipstreamTierBandwidth(withTwoTracks)).toBe(1_500_000 + Math.round(7 * 48000 * 24 * 0.6));
+    expect(slipstreamTierBandwidth(withTwoTracks, 2)).toBe(6_000_000 + 256_000);
+    expect(slipstreamTierBandwidth(withTwoTracks)).toBe(6_000_000 + Math.round(7 * 48000 * 24 * 0.6));
   });
 
   it("skips an uncarriable first track: it can never be the DEFAULT=YES rendition", () => {
@@ -1152,7 +1197,7 @@ describe("slipstreamTierBandwidth", () => {
       { Type: "Audio", Codec: "dsd_lsbf", Index: 1, Channels: 2, SampleRate: 44100, BitDepth: 24 },
       { Type: "Audio", Codec: "ac3", Index: 2, BitRate: 640_000 },
     ]);
-    expect(slipstreamTierBandwidth(uncarriableFirst)).toBe(1_500_000 + 640_000);
+    expect(slipstreamTierBandwidth(uncarriableFirst)).toBe(6_000_000 + 640_000);
   });
 });
 
@@ -1402,9 +1447,17 @@ describe("predictPlaybackLane: the smaller server feed", () => {
     await expect(predictPlaybackLane(withBitrates(8_000_000, 7_000_000, { VideoRangeType: "HDR10" }))).resolves.toMatchObject({ smallFeedFirst: false });
   });
 
-  it("declares no smaller feed when the 480p rung would not meaningfully undercut the file", async () => {
-    // A small, audio-heavy file: the rung costs almost what the primary does.
-    await expect(predictPlaybackLane(withBitrates(4_000_000, 1_600_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
+  it("declares no smaller feed when even the 360p rung cannot undercut the file (audio-heavy)", async () => {
+    // Small video, DTS→FLAC audio (~4.84M): the primary is audio-dominated, so
+    // even 360p + FLAC (~5.64M) fails the undercut check and no rung is offered.
+    const audioHeavy = item({
+      MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 5_740_000 }],
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0, BitRate: 900_000, VideoRangeType: "SDR" },
+        { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+      ],
+    } as never);
+    await expect(predictPlaybackLane(audioHeavy)).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
   });
 });
 

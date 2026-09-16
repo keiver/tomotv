@@ -169,15 +169,15 @@ final class TierProbeTests: XCTestCase {
         waitForProbe(s)
 
         let master = s.masterPlaylist()
-        XCTAssertTrue(master.contains("t1.m3u8"))
-        XCTAssertLessThan(master.range(of: "t1.m3u8")!.lowerBound, master.range(of: "media.m3u8")!.lowerBound, "a tier-first session leads with the tier")
+        XCTAssertTrue(master.contains("t0.m3u8"))
+        XCTAssertLessThan(master.range(of: "t0.m3u8")!.lowerBound, master.range(of: "media.m3u8")!.lowerBound, "a tier-first session leads with the tier")
         XCTAssertEqual(states(reports()), ["listed"])
-        XCTAssertNotNil(s.tierPlaylist())
+        XCTAssertNotNil(s.tierPlaylist(rung: 0))
 
         // The probe's fetch is the one AVPlayer would have made: the segment and the init it
         // carries are on disk, and asking for them again does not go back to the server.
-        XCTAssertTrue(isFile(s.tierInitResponse()), "the probe left the init on disk")
-        XCTAssertNotNil(resolve(s.tierInitResponse()))
+        XCTAssertTrue(isFile(s.tierInitResponse(rung: 0)), "the probe left the init on disk")
+        XCTAssertNotNil(resolve(s.tierInitResponse(rung: 0)))
         XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg0.ts"), 1, "the opening segment is fetched once, by the probe")
     }
 
@@ -186,7 +186,7 @@ final class TierProbeTests: XCTestCase {
         let (s, reports) = try session()
         defer { s.stop() }
         waitForProbe(s)
-        XCTAssertFalse(s.masterPlaylist().contains("t1.m3u8"))
+        XCTAssertFalse(s.masterPlaylist().contains("t0.m3u8"))
         XCTAssertEqual(states(reports()), ["declined"])
         XCTAssertEqual(reports().first?["reason"] as? String, "playlist fetch failed")
     }
@@ -196,7 +196,7 @@ final class TierProbeTests: XCTestCase {
         let (s, reports) = try session()
         defer { s.stop() }
         waitForProbe(s)
-        XCTAssertFalse(s.masterPlaylist().contains("t1.m3u8"))
+        XCTAssertFalse(s.masterPlaylist().contains("t0.m3u8"))
         XCTAssertEqual(reports().first?["reason"] as? String, "playlist held 1 segments")
         XCTAssertFalse(TierServerStub.hits.contains("/Videos/x/seg0.ts"), "an unadopted grid is never probed")
     }
@@ -210,9 +210,9 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(TierServerStub.hits.contains("/Videos/x/seg0.ts"))
         XCTAssertTrue(TierServerStub.sawHit("/Videos/ActiveEncodings"), "the transcode the probe started is killed")
         let master = s.masterPlaylist()
-        XCTAssertFalse(master.contains("t1.m3u8"))
+        XCTAssertFalse(master.contains("t0.m3u8"))
         XCTAssertTrue(master.contains("media.m3u8"), "the primary is still offered")
-        XCTAssertNil(s.tierPlaylist())
+        XCTAssertNil(s.tierPlaylist(rung: 0))
         XCTAssertEqual(states(reports()), ["declined"])
         XCTAssertEqual(reports().first?["reason"] as? String, "opening segment 0 HTTP 500")
     }
@@ -225,7 +225,7 @@ final class TierProbeTests: XCTestCase {
         let (s, reports) = try session()
         defer { s.stop() }
         waitForProbe(s)
-        XCTAssertFalse(s.masterPlaylist().contains("t1.m3u8"))
+        XCTAssertFalse(s.masterPlaylist().contains("t0.m3u8"))
         XCTAssertEqual(states(reports()), ["declined"])
         XCTAssertEqual(reports().first?["reason"] as? String, "opening segment 0 timed out")
     }
@@ -237,7 +237,7 @@ final class TierProbeTests: XCTestCase {
         let (s, reports) = try session()
         defer { s.stop() }
         waitForProbe(s)
-        XCTAssertFalse(s.masterPlaylist().contains("t1.m3u8"))
+        XCTAssertFalse(s.masterPlaylist().contains("t0.m3u8"))
         XCTAssertEqual(states(reports()), ["declined"])
         XCTAssertEqual(reports().first?["reason"] as? String, "opening segment 0 rewrap failed")
     }
@@ -280,7 +280,7 @@ final class TierProbeTests: XCTestCase {
 
         // The probe is still parked on the held segment when the master is written.
         let master = s.masterPlaylist()
-        XCTAssertFalse(master.contains("t1.m3u8"), "an unproved rung is not offered")
+        XCTAssertFalse(master.contains("t0.m3u8"), "an unproved rung is not offered")
         XCTAssertTrue(master.contains("media.m3u8"))
         XCTAssertFalse(s.tierOffered)
         XCTAssertEqual(states(reports()), ["declined"])
@@ -293,9 +293,9 @@ final class TierProbeTests: XCTestCase {
         let (s, _) = try session()
         defer { s.stop() }
         waitForProbe(s)
-        XCTAssertNil(s.tierPlaylist())
-        XCTAssertTrue(isNotFound(s.tierSegmentResponse(0)))
-        XCTAssertTrue(isNotFound(s.tierInitResponse()))
+        XCTAssertNil(s.tierPlaylist(rung: 0))
+        XCTAssertTrue(isNotFound(s.tierSegmentResponse(rung: 0, 0)))
+        XCTAssertTrue(isNotFound(s.tierInitResponse(rung: 0)))
         XCTAssertTrue(isNotFound(s.audioLoInitResponse(position: 0)))
         XCTAssertTrue(isNotFound(s.audioLoSegmentResponse(position: 0, n: 0)))
     }
@@ -345,8 +345,8 @@ final class TierProbeTests: XCTestCase {
         waitForProbe(s)
         _ = s.masterPlaylist()
         // Nothing a later request does can turn a tier the viewer never saw into a drop.
-        _ = s.tierSegmentResponse(1)
-        _ = s.tierSegmentResponse(2)
+        _ = s.tierSegmentResponse(rung: 0, 1)
+        _ = s.tierSegmentResponse(rung: 0, 2)
         XCTAssertEqual(states(reports()), ["declined"])
     }
 
@@ -358,10 +358,10 @@ final class TierProbeTests: XCTestCase {
         s.onTier = { reports.append($0) }
         s.start()
         let master = s.masterPlaylist()
-        XCTAssertFalse(master.contains("t1.m3u8"))
+        XCTAssertFalse(master.contains("t0.m3u8"))
         XCTAssertTrue(master.contains("media.m3u8"))
         XCTAssertTrue(reports.isEmpty)
-        XCTAssertNil(s.tierPlaylist())
+        XCTAssertNil(s.tierPlaylist(rung: 0))
     }
 
     /// A tier listed second is still proved: the ordering is the only difference.
@@ -372,9 +372,58 @@ final class TierProbeTests: XCTestCase {
         defer { s.stop() }
         waitForProbe(s)
         let master = s.masterPlaylist()
-        XCTAssertTrue(master.contains("t1.m3u8"))
-        XCTAssertLessThan(master.range(of: "media.m3u8")!.lowerBound, master.range(of: "t1.m3u8")!.lowerBound, "primary first")
+        XCTAssertTrue(master.contains("t0.m3u8"))
+        XCTAssertLessThan(master.range(of: "media.m3u8")!.lowerBound, master.range(of: "t0.m3u8")!.lowerBound, "primary first")
         XCTAssertEqual(states(reports()), ["listed"])
+    }
+
+    // MARK: - The ladder
+
+    private func ladderSession(rung1Playlist: Data) throws -> RemuxSession {
+        TierServerStub.routes["/Videos/x/t0.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/t1.m3u8"] = (200, rung1Playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        return try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: "")],
+                tiers: [
+                    TierConfig(playlistUrl: "http://tier.test/Videos/x/t0.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 992_000, codecs: "avc1.64001E,mp4a.40.2", width: 640, height: 360),
+                    TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_692_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480),
+                ],
+                tierFirst: true
+            ))
+    }
+
+    /// A two-rung ladder lists both variants ascending, each with its own RESOLUTION.
+    func testLadderListsEveryAdoptedRungAscending() throws {
+        XCTAssertFalse(tierSegment.isEmpty, "Fixtures/tier-segment.mpegts is missing")
+        let s = try ladderSession(rung1Playlist: playlist)
+        defer { s.stop() }
+        s.start()
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertTrue(master.contains("t0.m3u8"))
+        XCTAssertTrue(master.contains("t1.m3u8"))
+        XCTAssertLessThan(master.range(of: "t0.m3u8")!.lowerBound, master.range(of: "t1.m3u8")!.lowerBound, "rungs list ascending")
+        XCTAssertTrue(master.contains("RESOLUTION=640x360"))
+        XCTAssertTrue(master.contains("RESOLUTION=854x480"))
+        XCTAssertNotNil(s.tierPlaylist(rung: 0))
+        XCTAssertNotNil(s.tierPlaylist(rung: 1))
+    }
+
+    /// A rung whose grid does not match the canonical (different segment count) is dropped.
+    func testRungWithMismatchedGridIsDropped() throws {
+        XCTAssertFalse(tierSegment.isEmpty, "Fixtures/tier-segment.mpegts is missing")
+        let twoSegments = Data("#EXTM3U\n#EXTINF:6.0,\nseg0.ts?s=1\n#EXTINF:6.0,\nseg1.ts?s=1\n#EXT-X-ENDLIST\n".utf8)
+        let s = try ladderSession(rung1Playlist: twoSegments)
+        defer { s.stop() }
+        s.start()
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertTrue(master.contains("t0.m3u8"))
+        XCTAssertFalse(master.contains("t1.m3u8"), "a grid-mismatched rung is dropped")
+        XCTAssertNil(s.tierPlaylist(rung: 1))
     }
 
     func testStoppingDuringTheProbeKillsTheServerTranscode() throws {
