@@ -28,7 +28,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ascEnv, client } from "./appstore/asc.mjs";
-import { DOC, INFO_FIELDS, VERSION_FIELDS, measure, overLimit, readMetadata } from "./appstore/metadata.mjs";
+import { DOC, INFO_FIELDS, PLATFORM_LABELS, VERSION_FIELDS, measure, overLimit, readMetadata, whatsNewVersions } from "./appstore/metadata.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BUNDLE_ID = "dev.keiver.tomotv";
@@ -60,6 +60,7 @@ async function main() {
   // Everything is measured before anything is written: a listing half over the
   // limit is worse than one that never started.
   const problems = [];
+  const missingNotes = [];
   for (const locale of locales) {
     const copy = meta[locale];
     if (!copy) fail(`No "${locale}" section in ${DOC}. Have: ${Object.keys(meta).join(", ")}`);
@@ -67,13 +68,36 @@ async function main() {
       for (const platform of field === "whatsNew" ? platforms : [null]) {
         const text = wanted(copy, field, platform);
         if (!text) {
-          problems.push(`${locale}: no ${field}${platform ? ` for ${platform}` : ""} (version ${version})`);
+          if (field === "whatsNew") missingNotes.push({ locale, platform });
+          else problems.push(`${locale}: no ${field} (version ${version})`);
           continue;
         }
         const over = overLimit(field, text);
         if (over) problems.push(`${locale} ${field}: ${over}`);
       }
     }
+  }
+  // The version bumped and its release notes were never written: say so in words
+  // and print the exact headings to add, rather than one cryptic line per slot.
+  if (missingNotes.length) {
+    const have = whatsNewVersions(ROOT);
+    const rows = missingNotes.map(({ locale, platform }) => {
+      const depth = locale === "en-US" ? "###" : "####";
+      return `    ${depth} What's New (${version}), ${PLATFORM_LABELS[platform]}`.padEnd(42) + locale;
+    });
+    fail(
+      [
+        `RELEASE NOTES MISSING for ${version} — nothing was uploaded.`,
+        ``,
+        `  app.json is on ${version}, but ${DOC}`,
+        `  has no "What's New" for it. Notes exist for: ${have.join(", ") || "no versions"}.`,
+        ``,
+        `  Add a block for each (heading, then a \`\`\`text ... \`\`\` fence), then re-run`,
+        `  npm run meta:upload:`,
+        ``,
+        ...rows,
+      ].join("\n"),
+    );
   }
   if (problems.length) fail(`${DOC}\n  ${problems.join("\n  ")}`);
 
