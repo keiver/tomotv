@@ -51,6 +51,8 @@ let profileStart = 0;
 let tokens = 0;
 const waiters = [];
 const carried = { down: 0, up: 0 };
+/** Requests proxied since start: how a caller confirms the app is really reading through here. */
+let served = 0;
 
 const ratePerSec = () => (kbps > 0 ? (kbps * 1000) / 8 : Infinity);
 
@@ -135,7 +137,7 @@ const delay = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)
 function control(req, res) {
   if (req.method === "GET") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ kbps, profile, profileElapsed: profile ? (Date.now() - profileStart) / 1000 : null, queued: waiters.length }));
+    res.end(JSON.stringify({ kbps, profile, profileElapsed: profile ? (Date.now() - profileStart) / 1000 : null, queued: waiters.length, served }));
     return;
   }
   let body = "";
@@ -170,6 +172,7 @@ function control(req, res) {
 
 const server = http.createServer(async (req, res) => {
   if (req.url.startsWith("/__netsim")) return control(req, res);
+  served++;
   if (refuse && refuse.test(req.url)) {
     emit({ kind: "req", method: req.method, path: req.url.split("?")[0], status: 503, refused: true });
     res.writeHead(503);

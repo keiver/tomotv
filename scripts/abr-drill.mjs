@@ -33,7 +33,8 @@ const RUN_DIR = path.join(path.dirname(RESULTS), "runs");
 const ITEMS = opt("--items", "T101,T102").split(",");
 const IDS = opt("--scenarios", "S1,S2,S3,S4,S5,S6,S7").split(",");
 const LINK = opt("--link", null);
-const BUFFER = opt("--buffer", null);
+// The app sets preferredForwardBufferDuration on rung sessions (useVideoPlayback); the drill mirrors it.
+const BUFFER = opt("--buffer", "6");
 // The app always renders to a screen, and AVPlayer caps its variant choice without one (measured: S4 never climbed).
 const WINDOW = !args.includes("--no-window");
 // The app caps AVPlayer to the engine's measured link; the drill does the same so the two match.
@@ -87,7 +88,7 @@ async function captureConfig(env, item, outPath) {
   });
 }
 
-async function hostRun(configPath, scenario, timelinePath) {
+async function hostRun(configPath, scenario, timelinePath, logPath) {
   const child = spawn("swift", ["test", "--package-path", "native/ios", "--filter", "SlipstreamDrillTests"], {
     cwd: ROOT,
     env: {
@@ -106,7 +107,11 @@ async function hostRun(configPath, scenario, timelinePath) {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let tail = "";
-  const keep = (d) => (tail = (tail + d).slice(-4000));
+  const log = logPath ? fs.createWriteStream(logPath) : null;
+  const keep = (d) => {
+    log?.write(d);
+    tail = (tail + d).slice(-4000);
+  };
   child.stdout.on("data", keep);
   child.stderr.on("data", keep);
   const code = await new Promise((resolve) => child.on("close", resolve));
@@ -130,7 +135,18 @@ function deviceCredentials(deviceName) {
   return { token, userId, deviceId };
 }
 
-/** Points the app at a server URL through dev-session, keeping its own identity. */
+/** Clears the fixture's resume point, so every run opens the item at the start. */
+async function resetResume(env, itemId, userId) {
+  await jf(env, `/UserPlayedItems/${itemId}?userId=${userId}`, { method: "DELETE" });
+}
+
+const served = async () => (await (await fetch(`http://127.0.0.1:${PROXY_PORT}/__netsim`)).json()).served;
+
+/**
+ * Points the app at a server URL through dev-session, keeping its own identity. A deep link that
+ * lands before the JS router is ready is dropped silently, so a sign-in onto the proxy is confirmed
+ * by traffic arriving there (measured: one run played the server direct and read 70 Mb/s).
+ */
 async function signInto(env, device, serverUrl, credentials) {
   const info = await (await fetch(`${serverUrl}/System/Info/Public`)).json();
   const query = new URLSearchParams({
@@ -142,8 +158,19 @@ async function signInto(env, device, serverUrl, credentials) {
     serverId: info.Id ?? "",
     ...(credentials.deviceId ? { deviceId: credentials.deviceId } : {}),
   });
-  await devicectl(["device", "process", "launch", "--device", device, "--terminate-existing", "--payload-url", `tomotv://dev-session?${query}`, env.BUNDLE_ID]);
-  await new Promise((r) => setTimeout(r, 12000));
+  const throughProxy = serverUrl.includes(`:${PROXY_PORT}`);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const before = throughProxy ? await served() : 0;
+    await devicectl(["device", "process", "launch", "--device", device, "--terminate-existing", "--payload-url", `tomotv://dev-session?${query}`, env.BUNDLE_ID]);
+    await new Promise((r) => setTimeout(r, 12000));
+    if (!throughProxy) return;
+    for (let i = 0; i < 20; i++) {
+      if ((await served()) > before) return;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    console.log(`  sign-in ${attempt}/3 did not reach the proxy, relaunching`);
+  }
+  throw new Error(`${device} never read through the proxy after signing in`);
 }
 
 /** One device run: launch the item, apply the profile, collect the probe file and the engine log. */
@@ -193,6 +220,8 @@ function deviceTimeline({ consoleLog, probeFile }) {
   timeline.push({ kind: "start", ms: 0 });
   let lastPosition = -1;
   let streams = 0;
+  /** A climb rebuilds the session, so the stream event that follows it is that rebuild, not a reload. */
+  let climbing = false;
   for (const e of probe) {
     const ms = at(e.t);
     if (e.event === "progress") {
@@ -204,8 +233,15 @@ function deviceTimeline({ consoleLog, probeFile }) {
     if (e.event === "buffering") timeline.push({ kind: "tick", ms, position: e.position ?? lastPosition, ahead: 0, status: e.on ? 1 : 2, advanced: !e.on });
     if (e.event === "tracks") timeline.push({ kind: "tracks", ms, audio: e.audio });
     // The first stream event is the session opening; a later one is a genuine rebuild.
-    if (e.event === "stream") timeline.push({ kind: streams++ === 0 ? "open" : "reload", ms, detail: e.event });
-    if (e.event === "fallback") timeline.push({ kind: e.reason?.includes("recovered") ? "climb" : "reload", ms, detail: e.reason });
+    if (e.event === "stream") {
+      timeline.push({ kind: streams++ === 0 || climbing ? "open" : "reload", ms, detail: e.event });
+      climbing = false;
+    }
+    if (e.event === "fallback") {
+      const climb = Boolean(e.reason?.includes("recovered"));
+      climbing = climb;
+      timeline.push({ kind: climb ? "climb" : "reload", ms, detail: e.reason });
+    }
     if (e.event === "error") timeline.push({ kind: "failed", ms, error: e.message });
   }
   // The engine's own request log: which variant AVPlayer actually fetched, with timings.
@@ -230,8 +266,10 @@ async function main() {
   fs.mkdirSync(RUN_DIR, { recursive: true });
   const items = await resolveIds(env, ITEMS);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const head = (await exec("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT })).stdout.trim();
+  const dirty = (await exec("git", ["status", "--porcelain"], { cwd: ROOT })).stdout.trim() ? "+dirty" : "";
   const lines = [
-    `\n## ${new Date().toISOString()} host, link=${LINK ?? "measured"}, buffer=${BUFFER ?? "default"}, window=${WINDOW}, cap=${CAP}, start=${START}s, tree ${(await exec("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT })).stdout.trim()}+dirty\n`,
+    `\n## ${new Date().toISOString()} ${device ? `device ${device}` : "host"}, link=${LINK ?? "measured"}, buffer=${BUFFER ?? "default"}, window=${WINDOW}, cap=${CAP}, start=${START}s, tree ${head}${dirty}\n`,
   ];
   const credentials = device ? deviceCredentials("Apple TV") : null;
   // One proxy for the whole device run: the app is signed into its address, so it cannot come and
@@ -257,12 +295,13 @@ async function main() {
         await control({ kbps: scenario.profile[0].kbps, refuse: scenario.refuse ?? null });
         let timeline;
         if (device) {
+          await resetResume(env, item.itemId, credentials.userId);
           const collected = await deviceRun(env, device, item, scenario, base);
           timeline = deviceTimeline(collected);
           fs.writeFileSync(`${base}-timeline.jsonl`, timeline.map((r) => JSON.stringify(r)).join("\n"));
         } else {
           await captureConfig(env, item, `${base}-config.json`);
-          await hostRun(`${base}-config.json`, scenario, `${base}-timeline.jsonl`);
+          await hostRun(`${base}-config.json`, scenario, `${base}-timeline.jsonl`, `${base}-engine.log`);
           timeline = readTimeline(`${base}-timeline.jsonl`);
         }
         const result = score(id, timeline, {
