@@ -313,6 +313,8 @@ export interface VideoPlaybackResult {
    * react-native-video takes on its own, so a fresh install is unchanged.
    */
   selectedTextTrack: SelectedTrack;
+  /** RNV selectedAudioTrack: set only to re-apply a track the viewer chose. */
+  selectedAudioTrack: SelectedTrack | undefined;
 
   // Paused state for Video component
   paused: boolean;
@@ -575,6 +577,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   // Audio track state (for tracking selected track)
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
+  /**
+   * The Jellyfin stream index the VIEWER chose, set only by an actual switch.
+   * selectedAudioTrackIndexRef also holds AVPlayer's own auto-selection, which is not a choice.
+   */
+  const viewerPickedAudioRef = useRef<number | null>(null);
 
   // Jellyfin stream index of the audio actually playing. selectedAudioTrackIndexRef
   // can't serve this role: after load it holds the PLAYER-side sequential index
@@ -1086,6 +1093,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Store selected audio track for URL generation and server reporting
       selectedAudioTrackIndexRef.current = newTrackIndex;
       audioStreamIndexForReportingRef.current = newTrackIndex;
+      viewerPickedAudioRef.current = newTrackIndex;
     },
     [videoId, videoDetails],
   );
@@ -1104,6 +1112,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // becomes this cap — seamless, no session rebuild; Auto and every
   // non-gateway session leave it null (prop omitted).
   const [videoMaxBitRate, setVideoMaxBitRate] = useState<number | null>(null);
+  /** The viewer's audio track, re-applied by position after a rebuild; undefined = AVPlayer's own pick. */
+  const [selectedAudioTrack, setSelectedAudioTrack] = useState<SelectedTrack | undefined>(undefined);
   /** preferredForwardBufferDuration for rung-lane sessions; null (AVPlayer's own threshold) elsewhere. */
   const [forwardBufferSeconds, setForwardBufferSeconds] = useState<number | null>(null);
 
@@ -1345,8 +1355,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           onTierLaneRef.current = false;
           setVideoMaxBitRate(null);
           setForwardBufferSeconds(null);
-          // Check if we have a specific audio track selected (from user switching)
-          const hasSelectedAudioTrack = selectedAudioTrackIndexRef.current !== null;
+          // A track the viewer chose, not the one AVPlayer auto-selected: an engine session serves
+          // every track as a rendition and AVPlayer picks one, which is no reason for the server
+          // stream behind it to carry that one alone.
+          const hasSelectedAudioTrack = viewerPickedAudioRef.current !== null;
 
           // Multi-audio builds its own master from the server's transcodes and cannot retag their
           // init segments, so an HDR source takes the single-track path through the shim instead.
@@ -2569,6 +2581,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       }
 
+      // A rebuilt session (an engine hand-over, a climb) opens a fresh manifest, where AVPlayer
+      // picks the default. The viewer's track is re-applied by position in THIS manifest.
+      const picked = viewerPickedAudioRef.current;
+      if (picked !== null && data.audioTracks.length > 1) {
+        const position = audioTrackMappingRef.current.indexOf(picked);
+        const alreadyPlaying = data.audioTracks.find((t) => t.selected)?.index === position;
+        // Cast as for selectedTextTrack below: the lib's `type` is a string enum the tests cannot import.
+        if (position >= 0 && !alreadyPlaying) setSelectedAudioTrack({ type: "index", value: String(position) } as SelectedTrack);
+      }
+
       // Skip change detection if we're in single-track mode after restart
       // This prevents infinite restart loop when Jellyfin returns a manifest with only the selected track
       if (data.audioTracks.length === 1 && selectedAudioTrackIndexRef.current !== null) {
@@ -2628,6 +2650,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           const jellyfinStreamIndex = audioTrackMappingRef.current[newIndex];
           if (jellyfinStreamIndex !== undefined) {
             audioStreamIndexForReportingRef.current = jellyfinStreamIndex;
+            viewerPickedAudioRef.current = jellyfinStreamIndex;
           }
           logger.info("🎵 Audio track switched seamlessly (no restart needed)", {
             service: "useVideoPlayback",
@@ -2982,6 +3005,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     mediaSourceIdRef.current = null; // PlaySessionId rotates in the CREATING_STREAM effect
     wasPlayedAtStartRef.current = null; // re-captured on the new video's first metadata fetch
     selectedAudioTrackIndexRef.current = null;
+    viewerPickedAudioRef.current = null;
+    setSelectedAudioTrack(undefined);
     audioStreamIndexForReportingRef.current = null;
     burnInSubtitleIndexRef.current = null;
     audioTrackMappingRef.current = [];
@@ -3341,5 +3366,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     activeImageSubtitleStream,
     currentTimeRef,
     selectedTextTrack,
+    selectedAudioTrack,
   };
 }

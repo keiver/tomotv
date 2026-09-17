@@ -287,7 +287,6 @@ async function main() {
     for (const id of IDS) {
       const scenario = SCENARIOS[id];
       if (id === "S7" && item.id !== "T102") continue;
-      if (id === "S8") continue;
       const base = path.join(RUN_DIR, `${stamp}-${item.id}-${id}`);
       const proxy = device ? null : startProxy(`${base}-proxy.jsonl`);
       try {

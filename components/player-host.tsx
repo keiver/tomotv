@@ -238,6 +238,7 @@ export function PlayerHost() {
     activeImageSubtitleStream,
     currentTimeRef,
     selectedTextTrack,
+    selectedAudioTrack,
   } = useVideoPlayback({
     videoId: session?.videoId ?? "",
     skip: session === null || liveSettling,
@@ -869,6 +870,8 @@ export function PlayerHost() {
           // Unset is {type: "system"}, which is the automatic path the lib
           // already takes, so a fresh install is unchanged.
           selectedTextTrack={selectedTextTrack}
+          // Only set when the viewer chose a track and a rebuild has to restore it.
+          selectedAudioTrack={selectedAudioTrack}
           allowsExternalPlayback={true}
           // RNV hard-disables AVKit's own now-playing publishing (updatesNowPlayingInfoCenter
           // = false); this prop is what turns on the lib's replacement publisher, which feeds
