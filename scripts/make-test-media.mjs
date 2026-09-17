@@ -600,6 +600,120 @@ async function buildBench() {
   return built;
 }
 
+/**
+ * Slipstream drill items: 12 minutes of real motion (the bench source looped) at a steady
+ * ~6 Mbps H.264, long enough to hold a rung and climb back. T102 carries two audio tracks.
+ */
+const SLIPSTREAM_SECONDS = 720;
+const SLIPSTREAM = [
+  { id: "T101", title: "T101 REMUX H264 AC3 12min slipstream", tracks: [{ layout: "5.1", codec: ["-c:a:0", "ac3", "-b:a:0", "640k"], lang: "eng" }] },
+  {
+    id: "T102",
+    title: "T102 REMUX H264 AC3 AAC 12min slipstream",
+    tracks: [
+      { layout: "5.1", codec: ["-c:a:0", "ac3", "-b:a:0", "640k"], lang: "eng" },
+      { layout: "stereo", codec: ["-c:a:1", "aac", "-b:a:1", "192k"], lang: "spa" },
+    ],
+  },
+];
+const SLIPSTREAM_SUBS = ["eng", "spa", "fra"];
+
+function srtScript(seconds, lang) {
+  const stamp = (s) => `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")},000`;
+  const cues = [];
+  for (let s = 0, n = 1; s < seconds; s += 6, n++) cues.push(`${n}\n${stamp(s)} --> ${stamp(s + 5)}\n${lang} cue at ${s}s\n`);
+  return cues.join("\n");
+}
+
+async function buildSlipstream() {
+  const built = [];
+  const items = SLIPSTREAM.filter((item) => wanted(item.id));
+  if (!items.length) return built;
+  if (!exists(BENCH_SOURCE)) {
+    failures.push(`slipstream bed source missing: ${BENCH_SOURCE}`);
+    return built;
+  }
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const bed = path.join(CACHE_DIR, "slipstream-bed-1080.mkv");
+  if (
+    !exists(bed) &&
+    !(await ff(
+      ["-y", "-i", BENCH_SOURCE, "-map", "0:v:0", "-vf", "scale=1920:1080:flags=lanczos", "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", bed],
+      "slipstream bed",
+    ))
+  ) {
+    failures.push("slipstream bed encode failed");
+    return built;
+  }
+  for (const item of items) {
+    const out = path.join(VIDEO_DIR, `${item.title}.mkv`);
+    if (exists(out) && !FORCE) {
+      log(`  = ${item.title}`);
+      built.push({ ...item, out });
+      continue;
+    }
+    log(`  + ${item.title}`);
+    const inputs = ["-stream_loop", String(Math.ceil(SLIPSTREAM_SECONDS / 60) - 1), "-i", bed];
+    const filters = [];
+    let next = 1;
+    item.tracks.forEach((track, t) => {
+      const tones = TONES[track.layout];
+      for (const tone of tones) inputs.push("-f", "lavfi", "-i", `sine=frequency=${tone.hz + t * 50}:duration=${SLIPSTREAM_SECONDS}:sample_rate=${RATE}`);
+      const labels = tones.map((_, i) => `[${next + i}:a]`).join("");
+      filters.push(`${labels}${joinFilter(track.layout)}[a${t}]`);
+      next += tones.length;
+    });
+    const subs = SLIPSTREAM_SUBS.map((lang) => {
+      const file = path.join(CACHE_DIR, `slipstream-${lang}.srt`);
+      fs.writeFileSync(file, srtScript(SLIPSTREAM_SECONDS, lang));
+      inputs.push("-i", file);
+      return next++;
+    });
+    const argv = [
+      "-y",
+      ...inputs,
+      "-filter_complex",
+      filters.join(";"),
+      "-map",
+      "0:v",
+      ...item.tracks.flatMap((_, t) => ["-map", `[a${t}]`]),
+      ...subs.flatMap((index) => ["-map", `${index}:s`]),
+      "-t",
+      String(SLIPSTREAM_SECONDS),
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-b:v",
+      "6M",
+      "-maxrate",
+      "6M",
+      "-bufsize",
+      "12M",
+      "-g",
+      "48",
+      "-keyint_min",
+      "48",
+      "-sc_threshold",
+      "0",
+      "-pix_fmt",
+      "yuv420p",
+      ...item.tracks.flatMap((track) => track.codec),
+      ...item.tracks.flatMap((track, t) => [`-metadata:s:a:${t}`, `language=${track.lang}`]),
+      "-c:s",
+      "srt",
+      ...SLIPSTREAM_SUBS.flatMap((lang, i) => [`-metadata:s:s:${i}`, `language=${lang}`]),
+      out,
+    ];
+    if (!(await ff(argv, item.title))) {
+      failures.push(`${item.id} encode failed`);
+      continue;
+    }
+    built.push({ ...item, out });
+  }
+  return built;
+}
+
 /** Audio-only coverage, into the music library rather than the video one. */
 async function buildCoverageAudio() {
   const built = [];
@@ -1002,6 +1116,9 @@ async function main() {
   log("\nTranscode bench ladder");
   const bench = await buildBench();
 
+  log("\nSlipstream drill items");
+  const slipstream = await buildSlipstream();
+
   let downloaded = [];
   let atmos = [];
   if (!flag("--no-download")) {
@@ -1045,7 +1162,7 @@ async function main() {
     }
   }
 
-  const total = video.length + audio.length + coverage.length + coverageAudio.length + bench.length + downloaded.length + atmos.length;
+  const total = video.length + audio.length + coverage.length + coverageAudio.length + bench.length + slipstream.length + downloaded.length + atmos.length;
   log(`\n${total} items ready`);
   log(`  ${VIDEO_DIR}`);
   log(`  ${SURROUND_DIR}`);

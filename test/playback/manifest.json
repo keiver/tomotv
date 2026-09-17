@@ -896,6 +896,35 @@
       "comment": "A judgeable SSA fixture: the picture carries a running clock and every cue names the second it belongs to and what it should look like, so a wrong cue, a late one or a dropped override is visible by eye on a television. Track 0 is that script, SSA v4.00 with CRLF endings and the *Default style marker Aegisub writes. Track 1 is a9-misc.ssa from FFmpeg's FATE suite, a real fansub header kept because that is what the style parser has to survive. Its inline italic and bold, style-carried bold italic, hard line break, karaoke, drawing block, positioned sign and markup characters each land on their own two-second slot."
     },
     {
+      "id": "T101",
+      "title": "T101 REMUX H264 AC3 12min slipstream",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "audio": "ac3",
+        "subtitles": 3
+      },
+      "comment": "Slipstream drill item (scripts/abr-drill.mjs): 12 minutes of real motion at ~6 Mbps, one AC3 5.1 track."
+    },
+    {
+      "id": "T102",
+      "title": "T102 REMUX H264 AC3 AAC 12min slipstream",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "audio": "ac3",
+        "audioRenditions": 2,
+        "subtitles": 3
+      },
+      "comment": "Slipstream drill item: T101's picture with AC3 5.1 and AAC stereo, so every rung switch is checked for both tracks."
+    },
+    {
       "id": "L01",
       "title": "T24 MPEG2 MP2 TS",
       "live": true,
