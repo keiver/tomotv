@@ -62,9 +62,9 @@ final class TierServerStub: URLProtocol {
     override func stopLoading() {}
 }
 
-/// The tier is proved before the master lists it, and retired when the server stops delivering.
-/// Every case here is a way a Jellyfin server refuses to transcode: no ffmpeg, a dead encoder,
-/// a policy that answers the playlist but not the segments.
+/// The tier lists on grid adoption and is retired in the background when the server stops
+/// delivering. Every case here is a way a Jellyfin server refuses to transcode: no ffmpeg, a dead
+/// encoder, a policy that answers the playlist but not the segments.
 final class TierProbeTests: XCTestCase {
     /// The kill route is built from the ApiKey and PlaySessionId the tier URL carries.
     private let playlistUrl = "http://tier.test/Videos/x/main.m3u8?ApiKey=k&PlaySessionId=p"
@@ -156,7 +156,7 @@ final class TierProbeTests: XCTestCase {
         return false
     }
 
-    // MARK: - The tier is proved before it is offered
+    // MARK: - The tier is offered on adoption, proved in the background
 
     func testHealthyTierIsListedAndItsOpeningSegmentIsAlreadyOnDisk() throws {
         XCTAssertFalse(tierSegment.isEmpty, "Fixtures/tier-segment.mpegts is missing")
@@ -260,9 +260,11 @@ final class TierProbeTests: XCTestCase {
 
     // MARK: - A tier that dies after it was offered
 
-    /// A server that answers but cannot produce the opening segment in time is the same to a
-    /// viewer as one that refuses: the rung AVPlayer would open on cannot be fed.
-    func testASlowServerIsNeverOfferedTheRung() throws {
+    /// A server whose grid is adopted but whose opening segment is still transcoding is offered
+    /// the rung: AVPlayer opens on the primary and the ladder caps down to the rung only after the
+    /// buffer drains, by which time the segment has warmed. Blocking the master on the cold segment
+    /// is what dropped playback to the audio-losing server lane on a real link.
+    func testASlowServerStillOffersTheRungOnAdoption() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         let hold = DispatchSemaphore(value: 0)
@@ -276,13 +278,12 @@ final class TierProbeTests: XCTestCase {
         while Date() < end, !s.tierActive { usleep(20_000) }
         XCTAssertTrue(s.tierActive, "the grid is adopted; only the segment is slow")
 
-        // The probe is still parked on the held segment when the master is written.
+        // The probe is still parked on the held segment when the master is written; the rung lists anyway.
         let master = s.masterPlaylist()
-        XCTAssertFalse(master.contains("t0.m3u8"), "an unproved rung is not offered")
+        XCTAssertTrue(master.contains("t0.m3u8"), "an adopted rung is offered before its segment proves")
         XCTAssertTrue(master.contains("media.m3u8"))
-        XCTAssertFalse(s.tierOffered)
-        XCTAssertEqual(states(reports()), ["declined"])
-        XCTAssertEqual(reports().first?["reason"] as? String, "the opening segment did not arrive in time")
+        XCTAssertTrue(s.tierOffered)
+        XCTAssertEqual(states(reports()), ["listed"])
     }
 
     func testADroppedTierAnswersEveryOneOfItsRoutesWithNotFound() throws {

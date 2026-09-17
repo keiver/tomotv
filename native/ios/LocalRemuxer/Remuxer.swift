@@ -616,24 +616,14 @@ final class RemuxSession {
         }
     }
 
-    /// Bounded: an unresolved probe still lists the tier, since AVPlayer's own request joins it.
-    private func awaitTierProbe() {
-        guard !config.tiers.isEmpty, tierActive else { return }
-        _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
-            guard let self else { return true }
-            self.stateLock.lock()
-            defer { self.stateLock.unlock() }
-            return self.tierProbeResolved || self.tierDisabled || self.failed || self.cancelled
-        }
-    }
-
-    /// A rung is offered only once the probe has proved it. A server that cannot produce the
-    /// opening segment inside the master's budget cannot feed the variant AVPlayer would open on,
-    /// whether it refuses outright or transcodes below realtime.
+    /// A rung is offered once its grid is adopted: AVPlayer opens on the primary and the ladder
+    /// caps DOWN to a rung only after the buffer drains, so the rung's opening segment warms during
+    /// the player's own startup rather than blocking the master. The background probe still retires
+    /// a server whose transcoder is broken (dropTier), which disarms the tier for the session.
     var tierOffered: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return !adoptedStarts.isEmpty && !tierDisabled && tierProbeResolved
+        return !adoptedStarts.isEmpty && !tierDisabled
     }
 
     /// Once per session: what the master did with the configured ladder.
@@ -642,8 +632,7 @@ final class RemuxSession {
         guard !config.tiers.isEmpty, !tierReported else { return stateLock.unlock() }
         tierReported = true
         tierListed = listed
-        let unproved = !adoptedStarts.isEmpty && !tierProbeResolved
-        let reason = tierDropReason ?? tierUnavailableReason ?? (unproved ? "the opening segment did not arrive in time" : nil)
+        let reason = tierDropReason ?? tierUnavailableReason
         stateLock.unlock()
         NSLog("[LocalRemuxer] Slipstream: master %@ the tier%@", listed ? "leads with" : "withholds", reason.map { ", \($0)" } ?? "")
         var payload: [String: Any] = ["token": token, "state": listed ? "listed" : "declined"]
@@ -654,7 +643,6 @@ final class RemuxSession {
 
     func masterPlaylist() -> String {
         awaitGrid()
-        awaitTierProbe()
         // Live: the tracks and the captions come off the open input, not from Jellyfin's probe.
         if config.isLive {
             _ = waitUntil(deadline: 40) { [weak self] in
@@ -1311,9 +1299,10 @@ final class RemuxSession {
         if listed { onTier?(["token": token, "state": "dropped", "reason": reason]) }
     }
 
-    /// The tier's opening segment, fetched before the master lists the tier: a server whose
-    /// playlist parses but whose transcoder fails is found here, not by AVPlayer. A timeout on
-    /// the opening segment is a drop too; nothing plays on a tier that cannot deliver its first bytes.
+    /// Fetches the tier's opening segment in the background: a server whose playlist parses but
+    /// whose transcoder fails or times out is retired here (dropTier), which disarms the tier for
+    /// the session. The master lists the rung on grid adoption, so this runs concurrent with the
+    /// player's startup rather than gating the first frame.
     private func probeTier() {
         defer {
             stateLock.lock()
