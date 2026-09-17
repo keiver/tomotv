@@ -98,7 +98,10 @@ final class TierProbeTests: XCTestCase {
     private func session(
         tierPlaylistUrl: String? = nil,
         serverAudioUrl: String = "",
-        startOffsetSeconds: Double = 0
+        startOffsetSeconds: Double = 0,
+        // Below the 8 Mbps source by default so the master lists the tier; nil leaves the real
+        // (fast, unbounded) test-input measurement, which lists v0 alone.
+        linkCeilingBps: Double? = 2_000_000
     ) throws -> (RemuxSession, () -> [[String: Any]]) {
         let s = try RemuxSession(
             config: makeConfig(
@@ -111,6 +114,7 @@ final class TierProbeTests: XCTestCase {
                 tierHeight: 480,
                 startOffsetSeconds: startOffsetSeconds
             ))
+        s.testLinkCeilingBps = linkCeilingBps
         let lock = NSLock()
         var reports: [[String: Any]] = []
         s.onTier = { report in
@@ -168,7 +172,7 @@ final class TierProbeTests: XCTestCase {
 
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"))
-        XCTAssertLessThan(master.range(of: "t0.m3u8")!.lowerBound, master.range(of: "media.m3u8")!.lowerBound, "a tier-first session leads with the tier")
+        XCTAssertFalse(master.contains("media.m3u8"), "a link below the source lists the tier and withholds v0")
         XCTAssertEqual(states(reports()), ["listed"])
         XCTAssertNotNil(s.tierPlaylist(rung: 0))
 
@@ -260,10 +264,10 @@ final class TierProbeTests: XCTestCase {
 
     // MARK: - A tier that dies after it was offered
 
-    /// A server whose grid is adopted but whose opening segment is still transcoding is offered
-    /// the rung: AVPlayer opens on the primary and the ladder caps down to the rung only after the
-    /// buffer drains, by which time the segment has warmed. Blocking the master on the cold segment
-    /// is what dropped playback to the audio-losing server lane on a real link.
+    /// On a link below the source, a server whose grid is adopted lists its rung on adoption even
+    /// while the opening segment is still transcoding; the probe proving it runs in the background.
+    /// Blocking the master on the cold segment is what dropped playback to the audio-losing server
+    /// lane on a real link.
     func testASlowServerStillOffersTheRungOnAdoption() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
@@ -281,7 +285,7 @@ final class TierProbeTests: XCTestCase {
         // The probe is still parked on the held segment when the master is written; the rung lists anyway.
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"), "an adopted rung is offered before its segment proves")
-        XCTAssertTrue(master.contains("media.m3u8"))
+        XCTAssertFalse(master.contains("media.m3u8"), "a link below the source withholds v0")
         XCTAssertTrue(s.tierOffered)
         XCTAssertEqual(states(reports()), ["listed"])
     }
@@ -363,18 +367,18 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNil(s.tierPlaylist(rung: 0))
     }
 
-    /// A tier listed second is still proved: the ordering is the only difference.
-    func testATierListedSecondIsStillProved() throws {
+    /// A link that carries the source rate lists v0 ALONE and withholds the server tier, so
+    /// AVPlayer never wastes the open probing cold rungs it does not need.
+    func testALinkThatCarriesThePrimaryListsItAlone() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
-        let (s, reports) = try session()
+        let (s, reports) = try session(linkCeilingBps: 20_000_000)
         defer { s.stop() }
         waitForProbe(s)
         let master = s.masterPlaylist()
-        XCTAssertTrue(master.contains("t0.m3u8"))
         XCTAssertTrue(master.contains("media.m3u8"))
-        XCTAssertLessThan(master.range(of: "t0.m3u8")!.lowerBound, master.range(of: "media.m3u8")!.lowerBound, "rungs before the primary")
-        XCTAssertEqual(states(reports()), ["listed"])
+        XCTAssertFalse(master.contains("t0.m3u8"), "the tier is withheld when the link carries v0")
+        XCTAssertEqual(states(reports()), ["declined"])
     }
 
     // MARK: - The ladder
@@ -383,7 +387,7 @@ final class TierProbeTests: XCTestCase {
         TierServerStub.routes["/Videos/x/t0.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/t1.m3u8"] = (200, rung1Playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
-        return try RemuxSession(
+        let s = try RemuxSession(
             config: makeConfig(
                 durationSeconds: 18,
                 audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: "")],
@@ -392,6 +396,9 @@ final class TierProbeTests: XCTestCase {
                     TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_692_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480),
                 ]
             ))
+        // Below the 8 Mbps source, above both rungs, so the master lists the ladder and withholds v0.
+        s.testLinkCeilingBps = 2_000_000
+        return s
     }
 
     /// A two-rung ladder lists both variants ascending, each with its own RESOLUTION.

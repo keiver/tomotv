@@ -273,6 +273,9 @@ final class RemuxSession {
     /// The pull since the pipeline started, for the app's pre-flight (progress(); under stateLock).
     private var pulledBytes: Int64 = 0
     private var pulledReadSeconds: Double = 0
+    /// Test seam: forces the measured link ceiling so a test can exercise the link-adaptive master
+    /// without a real slow input. Never set in production.
+    var testLinkCeilingBps: Double? = nil
     private let startedAt = Date()
 
     /// Image subtitle decoders by input stream index, built once the input is
@@ -854,17 +857,32 @@ final class RemuxSession {
 
         // The real source link rate the producer measured pulling v0: bytes over the seconds it
         // spent blocked on the input. AVPlayer's own ABR is blind here (it measures the 127.0.0.1
-        // loopback, always fast) and would open on the highest variant it sees, so the master lists
-        // ONLY the variants this rate carries: its opening pick then lands on one the link plays. A
-        // link that barely blocked (fast) reads as unbounded and keeps every variant, v0 included.
+        // loopback, always fast), so the master must decide the variant set from this rate rather
+        // than hand the player a choice it cannot make. Wait (bounded) for the producer to have
+        // pulled enough to measure it; a fast link that never blocks stays under the threshold and
+        // reads as unbounded, which is the correct read for it.
+        if testLinkCeilingBps == nil {
+            _ = waitUntil(deadline: min(masterBudgetLeft(), 3.0)) { [weak self] in
+                guard let self else { return true }
+                return self.pulledReadSeconds > 0.5 || self.failed || self.cancelled
+            }
+        }
         let readSecs = pulledReadSeconds
-        let linkCeilingBps = readSecs > 0.5 ? Double(pulledBytes) * 8 / readSecs * 0.8 : Double.greatestFiniteMagnitude
+        let linkCeilingBps = testLinkCeilingBps ?? (readSecs > 0.5 ? Double(pulledBytes) * 8 / readSecs * 0.8 : Double.greatestFiniteMagnitude)
+
+        // A link that carries v0 gets v0 ALONE. The on-device copy is the best variant and the
+        // server tiers exist only for a link that cannot sustain it; listing cold server-transcoded
+        // rungs beside a v0 the link can play makes AVPlayer, blind through the loopback, waste the
+        // open probing rungs it never needs. Only below the source rate is the primary withheld and
+        // the fitting rung(s) listed instead, so AVPlayer opens on one the link can actually deliver.
+        let carriesPrimary = !offered || config.bandwidth <= 0 || Double(config.bandwidth) <= linkCeilingBps
+        let listTier = offered && !carriesPrimary
 
         // Slipstream ladder: one server-assisted variant per adopted rung the link carries, all on
         // the SAME grid and sharing the audio and subtitle groups, so a variant switch touches
         // nothing but video. Rungs list ascending (config.tiers is sorted).
         var tier = ""
-        if offered {
+        if listTier {
             stateLock.lock()
             let adoptedRungs = (0..<config.tiers.count).filter { !(tierSegments[$0]?.isEmpty ?? true) }
             stateLock.unlock()
@@ -875,9 +893,7 @@ final class RemuxSession {
                 let rung = config.tiers[k]
                 let bw = rung.bandwidth > 0 ? rung.bandwidth : 1_500_000
                 var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bw),AVERAGE-BANDWIDTH=\(bw)"
-                // Attribute symmetry with the primary: a rung declaring
-                // VIDEO-RANGE/CODECS the primary omits steers AVPlayer's initial
-                // pick toward the fully-declared variant. Rungs are SDR by build.
+                // Rungs are SDR by build; declare their real resolution and codecs.
                 if !config.videoRange.isEmpty {
                     line += ",VIDEO-RANGE=SDR"
                 }
@@ -901,12 +917,8 @@ final class RemuxSession {
                 tier += line
             }
         }
-        // The primary (v0, the source-rate on-device copy) is listed only when there is no ladder,
-        // or when the link carries the source rate. On a link below it the primary is withheld, so
-        // AVPlayer cannot open on a stream the link will starve; it opens on the top fitting rung.
-        let carriesPrimary = !offered || config.bandwidth <= 0 || Double(config.bandwidth) <= linkCeilingBps
-        out += offered ? (carriesPrimary ? tier + primary : tier) : primary
-        reportTier(listed: offered)
+        out += listTier ? tier : primary
+        reportTier(listed: listTier)
         return out
     }
 
