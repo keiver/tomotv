@@ -2,24 +2,36 @@
 # Prebuilds both platforms into ios/ + tvos/ and writes the dual workspace.
 # Each pod install is bracketed by the RN artifact cache so `--clean` wipes
 # don't force a full re-download of the prebuilt tarballs every run.
-# Updates the existing trees in place (Xcode keeps compiled Pods) unless the
-# prebuild inputs changed since the last successful run, then it goes --clean.
+# Updates the existing trees in place so Xcode keeps compiled Pods: project
+# inputs changed -> --clean, pod inputs changed -> pod install, else neither.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 cache() { bash scripts/rn-artifact-cache.sh "$@"; }
 
-STAMP="tvos/.prebuild-inputs"
+PROJECT_STAMP="tvos/.prebuild-inputs"
+PODS_STAMP="tvos/.pods-inputs"
+
+hash_files() {
+  for f in "$@"; do
+    echo "$f"
+    cat "$f"
+  done | shasum -a 256 | cut -d' ' -f1
+}
 
 # Plugins carry the native file lists, so a removed native file changes this too.
-inputs_hash() {
+project_hash() {
+  hash_files app.json package.json package-lock.json scripts/prebuild-dual.sh scripts/make-dual-workspace.sh \
+    $(find plugins patches assets/brand -type f -not -name .DS_Store | LC_ALL=C sort)
+}
+
+# node_modules/.package-lock.json is rewritten by every npm install, which also
+# replaces the ExpoModulesJSI stub that pod install stamps.
+pods_hash() {
   {
-    cat app.json package-lock.json native/ios/TomoFFmpeg.podspec \
-      scripts/prebuild-dual.sh scripts/make-dual-workspace.sh
-    find plugins patches assets/brand -type f -not -name .DS_Store | LC_ALL=C sort | while IFS= read -r f; do
-      echo "$f"
-      cat "$f"
-    done
+    hash_files native/ios/TomoFFmpeg.podspec scripts/ffmpeg/ffmpeg-lock.json
+    pod --version
+    stat -f '%m' node_modules/.package-lock.json
   } | shasum -a 256 | cut -d' ' -f1
 }
 
@@ -34,35 +46,51 @@ unsuffix() {
   sed -i '' "s|container:TomoTV-$suffix.xcodeproj|container:TomoTV.xcodeproj|g" "$schemes/TomoTV.xcscheme"
 }
 
-HASH="$(inputs_hash)"
+PROJECT_HASH="$(project_hash)"
+PODS_HASH="$(pods_hash)"
 INCREMENTAL=0
-if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$HASH" ] && [ ! -e ios.iphone ] \
+if [ -f "$PROJECT_STAMP" ] && [ "$(cat "$PROJECT_STAMP")" = "$PROJECT_HASH" ] && [ ! -e ios.iphone ] \
   && [ -d ios/TomoTV-iOS.xcodeproj ] && [ -d ios/Pods/Pods-iOS.xcodeproj ] \
   && [ -d tvos/TomoTV-tvOS.xcodeproj ] && [ -d tvos/Pods/Pods-tvOS.xcodeproj ]; then
   INCREMENTAL=1
 fi
-# A run that dies midway leaves no stamp, so the next one starts clean.
-rm -f "$STAMP"
+RUN_PODS=1
+if [ "$INCREMENTAL" = "1" ] && [ -f "$PODS_STAMP" ] && [ "$(cat "$PODS_STAMP")" = "$PODS_HASH" ]; then
+  RUN_PODS=0
+fi
+# A run that dies midway leaves no stamps, so the next one starts clean.
+rm -f "$PROJECT_STAMP" "$PODS_STAMP"
 
 if [ "$INCREMENTAL" = "1" ]; then
-  echo "prebuild-dual: inputs unchanged, updating ios/ + tvos/ in place"
+  MTIMES="$(mktemp)"
+  trap 'rm -f "$MTIMES"' EXIT
+  /usr/bin/python3 scripts/preserve-mtimes.py snapshot "$MTIMES" ios tvos
+  if [ "$RUN_PODS" = "1" ]; then
+    echo "prebuild-dual: project inputs unchanged, pod inputs changed: updating in place with pod install"
+  else
+    echo "prebuild-dual: project and pod inputs unchanged: updating in place, skipping pod install"
+  fi
   # tvOS: expo only writes to ios/, so park the iOS tree while tvOS is updated.
   # pod install runs from tvos/ so Pods record the final path.
   mv ios ios.iphone && mv tvos ios
   unsuffix ios tvOS
   EXPO_TV=1 expo prebuild --platform ios --no-install
   mv ios tvos && mv ios.iphone ios
-  cache seed tvos
-  ( cd tvos && EXPO_TV=1 pod install )
-  cache save tvos
+  if [ "$RUN_PODS" = "1" ]; then
+    cache seed tvos
+    ( cd tvos && EXPO_TV=1 pod install )
+    cache save tvos
+  fi
 
   unsuffix ios iOS
   expo prebuild --platform ios --no-install
-  cache seed ios
-  ( cd ios && pod install )
-  cache save ios
+  if [ "$RUN_PODS" = "1" ]; then
+    cache seed ios
+    ( cd ios && pod install )
+    cache save ios
+  fi
 else
-  echo "prebuild-dual: prebuild inputs changed or no complete prior run, prebuilding --clean"
+  echo "prebuild-dual: project inputs changed or no complete prior run: prebuilding --clean"
   rm -rf ios.iphone
 
   # tvOS: prebuild as ios/ (no pods yet), rename to tvos/, then install.
@@ -80,4 +108,8 @@ else
 fi
 
 bash scripts/make-dual-workspace.sh
-echo "$HASH" > "$STAMP"
+if [ "$INCREMENTAL" = "1" ]; then
+  /usr/bin/python3 scripts/preserve-mtimes.py restore "$MTIMES"
+fi
+echo "$PROJECT_HASH" > "$PROJECT_STAMP"
+echo "$PODS_HASH" > "$PODS_STAMP"
