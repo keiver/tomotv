@@ -695,15 +695,27 @@ extension RemuxSession {
             durations.append(seg.duration)
             acc += seg.duration
         }
+        stateLock.lock()
+        tierSegments = [0: canonical]
+        adoptedStarts = starts
+        adoptedDurations = durations
+        stateLock.unlock()
         // The rest of the ladder is fetched at once, not one after another: each playlist is tens
-        // of kilobytes and a slow link spends seconds per round trip before the first frame.
-        var adopted: [Int: [TierSegment]] = [0: canonical]
-        let adoptLock = NSLock()
+        // of kilobytes and a slow link spends seconds per round trip before the first frame. Rungs
+        // the measured link cannot carry are not waited for: the master will not list them, and
+        // their playlists are link the first video segment needs (measured at 0.6 Mb/s: five
+        // playlists cost 256 KB, 3.4s, before the master existed). They still land, for a rebuild.
+        awaitLinkProbe()
+        stateLock.lock()
+        let linkBps = testLinkBps ?? measuredLinkBps ?? 0
+        stateLock.unlock()
+        // The master lists what fits plus one rung of headroom, so the wait covers the same set.
         let group = DispatchGroup()
         for k in 1..<config.tiers.count {
-            group.enter()
+            let blocking = linkBps <= 0 || Double(config.tiers[k - 1].bandwidth) <= linkBps * 0.8
+            if blocking { group.enter() }
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                defer { group.leave() }
+                defer { if blocking { group.leave() } }
                 guard let self, let segs = self.fetchTierSegments(self.config.tiers[k].playlistUrl) else {
                     NSLog("[LocalRemuxer] Slipstream: rung %d playlist fetch failed, dropping it", k)
                     return
@@ -712,18 +724,16 @@ extension RemuxSession {
                     NSLog("[LocalRemuxer] Slipstream: rung %d grid mismatch (%d vs %d), dropping it", k, segs.count, canonical.count)
                     return
                 }
-                adoptLock.lock()
-                adopted[k] = segs
-                adoptLock.unlock()
+                self.stateLock.lock()
+                self.tierSegments[k] = segs
+                self.stateLock.unlock()
             }
         }
         group.wait()
         stateLock.lock()
-        tierSegments = adopted
-        adoptedStarts = starts
-        adoptedDurations = durations
+        let adoptedCount = tierSegments.count
         stateLock.unlock()
-        NSLog("[LocalRemuxer] Slipstream: adopted the server grid, %d segments, %.1fs total, %d rungs", canonical.count, acc, adopted.count)
+        NSLog("[LocalRemuxer] Slipstream: adopted the server grid, %d segments, %.1fs total, %d rungs", canonical.count, acc, adoptedCount)
     }
 
     func runPipeline() {
