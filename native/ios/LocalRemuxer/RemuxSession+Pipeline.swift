@@ -757,7 +757,10 @@ extension RemuxSession {
             self?.probeTier()
         }
         if !config.tiers.isEmpty {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in self?.probeLink() }
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                self?.probeLink()
+                self?.watchLinkWhileRidingTier()
+            }
         }
 
         // ---- Input: opened once; seeks reuse the same context ----

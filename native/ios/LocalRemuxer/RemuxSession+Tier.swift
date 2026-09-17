@@ -82,16 +82,17 @@ extension RemuxSession {
         let semaphore = DispatchSemaphore(value: 0)
         var result: Data? = nil
         var status = 0
-        let started = Date()
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+        let meter = TransferMeter()
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
             if let http = response as? HTTPURLResponse { status = http.statusCode }
             if let data, (200..<300).contains(status) { result = data }
             semaphore.signal()
-        }.resume()
+        }
+        task.delegate = meter
+        task.resume()
         _ = semaphore.wait(timeout: .now() + 35)
-        // The server's own transcode wait is in here too, so this reads at or below the link:
-        // a pessimistic sample, which is the safe direction for the pacing rate.
-        if let result { noteLinkSample(bytes: Int64(result.count), seconds: Date().timeIntervalSince(started)) }
+        let transfer = meter.read()
+        if result != nil, transfer.bytes > 0, transfer.seconds > 0 { noteLinkSample(bytes: transfer.bytes, seconds: transfer.seconds) }
         return (result, status)
     }
 
