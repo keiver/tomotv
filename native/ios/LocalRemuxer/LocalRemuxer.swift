@@ -73,7 +73,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -106,6 +106,14 @@ class LocalRemuxer: RCTEventEmitter {
         let listening = Self.hasListeners
         Self.lock.unlock()
         if listening { sendEvent(withName: "onEngineThroughput", body: sample) }
+    }
+
+    /// The measured link rate, sent only while JS listens; the app turns it into AVPlayer's cap.
+    private func publish(link: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineLink", body: link) }
     }
 
     /// What the session did with its Slipstream tier; the JS listener is attached before startRemux.
@@ -166,145 +174,13 @@ class LocalRemuxer: RCTEventEmitter {
             return .notFound
         }
         if let provider {
-            if let ms = frameMilliseconds(parts[1]), let url = provider.grabber.chapterFrame(atMilliseconds: ms) {
+            if let ms = RemuxSession.frameMilliseconds(parts[1]), let url = provider.grabber.chapterFrame(atMilliseconds: ms) {
                 return .file(url, contentType: "image/jpeg")
             }
             return .notFound
         }
         guard let current else { return .notFound }
-
-        let m3u8 = "application/vnd.apple.mpegurl"
-
-        let name = parts[1]
-        switch name {
-        case "master.m3u8":
-            return .data(Data(current.masterPlaylist().utf8), contentType: m3u8)
-        case "media.m3u8":
-            return .data(Data(current.mediaPlaylist().utf8), contentType: m3u8)
-        case "init.mp4":
-            return current.initResponse()
-        default:
-            // "init-g{N}.mp4": the init segment of live generation N (one per splice).
-            if name.hasPrefix("init-g"), name.hasSuffix(".mp4"),
-               let generation = Int(name.dropFirst(6).dropLast(4)) {
-                return current.initResponse(generation: generation)
-            }
-            if name.hasPrefix("sub"), name.hasSuffix(".m3u8"),
-               let index = Int(name.dropFirst(3).dropLast(5)),
-               let playlist = current.subtitlePlaylist(streamIndex: index) {
-                return .data(Data(playlist.utf8), contentType: m3u8)
-            }
-            // "sub{stream}-{segment}.vtt": one window of an engine-decoded text
-            // track. Blocks on the read loop, like a media segment does.
-            if name.hasPrefix("sub"), name.hasSuffix(".vtt"), name.contains("-") {
-                let parts = name.dropFirst(3).dropLast(4).split(separator: "-")
-                if parts.count == 2, let index = Int(parts[0]), let segment = Int(parts[1]),
-                   let body = current.subtitleSegment(streamIndex: index, segment: segment) {
-                    return .data(Data(body.utf8), contentType: "text/vtt")
-                }
-                return .data(Data(current.emptySubtitleBody().utf8), contentType: "text/vtt")
-            }
-            // The cue-less body an image subtitle rendition resolves to. AVKit
-            // lists and selects the track and draws none of it; the app draws
-            // the bitmaps over the video instead.
-            if name.hasPrefix("sub"), name.hasSuffix(".vtt") {
-                // A track saved with a download serves its own bytes; an image track, and any
-                // local file that has since gone, fall back to the cue-less body.
-                if let index = Int(name.dropFirst(3).dropLast(4)),
-                   let body = current.localSubtitleBody(streamIndex: index) {
-                    return .data(body, contentType: "text/vtt")
-                }
-                return .data(Data(current.emptySubtitleBody().utf8), contentType: "text/vtt")
-            }
-            // Cue manifest for an image subtitle track, and the cue images
-            // themselves. Both are read by the app, never by AVPlayer.
-            if name.hasPrefix("pgs"), name.hasSuffix(".json"),
-               let index = Int(name.dropFirst(3).dropLast(5)),
-               let manifest = current.subtitleCueManifest(streamIndex: index) {
-                return .data(manifest, contentType: "application/json")
-            }
-            if name.hasPrefix("pgs"), name.hasSuffix(".png"),
-               let url = current.subtitleImageURL(name) {
-                return .file(url, contentType: "image/png")
-            }
-            // A chapter keyframe, made on the first request. Read by AVKit's info panel.
-            if let ms = frameMilliseconds(name), let url = current.chapterFrame(atMilliseconds: ms) {
-                return .file(url, contentType: "image/jpeg")
-            }
-            // Slipstream ladder rungs: "t{k}.m3u8", "t{k}-init.mp4",
-            // "t{k}-seg{n}.m4s", where k is the rung index in the master.
-            if name.hasPrefix("t") {
-                let afterT = name.dropFirst()
-                if let rungEnd = afterT.firstIndex(where: { !$0.isNumber }), rungEnd > afterT.startIndex,
-                   let rung = Int(afterT[afterT.startIndex..<rungEnd]) {
-                    let rest = String(afterT[rungEnd...])
-                    if rest == ".m3u8" {
-                        guard let playlist = current.tierPlaylist(rung: rung) else { return .notFound }
-                        return .data(Data(playlist.utf8), contentType: m3u8)
-                    }
-                    if rest == "-init.mp4" {
-                        return current.tierInitResponse(rung: rung)
-                    }
-                    if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"), let n = Int(rest.dropFirst(4).dropLast(4)) {
-                        return current.tierSegmentResponse(rung: rung, n)
-                    }
-                }
-            }
-            if name.hasPrefix("seg"), name.hasSuffix(".m4s"),
-               let n = Int(name.dropFirst(3).dropLast(4)) {
-                return current.segmentResponse(n)
-            }
-
-            // Slipstream audio-lo renditions: "aNs.m3u8", "aNs-init.mp4",
-            // "aNs-seg{index}.m4s" — must match before the engine "aN" block,
-            // whose digits-only guard would 404 the "s" suffix.
-            if name.hasPrefix("a"), let sIndex = name.firstIndex(of: "s"),
-               name.index(after: name.startIndex) < sIndex,
-               name[name.index(after: name.startIndex)..<sIndex].allSatisfy(\.isNumber),
-               let position = Int(name[name.index(after: name.startIndex)..<sIndex]) {
-                let rest = String(name[name.index(after: sIndex)...])
-                if rest == ".m3u8" {
-                    guard let playlist = current.audioLoPlaylist(position: position) else { return .notFound }
-                    return .data(Data(playlist.utf8), contentType: m3u8)
-                }
-                if rest == "-init.mp4" {
-                    return current.audioLoInitResponse(position: position)
-                }
-                if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
-                   let n = Int(rest.dropFirst(4).dropLast(4)) {
-                    return current.audioLoSegmentResponse(position: position, n: n)
-                }
-            }
-
-            // Alternate audio renditions: "aN.m3u8", "aN-init.mp4",
-            // "aN-seg{index}.m4s".
-            if name.hasPrefix("a"), let split = name.firstIndex(where: { $0 == "-" || $0 == "." }) {
-                let prefix = String(name[name.startIndex..<split])
-                guard prefix.count > 1, prefix.dropFirst().allSatisfy(\.isNumber) else { return .notFound }
-                let rest = String(name[split...])
-                if rest == ".m3u8" {
-                    return .data(Data(current.mediaPlaylist(prefix: prefix).utf8), contentType: m3u8)
-                }
-                if rest == "-init.mp4" {
-                    return current.initResponse(prefix: prefix)
-                }
-                if rest.hasPrefix("-init-g"), rest.hasSuffix(".mp4"),
-                   let generation = Int(rest.dropFirst(7).dropLast(4)) {
-                    return current.initResponse(prefix: prefix, generation: generation)
-                }
-                if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
-                   let n = Int(rest.dropFirst(4).dropLast(4)) {
-                    return current.segmentResponse(n, prefix: prefix)
-                }
-            }
-            return .notFound
-        }
-    }
-
-    /// The time in "frame-{ms}.jpg"; the path carries it because the server strips queries.
-    private static func frameMilliseconds(_ name: String) -> Int64? {
-        guard name.hasPrefix("frame-"), name.hasSuffix(".jpg") else { return nil }
-        return Int64(name.dropFirst(6).dropLast(4))
+        return current.route(parts[1])
     }
 
     // MARK: - Bridge API
@@ -375,7 +251,8 @@ class LocalRemuxer: RCTEventEmitter {
                 isDefault: raw["isDefault"] as? Bool ?? false,
                 isForced: raw["isForced"] as? Bool ?? false,
                 isImage: isImage,
-                isEngineText: isEngineText
+                isEngineText: isEngineText,
+                serverVttUrl: raw["serverVttUrl"] as? String ?? ""
             )
         }
 
@@ -430,6 +307,7 @@ class LocalRemuxer: RCTEventEmitter {
             session.onTier = { [weak self] report in self?.publish(tier: report) }
             session.onFailed = { [weak self] failure in self?.publish(failure: failure) }
             session.onStage = { [weak self] stage in self?.publish(stage: stage) }
+            session.onLink = { [weak self] link in self?.publish(link: link) }
             session.onSubtitleRequest = { [weak self] request in self?.publish(subtitleRequest: request) }
             session.start()
             Self.sessions[session.token] = session

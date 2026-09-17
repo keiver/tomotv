@@ -130,14 +130,26 @@ final class RemuxSession {
     /// writes, finishSegment logs).
     var inputBytesSinceLog: Int64 = 0
     var lastThroughputLog = Date()
-    /// Wall time blocked in av_read_frame while making the current segment (pipeline thread).
+    /// Wall time blocked in av_read_frame while making the current segment, and the bytes that
+    /// arrived in it: together one link-rate sample per segment (pipeline thread).
     var readSecondsInSegment: Double = 0
+    var bytesInSegment: Int64 = 0
+    /// Bytes and read time since the last link sample (one every 512KB; pipeline thread).
+    var bytesSinceLinkSample: Int64 = 0
+    var readSecondsSinceLinkSample: Double = 0
     /// The pull since the pipeline started, for the app's pre-flight (progress(); under stateLock).
     var pulledBytes: Int64 = 0
     var pulledReadSeconds: Double = 0
-    /// Test seam: forces the measured link ceiling so a test can exercise the link-adaptive master
-    /// without a real slow input. Never set in production.
-    var testLinkCeilingBps: Double? = nil
+    /// The source link rate probeLink measured (nil = nothing flowed), and whether it has answered.
+    var measuredLinkBps: Double?
+    var linkProbeDone = false
+    /// Link rate as the current window measured it, the pacing rate for served media.
+    var pacedLinkBps: Double?
+    var linkWindowBytes: Int64 = 0
+    var linkWindowBusySeconds: Double = 0
+    var linkWindowStart = Date()
+    /// Test seam: stands in for the measured link rate. Never set in production.
+    var testLinkBps: Double? = nil
     let startedAt = Date()
 
     /// Image subtitle decoders by input stream index, built once the input is
@@ -253,6 +265,9 @@ final class RemuxSession {
     /// instead of competing with the tier fetches for its first 10 seconds.
     var lastPrimaryDemandAt = Date.distantPast
     var lastTierDemandAt = Date.distantPast
+    /// Parsed server WebVTT per text stream index, and the fetches in flight.
+    var serverCues: [Int: [ServerCue]] = [:]
+    var serverCueFetches: Set<Int> = []
     /// Segment keys with a materialization in flight: a duplicate request
     /// (AVPlayer hangs up and retries slow segments) waits for the winner
     /// instead of stacking parallel server fetches of the same bytes onto
@@ -301,6 +316,14 @@ final class RemuxSession {
     var onFailed: (([String: Any]) -> Void)?
     /// One startup step done (`mark`), on the pipeline thread: the loading screen narrates it.
     var onStage: (([String: Any]) -> Void)?
+    /// The measured link rate, whenever it moves materially: the app caps AVPlayer's variant choice
+    /// with it (the loopback tells the player nothing about the link behind the engine).
+    var onLink: (([String: Any]) -> Void)?
+    /// Last rate reported to the app, so a steady link is not re-reported every sample.
+    var reportedLinkBps: Double?
+    /// Whether the master this session served lists the on-device copy: when it does not, a link
+    /// that recovers is climbed by rebuilding the session (the app's call, from the link report).
+    var masterListedCopy = true
     /// Live: AVPlayer asked for a subtitle rendition's playlist, which it does only while that rendition is selected.
     var onSubtitleRequest: (([String: Any]) -> Void)?
     /// Counts seek restarts; the first segment of a generation carries no time.

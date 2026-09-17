@@ -32,10 +32,9 @@ extension RemuxSession {
         }
     }
 
-    /// True once the tier's grid is adopted and the tier has not been retired. masterPlaylist()
-    /// then lists the fitting rung(s) only when the measured link is below the source rate; a link
-    /// that carries the source lists the on-device copy alone. The background probe retires a
-    /// server whose transcoder is broken (dropTier), which clears this for the session.
+    /// True once the tier's grid is adopted and the tier has not been retired: masterPlaylist() then
+    /// lists the copy and the rungs together. The background probe retires a server whose
+    /// transcoder is broken (dropTier), which clears this for the session.
     var tierOffered: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -108,7 +107,8 @@ extension RemuxSession {
         let tracks = liveAudioTracks ?? config.audioTracks
         let subtitles = liveSubtitles ?? config.subtitles
         stateLock.unlock()
-        let useAudioGroup = tracks.count > 1 || tierActive
+        // Same predicate as the pipeline's splitAudio, or the master names a rendition never built.
+        let useAudioGroup = tracks.count > 1 || !config.tiers.isEmpty
         if useAudioGroup {
             for (position, track) in tracks.enumerated() {
                 let name = track.name.replacingOccurrences(of: "\"", with: "")
@@ -268,70 +268,83 @@ extension RemuxSession {
         }
         primary += "\nmedia.m3u8\n"
 
-        // The real source link rate the producer measured pulling v0: bytes over the seconds it
-        // spent blocked on the input. AVPlayer's own ABR is blind here (it measures the 127.0.0.1
-        // loopback, always fast), so the master must decide the variant set from this rate rather
-        // than hand the player a choice it cannot make. Wait (bounded) for the producer to have
-        // pulled enough to measure it; a fast link that never blocks stays under the threshold and
-        // reads as unbounded, which is the correct read for it.
-        if testLinkCeilingBps == nil {
-            _ = waitUntil(deadline: min(masterBudgetLeft(), 3.0)) { [weak self] in
-                guard let self else { return true }
-                return self.pulledReadSeconds > 0.5 || self.failed || self.cancelled
-            }
+        // Slipstream ladder: the on-device copy and every adopted rung in one master, all on the
+        // SAME grid and sharing the subtitle group, so AVPlayer's own ABR steps down when the copy
+        // outruns the link and climbs back when it recovers. The first variant listed is where it
+        // starts: the copy on a link measured to carry it, else the biggest rung that fits.
+        guard offered else {
+            out += primary
+            reportTier(listed: false)
+            return out
         }
-        let readSecs = pulledReadSeconds
-        let linkCeilingBps = testLinkCeilingBps ?? (readSecs > 0.5 ? Double(pulledBytes) * 8 / readSecs * 0.8 : Double.greatestFiniteMagnitude)
+        awaitLinkProbe()
+        stateLock.lock()
+        let linkBps = testLinkBps ?? measuredLinkBps ?? 0
+        let adoptedRungs = (0..<config.tiers.count).filter { !(tierSegments[$0]?.isEmpty ?? true) }
+        stateLock.unlock()
+        let unmeasured = linkBps <= 0
+        let copyFirst = unmeasured || config.bandwidth <= 0 || Double(config.bandwidth) * 1.2 <= linkBps
+        let fitting = adoptedRungs.filter { Double(config.tiers[$0].bandwidth) <= linkBps * 0.8 }
+        let startRung = fitting.last ?? adoptedRungs.first
+        // A variant far above the measured link is not merely unused: AVPlayer fetches its init and
+        // a segment to evaluate it, and on a slow link those probes are the whole budget (measured
+        // at 0.6 Mb/s: probes of 360p through 1080p starved the rung that fit). One rung of headroom
+        // stays listed so a recovering link has somewhere to climb without a new session.
+        let headroomRung = fitting.last.flatMap { last in adoptedRungs.first { $0 > last } } ?? adoptedRungs.first
+        let listed = unmeasured ? adoptedRungs : adoptedRungs.filter { fitting.contains($0) || $0 == headroomRung }
 
-        // A link that carries v0 gets v0 ALONE. The on-device copy is the best variant and the
-        // server tiers exist only for a link that cannot sustain it; listing cold server-transcoded
-        // rungs beside a v0 the link can play makes AVPlayer, blind through the loopback, waste the
-        // open probing rungs it never needs. Only below the source rate is the primary withheld and
-        // the fitting rung(s) listed instead, so AVPlayer opens on one the link can actually deliver.
-        let carriesPrimary = !offered || config.bandwidth <= 0 || Double(config.bandwidth) <= linkCeilingBps
-        let listTier = offered && !carriesPrimary
+        func rungLine(_ k: Int) -> String {
+            let rung = config.tiers[k]
+            let bw = rung.bandwidth > 0 ? rung.bandwidth : 1_500_000
+            var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bw),AVERAGE-BANDWIDTH=\(bw)"
+            // Rungs are SDR by build; declare their real resolution and codecs.
+            if !config.videoRange.isEmpty {
+                line += ",VIDEO-RANGE=SDR"
+            }
+            if !rung.codecs.isEmpty && !config.codecs.isEmpty {
+                line += ",CODECS=\"\(rung.codecs)\""
+            }
+            if rung.width > 0 && rung.height > 0 {
+                line += ",RESOLUTION=\(rung.width)x\(rung.height)"
+            }
+            if config.frameRate > 0 {
+                line += String(format: ",FRAME-RATE=%g", config.frameRate)
+            }
+            // Rungs ride the server-fed audio group when every track has one;
+            // otherwise they share the engine group.
+            line += audioLoActive ? ",AUDIO=\"audio-lo\"" : ",AUDIO=\"audio\""
+            if !config.subtitles.isEmpty {
+                line += ",SUBTITLES=\"subs\""
+            }
+            // RFC 8216 4.3.4.2: CLOSED-CAPTIONS=NONE on one variant requires it on all of them.
+            line += captions ? ",CLOSED-CAPTIONS=\"cc\"" : ",CLOSED-CAPTIONS=NONE"
+            return line + "\nt\(k).m3u8\n"
+        }
 
-        // Slipstream ladder: one server-assisted variant per adopted rung the link carries, all on
-        // the SAME grid and sharing the audio and subtitle groups, so a variant switch touches
-        // nothing but video. Rungs list ascending (config.tiers is sorted).
-        var tier = ""
-        if listTier {
+        stateLock.lock()
+        masterListedCopy = copyFirst
+        stateLock.unlock()
+        if copyFirst {
+            out += primary + listed.map(rungLine).joined()
+        } else if let startRung {
+            // The copy is NOT listed on a link that cannot carry it. AVPlayer evaluates every
+            // variant it is offered, and a copy segment it cannot finish (4MB at 0.6 Mb/s) fails
+            // the whole item on its 6s deadline (-12889, measured). A link that recovers is
+            // climbed by rebuilding the session, not by leaving a trap in the master.
+            out += rungLine(startRung) + listed.filter { $0 != startRung }.map(rungLine).joined()
+            // Starting on a rung means the copy is not being played: hold the source pull now rather
+            // than ten seconds from now, or the producer spends the slow link the rung segments need
+            // (measured: rung segments missed AVPlayer's 6s deadline while the engine pulled a 6 Mb/s
+            // source over 0.6 Mb/s).
             stateLock.lock()
-            let adoptedRungs = (0..<config.tiers.count).filter { !(tierSegments[$0]?.isEmpty ?? true) }
+            lastTierDemandAt = Date()
             stateLock.unlock()
-            // Keep the rungs the link carries; always keep the smallest adopted rung so a floor
-            // always plays even when the link is below all of them.
-            let fitting = adoptedRungs.filter { Double(config.tiers[$0].bandwidth) <= linkCeilingBps }
-            for k in (fitting.isEmpty ? Array(adoptedRungs.prefix(1)) : fitting) {
-                let rung = config.tiers[k]
-                let bw = rung.bandwidth > 0 ? rung.bandwidth : 1_500_000
-                var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bw),AVERAGE-BANDWIDTH=\(bw)"
-                // Rungs are SDR by build; declare their real resolution and codecs.
-                if !config.videoRange.isEmpty {
-                    line += ",VIDEO-RANGE=SDR"
-                }
-                if !rung.codecs.isEmpty && !config.codecs.isEmpty {
-                    line += ",CODECS=\"\(rung.codecs)\""
-                }
-                if rung.width > 0 && rung.height > 0 {
-                    line += ",RESOLUTION=\(rung.width)x\(rung.height)"
-                }
-                if config.frameRate > 0 {
-                    line += String(format: ",FRAME-RATE=%g", config.frameRate)
-                }
-                // Rungs ride the server-fed audio group when every track has one;
-                // otherwise they share the engine group.
-                line += audioLoActive ? ",AUDIO=\"audio-lo\"" : ",AUDIO=\"audio\""
-                if !config.subtitles.isEmpty {
-                    line += ",SUBTITLES=\"subs\""
-                }
-                line += ",CLOSED-CAPTIONS=NONE"
-                line += "\nt\(k).m3u8\n"
-                tier += line
-            }
+        } else {
+            out += primary
         }
-        out += listTier ? tier : primary
-        reportTier(listed: listTier)
+        NSLog("[LocalRemuxer] Slipstream: master starts on %@ (link %.1f Mb/s, %d rungs)",
+              copyFirst || startRung == nil ? "the copy" : "rung \(startRung ?? 0)", linkBps / 1_000_000, listed.count)
+        reportTier(listed: !adoptedRungs.isEmpty)
         return out
     }
 
@@ -601,25 +614,29 @@ extension RemuxSession {
 
     /// One WebVTT segment of an engine-decoded text track, in output time.
     /// Blocks (bounded) until the read loop passes the window's end, which is
-    /// when the video segment covering it finishes. Past the deadline it serves
-    /// what it holds: a failed request loses the track, a short one a line.
+    /// when the video segment covering it finishes. A window the read loop
+    /// cannot reach in time comes from the server's WebVTT when the track has
+    /// one; otherwise it serves what it holds: a failed request loses the track,
+    /// a short one a line.
     func subtitleSegment(streamIndex: Int, segment n: Int) -> String? {
         guard n >= 0, n < segmentCount else { return nil }
-        guard config.subtitles.contains(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
+        guard let sub = config.subtitles.first(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
 
         let start = segmentStartSeconds(n)
         let end = start + segmentDurationSeconds(n)
+        let hasServer = !sub.serverVttUrl.isEmpty
 
         guard let decoder = awaitTextDecoder(streamIndex: streamIndex) else { return emptySubtitleBody() }
 
-        _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
+        _ = waitUntil(deadline: hasServer ? Self.engineTextWaitSeconds : Self.subtitleSegmentWaitSeconds) { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
             let anchor = self.sessionAnchorSeconds
             let covered = anchor.map { self.readCoversLocked(through: end + $0) } ?? false
             let dead = self.failed || self.cancelled
+            let held = hasServer && self.ridingTierLocked()
             self.stateLock.unlock()
-            if dead || decoder.isComplete { return true }
+            if dead || decoder.isComplete || held { return true }
             return covered
         }
 
@@ -629,12 +646,20 @@ extension RemuxSession {
         let covered = readCoversLocked(through: end + anchor)
         stateLock.unlock()
 
+        var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
+        if !decoder.isComplete, !covered, hasServer, let server = serverCues(streamIndex: streamIndex, deadline: 1.5) {
+            for cue in server where cue.end > start + anchor && cue.start < end + anchor {
+                out += "\n" + webVTTTimestamp(cue.start - anchor) + " --> " + webVTTTimestamp(cue.end - anchor) + "\n"
+                out += cue.text + "\n"
+            }
+            return out
+        }
+
         if !decoder.isComplete, !covered {
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d served at read head %.1fs, window ends %.1fs",
                   n, streamIndex, read - anchor, end)
         }
 
-        var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
         for cue in decoder.cues(from: start + anchor, to: end + anchor) {
             out += "\n" + webVTTTimestamp(cue.start - anchor) + " --> " + webVTTTimestamp(cue.end - anchor) + "\n"
             out += cue.text + "\n"

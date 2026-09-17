@@ -39,6 +39,16 @@ struct RemuxSubtitle {
     /// the session grid. `vttUrl` instead costs a server ffmpeg extraction
     /// before AVPlayer reports ready.
     let isEngineText: Bool
+    /// The server's WebVTT of an engine text track: the cue source for a window the read loop
+    /// cannot reach in time (a slow link, or a session held on the server rungs).
+    var serverVttUrl: String = ""
+}
+
+/// One cue of a server WebVTT, in source time like the decoder's.
+struct ServerCue {
+    let start: Double
+    let end: Double
+    let text: String
 }
 
 /// One selectable audio track. With several tracks, every one becomes its own

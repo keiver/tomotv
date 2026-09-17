@@ -502,6 +502,7 @@ extension RemuxSession {
             sample["produceSeconds"] = produced
             sample["readSeconds"] = readSecondsInSegment
         }
+        bytesInSegment = 0
         readSecondsInSegment = 0
         sleptOnCap = false
         onThroughput?(sample)
@@ -694,18 +695,29 @@ extension RemuxSession {
             durations.append(seg.duration)
             acc += seg.duration
         }
+        // The rest of the ladder is fetched at once, not one after another: each playlist is tens
+        // of kilobytes and a slow link spends seconds per round trip before the first frame.
         var adopted: [Int: [TierSegment]] = [0: canonical]
+        let adoptLock = NSLock()
+        let group = DispatchGroup()
         for k in 1..<config.tiers.count {
-            guard let segs = fetchTierSegments(config.tiers[k].playlistUrl) else {
-                NSLog("[LocalRemuxer] Slipstream: rung %d playlist fetch failed, dropping it", k)
-                continue
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                defer { group.leave() }
+                guard let self, let segs = self.fetchTierSegments(self.config.tiers[k].playlistUrl) else {
+                    NSLog("[LocalRemuxer] Slipstream: rung %d playlist fetch failed, dropping it", k)
+                    return
+                }
+                if segs.count != canonical.count {
+                    NSLog("[LocalRemuxer] Slipstream: rung %d grid mismatch (%d vs %d), dropping it", k, segs.count, canonical.count)
+                    return
+                }
+                adoptLock.lock()
+                adopted[k] = segs
+                adoptLock.unlock()
             }
-            if segs.count != canonical.count {
-                NSLog("[LocalRemuxer] Slipstream: rung %d grid mismatch (%d vs %d), dropping it", k, segs.count, canonical.count)
-                continue
-            }
-            adopted[k] = segs
         }
+        group.wait()
         stateLock.lock()
         tierSegments = adopted
         adoptedStarts = starts
@@ -733,6 +745,9 @@ extension RemuxSession {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.adoptTierGrid()
             self?.probeTier()
+        }
+        if !config.tiers.isEmpty {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in self?.probeLink() }
         }
 
         // ---- Input: opened once; seeks reuse the same context ----
@@ -995,8 +1010,9 @@ extension RemuxSession {
 
         var builtRenditions: [Rendition] = []
         // Slipstream sessions always de-mux audio into its own rendition group
-        // (see masterPlaylist): variant switches must never touch audio.
-        let splitAudio = audioIndices.count > 1 || tierActive
+        // (see masterPlaylist): variant switches must never touch audio. Keyed on the
+        // configured ladder, not the adopted one: adoption can finish after this line runs.
+        let splitAudio = audioIndices.count > 1 || !config.tiers.isEmpty
         if hasVideo && splitAudio {
             builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder,
                                              dolbyVision: primaryDolbyVision))
@@ -1442,9 +1458,7 @@ extension RemuxSession {
                 // starving link is not shared with a pull nobody needs. Any
                 // primary/engine-rendition request flips the timestamps and
                 // reads resume within one poll tick.
-                let tierHold = lastTierDemandAt > lastPrimaryDemandAt
-                    && Date().timeIntervalSince(lastPrimaryDemandAt) > 10
-                    && seekTo == nil && !stop && !starvedWaiter
+                let tierHold = ridingTierLocked() && seekTo == nil && !stop && !starvedWaiter
                 // Live never throttles: the source arrives at its own pace and reads must keep up.
                 let throttled = !config.isLive
                     && ((producingSegment > lastRequestedSegment + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold)
@@ -1589,6 +1603,16 @@ extension RemuxSession {
             }
             defer { av_packet_unref(pkt) }
             inputBytesSinceLog += Int64(pkt.pointee.size)
+            bytesInSegment += Int64(pkt.pointee.size)
+            // Sample the link inside the segment too: a 4MB segment on a slow link takes 20s, and
+            // the pacing rate has to follow a link that drops mid-segment, not trail it by a segment.
+            bytesSinceLinkSample += Int64(pkt.pointee.size)
+            readSecondsSinceLinkSample += readTook
+            if bytesSinceLinkSample >= 512 * 1024 {
+                noteLinkSample(bytes: bytesSinceLinkSample, seconds: readSecondsSinceLinkSample)
+                bytesSinceLinkSample = 0
+                readSecondsSinceLinkSample = 0
+            }
             stateLock.lock()
             pulledBytes += Int64(pkt.pointee.size)
             stateLock.unlock()

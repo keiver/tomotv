@@ -114,7 +114,7 @@ final class TierProbeTests: XCTestCase {
                 tierHeight: 480,
                 startOffsetSeconds: startOffsetSeconds
             ))
-        s.testLinkCeilingBps = linkCeilingBps
+        s.testLinkBps = linkCeilingBps
         let lock = NSLock()
         var reports: [[String: Any]] = []
         s.onTier = { report in
@@ -172,7 +172,8 @@ final class TierProbeTests: XCTestCase {
 
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"))
-        XCTAssertFalse(master.contains("media.m3u8"), "a link below the source lists the tier and withholds v0")
+        XCTAssertTrue(master.contains("media.m3u8"), "the copy stays listed so AVPlayer can climb back to it")
+        XCTAssertLessThan(master.range(of: "t0.m3u8")!.lowerBound, master.range(of: "media.m3u8")!.lowerBound, "a link below the source starts on the rung")
         XCTAssertEqual(states(reports()), ["listed"])
         XCTAssertNotNil(s.tierPlaylist(rung: 0))
 
@@ -285,7 +286,7 @@ final class TierProbeTests: XCTestCase {
         // The probe is still parked on the held segment when the master is written; the rung lists anyway.
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"), "an adopted rung is offered before its segment proves")
-        XCTAssertFalse(master.contains("media.m3u8"), "a link below the source withholds v0")
+        XCTAssertTrue(master.contains("media.m3u8"), "the copy stays listed beside the rung")
         XCTAssertTrue(s.tierOffered)
         XCTAssertEqual(states(reports()), ["listed"])
     }
@@ -367,9 +368,8 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNil(s.tierPlaylist(rung: 0))
     }
 
-    /// A link that carries the source rate lists v0 ALONE and withholds the server tier, so
-    /// AVPlayer never wastes the open probing cold rungs it does not need.
-    func testALinkThatCarriesThePrimaryListsItAlone() throws {
+    /// A link that carries the source rate starts on the copy; the rungs stay listed after it for a later drop.
+    func testALinkThatCarriesThePrimaryStartsOnIt() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         let (s, reports) = try session(linkCeilingBps: 20_000_000)
@@ -377,8 +377,9 @@ final class TierProbeTests: XCTestCase {
         waitForProbe(s)
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("media.m3u8"))
-        XCTAssertFalse(master.contains("t0.m3u8"), "the tier is withheld when the link carries v0")
-        XCTAssertEqual(states(reports()), ["declined"])
+        XCTAssertTrue(master.contains("t0.m3u8"), "the rung stays listed for a later drop")
+        XCTAssertLessThan(master.range(of: "media.m3u8")!.lowerBound, master.range(of: "t0.m3u8")!.lowerBound, "the copy is the startup variant")
+        XCTAssertEqual(states(reports()), ["listed"])
     }
 
     // MARK: - The ladder
@@ -396,8 +397,8 @@ final class TierProbeTests: XCTestCase {
                     TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_692_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480),
                 ]
             ))
-        // Below the 8 Mbps source, above both rungs, so the master lists the ladder and withholds v0.
-        s.testLinkCeilingBps = 2_000_000
+        // Below the 8 Mbps source: the master starts on the biggest rung under 80% of the link (t0).
+        s.testLinkBps = 2_000_000
         return s
     }
 

@@ -24,6 +24,16 @@ enum LocalHTTPResponse {
     case notFound
 }
 
+/// One served request, timed: ms from routing start to the first body byte handed to the stack,
+/// and to the stack having processed the last one (not the peer's receipt).
+struct LocalHTTPRequestRecord {
+    let path: String
+    let status: Int
+    let bytes: Int
+    let firstBodyMs: Int
+    let doneMs: Int
+}
+
 final class LocalHTTPServer {
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "tv.tomo.localhttp")
@@ -48,6 +58,20 @@ final class LocalHTTPServer {
     private let route: (String) -> LocalHTTPResponse
 
     private(set) var port: UInt16 = 0
+    /// Every request, timed (drills). Set before start().
+    var requestObserver: ((LocalHTTPRequestRecord) -> Void)?
+    /// Logs every request with timing: `-TomoRequestLog YES` launch argument or TOMO_REQUEST_LOG=1.
+    private static let logsEveryRequest =
+        UserDefaults.standard.bool(forKey: "TomoRequestLog") || ProcessInfo.processInfo.environment["TOMO_REQUEST_LOG"] == "1"
+
+    private func record(_ path: String, status: Int, bytes: Int, started: DispatchTime, firstBody: DispatchTime?) {
+        let ms = { (t: DispatchTime) in Int((t.uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000) }
+        let entry = LocalHTTPRequestRecord(path: path, status: status, bytes: bytes, firstBodyMs: firstBody.map(ms) ?? -1, doneMs: ms(.now()))
+        if Self.logsEveryRequest {
+            NSLog("[LocalHTTPServer] REQ %@ status=%d bytes=%d firstBodyMs=%d doneMs=%d", path, status, bytes, entry.firstBodyMs, entry.doneMs)
+        }
+        requestObserver?(entry)
+    }
     /// Playlist paths already logged; a live playlist is reloaded every target duration.
     private var loggedPlaylists = Set<String>()
     private let loggedPlaylistsLock = NSLock()
@@ -236,26 +260,32 @@ final class LocalHTTPServer {
             // Init segments and the first request of each playlist name the request sequence
             // preceding a player-side failure; media segments and a live playlist's reloads would
             // log every few seconds.
-            if !path.hasSuffix(".m4s"), self.noteFirstRequest(path) { NSLog("[LocalHTTPServer] GET %@", path) }
+            if !Self.logsEveryRequest, !path.hasSuffix(".m4s"), self.noteFirstRequest(path) { NSLog("[LocalHTTPServer] GET %@", path) }
+            let started = DispatchTime.now()
+            let traced = { (status: Int, bytes: Int) -> (DispatchTime?) -> Void in
+                { [weak self] firstBody in self?.record(path, status: status, bytes: bytes, started: started, firstBody: firstBody) }
+            }
             switch self.route(path) {
             case .data(let data, let contentType):
-                self.send(connection, status: "200 OK", contentType: contentType, body: data)
+                self.send(connection, status: "200 OK", contentType: contentType, body: data, onDone: traced(200, data.count))
             case .file(let url, let contentType):
                 guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
                     NSLog("[LocalHTTPServer] 404 (unreadable) %@", path)
-                    self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data())
+                    self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data(), onDone: traced(404, 0))
                     return
                 }
                 if let (slice, header) = self.slice(data, rangeHeader: rangeHeader) {
-                    self.send(connection, status: "206 Partial Content", contentType: contentType, body: slice, extraHeaders: header)
+                    self.send(connection, status: "206 Partial Content", contentType: contentType, body: slice, extraHeaders: header, onDone: traced(206, slice.count))
                 } else {
-                    self.send(connection, status: "200 OK", contentType: contentType, body: data)
+                    self.send(connection, status: "200 OK", contentType: contentType, body: data, onDone: traced(200, data.count))
                 }
             case .streamed(let contentType, let provider):
-                self.sendStreamed(connection, contentType: contentType, provider: provider)
+                self.sendStreamed(connection, contentType: contentType, provider: provider) { firstBody, bytes in
+                    traced(bytes > 0 ? 200 : 0, bytes)(firstBody)
+                }
             case .notFound:
                 NSLog("[LocalHTTPServer] 404 %@", path)
-                self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data())
+                self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data(), onDone: traced(404, 0))
             }
         }
     }
@@ -265,7 +295,7 @@ final class LocalHTTPServer {
     /// are FIFO, so the linear sequence needs no nesting; a dead connection
     /// just absorbs the later sends. Apple's own LL-HLS delivers segment parts
     /// over chunked transfer, so the client side of this is well-trodden.
-    private func sendStreamed(_ connection: NWConnection, contentType: String, provider: () -> URL?) {
+    private func sendStreamed(_ connection: NWConnection, contentType: String, provider: () -> URL?, onDone: @escaping (DispatchTime?, Int) -> Void) {
         var head = "HTTP/1.1 200 OK\r\n"
         head += "Content-Type: \(contentType)\r\n"
         head += "Transfer-Encoding: chunked\r\n"
@@ -278,14 +308,17 @@ final class LocalHTTPServer {
         guard let url = provider(), let body = try? Data(contentsOf: url, options: .mappedIfSafe), !body.isEmpty else {
             // Truncated chunked body: the peer sees a hard failure, not silence.
             connection.cancel()
+            onDone(nil, 0)
             return
         }
         // One chunk carries the whole segment; the mapped Data goes out as its
         // own send (same no-copy rule as send() below).
+        let firstBody = DispatchTime.now()
         connection.send(content: Data(String(format: "%X\r\n", body.count).utf8), completion: .contentProcessed { _ in })
         connection.send(content: body, completion: .contentProcessed { _ in })
         connection.send(content: Data("\r\n0\r\n\r\n".utf8), completion: .contentProcessed { _ in
             connection.cancel()
+            onDone(firstBody, body.count)
         })
     }
 
@@ -303,7 +336,7 @@ final class LocalHTTPServer {
         return (slice, "Content-Range: bytes \(start)-\(end)/\(data.count)\r\n")
     }
 
-    private func send(_ connection: NWConnection, status: String, contentType: String, body: Data, extraHeaders: String = "") {
+    private func send(_ connection: NWConnection, status: String, contentType: String, body: Data, extraHeaders: String = "", onDone: ((DispatchTime?) -> Void)? = nil) {
         var head = "HTTP/1.1 \(status)\r\n"
         head += "Content-Type: \(contentType)\r\n"
         head += "Content-Length: \(body.count)\r\n"
@@ -328,14 +361,18 @@ final class LocalHTTPServer {
         connection.send(content: Data(head.utf8), completion: .contentProcessed { error in
             guard error == nil else {
                 connection.cancel()
+                onDone?(nil)
                 return
             }
             guard !body.isEmpty else {
                 connection.cancel()
+                onDone?(nil)
                 return
             }
+            let firstBody = DispatchTime.now()
             connection.send(content: body, completion: .contentProcessed { _ in
                 connection.cancel()
+                onDone?(firstBody)
             })
         })
     }

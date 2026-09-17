@@ -11,6 +11,7 @@ extension RemuxSession {
     // MARK: - Lifecycle
 
     func start() {
+        prefetchServerCues()
         let thread = Thread { [weak self] in
             self?.runPipeline()
         }

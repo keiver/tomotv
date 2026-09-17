@@ -82,12 +82,16 @@ extension RemuxSession {
         let semaphore = DispatchSemaphore(value: 0)
         var result: Data? = nil
         var status = 0
+        let started = Date()
         URLSession.shared.dataTask(with: request) { data, response, _ in
             if let http = response as? HTTPURLResponse { status = http.statusCode }
             if let data, (200..<300).contains(status) { result = data }
             semaphore.signal()
         }.resume()
         _ = semaphore.wait(timeout: .now() + 35)
+        // The server's own transcode wait is in here too, so this reads at or below the link:
+        // a pessimistic sample, which is the safe direction for the pacing rate.
+        if let result { noteLinkSample(bytes: Int64(result.count), seconds: Date().timeIntervalSince(started)) }
         return (result, status)
     }
 
@@ -169,9 +173,34 @@ extension RemuxSession {
         stateLock.unlock()
         return .streamed(contentType: "video/mp4") { [weak self] in
             guard let self else { return nil }
-            _ = self.materializeTierSegment(rung: rung, target)
             let file = self.dir.appendingPathComponent("t\(rung)-init.mp4")
+            // The head of a segment carries the whole init (measured: 32KB of a 3.2MB 720p segment
+            // gives identical bytes), so a cold rung starts without fetching the full segment.
+            if self.materializeTierInit(rung: rung, from: target) == nil {
+                _ = self.materializeTierSegment(rung: rung, target)
+            }
             return FileManager.default.fileExists(atPath: file.path) ? file : nil
+        }
+    }
+
+    /// Bytes of a segment's head fetched for its init; twice the measured need.
+    static let tierInitHeadBytes = 64 * 1024
+
+    func materializeTierInit(rung: Int, from n: Int) -> URL? {
+        dedupedMaterialization("t\(rung)-init") {
+            let initFile = dir.appendingPathComponent("t\(rung)-init.mp4")
+            if FileManager.default.fileExists(atPath: initFile.path) { return initFile }
+            if isTierDisabled { return nil }
+            guard let remote = tierSegmentRemoteURL(rung: rung, n),
+                  let head = TierHeadFetcher.fetch(remote, bytes: Self.tierInitHeadBytes, timeout: 30) else { return nil }
+            let aligned = head.prefix(head.count / 188 * 188)
+            guard let rewrapped = TierRewrapper.rewrap(tsData: aligned, targetStartSeconds: segmentStartSeconds(n)) else { return nil }
+            do {
+                try rewrapped.initSegment.write(to: initFile)
+            } catch {
+                return nil
+            }
+            return initFile
         }
     }
 
@@ -186,4 +215,57 @@ extension RemuxSession {
         return .streamed(contentType: "video/iso.segment") { [weak self] in self?.materializeTierSegment(rung: rung, n) }
     }
 
+}
+
+/// The first `bytes` of a response, then the transfer is cancelled. nil on an error status or a timeout.
+final class TierHeadFetcher: NSObject, URLSessionDataDelegate {
+    private let wanted: Int
+    private let done = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var data = Data()
+    private var ok = false
+    private var finished = false
+
+    private init(wanted: Int) {
+        self.wanted = wanted
+    }
+
+    static func fetch(_ url: URL, bytes: Int, timeout: Double) -> Data? {
+        let fetcher = TierHeadFetcher(wanted: bytes)
+        let session = URLSession(configuration: .ephemeral, delegate: fetcher, delegateQueue: nil)
+        session.dataTask(with: URLRequest(url: url, timeoutInterval: timeout)).resume()
+        _ = fetcher.done.wait(timeout: .now() + timeout + 1)
+        session.invalidateAndCancel()
+        fetcher.lock.lock()
+        defer { fetcher.lock.unlock() }
+        return fetcher.ok && !fetcher.data.isEmpty ? fetcher.data : nil
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        lock.lock()
+        ok = (200..<300).contains(status)
+        lock.unlock()
+        completionHandler(ok ? .allow : .cancel)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+        lock.lock()
+        data.append(chunk)
+        let enough = data.count >= wanted && !finished
+        if enough { finished = true }
+        lock.unlock()
+        if enough {
+            dataTask.cancel()
+            done.signal()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        let first = !finished
+        finished = true
+        lock.unlock()
+        if first { done.signal() }
+    }
 }
