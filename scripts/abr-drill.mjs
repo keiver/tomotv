@@ -34,7 +34,7 @@ const ITEMS = opt("--items", "T101,T102").split(",");
 const IDS = opt("--scenarios", "S1,S2,S3,S4,S5,S6,S7").split(",");
 const LINK = opt("--link", null);
 // The app sets preferredForwardBufferDuration on rung sessions (useVideoPlayback); the drill mirrors it.
-const BUFFER = opt("--buffer", "6");
+const BUFFER = opt("--buffer", "12");
 // The app always renders to a screen, and AVPlayer caps its variant choice without one (measured: S4 never climbed).
 const WINDOW = !args.includes("--no-window");
 // The app caps AVPlayer to the engine's measured link; the drill does the same so the two match.

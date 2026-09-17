@@ -171,7 +171,13 @@ final class SlipstreamDrillTests: XCTestCase {
                 break
             }
             let position = player.currentTime().seconds
-            if firstFrameAt == nil, position > offset + 0.2 { firstFrameAt = now; emit("firstFrame", ["position": position]) }
+            if firstFrameAt == nil, position > offset + 0.2 {
+                firstFrameAt = now
+                emit("firstFrame", ["position": position])
+                // As the app does: the short forward buffer gets the picture up, then AVPlayer
+                // builds its own depth, which is what a link drop is survived on.
+                item.preferredForwardBufferDuration = 0
+            }
             let buffered = item.loadedTimeRanges.map { $0.timeRangeValue }.first { CMTimeRangeContainsTime($0, time: player.currentTime()) }
             let ahead = buffered.map { CMTimeGetSeconds(CMTimeRangeGetEnd($0)) - position } ?? 0
             emit("tick", [

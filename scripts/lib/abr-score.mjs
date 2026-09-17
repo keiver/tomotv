@@ -130,9 +130,19 @@ export function score(id, timeline, { expectAudio, expectSubs } = {}) {
       check("opens on the copy", firstVideo === "copy", `first video ${firstVideo}`);
       // AVPlayer evaluates the lowest variant once while it opens, whatever the link; what matters
       // is that a link carrying the copy plays the copy.
-      const afterFrame = firstFrame ? runs.filter((r) => r.fromMs > firstFrame.ms) : runs;
-      const probes = afterFrame.filter((r) => r.variant !== "copy").reduce((n, r) => n + r.count, 0);
-      check("plays the copy, not a rung", probes <= 2 && afterFrame.at(-1)?.variant === "copy", afterFrame.map((r) => `${r.variant}x${r.count}`).join(" ") || "copy only");
+      // Counted per request, not per run: an uninterrupted copy run starts before the first frame
+      // and keeps serving after it, so a run filter would find nothing to judge.
+      const videoAfter = timeline
+        .filter((r) => r.kind === "req" && (!firstFrame || r.ms > firstFrame.ms))
+        .map((r) => classify(r.path.split("/").pop()))
+        .filter((c) => c.video);
+      const probes = videoAfter.filter((c) => c.variant !== "copy").length;
+      const lastVariant = videoAfter.at(-1)?.variant ?? runs.at(-1)?.variant;
+      check(
+        "plays the copy, not a rung",
+        probes <= 2 && lastVariant === "copy",
+        videoAfter.length ? `${probes} rung of ${videoAfter.length} segments, last ${lastVariant}` : `no segment after the first frame, last ${lastVariant}`,
+      );
       break;
     }
     case "S2":

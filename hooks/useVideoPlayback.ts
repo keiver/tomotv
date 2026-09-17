@@ -193,8 +193,8 @@ const LINK_CAP_SHARE = 0.8;
 const LINK_CLIMB_HOLD_MS = 5_000;
 /** Smallest gap between two such rebuilds, so a link hovering at the source rate cannot bounce. */
 const LINK_CLIMB_COOLDOWN_MS = 60_000;
-/** What AVPlayer buffers ahead on the rung lane, where its own threshold costs a server encode per segment. */
-const SLIPSTREAM_FORWARD_BUFFER_SECONDS = 6;
+/** What AVPlayer buffers ahead to reach the first frame on the rung lane, where its own threshold costs a server encode per segment. */
+const SLIPSTREAM_FORWARD_BUFFER_SECONDS = 12;
 /** A live stream the player has not opened by then is treated as dropped; the live ladder takes it. */
 const LIVE_START_DEADLINE_MS = 45_000;
 /** A movie the player has not opened by then bails to its next lane. Wide enough to clear the
@@ -1610,8 +1610,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 preflightOpen = false;
                 onTierLaneRef.current = true;
                 // AVPlayer's own start threshold buffers around 24s of media, and every rung segment
-                // costs a server encode: 0.6 Mb/s took 38s to a first frame. Six seconds is one
-                // segment ahead, which the rungs refill in under half their duration (14.7s, no stall).
+                // costs a server encode: 0.6 Mb/s took 38s to a first frame. Two server segments is
+                // enough to ride out the encoder's warm-up, which one is not (measured: segment 1
+                // landed 0.3s late and AVPlayer then rebuffered for 12s).
                 setForwardBufferSeconds(SLIPSTREAM_FORWARD_BUFFER_SECONDS);
                 probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, readSeconds: null, thermal: "unknown", remembered: false, keptForTier: true });
                 logger.info("Ladder offered, opening on the smallest rung without timing the engine primary", { service: "useVideoPlayback" });
@@ -2215,6 +2216,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 logger.debug("Stable playback detected, hiding spinner", { service: "useVideoPlayback" });
                 hasStablePlaybackRef.current = true;
                 resetPlaybackStages();
+                // The short forward buffer is a startup device only: once the picture is up
+                // AVPlayer goes back to building the deep buffer a link drop is survived on
+                // (measured with 6s held: the 30 -> 1.5 Mb/s drop stalled 37s).
+                setForwardBufferSeconds(null);
                 setImmediate(() => {
                   if (!isMountedRef.current) return;
                   setHasStablePlayback(true);
