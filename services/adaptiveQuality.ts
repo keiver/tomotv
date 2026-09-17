@@ -245,105 +245,52 @@ export function advanceAdaptive(state: AdaptiveQualityState, event: AdaptiveEven
 }
 
 /**
- * Gateway (Slipstream) survival-cap controller. A gateway session that opened
- * capped to the server tier (the link could not carry the source-copy primary,
- * v0) climbs back to the primary the moment the link proves it can. The move
- * is a live preferredPeakBitRate flip (no session rebuild): `capped` pins
- * preferredPeakBitRate at the tier, `raised` lifts the limit so AVPlayer's ABR
- * may pick v0. Raise needs a saturated buffer and a fresh probe clearing the
- * SOURCE bitrate at up-trust; a draining buffer or stall pins back to the tier.
- * The reversal-damped dwell keeps it off an unproducible primary.
+ * Buffer-driven Slipstream ladder. The loopback blinds AVPlayer's own ABR (it measures 127.0.0.1,
+ * not the real upstream link), so the rung is chosen here from buffer occupancy, the one true
+ * end-to-end health signal (Netflix BBA). Start UNCAPPED at the engine primary: a link that carries
+ * the on-device stream copy keeps its full quality and never touches the server, and only a draining
+ * buffer drops it down the rungs, climbing back when the buffer recovers. `caps` are ascending rung
+ * BANDWIDTHs; index === caps.length is uncapped (the primary), the starting point.
  */
-export interface GatewayCapState {
-  capped: boolean;
-  tierCapBps: number;
-  sourceBps: number;
-  lastChangeMs: number;
-  lastDirection: "up" | "down" | null;
-  upDwellMs: number;
-  drainingTicks: number;
-  lastOccupancySec: number | null;
-  lastThroughputBps: number | null;
-  lastThroughputAtMs: number;
-  lastProbeAtMs: number;
-  seekGraceUntilMs: number;
+export const LADDER_RAISE_OCCUPANCY_SEC = 12;
+export const LADDER_DRAIN_OCCUPANCY_SEC = 4;
+export const LADDER_RAISE_DWELL_MS = 8_000;
+export const LADDER_DROP_DWELL_MS = 2_000;
+
+export interface SlipstreamLadderState {
+  caps: number[];
+  index: number;
+  lastSwitchMs: number;
 }
 
-export function createGatewayCapState(tierCapBps: number, sourceBps: number, nowMs: number): GatewayCapState {
-  return {
-    capped: true,
-    tierCapBps,
-    sourceBps,
-    lastChangeMs: nowMs,
-    lastDirection: null,
-    upDwellMs: BASE_DWELL_MS,
-    drainingTicks: 0,
-    lastOccupancySec: null,
-    lastThroughputBps: null,
-    lastThroughputAtMs: 0,
-    lastProbeAtMs: nowMs,
-    seekGraceUntilMs: 0,
-  };
+export function createSlipstreamLadder(caps: number[], nowMs: number): SlipstreamLadderState {
+  return { caps, index: caps.length, lastSwitchMs: nowMs };
 }
 
-/** Whether to probe leftover bandwidth now: only capped, on a healthy buffer, spaced out. */
-export function shouldProbeGatewayCap(state: GatewayCapState, occupancySec: number, nowMs: number): boolean {
-  return state.capped && occupancySec >= OCCUPANCY_SATURATED_SEC && nowMs - state.lastProbeAtMs >= PROBE_INTERVAL_MS;
+/** The preferredPeakBitRate for a state: the current rung's BANDWIDTH, or null (uncapped) at the top. */
+export function ladderCap(state: SlipstreamLadderState): number | null {
+  return state.index < state.caps.length ? state.caps[state.index] : null;
 }
 
-export function markGatewayProbeStarted(state: GatewayCapState, nowMs: number): GatewayCapState {
-  return { ...state, lastProbeAtMs: nowMs };
-}
-
-function applyGatewayLower(state: GatewayCapState, nowMs: number): { state: GatewayCapState; switchTo: "raised" | "capped" | null } {
-  const reset = { ...state, drainingTicks: 0 };
-  if (state.capped) return { state: reset, switchTo: null };
-  // A lower soon after a raise means the raise was premature: damp the next one.
-  const reversal = state.lastDirection === "up" && nowMs - state.lastChangeMs <= REVERSAL_BACKOFF_WINDOW_MS;
-  return {
-    state: { ...reset, capped: true, lastChangeMs: nowMs, lastDirection: "down", upDwellMs: reversal ? state.upDwellMs * 2 : state.upDwellMs },
-    switchTo: "capped",
-  };
-}
-
-export function advanceGatewayCap(state: GatewayCapState, event: AdaptiveEvent): { state: GatewayCapState; switchTo: "raised" | "capped" | null } {
-  switch (event.kind) {
-    case "throughput":
-      return { state: { ...state, lastThroughputBps: event.bps, lastThroughputAtMs: event.nowMs }, switchTo: null };
-
-    case "seeked":
-      return { state: { ...state, drainingTicks: 0, lastOccupancySec: null, seekGraceUntilMs: event.nowMs + SEEK_GRACE_MS }, switchTo: null };
-
-    case "stall":
-      // A stall inside the seek grace is the seek buffering, not the link.
-      if (event.nowMs < state.seekGraceUntilMs) return { state, switchTo: null };
-      return applyGatewayLower(state, event.nowMs);
-
-    case "tick": {
-      const inGrace = event.nowMs < state.seekGraceUntilMs;
-      const prev = state.lastOccupancySec;
-      const draining = prev != null && event.occupancySec < prev;
-      const low = event.occupancySec < OCCUPANCY_FLOOR_SEC;
-      const drainingTicks = !inGrace && low && draining ? state.drainingTicks + 1 : 0;
-      const next = { ...state, lastOccupancySec: event.occupancySec, drainingTicks };
-
-      // Raised and draining: the primary is not sustainable, so pin the tier back.
-      if (!next.capped && drainingTicks >= DRAIN_TICKS_TO_SWITCH) return applyGatewayLower(next, event.nowMs);
-
-      // Raise: capped, saturated buffer, a fresh probe clearing the SOURCE
-      // bitrate at up-trust, dwell elapsed. The primary is a source-rate copy,
-      // so the requirement is the source bitrate, not a preset.
-      if (
-        next.capped &&
-        event.occupancySec >= OCCUPANCY_SATURATED_SEC &&
-        next.lastThroughputBps != null &&
-        event.nowMs - next.lastThroughputAtMs <= THROUGHPUT_STALE_MS &&
-        event.nowMs - next.lastChangeMs >= next.upDwellMs &&
-        next.lastThroughputBps * BW_UP_TRUST >= next.sourceBps
-      ) {
-        return { state: { ...next, capped: false, lastChangeMs: event.nowMs, lastDirection: "up", drainingTicks: 0 }, switchTo: "raised" };
-      }
-      return { state: next, switchTo: null };
-    }
+/**
+ * One buffer tick. A drain drops a rung on a short dwell to protect playback; a saturated buffer
+ * climbs a rung on a longer dwell. Returns the new state and whether the cap changed.
+ */
+export function advanceSlipstreamLadder(state: SlipstreamLadderState, event: { occupancySec: number; nowMs: number }): { state: SlipstreamLadderState; changed: boolean } {
+  const top = state.caps.length;
+  const since = event.nowMs - state.lastSwitchMs;
+  let index = state.index;
+  if (event.occupancySec <= LADDER_DRAIN_OCCUPANCY_SEC && index > 0 && since >= LADDER_DROP_DWELL_MS) {
+    index -= 1;
+  } else if (event.occupancySec >= LADDER_RAISE_OCCUPANCY_SEC && index < top && since >= LADDER_RAISE_DWELL_MS) {
+    index += 1;
   }
+  if (index === state.index) return { state, changed: false };
+  return { state: { ...state, index, lastSwitchMs: event.nowMs }, changed: true };
+}
+
+/** A stall means the current rung outran the link: drop straight to the smallest rung to recover. */
+export function dropLadderToFloor(state: SlipstreamLadderState, nowMs: number): { state: SlipstreamLadderState; changed: boolean } {
+  if (state.index === 0) return { state, changed: false };
+  return { state: { ...state, index: 0, lastSwitchMs: nowMs }, changed: true };
 }

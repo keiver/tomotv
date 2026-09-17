@@ -1,5 +1,4 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
-import { Platform } from "react-native";
 import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, OnPlaybackStateChangedData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
 import {
   fetchVideoDetails,
@@ -34,7 +33,6 @@ import {
   belowRealtime,
   canRemuxLocally,
   tierDeclaredFor,
-  deficitExceedsCushion,
   engineInputMissing,
   engineProgress,
   engineStarving,
@@ -44,13 +42,10 @@ import {
   readBound,
   posterFrameWorkInFlight,
   resolveSubtitlePick,
-  sessionBaseUrl,
+  offeredTierBandwidths,
   slipstreamEligible,
-  slipstreamTierBandwidth,
-  startFrameProvider,
   startLocalRemux,
   startPlaylistShim,
-  stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
   subscribeEngineFailure,
@@ -82,19 +77,21 @@ import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } fro
 import { IS_MAC } from "@/utils/hostEnvironment";
 import {
   advanceAdaptive,
-  advanceGatewayCap,
+  advanceSlipstreamLadder,
   createAdaptiveState,
-  createGatewayCapState,
+  createSlipstreamLadder,
+  dropLadderToFloor,
   FLOOR_INDEX,
   gatewayMaxBitRate,
-  markGatewayProbeStarted,
+  ladderCap,
+  LADDER_DRAIN_OCCUPANCY_SEC,
   markProbeStarted,
   ORIGINAL_INDEX,
   pickStartupIndex,
-  shouldProbeGatewayCap,
+  SEEK_GRACE_MS,
   shouldProbeThroughput,
   type AdaptiveQualityState,
-  type GatewayCapState,
+  type SlipstreamLadderState,
 } from "@/services/adaptiveQuality";
 import { measureServerBitrate, rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
@@ -347,8 +344,6 @@ export interface VideoPlaybackResult {
   //
   /** Loopback session URL to fetch cue manifests and images from. */
   imageSubtitleSessionUrl: string | null;
-  /** Base URL the tvOS chapter list fetches its keyframes from, null off TV or before the stream exists. */
-  chapterFrameBaseUrl: string | null;
   /** Source stream index of the selected image track, or null. */
   activeImageSubtitleStream: number | null;
   /**
@@ -481,9 +476,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const adaptiveRef = useRef<AdaptiveQualityState | null>(null);
   // Preset index a mid-session switch rebuilds the stream with.
   const adaptiveOverrideIndexRef = useRef<number | null>(null);
-  // Gateway survival-cap controller: raises the cap off the tier back to the
-  // engine primary when the link recovers (null = inactive / not survival-capped).
-  const gatewayCapRef = useRef<GatewayCapState | null>(null);
+  // Buffer-driven ladder controller: steps preferredPeakBitRate rung by rung from AVPlayer's buffer
+  // occupancy, since the loopback blinds its own ABR (null = inactive / no ladder this session).
+  const slipstreamLadderRef = useRef<SlipstreamLadderState | null>(null);
+  // A seek empties the buffer; hold ladder drops until this passes so the refill is not read as drain.
+  const ladderSeekGraceUntilRef = useRef(0);
   // True while the session rides the Slipstream tier as its survival floor: the
   // engine primary is unproducible on this link by design, so primary-starvation
   // teardowns (stall restart, engineStarving handover) are suppressed. The plain
@@ -650,9 +647,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // This player's playlist shim (EXT-X-START resume on the server lane) —
   // per-instance for the same overlap reason as the remux token.
   const playlistShimTokenRef = useRef<string | null>(null);
-  // This player's frame provider (chapter keyframes on the lanes that run no remux
-  // session), per-instance for the same overlap reason.
-  const frameProviderTokenRef = useRef<string | null>(null);
   // Direct-lane stall watchdog: playhead snapshot + expiry timer, armed by
   // AVPlayer's buffer-empty event. Direct play is the one lane with no
   // recovery of its own — a starving session stalls WITHOUT an error, so
@@ -1080,8 +1074,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   useEffect(() => {
     streamUrlRef.current = streamUrl;
   }, [streamUrl]);
-  // Where the tvOS chapter list fetches its keyframes from, published with the stream URL.
-  const [chapterFrameBaseUrl, setChapterFrameBaseUrl] = useState<string | null>(null);
   // Slipstream gateway sessions: RNV maxBitRate (→ preferredPeakBitRate, live)
   // caps which loopback variant AVPlayer may pick. A pinned quality preset
   // becomes this cap — seamless, no session rebuild; Auto and every
@@ -1131,6 +1123,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     } else {
       hasTriedTranscodingRef.current = true;
       setHasTriedTranscoding(true);
+      // The engine starved on this link, so the server lane enters at the floor and adapts up.
+      // Without this it takes the Auto startup pick, which trusts a bitrate probe that overreads a
+      // throttled link and opens at Original: a bitrate the link cannot carry (black video, audio only).
+      stallFallbackRef.current = true;
     }
     seekToPositionAfterLoadRef.current = position;
     autoPlayTriggeredRef.current = false;
@@ -1283,7 +1279,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         if (mode === "transcode") {
           setPlaybackStage("server");
           // Single-variant server stream: no ladder for maxBitRate to steer.
-          gatewayCapRef.current = null;
+          slipstreamLadderRef.current = null;
           onTierLaneRef.current = false;
           setVideoMaxBitRate(null);
           // Check if we have a specific audio track selected (from user switching)
@@ -1465,114 +1461,127 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 stopStage();
                 stopTier();
               };
-              // A failure reported before these listeners existed is never replayed: ask the session itself.
-              const startedAlive = await engineProgress(token);
-              if (startedAlive !== null && !startedAlive.alive) settleFirst({ failed: "engine session ended before its pre-flight" });
-              // A deadline that finds the session alive and still pulling bytes at the link's pace
-              // is the link's deadline, not the engine's: wait again, up to the cap.
-              let outcome: PreflightOutcome = null;
-              let waitedMs = 0;
-              let bytesSeen = -1;
-              while (requestIdRef.current === currentRequestId) {
-                outcome = await nextOutcome(ENGINE_SEGMENT_DEADLINE_MS);
-                waitedMs += ENGINE_SEGMENT_DEADLINE_MS;
-                if (outcome !== null || waitedMs >= ENGINE_PREFLIGHT_CAP_MS) break;
-                const progress = await engineProgress(token);
-                const pulling =
-                  progress != null && progress.alive && progress.bytesRead > bytesSeen && progress.elapsedSeconds > 0 && progress.readSeconds / progress.elapsedSeconds >= READ_BOUND_SHARE;
-                if (!pulling) break;
-                bytesSeen = progress.bytesRead;
-                probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, extendedSeconds: waitedMs / 1000 });
-                logger.info("Engine is still pulling the opening segment at the link's pace, waiting on it", {
-                  service: "useVideoPlayback",
-                  waitedSeconds: waitedMs / 1000,
-                  megabytesRead: Math.round(progress.bytesRead / 100_000) / 10,
-                });
-              }
-              preflightOpen = false;
-              if (requestIdRef.current !== currentRequestId) {
-                stopLocalRemux(token);
-                // A newer run may own the shared token and watch by now; clearing them leaks its session.
-                if (localRemuxTokenRef.current === token) {
-                  localRemuxTokenRef.current = null;
-                  dropThroughputWatch(throughputRef.current);
-                }
-                return;
-              }
-              if (outcome && "failed" in outcome) {
-                // Nothing was read, so nothing was measured about the device: no verdict.
-                probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, failed: outcome.failed });
-                stopLocalRemux(token);
-                localRemuxTokenRef.current = null;
-                dropThroughputWatch(throughputRef.current);
-                if (engineInputMissing(outcome.failed) && !playsFromDisk(videoId)) throw new EngineInputMissingError(outcome.failed);
-                throw new Error(`engine failed: ${outcome.failed}`);
-              }
-              const sample = outcome;
-              // Why a below-realtime engine is KEPT instead of routed to the server. Anything
-              // below realtime with none of these reasons is the device's fault and hands over.
-              //   "tier": a Slipstream rung is declared, so play it (the primary is never measured).
-              //   "live": the channel has no server transcode, so the engine is the only lane.
-              //   "link": the segment was slow because the input arrived slowly, not the device.
-              let keptFor: "tier" | "live" | "link" | null = null;
-              if (sample && belowRealtime(sample)) {
-                if (isLiveRef.current) {
-                  keptFor = (await openLiveServerRung()) ? null : "live";
-                } else if (tierDeclaredFor(token)) {
-                  keptFor = "tier";
-                } else if (readBound(sample)) {
-                  keptFor = "link";
-                }
-              }
-              if (requestIdRef.current !== currentRequestId) {
-                stopLocalRemux(token);
-                if (localRemuxTokenRef.current === token) {
-                  localRemuxTokenRef.current = null;
-                  dropThroughputWatch(throughputRef.current);
-                }
-                return;
-              }
-              if (sample && keptFor) {
-                probeEmit("preflight", {
-                  produceSeconds: sample.produceSeconds ?? null,
-                  segmentSeconds: sample.segmentSeconds,
-                  readSeconds: sample.readSeconds ?? null,
-                  thermal: sample.thermal,
-                  remembered: false,
-                  ...(keptFor === "tier" ? { keptForTier: true } : { keptForLink: true }),
-                });
-                logger.info(
-                  keptFor === "live"
-                    ? "Engine is below realtime on a live channel, which has no other lane, keeping it"
-                    : keptFor === "tier"
-                      ? "Engine is below realtime but the session carries a server tier, keeping it"
-                      : "Engine is below realtime because the input arrived slower than it plays, keeping it",
-                  {
+              if (tierDeclaredFor(token)) {
+                // A ladder is offered: AVPlayer opens on the smallest rung and climbs as it measures
+                // the segments it downloads, so the engine primary's segment 0 is never the startup
+                // gate. Serve the master now rather than wait on a pull the player will not use at
+                // startup. Arm the tier lane up front; the tier report confirms it on "listed" or
+                // clears it on "declined"/"dropped", so a ladder the server cannot deliver still falls
+                // to the transcode and never hangs. Samples now feed the mid-play starvation watch.
+                preflightOpen = false;
+                onTierLaneRef.current = true;
+                probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, readSeconds: null, thermal: "unknown", remembered: false, keptForTier: true });
+                logger.info("Ladder offered, opening on the smallest rung without timing the engine primary", { service: "useVideoPlayback" });
+              } else {
+                // A failure reported before these listeners existed is never replayed: ask the session itself.
+                const startedAlive = await engineProgress(token);
+                if (startedAlive !== null && !startedAlive.alive) settleFirst({ failed: "engine session ended before its pre-flight" });
+                // A deadline that finds the session alive and still pulling bytes at the link's pace
+                // is the link's deadline, not the engine's: wait again, up to the cap.
+                let outcome: PreflightOutcome = null;
+                let waitedMs = 0;
+                let bytesSeen = -1;
+                while (requestIdRef.current === currentRequestId) {
+                  outcome = await nextOutcome(ENGINE_SEGMENT_DEADLINE_MS);
+                  waitedMs += ENGINE_SEGMENT_DEADLINE_MS;
+                  if (outcome !== null || waitedMs >= ENGINE_PREFLIGHT_CAP_MS) break;
+                  const progress = await engineProgress(token);
+                  const pulling =
+                    progress != null && progress.alive && progress.bytesRead > bytesSeen && progress.elapsedSeconds > 0 && progress.readSeconds / progress.elapsedSeconds >= READ_BOUND_SHARE;
+                  if (!pulling) break;
+                  bytesSeen = progress.bytesRead;
+                  probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, extendedSeconds: waitedMs / 1000 });
+                  logger.info("Engine is still pulling the opening segment at the link's pace, waiting on it", {
                     service: "useVideoPlayback",
-                    produceSeconds: sample.produceSeconds,
+                    waitedSeconds: waitedMs / 1000,
+                    megabytesRead: Math.round(progress.bytesRead / 100_000) / 10,
+                  });
+                }
+                preflightOpen = false;
+                if (requestIdRef.current !== currentRequestId) {
+                  stopLocalRemux(token);
+                  // A newer run may own the shared token and watch by now; clearing them leaks its session.
+                  if (localRemuxTokenRef.current === token) {
+                    localRemuxTokenRef.current = null;
+                    dropThroughputWatch(throughputRef.current);
+                  }
+                  return;
+                }
+                if (outcome && "failed" in outcome) {
+                  // Nothing was read, so nothing was measured about the device: no verdict.
+                  probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, failed: outcome.failed });
+                  stopLocalRemux(token);
+                  localRemuxTokenRef.current = null;
+                  dropThroughputWatch(throughputRef.current);
+                  if (engineInputMissing(outcome.failed) && !playsFromDisk(videoId)) throw new EngineInputMissingError(outcome.failed);
+                  throw new Error(`engine failed: ${outcome.failed}`);
+                }
+                const sample = outcome;
+                // Why a below-realtime engine is KEPT instead of routed to the server. Anything
+                // below realtime with none of these reasons is the device's fault and hands over.
+                //   "tier": a Slipstream rung is declared, so play it (the primary is never measured).
+                //   "live": the channel has no server transcode, so the engine is the only lane.
+                //   "link": the segment was slow because the input arrived slowly, not the device.
+                let keptFor: "tier" | "live" | "link" | null = null;
+                if (sample && belowRealtime(sample)) {
+                  if (isLiveRef.current) {
+                    keptFor = (await openLiveServerRung()) ? null : "live";
+                  } else if (tierDeclaredFor(token)) {
+                    keptFor = "tier";
+                  } else if (readBound(sample)) {
+                    keptFor = "link";
+                  }
+                }
+                if (requestIdRef.current !== currentRequestId) {
+                  stopLocalRemux(token);
+                  if (localRemuxTokenRef.current === token) {
+                    localRemuxTokenRef.current = null;
+                    dropThroughputWatch(throughputRef.current);
+                  }
+                  return;
+                }
+                if (sample && keptFor) {
+                  probeEmit("preflight", {
+                    produceSeconds: sample.produceSeconds ?? null,
                     segmentSeconds: sample.segmentSeconds,
-                    readSeconds: sample.readSeconds,
-                  },
-                );
-              } else if (!sample || belowRealtime(sample)) {
-                // A channel says nothing about the device: no verdict.
-                const remembered = isLiveRef.current
-                  ? false
-                  : sample
-                    ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
-                    : await recordTimeoutVerdict(details, waitedMs / 1000, { busy: deviceBusy() });
-                // The measurement itself, so Diagnostics says what was timed and whether it was kept.
-                probeEmit("preflight", {
-                  produceSeconds: sample?.produceSeconds ?? null,
-                  segmentSeconds: sample?.segmentSeconds ?? null,
-                  readSeconds: sample?.readSeconds ?? null,
-                  thermal: sample?.thermal ?? "unknown",
-                  remembered,
-                });
-                stopLocalRemux(token);
-                localRemuxTokenRef.current = null;
-                dropThroughputWatch(throughputRef.current);
-                throw new Error(sample ? "engine below realtime" : `engine produced no segment within ${waitedMs / 1000}s`);
+                    readSeconds: sample.readSeconds ?? null,
+                    thermal: sample.thermal,
+                    remembered: false,
+                    ...(keptFor === "tier" ? { keptForTier: true } : { keptForLink: true }),
+                  });
+                  logger.info(
+                    keptFor === "live"
+                      ? "Engine is below realtime on a live channel, which has no other lane, keeping it"
+                      : keptFor === "tier"
+                        ? "Engine is below realtime but the session carries a server tier, keeping it"
+                        : "Engine is below realtime because the input arrived slower than it plays, keeping it",
+                    {
+                      service: "useVideoPlayback",
+                      produceSeconds: sample.produceSeconds,
+                      segmentSeconds: sample.segmentSeconds,
+                      readSeconds: sample.readSeconds,
+                    },
+                  );
+                } else if (!sample || belowRealtime(sample)) {
+                  // A channel says nothing about the device: no verdict.
+                  const remembered = isLiveRef.current
+                    ? false
+                    : sample
+                      ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
+                      : await recordTimeoutVerdict(details, waitedMs / 1000, { busy: deviceBusy() });
+                  // The measurement itself, so Diagnostics says what was timed and whether it was kept.
+                  probeEmit("preflight", {
+                    produceSeconds: sample?.produceSeconds ?? null,
+                    segmentSeconds: sample?.segmentSeconds ?? null,
+                    readSeconds: sample?.readSeconds ?? null,
+                    thermal: sample?.thermal ?? "unknown",
+                    remembered,
+                  });
+                  stopLocalRemux(token);
+                  localRemuxTokenRef.current = null;
+                  dropThroughputWatch(throughputRef.current);
+                  throw new Error(sample ? "engine below realtime" : `engine produced no segment within ${waitedMs / 1000}s`);
+                }
               }
             }
             liveSessionUrlRef.current = isLiveRef.current ? url : null;
@@ -1587,32 +1596,33 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               currentTimeRef.current = engineOffset;
               logger.info("Engine session opens at the resume point", { service: "useVideoPlayback", offsetSeconds: Math.round(engineOffset) });
             }
-            // A pin is a CEILING: the cap is the pin itself, dropping to the
-            // tier only when survival demands it. Auto caps at the tier on the
-            // same survival rule — AVPlayer's estimator cannot know the
-            // primary needs a source pull the link cannot carry.
+            // Auto: start on the smallest rung and let the buffer-driven ladder climb to the engine
+            // primary as the link proves it. AVPlayer's own estimator cannot be trusted here (it
+            // measures the loopback, not the real link), so the rung is chosen from buffer occupancy.
+            // A fixed pin is a user ceiling: honour it, no ladder. No rungs means the source plays whole.
             if (!isLiveRef.current && slipstreamEligible(details) && !playsFromDisk(videoId)) {
               const quality = await getQualitySettings();
               const pinned = gatewayMaxBitRate(quality);
-              const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
-              const engineMeasuredBps = engineSourceBps > 0 && !playsFromDisk(videoId) ? await rememberedBitrate() : null;
-              const engineDurationSec = (details.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
-              const survivalNeeded = deficitExceedsCushion(engineMeasuredBps, engineSourceBps, engineDurationSec, engineOffset ?? 0);
-              const tierCap = slipstreamTierBandwidth(details, audioStreamIndexForReportingRef.current ?? undefined);
-              if (survivalNeeded && tierCap != null) {
-                logger.info("Auto caps the session at the tier, deficit outruns the cushion", {
+              const caps = offeredTierBandwidths(details, audioStreamIndexForReportingRef.current ?? undefined);
+              if (pinned == null && caps.length > 0) {
+                // Uncapped at the primary: a link that carries the on-device copy keeps it and never
+                // touches the server; only a draining buffer drops down the rungs (climbing back up).
+                slipstreamLadderRef.current = createSlipstreamLadder(caps, Date.now());
+                onTierLaneRef.current = true;
+                ladderSeekGraceUntilRef.current = 0;
+                setVideoMaxBitRate(null);
+                logger.info("Slipstream ladder armed, opening uncapped at the primary", {
                   service: "useVideoPlayback",
-                  measuredMbps: engineMeasuredBps != null ? Math.round(engineMeasuredBps / 100_000) / 10 : null,
-                  sourceMbps: Math.round(engineSourceBps / 100_000) / 10,
+                  rungs: caps.length,
                 });
+              } else {
+                slipstreamLadderRef.current = null;
+                onTierLaneRef.current = false;
+                setVideoMaxBitRate(pinned ?? null);
               }
-              // Auto survival only: arm the controller that climbs back off the
-              // tier to the primary when the link recovers. A fixed pin is a user
-              // ceiling (never auto-exceed); non-survival Auto already climbs free.
-              gatewayCapRef.current = pinned == null && survivalNeeded && tierCap != null ? createGatewayCapState(tierCap, engineSourceBps, Date.now()) : null;
-              setVideoMaxBitRate(pinned != null ? (survivalNeeded ? (tierCap ?? pinned) : pinned) : survivalNeeded ? tierCap : null);
             } else {
-              gatewayCapRef.current = null;
+              slipstreamLadderRef.current = null;
+              onTierLaneRef.current = false;
               setVideoMaxBitRate(null);
             }
           } catch (remuxError) {
@@ -1701,30 +1711,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           setVideoMaxBitRate(null);
         }
 
-        // tvOS chapter thumbnails come off the engine: the session's own directory on the
-        // engine lane, a frame provider over the original file elsewhere. Started before the
-        // stream URL is published so the chapter list is complete when the player item is built.
-        // Only an item with chapters gets a provider.
-        let frameBase: string | null = null;
-        if (Platform.isTV) {
-          if (currentModeRef.current === "localRemux") {
-            frameBase = sessionBaseUrl(url);
-            // The session serves its own chapters: a provider a direct-play run left behind goes.
-            if (requestIdRef.current === currentRequestId) {
-              stopFrameProvider(frameProviderTokenRef.current);
-              frameProviderTokenRef.current = null;
-            }
-          } else if (details.Chapters?.length && requestIdRef.current === currentRequestId) {
-            frameBase = await startFrameProvider(getVideoStreamUrl(videoId, details), videoId);
-            if (requestIdRef.current !== currentRequestId) {
-              // Stale since the await: this run's provider goes, never the one the live run holds.
-              stopFrameProvider(localRemuxToken(frameBase));
-            } else {
-              stopFrameProvider(frameProviderTokenRef.current);
-              frameProviderTokenRef.current = localRemuxToken(frameBase);
-            }
-          }
-        }
+        // The on-device frame grabber never runs during playback: it steals the throttled link
+        // from the stream. Player chapters use the server's pre-extracted images only; frame
+        // grabbing is the browsing cards' alone.
 
         // Check if this response is stale (videoId changed while fetching)
         if (requestIdRef.current !== currentRequestId) {
@@ -1749,7 +1738,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
 
         setPlaybackStage("player");
-        setChapterFrameBaseUrl(frameBase);
         setStreamUrl(url);
         // Captured here rather than at load: every path that resumes (first play,
         // audio-switch restart, seek recovery) sets the ref before this line.
@@ -1879,8 +1867,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (adaptiveRef.current && currentModeRef.current === "transcode") {
         adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "seeked", nowMs: Date.now() }).state;
       }
-      if (gatewayCapRef.current) {
-        gatewayCapRef.current = advanceGatewayCap(gatewayCapRef.current, { kind: "seeked", nowMs: Date.now() }).state;
+      if (slipstreamLadderRef.current) {
+        ladderSeekGraceUntilRef.current = Date.now() + SEEK_GRACE_MS;
       }
 
       // Auto-seek to saved position if this is a restart (audio track switch)
@@ -2065,28 +2053,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
       }
 
-      // Gateway survival cap (localRemux lane): the same occupancy signal drives
-      // a live preferredPeakBitRate flip between the tier and the primary, no
-      // session rebuild. Raising wakes the link-bound v0 producer; the drain
-      // lower fires well before engineStarving tears the lane down to the server.
-      if (gatewayCapRef.current && currentModeRef.current === "localRemux" && state.type === "PLAYING") {
+      // Slipstream ladder (localRemux lane): buffer occupancy steps preferredPeakBitRate rung by
+      // rung. A saturated buffer climbs toward the engine primary; a draining one drops to protect
+      // playback. A seek empties the buffer, so drops are held through the grace after one.
+      if (slipstreamLadderRef.current && currentModeRef.current === "localRemux" && state.type === "PLAYING") {
         const occupancySec = Math.max(0, (data.playableDuration ?? 0) - data.currentTime);
         const nowMs = Date.now();
-        const result = advanceGatewayCap(gatewayCapRef.current, { kind: "tick", occupancySec, nowMs });
-        gatewayCapRef.current = result.state;
-        if (result.switchTo === "raised") {
-          logger.info("Gateway cap raised: link recovered, letting AVPlayer climb to the primary", { service: "useVideoPlayback" });
-          setVideoMaxBitRate(null);
-        } else if (result.switchTo === "capped") {
-          logger.info("Gateway cap lowered: pinning the tier, the primary is not sustainable", { service: "useVideoPlayback" });
-          setVideoMaxBitRate(result.state.tierCapBps);
-        } else if (shouldProbeGatewayCap(result.state, occupancySec, nowMs)) {
-          gatewayCapRef.current = markGatewayProbeStarted(result.state, nowMs);
-          measureServerBitrate({ remember: false }).then((bps) => {
-            if (bps != null && gatewayCapRef.current && isMountedRef.current) {
-              gatewayCapRef.current = advanceGatewayCap(gatewayCapRef.current, { kind: "throughput", bps, nowMs: Date.now() }).state;
-            }
-          });
+        const inSeekGrace = nowMs < ladderSeekGraceUntilRef.current;
+        // During the seek grace the buffer is refilling: only let it climb, never read the low buffer as drain.
+        if (!(inSeekGrace && occupancySec <= LADDER_DRAIN_OCCUPANCY_SEC)) {
+          const result = advanceSlipstreamLadder(slipstreamLadderRef.current, { occupancySec, nowMs });
+          if (result.changed) {
+            slipstreamLadderRef.current = result.state;
+            const cap = ladderCap(result.state);
+            setVideoMaxBitRate(cap);
+            logger.info("Slipstream ladder step", { service: "useVideoPlayback", capKbps: cap != null ? Math.round(cap / 1000) : null, occupancySec: Math.round(occupancySec) });
+          }
         }
       }
 
@@ -2192,14 +2174,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
       if (!data.isBuffering) return;
-      // Gateway lane: a stall while raised means the primary is not sustainable,
-      // so pin the tier back at once (a live cap flip, no rebuild).
-      if (gatewayCapRef.current && currentModeRef.current === "localRemux") {
-        const result = advanceGatewayCap(gatewayCapRef.current, { kind: "stall", nowMs: Date.now() });
-        gatewayCapRef.current = result.state;
-        if (result.switchTo === "capped") {
-          logger.info("Gateway cap lowered on stall: pinning the tier", { service: "useVideoPlayback" });
-          setVideoMaxBitRate(result.state.tierCapBps);
+      // Slipstream ladder: a buffering stall means the current rung outran the link, so drop straight
+      // to the smallest rung at once (a live cap flip, no rebuild) and let the ladder climb again.
+      if (slipstreamLadderRef.current && currentModeRef.current === "localRemux") {
+        const result = dropLadderToFloor(slipstreamLadderRef.current, Date.now());
+        slipstreamLadderRef.current = result.state;
+        if (result.changed) {
+          logger.info("Slipstream ladder dropped to the floor on a stall", { service: "useVideoPlayback" });
+          setVideoMaxBitRate(ladderCap(result.state));
         }
         return;
       }
@@ -2816,8 +2798,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       resetPlaybackStages();
       stopPlaylistShim(playlistShimTokenRef.current);
       playlistShimTokenRef.current = null;
-      stopFrameProvider(frameProviderTokenRef.current);
-      frameProviderTokenRef.current = null;
       if (stallWatchRef.current != null) {
         clearTimeout(stallWatchRef.current.timer);
         stallWatchRef.current = null;
@@ -2875,7 +2855,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     stallFallbackRef.current = false;
     adaptiveRef.current = null;
     adaptiveOverrideIndexRef.current = null;
-    gatewayCapRef.current = null;
+    slipstreamLadderRef.current = null;
+    ladderSeekGraceUntilRef.current = 0;
     onTierLaneRef.current = false;
     setVideoMaxBitRate(null);
     setHasStablePlayback(false);
@@ -3133,8 +3114,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (adaptiveRef.current) {
       adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "seeked", nowMs: Date.now() }).state;
     }
-    if (gatewayCapRef.current) {
-      gatewayCapRef.current = advanceGatewayCap(gatewayCapRef.current, { kind: "seeked", nowMs: Date.now() }).state;
+    if (slipstreamLadderRef.current) {
+      ladderSeekGraceUntilRef.current = Date.now() + SEEK_GRACE_MS;
     }
     if (!pausedRef.current) {
       videoRef.current?.resume();
@@ -3226,7 +3207,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   return {
     videoRef,
     sourceUri: streamUrl,
-    chapterFrameBaseUrl,
     startPositionMs,
     paused,
     maxBitRate: videoMaxBitRate,

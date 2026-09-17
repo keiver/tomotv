@@ -98,7 +98,6 @@ final class TierProbeTests: XCTestCase {
     private func session(
         tierPlaylistUrl: String? = nil,
         serverAudioUrl: String = "",
-        tierFirst: Bool = true,
         startOffsetSeconds: Double = 0
     ) throws -> (RemuxSession, () -> [[String: Any]]) {
         let s = try RemuxSession(
@@ -110,7 +109,6 @@ final class TierProbeTests: XCTestCase {
                 tierCodecs: "avc1.4D401F,mp4a.40.2",
                 tierWidth: 854,
                 tierHeight: 480,
-                tierFirst: tierFirst,
                 startOffsetSeconds: startOffsetSeconds
             ))
         let lock = NSLock()
@@ -368,12 +366,13 @@ final class TierProbeTests: XCTestCase {
     func testATierListedSecondIsStillProved() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
-        let (s, reports) = try session(tierFirst: false)
+        let (s, reports) = try session()
         defer { s.stop() }
         waitForProbe(s)
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"))
-        XCTAssertLessThan(master.range(of: "media.m3u8")!.lowerBound, master.range(of: "t0.m3u8")!.lowerBound, "primary first")
+        XCTAssertTrue(master.contains("media.m3u8"))
+        XCTAssertLessThan(master.range(of: "t0.m3u8")!.lowerBound, master.range(of: "media.m3u8")!.lowerBound, "rungs before the primary")
         XCTAssertEqual(states(reports()), ["listed"])
     }
 
@@ -390,8 +389,7 @@ final class TierProbeTests: XCTestCase {
                 tiers: [
                     TierConfig(playlistUrl: "http://tier.test/Videos/x/t0.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 992_000, codecs: "avc1.64001E,mp4a.40.2", width: 640, height: 360),
                     TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_692_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480),
-                ],
-                tierFirst: true
+                ]
             ))
     }
 

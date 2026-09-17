@@ -417,7 +417,6 @@ class LocalRemuxer: RCTEventEmitter {
                         height: (t["height"] as? Int) ?? 0
                     )
                 }.filter { !$0.playlistUrl.isEmpty },
-                tierFirst: (config["tierFirst"] as? Bool) ?? false,
                 startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,
                 itemId: (config["itemId"] as? String) ?? "",
                 isLive: isLive,

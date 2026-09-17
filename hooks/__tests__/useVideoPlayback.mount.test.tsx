@@ -110,6 +110,7 @@ jest.mock("@/services/localRemux", () => ({
     return jest.fn();
   }),
   subscribeEngineStage: jest.fn(() => jest.fn()),
+  subscribeEngineTier: jest.fn(() => jest.fn()),
   subscribeEngineFailure: jest.fn((_token: string, listener: (failure: unknown) => void) => {
     queueMicrotask(() => {
       const failure = mockFailure();
@@ -378,6 +379,8 @@ describe("useVideoPlayback (mounted)", () => {
         });
         await act(flush);
 
+        // No ladder declared for this session, so a link-bound segment 0 keeps the engine (the link
+        // is slow, not the device) rather than blocklisting the file.
         expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
         expect(mockProbeEmit).toHaveBeenCalledWith("preflight", expect.objectContaining({ keptForLink: true }));
         expect(mockRecordVerdict).not.toHaveBeenCalled();
@@ -996,119 +999,12 @@ describe("useVideoPlayback (mounted)", () => {
     });
   });
 
-  describe("chapter frames", () => {
-    const setTV = (value: boolean) => Object.defineProperty(Platform, "isTV", { configurable: true, value });
-    beforeEach(() => setTV(true));
-    afterEach(() => setTV(false));
-
-    it("starts a frame provider over the original file on the direct lane and stops it on unmount", async () => {
-      mockDetails.mockResolvedValue(videoItem({ Chapters: [{ StartPositionTicks: 0, Name: "One" }] }));
-      const { ref, renderer } = await mount({ videoId: "video-1" });
-
-      expect(startFrameProvider).toHaveBeenCalledWith("https://server/Videos/id/stream.mkv", "video-1");
-      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/frame-1/");
-
-      await act(async () => {
-        renderer.unmount();
-      });
-
-      expect(stopFrameProvider).toHaveBeenCalledWith("token:http://127.0.0.1:9999/frame-1/");
-    });
-
-    it("starts no provider for an item without chapters", async () => {
-      const { ref } = await mount({ videoId: "video-1" });
-
-      expect(startFrameProvider).not.toHaveBeenCalled();
-      expect(ref.current!.get().chapterFrameBaseUrl).toBeNull();
-    });
-
-    it("uses the engine session's own directory on the remux lane", async () => {
-      mockNeedsTranscoding.mockReturnValue(true);
-      mockCanRemux.mockResolvedValue(true);
-
-      const { ref } = await mount({ videoId: "video-1" });
-
-      expect(startFrameProvider).not.toHaveBeenCalled();
-      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/s/abc/");
-    });
-
-    it("makes no frames off a TV", async () => {
-      setTV(false);
-
-      const { ref } = await mount({ videoId: "video-1" });
-
-      expect(startFrameProvider).not.toHaveBeenCalled();
-      expect(ref.current!.get().chapterFrameBaseUrl).toBeNull();
-    });
-
-    it("stops the direct lane's provider when a failed direct play falls to the engine session", async () => {
-      mockDetails.mockResolvedValue(videoItem({ Chapters: [{ StartPositionTicks: 0, Name: "One" }] }));
-      mockCanRemux.mockResolvedValue(true);
-      const { ref } = await mount({ videoId: "video-1" });
-      expect(startFrameProvider).toHaveBeenCalledTimes(1);
-      expect(ref.current!.get().state).toMatchObject({ mode: "direct" });
-
-      // The error lands, the 500 ms retry timer fires, and the metadata fetch re-picks the engine.
-      jest.useFakeTimers();
-      try {
-        await act(async () => {
-          ref.current!.get().videoCallbacks.onError({ error: { errorString: "boom", code: -11800 } } as never);
-        });
-        for (let round = 0; round < 4; round += 1) {
-          await act(async () => {
-            jest.runAllTimers();
-          });
-          await act(async () => {
-            for (let i = 0; i < 12; i += 1) await Promise.resolve();
-          });
-        }
-      } finally {
-        jest.useRealTimers();
-      }
-
-      expect(ref.current!.get().state).toMatchObject({ mode: "localRemux" });
-      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/s/abc/");
-      expect(startFrameProvider).toHaveBeenCalledTimes(1);
-      expect(stopFrameProvider).toHaveBeenCalledWith("token:http://127.0.0.1:9999/frame-1/");
-    });
-  });
-
   describe("stale runs", () => {
     const setTV = (value: boolean) => Object.defineProperty(Platform, "isTV", { configurable: true, value });
     const flush = async () => {
       for (let i = 0; i < 12; i += 1) await Promise.resolve();
     };
     afterEach(() => setTV(false));
-
-    it("a run gone stale during its awaits never stops the provider the live run holds", async () => {
-      setTV(true);
-      let n = 0;
-      (startFrameProvider as jest.Mock).mockImplementation(() => Promise.resolve(`http://127.0.0.1:9999/frame-${++n}/`));
-      mockDetails.mockImplementation(async (id: string) => videoItem({ Id: id, Chapters: [{ StartPositionTicks: 0, Name: "One" }] }));
-      mockNeedsTranscoding.mockImplementation((details: JellyfinVideoItem) => details.Id === "video-1");
-      let resolveA: (url: string) => void = () => {};
-      mockTranscodeUrl.mockImplementationOnce(() => new Promise<string>((resolve) => (resolveA = resolve)));
-
-      const { ref, renderer } = await mount({ videoId: "video-1" });
-      await act(flush);
-      expect(startFrameProvider).not.toHaveBeenCalled();
-
-      await act(async () => {
-        renderer.update(<Harness ref={ref} videoId="video-2" />);
-      });
-      await act(flush);
-      expect(startFrameProvider).toHaveBeenCalledTimes(1);
-      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/frame-1/");
-
-      await act(async () => {
-        resolveA("https://server/Videos/id/master.m3u8");
-      });
-      await act(flush);
-      expect(startFrameProvider).toHaveBeenCalledTimes(1);
-      expect(stopFrameProvider).not.toHaveBeenCalledWith("token:http://127.0.0.1:9999/frame-1/");
-      expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/frame-1/");
-      expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/stream.mkv");
-    });
 
     it("an item change while the engine lane is starting starts nothing for the old item, and the stale session is stopped", async () => {
       mockDetails.mockImplementation(async (id: string) => videoItem({ Id: id }));

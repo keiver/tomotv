@@ -130,7 +130,7 @@ describe("a session for a downloaded item", () => {
     await startLocalRemux(ITEM);
     const config = startRemux.mock.calls[0][0];
 
-    expect(config.tierFirst).toBe(false);
+    expect(config.tiers).toEqual([]);
     expect(config.tierPlaylistUrl).toBeUndefined();
   });
 
@@ -157,7 +157,7 @@ describe("a session for an item that is not downloaded", () => {
     const config = startRemux.mock.calls[0][0];
 
     expect(config.inputUrl).toContain("https://jf.example");
-    expect(config.tierFirst).toBe(true);
+    expect(config.tiers.length).toBeGreaterThan(0);
     // The picture reads the server; the embedded subtitle does not. It rides
     // the same source the engine is already pulling.
     expect(config.subtitles[0]).toMatchObject({ isEngineText: true, vttUrl: "", localVtt: "" });

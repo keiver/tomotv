@@ -156,7 +156,7 @@ describe("describePlayback: who did the work", () => {
 
   it("says what the session did with the server's smaller feed", () => {
     const withTier = (state?: string) =>
-      describePlayback(on(session([at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierFirst: true }), ...(state ? [at("tier", { state })] : [])]), "iPhone"));
+      describePlayback(on(session([at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierOffered: true }), ...(state ? [at("tier", { state })] : [])]), "iPhone"));
     expect(withTier("listed")).toContain("The server sent a smaller version to open with, and the on-device engine had the full file ready beside it, with the video and audio copied as they are.");
     expect(withTier("dropped")).toContain(
       "The server sent a smaller version to open with, then that feed failed and was dropped, and the on-device engine had the full file ready beside it, with the video and audio copied as they are.",
@@ -165,7 +165,7 @@ describe("describePlayback: who did the work", () => {
     expect(withTier("declined")).toContain("The server sent the file as it is, and the on-device engine repackaged it for the player, with the video and audio copied as they are.");
     expect(withTier()).toContain("The server sent the file as it is, and the on-device engine repackaged it for the player, with the video and audio copied as they are.");
     const afterFallback = describePlayback(
-      on(session([at("mode", { mode: "direct" }), at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierFirst: true }), at("tier", { state: "listed" })]), "iPhone"),
+      on(session([at("mode", { mode: "direct" }), at("mode", { mode: "localRemux" }), plan("copy", "copy"), at("variant", { tierOffered: true }), at("tier", { state: "listed" })]), "iPhone"),
     );
     expect(afterFallback).toContain(
       "so playback moved to the on-device engine. The server sent a smaller version to open with, and the on-device engine had the full file ready beside it, with the video and audio copied as they are.",

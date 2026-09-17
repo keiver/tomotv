@@ -24,15 +24,17 @@ import {
   pickStartupIndex,
   presetNeedsMbps,
   PROBE_INTERVAL_MS,
-  REVERSAL_BACKOFF_WINDOW_MS,
   shouldProbeThroughput,
   THROUGHPUT_STALE_MS,
-  advanceGatewayCap,
-  createGatewayCapState,
-  shouldProbeGatewayCap,
-  markGatewayProbeStarted,
+  advanceSlipstreamLadder,
+  createSlipstreamLadder,
+  dropLadderToFloor,
+  ladderCap,
+  LADDER_RAISE_OCCUPANCY_SEC,
+  LADDER_DRAIN_OCCUPANCY_SEC,
+  LADDER_RAISE_DWELL_MS,
+  LADDER_DROP_DWELL_MS,
   type AdaptiveQualityState,
-  type GatewayCapState,
 } from "../adaptiveQuality";
 import { QUALITY_PRESETS } from "../jellyfin/constants";
 
@@ -303,101 +305,56 @@ describe("post-seek grace", () => {
   });
 });
 
-describe("gateway cap controller", () => {
-  const SOURCE = 6_700_000;
-  const TIER_CAP = 1_000_000;
-  const FAST = 10_000_000; // 0.7*10M = 7M >= 6.7M source → clears the primary
-  const SLOW = 5_000_000; //  0.7*5M  = 3.5M < 6.7M → does not
+describe("slipstream ladder controller", () => {
+  const CAPS = [500_000, 900_000, 1_600_000, 4_100_000]; // 240/360/480/720 + AAC
+  const T = 100_000;
 
-  // Reach the raised state: fresh fast probe, saturated buffer, dwell elapsed.
-  function raise(atMs: number = T0 + BASE_DWELL_MS): { state: GatewayCapState; switchTo: "raised" | "capped" | null } {
-    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
-    s = advanceGatewayCap(s, { kind: "throughput", bps: FAST, nowMs: atMs - 1000 }).state;
-    return advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC, nowMs: atMs });
-  }
-
-  it("starts capped at the tier", () => {
-    const s = createGatewayCapState(TIER_CAP, SOURCE, T0);
-    expect(s.capped).toBe(true);
-    expect(s.tierCapBps).toBe(TIER_CAP);
-    expect(s.upDwellMs).toBe(BASE_DWELL_MS);
+  it("starts uncapped at the primary, keeping a fast link on the on-device copy", () => {
+    expect(ladderCap(createSlipstreamLadder(CAPS, T))).toBeNull();
   });
 
-  it("raises to the primary on a saturated buffer + fresh probe clearing source + dwell", () => {
-    const r = raise();
-    expect(r.switchTo).toBe("raised");
-    expect(r.state.capped).toBe(false);
+  it("drops a rung on a draining buffer after the drop dwell", () => {
+    const r = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS });
+    expect(r.changed).toBe(true);
+    expect(ladderCap(r.state)).toBe(4_100_000); // uncapped -> top rung
   });
 
-  it("does not raise when the probe cannot carry the source bitrate", () => {
-    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
-    s = advanceGatewayCap(s, { kind: "throughput", bps: SLOW, nowMs: T0 + BASE_DWELL_MS - 1000 }).state;
-    const r = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC, nowMs: T0 + BASE_DWELL_MS });
-    expect(r.switchTo).toBeNull();
-    expect(r.state.capped).toBe(true);
+  it("does not drop before the drop dwell", () => {
+    const r = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS - 1 });
+    expect(r.changed).toBe(false);
   });
 
-  it("does not raise before the dwell elapses", () => {
-    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
-    s = advanceGatewayCap(s, { kind: "throughput", bps: FAST, nowMs: T0 + 1000 }).state;
-    const r = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC, nowMs: T0 + 2000 });
-    expect(r.switchTo).toBeNull();
-  });
-
-  it("does not raise on a buffer that is not saturated", () => {
-    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
-    s = advanceGatewayCap(s, { kind: "throughput", bps: FAST, nowMs: T0 + BASE_DWELL_MS - 1000 }).state;
-    const r = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC - 1, nowMs: T0 + BASE_DWELL_MS });
-    expect(r.switchTo).toBeNull();
-  });
-
-  it("does not raise on a stale probe", () => {
-    let s = createGatewayCapState(TIER_CAP, SOURCE, T0);
-    s = advanceGatewayCap(s, { kind: "throughput", bps: FAST, nowMs: T0 }).state;
-    const r = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_SATURATED_SEC, nowMs: T0 + BASE_DWELL_MS + THROUGHPUT_STALE_MS + 1 });
-    expect(r.switchTo).toBeNull();
-  });
-
-  it("lowers back to the tier on a draining buffer while raised", () => {
-    let s = raise().state;
-    const start = T0 + BASE_DWELL_MS + 1000;
-    let last = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_FLOOR_SEC - 0.5, nowMs: start });
-    s = last.state;
-    for (let i = 1; i <= DRAIN_TICKS_TO_SWITCH; i++) {
-      last = advanceGatewayCap(s, { kind: "tick", occupancySec: OCCUPANCY_FLOOR_SEC - 0.5 - i, nowMs: start + i * 1000 });
-      s = last.state;
-      if (last.switchTo != null) break;
+  it("keeps dropping down to the smallest rung on a link that stays starved, then holds", () => {
+    let s = createSlipstreamLadder(CAPS, T);
+    let now = T;
+    for (let i = 0; i < CAPS.length; i++) {
+      now += LADDER_DROP_DWELL_MS;
+      s = advanceSlipstreamLadder(s, { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: now }).state;
     }
-    expect(last.switchTo).toBe("capped");
-    expect(last.state.capped).toBe(true);
+    expect(ladderCap(s)).toBe(500_000);
+    const r = advanceSlipstreamLadder(s, { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: now + LADDER_DROP_DWELL_MS });
+    expect(r.changed).toBe(false);
   });
 
-  it("lowers on a stall outside the seek grace", () => {
-    const s = raise().state;
-    const r = advanceGatewayCap(s, { kind: "stall", nowMs: T0 + BASE_DWELL_MS + 30_000 });
-    expect(r.switchTo).toBe("capped");
+  it("climbs back a rung on a saturated buffer after the raise dwell once it has dropped", () => {
+    const dropped = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS }).state;
+    expect(ladderCap(dropped)).toBe(4_100_000);
+    const r = advanceSlipstreamLadder(dropped, { occupancySec: LADDER_RAISE_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS + LADDER_RAISE_DWELL_MS });
+    expect(r.changed).toBe(true);
+    expect(ladderCap(r.state)).toBeNull(); // back up to the primary
   });
 
-  it("ignores a stall inside the seek grace", () => {
-    let s = raise().state;
-    s = advanceGatewayCap(s, { kind: "seeked", nowMs: T0 + BASE_DWELL_MS + 1000 }).state;
-    const r = advanceGatewayCap(s, { kind: "stall", nowMs: T0 + BASE_DWELL_MS + 2000 });
-    expect(r.switchTo).toBeNull();
+  it("does not climb above the primary (uncapped)", () => {
+    const r = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_RAISE_OCCUPANCY_SEC, nowMs: T + LADDER_RAISE_DWELL_MS });
+    expect(r.changed).toBe(false);
+    expect(ladderCap(r.state)).toBeNull();
   });
 
-  it("doubles the up-dwell when a lower quickly reverses a raise", () => {
-    const r = raise();
-    const raisedAt = r.state.lastChangeMs;
-    const lowered = advanceGatewayCap(r.state, { kind: "stall", nowMs: raisedAt + REVERSAL_BACKOFF_WINDOW_MS - 1 });
-    expect(lowered.switchTo).toBe("capped");
-    expect(lowered.state.upDwellMs).toBe(BASE_DWELL_MS * 2);
-  });
-
-  it("probes only while capped, on a healthy buffer, spaced out", () => {
-    const capped = createGatewayCapState(TIER_CAP, SOURCE, T0);
-    expect(shouldProbeGatewayCap(capped, OCCUPANCY_SATURATED_SEC, T0 + PROBE_INTERVAL_MS)).toBe(true);
-    expect(shouldProbeGatewayCap(capped, OCCUPANCY_SATURATED_SEC - 1, T0 + PROBE_INTERVAL_MS)).toBe(false);
-    expect(shouldProbeGatewayCap(markGatewayProbeStarted(capped, T0), OCCUPANCY_SATURATED_SEC, T0 + PROBE_INTERVAL_MS - 1)).toBe(false);
-    expect(shouldProbeGatewayCap(raise().state, OCCUPANCY_SATURATED_SEC, T0 + BASE_DWELL_MS + PROBE_INTERVAL_MS)).toBe(false);
+  it("drops straight to the floor on a stall", () => {
+    const s = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS }).state;
+    expect(ladderCap(s)).toBe(4_100_000);
+    const r = dropLadderToFloor(s, T + LADDER_DROP_DWELL_MS + 1000);
+    expect(r.changed).toBe(true);
+    expect(ladderCap(r.state)).toBe(500_000);
   });
 });

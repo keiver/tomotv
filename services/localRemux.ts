@@ -182,6 +182,7 @@ interface TierRung {
 export const SURVIVAL_AUDIO_BITRATE = 96_000;
 
 const SLIPSTREAM_LADDER: TierRung[] = [
+  { label: "240p", bitrate: 400_000, width: 426, height: 240, codecs: "avc1.640015" },
   { label: "360p", bitrate: 800_000, width: 640, height: 360, codecs: "avc1.64001E" },
   { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" },
   { label: "720p", bitrate: 4_000_000, width: 1280, height: 720, codecs: "avc1.640020" },
@@ -248,9 +249,10 @@ function orderedCarriableAudio(videoItem: JellyfinVideoItem, preferredAudioStrea
 export function offeredTierRungs(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): TierRung[] {
   if (!slipstreamEligible(videoItem)) return [];
   const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
-  const plan = serverAudioPlan(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]);
-  const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + plan.bandwidth;
-  return SLIPSTREAM_LADDER.filter((rung) => primaryBandwidth <= 0 || rung.bitrate + plan.bandwidth < primaryBandwidth * 0.85);
+  // The primary carries copy audio; a rung carries the low AAC audio-lo group. Undercut compares
+  // each side's real total, so an audio-heavy source still offers rungs (AAC drops the audio cost).
+  const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + serverAudioPlan(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]).bandwidth;
+  return SLIPSTREAM_LADDER.filter((rung) => primaryBandwidth <= 0 || rung.bitrate + SURVIVAL_AUDIO_BITRATE < primaryBandwidth * 0.85);
 }
 
 /**
@@ -263,8 +265,17 @@ export function offeredTierRungs(videoItem: JellyfinVideoItem, preferredAudioStr
 export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): number | null {
   const rungs = offeredTierRungs(videoItem, preferredAudioStreamIndex);
   if (rungs.length === 0) return null;
-  const plan = serverAudioPlan(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]);
-  return rungs[rungs.length - 1].bitrate + plan.bandwidth;
+  // The rung carries the low AAC audio-lo group, so the cap is the top rung's video plus that.
+  return rungs[rungs.length - 1].bitrate + SURVIVAL_AUDIO_BITRATE;
+}
+
+/**
+ * The declared BANDWIDTH of each offered rung, ascending: the preferredPeakBitRate steps the
+ * buffer-driven ladder climbs through. Capping at caps[k] holds AVPlayer on rung k; an empty result
+ * means no ladder (uncapped, the engine primary). Each cap matches the master's rung BANDWIDTH.
+ */
+export function offeredTierBandwidths(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): number[] {
+  return offeredTierRungs(videoItem, preferredAudioStreamIndex).map((rung) => rung.bitrate + SURVIVAL_AUDIO_BITRATE);
 }
 
 /**
@@ -906,9 +917,12 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
     return (await copiesVideo(videoStream)) ? "copy" : "deviceTranscode";
   })();
   if (lane === "server" || videoItem == null) return { lane, smallFeedFirst: false };
+  // Item-page hint only: whether the stored link reading suggests this play opens on the smaller
+  // server feed. Best-effort from the remembered bitrate; the runtime always offers the ladder and
+  // lets AVPlayer decide. A held file reads off disk; a live channel has no server tier.
   const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
   const measuredBps = sourceBps > 0 && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
-  return { lane, smallFeedFirst: measuredBps != null && measuredBps < sourceBps && slipstreamTierBandwidth(videoItem) != null };
+  return { lane, smallFeedFirst: !isLiveSource(videoItem) && measuredBps != null && measuredBps < sourceBps && slipstreamTierBandwidth(videoItem) != null };
 }
 
 /**
@@ -1357,35 +1371,19 @@ export async function startLocalRemux(
     watchEngineTier();
   }
 
-  // Slipstream tier config. The undercut rule lives in slipstreamTierBandwidth:
-  // null means the rung would not meaningfully undercut the primary (audio-
-  // heavy small files) and no tier is declared. When declared, every audio
-  // track gets a server audio-only rendition URL — the tier's "audio-lo"
-  // group, so the survival rung never depends on the engine's source pull.
-  // BANDWIDTH covers the variant PLUS its renditions (RFC 8216 §4.3.4.2)
-  // and CODECS names the group's audio codec.
-  // A link measured below the source opens on the smallest feed: the tier is
-  // declared and listed FIRST, and AVPlayer climbs to the primary from its
-  // own delivery measurements. Healthy or unmeasured sessions declare NO
-  // tier — AVPlayer's per-host loopback history otherwise steers it there
-  // anyway (device-logged), moving audio to the server-fed group for nothing.
-  // A held file is read off the disk, so the link to the server describes nothing about this
-  // session and the tier would put a server URL first in a playlist that must carry none.
-  // A live channel has no server tier: the server never transcodes it.
-  const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
-  const measuredBps = sourceBps > 0 && !live && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
-  const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
-  const rungs = linkBelowSource && audioTracks.length > 0 ? offeredTierRungs(videoItem, preferredAudioStreamIndex) : [];
+  // Slipstream ladder: always offered for a streamable source with audio. AVPlayer's native ABR
+  // opens on the smallest rung and climbs to the engine primary as it measures the segments it
+  // downloads, so a slow link plays at once on a small feed and a fast one reaches the copy. A held
+  // file reads off disk (no server URL belongs in its playlist); a live channel has no server tier.
+  // BANDWIDTH covers the variant plus its audio rendition (RFC 8216 4.3.4.2); CODECS names the group.
+  const rungs = !live && !playsFromDisk(videoItem.Id) && audioTracks.length > 0 ? offeredTierRungs(videoItem, preferredAudioStreamIndex) : [];
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
-  // A link below even the smallest copy-audio rung floor takes stereo AAC for the whole audio-lo
-  // group, so the floor fits. Every track survives, dropped to AAC, never removed.
-  const smallestFloor = rungs.length > 0 ? rungs[0].bitrate + serverAudioPlan(primaryAudio).bandwidth : 0;
-  const survivalAudio = measuredBps != null && rungs.length > 0 && measuredBps < smallestFloor;
-  const audioPlanFor = (stream: JellyfinMediaStream | undefined) => (survivalAudio ? { codec: "aac" as const, bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" } : serverAudioPlan(stream));
-  const tierAudioPlan = audioPlanFor(primaryAudio);
-  // One TierConfig per offered rung, ascending; the native master lists them in
-  // order (smallest first = startup pick). audio-lo (below) is one group for the
-  // whole ladder, so it does not multiply with the rungs.
+  // The ladder's audio-lo group is always low stereo AAC: the ladder is the degraded path a slow
+  // link takes, the engine primary (its own copy-audio group) is the full-quality target. One group
+  // for the whole ladder, so switching a video rung touches no audio.
+  const tierAudioPlan = { codec: "aac" as const, bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" };
+  // One TierConfig per offered rung, ascending; the native master lists them smallest first (the
+  // startup pick).
   const tiersConfig = rungs.map((rung) => ({
     playlistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, rung, generatePlaySessionId()),
     bandwidth: rung.bitrate + tierAudioPlan.bandwidth,
@@ -1397,16 +1395,15 @@ export async function startLocalRemux(
     rungs.length > 0
       ? audioTracks.map((track) => {
           const stream = streamsByIndex.get(track.index);
-          const plan = audioPlanFor(stream);
           return {
             ...track,
-            serverAudioUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, plan.codec, stream?.Channels ?? 6, generatePlaySessionId(), survivalAudio ? SURVIVAL_AUDIO_BITRATE : undefined),
+            serverAudioUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, tierAudioPlan.codec, stream?.Channels ?? 6, generatePlaySessionId(), SURVIVAL_AUDIO_BITRATE),
           };
         })
       : audioTracks;
 
-  const tierFirst = tiersConfig.length > 0;
-  if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierFirst });
+  const tierOffered = tiersConfig.length > 0;
+  if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierOffered });
 
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
@@ -1426,7 +1423,6 @@ export async function startLocalRemux(
     // request drives the producer's seek-restart there (no position-zero
     // production, no post-load auto-seek).
     startOffsetSeconds: !live && startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
-    tierFirst,
     tiers: tiersConfig,
     isLive: live,
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
@@ -1445,7 +1441,7 @@ export async function startLocalRemux(
   // before this promise resolved.
   if (!options.prewarm) {
     activePlanToken = localRemuxToken(url);
-    activeTierDeclared = tierFirst;
+    activeTierDeclared = tierOffered;
     if (pendingPlan) {
       // A parked plan either belongs to this session or to a superseded one;
       // both ways the slot is done with it.
@@ -1470,19 +1466,6 @@ export async function startLocalRemux(
 /** Session token from the master URL startLocalRemux resolved, or null. */
 export function localRemuxToken(masterUrl: string | null | undefined): string | null {
   return masterUrl?.split("/").at(-2) ?? null;
-}
-
-/**
- * Whether the remaining content's buffer debt outruns the cushion the engine
- * can actually build: remaining x (source/measured - 1) > min(cushion, remaining).
- * Read-ahead never exceeds the content left, so a short file's cushion is its own
- * runtime, not the full budget.
- */
-export function deficitExceedsCushion(measuredBps: number | null, sourceBps: number, durationSeconds: number, startOffsetSeconds = 0): boolean {
-  if (measuredBps == null || sourceBps <= 0 || measuredBps >= sourceBps) return false;
-  const remaining = Math.max(0, durationSeconds - Math.max(0, startOffsetSeconds));
-  if (remaining <= 0) return false;
-  return remaining * (sourceBps / measuredBps - 1) > Math.min(REMUX_READ_AHEAD_SEGMENTS * 6, remaining);
 }
 
 /**

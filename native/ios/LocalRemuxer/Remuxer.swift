@@ -165,11 +165,6 @@ struct RemuxConfig {
     /// defines the ADOPTED grid; the rest are validated against it and dropped
     /// on a mismatch. Each rung is one EXT-X-STREAM-INF in the master.
     let tiers: [TierConfig]
-    /// List the ladder before the primary: HLS startup picks the first listed
-    /// variant, so a link measured below the source bitrate starts on the
-    /// smallest rung and climbs natively (across rungs, then to the primary)
-    /// when the link allows.
-    let tierFirst: Bool
     /// Resume position. Positive emits EXT-X-START in every media playlist
     /// (RFC 8216 §4.3.5.2, honored by tvOS — probe-verified): AVPlayer opens
     /// at the offset instead of buffering position zero and seeking away, and
@@ -869,16 +864,26 @@ final class RemuxSession {
         }
         primary += "\nmedia.m3u8\n"
 
-        // Slipstream ladder: one server-assisted variant per adopted rung, all
-        // on the SAME grid and sharing the audio and subtitle groups, so a
-        // variant switch touches nothing but video. Rungs list ascending
-        // (config.tiers is sorted), so the smallest is the startup pick.
+        // The real source link rate the producer measured pulling v0: bytes over the seconds it
+        // spent blocked on the input. AVPlayer's own ABR is blind here (it measures the 127.0.0.1
+        // loopback, always fast) and would open on the highest variant it sees, so the master lists
+        // ONLY the variants this rate carries: its opening pick then lands on one the link plays. A
+        // link that barely blocked (fast) reads as unbounded and keeps every variant, v0 included.
+        let readSecs = pulledReadSeconds
+        let linkCeilingBps = readSecs > 0.5 ? Double(pulledBytes) * 8 / readSecs * 0.8 : Double.greatestFiniteMagnitude
+
+        // Slipstream ladder: one server-assisted variant per adopted rung the link carries, all on
+        // the SAME grid and sharing the audio and subtitle groups, so a variant switch touches
+        // nothing but video. Rungs list ascending (config.tiers is sorted).
         var tier = ""
         if offered {
             stateLock.lock()
             let adoptedRungs = (0..<config.tiers.count).filter { !(tierSegments[$0]?.isEmpty ?? true) }
             stateLock.unlock()
-            for k in adoptedRungs {
+            // Keep the rungs the link carries; always keep the smallest adopted rung so a floor
+            // always plays even when the link is below all of them.
+            let fitting = adoptedRungs.filter { Double(config.tiers[$0].bandwidth) <= linkCeilingBps }
+            for k in (fitting.isEmpty ? Array(adoptedRungs.prefix(1)) : fitting) {
                 let rung = config.tiers[k]
                 let bw = rung.bandwidth > 0 ? rung.bandwidth : 1_500_000
                 var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bw),AVERAGE-BANDWIDTH=\(bw)"
@@ -908,10 +913,11 @@ final class RemuxSession {
                 tier += line
             }
         }
-        // HLS startup picks the first listed variant: a link measured below the
-        // source bitrate leads with the ladder so playback starts on the
-        // smallest rung; the primary stays a native climb away.
-        out += config.tierFirst && offered ? tier + primary : primary + tier
+        // The primary (v0, the source-rate on-device copy) is listed only when there is no ladder,
+        // or when the link carries the source rate. On a link below it the primary is withheld, so
+        // AVPlayer cannot open on a stream the link will starve; it opens on the top fitting rung.
+        let carriesPrimary = !offered || config.bandwidth <= 0 || Double(config.bandwidth) <= linkCeilingBps
+        out += offered ? (carriesPrimary ? tier + primary : tier) : primary
         reportTier(listed: offered)
         return out
     }
