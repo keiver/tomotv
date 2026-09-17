@@ -193,6 +193,8 @@ const LINK_CAP_SHARE = 0.8;
 const LINK_CLIMB_HOLD_MS = 5_000;
 /** Smallest gap between two such rebuilds, so a link hovering at the source rate cannot bounce. */
 const LINK_CLIMB_COOLDOWN_MS = 60_000;
+/** What AVPlayer buffers ahead on the rung lane, where its own threshold costs a server encode per segment. */
+const SLIPSTREAM_FORWARD_BUFFER_SECONDS = 6;
 /** A live stream the player has not opened by then is treated as dropped; the live ladder takes it. */
 const LIVE_START_DEADLINE_MS = 45_000;
 /** A movie the player has not opened by then bails to its next lane. Wide enough to clear the
@@ -290,6 +292,11 @@ export interface VideoPlaybackResult {
    * (a pinned quality preset). null = prop omitted (Auto / non-gateway).
    */
   maxBitRate: number | null;
+  /**
+   * Slipstream rung sessions: RNV preferredForwardBufferDuration, so AVPlayer starts a segment
+   * ahead instead of buffering its own default. null everywhere else.
+   */
+  forwardBufferSeconds: number | null;
 
   /**
    * Resume position for the source's startPosition, in ms, or null.
@@ -496,8 +503,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const pinnedCapRef = useRef<number | null>(null);
   // Smallest variant the master lists, the floor every measured cap is held above.
   const capFloorRef = useRef(0);
-  // When the measured link first cleared the source rate, and the earliest a rebuild may follow.
-  const linkClearedSourceAtRef = useRef(0);
+  // The pending hold on a link that cleared the source rate, and the earliest a rebuild may follow.
+  const climbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const climbAtRef = useRef(0);
   // True while the session rides the Slipstream tier as its survival floor: the
   // engine primary is unproducible on this link by design, so primary-starvation
@@ -1097,6 +1104,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // becomes this cap — seamless, no session rebuild; Auto and every
   // non-gateway session leave it null (prop omitted).
   const [videoMaxBitRate, setVideoMaxBitRate] = useState<number | null>(null);
+  /** preferredForwardBufferDuration for rung-lane sessions; null (AVPlayer's own threshold) elsewhere. */
+  const [forwardBufferSeconds, setForwardBufferSeconds] = useState<number | null>(null);
 
   /** Resume handed to AVFoundation with the source (Mac). See VideoPlaybackResult. */
   const [startPositionMs, setStartPositionMs] = useState<number | null>(null);
@@ -1335,6 +1344,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
           setVideoMaxBitRate(null);
+          setForwardBufferSeconds(null);
           // Check if we have a specific audio track selected (from user switching)
           const hasSelectedAudioTrack = selectedAudioTrackIndexRef.current !== null;
 
@@ -1501,7 +1511,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               // variants the link carries instead of the ones the loopback makes look free. Applied
               // live (RNV maxBitRate -> preferredPeakBitRate), so a drop or a recovery moves it
               // without rebuilding the session; a fixed pin stays the ceiling it already is.
-              const stopLink = subscribeEngineLink(token, ({ bps }) => {
+              const stopLink = subscribeEngineLink(token, ({ bps, copyListed }) => {
+                probeEmit("link", { bps: Math.round(bps), copyListed: copyListed ?? null });
                 if (pinnedCapRef.current != null || currentModeRef.current !== "localRemux") return;
                 // Never below the smallest variant in the master: a cap under all of them leaves
                 // AVPlayer nothing it may play, and it wanders between every one of them without
@@ -1518,22 +1529,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               // fails the whole item on its 6s deadline. So a link that recovers is climbed by
               // rebuilding the session at the playhead, once the recovery has held.
               const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
-              const stopClimb = subscribeEngineLink(token, ({ bps }) => {
-                if (currentModeRef.current !== "localRemux" || engineSourceBps <= 0) return;
-                if (bps < engineSourceBps * 1.2) {
-                  linkClearedSourceAtRef.current = 0;
-                  return;
-                }
-                // The session already carries the copy when it opened on a link that fit it.
-                if (linkCapRef.current >= engineSourceBps) return;
-                const now = Date.now();
-                if (linkClearedSourceAtRef.current === 0) {
-                  linkClearedSourceAtRef.current = now;
-                  return;
-                }
-                if (now - linkClearedSourceAtRef.current < LINK_CLIMB_HOLD_MS || now < climbAtRef.current) return;
-                linkClearedSourceAtRef.current = 0;
-                climbAtRef.current = now + LINK_CLIMB_COOLDOWN_MS;
+              const climbToCopy = (bps: number) => {
+                climbTimerRef.current = null;
+                if (!isMountedRef.current || currentModeRef.current !== "localRemux") return;
+                climbAtRef.current = Date.now() + LINK_CLIMB_COOLDOWN_MS;
                 logger.info("Link carries the source again, rebuilding on the on-device copy", {
                   service: "useVideoPlayback",
                   linkMbps: Math.round(bps / 100_000) / 10,
@@ -1550,6 +1549,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                   if (!isMountedRef.current) return;
                   dispatch({ type: "RETRY_WITH_TRANSCODE" });
                 });
+              };
+              const stopClimb = subscribeEngineLink(token, ({ bps, copyListed }) => {
+                // A master that lists the copy needs no rebuild: AVPlayer climbs to it itself.
+                if (currentModeRef.current !== "localRemux" || engineSourceBps <= 0 || copyListed !== false) return;
+                if (bps < engineSourceBps * 1.2) {
+                  if (climbTimerRef.current) clearTimeout(climbTimerRef.current);
+                  climbTimerRef.current = null;
+                  return;
+                }
+                // The hold runs on a timer, not on the next report: a link fast enough to fill the
+                // rung read-ahead stops the engine's server reads, and with them the reports it
+                // measures them from (measured on the TV: the last report came 1.5s into recovery).
+                if (climbTimerRef.current || Date.now() < climbAtRef.current) return;
+                climbTimerRef.current = setTimeout(() => climbToCopy(bps), LINK_CLIMB_HOLD_MS);
               });
               // The engine reports a pipeline failure as it happens, so an input it could not open
               // ends the wait now rather than at the deadline.
@@ -1569,6 +1582,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 stopThroughput();
                 stopLink();
                 stopClimb();
+                if (climbTimerRef.current) clearTimeout(climbTimerRef.current);
+                climbTimerRef.current = null;
                 stopFailure();
                 stopStage();
                 stopTier();
@@ -1582,6 +1597,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 // to the transcode and never hangs. Samples now feed the mid-play starvation watch.
                 preflightOpen = false;
                 onTierLaneRef.current = true;
+                // AVPlayer's own start threshold buffers around 24s of media, and every rung segment
+                // costs a server encode: 0.6 Mb/s took 38s to a first frame. Six seconds is one
+                // segment ahead, which the rungs refill in under half their duration (14.7s, no stall).
+                setForwardBufferSeconds(SLIPSTREAM_FORWARD_BUFFER_SECONDS);
                 probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, readSeconds: null, thermal: "unknown", remembered: false, keptForTier: true });
                 logger.info("Ladder offered, opening on the smallest rung without timing the engine primary", { service: "useVideoPlayback" });
               } else {
@@ -2937,7 +2956,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     linkCapRef.current = 0;
     pinnedCapRef.current = null;
     capFloorRef.current = 0;
-    linkClearedSourceAtRef.current = 0;
+    setForwardBufferSeconds(null);
+    if (climbTimerRef.current) clearTimeout(climbTimerRef.current);
+    climbTimerRef.current = null;
     onTierLaneRef.current = false;
     setVideoMaxBitRate(null);
     setHasStablePlayback(false);
@@ -3298,6 +3319,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     startPositionMs,
     paused,
     maxBitRate: videoMaxBitRate,
+    forwardBufferSeconds,
     videoCallbacks,
     state,
     videoDetails,

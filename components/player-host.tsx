@@ -225,6 +225,7 @@ export function PlayerHost() {
     startPositionMs,
     paused,
     maxBitRate,
+    forwardBufferSeconds,
     videoCallbacks,
     state,
     showLoadingOverlay,
@@ -862,6 +863,8 @@ export function PlayerHost() {
           paused={paused}
           // Slipstream: live variant cap (pins); undefined everywhere else.
           maxBitRate={maxBitRate ?? undefined}
+          // Slipstream rung sessions start a segment ahead; every other session keeps AVPlayer's own.
+          preferredForwardBufferDuration={forwardBufferSeconds ?? undefined}
           // The viewer's remembered subtitle choice, applied at item start.
           // Unset is {type: "system"}, which is the automatic path the lib
           // already takes, so a fresh install is unchanged.

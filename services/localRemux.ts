@@ -182,6 +182,10 @@ interface TierRung {
 export const SURVIVAL_AUDIO_BITRATE = 96_000;
 
 const SLIPSTREAM_LADDER: TierRung[] = [
+  // The bottom rung is sized for the START, not the steady state: AVPlayer buffers around 24s of
+  // media before the first frame, so a 0.6 Mb/s link spends 14s on a 336 kb/s rung's worth of it
+  // (measured: 38s to first frame). At 140 kb/s that buffer is a third of the bytes.
+  { label: "144p thin", bitrate: 140_000, width: 256, height: 144, codecs: "avc1.64000C" },
   // 144p exists for links under ~0.7 Mb/s, where 240p plus its audio does not fit the wire.
   { label: "144p", bitrate: 240_000, width: 256, height: 144, codecs: "avc1.64000C" },
   { label: "240p", bitrate: 400_000, width: 426, height: 240, codecs: "avc1.640015" },
@@ -535,7 +539,7 @@ export function subscribeEngineTier(token: string, listener: TierListener): () =
 }
 
 /** The link rate the engine measured behind the loopback, in bits per second. */
-export type EngineLinkReport = { token: string; bps: number };
+export type EngineLinkReport = { token: string; bps: number; copyListed?: boolean };
 
 type LinkListener = (report: EngineLinkReport) => void;
 const linkListeners = new Map<string, Set<LinkListener>>();

@@ -1067,8 +1067,9 @@ describe("startLocalRemux Slipstream tier config", () => {
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    // A 20 Mbps source clears every rung's undercut; the ladder always leads with 144p.
-    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 426, 640, 854, 1280, 1920]);
+    // A 20 Mbps source clears every rung's undercut; the ladder leads with the two 144p rungs.
+    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 256, 426, 640, 854, 1280, 1920]);
+    expect(config.tiers.map((t: { bandwidth: number }) => t.bandwidth)[0]).toBe(140_000 + 96_000);
     const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
     expect(r480.bandwidth).toBe(1_500_000 + 96_000);
     expect(r480.codecs).toBe("avc1.64001F,mp4a.40.2");
@@ -1145,7 +1146,7 @@ describe("startLocalRemux Slipstream tier config", () => {
       }),
     );
     const config = mockStartRemux.mock.calls[0][0];
-    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 426, 640, 854]);
+    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 256, 426, 640, 854]);
   });
 
   it("declares no rung for an HDR source: the ladder is SDR only", async () => {
