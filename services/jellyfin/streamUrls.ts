@@ -27,7 +27,9 @@ export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem 
     `${config.server}/Videos/${itemId}/main.m3u8?` +
     `ApiKey=${config.apiKey}&MediaSourceId=${mediaSourceId}` +
     `&VideoCodec=h264&AudioCodec=aac` +
-    `&VideoBitrate=${preset.bitrate}&AudioBitrate=128000` +
+    // The rung's own audio is discarded in the rewrap (the audio-lo group feeds the variant), so it
+    // is requested at the floor: on a 0.6 Mb/s link 128k of it was a fifth of the whole budget.
+    `&VideoBitrate=${preset.bitrate}&AudioBitrate=32000` +
     (preset.width ? `&MaxWidth=${preset.width}` : "") +
     `&SegmentContainer=ts&SegmentLength=6&MinSegments=1` +
     `&BreakOnNonKeyFrames=false&TranscodingMaxAudioChannels=2` +

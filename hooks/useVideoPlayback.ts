@@ -49,6 +49,7 @@ import {
   stopLocalRemux,
   stopPlaylistShim,
   subscribeEngineFailure,
+  subscribeEngineLink,
   subscribeEngineStage,
   subscribeEngineThroughput,
   subscribeEngineTier,
@@ -77,21 +78,14 @@ import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } fro
 import { IS_MAC } from "@/utils/hostEnvironment";
 import {
   advanceAdaptive,
-  advanceSlipstreamLadder,
   createAdaptiveState,
-  createSlipstreamLadder,
-  dropLadderToFloor,
   FLOOR_INDEX,
   gatewayMaxBitRate,
-  ladderCap,
-  LADDER_DRAIN_OCCUPANCY_SEC,
   markProbeStarted,
   ORIGINAL_INDEX,
   pickStartupIndex,
-  SEEK_GRACE_MS,
   shouldProbeThroughput,
   type AdaptiveQualityState,
-  type SlipstreamLadderState,
 } from "@/services/adaptiveQuality";
 import { measureServerBitrate, rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
@@ -193,8 +187,21 @@ const SUBTITLE_CAPTURE_SETTLE_MS = 1500;
 const ENGINE_SEGMENT_DEADLINE_MS = 20_000;
 /** Longest pre-flight for a session still pulling its opening segment at the link's pace. */
 const ENGINE_PREFLIGHT_CAP_MS = 60_000;
+/** Share of the measured link AVPlayer may commit to: the rest is headroom for the link moving. */
+const LINK_CAP_SHARE = 0.8;
+/** How long the link must carry the source before the session is rebuilt on the on-device copy. */
+const LINK_CLIMB_HOLD_MS = 5_000;
+/** Smallest gap between two such rebuilds, so a link hovering at the source rate cannot bounce. */
+const LINK_CLIMB_COOLDOWN_MS = 60_000;
 /** A live stream the player has not opened by then is treated as dropped; the live ladder takes it. */
 const LIVE_START_DEADLINE_MS = 45_000;
+/** A movie the player has not opened by then bails to its next lane. Wide enough to clear the
+ * presented-player warmup and a copy's first-segment pull, short enough to beat AVPlayer's own
+ * ~38s stall watchdog so a link that cannot carry the opening variant falls over fast, not slow. */
+const VOD_OPEN_DEADLINE_MS = 25_000;
+/** Smallest gap between climb-backs to the on-device copy. Each one re-buffers, so a link hovering
+ * around the source rate must not bounce the session between the server and the copy. */
+const CLIMB_BACK_COOLDOWN_MS = 60_000;
 
 /** One session's throughput samples and the subscription feeding them. */
 type ThroughputWatch = { samples: ThroughputSample[]; unsubscribe: (() => void) | null; handedOver: boolean };
@@ -469,6 +476,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // The engine's own segment clock for this session (Remuxer.reportThroughput): the last
   // few samples, the subscription that feeds them, and whether they already moved playback.
   const throughputRef = useRef<ThroughputWatch>({ samples: [], unsubscribe: null, handedOver: false });
+  // The item currently bound to the player, so onProgress can read its source bitrate and re-open
+  // it when the link recovers (climb-back to the on-device copy).
+  const activeDetailsRef = useRef<JellyfinVideoItem | null>(null);
+  // Earliest time a climb-back to the copy may fire again: a restart re-buffers, so a marginal link
+  // must not oscillate copy<->server. Set after every fallback and every climb-back.
+  const climbBackAtRef = useRef(0);
   // Set when a starvation pushed playback to the server: the transcode enters at the
   // floor preset (adaptive quality reads and clears it when building the stream URL).
   const stallFallbackRef = useRef(false);
@@ -476,11 +489,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const adaptiveRef = useRef<AdaptiveQualityState | null>(null);
   // Preset index a mid-session switch rebuilds the stream with.
   const adaptiveOverrideIndexRef = useRef<number | null>(null);
-  // Buffer-driven ladder controller: steps preferredPeakBitRate rung by rung from AVPlayer's buffer
-  // occupancy, since the loopback blinds its own ABR (null = inactive / no ladder this session).
-  const slipstreamLadderRef = useRef<SlipstreamLadderState | null>(null);
-  // A seek empties the buffer; hold ladder drops until this passes so the refill is not read as drain.
-  const ladderSeekGraceUntilRef = useRef(0);
+  // The ceiling AVPlayer picks its variant under, from the link the engine measured behind the
+  // loopback (0 = uncapped). AVPlayer's own estimator only ever sees 127.0.0.1.
+  const linkCapRef = useRef(0);
+  // A viewer's fixed quality pin outranks the measured cap; null while Auto.
+  const pinnedCapRef = useRef<number | null>(null);
+  // Smallest variant the master lists, the floor every measured cap is held above.
+  const capFloorRef = useRef(0);
+  // When the measured link first cleared the source rate, and the earliest a rebuild may follow.
+  const linkClearedSourceAtRef = useRef(0);
+  const climbAtRef = useRef(0);
   // True while the session rides the Slipstream tier as its survival floor: the
   // engine primary is unproducible on this link by design, so primary-starvation
   // teardowns (stall restart, engineStarving handover) are suppressed. The plain
@@ -1134,6 +1152,37 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     hasStablePlaybackRef.current = false;
     setHasStablePlayback(false);
     setStreamUrl(null);
+    climbBackAtRef.current = Date.now() + CLIMB_BACK_COOLDOWN_MS;
+    setImmediate(() => {
+      if (!isMountedRef.current) return;
+      dispatch({ type: "RETRY_WITH_TRANSCODE" });
+    });
+  }, []);
+
+  /**
+   * The reverse of handOverToServer: the link has recovered enough to carry the source, so leave
+   * the server transcode and re-open the on-device copy at the playhead. A restart re-buffers (the
+   * VOD scrub bar rules out a seamless in-playlist switch), so it fires at most once per cooldown
+   * and only when even the leftover-bandwidth probe clears the source rate.
+   */
+  const climbBackToCopy = useCallback((details: JellyfinVideoItem) => {
+    if (!isMountedRef.current || currentModeRef.current !== "transcode" || isLiveRef.current || playsFromDisk(details.Id)) return;
+    const position = currentTimeRef.current;
+    logger.info("Link recovered, climbing back to the on-device copy at the playhead", { service: "useVideoPlayback", position: Math.round(position) });
+    probeEmit("fallback", { from: "transcode", to: "localRemux", reason: "link recovered above source" });
+    // Clear every flag that pins the session to the server so the mode picker chooses the engine
+    // again; the link now measures able to carry it.
+    hasTriedTranscodingRef.current = false;
+    setHasTriedTranscoding(false);
+    stallFallbackRef.current = false;
+    directPlayFailedRef.current = false;
+    seekToPositionAfterLoadRef.current = position;
+    autoPlayTriggeredRef.current = false;
+    isPlayingRef.current = false;
+    hasStablePlaybackRef.current = false;
+    setHasStablePlayback(false);
+    climbBackAtRef.current = Date.now() + CLIMB_BACK_COOLDOWN_MS;
+    setStreamUrl(null);
     setImmediate(() => {
       if (!isMountedRef.current) return;
       dispatch({ type: "RETRY_WITH_TRANSCODE" });
@@ -1160,6 +1209,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // building the URL that carries it. Central choke point for every path that
         // recreates the stream (initial load, audio switch, seek recovery, retries).
         resetPlaybackSessionRef.current?.();
+        // The item bound to the player, so onProgress can read its source rate and re-open it on
+        // the copy when the link recovers.
+        activeDetailsRef.current = details;
         // A live channel reports under the session the server opened its stream for.
         playSessionIdRef.current = isLiveRef.current && details.PlaySessionId ? details.PlaySessionId : generatePlaySessionId();
         // A new server session orphans the group's view of us; tell it we are buffering
@@ -1278,8 +1330,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
         if (mode === "transcode") {
           setPlaybackStage("server");
-          // Single-variant server stream: no ladder for maxBitRate to steer.
-          slipstreamLadderRef.current = null;
+          // Single-variant server stream: nothing for a cap to steer.
+          linkCapRef.current = 0;
+          pinnedCapRef.current = null;
           onTierLaneRef.current = false;
           setVideoMaxBitRate(null);
           // Check if we have a specific audio track selected (from user switching)
@@ -1434,12 +1487,69 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                     resolve(outcome);
                   };
                 });
+              // Before the link subscription below: its first report can land in the first seconds,
+              // and a cap under the smallest variant leaves AVPlayer nothing to play.
+              capFloorRef.current = offeredTierBandwidths(details, audioStreamIndexForReportingRef.current ?? undefined)[0] ?? 0;
               const stopThroughput = subscribeEngineThroughput(token, (sample) => {
                 throughputRef.current.samples = [...throughputRef.current.samples.slice(-7), sample];
                 if (settleFirst(sample)) return;
                 // On the tier lane the primary is unproducible by design; its starvation is not
                 // a reason to abandon the tier for a higher-bitrate server transcode.
                 if (engineStarving(throughputRef.current.samples) && !onTierLaneRef.current) handOverToServer(details, sample);
+              });
+              // The engine's measured link becomes AVPlayer's ceiling, so it picks among the
+              // variants the link carries instead of the ones the loopback makes look free. Applied
+              // live (RNV maxBitRate -> preferredPeakBitRate), so a drop or a recovery moves it
+              // without rebuilding the session; a fixed pin stays the ceiling it already is.
+              const stopLink = subscribeEngineLink(token, ({ bps }) => {
+                if (pinnedCapRef.current != null || currentModeRef.current !== "localRemux") return;
+                // Never below the smallest variant in the master: a cap under all of them leaves
+                // AVPlayer nothing it may play, and it wanders between every one of them without
+                // ever showing a frame (drill S5 at 0.6 Mb/s).
+                const cap = Math.max(Math.round(bps * LINK_CAP_SHARE), capFloorRef.current);
+                // Only a material move: AVPlayer re-evaluates its variant on every cap change.
+                if (linkCapRef.current > 0 && Math.abs(cap - linkCapRef.current) < linkCapRef.current * 0.15) return;
+                linkCapRef.current = cap;
+                setVideoMaxBitRate(cap);
+                logger.info("Slipstream cap follows the measured link", { service: "useVideoPlayback", linkMbps: Math.round(bps / 100_000) / 10, capMbps: Math.round(cap / 100_000) / 10 });
+              });
+              // A master written for a link below the source carries no copy variant: AVPlayer
+              // evaluates whatever it is offered, and a copy segment a slow link cannot finish
+              // fails the whole item on its 6s deadline. So a link that recovers is climbed by
+              // rebuilding the session at the playhead, once the recovery has held.
+              const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
+              const stopClimb = subscribeEngineLink(token, ({ bps }) => {
+                if (currentModeRef.current !== "localRemux" || engineSourceBps <= 0) return;
+                if (bps < engineSourceBps * 1.2) {
+                  linkClearedSourceAtRef.current = 0;
+                  return;
+                }
+                // The session already carries the copy when it opened on a link that fit it.
+                if (linkCapRef.current >= engineSourceBps) return;
+                const now = Date.now();
+                if (linkClearedSourceAtRef.current === 0) {
+                  linkClearedSourceAtRef.current = now;
+                  return;
+                }
+                if (now - linkClearedSourceAtRef.current < LINK_CLIMB_HOLD_MS || now < climbAtRef.current) return;
+                linkClearedSourceAtRef.current = 0;
+                climbAtRef.current = now + LINK_CLIMB_COOLDOWN_MS;
+                logger.info("Link carries the source again, rebuilding on the on-device copy", {
+                  service: "useVideoPlayback",
+                  linkMbps: Math.round(bps / 100_000) / 10,
+                  position: Math.round(currentTimeRef.current),
+                });
+                probeEmit("fallback", { from: "localRemux", to: "localRemux", reason: "link recovered above source" });
+                seekToPositionAfterLoadRef.current = currentTimeRef.current;
+                autoPlayTriggeredRef.current = false;
+                isPlayingRef.current = false;
+                hasStablePlaybackRef.current = false;
+                setHasStablePlayback(false);
+                setStreamUrl(null);
+                setImmediate(() => {
+                  if (!isMountedRef.current) return;
+                  dispatch({ type: "RETRY_WITH_TRANSCODE" });
+                });
               });
               // The engine reports a pipeline failure as it happens, so an input it could not open
               // ends the wait now rather than at the deadline.
@@ -1457,6 +1567,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               });
               throughputRef.current.unsubscribe = () => {
                 stopThroughput();
+                stopLink();
+                stopClimb();
                 stopFailure();
                 stopStage();
                 stopTier();
@@ -1596,32 +1708,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               currentTimeRef.current = engineOffset;
               logger.info("Engine session opens at the resume point", { service: "useVideoPlayback", offsetSeconds: Math.round(engineOffset) });
             }
-            // Auto: start on the smallest rung and let the buffer-driven ladder climb to the engine
-            // primary as the link proves it. AVPlayer's own estimator cannot be trusted here (it
-            // measures the loopback, not the real link), so the rung is chosen from buffer occupancy.
-            // A fixed pin is a user ceiling: honour it, no ladder. No rungs means the source plays whole.
+            // The master carries the on-device copy and every server rung, and AVPlayer switches
+            // between them itself. What it cannot know is the link behind the loopback, which it
+            // measures as 127.0.0.1: without a ceiling it commits to a variant the link cannot
+            // deliver and stalls between attempts (drill S3). So the engine's measured link becomes
+            // the cap, and a viewer's fixed pin outranks it.
             if (!isLiveRef.current && slipstreamEligible(details) && !playsFromDisk(videoId)) {
               const quality = await getQualitySettings();
               const pinned = gatewayMaxBitRate(quality);
-              const caps = offeredTierBandwidths(details, audioStreamIndexForReportingRef.current ?? undefined);
-              if (pinned == null && caps.length > 0) {
-                // Uncapped at the primary: a link that carries the on-device copy keeps it and never
-                // touches the server; only a draining buffer drops down the rungs (climbing back up).
-                slipstreamLadderRef.current = createSlipstreamLadder(caps, Date.now());
-                onTierLaneRef.current = true;
-                ladderSeekGraceUntilRef.current = 0;
-                setVideoMaxBitRate(null);
-                logger.info("Slipstream ladder armed, opening uncapped at the primary", {
-                  service: "useVideoPlayback",
-                  rungs: caps.length,
-                });
-              } else {
-                slipstreamLadderRef.current = null;
-                onTierLaneRef.current = false;
-                setVideoMaxBitRate(pinned ?? null);
-              }
+              pinnedCapRef.current = pinned ?? null;
+              linkCapRef.current = 0;
+              onTierLaneRef.current = true;
+              setVideoMaxBitRate(pinned ?? null);
             } else {
-              slipstreamLadderRef.current = null;
+              pinnedCapRef.current = null;
+              linkCapRef.current = 0;
+              capFloorRef.current = 0;
               onTierLaneRef.current = false;
               setVideoMaxBitRate(null);
             }
@@ -1867,10 +1969,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (adaptiveRef.current && currentModeRef.current === "transcode") {
         adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "seeked", nowMs: Date.now() }).state;
       }
-      if (slipstreamLadderRef.current) {
-        ladderSeekGraceUntilRef.current = Date.now() + SEEK_GRACE_MS;
-      }
-
       // Auto-seek to saved position if this is a restart (audio track switch)
       const seekPosition = seekToPositionAfterLoadRef.current;
       if (seekPosition !== null && seekPosition > 0) {
@@ -2049,26 +2147,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             if (bps != null && adaptiveRef.current && isMountedRef.current) {
               adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "throughput", bps, nowMs: Date.now() }).state;
             }
+            // Climb back to the on-device copy once the link plainly carries the source. This probe
+            // reads the LEFTOVER bandwidth behind the current transcode, so clearing the source rate
+            // here means the link has real headroom, not a marginal recovery that would re-stall.
+            const climbSourceBps = activeDetailsRef.current?.MediaSources?.[0]?.Bitrate ?? 0;
+            if (bps != null && climbSourceBps > 0 && bps >= climbSourceBps && Date.now() >= climbBackAtRef.current && activeDetailsRef.current) {
+              climbBackToCopy(activeDetailsRef.current);
+            }
           });
-        }
-      }
-
-      // Slipstream ladder (localRemux lane): buffer occupancy steps preferredPeakBitRate rung by
-      // rung. A saturated buffer climbs toward the engine primary; a draining one drops to protect
-      // playback. A seek empties the buffer, so drops are held through the grace after one.
-      if (slipstreamLadderRef.current && currentModeRef.current === "localRemux" && state.type === "PLAYING") {
-        const occupancySec = Math.max(0, (data.playableDuration ?? 0) - data.currentTime);
-        const nowMs = Date.now();
-        const inSeekGrace = nowMs < ladderSeekGraceUntilRef.current;
-        // During the seek grace the buffer is refilling: only let it climb, never read the low buffer as drain.
-        if (!(inSeekGrace && occupancySec <= LADDER_DRAIN_OCCUPANCY_SEC)) {
-          const result = advanceSlipstreamLadder(slipstreamLadderRef.current, { occupancySec, nowMs });
-          if (result.changed) {
-            slipstreamLadderRef.current = result.state;
-            const cap = ladderCap(result.state);
-            setVideoMaxBitRate(cap);
-            logger.info("Slipstream ladder step", { service: "useVideoPlayback", capKbps: cap != null ? Math.round(cap / 1000) : null, occupancySec: Math.round(occupancySec) });
-          }
         }
       }
 
@@ -2115,7 +2201,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
       }
     },
-    [paused, state.type, applyAdaptiveSwitch],
+    [paused, state.type, applyAdaptiveSwitch, climbBackToCopy],
   );
 
   // Callback: buffering edge from the player. A stall while the adaptive
@@ -2124,6 +2210,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (data: { isBuffering: boolean }) => {
       if (!isMountedRef.current) return;
       syncPlayManager.noteBuffering(data.isBuffering, currentTimeRef.current);
+      // Diagnostics and the ABR drill score stalls from these edges; nothing else emitted them.
+      probeEmit("buffering", { on: data.isBuffering, position: Math.round(currentTimeRef.current) });
       // Direct-lane stall watchdog. Buffer-empty is AVPlayer's own starvation
       // signal (isPlaybackBufferEmpty KVO — fires for progressive assets, and
       // a user pause cannot raise it: only the buffer observers write the
@@ -2174,17 +2262,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
       if (!data.isBuffering) return;
-      // Slipstream ladder: a buffering stall means the current rung outran the link, so drop straight
-      // to the smallest rung at once (a live cap flip, no rebuild) and let the ladder climb again.
-      if (slipstreamLadderRef.current && currentModeRef.current === "localRemux") {
-        const result = dropLadderToFloor(slipstreamLadderRef.current, Date.now());
-        slipstreamLadderRef.current = result.state;
-        if (result.changed) {
-          logger.info("Slipstream ladder dropped to the floor on a stall", { service: "useVideoPlayback" });
-          setVideoMaxBitRate(ladderCap(result.state));
-        }
-        return;
-      }
       if (!adaptiveRef.current || currentModeRef.current !== "transcode") return;
       const result = advanceAdaptive(adaptiveRef.current, { kind: "stall", nowMs: Date.now() });
       adaptiveRef.current = result.state;
@@ -2464,6 +2541,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       if (trackSignature !== lastLoggedAudioTracksRef.current) {
         lastLoggedAudioTracksRef.current = trackSignature;
+        // The count AVPlayer actually offers, so a drill can see a variant switch drop a track.
+        probeEmit("tracks", { audio: data.audioTracks.length, selected: data.audioTracks.find((t) => t.selected)?.index ?? -1 });
         logger.debug("🎵 Audio tracks", {
           service: "useVideoPlayback",
           count: data.audioTracks.length,
@@ -2855,8 +2934,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     stallFallbackRef.current = false;
     adaptiveRef.current = null;
     adaptiveOverrideIndexRef.current = null;
-    slipstreamLadderRef.current = null;
-    ladderSeekGraceUntilRef.current = 0;
+    linkCapRef.current = 0;
+    pinnedCapRef.current = null;
+    capFloorRef.current = 0;
+    linkClearedSourceAtRef.current = 0;
     onTierLaneRef.current = false;
     setVideoMaxBitRate(null);
     setHasStablePlayback(false);
@@ -2998,16 +3079,26 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   }, [skip, state.type, fetchMetadata]);
 
   /**
-   * A live stream that never reaches the player: the server's transcode can sit on a dead
-   * origin for minutes and AVPlayer waits with it, so the wait is bounded here.
+   * A session that never reaches the player: the origin (a live transcode on a dead upstream, or
+   * an on-device/copy open the link cannot carry) can leave AVPlayer waiting minutes with no error.
+   * Bound the open here so it bails to its next lane fast. Live gets a longer deadline; a movie on
+   * the copy/direct lane (each of which has a server fallback) gets the shorter one.
    */
   useEffect(() => {
-    if (state.type !== "INITIALIZING_PLAYER" || !isLiveRef.current) return;
+    if (state.type !== "INITIALIZING_PLAYER") return;
+    const live = isLiveRef.current;
+    const boundsNonLive = currentModeRef.current === "localRemux" || currentModeRef.current === "direct";
+    if (!live && !boundsNonLive) return;
+    const ms = live ? LIVE_START_DEADLINE_MS : VOD_OPEN_DEADLINE_MS;
     const timer = setTimeout(() => {
       if (!isMountedRef.current) return;
-      logger.warn("Live channel did not start in time", { service: "useVideoPlayback", lane: currentModeRef.current, seconds: LIVE_START_DEADLINE_MS / 1000 });
-      onError({ error: { errorString: `the channel did not start within ${LIVE_START_DEADLINE_MS / 1000}s` } } as OnVideoErrorData);
-    }, LIVE_START_DEADLINE_MS);
+      logger.warn(live ? "Live channel did not start in time" : "Player did not open in time, bailing to the next lane", {
+        service: "useVideoPlayback",
+        lane: currentModeRef.current,
+        seconds: ms / 1000,
+      });
+      onError({ error: { errorString: `playback did not start within ${ms / 1000}s` } } as OnVideoErrorData);
+    }, ms);
     return () => clearTimeout(timer);
   }, [state.type, onError]);
 
@@ -3113,9 +3204,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // new range refills; the controller holds its fire through the grace.
     if (adaptiveRef.current) {
       adaptiveRef.current = advanceAdaptive(adaptiveRef.current, { kind: "seeked", nowMs: Date.now() }).state;
-    }
-    if (slipstreamLadderRef.current) {
-      ladderSeekGraceUntilRef.current = Date.now() + SEEK_GRACE_MS;
     }
     if (!pausedRef.current) {
       videoRef.current?.resume();

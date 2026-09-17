@@ -182,6 +182,8 @@ interface TierRung {
 export const SURVIVAL_AUDIO_BITRATE = 96_000;
 
 const SLIPSTREAM_LADDER: TierRung[] = [
+  // 144p exists for links under ~0.7 Mb/s, where 240p plus its audio does not fit the wire.
+  { label: "144p", bitrate: 240_000, width: 256, height: 144, codecs: "avc1.64000C" },
   { label: "240p", bitrate: 400_000, width: 426, height: 240, codecs: "avc1.640015" },
   { label: "360p", bitrate: 800_000, width: 640, height: 360, codecs: "avc1.64001E" },
   { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" },
@@ -529,6 +531,41 @@ export function subscribeEngineTier(token: string, listener: TierListener): () =
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) tierListeners.delete(token);
+  };
+}
+
+/** The link rate the engine measured behind the loopback, in bits per second. */
+export type EngineLinkReport = { token: string; bps: number };
+
+type LinkListener = (report: EngineLinkReport) => void;
+const linkListeners = new Map<string, Set<LinkListener>>();
+let linkSubscription: { remove: () => void } | null = null;
+
+function watchEngineLink(): void {
+  if (linkSubscription || !isLocalRemuxAvailable()) return;
+  if (!nativeEmits("onEngineLink")) {
+    logger.info("Engine build predates the link report; the session plays uncapped", { service: "LocalRemux" });
+    return;
+  }
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  linkSubscription = emitter.addListener("onEngineLink", (report: EngineLinkReport) => {
+    linkListeners.get(report.token)?.forEach((listener) => listener(report));
+  });
+}
+
+/**
+ * The engine's measured link rate for one session, until the returned function runs. AVPlayer
+ * measures the loopback, which says nothing about the link behind the engine, so this is what the
+ * variant cap is built from. Never fires on a native build without the event.
+ */
+export function subscribeEngineLink(token: string, listener: LinkListener): () => void {
+  watchEngineLink();
+  const listeners = linkListeners.get(token) ?? new Set<LinkListener>();
+  listeners.add(listener);
+  linkListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) linkListeners.delete(token);
   };
 }
 
@@ -1026,6 +1063,8 @@ export type SubtitleRendition = {
   isImage: boolean;
   /** An embedded text track the engine decodes and publishes as WebVTT segments. */
   isEngineText: boolean;
+  /** The server's WebVTT of an engine text track, for windows the engine cannot read in time (rung sessions). */
+  serverVttUrl?: string;
 };
 
 /**
@@ -1402,6 +1441,10 @@ export async function startLocalRemux(
         })
       : audioTracks;
 
+  // A link that needs the rungs cannot carry the source read the engine decodes text cues from,
+  // so each engine text track also names the server's WebVTT.
+  const subtitlesConfig = rungs.length > 0 ? subtitles.map((sub) => (sub.isEngineText ? { ...sub, serverVttUrl: getSubtitleUrl(videoItem.Id, sub.index, "vtt") } : sub)) : subtitles;
+
   const tierOffered = tiersConfig.length > 0;
   if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierOffered });
 
@@ -1410,7 +1453,7 @@ export async function startLocalRemux(
     itemId: videoItem.Id,
     audioTracks: audioTracksConfig,
     durationSeconds,
-    subtitles,
+    subtitles: subtitlesConfig,
     videoRange: declaredRange,
     codecs,
     supplementalCodecs,

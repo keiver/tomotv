@@ -26,14 +26,6 @@ import {
   PROBE_INTERVAL_MS,
   shouldProbeThroughput,
   THROUGHPUT_STALE_MS,
-  advanceSlipstreamLadder,
-  createSlipstreamLadder,
-  dropLadderToFloor,
-  ladderCap,
-  LADDER_RAISE_OCCUPANCY_SEC,
-  LADDER_DRAIN_OCCUPANCY_SEC,
-  LADDER_RAISE_DWELL_MS,
-  LADDER_DROP_DWELL_MS,
   type AdaptiveQualityState,
 } from "../adaptiveQuality";
 import { QUALITY_PRESETS } from "../jellyfin/constants";
@@ -302,59 +294,5 @@ describe("post-seek grace", () => {
     s = advanceAdaptive(s, { kind: "seeked", nowMs: T0 + 2000 }).state;
     expect(s.drainingTicks).toBe(0);
     expect(s.lastOccupancySec).toBeNull();
-  });
-});
-
-describe("slipstream ladder controller", () => {
-  const CAPS = [500_000, 900_000, 1_600_000, 4_100_000]; // 240/360/480/720 + AAC
-  const T = 100_000;
-
-  it("starts uncapped at the primary, keeping a fast link on the on-device copy", () => {
-    expect(ladderCap(createSlipstreamLadder(CAPS, T))).toBeNull();
-  });
-
-  it("drops a rung on a draining buffer after the drop dwell", () => {
-    const r = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS });
-    expect(r.changed).toBe(true);
-    expect(ladderCap(r.state)).toBe(4_100_000); // uncapped -> top rung
-  });
-
-  it("does not drop before the drop dwell", () => {
-    const r = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS - 1 });
-    expect(r.changed).toBe(false);
-  });
-
-  it("keeps dropping down to the smallest rung on a link that stays starved, then holds", () => {
-    let s = createSlipstreamLadder(CAPS, T);
-    let now = T;
-    for (let i = 0; i < CAPS.length; i++) {
-      now += LADDER_DROP_DWELL_MS;
-      s = advanceSlipstreamLadder(s, { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: now }).state;
-    }
-    expect(ladderCap(s)).toBe(500_000);
-    const r = advanceSlipstreamLadder(s, { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: now + LADDER_DROP_DWELL_MS });
-    expect(r.changed).toBe(false);
-  });
-
-  it("climbs back a rung on a saturated buffer after the raise dwell once it has dropped", () => {
-    const dropped = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS }).state;
-    expect(ladderCap(dropped)).toBe(4_100_000);
-    const r = advanceSlipstreamLadder(dropped, { occupancySec: LADDER_RAISE_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS + LADDER_RAISE_DWELL_MS });
-    expect(r.changed).toBe(true);
-    expect(ladderCap(r.state)).toBeNull(); // back up to the primary
-  });
-
-  it("does not climb above the primary (uncapped)", () => {
-    const r = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_RAISE_OCCUPANCY_SEC, nowMs: T + LADDER_RAISE_DWELL_MS });
-    expect(r.changed).toBe(false);
-    expect(ladderCap(r.state)).toBeNull();
-  });
-
-  it("drops straight to the floor on a stall", () => {
-    const s = advanceSlipstreamLadder(createSlipstreamLadder(CAPS, T), { occupancySec: LADDER_DRAIN_OCCUPANCY_SEC, nowMs: T + LADDER_DROP_DWELL_MS }).state;
-    expect(ladderCap(s)).toBe(4_100_000);
-    const r = dropLadderToFloor(s, T + LADDER_DROP_DWELL_MS + 1000);
-    expect(r.changed).toBe(true);
-    expect(ladderCap(r.state)).toBe(500_000);
   });
 });

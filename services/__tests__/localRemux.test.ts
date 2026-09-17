@@ -1067,8 +1067,8 @@ describe("startLocalRemux Slipstream tier config", () => {
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    // A 20 Mbps source clears every rung's undercut; the ladder always leads with 240p.
-    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([426, 640, 854, 1280, 1920]);
+    // A 20 Mbps source clears every rung's undercut; the ladder always leads with 144p.
+    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 426, 640, 854, 1280, 1920]);
     const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
     expect(r480.bandwidth).toBe(1_500_000 + 96_000);
     expect(r480.codecs).toBe("avc1.64001F,mp4a.40.2");
@@ -1133,8 +1133,8 @@ describe("startLocalRemux Slipstream tier config", () => {
   });
 
   it("offers only the rungs that undercut the primary (a taller rung is dropped)", async () => {
-    // Video 3 Mbps + AC3 640k → primary 3.64M, *0.85 = 3.094M. Rungs carry AAC 96k, so 240p
-    // (496k), 360p (896k), 480p (1.596M) undercut; 720p (4.096M) and 1080p do not.
+    // Video 3 Mbps + AC3 640k → primary 3.64M, *0.85 = 3.094M. Rungs carry AAC 96k, so 144p
+    // (336k), 240p (496k), 360p (896k), 480p (1.596M) undercut; 720p (4.096M) and 1080p do not.
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 3_640_000 }],
@@ -1145,7 +1145,7 @@ describe("startLocalRemux Slipstream tier config", () => {
       }),
     );
     const config = mockStartRemux.mock.calls[0][0];
-    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([426, 640, 854]);
+    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 426, 640, 854]);
   });
 
   it("declares no rung for an HDR source: the ladder is SDR only", async () => {
