@@ -1,0 +1,173 @@
+//
+//  RemuxSession+Segments.swift
+//  TomoTV
+//
+//  Serving the primary/alternate-audio fMP4 segments and init to AVPlayer:
+//  the bounded wait that drives seek-restarts when the player jumps outside
+//  the producer's window, and the init/segment HTTP responses.
+//
+
+import Foundation
+
+extension RemuxSession {
+    // MARK: - Segment serving
+
+    /// A completed segment goes out as a plain file; one still in production
+    /// gets chunked early headers so AVPlayer's short no-response-headers
+    /// watchdog (-12889) never fires while the provider waits.
+    func segmentResponse(_ n: Int, prefix: String = "") -> LocalHTTPResponse {
+        guard n >= 0, let rendition = rendition(withPrefix: prefix) else { return .notFound }
+        stateLock.lock()
+        lastRequestedSegment = n
+        lastPrimaryDemandAt = Date()
+        let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
+        let done = rendition.completed.contains(n)
+        let dead = failed || cancelled
+        let pastEnd = reachedEnd && n > lastProducedSegment
+        stateLock.unlock()
+        if dead || !inRange || (pastEnd && !done) { return .notFound }
+        if done { return .file(dir.appendingPathComponent(rendition.segmentName(n)), contentType: "video/iso.segment") }
+        return .streamed(contentType: "video/iso.segment") { [weak self] in self?.segmentURL(n, prefix: prefix) }
+    }
+
+    func initResponse(prefix: String = "", generation: Int = 0) -> LocalHTTPResponse {
+        let url = dir.appendingPathComponent(Self.liveInitName(prefix: prefix, generation: generation))
+        stateLock.lock()
+        lastPrimaryDemandAt = Date()
+        let dead = failed || cancelled
+        stateLock.unlock()
+        if dead { return .notFound }
+        if FileManager.default.fileExists(atPath: url.path) { return .file(url, contentType: "video/mp4") }
+        return .streamed(contentType: "video/mp4") { [weak self] in self?.initSegmentURL(prefix: prefix, generation: generation) }
+    }
+
+    func initSegmentURL(prefix: String = "", generation: Int = 0) -> URL? {
+        let url = dir.appendingPathComponent(Self.liveInitName(prefix: prefix, generation: generation))
+        // Written when the rendition's muxer is built, which happens as the
+        // pipeline starts. AVPlayer asks for it before any segment. A failed
+        // session (e.g. the video transcoder refusing the pixel format)
+        // answers immediately instead of running out the clock, so the player
+        // reaches its server fallback in milliseconds rather than 25s.
+        _ = waitUntil(deadline: 25) { [weak self] in
+            guard let self else { return true }
+            if FileManager.default.fileExists(atPath: url.path) { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.failed || self.cancelled
+        }
+        stateLock.lock()
+        let dead = failed || cancelled
+        stateLock.unlock()
+        return !dead && FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Blocking (bounded) fetch of a segment file, driving seek-restarts when
+    /// the player jumps outside the producer's window. `prefix` selects the
+    /// rendition ("" = primary, "aN" = alternate audio).
+    func segmentURL(_ n: Int, prefix: String = "") -> URL? {
+        guard n >= 0 else { return nil }
+        guard let rendition = rendition(withPrefix: prefix) else { return nil }
+
+        stateLock.lock()
+        lastRequestedSegment = n
+        let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
+        let done = rendition.completed.contains(n)
+        let producing = producingSegment
+        let sessionFailed = failed
+        // Past the real end of the stream: nothing will ever produce this, so
+        // answer immediately instead of waiting out the segment timeout.
+        let pastEnd = reachedEnd && n > lastProducedSegment
+        stateLock.unlock()
+        if sessionFailed || !inRange || (pastEnd && !done) { return nil }
+
+        let url = dir.appendingPathComponent(rendition.segmentName(n))
+        if done { return url }
+
+        // Outside the imminent window: restart the pipeline at this segment.
+        // A live source cannot seek; its playlist only lists produced segments.
+        if !config.isLive && (n < producing || n > producing + aheadWindow) {
+            stateLock.lock()
+            pendingSeekSegment = n
+            stateLock.unlock()
+        }
+
+        // Register as an active waiter for the duration of the wait: the
+        // producer never throttles while an uncompleted segment inside its
+        // window has one (see the control block in runPipeline), so this
+        // request can't starve because the playhead marker was dragged
+        // backwards by another request in the meantime.
+        stateLock.lock()
+        activeWaiters[n, default: 0] += 1
+        stateLock.unlock()
+        defer {
+            stateLock.lock()
+            if let count = activeWaiters[n], count > 1 { activeWaiters[n] = count - 1 } else { activeWaiters[n] = nil }
+            stateLock.unlock()
+        }
+
+        // Bounded wait that re-asserts the seek when stranded.
+        // pendingSeekSegment is last-writer-wins and consumed once, and the
+        // HTTP server routes requests concurrently, so two racing requests can
+        // overwrite each other's restart; the loser would otherwise wait out
+        // the full deadline and 404 a segment the VOD playlist promises —
+        // AVPlayer answers that by abandoning the seek position and snapping
+        // back to its buffer (this shipped once: a resume at 226s snapped to
+        // ~0s and the back-out's Stopped report wiped the server resume
+        // point). Only a waiter near the playhead re-asserts, so an obsolete
+        // request left over from a scrub can't drag the producer around.
+        let deadline = Date().addingTimeInterval(20)
+        // The 20s deadline stretches to a hard ceiling while input recovery is
+        // live: 404ing a promised segment mid-recovery would demote the whole
+        // session to the server over a stall the pipeline is already healing.
+        let recoveryDeadline = Date().addingTimeInterval(60)
+        var ticks = 0
+        while true {
+            stateLock.lock()
+            let completed = rendition.completed.contains(n)
+            let dead = failed || cancelled
+            let ended = reachedEnd && n > lastProducedSegment
+            let producingNow = producingSegment
+            let inRecovery = recovering
+            if !config.isLive && !completed && !dead && !ended && ticks >= 20 && ticks % 10 == 0
+                && pendingSeekSegment == nil
+                && (n < producingNow || n > producingNow + aheadWindow)
+                && abs(n - lastRequestedSegment) <= aheadWindow {
+                pendingSeekSegment = n
+                NSLog("[LocalRemuxer] Re-asserting seek for stranded segment %d (producing %d)", n, producingNow)
+            }
+            stateLock.unlock()
+            if completed || dead || ended { break }
+            let now = Date()
+            if now >= deadline && !(inRecovery && now < recoveryDeadline) { break }
+            ticks += 1
+            usleep(100_000)
+        }
+
+        stateLock.lock()
+        let ok = rendition.completed.contains(n)
+        let producingAtEnd = producingSegment
+        let playheadAtEnd = lastRequestedSegment
+        stateLock.unlock()
+        if !ok {
+            NSLog("[LocalRemuxer] Segment request %d%@ unserved (producing %d, playhead %d)",
+                  n, prefix.isEmpty ? "" : " [\(prefix)]", producingAtEnd, playheadAtEnd)
+        }
+        return ok ? url : nil
+    }
+
+    func rendition(withPrefix prefix: String) -> Rendition? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return renditions.first { $0.prefix == prefix }
+    }
+
+    func waitUntil(deadline seconds: Double, _ condition: () -> Bool) -> Bool {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end {
+            if condition() { return true }
+            usleep(100_000)
+        }
+        return condition()
+    }
+
+}

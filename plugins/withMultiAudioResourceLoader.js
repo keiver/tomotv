@@ -41,7 +41,15 @@ const MODULE_FILES = [
 // that plugins/withFFmpeg.js adds to the Podfile.
 const REMUXER_FILES = [
   "EngineLog.swift",
+  "RemuxTypes.swift",
   "Remuxer.swift",
+  "RemuxSession+Grid.swift",
+  "RemuxSession+Lifecycle.swift",
+  "RemuxSession+Playlists.swift",
+  "RemuxSession+Tier.swift",
+  "RemuxSession+AudioLo.swift",
+  "RemuxSession+Segments.swift",
+  "RemuxSession+Pipeline.swift",
   "AudioTranscoder.swift",
   "VideoTranscoder.swift",
   "DeviceDecode.swift",
