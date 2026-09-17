@@ -23,6 +23,11 @@ import { getAuthHeader, getConfig, type JellyfinConfig } from "./session";
 const STAGE_SIZES = [500_000, 2_000_000];
 /** A first stage faster than this (seconds) is timer-noise; run the big stage. */
 const REFINE_THRESHOLD_SEC = 0.7;
+/** A first-stage reading below this refines too, whatever its time: a 500 KB probe cannot
+ * overcome TCP slow-start and connection setup, so it UNDER-reads a fast link (a 30 Mbps link
+ * measured 3.5 in a 1.2s cold sample and was misjudged too slow for direct play). Above this the
+ * link is unambiguously fast enough for any realistic source, so the small sample is trusted. */
+const REFINE_BELOW_BPS = 15_000_000;
 /** Backstop for a reading with no network identity: age is all that is left to judge it by. */
 const UNKNOWN_NETWORK_TTL_MS = 24 * 60 * 60 * 1000;
 /** Past this a trigger re-measures. The reading keeps answering until the new one lands. */
@@ -162,7 +167,7 @@ async function runProbe(config: JellyfinConfig, host: string, shouldRemember: bo
       return null;
     }
     let refined = false;
-    if ((Date.now() - stageStart) / 1000 < REFINE_THRESHOLD_SEC) {
+    if ((Date.now() - stageStart) / 1000 < REFINE_THRESHOLD_SEC || stage.bps < REFINE_BELOW_BPS) {
       // A refine that dies keeps the first stage: it measured the same link.
       try {
         const bigger = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[1]);

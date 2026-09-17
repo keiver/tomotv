@@ -95,7 +95,7 @@ describe("measurement", () => {
    * faster than it is: a server measured at 3 Mb/s from every other client reported 32 on device.
    */
   it("never asks for the same URL twice, so no probe can be served from a cache", async () => {
-    mockFetch.mockResolvedValue(stage(500_000, 1_000));
+    mockFetch.mockResolvedValue(stage(2_000_000, 1_000));
     await measureServerBitrate();
     await measureServerBitrate();
     await measureServerBitrate();
@@ -117,12 +117,12 @@ describe("measurement", () => {
   });
 
   it("times the body and remembers the reading against the current subnet", async () => {
-    mockFetch.mockResolvedValueOnce(stage(500_000, 1_000));
+    mockFetch.mockResolvedValueOnce(stage(2_000_000, 1_000));
 
-    // 500 KB in 1s = 4 Mbps. Too slow to read as timer noise, so one stage only.
-    await expect(measureServerBitrate()).resolves.toBe(4_000_000);
+    // 16 Mbps in 1s: fast enough that the small sample is trusted, so one stage only.
+    await expect(measureServerBitrate()).resolves.toBe(16_000_000);
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(mockSetItem.mock.calls[0][1])[HOST]).toEqual({ bps: 4_000_000, at: expect.any(Number), net: HOME });
+    expect(JSON.parse(mockSetItem.mock.calls[0][1])[HOST]).toEqual({ bps: 16_000_000, at: expect.any(Number), net: HOME });
   });
 
   it("issues the stage under an abort budget", async () => {
@@ -141,6 +141,16 @@ describe("measurement", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("refines a low first-stage reading to rule out a slow-start under-read", async () => {
+    // 4 Mbps and slower than the timer-noise threshold: the old rule kept it. A 500 KB probe
+    // cannot overcome slow-start on a fast link, so the big stage confirms the real 32 Mbps and
+    // the routing gate is not handed a false "too slow for direct play".
+    mockFetch.mockResolvedValueOnce(stage(500_000, 1_000)).mockResolvedValueOnce(stage(2_000_000, 500));
+
+    await expect(measureServerBitrate()).resolves.toBe(32_000_000);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the small stage's reading when the refine stage dies", async () => {
     mockFetch.mockResolvedValueOnce(stage(500_000, 100)).mockRejectedValueOnce(new Error("aborted"));
 
@@ -151,7 +161,7 @@ describe("measurement", () => {
   });
 
   it("shares one download between concurrent callers", async () => {
-    mockFetch.mockResolvedValue(stage(500_000, 1_000));
+    mockFetch.mockResolvedValue(stage(2_000_000, 1_000));
 
     const [a, b] = await Promise.all([measureServerBitrate(), measureServerBitrate()]);
     expect(a).toBe(b);
@@ -159,7 +169,9 @@ describe("measurement", () => {
   });
 
   it("keeps the in-playback probe out of the shared probe and out of the memory", async () => {
-    mockFetch.mockResolvedValue(stage(500_000, 1_000));
+    // Two non-sharing probes share the fake clock, so the body is large enough to read fast (no
+    // refine) even when both stages' elapsed lands on one of them.
+    mockFetch.mockResolvedValue(stage(8_000_000, 1_000));
 
     await Promise.all([measureServerBitrate(), measureServerBitrate({ remember: false })]);
     expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -196,9 +208,9 @@ describe("measurement", () => {
 
     // The switch lands while the first probe is still downloading.
     mockGetConfig.mockResolvedValue({ server: "http://10.0.0.77:8096", apiKey: "key", userId: "u", deviceId: "d" });
-    mockFetch.mockResolvedValueOnce(stage(500_000, 1_000));
+    mockFetch.mockResolvedValueOnce(stage(2_000_000, 1_000));
 
-    await expect(measureServerBitrate()).resolves.toBe(4_000_000);
+    await expect(measureServerBitrate()).resolves.toBe(16_000_000);
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockFetch.mock.calls[0][0]).toContain("10.0.0.5");
     expect(mockFetch.mock.calls[1][0]).toContain("10.0.0.77");
@@ -249,7 +261,7 @@ describe("what a reading answers for", () => {
 
 describe("triggers", () => {
   it("measures on a warm-up when nothing answers for this link", async () => {
-    mockFetch.mockResolvedValue(stage(500_000, 1_000));
+    mockFetch.mockResolvedValue(stage(2_000_000, 1_000));
 
     warmBitrateMemory(0);
     await jest.advanceTimersByTimeAsync(1);
@@ -266,7 +278,7 @@ describe("triggers", () => {
 
   it("re-measures a fresh reading taken on another subnet", async () => {
     storedMemory({ bps: 90_000_000, at: now - 60 * 1000, net: AWAY });
-    mockFetch.mockResolvedValue(stage(500_000, 1_000));
+    mockFetch.mockResolvedValue(stage(2_000_000, 1_000));
 
     warmBitrateMemory(0);
     await jest.advanceTimersByTimeAsync(1);
@@ -324,7 +336,7 @@ describe("triggers", () => {
   });
 
   it("collapses a navigation burst into one attempt and floors the next one", async () => {
-    mockFetch.mockResolvedValue(stage(500_000, 1_000));
+    mockFetch.mockResolvedValue(stage(2_000_000, 1_000));
     // The launch warm-up runs first and hands navigation the wheel.
     warmBitrateMemory(0);
     await jest.advanceTimersByTimeAsync(1);
@@ -367,8 +379,8 @@ describe("triggers", () => {
     await expect(remeasureBitrate()).resolves.toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    mockFetch.mockResolvedValue(stage(500_000, 1_000));
-    await expect(remeasureBitrate()).resolves.toBe(4_000_000);
+    mockFetch.mockResolvedValue(stage(2_000_000, 1_000));
+    await expect(remeasureBitrate()).resolves.toBe(16_000_000);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
