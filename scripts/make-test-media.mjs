@@ -625,6 +625,77 @@ function srtScript(seconds, lang) {
   return cues.join("\n");
 }
 
+/**
+ * A chaptered item, for the rule that the device makes a chapter picture only where the server
+ * has none. Six chapters written into the container; give the server's extraction one pass over
+ * it and the same file covers the other side of that rule.
+ */
+const CHAPTERS = { id: "T103", title: "T103 REMUX H264 AAC chapters", seconds: 180, count: 6 };
+
+function chapterMetadata(seconds, count) {
+  const step = Math.floor(seconds / count);
+  const blocks = [";FFMETADATA1"];
+  for (let i = 0; i < count; i++) {
+    blocks.push(`[CHAPTER]\nTIMEBASE=1/1000\nSTART=${i * step * 1000}\nEND=${(i + 1) * step * 1000 - 1}\ntitle=Chapter ${i + 1}`);
+  }
+  return `${blocks.join("\n")}\n`;
+}
+
+async function buildChapters() {
+  if (!wanted(CHAPTERS.id)) return [];
+  const out = path.join(VIDEO_DIR, `${CHAPTERS.title}.mkv`);
+  if (exists(out) && !FORCE) {
+    log(`  = ${CHAPTERS.title}`);
+    return [{ ...CHAPTERS, out }];
+  }
+  log(`  + ${CHAPTERS.title}`);
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const meta = path.join(CACHE_DIR, "chapters.ffmetadata");
+  fs.writeFileSync(meta, chapterMetadata(CHAPTERS.seconds, CHAPTERS.count));
+  // testsrc2 moves enough that each chapter's keyframe is a different picture.
+  const argv = [
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `testsrc2=size=1920x1080:rate=24:duration=${CHAPTERS.seconds}`,
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=440:duration=${CHAPTERS.seconds}:sample_rate=${RATE}`,
+    "-i",
+    meta,
+    "-map_metadata",
+    "2",
+    "-map",
+    "0:v",
+    "-map",
+    "1:a",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "20",
+    "-g",
+    "48",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "128k",
+    "-metadata:s:a:0",
+    "language=eng",
+    out,
+  ];
+  if (!(await ff(argv, CHAPTERS.title))) {
+    failures.push(`${CHAPTERS.id} encode failed`);
+    return [];
+  }
+  return [{ ...CHAPTERS, out }];
+}
+
 async function buildSlipstream() {
   const built = [];
   const items = SLIPSTREAM.filter((item) => wanted(item.id));
@@ -1118,6 +1189,10 @@ async function main() {
 
   log("\nSlipstream drill items");
   const slipstream = await buildSlipstream();
+
+  log("\nChaptered item");
+  const chaptered = await buildChapters();
+  sources.chaptered = chaptered.map((item) => ({ id: item.id, title: item.title }));
 
   let downloaded = [];
   let atmos = [];

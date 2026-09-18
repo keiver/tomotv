@@ -79,18 +79,18 @@ describe("playerChapters", () => {
   });
 
   it("carries the server's keyframe for the chapters that have one, indexed by list position", () => {
-    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100, "Two"), at(200, "Three", "tag-c")]));
+    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100, "Two"), at(200, "Three", "tag-c")]), null, true);
     expect(result?.map((chapter) => chapter.uri)).toEqual(["chapter://item-1/0/tag-a", undefined, "chapter://item-1/2/tag-c"]);
     expect(result?.[1]).not.toHaveProperty("uri");
   });
 
   it("sends no uri for a chapter the server has no image for until a frame base arrives", () => {
-    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100.5, "Two"), at(200, "Three")]));
+    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100.5, "Two"), at(200, "Three")]), null, true);
     expect(result?.map((chapter) => chapter.uri)).toEqual(["chapter://item-1/0/tag-a", undefined, undefined]);
   });
 
   it("takes the engine's frame for an unimaged chapter once the base is handed in", () => {
-    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100.5, "Two")]), "http://127.0.0.1:9/tok/");
+    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100.5, "Two")]), "http://127.0.0.1:9/tok/", true);
     // The server's own picture still wins where the library has one; only the rest are grabbed.
     expect(result?.map((chapter) => chapter.uri)).toEqual(["chapter://item-1/0/tag-a", "http://127.0.0.1:9/tok/frame-100500.jpg"]);
   });
@@ -103,8 +103,17 @@ describe("playerChapters", () => {
 
   it("sends no uri while the session is cold and the URL builder returns nothing", () => {
     jest.mocked(getChapterImageUrl).mockReturnValueOnce("");
-    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100, "Two")]));
+    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100, "Two")]), null, true);
     expect(result?.[0]).not.toHaveProperty("uri");
+  });
+
+  it("sends titles alone until the viewer asks, even where the server has pictures", () => {
+    // A picture reaches AVKit as a uri, and AVKit fetches it at once; the strip is not on screen
+    // yet, so nothing is spent while the stream opens.
+    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100, "Two", "tag-b")]), "http://127.0.0.1:9/tok/");
+    expect(result?.[0]).not.toHaveProperty("uri");
+    expect(result?.[1]).not.toHaveProperty("uri");
+    expect(result?.map((chapter) => chapter.title)).toEqual(["One", "Two"]);
   });
 
   it("keeps the last chapter when the server reports no runtime", () => {

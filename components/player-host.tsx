@@ -64,12 +64,13 @@ const PIP_HANDOFF_BURST_MS = 1500;
  * those are computed from the QUEUE, which only the route knows, while chapters
  * come off the item the host has already loaded.
  *
- * The uri is the chapter's picture: the server's extracted keyframe where the library has one,
- * else the one the engine makes under `frameBase` (FrameGrabber.swift). The patched
- * RCTVideoTVUtils loads each picture when AVKit asks for it, one at a time, so a base arrives
- * here only once the viewer has asked for the chrome (hooks/videoPlayback/chapterFrames.ts).
+ * A uri is the chapter's picture: the server's extracted keyframe where the library has one, else
+ * the one the engine makes under `frameBase` (FrameGrabber.swift). Both wait for `artwork`, which
+ * the host turns on once the viewer summons the chrome: the patched RCTVideoTVUtils fetches a
+ * picture the moment a uri reaches it, and the strip cannot be seen before the chrome is up
+ * anyway. Titles alone until then (hooks/videoPlayback/chapterFrames.ts).
  */
-export function playerChapters(item: JellyfinVideoItem | null, frameBase: string | null = null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
+export function playerChapters(item: JellyfinVideoItem | null, frameBase: string | null = null, artwork = false): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
   if (!item?.Chapters?.length) return undefined;
   const runtimeSeconds = (item.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
   // Jellyfin reports a runtime of 0 for anything whose duration it could not read. A known
@@ -83,9 +84,8 @@ export function playerChapters(item: JellyfinVideoItem | null, frameBase: string
   const lastEnd = runtimeSeconds > 0 ? runtimeSeconds : lastStart + Math.max(previousGap, 1);
   const chapters = markers
     .map(({ chapter, index, start }, position) => {
-      // The server's own keyframe when the library extracted one, which costs nothing; otherwise
-      // the engine's, and only once a frame base has been handed in.
-      const uri = chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : (chapterFrameUrl(frameBase, start) ?? "");
+      // The server's own keyframe when the library extracted one, else the engine's.
+      const uri = !artwork ? "" : chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : (chapterFrameUrl(frameBase, start) ?? "");
       return {
         // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
         title: chapter.Name?.trim() || t("player.chapterNum").replace("{num}", String(index + 1)),
@@ -224,6 +224,7 @@ export function PlayerHost() {
    * chapter pictures. Held as the id rather than a flag, so a new item is unarmed without a reset.
    */
   const [chapterFramesArmedFor, setChapterFramesArmedFor] = useState<string | null>(null);
+  const chapterArtworkAsked = chapterFramesArmedFor !== null && chapterFramesArmedFor === (session?.videoId ?? null);
   const playbackSettledRef = useRef(false);
   const videoIdRef = useRef<string | null>(null);
 
@@ -255,7 +256,7 @@ export function PlayerHost() {
     startPositionTicks: session?.startPositionTicks,
     playedAtStart: session?.playedAtStart,
     onPlaybackEnd: handlePlaybackEnd,
-    chapterFramesArmed: chapterFramesArmedFor !== null && chapterFramesArmedFor === (session?.videoId ?? null),
+    chapterFramesArmed: chapterArtworkAsked,
     probe: session?.probe,
   });
 
@@ -474,7 +475,7 @@ export function PlayerHost() {
 
   // tvOS chapter list, gated here rather than inside playerChapters so the rule
   // stays testable off a TV. See that function for what AVKit does with it.
-  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails, chapterFrameBaseUrl) : undefined), [videoDetails, chapterFrameBaseUrl]);
+  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails, chapterFrameBaseUrl, chapterArtworkAsked) : undefined), [videoDetails, chapterFrameBaseUrl, chapterArtworkAsked]);
 
   // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
   // full-screen state: every native control works and the stock ✕ is visible from the start
