@@ -10,6 +10,7 @@
  */
 
 import { PlaybackErrorType, planErrorRecovery, type ErrorRecoveryInput } from "../useVideoPlayback";
+import { planLiveErrorRecovery } from "../videoPlayback/errorRecovery";
 
 // A mid-playback baseline; individual tests override what they probe.
 const base: ErrorRecoveryInput = {
@@ -202,5 +203,29 @@ describe("planErrorRecovery — a held file degrades instead of reaching a serve
     const d = planErrorRecovery({ ...base, heldOnDisk: true, errorType: PlaybackErrorType.STALLED });
     expect(d.action).toEqual({ kind: "restartRemux" });
     expect(d.dropSubtitles).toBe(false);
+  });
+});
+
+describe("planLiveErrorRecovery", () => {
+  const base = { mode: "localRemux" as const, errorType: PlaybackErrorType.STALLED, hasReopened: false, lane: "engine" as const };
+
+  it("opens the channel afresh on its first drop: a dropped tuner only comes back that way", () => {
+    expect(planLiveErrorRecovery(base)).toEqual({ reopen: true, toServer: false, retry: true });
+  });
+
+  it("takes the server's transcode on the second drop", () => {
+    expect(planLiveErrorRecovery({ ...base, hasReopened: true })).toEqual({ reopen: false, toServer: true, retry: true });
+  });
+
+  it("ends at the error once the channel is already on the server", () => {
+    expect(planLiveErrorRecovery({ ...base, mode: "transcode", hasReopened: true, lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
+  });
+
+  it("spends no cold opens on a 401, which fails every rung the same way", () => {
+    expect(planLiveErrorRecovery({ ...base, errorType: PlaybackErrorType.UNAUTHORIZED })).toEqual({ reopen: false, toServer: false, retry: false });
+  });
+
+  it("does not reopen from the server lane, which is the last rung", () => {
+    expect(planLiveErrorRecovery({ ...base, mode: "transcode", lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
   });
 });
