@@ -10,7 +10,7 @@ import XCTest
 ///
 /// Env: TOMO_DRILL_CONFIG (bridge config json), TOMO_DRILL_OUT (timeline jsonl),
 /// TOMO_DRILL_PROXY (netsim base URL), TOMO_DRILL_PROFILE (json steps), TOMO_DRILL_SECONDS,
-/// TOMO_DRILL_LINK (stands in for the measured link, bps), TOMO_DRILL_PEAK (preferredPeakBitRate),
+/// TOMO_DRILL_LINK (stands in for the measured link, bps),
 /// TOMO_DRILL_BUFFER (preferredForwardBufferDuration, seconds), TOMO_DRILL_WINDOW=1 (render into a 1080p window),
 /// TOMO_DRILL_CAP=1 (cap the variant choice to the measured link, as the app does).
 final class SlipstreamDrillTests: XCTestCase {
@@ -131,7 +131,6 @@ final class SlipstreamDrillTests: XCTestCase {
         let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/\(session.token)/master.m3u8"))
 
         let item = AVPlayerItem(url: url)
-        if let peak = env["TOMO_DRILL_PEAK"].flatMap(Double.init) { item.preferredPeakBitRate = peak }
         if let buffer = env["TOMO_DRILL_BUFFER"].flatMap(Double.init) { item.preferredForwardBufferDuration = buffer }
         let player = AVPlayer(playerItem: item)
         // AVPlayer weighs the size it renders at when it picks a variant; the app always has a screen.

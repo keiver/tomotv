@@ -31,7 +31,7 @@ const PROXY_PORT = Number(opt("--proxy-port", "18096"));
 const RESULTS = path.resolve(opt("--results", path.join(os.tmpdir(), "tomotv-drill", "drill-results.md")));
 const RUN_DIR = path.join(path.dirname(RESULTS), "runs");
 const ITEMS = opt("--items", "T101,T102").split(",");
-const IDS = opt("--scenarios", "S1,S2,S3,S4,S5,S6,S7").split(",");
+const IDS = opt("--scenarios", "S1,S2,S3,S4,S5,S6,S7,S8").split(",");
 const LINK = opt("--link", null);
 // The app sets preferredForwardBufferDuration on rung sessions (useVideoPlayback); the drill mirrors it.
 const BUFFER = opt("--buffer", "12");
@@ -105,7 +105,17 @@ async function waitForProxy() {
 async function captureConfig(env, item, outPath) {
   await exec("npx", ["jest", "test/playback/drill", "--silent"], {
     cwd: ROOT,
-    env: { ...process.env, DRILL_ITEM_ID: item.itemId, DRILL_OUT: outPath, DRILL_SERVER: `http://127.0.0.1:${PROXY_PORT}`, DRILL_API_KEY: env.JELLYFIN_API_KEY, DRILL_START: String(START) },
+    // DRILL_SERVER is what the captured config points at (the shaped proxy); the item itself is read
+    // from the server directly, so the capture is not paced by the scenario's link.
+    env: {
+      ...process.env,
+      DRILL_ITEM_ID: item.itemId,
+      DRILL_OUT: outPath,
+      DRILL_SERVER: `http://127.0.0.1:${PROXY_PORT}`,
+      DRILL_UPSTREAM: env.JELLYFIN_URL,
+      DRILL_API_KEY: env.JELLYFIN_API_KEY,
+      DRILL_START: String(START),
+    },
     maxBuffer: 16 * 1024 * 1024,
   });
 }

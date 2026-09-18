@@ -165,14 +165,13 @@ const TRANSCODABLE_VIDEO_CODECS = [
  */
 const REMUX_READ_AHEAD_SEGMENTS = 20;
 
-// Slipstream (memories/CLAUDE-slipstream.md): multi-variant loopback master
-// with a server-assisted LADDER, AVPlayer switching natively across rungs and
-// (via the gateway cap) up to the device stream-copy. The gate is the
-// MEASUREMENT: rungs declare only on a measured-slow link.
-// Apple-shaped H.264 SDR rungs, ascending; video-only variants (audio rides the
-// shared group, so CODECS carries avc1 alone).
+// Slipstream (memories/CLAUDE-slipstream.md): one loopback master carrying the
+// device's stream copy and this server-fed ladder, AVPlayer switching natively
+// between them. Every eligible item declares the ladder; the engine's measured
+// link decides which rungs the master lists and which one leads.
+// Apple-shaped H.264 SDR rungs, ascending; each rides the audio-lo group, so a
+// rung's CODECS names its video and that group's AAC.
 interface TierRung {
-  label: string;
   bitrate: number;
   width: number;
   height: number;
@@ -185,14 +184,14 @@ const SLIPSTREAM_LADDER: TierRung[] = [
   // The bottom rung is sized for the START, not the steady state: AVPlayer buffers around 24s of
   // media before the first frame, so a 0.6 Mb/s link spends 14s on a 336 kb/s rung's worth of it
   // (measured: 38s to first frame). At 140 kb/s that buffer is a third of the bytes.
-  { label: "144p thin", bitrate: 140_000, width: 256, height: 144, codecs: "avc1.64000C" },
+  { bitrate: 140_000, width: 256, height: 144, codecs: "avc1.64000C" },
   // 144p exists for links under ~0.7 Mb/s, where 240p plus its audio does not fit the wire.
-  { label: "144p", bitrate: 240_000, width: 256, height: 144, codecs: "avc1.64000C" },
-  { label: "240p", bitrate: 400_000, width: 426, height: 240, codecs: "avc1.640015" },
-  { label: "360p", bitrate: 800_000, width: 640, height: 360, codecs: "avc1.64001E" },
-  { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" },
-  { label: "720p", bitrate: 4_000_000, width: 1280, height: 720, codecs: "avc1.640020" },
-  { label: "1080p", bitrate: 6_000_000, width: 1920, height: 1080, codecs: "avc1.640028" },
+  { bitrate: 240_000, width: 256, height: 144, codecs: "avc1.64000C" },
+  { bitrate: 400_000, width: 426, height: 240, codecs: "avc1.640015" },
+  { bitrate: 800_000, width: 640, height: 360, codecs: "avc1.64001E" },
+  { bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" },
+  { bitrate: 4_000_000, width: 1280, height: 720, codecs: "avc1.640020" },
+  { bitrate: 6_000_000, width: 1920, height: 1080, codecs: "avc1.640028" },
 ];
 
 /**
@@ -210,22 +209,20 @@ export function slipstreamEligible(videoItem: JellyfinVideoItem): boolean {
 }
 
 /**
- * The tier's server-fed audio rendition, mirroring the ENGINE group's codec
- * family so a variant switch stays inside AVPlayer's switching envelope
- * (WWDC20 10158: AAC-family and lossless<->AAC only, channel count held).
- * Codecs AVPlayer decodes natively are stream-COPIED by the server — original
- * bits, zero loss on the survival rung; everything else (DTS, TrueHD...)
- * becomes server FLAC, lossless, same family as the engine's FLAC encode.
+ * What the ENGINE group's copy of this track costs on the wire: the file's own
+ * rate when it states one, else what the codec runs at. The undercut rule
+ * compares this against a rung plus its AAC group, so a lossless track does not
+ * read as free.
  */
-function serverAudioPlan(stream: JellyfinMediaStream | undefined): { codec: "copy" | "flac"; bandwidth: number; tag: string } {
+function engineAudioBandwidth(stream: JellyfinMediaStream | undefined): number {
   const codec = (stream?.Codec ?? "").toLowerCase();
   const channels = stream?.Channels ?? 6;
-  const flacEstimate = Math.round(channels * (stream?.SampleRate ?? 48000) * (stream?.BitDepth ?? 16) * 0.6);
-  if (codec.startsWith("aac") || codec.startsWith("mp4a")) return { codec: "copy", bandwidth: stream?.BitRate ?? 256_000, tag: "mp4a.40.2" };
-  if (codec.startsWith("alac")) return { codec: "copy", bandwidth: stream?.BitRate ?? flacEstimate, tag: "alac" };
-  if (codec.startsWith("eac3") || codec.startsWith("ec-3")) return { codec: "copy", bandwidth: stream?.BitRate ?? 768_000, tag: "ec-3" };
-  if (codec.startsWith("ac3") || codec.startsWith("ac-3")) return { codec: "copy", bandwidth: stream?.BitRate ?? 640_000, tag: "ac-3" };
-  return { codec: "flac", bandwidth: flacEstimate, tag: "fLaC" };
+  const lossless = Math.round(channels * (stream?.SampleRate ?? 48000) * (stream?.BitDepth ?? 16) * 0.6);
+  if (stream?.BitRate) return stream.BitRate;
+  if (codec.startsWith("aac") || codec.startsWith("mp4a")) return 256_000;
+  if (codec.startsWith("eac3") || codec.startsWith("ec-3")) return 768_000;
+  if (codec.startsWith("ac3") || codec.startsWith("ac-3")) return 640_000;
+  return lossless;
 }
 
 /**
@@ -239,14 +236,6 @@ function orderedCarriableAudio(videoItem: JellyfinVideoItem, preferredAudioStrea
 }
 
 /**
- * Declared BANDWIDTH of the tier variant (video + its audio-lo rendition), or
- * null when the tier is not worth declaring: an audio-heavy small file can
- * push the rung above the primary, where AVPlayer rightly refuses it. The
- * rung must undercut the primary meaningfully to be a refuge. Also the pin
- * cap for gateway sessions: a fixed preset caps preferredPeakBitRate at
- * exactly this value, so the tier fits and the primary does not.
- */
-/**
  * The ladder rungs offered for this item: every rung whose total (video + the
  * DEFAULT audio rendition) meaningfully undercuts the primary (the 0.85 rule).
  * Ascending. Empty when the file is not gateway-eligible or nothing undercuts
@@ -257,7 +246,7 @@ export function offeredTierRungs(videoItem: JellyfinVideoItem, preferredAudioStr
   const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
   // The primary carries copy audio; a rung carries the low AAC audio-lo group. Undercut compares
   // each side's real total, so an audio-heavy source still offers rungs (AAC drops the audio cost).
-  const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + serverAudioPlan(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]).bandwidth;
+  const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + engineAudioBandwidth(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]);
   return SLIPSTREAM_LADDER.filter((rung) => primaryBandwidth <= 0 || rung.bitrate + SURVIVAL_AUDIO_BITRATE < primaryBandwidth * 0.85);
 }
 

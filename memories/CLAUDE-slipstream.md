@@ -101,10 +101,11 @@ engine measures it itself:
 ## Segments and the grid
 
 - The grid is the SERVER'S segment list, adopted from the canonical rung's
-  playlist (M1-proven: Jellyfin cuts at the source's keyframes, ignores the
-  requested SegmentLength, and cold random access is byte-identical). Stream
-  copy cuts at those same keyframes, so both variants are IDR-aligned by
-  construction.
+  playlist: Jellyfin cuts at the source's keyframes, ignores the requested
+  SegmentLength, and cold random access is byte-identical (16/16 in
+  `scripts/probe-slipstream.mjs`, which is kept for re-proving that against a
+  hardware-encoder server). Stream copy cuts at those same keyframes, so both
+  variants are IDR-aligned by construction.
 - Rungs the measured link cannot carry are fetched BEHIND the master, not
   before it: five playlists cost 256 KB, and on a 0.6 Mb/s link that is 3.4s
   the first video segment needs.
