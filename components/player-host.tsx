@@ -8,6 +8,7 @@ import { isHotChannel } from "@/services/liveRing";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { STAGE_HINT_AFTER_SECONDS, stageHint, stageLabel, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
+import { chapterFrameUrl } from "@/services/localRemux";
 import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
@@ -64,11 +65,11 @@ const PIP_HANDOFF_BURST_MS = 1500;
  * come off the item the host has already loaded.
  *
  * The uri is the chapter's picture: the server's extracted keyframe where the library has one,
- * else the keyframe the engine makes on demand under `frameBase` (FrameGrabber.swift). The
- * patched RCTVideoTVUtils fetches them on their own task after the item is built and assigns
- * the marker groups again with the pictures as eager data, so the start never waits on one.
+ * else the one the engine makes under `frameBase` (FrameGrabber.swift). The patched
+ * RCTVideoTVUtils loads each picture when AVKit asks for it, one at a time, so a base arrives
+ * here only once the viewer has asked for the chrome (hooks/videoPlayback/chapterFrames.ts).
  */
-export function playerChapters(item: JellyfinVideoItem | null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
+export function playerChapters(item: JellyfinVideoItem | null, frameBase: string | null = null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
   if (!item?.Chapters?.length) return undefined;
   const runtimeSeconds = (item.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
   // Jellyfin reports a runtime of 0 for anything whose duration it could not read. A known
@@ -82,10 +83,9 @@ export function playerChapters(item: JellyfinVideoItem | null): { title: string;
   const lastEnd = runtimeSeconds > 0 ? runtimeSeconds : lastStart + Math.max(previousGap, 1);
   const chapters = markers
     .map(({ chapter, index, start }, position) => {
-      // Server's pre-extracted keyframe only: the on-demand engine grabber never runs during
-      // playback (it steals the link from the stream), so a chapter with no server image has no
-      // thumbnail rather than a grabbed one. Frame grabbing belongs to the browsing cards alone.
-      const uri = chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : "";
+      // The server's own keyframe when the library extracted one, which costs nothing; otherwise
+      // the engine's, and only once a frame base has been handed in.
+      const uri = chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : (chapterFrameUrl(frameBase, start) ?? "");
       return {
         // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
         title: chapter.Name?.trim() || t("player.chapterNum").replace("{num}", String(index + 1)),
@@ -219,6 +219,14 @@ export function PlayerHost() {
     handlersRef.current.onPlaybackEnd();
   }, [handlersRef]);
 
+  /**
+   * The item whose viewer has summoned the chrome on settled playback, which is the cue to make
+   * chapter pictures. Held as the id rather than a flag, so a new item is unarmed without a reset.
+   */
+  const [chapterFramesArmedFor, setChapterFramesArmedFor] = useState<string | null>(null);
+  const playbackSettledRef = useRef(false);
+  const videoIdRef = useRef<string | null>(null);
+
   const {
     videoRef,
     sourceUri,
@@ -239,14 +247,22 @@ export function PlayerHost() {
     currentTimeRef,
     selectedTextTrack,
     selectedAudioTrack,
+    chapterFrameBaseUrl,
+    playbackSettled,
   } = useVideoPlayback({
     videoId: session?.videoId ?? "",
     skip: session === null || liveSettling,
     startPositionTicks: session?.startPositionTicks,
     playedAtStart: session?.playedAtStart,
     onPlaybackEnd: handlePlaybackEnd,
+    chapterFramesArmed: chapterFramesArmedFor !== null && chapterFramesArmedFor === (session?.videoId ?? null),
     probe: session?.probe,
   });
+
+  useEffect(() => {
+    playbackSettledRef.current = playbackSettled;
+    videoIdRef.current = session?.videoId ?? null;
+  }, [playbackSettled, session?.videoId]);
 
   // Disarm a teardown that is waiting on a presentation. Called wherever a session is
   // established as well as torn down: the flag outliving the session that armed it would
@@ -458,7 +474,7 @@ export function PlayerHost() {
 
   // tvOS chapter list, gated here rather than inside playerChapters so the rule
   // stays testable off a TV. See that function for what AVKit does with it.
-  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails) : undefined), [videoDetails]);
+  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails, chapterFrameBaseUrl) : undefined), [videoDetails, chapterFrameBaseUrl]);
 
   // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
   // full-screen state: every native control works and the stock ✕ is visible from the start
@@ -567,6 +583,9 @@ export function PlayerHost() {
       },
       onControlsVisibilityChange: (event: { isVisible: boolean; unobscuredBottom?: number }) => {
         controlsVisibleRef.current = event.isVisible;
+        // AVKit reports the bar visible at +0.3s by itself, so only a summons on a settled session
+        // counts as the viewer asking for the chrome, which is what starts the chapter pictures.
+        if (event.isVisible && playbackSettledRef.current) setChapterFramesArmedFor(videoIdRef.current);
         setControls({ visible: event.isVisible, unobscuredBottom: typeof event.unobscuredBottom === "number" ? event.unobscuredBottom : null });
       },
     }),

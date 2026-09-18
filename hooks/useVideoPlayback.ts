@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
+import { Platform } from "react-native";
 import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, OnPlaybackStateChangedData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
 import {
   fetchVideoDetails,
@@ -35,6 +36,9 @@ import {
   liveSubtitleRenditions,
   localRemuxToken,
   READ_BOUND_SHARE,
+  sessionBaseUrl,
+  startFrameProvider,
+  stopFrameProvider,
   readBound,
   posterFrameWorkInFlight,
   resolveSubtitlePick,
@@ -79,6 +83,7 @@ import { videoPlayerReducer, type PlaybackMode, type VideoPlayerState } from "./
 import { planErrorRecovery, planLiveErrorRecovery } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
+import { mayGrabChapterFrames } from "./videoPlayback/chapterFrames";
 import { orderAudioTracks, planAudioReport } from "./videoPlayback/audioTracks";
 import { classifyObservedChoice, planSubtitleApplication } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
@@ -150,6 +155,11 @@ export interface VideoPlaybackConfig {
   onPlaybackEnd?: () => void;
   /** Regression-suite deep links pass probe=1; records playback events for the driver (dev-only). */
   probe?: boolean;
+  /**
+   * The viewer summoned the chrome on a session already playing steadily, which is the cue to start
+   * making chapter pictures. Nothing is grabbed before it.
+   */
+  chapterFramesArmed?: boolean;
 }
 
 export interface VideoPlaybackResult {
@@ -169,6 +179,15 @@ export interface VideoPlaybackResult {
    * ahead instead of buffering its own default. null everywhere else.
    */
   forwardBufferSeconds: number | null;
+
+  /**
+   * Loopback directory the tvOS chapter pictures come from: the engine session's own on the remux
+   * lane, a frame provider over the original file on the others. Null until the viewer has asked
+   * for the chrome (hooks/videoPlayback/chapterFrames.ts).
+   */
+  chapterFrameBaseUrl: string | null;
+  /** Playback has settled, so the opening of the stream is over. */
+  playbackSettled: boolean;
 
   /**
    * Resume position for the source's startPosition, in ms, or null.
@@ -252,7 +271,7 @@ export interface VideoPlaybackResult {
  * Handles codec checking, transcoding decisions, and player lifecycle
  */
 export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResult {
-  const { videoId, skip, startPositionTicks, playedAtStart, onPlaybackEnd, probe } = config;
+  const { videoId, skip, startPositionTicks, playedAtStart, onPlaybackEnd, probe, chapterFramesArmed } = config;
 
   // State machine
   const [state, dispatch] = useReducer(videoPlayerReducer, { type: "IDLE" });
@@ -310,6 +329,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // server transcode floor is a HIGHER bitrate than the lowest rung, so falling
   // to it would regress, not recover; the tier + native producer-hold recover.
   const onTierLaneRef = useRef(false);
+  /** The provider this run owns on the non-engine lanes; the engine lane serves its own frames. */
+  const frameProviderTokenRef = useRef<string | null>(null);
+  const [chapterFrameBaseUrl, setChapterFrameBaseUrl] = useState<string | null>(null);
 
   // Request ID to prevent race conditions when videoId changes
   // Incremented on each videoId change, async operations check before updating state
@@ -2406,6 +2428,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
       isLiveRef.current = false;
       resetPlaybackStages();
+      stopFrameProvider(frameProviderTokenRef.current);
+      frameProviderTokenRef.current = null;
       stopPlaylistShim(playlistShimTokenRef.current);
       playlistShimTokenRef.current = null;
       if (stallWatchRef.current != null) {
@@ -2414,6 +2438,50 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
     };
   }, [videoId]);
+
+  /**
+   * tvOS chapter pictures, once the viewer has asked for the chrome on a settled session. The
+   * engine lane serves them from its own session directory; every other lane needs a provider over
+   * the original file, which is why this waits rather than running when the stream is published.
+   */
+  useEffect(() => {
+    if (chapterFrameBaseUrl !== null) return;
+    const untagged = (videoDetails?.Chapters ?? []).filter((chapter) => !chapter.ImageTag).length;
+    if (
+      !mayGrabChapterFrames({
+        isTV: Platform.isTV,
+        untaggedChapters: untagged,
+        stable: hasStablePlayback,
+        controlsSeen: chapterFramesArmed === true,
+        mode: currentModeRef.current,
+        ridingRung: onTierLaneRef.current,
+        fromDisk: playsFromDisk(videoId),
+      })
+    ) {
+      return;
+    }
+    if (currentModeRef.current === "localRemux") {
+      setChapterFrameBaseUrl(sessionBaseUrl(streamUrl));
+      return;
+    }
+    let cancelled = false;
+    const details = videoDetails;
+    void (async () => {
+      if (!details) return;
+      const base = await startFrameProvider(getVideoStreamUrl(videoId, details), videoId);
+      if (cancelled || !isMountedRef.current) {
+        // Stale since the await: this run's provider goes, never one a live run holds.
+        void stopFrameProvider(localRemuxToken(base));
+        return;
+      }
+      void stopFrameProvider(frameProviderTokenRef.current);
+      frameProviderTokenRef.current = localRemuxToken(base);
+      setChapterFrameBaseUrl(base);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chapterFrameBaseUrl, chapterFramesArmed, hasStablePlayback, streamUrl, videoDetails, videoId]);
 
   /**
    * Reset state when video ID changes
@@ -2472,6 +2540,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (climbTimerRef.current) clearTimeout(climbTimerRef.current);
     climbTimerRef.current = null;
     onTierLaneRef.current = false;
+    stopFrameProvider(frameProviderTokenRef.current);
+    frameProviderTokenRef.current = null;
+    setChapterFrameBaseUrl(null);
     setVideoMaxBitRate(null);
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;
@@ -2787,6 +2858,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     startPositionMs,
     paused,
     maxBitRate: videoMaxBitRate,
+    chapterFrameBaseUrl,
+    playbackSettled: hasStablePlayback,
     forwardBufferSeconds,
     videoCallbacks,
     state,

@@ -84,9 +84,15 @@ describe("playerChapters", () => {
     expect(result?.[1]).not.toHaveProperty("uri");
   });
 
-  it("sends no uri for a chapter the server has no image for: the player never grabs frames on device", () => {
+  it("sends no uri for a chapter the server has no image for until a frame base arrives", () => {
     const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100.5, "Two"), at(200, "Three")]));
     expect(result?.map((chapter) => chapter.uri)).toEqual(["chapter://item-1/0/tag-a", undefined, undefined]);
+  });
+
+  it("takes the engine's frame for an unimaged chapter once the base is handed in", () => {
+    const result = playerChapters(item(300, [at(0, "One", "tag-a"), at(100.5, "Two")]), "http://127.0.0.1:9/tok/");
+    // The server's own picture still wins where the library has one; only the rest are grabbed.
+    expect(result?.map((chapter) => chapter.uri)).toEqual(["chapter://item-1/0/tag-a", "http://127.0.0.1:9/tok/frame-100500.jpg"]);
   });
 
   it("sends no uri for an unimaged chapter", () => {
