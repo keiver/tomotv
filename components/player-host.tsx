@@ -219,15 +219,6 @@ export function PlayerHost() {
     handlersRef.current.onPlaybackEnd();
   }, [handlersRef]);
 
-  /**
-   * The item whose viewer has summoned the chrome on settled playback, which is the cue to make
-   * chapter pictures. Held as the id rather than a flag, so a new item is unarmed without a reset.
-   */
-  const [chapterFramesArmedFor, setChapterFramesArmedFor] = useState<string | null>(null);
-  const chapterArtworkAsked = chapterFramesArmedFor !== null && chapterFramesArmedFor === (session?.videoId ?? null);
-  const playbackSettledRef = useRef(false);
-  const videoIdRef = useRef<string | null>(null);
-
   const {
     videoRef,
     sourceUri,
@@ -249,21 +240,14 @@ export function PlayerHost() {
     selectedTextTrack,
     selectedAudioTrack,
     chapterFrameBaseUrl,
-    playbackSettled,
   } = useVideoPlayback({
     videoId: session?.videoId ?? "",
     skip: session === null || liveSettling,
     startPositionTicks: session?.startPositionTicks,
     playedAtStart: session?.playedAtStart,
     onPlaybackEnd: handlePlaybackEnd,
-    chapterFramesArmed: chapterArtworkAsked,
     probe: session?.probe,
   });
-
-  useEffect(() => {
-    playbackSettledRef.current = playbackSettled;
-    videoIdRef.current = session?.videoId ?? null;
-  }, [playbackSettled, session?.videoId]);
 
   // Disarm a teardown that is waiting on a presentation. Called wherever a session is
   // established as well as torn down: the flag outliving the session that armed it would
@@ -475,7 +459,10 @@ export function PlayerHost() {
 
   // tvOS chapter list, gated here rather than inside playerChapters so the rule
   // stays testable off a TV. See that function for what AVKit does with it.
-  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails, chapterFrameBaseUrl, chapterArtworkAsked) : undefined), [videoDetails, chapterFrameBaseUrl, chapterArtworkAsked]);
+  // Pictures are asked for from the PLAYING edge on: a uri reaching AVKit is fetched at once, and
+  // AVKit reads the value while it builds the panel's cells, so a later one is never drawn.
+  const playing = state.type === "PLAYING";
+  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails, chapterFrameBaseUrl, playing) : undefined), [videoDetails, chapterFrameBaseUrl, playing]);
 
   // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
   // full-screen state: every native control works and the stock ✕ is visible from the start
@@ -584,9 +571,6 @@ export function PlayerHost() {
       },
       onControlsVisibilityChange: (event: { isVisible: boolean; unobscuredBottom?: number }) => {
         controlsVisibleRef.current = event.isVisible;
-        // AVKit reports the bar visible at +0.3s by itself, so only a summons on a settled session
-        // counts as the viewer asking for the chrome, which is what starts the chapter pictures.
-        if (event.isVisible && playbackSettledRef.current) setChapterFramesArmedFor(videoIdRef.current);
         setControls({ visible: event.isVisible, unobscuredBottom: typeof event.unobscuredBottom === "number" ? event.unobscuredBottom : null });
       },
     }),

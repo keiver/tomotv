@@ -83,7 +83,6 @@ import { videoPlayerReducer, type PlaybackMode, type VideoPlayerState } from "./
 import { planErrorRecovery, planLiveErrorRecovery } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
-import { mayGrabChapterFrames } from "./videoPlayback/chapterFrames";
 import { orderAudioTracks, planAudioReport } from "./videoPlayback/audioTracks";
 import { classifyObservedChoice, planSubtitleApplication } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
@@ -155,11 +154,6 @@ export interface VideoPlaybackConfig {
   onPlaybackEnd?: () => void;
   /** Regression-suite deep links pass probe=1; records playback events for the driver (dev-only). */
   probe?: boolean;
-  /**
-   * The viewer summoned the chrome on a session already playing steadily, which is the cue to start
-   * making chapter pictures. Nothing is grabbed before it.
-   */
-  chapterFramesArmed?: boolean;
 }
 
 export interface VideoPlaybackResult {
@@ -186,8 +180,6 @@ export interface VideoPlaybackResult {
    * for the chrome (hooks/videoPlayback/chapterFrames.ts).
    */
   chapterFrameBaseUrl: string | null;
-  /** Playback has settled, so the opening of the stream is over. */
-  playbackSettled: boolean;
 
   /**
    * Resume position for the source's startPosition, in ms, or null.
@@ -271,7 +263,7 @@ export interface VideoPlaybackResult {
  * Handles codec checking, transcoding decisions, and player lifecycle
  */
 export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResult {
-  const { videoId, skip, startPositionTicks, playedAtStart, onPlaybackEnd, probe, chapterFramesArmed } = config;
+  const { videoId, skip, startPositionTicks, playedAtStart, onPlaybackEnd, probe } = config;
 
   // State machine
   const [state, dispatch] = useReducer(videoPlayerReducer, { type: "IDLE" });
@@ -2440,26 +2432,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   }, [videoId]);
 
   /**
-   * tvOS chapter pictures, once the viewer has asked for the chrome on a settled session. The
-   * engine lane serves them from its own session directory; every other lane needs a provider over
-   * the original file, which is why this waits rather than running when the stream is published.
+   * tvOS chapter pictures the server has none of: the engine lane serves them from its own session
+   * directory, every other lane needs a provider over the original file. A grab decodes from the
+   * source, so it waits for the player's own PLAYING edge, and never runs while a rung carries it.
    */
   useEffect(() => {
-    if (chapterFrameBaseUrl !== null) return;
-    const untagged = (videoDetails?.Chapters ?? []).filter((chapter) => !chapter.ImageTag).length;
-    if (
-      !mayGrabChapterFrames({
-        isTV: Platform.isTV,
-        untaggedChapters: untagged,
-        stable: hasStablePlayback,
-        controlsSeen: chapterFramesArmed === true,
-        mode: currentModeRef.current,
-        ridingRung: onTierLaneRef.current,
-        fromDisk: playsFromDisk(videoId),
-      })
-    ) {
-      return;
-    }
+    if (chapterFrameBaseUrl !== null || !Platform.isTV || state.type !== "PLAYING") return;
+    if (currentModeRef.current === "transcode") return;
+    if (onTierLaneRef.current && !playsFromDisk(videoId)) return;
+    if ((videoDetails?.Chapters ?? []).filter((chapter) => !chapter.ImageTag).length < 2) return;
     if (currentModeRef.current === "localRemux") {
       setChapterFrameBaseUrl(sessionBaseUrl(streamUrl));
       return;
@@ -2481,7 +2462,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     return () => {
       cancelled = true;
     };
-  }, [chapterFrameBaseUrl, chapterFramesArmed, hasStablePlayback, streamUrl, videoDetails, videoId]);
+  }, [chapterFrameBaseUrl, state.type, streamUrl, videoDetails, videoId]);
 
   /**
    * Reset state when video ID changes
@@ -2859,7 +2840,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     paused,
     maxBitRate: videoMaxBitRate,
     chapterFrameBaseUrl,
-    playbackSettled: hasStablePlayback,
     forwardBufferSeconds,
     videoCallbacks,
     state,
