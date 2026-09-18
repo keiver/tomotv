@@ -172,8 +172,9 @@ final class TierProbeTests: XCTestCase {
 
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"))
-        XCTAssertTrue(master.contains("media.m3u8"), "the copy stays listed so AVPlayer can climb back to it")
-        XCTAssertLessThan(master.range(of: "t0.m3u8")!.lowerBound, master.range(of: "media.m3u8")!.lowerBound, "a link below the source starts on the rung")
+        // A copy segment a 2 Mb/s link cannot finish fails the whole item on AVPlayer's 6s deadline,
+        // so a link below the source is offered the rung alone and climbs back by rebuilding.
+        XCTAssertFalse(master.contains("media.m3u8"), "a link below the source lists no copy")
         XCTAssertEqual(states(reports()), ["listed"])
         XCTAssertNotNil(s.tierPlaylist(rung: 0))
 
@@ -286,7 +287,7 @@ final class TierProbeTests: XCTestCase {
         // The probe is still parked on the held segment when the master is written; the rung lists anyway.
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"), "an adopted rung is offered before its segment proves")
-        XCTAssertTrue(master.contains("media.m3u8"), "the copy stays listed beside the rung")
+        XCTAssertFalse(master.contains("media.m3u8"), "a link below the source lists no copy")
         XCTAssertTrue(s.tierOffered)
         XCTAssertEqual(states(reports()), ["listed"])
     }
