@@ -66,11 +66,14 @@ file on the server.
   file is read from the server as it is; image tracks (PGS, VobSub, DVB, XSUB)
   are decoded to bitmaps the app draws over the native player.
 - **Quality.** Auto measures the link to each server and opens on the highest
-  rung it carries, the original file as the ceiling. The engine lane also
-  declares a small server-fed rung when the link cannot carry the file, proved
+  rung it carries, the original file as the ceiling. The engine lane carries
+  that copy and a ladder of server-fed rungs in one master, each rung proved
   before it is offered, and AVPlayer switches between them on a shared segment
-  grid with no reload. A fixed preset caps the server lane, and the engine lane
-  where it declares that rung.
+  grid with no reload. The engine goes on measuring the link behind the
+  loopback: the master leads with what the link carries, withholds the copy
+  from a link that cannot finish a copy segment, and rebuilds on the copy once
+  the link carries it again. Audio and subtitle tracks are unaffected by a
+  switch. A fixed preset caps the server lane and the engine's ladder alike.
 - **Live TV** channels ride the same engine, cut live on keyframes. An HLS or
   DASH origin is read directly, a tuner stream arrives through the server
   untouched, and the server's live transcode is the rung below.

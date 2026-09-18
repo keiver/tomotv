@@ -79,6 +79,10 @@ this device keeps up is measured by the session itself.
   on screen to restart: the fallback reason is `engine below realtime`. No
   sample within the engine's own 20 s segment deadline fails the session the
   way it always did.
+  **A session that offers Slipstream rungs skips this timing entirely**
+  (`preflight.keptForTier`): the master opens on a rung, so the engine's own
+  segment 0 is not the startup gate and a slow link is not a verdict against
+  the device. See `memories/CLAUDE-slipstream.md`.
 - **Remembered per file.** `services/engineVerdicts.ts` keeps
   `Documents/engine-verdicts.json`, keyed by server, item and media source. A
   verdict is written only from a clean sample (thermal nominal or fair, no
@@ -93,7 +97,8 @@ this device keeps up is measured by the session itself.
   `localRemux.ts`) is true when the last two timed, unthrottled segments of the
   current generation ran below realtime and at most one segment is ahead of the
   player; the hook then moves to the server at the playhead once, directly,
-  and records the verdict. No record to date shows a session that passed
+  and records the verdict. A session riding a rung is exempt: its primary is
+  unproducible by design, and starving it is the point of the rung. No record to date shows a session that passed
   pre-flight falling below realtime later; this is the backstop, in place of
   the STALLED ladder's restart-then-server.
 - **8K** needs no rule: the H.264 encoder refuses to open at 7680x4320 and the
@@ -260,6 +265,11 @@ inside it.
 ## The retry ladder
 
 Three rungs, in order: **direct, engine, server.**
+
+Inside the engine lane sits a ladder of its own: the master carries the device's
+stream copy and the server-fed rungs together, and AVPlayer moves between them
+without a reload (`memories/CLAUDE-slipstream.md`). The server lane below is
+reached only when the engine lane as a whole cannot hold the item.
 
 A failed direct play tries the engine before the server. AVPlayer refusing a
 file whose codec and container both passed inspection usually means a container

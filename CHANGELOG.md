@@ -6,11 +6,13 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
+- Playback follows the connection while the film runs. The device's own copy of the file plays whenever the link carries it; when it cannot, the picture steps down to smaller streams the server feeds, and it climbs back to the copy once the link recovers. Every audio and subtitle track stays selectable on every step, including when a session hands over to the server
 - Live TV on iPhone: a grip on the seam between the channel column and the guide resizes the column; drag it left past the snap zone and the column magnets to the channel logos alone, collapsing the rows to logos
 - A Live TV channel with no listings fills its guide cell with "No guide data" over "Listings unavailable for this channel", following the device language
 
 ### Changed
 
+- A slow connection reaches a picture in seconds instead of waiting on the full-quality stream: the player opens on the smallest feed the connection carries, with two segments buffered ahead, and builds its cushion from there
 - Home shelves show larger cards, with landscape artwork cropped to a 3:2 frame
 - A grid card's title sits on a translucent bar, so scrimmed artwork shows through behind it
 - On Apple TV the home shelves are sized so a third row peeks above the fold

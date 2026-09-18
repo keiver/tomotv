@@ -820,6 +820,8 @@ Coverage reports are generated on every commit. Minimum threshold: 60% (will inc
 
 `npm run test:playback` plays each item of the local test library through the real app on a simulator (deep link `tomotv://player?videoId=<id>&probe=1`), asserts the chosen playback mode (direct / localRemux / transcode, no silent downgrade to the server), asserts playback progress, and validates the remux engine's loopback HLS against committed baselines with host ffmpeg (exact packet hashes for stream-copied video, tolerant checks for on-device transcodes).
 
+The suite's LAN carries everything, so it proves the master's shape and not the switching. `node scripts/abr-drill.mjs --host` (or `--device "<Apple TV>"`) plays T101 and T102 through a shaped link and scores eight scenarios: a drop, a recovery, 0.6 Mb/s, a flapping link and the rungs refused. See the drill section of `test/playback/README.md`.
+
 Hard dependencies (details, manifest field reference, and known limitations in the README):
 
 - Test media: `~/Movies/development-videos/` (flat `T<NN> ...` naming, NOT in git). The two merge backups it used to name are deleted; per-fixture origin lives in `test/playback/provenance.json`

@@ -659,37 +659,47 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
     if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
 
-    // Slipstream gateway shape. tierVariant pins whether the master carries
-    // the 480p server tier (eligibility is SDR + audio, so an HDR fixture
-    // asserts absence). When present the structural invariants matter most:
-    // a variant switch must never touch audio or subtitles, which holds only
-    // if both STREAM-INFs name the same rendition groups, and the tier's
-    // BANDWIDTH must count the shared audio (RFC 8216 §4.3.4.2).
+    // Slipstream gateway shape. tierVariant pins whether the master offers server rungs at all
+    // (eligibility is SDR + audio + a server source, so an HDR fixture asserts absence). The rungs
+    // ride their own low audio group by design; what must hold is that a switch between them never
+    // moves the viewer's subtitles, and that each BANDWIDTH counts the group it plays with
+    // (RFC 8216 4.3.4.2). The harness link is fast, so the copy is listed beside them.
+    const variants = [];
+    {
+      const lines = master.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue;
+        const uri = lines.slice(i + 1).find((line) => line.trim() && !line.startsWith("#")) ?? "";
+        variants.push({
+          uri: uri.trim(),
+          line: lines[i],
+          audio: /AUDIO="([^"]*)"/.exec(lines[i])?.[1] ?? null,
+          subs: /SUBTITLES="([^"]*)"/.exec(lines[i])?.[1] ?? null,
+          bandwidth: Number(/BANDWIDTH=(\d+)/.exec(lines[i])?.[1] ?? 0),
+          codecs: /CODECS="([^"]*)"/.exec(lines[i])?.[1] ?? "",
+        });
+      }
+    }
     if (expect.tierVariant !== undefined) {
-      const variantLines = master.split("\n").filter((line) => line.startsWith("#EXT-X-STREAM-INF:"));
-      const hasTier = master.includes("t1.m3u8");
-      if (expect.tierVariant && !hasTier) problems.push("master playlist carries no Slipstream tier variant (t1.m3u8)");
-      if (!expect.tierVariant && hasTier) problems.push("master playlist carries a Slipstream tier variant for an ineligible item");
-      if (expect.tierVariant && hasTier) {
-        if (variantLines.length !== 2) problems.push(`expected 2 variants (primary + tier), master has ${variantLines.length}`);
-        const groups = variantLines.map((line) => ({
-          audio: /AUDIO="([^"]*)"/.exec(line)?.[1] ?? null,
-          subs: /SUBTITLES="([^"]*)"/.exec(line)?.[1] ?? null,
-          bandwidth: Number(/BANDWIDTH=(\d+)/.exec(line)?.[1] ?? 0),
-          codecs: /CODECS="([^"]*)"/.exec(line)?.[1] ?? "",
-        }));
-        if (new Set(groups.map((g) => g.audio)).size > 1) problems.push("variants name different AUDIO groups: a switch would touch sound");
-        if (new Set(groups.map((g) => g.subs)).size > 1) problems.push("variants name different SUBTITLES groups: a switch would drop subtitles");
-        const tier = groups[1];
-        if (tier && tier.bandwidth <= 1_500_000) problems.push(`tier BANDWIDTH=${tier.bandwidth} covers video only; the shared audio group is not counted`);
-        if (tier && tier.codecs && !tier.codecs.includes(",")) problems.push(`tier CODECS=${JSON.stringify(tier.codecs)} omits the audio codec of its group`);
+      const rungs = variants.filter((v) => /^t\d+\.m3u8$/.test(v.uri));
+      if (expect.tierVariant && rungs.length === 0) problems.push("master playlist offers no Slipstream rung");
+      if (!expect.tierVariant && rungs.length > 0) problems.push(`master playlist offers ${rungs.length} Slipstream rungs for an ineligible item`);
+      if (expect.tierVariant && rungs.length > 0) {
+        const copy = variants.find((v) => v.uri === "media.m3u8");
+        if (!copy) problems.push("master playlist withholds the on-device copy on a link that carries it");
+        if (copy && new Set([copy, ...rungs].map((v) => v.subs)).size > 1) problems.push("variants name different SUBTITLES groups: a switch would drop subtitles");
+        if (rungs.some((rung) => rung.audio !== "audio-lo")) problems.push("a rung does not name the audio-lo group, so its audio comes from the engine it exists to relieve");
+        if (rungs.some((rung) => rung.codecs && !rung.codecs.includes(","))) problems.push("a rung's CODECS omits the audio codec of its group");
+        const ascending = rungs.every((rung, i) => i === 0 || rung.bandwidth > rungs[i - 1].bandwidth);
+        if (!ascending) problems.push(`rung BANDWIDTHs are not ascending: ${rungs.map((r) => r.bandwidth).join(", ")}`);
       }
     }
 
     // Without this, the player cannot rule out captions embedded in the video
     // and offers a legible option with an empty title that AVKit lists as "CC"
     // and that draws nothing. Seen on T88, which has no subtitle streams at all.
-    if (!master.includes("CLOSED-CAPTIONS=NONE")) problems.push("EXT-X-STREAM-INF does not declare CLOSED-CAPTIONS=NONE, so the player will offer a phantom CC track");
+    // A source whose copied packets carry A/53 captions names a group instead.
+    if (variants.some((v) => !v.line.includes("CLOSED-CAPTIONS="))) problems.push("an EXT-X-STREAM-INF does not declare CLOSED-CAPTIONS, so the player will offer a phantom CC track");
 
     // Apple's authoring specification requires these on every variant that has
     // video: RESOLUTION (9.2), FRAME-RATE (9.15) and AVERAGE-BANDWIDTH (9.14).

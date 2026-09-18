@@ -38,7 +38,7 @@ three folders. These three paths are the fixture roots the driver anchors on:
 
 | Folder                          | Contents                                      |
 | ------------------------------- | --------------------------------------------- |
-| `~/Movies/development-videos/`  | every video fixture, T01-T45 and T60-T100     |
+| `~/Movies/development-videos/`  | every video fixture, T01-T45, T60-T102        |
 | `~/Music/Development Audio/`    | the stereo audio-only items T50-T55           |
 | `~/Music/Development Surround/` | the surround audio-only items T56 and T70-T73 |
 
@@ -112,6 +112,7 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 - `mode`: expected playback mode. `allowRetry` + `finalMode`: for items whose real-world behavior is a legitimate auto-retry (T54: AVPlayer has no Ogg demuxer, direct fails, app retries with transcode).
 - `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `subsync` (server-HLS subtitle-sync invariant, see below), `live` (the engine's live window, see the Live TV rig below), `none` (mode + progress only).
 - `expect`: post-remux stream layout (codecs, subtitle rendition count, audio rendition count, VIDEO-RANGE). Live items: `audioTracks` (renditions the master must offer) and `discontinuity` (an `EXT-X-DISCONTINUITY` must be in the window after the play).
+- `expect.tierVariant`: whether the master offers Slipstream rungs (`t0.m3u8` and up). True for an SDR file with audio played from the server, false for an item the ladder excludes (HDR, live, audio-only). When true the driver also checks the shape a switch depends on: the copy listed beside the rungs on this fast LAN, one subtitle group across every variant, `audio-lo` on the rungs, and ascending BANDWIDTHs that count their audio group.
 - `live`: a Live TV channel, resolved by name from `/LiveTv/Channels` instead of from the fixture roots.
 - `skip`: known limitation; skipped unless named in `--only`. Currently T10 (simulator rejects HDR PQ) and T32, T36, T41 (the simulator has no HEVC encoder); verify them on a device.
 - `playSeconds` / `progressMin`: play window and minimum position, lowered for short files.
@@ -217,6 +218,34 @@ and the decoder name. Records land in `test/playback/bench/<device>-<date>.json`
 A device keeps its own account and must be signed in to the server `JELLYFIN_URL` names, since
 the driver resolves the rung ids there. `devicectl` is called at its Xcode path because
 `xcode-select` on the dev Mac points at CommandLineTools.
+
+## Slipstream drill (`scripts/abr-drill.mjs`, T101 and T102)
+
+The suite plays on a LAN that carries everything, so it proves the master's
+SHAPE but never the switching. The drill does the switching: `scripts/netsim-proxy.mjs`
+puts one shaped token bucket in front of Jellyfin (no sudo, both directions,
+timed profiles over `POST /__netsim`), and the drill plays a 12 minute fixture
+through it, then scores the timeline with `scripts/lib/abr-score.mjs`.
+
+```bash
+node scripts/abr-drill.mjs --host                  # macOS AVPlayer against the real engine
+node scripts/abr-drill.mjs --device "Main Bedroom" # the app on the Apple TV, over the LAN
+#  --items T101,T102  --scenarios S1,S4  --link 1500000  --buffer 12  --start 0  --no-window
+```
+
+Eight scenarios: unthrottled, 1.5 Mb/s, a drop, a recovery, 0.6 Mb/s, a
+flapping link, down-then-up with two audio tracks, and the rung playlists
+refused. Each asserts a first frame, no stall after it, no unexpected reload,
+the variant the scenario calls for, and every audio and subtitle track still
+listed at the end. Results append to `$TMPDIR/tomotv-drill/drill-results.md`
+with each run's timeline, proxy log and engine log beside them.
+
+The host path captures the app's real bridge config through
+`test/playback/drill/engineConfig.drill.test.ts` and plays it in
+`SlipstreamDrillTests`; the device path signs the TV into the proxy with
+`tomotv://dev-session`, plays through the app itself, and restores the TV to
+the LAN address afterwards. It clears the fixture's resume point per run, and
+refuses to start if a proxy from an earlier run still holds the port.
 
 ## Live TV rig (`L` items, `validate: "live"`)
 
