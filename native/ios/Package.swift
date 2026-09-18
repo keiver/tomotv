@@ -48,6 +48,7 @@ let package = Package(
             // or it tests code under rules the shipped build never applies.
             exclude: ["LocalRemuxer.swift", "LocalRemuxer.m"],
             sources: [
+                "DownloadRepackager.swift",
                 "EngineLog.swift",
                 "RemuxTypes.swift",
                 "Remuxer.swift",
