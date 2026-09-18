@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { devicectl, jf, loadEnv } from "./playback-regression.mjs";
 import { SCENARIOS, score } from "./lib/abr-score.mjs";
 
@@ -58,9 +58,31 @@ async function resolveIds(env, ids) {
   });
 }
 
+/** Proxies this run started, killed on any exit: a survivor owns the port and shapes the next run. */
+const proxies = new Set();
+
 function startProxy(logPath) {
   const child = spawn(process.execPath, [path.join(ROOT, "scripts", "netsim-proxy.mjs"), "--port", String(PROXY_PORT), "--upstream", "http://127.0.0.1:8096", "--log", logPath], { stdio: "ignore" });
+  proxies.add(child);
+  child.on("close", () => proxies.delete(child));
   return child;
+}
+
+for (const signal of ["exit", "SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    for (const child of proxies) child.kill();
+    if (signal !== "exit") process.exit(1);
+  });
+}
+
+/** A proxy left behind by an earlier run answers on the port and silently shapes this one. */
+async function requireFreePort() {
+  try {
+    const state = await (await fetch(`http://127.0.0.1:${PROXY_PORT}/__netsim`)).json();
+    throw new Error(`a netsim proxy is already on :${PROXY_PORT} (kbps ${state.kbps}, served ${state.served}); kill it before running`);
+  } catch (error) {
+    if (String(error.message).includes("already on")) throw error;
+  }
 }
 
 async function control(body) {
@@ -212,7 +234,7 @@ async function deviceRun(env, device, item, scenario, base) {
 }
 
 /** The app's probe events and the engine's request log, in the shape the scorer reads. */
-function deviceTimeline({ consoleLog, probeFile }) {
+export function deviceTimeline({ consoleLog, probeFile }) {
   const timeline = [];
   const probe = fs.existsSync(probeFile) ? readTimeline(probeFile) : [];
   const t0 = probe[0]?.t ?? Date.now();
@@ -237,9 +259,10 @@ function deviceTimeline({ consoleLog, probeFile }) {
       timeline.push({ kind: streams++ === 0 || climbing ? "open" : "reload", ms, detail: e.event });
       climbing = false;
     }
+    // A hand-over opens the next lane's stream: that event is this one, not a second reload.
     if (e.event === "fallback") {
       const climb = Boolean(e.reason?.includes("recovered"));
-      climbing = climb;
+      climbing = true;
       timeline.push({ kind: climb ? "climb" : "reload", ms, detail: e.reason });
     }
     if (e.event === "error") timeline.push({ kind: "failed", ms, error: e.message });
@@ -263,6 +286,7 @@ async function main() {
   const env = loadEnv();
   const device = opt("--device", null);
   if (!flag("--host") && !device) throw new Error("pass --host or --device <name>");
+  await requireFreePort();
   fs.mkdirSync(RUN_DIR, { recursive: true });
   const items = await resolveIds(env, ITEMS);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -332,7 +356,10 @@ async function main() {
   console.log(`\nresults: ${RESULTS}`);
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message);
-  process.exit(1);
-});
+// Only when run as the command; importing this file re-scores saved runs without starting one.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error.stack || error.message);
+    process.exit(1);
+  });
+}

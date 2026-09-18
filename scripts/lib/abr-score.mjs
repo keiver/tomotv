@@ -46,7 +46,13 @@ export const SCENARIOS = {
   S8: {
     label: "starve with rung routes refused",
     seconds: 120,
-    refuse: "/Videos/[^/]+/(main\\.m3u8|hls1/)",
+    // Only the rung's own playlist: AudioBitrate=32000 is the ladder's marker
+    // (getTierPlaylistUrl). Refusing /Videos/.../main.m3u8 outright also refuses the server
+    // transcode the session falls back to, which is the lane this scenario exists to test.
+    refuse: "AudioBitrate=32000",
+    // The rungs are gone, so surviving the drop MEANS handing the item to the server: the lane
+    // change is the outcome under test, not a reload to hold against the session.
+    handsOver: true,
     profile: [
       { atSec: 0, kbps: 30000 },
       { atSec: 30, kbps: 1500 },
@@ -122,7 +128,7 @@ export function score(id, timeline, { expectAudio, expectSubs } = {}) {
 
   check("plays", firstFrame && !failed, failed ? failed.error : firstFrame ? `first frame ${firstFrame.ms - t0}ms` : "never showed a frame");
   check("no stall after first frame", stalls.length === 0, stalls.map((s) => `${Math.round((s.toMs - s.fromMs) / 1000)}s at ${Math.round(s.position)}s`).join(", ") || "none");
-  check("no reload", reloads === 0, `${reloads} reloads`);
+  if (!scenario.handsOver) check("no reload", reloads === 0, `${reloads} reloads`);
 
   const videoAfter = (sec) => runs.filter((r) => r.toMs >= at(sec));
   switch (id) {
