@@ -19,18 +19,24 @@ extension RemuxSession {
         guard n >= 0, let rendition = rendition(withPrefix: prefix) else { return .notFound }
         stateLock.lock()
         lastRequestedSegment = n
-        lastPrimaryDemandAt = Date()
+        // A copy that is gone is not demand on the source: AVPlayer asking after it again must not
+        // read as leaving the rungs.
+        if !sourceReleased { lastPrimaryDemandAt = Date() }
         let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
         let done = rendition.completed.contains(n)
         let dead = failed || cancelled
         let pastEnd = reachedEnd && n > lastProducedSegment
+        let lost = sourceReleased
         stateLock.unlock()
         if dead || !inRange || (pastEnd && !done) { return .notFound }
+        // A copy with no source behind it is gone for good, segments already on disk included:
+        // AVPlayer must leave the variant, not play out what is left of it and then stall.
+        if lost { return .gone }
         if done { return .file(dir.appendingPathComponent(rendition.segmentName(n)), contentType: "video/iso.segment") }
         // A copy segment is megabytes, and on a link that only just carries it the whole of one
         // takes most of the 6s AVPlayer allows a silent response; live keeps the plain shape.
         if config.isLive { return .streamed(contentType: "video/iso.segment") { [weak self] in self?.segmentURL(n, prefix: prefix) } }
-        return .segment(contentType: "video/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] in self?.segmentURL(n, prefix: prefix) }
+        return .segment(contentType: "video/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] request in self?.segmentURL(n, prefix: prefix, request: request) }
     }
 
     func initResponse(prefix: String = "", generation: Int = 0) -> LocalHTTPResponse {
@@ -38,8 +44,10 @@ extension RemuxSession {
         stateLock.lock()
         lastPrimaryDemandAt = Date()
         let dead = failed || cancelled
+        let lost = sourceReleased
         stateLock.unlock()
         if dead { return .notFound }
+        if lost { return .gone }
         if FileManager.default.fileExists(atPath: url.path) { return .file(url, contentType: "video/mp4") }
         return .streamed(contentType: "video/mp4") { [weak self] in self?.initSegmentURL(prefix: prefix, generation: generation) }
     }
@@ -67,7 +75,7 @@ extension RemuxSession {
     /// Blocking (bounded) fetch of a segment file, driving seek-restarts when
     /// the player jumps outside the producer's window. `prefix` selects the
     /// rendition ("" = primary, "aN" = alternate audio).
-    func segmentURL(_ n: Int, prefix: String = "") -> URL? {
+    func segmentURL(_ n: Int, prefix: String = "", request: SegmentRequest? = nil) -> URL? {
         guard n >= 0 else { return nil }
         guard let rendition = rendition(withPrefix: prefix) else { return nil }
 
@@ -130,7 +138,7 @@ extension RemuxSession {
         while true {
             stateLock.lock()
             let completed = rendition.completed.contains(n)
-            let dead = failed || cancelled
+            let dead = failed || cancelled || sourceReleased
             let ended = reachedEnd && n > lastProducedSegment
             let producingNow = producingSegment
             let inRecovery = recovering
@@ -143,6 +151,12 @@ extension RemuxSession {
             }
             stateLock.unlock()
             if completed || dead || ended { break }
+            if request?.isAbandoned == true {
+                stateLock.lock()
+                copyAbandonedAt = Date()
+                stateLock.unlock()
+                break
+            }
             let now = Date()
             if now >= deadline && !(inRecovery && now < recoveryDeadline) { break }
             ticks += 1

@@ -119,14 +119,16 @@ final class ImageSubtitleDecoder {
     private var canvasHeight: Int
     private var pageMeasured = false
 
-    init?(stream: UnsafeMutablePointer<AVStream>, fallbackWidth: Int, fallbackHeight: Int, dir: URL) {
+    /// `reportedIndex` and `namePrefix` are for a stream read from somewhere other than the source,
+    /// where its own index is not the track's and its files must not share the demuxer's names.
+    init?(stream: UnsafeMutablePointer<AVStream>, fallbackWidth: Int, fallbackHeight: Int, dir: URL, reportedIndex: Int32? = nil, namePrefix prefix: String? = nil) {
         guard let params = stream.pointee.codecpar, Self.handles(params.pointee.codec_id) else { return nil }
 
-        streamIndex = stream.pointee.index
+        streamIndex = reportedIndex ?? stream.pointee.index
         timeBase = stream.pointee.time_base
         isTeletext = params.pointee.codec_id == AV_CODEC_ID_DVB_TELETEXT
         self.dir = dir
-        namePrefix = "pgs\(stream.pointee.index)"
+        namePrefix = prefix ?? "pgs\(stream.pointee.index)"
         canvasWidth = params.pointee.width > 0 ? Int(params.pointee.width) : fallbackWidth
         canvasHeight = params.pointee.height > 0 ? Int(params.pointee.height) : fallbackHeight
 
@@ -411,6 +413,13 @@ final class ImageSubtitleDecoder {
     }
 
     // MARK: - Serving
+
+    /// The event list is final.
+    var isComplete: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return finished
+    }
 
     /// Display-set manifest for the loopback server. Read from the HTTP queue
     /// while the pipeline thread is still appending, hence the lock.

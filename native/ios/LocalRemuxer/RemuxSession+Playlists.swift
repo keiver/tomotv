@@ -169,6 +169,17 @@ extension RemuxSession {
                 out += line + "\n"
             }
         }
+        // audio-hi: the same members at their own channel count, for the rungs with room for them.
+        if audioHiActive {
+            for (position, track) in config.audioTracks.enumerated() {
+                let name = track.name.replacingOccurrences(of: "\"", with: "")
+                var line = "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio-hi\",NAME=\"\(name)\""
+                line += ",LANGUAGE=\"\(track.language.isEmpty ? "und" : track.language)\""
+                line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
+                line += ",URI=\"a\(position)h.m3u8\""
+                out += line + "\n"
+            }
+        }
 
         // RFC 8216 §4.3.4.1 also forbids a group from carrying more than one
         // member with DEFAULT=YES, and Matroska is happy to flag several
@@ -353,7 +364,7 @@ extension RemuxSession {
             }
             // Rungs ride the server-fed audio group when every track has one;
             // otherwise they share the engine group.
-            line += audioLoActive ? ",AUDIO=\"audio-lo\"" : ",AUDIO=\"audio\""
+            line += !audioLoActive ? ",AUDIO=\"audio\"" : rung.audioHi && audioHiActive ? ",AUDIO=\"audio-hi\"" : ",AUDIO=\"audio-lo\""
             if !config.subtitles.isEmpty {
                 line += ",SUBTITLES=\"subs\""
             }
@@ -767,8 +778,15 @@ extension RemuxSession {
     func subtitleCueManifest(streamIndex: Int) -> Data? {
         stateLock.lock()
         let decoder = imageSubtitles[Int32(streamIndex)]
+        let server = serverImageSubtitles[Int32(streamIndex)]
+        let serverReadUpTo = serverImageReadUpTo[Int32(streamIndex)] ?? 0
         let readUpTo = config.isLive ? demuxedUpToOutput : demuxedUpTo
+        let sourceGone = sourceReleased
         stateLock.unlock()
+        // The server's copy answers once it holds every cue, or when nothing else will.
+        if let server, server.isComplete || decoder == nil || sourceGone {
+            return server.manifestJSON(demuxedUpTo: server.isComplete ? config.durationSeconds : serverReadUpTo)
+        }
         return decoder?.manifestJSON(demuxedUpTo: readUpTo)
     }
 

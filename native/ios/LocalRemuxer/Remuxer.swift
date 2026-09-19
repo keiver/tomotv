@@ -161,6 +161,10 @@ final class RemuxSession {
     /// open. Written on the pipeline thread, read on the HTTP queue when the app
     /// asks for a cue manifest, so every touch goes through `stateLock`.
     var imageSubtitles: [Int32: ImageSubtitleDecoder] = [:]
+    /// PGS tracks decoded from the server's raw stream, by source index, and how far each has read.
+    var serverImageSubtitles: [Int32: ImageSubtitleDecoder] = [:]
+    var serverImageReadUpTo: [Int32: Double] = [:]
+    var serverImageSubtitlesStarted = false
 
     /// Text subtitle decoders, same lifetime and locking as the image ones.
     var textSubtitles: [Int32: TextSubtitleDecoder] = [:]
@@ -237,6 +241,12 @@ final class RemuxSession {
     /// The rung AVPlayer last asked a segment of, and when the producer last moved to follow it.
     var lastTierRung = 0
     var lastFollowSeekAt = Date.distantPast
+    /// When the player last gave up a copy segment it had asked for.
+    var copyAbandonedAt = Date.distantPast
+    /// Live player requests per rung segment, and the transfer behind each. Guarded by fetchLock.
+    let fetchLock = NSLock()
+    var fetchInterest: [String: Int] = [:]
+    var fetchTasks: [String: URLSessionTask] = [:]
     /// A follow move failed to seek: the producer holds under a rung for the rest of the session.
     var followDisabled = false
     /// How long that took, for the report: a rung the server feeds slower than it plays is one

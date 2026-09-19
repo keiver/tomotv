@@ -46,6 +46,7 @@ const REMUXER_FILES = [
   "RemuxSession+Grid.swift",
   "RemuxSession+Lifecycle.swift",
   "RemuxSession+Playlists.swift",
+  "RemuxSession+ServerImageSubtitles.swift",
   "RemuxSession+Tier.swift",
   "RemuxSession+AudioLo.swift",
   "RemuxSession+Segments.swift",

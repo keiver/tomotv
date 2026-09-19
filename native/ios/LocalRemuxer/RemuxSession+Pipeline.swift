@@ -182,6 +182,7 @@ extension RemuxSession {
     }
 
     func fail(_ message: String) {
+        if handOverToRungs(because: message) { return }
         NSLog("[LocalRemuxer] Pipeline failed: %@", message)
         stateLock.lock()
         let first = !failed
@@ -1490,7 +1491,7 @@ extension RemuxSession {
             // Session control between packets: cancellation, seeks, throttle.
             while true {
                 stateLock.lock()
-                let stop = cancelled || failed
+                let stop = cancelled || failed || sourceReleased
                 var seekTo = pendingSeekSegment
                 pendingSeekSegment = nil
                 // Drop a seek the pipeline already answered: a waiter's
@@ -1533,6 +1534,8 @@ extension RemuxSession {
                 stateLock.unlock()
 
                 if stop { break readLoop }
+                // Held under a rung, the demuxer feeds no image cues: the server's copy takes over.
+                if riding, tierHold { startServerImageSubtitles() }
                 if let seekTo, followSeek {
                     // A move nobody asked for must not end a session that plays fine on its rung.
                     if restart(at: seekTo, failOnSeekError: false) { break }
@@ -2094,8 +2097,8 @@ extension RemuxSession {
         let upperTime = segmentStartSeconds(keep.upperBound) + segmentDurationSeconds(keep.upperBound)
         stateLock.lock()
         var audioDoomed: [(Int, [Int])] = []
-        for (position, materialized) in audioLoMaterialized {
-            guard let segments = audioLoSegments[position], !segments.isEmpty else { continue }
+        for (key, materialized) in audioLoMaterialized {
+            guard let segments = audioLoSegments[key], !segments.isEmpty else { continue }
             var starts: [Double] = []
             var acc = 0.0
             for seg in segments {
@@ -2106,13 +2109,13 @@ extension RemuxSession {
                 n < starts.count && (starts[n] + segments[n].duration < lowerTime || starts[n] > upperTime)
             }
             guard !prunable.isEmpty else { continue }
-            audioLoMaterialized[position]?.subtract(prunable)
-            audioDoomed.append((position, Array(prunable)))
+            audioLoMaterialized[key]?.subtract(prunable)
+            audioDoomed.append((key, Array(prunable)))
         }
         stateLock.unlock()
-        for (position, indices) in audioDoomed {
+        for (key, indices) in audioDoomed {
             for n in indices {
-                try? FileManager.default.removeItem(at: dir.appendingPathComponent("a\(position)s-seg\(n).m4s"))
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(serverAudioPrefix(key: key))-seg\(n).m4s"))
             }
         }
     }

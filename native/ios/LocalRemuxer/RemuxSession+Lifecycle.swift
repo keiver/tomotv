@@ -39,7 +39,7 @@ extension RemuxSession {
     /// DELETE /Videos/ActiveEncodings is the public route (M1: 204).
     func killTierTranscode() {
         var urls = config.tiers.map(\.playlistUrl)
-        urls += config.audioTracks.map(\.serverAudioUrl).filter { !$0.isEmpty }
+        urls += config.audioTracks.flatMap { [$0.serverAudioUrl, $0.serverAudioHiUrl] }.filter { !$0.isEmpty }
         for urlString in urls {
             guard let components = URLComponents(string: urlString),
                   let apiKey = components.queryItems?.first(where: { $0.name == "ApiKey" })?.value,
@@ -81,10 +81,10 @@ extension RemuxSession {
         return copyVerdict != .withheld || sourceUnusable
     }
 
-    /// Tracks only the demuxer can serve: an image subtitle is decoded here, and an engine text
-    /// track with no server WebVTT has no other source. Either one keeps the source open.
+    /// Tracks only the demuxer can serve: an image subtitle with no raw server stream, and an
+    /// engine text track with no server WebVTT. Either one keeps the source open.
     var demuxerOwesTracks: Bool {
-        config.subtitles.contains { $0.isImage || ($0.isEngineText && $0.serverVttUrl.isEmpty) }
+        config.subtitles.contains { ($0.isImage && $0.serverSupUrl.isEmpty) || ($0.isEngineText && $0.serverVttUrl.isEmpty) }
     }
 
     /// Lets the source go and runs the session on the server's rungs alone, when they can carry
@@ -106,6 +106,7 @@ extension RemuxSession {
         stateLock.unlock()
         guard free else { return false }
         NSLog("[LocalRemuxer] Slipstream: source let go, the rungs carry the session (%@)", reason)
+        startServerImageSubtitles()
         // The opening audio segment costs a server spin-up of its own; overlap it with the rung's.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self, let segments = self.adoptAudioLo(0) else { return }
@@ -117,6 +118,26 @@ extension RemuxSession {
             } ?? 0
             _ = self.materializeAudioLoSegment(position: 0, n: opening)
         }
+        return true
+    }
+
+    /// A source lost after the master named the copy. That master lists the rungs too, so the
+    /// copy's routes answer 410 from here and AVPlayer carries on with them: the session lives
+    /// where it used to end and leave for the server's single stream. Same test as releaseSource.
+    func handOverToRungs(because message: String) -> Bool {
+        guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks, tierOffered, audioLoActive else { return false }
+        stateLock.lock()
+        let free = copyAnnounced && !sourceReleased && !cancelled && !failed
+        if free {
+            copyVerdict = .withheld
+            sourceReleased = true
+            sourceUnusable = true
+            lastTierDemandAt = Date()
+        }
+        stateLock.unlock()
+        guard free else { return false }
+        NSLog("[LocalRemuxer] Slipstream: the source is lost (%@), the rungs carry the session from here", message)
+        startServerImageSubtitles()
         return true
     }
 

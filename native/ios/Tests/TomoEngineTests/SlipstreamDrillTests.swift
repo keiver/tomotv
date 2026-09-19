@@ -33,20 +33,26 @@ final class SlipstreamDrillTests: XCTestCase {
     private func config(from raw: [String: Any]) -> RemuxConfig {
         let audioTracks: [RemuxAudioTrack] = ((raw["audioTracks"] as? [[String: Any]]) ?? []).compactMap { t in
             guard let index = t["index"] as? Int else { return nil }
-            return RemuxAudioTrack(index: index, name: t["name"] as? String ?? "Audio \(index)", language: t["language"] as? String ?? "", serverAudioUrl: t["serverAudioUrl"] as? String ?? "")
+            var track = RemuxAudioTrack(index: index, name: t["name"] as? String ?? "Audio \(index)", language: t["language"] as? String ?? "", serverAudioUrl: t["serverAudioUrl"] as? String ?? "")
+            track.serverAudioHiUrl = t["serverAudioHiUrl"] as? String ?? ""
+            return track
         }
         let subtitles: [RemuxSubtitle] = ((raw["subtitles"] as? [[String: Any]]) ?? []).compactMap { s in
             guard let index = s["index"] as? Int else { return nil }
-            return RemuxSubtitle(
+            var subtitle = RemuxSubtitle(
                 index: index, name: s["name"] as? String ?? "Subtitle \(index)", language: s["language"] as? String ?? "",
                 vttUrl: s["vttUrl"] as? String ?? "", localVtt: s["localVtt"] as? String ?? "",
                 isDefault: s["isDefault"] as? Bool ?? false, isForced: s["isForced"] as? Bool ?? false,
                 isImage: s["isImage"] as? Bool ?? false, isEngineText: s["isEngineText"] as? Bool ?? false,
                 serverVttUrl: s["serverVttUrl"] as? String ?? "")
+            subtitle.serverSupUrl = s["serverSupUrl"] as? String ?? ""
+            return subtitle
         }
         let tiers: [TierConfig] = ((raw["tiers"] as? [[String: Any]]) ?? []).map { t in
-            TierConfig(playlistUrl: t["playlistUrl"] as? String ?? "", bandwidth: t["bandwidth"] as? Int ?? 0, codecs: t["codecs"] as? String ?? "",
-                       width: t["width"] as? Int ?? 0, height: t["height"] as? Int ?? 0)
+            var tier = TierConfig(playlistUrl: t["playlistUrl"] as? String ?? "", bandwidth: t["bandwidth"] as? Int ?? 0, codecs: t["codecs"] as? String ?? "",
+                                  width: t["width"] as? Int ?? 0, height: t["height"] as? Int ?? 0)
+            tier.audioHi = (t["audioGroup"] as? String) == "hi"
+            return tier
         }.filter { !$0.playlistUrl.isEmpty }
         return RemuxConfig(
             inputUrl: raw["inputUrl"] as? String ?? "", audioTracks: audioTracks, durationSeconds: raw["durationSeconds"] as? Double ?? 0,

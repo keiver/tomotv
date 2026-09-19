@@ -42,6 +42,8 @@ struct RemuxSubtitle {
     /// The server's WebVTT of an engine text track: the cue source for a window the read loop
     /// cannot reach in time (a slow link, or a session held on the server rungs).
     var serverVttUrl: String = ""
+    /// The server's raw copy of a PGS track (Stream.pgssub), for when the source is not read.
+    var serverSupUrl: String = ""
 }
 
 /// One cue of a server WebVTT, in source time like the decoder's.
@@ -66,6 +68,9 @@ struct RemuxAudioTrack {
     /// needs the engine's source pull. Empty = no server rendition; the tier
     /// then shares the engine's audio group as before.
     let serverAudioUrl: String
+    /// The same track in the "audio-hi" group: AAC at its own channel count, for the rungs with
+    /// room for it. Empty when the item has no hi group.
+    var serverAudioHiUrl: String = ""
 }
 
 struct RemuxConfig {
@@ -146,4 +151,6 @@ struct TierConfig {
     let codecs: String
     let width: Int
     let height: Int
+    /// This rung rides the "audio-hi" group and its bandwidth carries that group's rate.
+    var audioHi: Bool = false
 }

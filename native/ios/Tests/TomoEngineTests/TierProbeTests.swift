@@ -152,7 +152,7 @@ final class TierProbeTests: XCTestCase {
         switch response {
         case .file(let url, _): return url
         case .streamed(_, let provider): return provider()
-        case .segment(_, _, _, let provider): return provider()
+        case .segment(_, _, _, let provider): return provider(SegmentRequest())
         default: return nil
         }
     }
@@ -421,6 +421,225 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(master.contains("RESOLUTION=854x480"))
         XCTAssertNotNil(s.tierPlaylist(rung: 0))
         XCTAssertNotNil(s.tierPlaylist(rung: 1))
+    }
+
+    // MARK: - Surround on the upper rungs
+
+    private func surroundSession(hiUrl: String) throws -> RemuxSession {
+        TierServerStub.routes["/Videos/x/t0.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/t1.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        var track = RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)
+        track.serverAudioHiUrl = hiUrl
+        var upper = TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_884_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480)
+        upper.audioHi = !hiUrl.isEmpty
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                audioTracks: [track],
+                tiers: [TierConfig(playlistUrl: "http://tier.test/Videos/x/t0.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 496_000, codecs: "avc1.640015,mp4a.40.2", width: 426, height: 240), upper]))
+        s.testLinkBps = 2_000_000
+        return s
+    }
+
+    private func variantLine(_ master: String, before playlist: String) -> String {
+        let lines = master.components(separatedBy: "\n")
+        guard let index = lines.firstIndex(of: playlist), index > 0 else { return "" }
+        return lines[index - 1]
+    }
+
+    /// The upper rung rides audio-hi and the lower one audio-lo, each group with every track.
+    func testTheUpperRungsRideTheSurroundGroup() throws {
+        let s = try surroundSession(hiUrl: "http://tier.test/Audio/x/hi.m3u8?ApiKey=k&PlaySessionId=h")
+        defer { s.stop() }
+        s.start()
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertTrue(master.contains("GROUP-ID=\"audio-hi\",NAME=\"Audio 1\""))
+        XCTAssertTrue(master.contains("URI=\"a0h.m3u8\""))
+        XCTAssertTrue(variantLine(master, before: "t1.m3u8").contains("AUDIO=\"audio-hi\""))
+        XCTAssertTrue(variantLine(master, before: "t0.m3u8").contains("AUDIO=\"audio-lo\""))
+        XCTAssertFalse(isNotFound(s.route("a0h-init.mp4")), "the hi group has its own routes")
+        XCTAssertFalse(isNotFound(s.route("a0s-init.mp4")))
+    }
+
+    /// An item with no hi rendition gets the master it always got.
+    func testAnItemWithoutSurroundHasNoHiGroup() throws {
+        let s = try surroundSession(hiUrl: "")
+        defer { s.stop() }
+        s.start()
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertFalse(master.contains("audio-hi"))
+        XCTAssertTrue(variantLine(master, before: "t1.m3u8").contains("AUDIO=\"audio-lo\""))
+        XCTAssertTrue(isNotFound(s.route("a0h-init.mp4")))
+    }
+
+    // MARK: - PGS from the server
+
+    private func pgsTrack(serverSupUrl: String) -> RemuxSubtitle {
+        var track = RemuxSubtitle(index: 3, name: "PGS", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false, serverVttUrl: "")
+        track.serverSupUrl = serverSupUrl
+        return track
+    }
+
+    /// A PGS track the server can hand over raw is no reason to keep the source on a thin link.
+    func testAPgsTrackWithAServerStreamLetsTheSourceGo() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+                subtitles: [pgsTrack(serverSupUrl: "file:///nonexistent.sup")],
+                tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
+        s.testLinkBps = 2_000_000
+        s.start()
+        defer { s.stop() }
+        settle { s.isSourceReleased }
+        XCTAssertTrue(s.isSourceReleased)
+    }
+
+    /// The server's raw stream decodes to the track's own cue manifest: its index, its own file
+    /// names, every cue, and complete so the app stops asking.
+    func testTheServerPgsStreamBecomesTheTracksManifest() throws {
+        let sup = fixtureUrl.deletingLastPathComponent().appendingPathComponent("pgs-track.sup")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sup.path), "Fixtures/pgs-track.sup is missing")
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, subtitles: [pgsTrack(serverSupUrl: sup.path)]))
+        defer { s.stop() }
+        s.startServerImageSubtitles()
+        settle { s.serverImageSubtitles[3]?.isComplete == true }
+        let data = try XCTUnwrap(s.subtitleCueManifest(streamIndex: 3))
+        let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(manifest["streamIndex"] as? Int, 3)
+        XCTAssertEqual(manifest["complete"] as? Bool, true)
+        let events = try XCTUnwrap(manifest["events"] as? [[String: Any]])
+        let drawn = events.compactMap { ($0["images"] as? [[String: Any]])?.first?["file"] as? String }
+        XCTAssertFalse(drawn.isEmpty, "the stream's display sets were decoded")
+        XCTAssertTrue(drawn.allSatisfy { $0.hasPrefix("pgs3s-") }, "its images never share the demuxer's names")
+        XCTAssertEqual(events.first?["time"] as? Double ?? -1, 1.001, accuracy: 0.01, "cue times are the session's, as they arrive")
+    }
+
+    // MARK: - A source lost mid-play
+
+    private func isGone(_ response: LocalHTTPResponse) -> Bool {
+        if case .gone = response { return true }
+        return false
+    }
+
+    /// After the master has named the copy, a dead source no longer ends the session: the copy's
+    /// routes answer 410, the rungs keep serving, and nothing asks for a rebuild toward the copy.
+    func testASourceLostAfterTheMasterHandsTheSessionToTheRungs() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                inputUrl: fixtureUrl.absoluteString,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+                tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
+        s.testLinkBps = 30_000_000
+        var failures = 0
+        s.onFailed = { _ in failures += 1 }
+        s.start()
+        defer { s.stop() }
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertTrue(master.contains("media.m3u8"), "the master named the copy")
+        XCTAssertTrue(master.contains("t0.m3u8"))
+
+        s.fail("read_frame: the source went away")
+
+        XCTAssertFalse(s.hasFailed)
+        XCTAssertEqual(failures, 0, "the app is not told to leave")
+        XCTAssertTrue(s.isSourceReleased)
+        XCTAssertTrue(isGone(s.segmentResponse(0)), "the copy is gone for good")
+        XCTAssertTrue(isGone(s.initResponse()))
+        XCTAssertFalse(isNotFound(s.tierSegmentResponse(rung: 0, 0)), "the rung still serves")
+        XCTAssertTrue(s.reportsCopyListed, "nothing to climb back to")
+    }
+
+    /// Without a ladder to carry it, a failure is what it always was.
+    func testAFailureWithNoLadderStillEndsTheSession() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: "")]))
+        defer { s.stop() }
+        s.fail("read_frame: the source went away")
+        XCTAssertTrue(s.hasFailed)
+        XCTAssertTrue(isNotFound(s.segmentResponse(0)))
+    }
+
+    // MARK: - A request the player gave up
+
+    private func holdSegments() -> DispatchSemaphore {
+        let hold = DispatchSemaphore(value: 0)
+        TierServerStub.lock.lock()
+        TierServerStub.holdSegments = hold
+        TierServerStub.lock.unlock()
+        return hold
+    }
+
+    private func provider(of response: LocalHTTPResponse) throws -> (SegmentRequest) -> URL? {
+        guard case .segment(_, _, _, let provider) = response else { throw XCTSkip("the segment is already on disk") }
+        return provider
+    }
+
+    /// The player closing the connection ends the fetch behind it, while the server still holds it.
+    func testAnAbandonedRungRequestEndsItsFetch() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        TierServerStub.routes["/Videos/x/seg1.ts"] = (200, tierSegment)
+        let (s, _) = try session()
+        defer { s.stop() }
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        let hold = holdSegments()
+        defer { hold.signal() }
+        let request = SegmentRequest()
+        let serve = try provider(of: s.tierSegmentResponse(rung: 0, 1))
+        let done = expectation(description: "the provider returns")
+        var served: URL?
+        DispatchQueue.global().async {
+            served = serve(request)
+            done.fulfill()
+        }
+        XCTAssertTrue(TierServerStub.sawHit("/Videos/x/seg1.ts"))
+        request.abandon()
+        wait(for: [done], timeout: 5)
+        XCTAssertNil(served, "the fetch ended with the server still holding the segment")
+        XCTAssertFalse(s.isTierDisabled, "a fetch the player gave up is not a failing tier")
+    }
+
+    /// Two requests want the same segment: one leaving does not take it from the other.
+    func testASecondLiveRequestKeepsTheFetch() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        TierServerStub.routes["/Videos/x/seg1.ts"] = (200, tierSegment)
+        let (s, _) = try session()
+        defer { s.stop() }
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        let hold = holdSegments()
+        let leaving = SegmentRequest()
+        let first = try provider(of: s.tierSegmentResponse(rung: 0, 1))
+        let second = try provider(of: s.tierSegmentResponse(rung: 0, 1))
+        let done = expectation(description: "both providers return")
+        done.expectedFulfillmentCount = 2
+        var kept: URL?
+        DispatchQueue.global().async {
+            _ = first(leaving)
+            done.fulfill()
+        }
+        XCTAssertTrue(TierServerStub.sawHit("/Videos/x/seg1.ts"))
+        DispatchQueue.global().async {
+            kept = second(SegmentRequest())
+            done.fulfill()
+        }
+        usleep(200_000)
+        leaving.abandon()
+        usleep(200_000)
+        hold.signal()
+        wait(for: [done], timeout: 5)
+        XCTAssertNotNil(kept, "the request still waiting got its segment")
     }
 
     /// The master leads with the biggest rung whose segment the link lands in about a second.

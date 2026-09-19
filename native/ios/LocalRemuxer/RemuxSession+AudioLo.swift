@@ -20,29 +20,51 @@ extension RemuxSession {
         tierActive && !config.audioTracks.isEmpty && config.audioTracks.allSatisfy { !$0.serverAudioUrl.isEmpty }
     }
 
+    /// The second server group, for the rungs with room for the track's own channels: every track
+    /// names a hi rendition and some rung rides it.
+    var audioHiActive: Bool {
+        audioLoActive && config.tiers.contains { $0.audioHi } && config.audioTracks.allSatisfy { !$0.serverAudioHiUrl.isEmpty }
+    }
+
+    /// Both groups share this file's state and code; a hi rendition's entries sit past this offset.
+    static let audioHiKey = 1000
+
+    func audioKey(_ position: Int, hi: Bool) -> Int { hi ? position + Self.audioHiKey : position }
+
+    /// File and route prefix of a server rendition: "a0s" for track 0 of audio-lo, "a0h" of audio-hi.
+    func serverAudioPrefix(key: Int) -> String {
+        key >= Self.audioHiKey ? "a\(key - Self.audioHiKey)h" : "a\(key)s"
+    }
+
+    func serverAudioUrl(_ position: Int, hi: Bool) -> String {
+        guard position >= 0, position < config.audioTracks.count else { return "" }
+        return hi ? config.audioTracks[position].serverAudioHiUrl : config.audioTracks[position].serverAudioUrl
+    }
+
     /// Adopt the server audio-only playlist for track `position` (one fetch,
     /// cached). Returns the segment list, or nil when the rendition is
     /// unavailable this session. Concurrent segment requests share one fetch.
-    func adoptAudioLo(_ position: Int) -> [TierSegment]? {
+    func adoptAudioLo(_ position: Int, hi: Bool = false) -> [TierSegment]? {
+        let key = audioKey(position, hi: hi)
         stateLock.lock()
-        if let cached = audioLoSegments[position] {
+        if let cached = audioLoSegments[key] {
             stateLock.unlock()
             return cached.isEmpty ? nil : cached
         }
         stateLock.unlock()
-        return dedupedMaterialization("adopt-a\(position)") { adoptAudioLoLocked(position) }
+        return dedupedMaterialization("adopt-\(serverAudioPrefix(key: key))") { adoptAudioLoLocked(position, hi: hi) }
     }
 
-    func adoptAudioLoLocked(_ position: Int) -> [TierSegment]? {
+    func adoptAudioLoLocked(_ position: Int, hi: Bool) -> [TierSegment]? {
+        let key = audioKey(position, hi: hi)
         // The winner's result: losers re-read it here instead of refetching.
         stateLock.lock()
-        if let cached = audioLoSegments[position] {
+        if let cached = audioLoSegments[key] {
             stateLock.unlock()
             return cached.isEmpty ? nil : cached
         }
         stateLock.unlock()
-        guard position >= 0, position < config.audioTracks.count,
-              let url = URL(string: config.audioTracks[position].serverAudioUrl) else { return nil }
+        guard let url = URL(string: serverAudioUrl(position, hi: hi)) else { return nil }
         // The server spins up a fresh audio-only transcode on this request; on a
         // slow link that start plus the playlist body can outrun a short timeout,
         // and a miss 404s the rung's audio group and stalls the tier. Match the
@@ -91,8 +113,8 @@ extension RemuxSession {
             segments = []
         }
         stateLock.lock()
-        audioLoSegments[position] = segments
-        if let initRemote { audioLoInitRemote[position] = initRemote }
+        audioLoSegments[key] = segments
+        if let initRemote { audioLoInitRemote[key] = initRemote }
         stateLock.unlock()
         return segments.isEmpty ? nil : segments
     }
@@ -101,15 +123,16 @@ extension RemuxSession {
     /// server's declared EXTINFs are served as-is (its own frame-aligned
     /// grid); timestamps are rebuilt by the rewrapper, which is what must
     /// match across renditions (RFC 8216 §6.2.4), not the cut points.
-    func audioLoPlaylist(position: Int) -> String? {
-        guard audioLoActive, let segments = adoptAudioLo(position) else { return nil }
+    func audioLoPlaylist(position: Int, hi: Bool = false) -> String? {
+        guard hi ? audioHiActive : audioLoActive, let segments = adoptAudioLo(position, hi: hi) else { return nil }
+        let prefix = serverAudioPrefix(key: audioKey(position, hi: hi))
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
-        out += "#EXT-X-MAP:URI=\"a\(position)s-init.mp4\"\n"
+        out += "#EXT-X-MAP:URI=\"\(prefix)-init.mp4\"\n"
         for (n, seg) in segments.enumerated() {
             out += String(format: "#EXTINF:%.6f,\n", seg.duration)
-            out += "a\(position)s-seg\(n).m4s\n"
+            out += "\(prefix)-seg\(n).m4s\n"
         }
         out += "#EXT-X-ENDLIST\n"
         return out
@@ -120,23 +143,25 @@ extension RemuxSession {
     /// untrustworthy (restart rebasing, measured garbage), so every segment is
     /// rebuilt onto the session timeline: sequential requests chain exact
     /// accumulated durations, a seek re-anchors to the declared grid.
-    func materializeAudioLoSegment(position: Int, n: Int) -> URL? {
-        dedupedMaterialization("a\(position)-\(n)") { materializeAudioLoSegmentLocked(position: position, n: n) }
+    func materializeAudioLoSegment(position: Int, n: Int, hi: Bool = false) -> URL? {
+        dedupedMaterialization("\(serverAudioPrefix(key: audioKey(position, hi: hi)))-\(n)") { materializeAudioLoSegmentLocked(position: position, n: n, hi: hi) }
     }
 
-    func materializeAudioLoSegmentLocked(position: Int, n: Int) -> URL? {
+    func materializeAudioLoSegmentLocked(position: Int, n: Int, hi: Bool) -> URL? {
         if isTierDisabled { return nil }
-        let mediaFile = dir.appendingPathComponent("a\(position)s-seg\(n).m4s")
+        let key = audioKey(position, hi: hi)
+        let prefix = serverAudioPrefix(key: key)
+        let mediaFile = dir.appendingPathComponent("\(prefix)-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
-        guard let segments = adoptAudioLo(position), n >= 0, n < segments.count,
-              let playlistUrl = URL(string: config.audioTracks[position].serverAudioUrl),
+        guard let segments = adoptAudioLo(position, hi: hi), n >= 0, n < segments.count,
+              let playlistUrl = URL(string: serverAudioUrl(position, hi: hi)),
               let remote = URL(string: segments[n].url, relativeTo: playlistUrl)?.absoluteURL
         else { return nil }
         stateLock.lock()
         lastTierDemandAt = Date()
-        let initRemote = audioLoInitRemote[position]
-        let chain = audioLoChain[position]
-        let heldInit = audioLoInitData[position]
+        let initRemote = audioLoInitRemote[key]
+        let chain = audioLoChain[key]
+        let heldInit = audioLoInitData[key]
         stateLock.unlock()
         guard let initRemote else { return nil }
         // The init is the same bytes for every segment of the rendition: one fetch a session, not
@@ -145,7 +170,7 @@ extension RemuxSession {
         let segFetch = initFetch.data == nil ? initFetch : fetchTier(remote)
         if heldInit == nil, let fresh = initFetch.data {
             stateLock.lock()
-            audioLoInitData[position] = fresh
+            audioLoInitData[key] = fresh
             stateLock.unlock()
         }
         guard let initData = initFetch.data, let segData = segFetch.data else {
@@ -166,39 +191,40 @@ extension RemuxSession {
         }
         do {
             try rewrapped.mediaSegment.write(to: mediaFile)
-            let initFile = dir.appendingPathComponent("a\(position)s-init.mp4")
+            let initFile = dir.appendingPathComponent("\(prefix)-init.mp4")
             if !FileManager.default.fileExists(atPath: initFile.path) {
                 try rewrapped.initSegment.write(to: initFile)
             }
         } catch { return nil }
         stateLock.lock()
-        audioLoChain[position] = (next: n + 1, start: target + rewrapped.durationSeconds)
-        audioLoMaterialized[position, default: []].insert(n)
+        audioLoChain[key] = (next: n + 1, start: target + rewrapped.durationSeconds)
+        audioLoMaterialized[key, default: []].insert(n)
         stateLock.unlock()
         return mediaFile
     }
 
-    func audioLoInitResponse(position: Int) -> LocalHTTPResponse {
-        guard audioLoActive, !isTierDisabled else { return .notFound }
-        let initFile = dir.appendingPathComponent("a\(position)s-init.mp4")
+    func audioLoInitResponse(position: Int, hi: Bool = false) -> LocalHTTPResponse {
+        guard hi ? audioHiActive : audioLoActive, !isTierDisabled else { return .notFound }
+        let prefix = serverAudioPrefix(key: audioKey(position, hi: hi))
+        let initFile = dir.appendingPathComponent("\(prefix)-init.mp4")
         if FileManager.default.fileExists(atPath: initFile.path) { return .file(initFile, contentType: "audio/mp4") }
         return .streamed(contentType: "audio/mp4") { [weak self] in
             guard let self else { return nil }
-            _ = self.materializeAudioLoSegment(position: position, n: 0)
-            let file = self.dir.appendingPathComponent("a\(position)s-init.mp4")
+            _ = self.materializeAudioLoSegment(position: position, n: 0, hi: hi)
+            let file = self.dir.appendingPathComponent("\(prefix)-init.mp4")
             return FileManager.default.fileExists(atPath: file.path) ? file : nil
         }
     }
 
-    func audioLoSegmentResponse(position: Int, n: Int) -> LocalHTTPResponse {
-        guard audioLoActive, !isTierDisabled else { return .notFound }
+    func audioLoSegmentResponse(position: Int, n: Int, hi: Bool = false) -> LocalHTTPResponse {
+        guard hi ? audioHiActive : audioLoActive, !isTierDisabled else { return .notFound }
         stateLock.lock()
         let dead = failed || cancelled
         stateLock.unlock()
         if dead { return .notFound }
-        let mediaFile = dir.appendingPathComponent("a\(position)s-seg\(n).m4s")
+        let mediaFile = dir.appendingPathComponent("\(serverAudioPrefix(key: audioKey(position, hi: hi)))-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return .file(mediaFile, contentType: "audio/iso.segment") }
-        return .segment(contentType: "audio/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] in self?.materializeAudioLoSegment(position: position, n: n) }
+        return .segment(contentType: "audio/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] _ in self?.materializeAudioLoSegment(position: position, n: n, hi: hi) }
     }
 
 }

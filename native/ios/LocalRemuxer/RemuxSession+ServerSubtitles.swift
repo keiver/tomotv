@@ -10,7 +10,8 @@ extension RemuxSession {
 
     /// Whether AVPlayer is living on the server rungs, so the producer holds source reads. Caller holds stateLock.
     func ridingTierLocked() -> Bool {
-        lastTierDemandAt > lastPrimaryDemandAt && Date().timeIntervalSince(lastPrimaryDemandAt) > 10
+        lastTierDemandAt > lastPrimaryDemandAt
+            && (Date().timeIntervalSince(lastPrimaryDemandAt) > 10 || copyAbandonedAt >= lastPrimaryDemandAt)
     }
 
     /// The track's server cues, fetched once per session; nil when the track has no server source

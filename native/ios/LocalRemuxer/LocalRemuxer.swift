@@ -227,12 +227,14 @@ class LocalRemuxer: RCTEventEmitter {
 
         let audioTracks: [RemuxAudioTrack] = ((config["audioTracks"] as? [[String: Any]]) ?? []).compactMap { raw in
             guard let index = raw["index"] as? Int else { return nil }
-            return RemuxAudioTrack(
+            var track = RemuxAudioTrack(
                 index: index,
                 name: raw["name"] as? String ?? "Audio \(index)",
                 language: raw["language"] as? String ?? "",
                 serverAudioUrl: raw["serverAudioUrl"] as? String ?? ""
             )
+            track.serverAudioHiUrl = raw["serverAudioHiUrl"] as? String ?? ""
+            return track
         }
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
             guard let index = raw["index"] as? Int else { return nil }
@@ -242,7 +244,7 @@ class LocalRemuxer: RCTEventEmitter {
             // or engine-decoded one comes out of the source file, so needs no URL.
             let localVtt = raw["localVtt"] as? String ?? ""
             guard let vttUrl = raw["vttUrl"] as? String, isImage || isEngineText || !vttUrl.isEmpty || !localVtt.isEmpty else { return nil }
-            return RemuxSubtitle(
+            var subtitle = RemuxSubtitle(
                 index: index,
                 name: raw["name"] as? String ?? "Subtitle \(index)",
                 language: raw["language"] as? String ?? "",
@@ -254,6 +256,8 @@ class LocalRemuxer: RCTEventEmitter {
                 isEngineText: isEngineText,
                 serverVttUrl: raw["serverVttUrl"] as? String ?? ""
             )
+            subtitle.serverSupUrl = raw["serverSupUrl"] as? String ?? ""
+            return subtitle
         }
 
         Self.lock.lock()
@@ -286,13 +290,15 @@ class LocalRemuxer: RCTEventEmitter {
                 bandwidth: (config["bandwidth"] as? Int) ?? 0,
                 readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0,
                 tiers: (config["tiers"] as? [[String: Any]] ?? []).map { t in
-                    TierConfig(
+                    var tier = TierConfig(
                         playlistUrl: (t["playlistUrl"] as? String) ?? "",
                         bandwidth: (t["bandwidth"] as? Int) ?? 0,
                         codecs: (t["codecs"] as? String) ?? "",
                         width: (t["width"] as? Int) ?? 0,
                         height: (t["height"] as? Int) ?? 0
                     )
+                    tier.audioHi = (t["audioGroup"] as? String) == "hi"
+                    return tier
                 }.filter { !$0.playlistUrl.isEmpty },
                 startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,
                 itemId: (config["itemId"] as? String) ?? "",

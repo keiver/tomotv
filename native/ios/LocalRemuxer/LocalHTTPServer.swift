@@ -25,8 +25,51 @@ enum LocalHTTPResponse {
     /// opening box and goes out at once; `padding` (a free box) follows every two seconds until
     /// the body is ready. AVPlayer fails a segment it hears nothing from in 6s (-12889, measured on
     /// rungs above the opening one at 750 kb/s), and a whole rung segment can take longer to land.
-    case segment(contentType: String, lead: Data, padding: Data, provider: () -> URL?)
+    case segment(contentType: String, lead: Data, padding: Data, provider: (SegmentRequest) -> URL?)
     case notFound
+    /// 410: this variant is gone for good. AVPlayer does not retry it and moves to another variant
+    /// of the same master (measured; WWDC17 514 says the same of permanent errors).
+    case gone
+}
+
+/// One segment response in flight. The server marks it abandoned when the player closes the
+/// connection (measured: a reset the moment AVPlayer gives a segment up; a half-close never
+/// looks like one), so the work behind it can stop.
+final class SegmentRequest {
+    private let lock = NSLock()
+    private var abandoned = false
+    private var handler: (() -> Void)?
+
+    var isAbandoned: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return abandoned
+    }
+
+    /// Runs `work` when the player goes away, at once if it already has.
+    func onAbandon(_ work: @escaping () -> Void) {
+        lock.lock()
+        let gone = abandoned
+        if !gone { handler = work }
+        lock.unlock()
+        if gone { work() }
+    }
+
+    func abandon() {
+        lock.lock()
+        let work = abandoned ? nil : handler
+        abandoned = true
+        handler = nil
+        lock.unlock()
+        work?()
+    }
+
+    /// The response is over: a connection closing after this is not the player leaving.
+    func settle() {
+        lock.lock()
+        handler = nil
+        lock.unlock()
+    }
 }
 
 /// One served request, timed: ms from routing start to the first body byte handed to the stack,
@@ -285,13 +328,16 @@ final class LocalHTTPServer {
                     self.send(connection, status: "200 OK", contentType: contentType, body: data, onDone: traced(200, data.count))
                 }
             case .streamed(let contentType, let provider):
-                self.sendStreamed(connection, contentType: contentType, provider: provider) { firstBody, bytes in
+                self.sendStreamed(connection, contentType: contentType, provider: { _ in provider() }) { firstBody, bytes in
                     traced(bytes > 0 ? 200 : 0, bytes)(firstBody)
                 }
             case .segment(let contentType, let lead, let padding, let provider):
                 self.sendStreamed(connection, contentType: contentType, lead: lead, padding: padding, provider: provider) { firstBody, bytes in
                     traced(bytes > 0 ? 200 : 0, bytes)(firstBody)
                 }
+            case .gone:
+                NSLog("[LocalHTTPServer] 410 %@", path)
+                self.send(connection, status: "410 Gone", contentType: "text/plain", body: Data(), onDone: traced(410, 0))
             case .notFound:
                 NSLog("[LocalHTTPServer] 404 %@", path)
                 self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data(), onDone: traced(404, 0))
@@ -304,7 +350,14 @@ final class LocalHTTPServer {
     /// are FIFO, so the linear sequence needs no nesting; a dead connection
     /// just absorbs the later sends. Apple's own LL-HLS delivers segment parts
     /// over chunked transfer, so the client side of this is well-trodden.
-    private func sendStreamed(_ connection: NWConnection, contentType: String, lead: Data = Data(), padding: Data = Data(), provider: () -> URL?, onDone: @escaping (DispatchTime?, Int) -> Void) {
+    private func sendStreamed(_ connection: NWConnection, contentType: String, lead: Data = Data(), padding: Data = Data(), provider: (SegmentRequest) -> URL?, onDone: @escaping (DispatchTime?, Int) -> Void) {
+        let request = SegmentRequest()
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .failed, .cancelled: request.abandon()
+            default: break
+            }
+        }
         var head = "HTTP/1.1 200 OK\r\n"
         head += "Content-Type: \(contentType)\r\n"
         head += "Transfer-Encoding: chunked\r\n"
@@ -314,7 +367,9 @@ final class LocalHTTPServer {
             if error != nil { connection.cancel() }
         })
         func chunk(_ bytes: Data) {
-            connection.send(content: Data(String(format: "%X\r\n", bytes.count).utf8) + bytes + Data("\r\n".utf8), completion: .contentProcessed { _ in })
+            connection.send(content: Data(String(format: "%X\r\n", bytes.count).utf8) + bytes + Data("\r\n".utf8), completion: .contentProcessed { error in
+                if error != nil { request.abandon() }
+            })
         }
         // The lock orders the last padding box before the body: none may land inside it.
         let gate = NSLock()
@@ -335,7 +390,8 @@ final class LocalHTTPServer {
             }
         }
 
-        let url = provider()
+        let url = provider(request)
+        request.settle()
         gate.lock()
         waiting = false
         gate.unlock()
