@@ -112,6 +112,45 @@ A rung that leads the master has the link to itself until its opening segment la
 (`openingHoldLocked`). Every rung request marks where AVPlayer is, a segment served from disk
 included (`tierSegmentResponse`).
 
+## A segment AVPlayer gave up (LocalHTTPServer.swift, RemuxSession+Tier.swift)
+
+Measured: when AVPlayer abandons a segment it resets the connection, and the server's
+`NWConnection` goes `.failed` within half a second; a half-closed client never looks like that.
+`sendStreamed` hands each `.segment` provider a `SegmentRequest` and marks it abandoned on
+`.failed`, `.cancelled` or a failed padding send. A rung fetch is cancelled when the last live
+request for its segment is gone (`withFetchInterest`; a cancelled fetch is status 0, never a tier
+failure, and the engine's own opening fetch is never cancelled). The copy's wait loop ends the
+same way, and a rung asked for after an abandoned copy request counts as riding at once
+(`ridingTierLocked`), not after ten seconds.
+
+## A source lost mid-play (RemuxSession+Lifecycle.swift `handOverToRungs`)
+
+Once the master has named the copy, `fail()` no longer ends a session the ladder can carry: the
+source is marked released and unusable, `failed` stays false, and the copy's routes (segments,
+init, engine audio) answer **410**. Measured, and Apple says it of permanent errors (WWDC17 514):
+AVPlayer does not retry a 410 and moves to another variant of the same master. A gone copy is
+not demand on the source. A session with no producer prunes its rungs from the rung path.
+
+## PGS from the server (RemuxSession+ServerImageSubtitles.swift)
+
+`/Videos/{id}/{id}/Subtitles/{index}/Stream.pgssub` is the track raw (a SUP stream; `Stream.sup`
+answers 400), extracted with `-c:s copy` and no `-copyts`, so its cues are session time. A PGS
+track names it as `serverSupUrl` whenever rungs are offered, and then no longer keeps the source
+open (`demuxerOwesTracks`). The reader opens it with the `sup` input format named, feeds a second
+`ImageSubtitleDecoder` (files `pgs{index}s-*`), and the cue manifest answers from it once it is
+complete or when the demuxer is not feeding. It starts once, only when the source is let go,
+lost, or held under a rung. DVD, DVB and XSUB have no raw server route and stay owed.
+
+## Surround on the upper rungs (services/localRemux.ts `rungAudio`, RemuxSession+AudioLo.swift)
+
+Two server audio groups, both AAC. `audio-lo` is 96 kb/s stereo. `audio-hi` is the track at its
+own channel count, six at most, 64 kb/s a channel (measured: the server's AAC 5.1 at 384 kb/s;
+its AC-3 copy exits 134 on Jellyfin 12). A rung rides hi once its video is at least twice the
+default track's hi rate (800 kb/s and up for 5.1), and its BANDWIDTH carries that rate, through
+one helper that also feeds the app's caps. Every track is in both groups. A stereo item has no
+hi group and its master is unchanged. Natively both groups are one code path keyed by
+(position, hi): files and routes `a{p}s-*` and `a{p}h-*`.
+
 ## Measuring the link (RemuxSession+LinkProbe.swift)
 
 AVPlayer measures the loopback, which says nothing about the wire, so the

@@ -103,6 +103,7 @@ export function classify(name) {
   if ((m = name.match(/^t(\d+)-seg(\d+)\.m4s$/))) return { variant: `t${m[1]}`, rung: Number(m[1]), segment: Number(m[2]), video: true };
   if ((m = name.match(/^seg(\d+)\.m4s$/))) return { variant: "copy", rung: null, segment: Number(m[1]), video: true };
   if ((m = name.match(/^a(\d+)s-seg(\d+)\.m4s$/))) return { variant: `audio-lo${m[1]}`, segment: Number(m[2]), audio: true };
+  if ((m = name.match(/^a(\d+)h-seg(\d+)\.m4s$/))) return { variant: `audio-hi${m[1]}`, segment: Number(m[2]), audio: true };
   if ((m = name.match(/^a(\d+)-seg(\d+)\.m4s$/))) return { variant: `audio${m[1]}`, segment: Number(m[2]), audio: true };
   return { variant: null };
 }
