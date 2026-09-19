@@ -83,7 +83,7 @@ import { videoPlayerReducer, type PlaybackMode, type VideoPlayerState } from "./
 import { planErrorRecovery, planLiveErrorRecovery } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
-import { orderAudioTracks, planAudioReport } from "./videoPlayback/audioTracks";
+import { orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
 import { classifyObservedChoice, planSubtitleApplication } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
 import {
@@ -92,6 +92,7 @@ import {
   EngineInputMissingError,
   keptForReason,
   nextLinkCap,
+  linkAffordsChapterFrames,
   planLinkClimb,
   stillPullingInput,
   type PreflightOutcome,
@@ -324,6 +325,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   /** The provider this run owns on the non-engine lanes; the engine lane serves its own frames. */
   const frameProviderTokenRef = useRef<string | null>(null);
   const [chapterFrameBaseUrl, setChapterFrameBaseUrl] = useState<string | null>(null);
+  /** The engine's measured link carries the copy with room to spare, so a chapter grab beside the stream is affordable. */
+  const [linkAffordsFrames, setLinkAffordsFrames] = useState(false);
 
   // Request ID to prevent race conditions when videoId changes
   // Incremented on each videoId change, async operations check before updating state
@@ -392,6 +395,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    * selectedAudioTrackIndexRef also holds AVPlayer's own auto-selection, which is not a choice.
    */
   const viewerPickedAudioRef = useRef<number | null>(null);
+  /** Counts the streams built, and the one the last audio report came from: a report from a newer one is its first. */
+  const streamGenerationRef = useRef(0);
+  const audioReportGenerationRef = useRef(0);
 
   // Jellyfin stream index of the audio actually playing. selectedAudioTrackIndexRef
   // can't serve this role: after load it holds the PLAYER-side sequential index
@@ -1037,6 +1043,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // without rebuilding the session; a fixed pin stays the ceiling it already is.
           const stopLink = subscribeEngineLink(token, ({ bps, copyListed }) => {
             probeEmit("link", { bps: Math.round(bps), copyListed: copyListed ?? null });
+            setLinkAffordsFrames(linkAffordsChapterFrames(bps, details.MediaSources?.[0]?.Bitrate ?? 0));
             if (pinnedCapRef.current != null || currentModeRef.current !== "localRemux") return;
             // Never below the smallest variant in the master: a cap under all of them leaves
             // AVPlayer nothing it may play, and it wanders between every one of them without
@@ -1090,7 +1097,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // The engine's startup steps, as they finish: the input is open, the tracks are known.
           const stopStage = subscribeEngineStage(token, ({ stage }) => {
             if (stage === "open_input") setPlaybackStage("analysing");
-            else if (stage === "find_stream_info") setPlaybackStage("preparing");
+            else if (stage === "find_stream_info" || stage === "source_released") setPlaybackStage("preparing");
           });
           // The tier lane is armed only on the master's confirmed "listed" verdict: a lane AVPlayer
           // can actually ride. A declined or dropped tier disarms it, so starvation teardown and
@@ -1109,9 +1116,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             stopTier();
           };
           if (tierDeclaredFor(token)) {
-            // A ladder is offered: AVPlayer opens on the smallest rung and climbs as it measures
-            // the segments it downloads, so the engine primary's segment 0 is never the startup
-            // gate. Serve the master now rather than wait on a pull the player will not use at
+            // A ladder is offered: AVPlayer opens on the variant the master leads with, so the
+            // engine primary's segment 0 is never the startup gate. Serve the master now rather than wait on a pull the player will not use at
             // startup. Arm the tier lane up front; the tier report confirms it on "listed" or
             // clears it on "declined"/"dropped", so a ladder the server cannot deliver still falls
             // to the transcode and never hangs. Samples now feed the mid-play starvation watch.
@@ -1123,7 +1129,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // landed 0.3s late and AVPlayer then rebuffered for 12s).
             setForwardBufferSeconds(SLIPSTREAM_FORWARD_BUFFER_SECONDS);
             probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, readSeconds: null, thermal: "unknown", remembered: false, keptForTier: true });
-            logger.info("Ladder offered, opening on the smallest rung without timing the engine primary", { service: "useVideoPlayback" });
+            logger.info("Ladder offered, opening without timing the engine primary", { service: "useVideoPlayback" });
           } else {
             // A failure reported before these listeners existed is never replayed: ask the session itself.
             const startedAlive = await engineProgress(token);
@@ -1232,15 +1238,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           onTierLaneRef.current = false;
           setVideoMaxBitRate(null);
           setForwardBufferSeconds(null);
-          // A track the viewer chose, not the one AVPlayer auto-selected: an engine session serves
-          // every track as a rendition and AVPlayer picks one, which is no reason for the server
-          // stream behind it to carry that one alone.
           const hasSelectedAudioTrack = viewerPickedAudioRef.current !== null;
 
           // Multi-audio builds its own master from the server's transcodes and cannot retag their
           // init segments, so an HDR source takes the single-track path through the shim instead.
-          // Skipped as well once the viewer picked a track (the restart carries AudioStreamIndex).
-          const useMultiAudio = !isLiveRef.current && !hasSelectedAudioTrack && !hdrSource && isMultiAudioAvailable() && shouldUseMultiAudio(details);
+          // A track the viewer chose does not narrow it: the stream carries every track and the
+          // choice is re-applied by position on its first report (planAudioReport).
+          const useMultiAudio = serverLaneCarriesEveryTrack({ live: isLiveRef.current, hdrSource, loaderAvailable: isMultiAudioAvailable(), multiTrack: shouldUseMultiAudio(details) });
 
           if (useMultiAudio) {
             // Use multi-audio loader for seamless track switching
@@ -1258,7 +1262,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             //    (this is what regressed after server-side resume added PlaySessionId here).
             //  - burn-in: SubtitleMethod=Encode ties the transcode to one audio track; keep it off
             //    the shared multi-audio base URL so subtitles can never affect audio switching.
-            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, undefined, undefined, await videoDecodeSupport());
+            // The preset is the one the single-track branch opens at: a hand-over from a starved
+            // engine enters at what the measured link carries, not at the viewer's ceiling.
+            const baseUrl = await getTranscodingStreamUrl(videoId, details, undefined, undefined, undefined, undefined, await resolveTranscodePreset(), await videoDecodeSupport());
 
             // Then prepare multi-audio playback with custom protocol
             const cachedConfig = await getConfig();
@@ -1501,6 +1507,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         if (!url) fail("Failed to generate stream URL");
 
         setPlaybackStage("player");
+        streamGenerationRef.current += 1;
         setStreamUrl(url);
         // Captured here rather than at load: every path that resumes (first play,
         // audio-switch restart, seek recovery) sets the ref before this line.
@@ -2158,11 +2165,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         logger.debug("Audio tracks", { service: "useVideoPlayback", count: data.audioTracks.length, selected: selected?.index });
       }
 
+      const freshManifest = audioReportGenerationRef.current !== streamGenerationRef.current;
+      audioReportGenerationRef.current = streamGenerationRef.current;
       const plan = planAudioReport({
         tracks: data.audioTracks,
         mapping: audioTrackMappingRef.current,
         viewerPickedStreamIndex: viewerPickedAudioRef.current,
         lastSelectedIndex: selectedAudioTrackIndexRef.current,
+        freshManifest,
         stablePlayback: hasStablePlaybackRef.current,
         // Both seamless lanes serve every track as a rendition, so AVPlayer has already switched.
         seamless: isUsingMultiAudioRef.current || currentModeRef.current === "localRemux",
@@ -2434,12 +2444,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   /**
    * tvOS chapter pictures the server has none of: the engine lane serves them from its own session
    * directory, every other lane needs a provider over the original file. A grab decodes from the
-   * source, so it waits for the player's own PLAYING edge, and never runs while a rung carries it.
+   * source, so it waits for the player's own PLAYING edge, and on a session with a ladder for a
+   * link measured to carry the copy with room: a listed ladder alone says nothing about the link.
    */
   useEffect(() => {
     if (chapterFrameBaseUrl !== null || !Platform.isTV || state.type !== "PLAYING") return;
     if (currentModeRef.current === "transcode") return;
-    if (onTierLaneRef.current && !playsFromDisk(videoId)) return;
+    const laddered = currentModeRef.current === "localRemux" && tierDeclaredFor(localRemuxToken(streamUrl));
+    if (laddered && !linkAffordsFrames && !playsFromDisk(videoId)) return;
     if ((videoDetails?.Chapters ?? []).filter((chapter) => !chapter.ImageTag).length < 2) return;
     if (currentModeRef.current === "localRemux") {
       setChapterFrameBaseUrl(sessionBaseUrl(streamUrl));
@@ -2462,7 +2474,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     return () => {
       cancelled = true;
     };
-  }, [chapterFrameBaseUrl, state.type, streamUrl, videoDetails, videoId]);
+  }, [chapterFrameBaseUrl, linkAffordsFrames, state.type, streamUrl, videoDetails, videoId]);
 
   /**
    * Reset state when video ID changes
@@ -2524,6 +2536,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     stopFrameProvider(frameProviderTokenRef.current);
     frameProviderTokenRef.current = null;
     setChapterFrameBaseUrl(null);
+    setLinkAffordsFrames(false);
     setVideoMaxBitRate(null);
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;

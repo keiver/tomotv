@@ -2,7 +2,7 @@
  * The engine session's startup measurement and link steering: the pre-flight gate, the cap
  * AVPlayer picks variants under, the climb back to the copy, and the keep-or-hand-over verdict.
  */
-import { createPreflightGate, dropThroughputWatch, keptForReason, nextLinkCap, planLinkClimb, stillPullingInput, type ThroughputWatch } from "../videoPlayback/engineSession";
+import { createPreflightGate, dropThroughputWatch, keptForReason, linkAffordsChapterFrames, nextLinkCap, planLinkClimb, stillPullingInput, type ThroughputWatch } from "../videoPlayback/engineSession";
 
 describe("createPreflightGate", () => {
   jest.useFakeTimers();
@@ -159,5 +159,24 @@ describe("dropThroughputWatch", () => {
   it("is safe on a watch that never subscribed", () => {
     const watch: ThroughputWatch = { samples: [], unsubscribe: null, handedOver: false };
     expect(() => dropThroughputWatch(watch)).not.toThrow();
+  });
+});
+
+describe("linkAffordsChapterFrames", () => {
+  const source = 6_000_000;
+
+  it("affords the grabber on a link that carries the copy with the master's margin", () => {
+    expect(linkAffordsChapterFrames(60_000_000, source)).toBe(true);
+    expect(linkAffordsChapterFrames(source * 1.2, source)).toBe(true);
+  });
+
+  it("does not on a link under that margin, which is a session riding rungs or about to", () => {
+    expect(linkAffordsChapterFrames(source * 1.19, source)).toBe(false);
+    expect(linkAffordsChapterFrames(1_500_000, source)).toBe(false);
+  });
+
+  it("does not before the link has been heard from, or without a source rate to hold it to", () => {
+    expect(linkAffordsChapterFrames(null, source)).toBe(false);
+    expect(linkAffordsChapterFrames(60_000_000, 0)).toBe(false);
   });
 });

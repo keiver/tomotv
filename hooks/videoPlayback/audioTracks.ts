@@ -19,6 +19,22 @@ export function orderAudioTracks(tracks: AudioStream[], preferredStreamIndex: nu
   return ordered.map((track) => track.Index);
 }
 
+export interface ServerLaneAudioInput {
+  live: boolean;
+  /** Multi-audio builds its own master and cannot retag an HDR init, so HDR takes the shim's single track. */
+  hdrSource: boolean;
+  loaderAvailable: boolean;
+  multiTrack: boolean;
+}
+
+/**
+ * Whether the server lane carries every audio track (the multi-audio loader). A track the viewer
+ * chose is not an input: the stream carries them all and planAudioReport re-applies the choice.
+ */
+export function serverLaneCarriesEveryTrack(input: ServerLaneAudioInput): boolean {
+  return !input.live && !input.hdrSource && input.loaderAvailable && input.multiTrack;
+}
+
 export interface AudioReportInput {
   tracks: ReportedTrack[];
   /** Player position → Jellyfin stream index, from orderAudioTracks. */
@@ -27,6 +43,8 @@ export interface AudioReportInput {
   viewerPickedStreamIndex: number | null;
   /** Position last seen selected, or the Jellyfin index parked there during a restart. */
   lastSelectedIndex: number | null;
+  /** The first report of a stream that was just built: its selection is AVPlayer's own default. */
+  freshManifest: boolean;
   stablePlayback: boolean;
   /** Multi-audio protocol or the engine: every track is a rendition, so AVPlayer already switched. */
   seamless: boolean;
@@ -50,9 +68,11 @@ const NOTHING: AudioReportPlan = { reapplyPosition: null, restartStreamIndex: nu
 export function planAudioReport(input: AudioReportInput): AudioReportPlan {
   const selectedPosition = input.tracks.find((track) => track.selected)?.index ?? null;
 
-  // A rebuilt session opens a fresh manifest where AVPlayer picks the default.
+  // A rebuilt stream opens a fresh manifest where AVPlayer picks the default, and only then may the
+  // viewer's track be re-applied. Any later report IS the viewer moving, and re-applying there
+  // would push them back to the previous track.
   let reapplyPosition: number | null = null;
-  if (input.viewerPickedStreamIndex !== null && input.tracks.length > 1) {
+  if (input.freshManifest && input.viewerPickedStreamIndex !== null && input.tracks.length > 1) {
     const position = input.mapping.indexOf(input.viewerPickedStreamIndex);
     if (position >= 0 && selectedPosition !== position) reapplyPosition = position;
   }
@@ -62,7 +82,9 @@ export function planAudioReport(input: AudioReportInput): AudioReportPlan {
   if (input.tracks.length === 1 && input.lastSelectedIndex !== null) return { ...NOTHING, reapplyPosition };
   if (selectedPosition === null) return { ...NOTHING, reapplyPosition };
 
-  const previous = input.lastSelectedIndex;
+  // A fresh manifest's first selection is no move: the value carried over names a position in the
+  // stream before it, or a Jellyfin index parked through a restart.
+  const previous = input.freshManifest ? null : input.lastSelectedIndex;
   const moved = previous !== null && previous !== selectedPosition;
   const streamIndex = input.mapping[selectedPosition];
 
@@ -83,6 +105,6 @@ export function planAudioReport(input: AudioReportInput): AudioReportPlan {
 
 /** Left alone during a restart, where the ref parks the Jellyfin index instead of a position. */
 function nextLastSelected(input: AudioReportInput, selectedPosition: number): number | null {
-  const open = input.lastSelectedIndex === null || input.tracks.length > 1;
+  const open = input.lastSelectedIndex === null || input.tracks.length > 1 || input.freshManifest;
   return open && input.lastSelectedIndex !== selectedPosition ? selectedPosition : null;
 }

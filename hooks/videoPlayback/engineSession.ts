@@ -99,6 +99,15 @@ export function nextLinkCap(input: { bps: number; currentCap: number; floorBps: 
   return cap;
 }
 
+/**
+ * Whether the link has room for the chapter grabber, which decodes keyframes off the source beside
+ * the stream: only a link that carries the copy with the master's own margin. A session with a
+ * ladder that has not heard from the link yet has no room to claim.
+ */
+export function linkAffordsChapterFrames(bps: number | null, sourceBps: number): boolean {
+  return bps !== null && sourceBps > 0 && bps >= sourceBps * LINK_CLIMB_MARGIN;
+}
+
 export interface ClimbInput {
   bps: number;
   /** The source's own rate; 0 means nothing to climb back to. */

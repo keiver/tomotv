@@ -681,7 +681,10 @@ export function subscribeEngineFailure(token: string, listener: FailureListener)
   };
 }
 
-/** A startup step the session finished (Remuxer.mark): open_input, find_stream_info, vt_decode_probe, image_subtitle_decoders, renditions_built. */
+/**
+ * A startup step the session finished (Remuxer.mark): open_input, find_stream_info, vt_decode_probe,
+ * image_subtitle_decoders, renditions_built; or source_released, when the rungs carry the session alone.
+ */
 export type EngineStage = { token: string; stage: string; elapsed: number };
 
 type StageListener = (stage: EngineStage) => void;

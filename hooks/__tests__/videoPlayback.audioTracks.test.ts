@@ -2,13 +2,14 @@
  * Mapping AVPlayer's positional audio indices onto Jellyfin stream indices, and what a
  * track report means. Drives the real orderAudioTracks/planAudioReport.
  */
-import { orderAudioTracks, planAudioReport, type AudioReportInput } from "../videoPlayback/audioTracks";
+import { orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack, type AudioReportInput } from "../videoPlayback/audioTracks";
 
 const report = (overrides: Partial<AudioReportInput> = {}): AudioReportInput => ({
   tracks: [],
   mapping: [],
   viewerPickedStreamIndex: null,
   lastSelectedIndex: null,
+  freshManifest: false,
   stablePlayback: true,
   seamless: false,
   ...overrides,
@@ -73,8 +74,23 @@ describe("planAudioReport", () => {
   });
 
   it("re-applies the viewer's track by position when a rebuild opens a fresh manifest", () => {
-    const plan = planAudioReport(report({ tracks: [track(0, true), track(1)], mapping: [1, 2], viewerPickedStreamIndex: 2 }));
+    const plan = planAudioReport(report({ tracks: [track(0, true), track(1)], mapping: [1, 2], viewerPickedStreamIndex: 2, freshManifest: true }));
     expect(plan.reapplyPosition).toBe(1);
+  });
+
+  it("re-applies on a fresh manifest whatever the last-selected ref still holds from the stream before", () => {
+    // A rebuild's first report can land before the ref is cleared, and a restart parks a Jellyfin index in it.
+    const plan = planAudioReport(report({ tracks: [track(0, true), track(1)], mapping: [1, 2], viewerPickedStreamIndex: 2, lastSelectedIndex: 2, freshManifest: true, seamless: true }));
+    expect(plan).toMatchObject({ reapplyPosition: 1, recordStreamIndex: null, restartStreamIndex: null, setLastSelectedIndex: 0 });
+  });
+
+  it("never pushes the viewer back when they move on a manifest already playing", () => {
+    // Picked stream 2 earlier, now moves to position 0: the report is the move, not a default to undo.
+    const moved = planAudioReport(report({ tracks: [track(0, true), track(1)], mapping: [1, 2], viewerPickedStreamIndex: 2, lastSelectedIndex: 1, seamless: true }));
+    expect(moved).toMatchObject({ reapplyPosition: null, recordStreamIndex: 1, setLastSelectedIndex: 0 });
+    // And back again: each report records the new pick, none re-applies the old one.
+    const back = planAudioReport(report({ tracks: [track(0), track(1, true)], mapping: [1, 2], viewerPickedStreamIndex: 1, lastSelectedIndex: 0, seamless: true }));
+    expect(back).toMatchObject({ reapplyPosition: null, recordStreamIndex: 2, setLastSelectedIndex: 1 });
   });
 
   it("re-applies nothing when the viewer's track is already the one selected", () => {
@@ -83,12 +99,28 @@ describe("planAudioReport", () => {
   });
 
   it("re-applies nothing when the fresh manifest carries only one track", () => {
-    const plan = planAudioReport(report({ tracks: [track(0, true)], mapping: [1, 2], viewerPickedStreamIndex: 2 }));
+    const plan = planAudioReport(report({ tracks: [track(0, true)], mapping: [1, 2], viewerPickedStreamIndex: 2, freshManifest: true }));
     expect(plan.reapplyPosition).toBeNull();
   });
 
   it("does nothing at all for a report with no selection", () => {
     const plan = planAudioReport(report({ tracks: [track(0), track(1)], mapping: [1, 2], lastSelectedIndex: 0 }));
     expect(plan).toMatchObject({ restartStreamIndex: null, recordStreamIndex: null, setLastSelectedIndex: null, reapplyPosition: null });
+  });
+});
+
+describe("serverLaneCarriesEveryTrack", () => {
+  const lane = { live: false, hdrSource: false, loaderAvailable: true, multiTrack: true };
+
+  it("carries every track of a multi-track file, whether or not the viewer has picked one", () => {
+    // The input has no field for a viewer's pick: a hand-over after a pick keeps the whole list.
+    expect(serverLaneCarriesEveryTrack(lane)).toBe(true);
+  });
+
+  it("falls to the single track for a live channel, an HDR source, a missing loader or a lone track", () => {
+    expect(serverLaneCarriesEveryTrack({ ...lane, live: true })).toBe(false);
+    expect(serverLaneCarriesEveryTrack({ ...lane, hdrSource: true })).toBe(false);
+    expect(serverLaneCarriesEveryTrack({ ...lane, loaderAvailable: false })).toBe(false);
+    expect(serverLaneCarriesEveryTrack({ ...lane, multiTrack: false })).toBe(false);
   });
 });
