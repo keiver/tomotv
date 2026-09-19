@@ -1055,7 +1055,7 @@ describe("imagesAt", () => {
 });
 
 describe("startLocalRemux Slipstream tier config", () => {
-  it("the ladder audio-lo group is always low AAC, whatever the source codec", async () => {
+  it("the lower rungs ride 96k stereo AAC and the upper ones the track's own channels, whatever the source codec", async () => {
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
@@ -1070,13 +1070,53 @@ describe("startLocalRemux Slipstream tier config", () => {
     // A 20 Mbps source clears every rung's undercut; the ladder leads with the two 144p rungs.
     expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 256, 426, 640, 854, 1280, 1920]);
     expect(config.tiers.map((t: { bandwidth: number }) => t.bandwidth)[0]).toBe(140_000 + 96_000);
+    // Seven channels ride audio-hi as six at 64 kb/s each; a rung joins it once its video is twice that.
+    expect(config.tiers.map((t: { audioGroup: string }) => t.audioGroup)).toEqual(["lo", "lo", "lo", "hi", "hi", "hi", "hi"]);
     const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
-    expect(r480.bandwidth).toBe(1_500_000 + 96_000);
+    expect(r480.bandwidth).toBe(1_500_000 + 384_000);
     expect(r480.codecs).toBe("avc1.64001F,mp4a.40.2");
     expect(config.audioTracks[0].serverAudioUrl).toContain("/Audio/item1/main.m3u8");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=aac");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioBitrate=96000");
     expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");
+    expect(config.audioTracks[0].serverAudioHiUrl).toContain("AudioBitrate=384000");
+    expect(config.audioTracks[0].serverAudioHiUrl).toContain("TranscodingMaxAudioChannels=6");
+  });
+
+  it("a stereo item has no hi group: its config is the one it always had", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "aac", Index: 1, Channels: 2, BitRate: 192_000 },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.tiers.every((t: { audioGroup: string }) => t.audioGroup === "lo")).toBe(true);
+    expect(config.tiers.find((t: { width: number }) => t.width === 854).bandwidth).toBe(1_500_000 + 96_000);
+    expect(config.audioTracks[0].serverAudioHiUrl).toBeUndefined();
+  });
+
+  it("names the server's raw stream for a PGS track, and for no other image format", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "ac3", Index: 1, Channels: 6, BitRate: 640_000 },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 2 },
+          { Type: "Subtitle", Codec: "dvdsub", Index: 3 },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    const byIndex = new Map<number, { serverSupUrl?: string }>(config.subtitles.map((sub: { index: number }) => [sub.index, sub]));
+    expect(byIndex.get(2)?.serverSupUrl).toContain("/Videos/item1/item1/Subtitles/2/Stream.pgssub");
+    expect(byIndex.get(3)?.serverSupUrl).toBeUndefined();
   });
 
   it("carries every audio track as its own AAC rendition, none dropped", async () => {
@@ -1175,13 +1215,14 @@ describe("slipstreamTierBandwidth", () => {
 
   // The cap is the TOP offered rung (1080p, 6 Mbps) plus the AAC audio-lo group, so AVPlayer's ABR
   // may use every server rung but not the 20 Mbps primary.
-  it("caps at the top rung plus the AAC audio-lo group", () => {
+  it("caps at the top rung plus the audio group it rides", () => {
     const withTwoTracks = tierItem([
       { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
       { Type: "Audio", Codec: "aac", Index: 2, BitRate: 256_000 },
     ]);
+    // The stereo track as default keeps the ladder on audio-lo; the seven-channel one puts the top rung on audio-hi.
     expect(slipstreamTierBandwidth(withTwoTracks, 2)).toBe(6_000_000 + 96_000);
-    expect(slipstreamTierBandwidth(withTwoTracks)).toBe(6_000_000 + 96_000);
+    expect(slipstreamTierBandwidth(withTwoTracks)).toBe(6_000_000 + 384_000);
   });
 
   it("still offers the ladder when the first track is uncarriable: a later track anchors it", () => {

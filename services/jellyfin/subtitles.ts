@@ -35,6 +35,12 @@ export function isImageBasedSubtitleCodec(codec: string | undefined): boolean {
   );
 }
 
+/** Blu-ray PGS, the one image format the server hands over raw (Stream.pgssub). */
+export function isPgsCodec(codec: string | undefined): boolean {
+  const lower = (codec ?? "").toLowerCase();
+  return lower === "sup" || lower.includes("pgs");
+}
+
 /**
  * Pick the subtitle stream to burn into the video during transcoding
  * Returns a candidate only when the item has subtitle streams and ALL of them

@@ -26,7 +26,7 @@ import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 // Submodules, not the barrel: the barrel re-exports liveTv, which imports this module.
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
 import { generatePlaySessionId } from "@/services/jellyfin/session";
-import { getSubtitleUrl, isImageBasedSubtitleCodec } from "@/services/jellyfin/subtitles";
+import { getSubtitleUrl, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
 import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
@@ -179,6 +179,25 @@ interface TierRung {
 }
 /** Stereo AAC bitrate for the audio-lo group when the link is below the smallest copy-audio rung. */
 export const SURVIVAL_AUDIO_BITRATE = 96_000;
+/** The audio-hi group: AAC at the track's own channel count, six at most (measured: the server's AAC 5.1 at 384 kb/s). */
+const SURROUND_BITRATE_PER_CHANNEL = 64_000;
+const SURROUND_MAX_CHANNELS = 6;
+
+/** What a multichannel track costs in the audio-hi group; null for mono and stereo, which have no hi rendition of their own. */
+function surroundAudioBitrate(stream: JellyfinMediaStream | undefined): number | null {
+  const channels = Math.min(stream?.Channels ?? 2, SURROUND_MAX_CHANNELS);
+  return channels > 2 ? channels * SURROUND_BITRATE_PER_CHANNEL : null;
+}
+
+/**
+ * The audio a rung carries: surround once the rung's video is at least twice the default track's
+ * surround rate (800 kb/s and up for 5.1), stereo 96 kb/s below that, where the link needs the
+ * bytes for the picture. A stereo default track has no hi group at all.
+ */
+function rungAudio(rung: TierRung, defaultTrack: JellyfinMediaStream | undefined): { hi: boolean; bandwidth: number } {
+  const surround = surroundAudioBitrate(defaultTrack);
+  return surround !== null && rung.bitrate >= surround * 2 ? { hi: true, bandwidth: surround } : { hi: false, bandwidth: SURVIVAL_AUDIO_BITRATE };
+}
 
 const SLIPSTREAM_LADDER: TierRung[] = [
   // The bottom rung is sized for the START, not the steady state: AVPlayer buffers around 24s of
@@ -246,8 +265,9 @@ export function offeredTierRungs(videoItem: JellyfinVideoItem, preferredAudioStr
   const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
   // The primary carries copy audio; a rung carries the low AAC audio-lo group. Undercut compares
   // each side's real total, so an audio-heavy source still offers rungs (AAC drops the audio cost).
-  const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + engineAudioBandwidth(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]);
-  return SLIPSTREAM_LADDER.filter((rung) => primaryBandwidth <= 0 || rung.bitrate + SURVIVAL_AUDIO_BITRATE < primaryBandwidth * 0.85);
+  const defaultTrack = orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0];
+  const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + engineAudioBandwidth(defaultTrack);
+  return SLIPSTREAM_LADDER.filter((rung) => primaryBandwidth <= 0 || rung.bitrate + rungAudio(rung, defaultTrack).bandwidth < primaryBandwidth * 0.85);
 }
 
 /**
@@ -260,8 +280,9 @@ export function offeredTierRungs(videoItem: JellyfinVideoItem, preferredAudioStr
 export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): number | null {
   const rungs = offeredTierRungs(videoItem, preferredAudioStreamIndex);
   if (rungs.length === 0) return null;
-  // The rung carries the low AAC audio-lo group, so the cap is the top rung's video plus that.
-  return rungs[rungs.length - 1].bitrate + SURVIVAL_AUDIO_BITRATE;
+  // The cap is the top rung's video plus the audio group it rides.
+  const top = rungs[rungs.length - 1];
+  return top.bitrate + rungAudio(top, orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]).bandwidth;
 }
 
 /**
@@ -270,7 +291,8 @@ export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, preferredA
  * means no ladder (uncapped, the engine primary). Each cap matches the master's rung BANDWIDTH.
  */
 export function offeredTierBandwidths(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): number[] {
-  return offeredTierRungs(videoItem, preferredAudioStreamIndex).map((rung) => rung.bitrate + SURVIVAL_AUDIO_BITRATE);
+  const defaultTrack = orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0];
+  return offeredTierRungs(videoItem, preferredAudioStreamIndex).map((rung) => rung.bitrate + rungAudio(rung, defaultTrack).bandwidth);
 }
 
 /**
@@ -1061,6 +1083,8 @@ export type SubtitleRendition = {
   isEngineText: boolean;
   /** The server's WebVTT of an engine text track, for windows the engine cannot read in time (rung sessions). */
   serverVttUrl?: string;
+  /** The server's raw copy of a PGS track, decoded on device when the source is not being read (rung sessions). */
+  serverSupUrl?: string;
 };
 
 /**
@@ -1413,33 +1437,61 @@ export async function startLocalRemux(
   // BANDWIDTH covers the variant plus its audio rendition (RFC 8216 4.3.4.2); CODECS names the group.
   const rungs = !live && !playsFromDisk(videoItem.Id) && audioTracks.length > 0 ? offeredTierRungs(videoItem, preferredAudioStreamIndex) : [];
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
-  // The ladder's audio-lo group is always low stereo AAC: the ladder is the degraded path a slow
-  // link takes, the engine primary (its own copy-audio group) is the full-quality target. One group
-  // for the whole ladder, so switching a video rung touches no audio.
+  // Two server audio groups, both AAC: audio-lo is 96 kb/s stereo for the rungs a thin link lives
+  // on, audio-hi keeps the track's channels for the rungs with room for them (rungAudio).
   const tierAudioPlan = { codec: "aac" as const, bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" };
-  // One TierConfig per offered rung, ascending; the native master lists them smallest first (the
-  // startup pick).
-  const tiersConfig = rungs.map((rung) => ({
-    playlistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, rung, generatePlaySessionId()),
-    bandwidth: rung.bitrate + tierAudioPlan.bandwidth,
-    codecs: `${rung.codecs},${tierAudioPlan.tag}`,
-    width: rung.width,
-    height: rung.height,
-  }));
+  const defaultAudioStream = streamsByIndex.get(audioTracks[0]?.index);
+  // One TierConfig per offered rung, ascending.
+  const tiersConfig = rungs.map((rung) => {
+    const audio = rungAudio(rung, defaultAudioStream);
+    return {
+      playlistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, rung, generatePlaySessionId()),
+      bandwidth: rung.bitrate + audio.bandwidth,
+      codecs: `${rung.codecs},${tierAudioPlan.tag}`,
+      width: rung.width,
+      height: rung.height,
+      audioGroup: audio.hi ? ("hi" as const) : ("lo" as const),
+    };
+  });
+  const hiGroupOffered = tiersConfig.some((tier) => tier.audioGroup === "hi");
   const audioTracksConfig =
     rungs.length > 0
       ? audioTracks.map((track) => {
           const stream = streamsByIndex.get(track.index);
+          const serverAudioUrl = getAudioRenditionUrl(videoItem.Id, videoItem, track.index, tierAudioPlan.codec, stream?.Channels ?? 6, generatePlaySessionId(), SURVIVAL_AUDIO_BITRATE);
+          if (!hiGroupOffered) return { ...track, serverAudioUrl };
+          // Every track is a member of both groups (RFC 8216 4.3.4.1.1); a stereo one rides hi at its own two channels.
+          const surround = surroundAudioBitrate(stream);
+          const hiChannels = surround === null ? 2 : Math.min(stream?.Channels ?? 2, SURROUND_MAX_CHANNELS);
           return {
             ...track,
-            serverAudioUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, tierAudioPlan.codec, stream?.Channels ?? 6, generatePlaySessionId(), SURVIVAL_AUDIO_BITRATE),
+            serverAudioUrl,
+            serverAudioHiUrl: getAudioRenditionUrl(
+              videoItem.Id,
+              videoItem,
+              track.index,
+              tierAudioPlan.codec,
+              stream?.Channels ?? 6,
+              generatePlaySessionId(),
+              surround ?? SURVIVAL_AUDIO_BITRATE,
+              hiChannels,
+            ),
           };
         })
       : audioTracks;
 
   // A link that needs the rungs cannot carry the source read the engine decodes text cues from,
   // so each engine text track also names the server's WebVTT.
-  const subtitlesConfig = rungs.length > 0 ? subtitles.map((sub) => (sub.isEngineText ? { ...sub, serverVttUrl: getSubtitleUrl(videoItem.Id, sub.index, "vtt") } : sub)) : subtitles;
+  // A PGS track has the same problem and the same answer: the server hands the track over raw
+  // (Stream.pgssub) and the device still decodes and draws it. Other image formats have no raw route.
+  const subtitlesConfig =
+    rungs.length > 0
+      ? subtitles.map((sub) => {
+          if (sub.isEngineText) return { ...sub, serverVttUrl: getSubtitleUrl(videoItem.Id, sub.index, "vtt") };
+          if (sub.isImage && isPgsCodec(streamsByIndex.get(sub.index)?.Codec)) return { ...sub, serverSupUrl: getSubtitleUrl(videoItem.Id, sub.index, "pgssub") };
+          return sub;
+        })
+      : subtitles;
 
   const tierOffered = tiersConfig.length > 0;
   if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierOffered });

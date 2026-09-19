@@ -55,6 +55,7 @@ export function getAudioRenditionUrl(
   channels: number,
   playSessionId: string,
   aacBitrate?: number,
+  aacChannels: number = 2,
 ): string {
   const config = getCachedConfig();
   if (!config.server || !config.apiKey) return "";
@@ -66,7 +67,7 @@ export function getAudioRenditionUrl(
     `ApiKey=${config.apiKey}&MediaSourceId=${mediaSourceId}` +
     `&AudioCodec=${audioCodec}&AudioStreamIndex=${audioStreamIndex}` +
     (audioCodec === "flac" ? `&TranscodingMaxAudioChannels=${channels}` : "") +
-    (audioCodec === "aac" ? `&AudioBitrate=${aacBitrate ?? 96000}&TranscodingMaxAudioChannels=2` : "") +
+    (audioCodec === "aac" ? `&AudioBitrate=${aacBitrate ?? 96000}&TranscodingMaxAudioChannels=${aacChannels}` : "") +
     `&SegmentContainer=mp4&SegmentLength=6&PlaySessionId=${playSessionId}`
   );
 }
