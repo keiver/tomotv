@@ -12,6 +12,7 @@
 import { spawn, execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -31,7 +32,7 @@ const PROXY_PORT = Number(opt("--proxy-port", "18096"));
 const RESULTS = path.resolve(opt("--results", path.join(os.tmpdir(), "tomotv-drill", "drill-results.md")));
 const RUN_DIR = path.join(path.dirname(RESULTS), "runs");
 const ITEMS = opt("--items", "T101,T102").split(",");
-const IDS = opt("--scenarios", "S1,S2,S3,S4,S5,S6,S7,S8").split(",");
+const IDS = opt("--scenarios", "S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12").split(",");
 const LINK = opt("--link", null);
 // The app sets preferredForwardBufferDuration on rung sessions (useVideoPlayback); the drill mirrors it.
 const BUFFER = opt("--buffer", "12");
@@ -75,29 +76,35 @@ for (const signal of ["exit", "SIGINT", "SIGTERM"]) {
   });
 }
 
-/** A proxy left behind by an earlier run answers on the port and silently shapes this one. */
-async function requireFreePort() {
-  try {
-    const state = await (await fetch(`http://127.0.0.1:${PROXY_PORT}/__netsim`)).json();
-    throw new Error(`a netsim proxy is already on :${PROXY_PORT} (kbps ${state.kbps}, served ${state.served}); kill it before running`);
-  } catch (error) {
-    if (String(error.message).includes("already on")) throw error;
-  }
+/**
+ * One request to the proxy's control route on a socket of its own. The proxy dies and restarts
+ * between host scenarios, and a pooled socket to the dead one crashes Node's fetch outright
+ * (undici: setTypeOfService EINVAL, uncatchable).
+ */
+function netsim(method = "GET", body = null) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port: PROXY_PORT, path: "/__netsim", method, agent: false }, (res) => {
+      let text = "";
+      res.on("data", (chunk) => (text += chunk));
+      res.on("end", () => (res.statusCode === 200 ? resolve(JSON.parse(text || "{}")) : reject(new Error(`netsim control -> HTTP ${res.statusCode}`))));
+    });
+    req.on("error", reject);
+    req.end(body ? JSON.stringify(body) : undefined);
+  });
 }
 
-async function control(body) {
-  const res = await fetch(`http://127.0.0.1:${PROXY_PORT}/__netsim`, { method: "POST", body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`netsim control -> HTTP ${res.status}`);
+/** A proxy left behind by an earlier run answers on the port and silently shapes this one. */
+async function requireFreePort() {
+  const state = await netsim().catch(() => null);
+  if (state) throw new Error(`a netsim proxy is already on :${PROXY_PORT} (kbps ${state.kbps}, served ${state.served}); kill it before running`);
 }
+
+const control = (body) => netsim("POST", body);
 
 async function waitForProxy() {
   for (let i = 0; i < 50; i++) {
-    try {
-      await fetch(`http://127.0.0.1:${PROXY_PORT}/__netsim`);
-      return;
-    } catch {
-      await new Promise((r) => setTimeout(r, 100));
-    }
+    if (await netsim().catch(() => null)) return;
+    await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error("netsim proxy did not start");
 }
@@ -135,6 +142,7 @@ async function hostRun(configPath, scenario, timelinePath, logPath) {
       ...(BUFFER ? { TOMO_DRILL_BUFFER: BUFFER } : {}),
       ...(WINDOW ? { TOMO_DRILL_WINDOW: "1" } : {}),
       ...(CAP ? { TOMO_DRILL_CAP: "1" } : {}),
+      ...(scenario.breakPath ? { TOMO_DRILL_BREAK: scenario.breakPath } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -172,7 +180,7 @@ async function resetResume(env, itemId, userId) {
   await jf(env, `/UserPlayedItems/${itemId}?userId=${userId}`, { method: "DELETE" });
 }
 
-const served = async () => (await (await fetch(`http://127.0.0.1:${PROXY_PORT}/__netsim`)).json()).served;
+const served = async () => (await netsim()).served;
 
 /**
  * Points the app at a server URL through dev-session, keeping its own identity. A deep link that
@@ -235,7 +243,7 @@ async function deviceRun(env, device, item, scenario, base) {
     // argument is parsed by devicectl itself ("-t YES").
     { stdio: ["ignore", out, out], env: { ...process.env, DEVICECTL_CHILD_TOMO_REQUEST_LOG: "1" } },
   );
-  await control({ profile: scenario.profile, refuse: scenario.refuse ?? null });
+  await control({ profile: scenario.profile, refuse: scenario.refuse ?? null, rttMs: scenario.rttMs ?? 0 });
   await new Promise((r) => setTimeout(r, scenario.seconds * 1000));
   child.kill();
   fs.closeSync(out);
@@ -321,19 +329,24 @@ async function main() {
     for (const id of IDS) {
       const scenario = SCENARIOS[id];
       if (id === "S7" && item.id !== "T102") continue;
+      // A broken route is set on the host drill's own router; the app has no such seam.
+      if (device && scenario.breakPath) continue;
       const base = path.join(RUN_DIR, `${stamp}-${item.id}-${id}`);
       const proxy = device ? null : startProxy(`${base}-proxy.jsonl`);
       try {
         await waitForProxy();
-        await control({ kbps: scenario.profile[0].kbps, refuse: scenario.refuse ?? null });
+        await control({ kbps: scenario.profile[0].kbps, refuse: scenario.refuse ?? null, rttMs: scenario.rttMs ?? 0 });
         let timeline;
+        // The app's own engine config for the item: the drill plays it on the host, and both
+        // targets are scored against the ladder and source rate it declares.
+        await captureConfig(env, item, `${base}-config.json`);
+        const offered = JSON.parse(fs.readFileSync(`${base}-config.json`, "utf8"));
         if (device) {
           await resetResume(env, item.itemId, credentials.userId);
           const collected = await deviceRun(env, device, item, scenario, base);
           timeline = deviceTimeline(collected);
           fs.writeFileSync(`${base}-timeline.jsonl`, timeline.map((r) => JSON.stringify(r)).join("\n"));
         } else {
-          await captureConfig(env, item, `${base}-config.json`);
           await hostRun(`${base}-config.json`, scenario, `${base}-timeline.jsonl`, `${base}-engine.log`);
           timeline = readTimeline(`${base}-timeline.jsonl`);
         }
@@ -341,6 +354,9 @@ async function main() {
           expectAudio: item.expect?.audioRenditions ?? 1,
           // The device probe reports audio counts only; subtitle options are host-drill evidence.
           expectSubs: device ? undefined : item.expect?.subtitles,
+          ladder: (offered.tiers ?? []).map((tier) => tier.bandwidth),
+          heights: (offered.tiers ?? []).map((tier) => tier.height),
+          sourceBps: offered.bandwidth ?? 0,
         });
         const line = `- ${result.pass ? "PASS" : "FAIL"} ${item.id} ${id} (${result.label}): ${result.checks.map((c) => `${c.ok ? "ok" : "X"} ${c.name} [${c.detail}]`).join("; ")}`;
         console.log(line);

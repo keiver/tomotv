@@ -111,16 +111,16 @@ final class SlipstreamDrillTests: XCTestCase {
         defer { session.stop() }
 
         if let link = env["TOMO_DRILL_LINK"].flatMap(Double.init) { session.testLinkBps = link }
-        var masterHasCopy = false
         let server = LocalHTTPServer { path in
             let parts = path.split(separator: "/").map(String.init)
             guard parts.count == 2, parts[0] == session.token else { return .notFound }
             if parts[1] == "master.m3u8" {
                 let master = session.masterPlaylist()
-                masterHasCopy = master.contains("\nmedia.m3u8")
                 self.emit("master", ["text": master, "attempt": attempt])
                 return .data(Data(master.utf8), contentType: "application/vnd.apple.mpegurl")
             }
+            // A listed rung whose playlist cannot be had: the ladder must survive losing one.
+            if let broken = env["TOMO_DRILL_BREAK"], parts[1] == broken { return .notFound }
             return session.route(parts[1])
         }
         server.requestObserver = { [weak self] r in
@@ -131,6 +131,9 @@ final class SlipstreamDrillTests: XCTestCase {
         let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/\(session.token)/master.m3u8"))
 
         let item = AVPlayerItem(url: url)
+        // AVPlayerItem.h:574-579: since tvOS 13 AVPlayer picks its own opening variant. The app sets
+        // this in the RNV patch, so the drill sets it too or it measures a different player.
+        item.startsOnFirstEligibleVariant = true
         if let buffer = env["TOMO_DRILL_BUFFER"].flatMap(Double.init) { item.preferredForwardBufferDuration = buffer }
         let player = AVPlayer(playerItem: item)
         // AVPlayer weighs the size it renders at when it picks a variant; the app always has a screen.
@@ -211,8 +214,9 @@ final class SlipstreamDrillTests: XCTestCase {
             loggedEvents = events.count
 
             // The copy is missing from a master written for a slower link, so a recovered link is
-            // climbed by rebuilding the session at the playhead. Sustained, not a single sample.
-            if !masterHasCopy, position > offset + 1, let bps = session.pacedLinkBps, sourceBps > 0 {
+            // climbed by rebuilding the session at the playhead. Sustained, not a single sample, and
+            // on the engine's own word that a copy is there to reach, as the app takes it.
+            if !session.reportsCopyListed, position > offset + 1, let bps = session.pacedLinkBps, sourceBps > 0 {
                 if bps >= sourceBps * 1.2 {
                     if let since = clearedSourceSince, Date().timeIntervalSince(since) >= 5 {
                         for event in item.errorLog()?.events ?? [] {

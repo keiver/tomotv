@@ -30,7 +30,7 @@ const opt = (name, fallback) => {
 };
 const PORT = Number(opt("--port", "18096"));
 const UPSTREAM = new URL(opt("--upstream", "http://127.0.0.1:8096"));
-const RTT_MS = Number(opt("--rtt", "0"));
+let rttMs = Number(opt("--rtt", "0"));
 const LOG_PATH = opt("--log", null);
 const CHUNK = 16 * 1024;
 
@@ -149,6 +149,10 @@ function control(req, res) {
         refuse = cmd.refuse ? new RegExp(cmd.refuse) : null;
         emit({ kind: "refuse", pattern: cmd.refuse || null });
       }
+      if (typeof cmd.rttMs === "number") {
+        rttMs = cmd.rttMs;
+        emit({ kind: "rtt", rttMs });
+      }
       if (Array.isArray(cmd.profile)) {
         profile = [...cmd.profile].sort((a, b) => a.atSec - b.atSec);
         profileStart = Date.now();
@@ -182,9 +186,9 @@ const server = http.createServer(async (req, res) => {
   const started = Date.now();
   let firstByteMs = null;
   let bytes = 0;
-  await delay(RTT_MS / 2);
+  await delay(rttMs / 2);
   const upstream = http.request({ hostname: UPSTREAM.hostname, port: UPSTREAM.port, path: req.url, method: req.method, headers: { ...req.headers, host: UPSTREAM.host } }, async (up) => {
-    await delay(RTT_MS / 2);
+    await delay(rttMs / 2);
     res.writeHead(up.statusCode ?? 502, up.headers);
     up.on("data", (chunk) => {
       if (firstByteMs === null) firstByteMs = Date.now() - started;
@@ -222,7 +226,7 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  emit({ kind: "start", port: PORT, upstream: UPSTREAM.href, kbps, rttMs: RTT_MS });
+  emit({ kind: "start", port: PORT, upstream: UPSTREAM.href, kbps, rttMs });
   const profilePath = opt("--profile", null);
   if (profilePath) {
     profile = JSON.parse(fs.readFileSync(profilePath, "utf8")).sort((a, b) => a.atSec - b.atSec);
