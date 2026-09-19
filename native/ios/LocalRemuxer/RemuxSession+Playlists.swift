@@ -15,6 +15,10 @@ extension RemuxSession {
     /// grid and the tier probe share it, so a slow server cannot stack two waits before
     /// AVPlayer sees a single response header.
     static let masterBudgetSeconds = 12.0
+    /// The link, as a multiple of the source rate, on which the copy's first 6s segment lands in 2s.
+    static let copyLeadsMargin = 3.0
+    /// How many times over the link carries the rung that opens a session.
+    static let openingRungShare = 6.0
 
     func masterBudgetLeft() -> Double {
         max(0.5, Self.masterBudgetSeconds - Date().timeIntervalSince(openedAt))
@@ -56,6 +60,25 @@ extension RemuxSession {
         onTier?(payload)
     }
 
+    /// The rung the master leads with, latched by the first caller: the biggest whose segment lands
+    /// in about a second, so a thin link opens on the fewest bytes (the biggest rung that fits cost
+    /// 12.7s at 1.5 Mb/s) and a fast one above 144p. Starts its opening fetch.
+    @discardableResult
+    func chooseOpeningRung(linkBps: Double) -> Int? {
+        stateLock.lock()
+        let rungs = (0..<config.tiers.count).filter { !rungsUnavailable.contains($0) }
+        let latched = openingRung.flatMap { rungs.contains($0) ? $0 : nil }
+        // A copy that leads opens the session itself, and a rung fetched beside its first segment
+        // takes the link from it (measured at 30 Mb/s: AVPlayer hedged onto the bottom rung).
+        let copyLeads = copyVerdict != .withheld && !sourceReleased && (config.bandwidth <= 0 || linkBps >= Double(config.bandwidth) * Self.copyLeadsMargin)
+        let chosen = latched ?? (copyLeads ? nil : rungs.last { Double(config.tiers[$0].bandwidth) * Self.openingRungShare <= linkBps }) ?? rungs.first
+        let kick = latched == nil && (chosen ?? 0) > 0
+        openingRung = chosen
+        stateLock.unlock()
+        if kick, let chosen { fetchOpeningSegment(rung: chosen) }
+        return chosen
+    }
+
     func masterPlaylist() -> String {
         awaitGrid()
         // Live: the tracks and the captions come off the open input, not from Jellyfin's probe.
@@ -76,6 +99,16 @@ extension RemuxSession {
             }
         }
         let offered = tierOffered
+        // A copy is named only once it can be produced: a source that will not open, or cannot be
+        // planned, lets itself go before this returns, and the rungs carry the session instead.
+        if offered, decideCopy() {
+            _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
+                guard let self else { return true }
+                self.stateLock.lock()
+                defer { self.stateLock.unlock() }
+                return self.sourceReady || self.sourceReleased || self.failed || self.cancelled
+            }
+        }
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
 
         // Audio renditions. Every track points at its own audio-only playlist
@@ -268,30 +301,38 @@ extension RemuxSession {
         }
         primary += "\nmedia.m3u8\n"
 
-        // Slipstream ladder: the on-device copy and every adopted rung in one master, all on the
-        // SAME grid and sharing the subtitle group, so AVPlayer's own ABR steps down when the copy
-        // outruns the link and climbs back when it recovers. The first variant listed is where it
-        // starts: the copy on a link measured to carry it, else the biggest rung that fits.
+        // Slipstream ladder: the on-device copy and the rungs in one master, all on the SAME grid and
+        // sharing the subtitle group, so AVPlayer's own ABR steps down when the copy outruns the
+        // link and climbs back when it recovers. The first variant listed is where it starts: the
+        // copy on a link measured to carry it, else the smallest rung.
         guard offered else {
+            // The ladder is gone. A session that had let its source go for it has nothing left to play.
+            if isSourceReleased { fail("the ladder was lost after the source was let go") }
+            stateLock.lock()
+            copyVerdict = .listed
+            copyAnnounced = true
+            stateLock.unlock()
             out += primary
             reportTier(listed: false)
             return out
         }
-        awaitLinkProbe()
         stateLock.lock()
-        let linkBps = testLinkBps ?? measuredLinkBps ?? 0
-        let adoptedRungs = (0..<config.tiers.count).filter { !(tierSegments[$0]?.isEmpty ?? true) }
+        let copyFirst = copyVerdict == .listed && !sourceReleased
+        if copyFirst { copyAnnounced = true }
+        // A source that cannot be read leaves the probe nothing to time; the ladder is then sized by
+        // the canonical playlist's own transfer, the one other body that moves at the wire's pace.
+        let linkBps = testLinkBps ?? measuredLinkBps ?? playlistLinkBps ?? 0
+        let rungs = (0..<config.tiers.count).filter { !rungsUnavailable.contains($0) }
         stateLock.unlock()
-        let unmeasured = linkBps <= 0
-        let copyFirst = unmeasured || config.bandwidth <= 0 || Double(config.bandwidth) * 1.2 <= linkBps
-        let fitting = adoptedRungs.filter { Double(config.tiers[$0].bandwidth) <= linkBps * 0.8 }
-        let startRung = fitting.last ?? adoptedRungs.first
+        let fitting = rungs.filter { Double(config.tiers[$0].bandwidth) <= linkBps * 0.8 }
+        let startRung = chooseOpeningRung(linkBps: linkBps)
         // A variant far above the measured link is not merely unused: AVPlayer fetches its init and
         // a segment to evaluate it, and on a slow link those probes are the whole budget (measured
         // at 0.6 Mb/s: probes of 360p through 1080p starved the rung that fit). One rung of headroom
-        // stays listed so a recovering link has somewhere to climb without a new session.
-        let headroomRung = fitting.last.flatMap { last in adoptedRungs.first { $0 > last } } ?? adoptedRungs.first
-        let listed = unmeasured ? adoptedRungs : adoptedRungs.filter { fitting.contains($0) || $0 == headroomRung }
+        // stays listed so a recovering link has somewhere to climb without a new session. A rung
+        // above the first is listed unfetched: its playlist is adopted when AVPlayer asks for it.
+        let headroomRung = fitting.last.flatMap { last in rungs.first { $0 > last } } ?? rungs.first
+        let listed = rungs.filter { fitting.contains($0) || $0 == headroomRung }
 
         func rungLine(_ k: Int) -> String {
             let rung = config.tiers[k]
@@ -321,30 +362,40 @@ extension RemuxSession {
             return line + "\nt\(k).m3u8\n"
         }
 
-        stateLock.lock()
-        masterListedCopy = copyFirst
-        stateLock.unlock()
-        if copyFirst {
+        // The copy leads only on a link that lands its first segment at once. Listed first at
+        // 12 Mb/s (1.9x the source) its 4.7 MB opening segment took 3.7s, AVPlayer hedged onto the
+        // bottom rung and showed a frame at 8.6s; it then climbed to the copy on the same item by
+        // itself (measured). So under that margin the smallest rung leads and the copy stays listed.
+        let copyLeads = copyFirst && (config.bandwidth <= 0 || linkBps >= Double(config.bandwidth) * Self.copyLeadsMargin)
+        if copyLeads {
             out += primary + listed.map(rungLine).joined()
+        } else if copyFirst, let startRung {
+            out += rungLine(startRung) + primary + listed.filter { $0 != startRung }.map(rungLine).joined()
+            stateLock.lock()
+            rungLeads = true
+            stateLock.unlock()
+        } else if copyFirst {
+            out += primary
         } else if let startRung {
-            // The copy is NOT listed on a link that cannot carry it. AVPlayer evaluates every
-            // variant it is offered, and a copy segment it cannot finish (4MB at 0.6 Mb/s) fails
-            // the whole item on its 6s deadline (-12889, measured). A link that recovers is
-            // climbed by rebuilding the session, not by leaving a trap in the master.
+            // The copy is NOT listed on a link that cannot carry it. A cap does not stop AVPlayer
+            // evaluating a variant: with the copy listed at 0.6 Mb/s it fetched media.m3u8 and
+            // init.mp4 at 20s and asked for a 4 MB copy segment at 40s, which never finished and
+            // killed the item (-12889). At 1.5 Mb/s the same master survives, so the rule is the
+            // link's ability to finish a copy segment, and recovery is a rebuild at the playhead.
             out += rungLine(startRung) + listed.filter { $0 != startRung }.map(rungLine).joined()
-            // Starting on a rung means the copy is not being played: hold the source pull now rather
-            // than ten seconds from now, or the producer spends the slow link the rung segments need
-            // (measured: rung segments missed AVPlayer's 6s deadline while the engine pulled a 6 Mb/s
-            // source over 0.6 Mb/s).
+            // Opening on a rung means the copy is not being played: a source still open (one the
+            // demuxer owes a track from) holds its pull now rather than ten seconds from now, or the
+            // producer spends the slow link the rungs need.
             stateLock.lock()
             lastTierDemandAt = Date()
+            rungLeads = true
             stateLock.unlock()
         } else {
             out += primary
         }
-        NSLog("[LocalRemuxer] Slipstream: master starts on %@ (link %.1f Mb/s, %d rungs)",
-              copyFirst || startRung == nil ? "the copy" : "rung \(startRung ?? 0)", linkBps / 1_000_000, listed.count)
-        reportTier(listed: !adoptedRungs.isEmpty)
+        NSLog("[LocalRemuxer] Slipstream: master starts on %@%@ (link %.1f Mb/s, %d rungs)",
+              copyLeads || startRung == nil ? "the copy" : "rung \(startRung ?? 0)", copyFirst && !copyLeads ? " with the copy listed" : "", linkBps / 1_000_000, listed.count)
+        reportTier(listed: !rungs.isEmpty)
         return out
     }
 
@@ -366,6 +417,7 @@ extension RemuxSession {
     /// Slipstream tier media playlist: the adopted segment list on our URL
     /// scheme. Timeline identical to the primary's by construction.
     func tierPlaylist(rung: Int) -> String? {
+        guard adoptRung(rung) else { return nil }
         stateLock.lock()
         let segments = tierSegments[rung] ?? []
         stateLock.unlock()
@@ -599,7 +651,7 @@ extension RemuxSession {
             // Built, not merely absent: a codec this build cannot decode never
             // gets an entry, and waiting the deadline out for it would hold the
             // playlist 25s and leave the track out of the picker anyway.
-            let settled = self.subtitleDecodersBuilt || self.failed || self.cancelled
+            let settled = self.subtitleDecodersBuilt || self.failed || self.cancelled || self.sourceReleased
             self.stateLock.unlock()
             return decoder != nil || settled
         }
@@ -626,6 +678,13 @@ extension RemuxSession {
         let end = start + segmentDurationSeconds(n)
         let hasServer = !sub.serverVttUrl.isEmpty
 
+        // A released source builds no decoders, and a session only releases one whose text tracks
+        // all have server WebVTT (demuxerOwesTracks), so the cues come whole from the server.
+        if isSourceReleased {
+            guard let server = serverCues(streamIndex: streamIndex, deadline: 5) else { return emptySubtitleBody() }
+            return serverSubtitleBody(server, from: start, to: end)
+        }
+
         guard let decoder = awaitTextDecoder(streamIndex: streamIndex) else { return emptySubtitleBody() }
 
         _ = waitUntil(deadline: hasServer ? Self.engineTextWaitSeconds : Self.subtitleSegmentWaitSeconds) { [weak self] in
@@ -648,11 +707,7 @@ extension RemuxSession {
 
         var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
         if !decoder.isComplete, !covered, hasServer, let server = serverCues(streamIndex: streamIndex, deadline: 1.5) {
-            for cue in server where cue.end > start + anchor && cue.start < end + anchor {
-                out += "\n" + webVTTTimestamp(cue.start - anchor) + " --> " + webVTTTimestamp(cue.end - anchor) + "\n"
-                out += cue.text + "\n"
-            }
-            return out
+            return serverSubtitleBody(server, from: start, to: end)
         }
 
         if !decoder.isComplete, !covered {
@@ -662,6 +717,19 @@ extension RemuxSession {
 
         for cue in decoder.cues(from: start + anchor, to: end + anchor) {
             out += "\n" + webVTTTimestamp(cue.start - anchor) + " --> " + webVTTTimestamp(cue.end - anchor) + "\n"
+            out += cue.text + "\n"
+        }
+        return out
+    }
+
+    /// The server's cues for one segment window. They are session time as they arrive: Jellyfin
+    /// extracts without -copyts, so its cues count from the file's start, as the session does
+    /// (measured with its own ffmpeg and command line: a cue at pts 7.0 in a source starting at
+    /// 5.0 extracts at 00:00:02).
+    func serverSubtitleBody(_ cues: [ServerCue], from start: Double, to end: Double) -> String {
+        var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
+        for cue in cues where cue.end > start && cue.start < end {
+            out += "\n" + webVTTTimestamp(cue.start) + " --> " + webVTTTimestamp(cue.end) + "\n"
             out += cue.text + "\n"
         }
         return out

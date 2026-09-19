@@ -49,8 +49,10 @@ extension RemuxSession {
     }
 
     private func fetchServerCues(streamIndex: Int, url: URL) {
-        URLSession.shared.dataTask(with: URLRequest(url: url, timeoutInterval: 30)) { [weak self] data, response, _ in
+        var task: URLSessionDataTask?
+        task = URLSession.shared.dataTask(with: URLRequest(url: url, timeoutInterval: 30)) { [weak self] data, response, _ in
             guard let self else { return }
+            if let task { self.transfers.end(task) }
             let ok = (response as? HTTPURLResponse)?.statusCode == 200
             let cues = ok ? data.flatMap { String(data: $0, encoding: .utf8) }.map(Self.parseWebVTT) : nil
             self.stateLock.lock()
@@ -58,7 +60,11 @@ extension RemuxSession {
             self.serverCueFetches.remove(streamIndex)
             self.stateLock.unlock()
             NSLog("[LocalRemuxer] server subtitles for stream %d: %@", streamIndex, cues.map { "\($0.count) cues" } ?? "unavailable")
-        }.resume()
+        }
+        if let task {
+            transfers.begin(task)
+            task.resume()
+        }
     }
 
     /// Cues of a WebVTT body. Timestamps are hh:mm:ss.mmm or mm:ss.mmm; settings after the end time are dropped.

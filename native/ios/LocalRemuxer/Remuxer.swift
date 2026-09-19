@@ -76,6 +76,8 @@ final class RemuxSession {
     static let subtitleSegmentWaitSeconds = 25.0
     /// Produce-ahead depth when the config carries none.
     static let defaultAheadWindow = 5
+    /// How far ahead of the producer a request may land and still be waited for; past it, a seek.
+    static let seekAheadSegments = 2
     /// Keep producing this many segments past the one AVPlayer last asked for,
     /// then idle. Bounds eager download of the source; the JS side passes a
     /// deeper cushion so a stalling remote feed can be absorbed.
@@ -136,6 +138,9 @@ final class RemuxSession {
     var bytesInSegment: Int64 = 0
     /// Bytes and read time since the last link sample (one every 512KB; pipeline thread).
     var bytesSinceLinkSample: Int64 = 0
+    /// What the other transfers had carried, and when, as the running source sample began.
+    var besideAtLinkSample: Int64 = 0
+    var linkSampleStartedAt = Date()
     var readSecondsSinceLinkSample: Double = 0
     /// The pull since the pipeline started, for the app's pre-flight (progress(); under stateLock).
     var pulledBytes: Int64 = 0
@@ -224,6 +229,16 @@ final class RemuxSession {
     var tierUnavailableReason: String? = nil
     /// The opening segment was fetched and rewrapped ahead of the master, or found unavailable.
     var tierProbeResolved = false
+    /// The rung the master leads with, latched by the first master, and whether its opening fetch has ended.
+    var openingRung: Int?
+    var openingRungResolved = false
+    /// The master leads with a rung, so the opening segment is a rung's and not the copy's.
+    var rungLeads = false
+    /// The rung AVPlayer last asked a segment of, and when the producer last moved to follow it.
+    var lastTierRung = 0
+    var lastFollowSeekAt = Date.distantPast
+    /// A follow move failed to seek: the producer holds under a rung for the rest of the session.
+    var followDisabled = false
     /// How long that took, for the report: a rung the server feeds slower than it plays is one
     /// the viewer waits on.
     var probeSeconds: Double = 0
@@ -248,6 +263,7 @@ final class RemuxSession {
     /// rendition request; nil entry = adoption failed for this session.
     var audioLoSegments: [Int: [TierSegment]] = [:]
     var audioLoInitRemote: [Int: URL] = [:]
+    var audioLoInitData: [Int: Data] = [:]
     /// Segment anchors chain within a warm server session: the next expected
     /// index and its exact start (accumulated real durations from the
     /// rewrapper). A non-sequential request re-anchors to the declared grid —
@@ -323,7 +339,36 @@ final class RemuxSession {
     var reportedLinkBps: Double?
     /// Whether the master this session served lists the on-device copy: when it does not, a link
     /// that recovers is climbed by rebuilding the session (the app's call, from the link report).
-    var masterListedCopy = true
+    enum CopyVerdict { case undecided, listed, withheld }
+    var copyVerdict = CopyVerdict.undecided
+    /// A master naming the copy has gone out, so the copy can no longer be taken back.
+    var copyAnnounced = false
+    /// The renditions are built: the copy can be produced, so a master may name it.
+    var sourceReady = false
+    /// The session runs on the server's rungs alone, its source let go: the link cannot carry the
+    /// copy, or the source would not open. A link that recovers is a rebuild (the app's call).
+    var sourceReleased = false
+    /// The source would not open or could not be planned: there is no copy to climb back to.
+    var sourceUnusable = false
+    /// The startup probe met an error status from the server.
+    var sourceRefused = false
+    /// The canonical playlist's own transfer rate: what the ladder is sized by when the source
+    /// cannot be read at all, so the probe has nothing to say.
+    var playlistLinkBps: Double?
+    /// Every server transfer in flight, for a probe to count what the link carried beside it.
+    let transfers = TransferLedger()
+    /// Server rendition transfers inside the link window, as the spans they arrived over.
+    var floorSamples: [(start: Date, end: Date, bytes: Int64)] = []
+    /// The last reading of the wire itself (a probe, or the source read), and the newest floor
+    /// the server renditions put under it, with when that floor was seen.
+    var wireLinkBps: Double?
+    var floorLinkBps: Double?
+    var floorSeenAt = Date.distantPast
+    var lastLinkProbeAt = Date.distantPast
+    let reprobeSignal = DispatchSemaphore(value: 0)
+    var reprobeAsked = false
+    /// Rungs whose playlist was refused or cut on another grid; their routes answer 404.
+    var rungsUnavailable: Set<Int> = []
     /// Live: AVPlayer asked for a subtitle rendition's playlist, which it does only while that rendition is selected.
     var onSubtitleRequest: (([String: Any]) -> Void)?
     /// Counts seek restarts; the first segment of a generation carries no time.

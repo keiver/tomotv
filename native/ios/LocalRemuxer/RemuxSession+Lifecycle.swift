@@ -67,6 +67,59 @@ extension RemuxSession {
         return failed
     }
 
+    var isSourceReleased: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return sourceReleased
+    }
+
+    /// What every link report tells the app under `copyListed`: false only while a rebuild could
+    /// reach a copy, which is what the app rebuilds for.
+    var reportsCopyListed: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return copyVerdict != .withheld || sourceUnusable
+    }
+
+    /// Tracks only the demuxer can serve: an image subtitle is decoded here, and an engine text
+    /// track with no server WebVTT has no other source. Either one keeps the source open.
+    var demuxerOwesTracks: Bool {
+        config.subtitles.contains { $0.isImage || ($0.isEngineText && $0.serverVttUrl.isEmpty) }
+    }
+
+    /// Lets the source go and runs the session on the server's rungs alone, when they can carry
+    /// all of it: a ladder on the adopted grid, every audio track from the server, no track the
+    /// demuxer owes, and no master out that names the copy. False leaves the session as it was.
+    func releaseSource(because reason: String, unusable: Bool = false) -> Bool {
+        guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks else { return false }
+        // The grid first: the ladder and its audio group exist only once it is adopted.
+        awaitGrid()
+        guard tierOffered, audioLoActive else { return false }
+        stateLock.lock()
+        let free = !copyAnnounced && !cancelled && !failed
+        if free {
+            copyVerdict = .withheld
+            sourceReleased = true
+            sourceUnusable = unusable
+            lastTierDemandAt = Date()
+        }
+        stateLock.unlock()
+        guard free else { return false }
+        NSLog("[LocalRemuxer] Slipstream: source let go, the rungs carry the session (%@)", reason)
+        // The opening audio segment costs a server spin-up of its own; overlap it with the rung's.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self, let segments = self.adoptAudioLo(0) else { return }
+            // The audio grid is the server's own, cut on codec frames: find the opening index on it.
+            var reached = 0.0
+            let opening = segments.firstIndex { segment in
+                reached += segment.duration
+                return reached > self.config.startOffsetSeconds
+            } ?? 0
+            _ = self.materializeAudioLoSegment(position: 0, n: opening)
+        }
+        return true
+    }
+
     /// The keyframe at or before `ms` of source time, as a JPEG in the frame pool (the session directory without an item id).
     func chapterFrame(atMilliseconds ms: Int64) -> URL? {
         stateLock.lock()

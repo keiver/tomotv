@@ -50,13 +50,16 @@ extension RemuxSession {
         let request = URLRequest(url: url, timeoutInterval: 30)
         let semaphore = DispatchSemaphore(value: 0)
         var body: String? = nil
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
             if let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
                 body = String(decoding: data, as: UTF8.self)
             }
             semaphore.signal()
-        }.resume()
+        }
+        transfers.begin(task)
+        task.resume()
         _ = semaphore.wait(timeout: .now() + 32)
+        transfers.end(task)
         // A fetch failure is the link being slow, and on a slow link the tier is
         // the one variant that fits: leave it uncached so the next request
         // retries. Only a playlist that arrived and is unusable is cached below.
@@ -133,10 +136,18 @@ extension RemuxSession {
         lastTierDemandAt = Date()
         let initRemote = audioLoInitRemote[position]
         let chain = audioLoChain[position]
+        let heldInit = audioLoInitData[position]
         stateLock.unlock()
         guard let initRemote else { return nil }
-        let initFetch = fetchTier(initRemote)
+        // The init is the same bytes for every segment of the rendition: one fetch a session, not
+        // one a segment, which on a 150 ms link was a round trip ahead of every audio segment.
+        let initFetch = heldInit.map { (data: Optional($0), status: 200, seconds: 0.0) } ?? fetchTier(initRemote)
         let segFetch = initFetch.data == nil ? initFetch : fetchTier(remote)
+        if heldInit == nil, let fresh = initFetch.data {
+            stateLock.lock()
+            audioLoInitData[position] = fresh
+            stateLock.unlock()
+        }
         guard let initData = initFetch.data, let segData = segFetch.data else {
             NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed (HTTP %d)", n, segFetch.status)
             if segFetch.status > 0 { recordTierFailure("audio HTTP \(segFetch.status)") }
@@ -187,7 +198,7 @@ extension RemuxSession {
         if dead { return .notFound }
         let mediaFile = dir.appendingPathComponent("a\(position)s-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return .file(mediaFile, contentType: "audio/iso.segment") }
-        return .streamed(contentType: "audio/iso.segment") { [weak self] in self?.materializeAudioLoSegment(position: position, n: n) }
+        return .segment(contentType: "audio/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] in self?.materializeAudioLoSegment(position: position, n: n) }
     }
 
 }

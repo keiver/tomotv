@@ -99,9 +99,10 @@ final class TierProbeTests: XCTestCase {
         tierPlaylistUrl: String? = nil,
         serverAudioUrl: String = "",
         startOffsetSeconds: Double = 0,
-        // Below the 8 Mbps source by default so the master lists the tier; nil leaves the real
-        // (fast, unbounded) test-input measurement, which lists v0 alone.
-        linkCeilingBps: Double? = 2_000_000
+        // Below the 8 Mbps source by default so the master lists the tier; nil leaves the real probe,
+        // which cannot reach the stubbed source and so reads nothing.
+        linkCeilingBps: Double? = 2_000_000,
+        sourceRefused: Bool = false
     ) throws -> (RemuxSession, () -> [[String: Any]]) {
         let s = try RemuxSession(
             config: makeConfig(
@@ -115,6 +116,7 @@ final class TierProbeTests: XCTestCase {
                 startOffsetSeconds: startOffsetSeconds
             ))
         s.testLinkBps = linkCeilingBps
+        s.sourceRefused = sourceRefused
         let lock = NSLock()
         var reports: [[String: Any]] = []
         s.onTier = { report in
@@ -150,6 +152,7 @@ final class TierProbeTests: XCTestCase {
         switch response {
         case .file(let url, _): return url
         case .streamed(_, let provider): return provider()
+        case .segment(_, _, _, let provider): return provider()
         default: return nil
         }
     }
@@ -369,11 +372,11 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNil(s.tierPlaylist(rung: 0))
     }
 
-    /// A link that carries the source rate starts on the copy; the rungs stay listed after it for a later drop.
+    /// A link three times the source starts on the copy; the rungs stay listed after it for a later drop.
     func testALinkThatCarriesThePrimaryStartsOnIt() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
-        let (s, reports) = try session(linkCeilingBps: 20_000_000)
+        let (s, reports) = try session(linkCeilingBps: 30_000_000)
         defer { s.stop() }
         waitForProbe(s)
         let master = s.masterPlaylist()
@@ -420,8 +423,37 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNotNil(s.tierPlaylist(rung: 1))
     }
 
-    /// A rung whose grid does not match the canonical (different segment count) is dropped.
-    func testRungWithMismatchedGridIsDropped() throws {
+    /// The master leads with the biggest rung whose segment the link lands in about a second.
+    func testTheLinkChoosesTheRungThatOpens() throws {
+        let thin = try ladderSession(rung1Playlist: playlist)
+        defer { thin.stop() }
+        thin.start()
+        waitForProbe(thin)
+        let thinMaster = thin.masterPlaylist()
+        XCTAssertLessThan(thinMaster.range(of: "t0.m3u8")!.lowerBound, thinMaster.range(of: "t1.m3u8")!.lowerBound)
+
+        let fast = try ladderSession(rung1Playlist: playlist)
+        defer { fast.stop() }
+        fast.testLinkBps = 12_000_000
+        fast.start()
+        waitForProbe(fast)
+        let fastMaster = fast.masterPlaylist()
+        XCTAssertLessThan(fastMaster.range(of: "t1.m3u8")!.lowerBound, fastMaster.range(of: "t0.m3u8")!.lowerBound, "1.7 Mb/s six times over is inside 12 Mb/s")
+        settle { FileManager.default.fileExists(atPath: fast.dir.appendingPathComponent("t1-seg0.m4s").path) }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fast.dir.appendingPathComponent("t1-seg0.m4s").path), "the opening segment of the leading rung is fetched ahead of the player")
+
+        let plenty = try ladderSession(rung1Playlist: playlist)
+        defer { plenty.stop() }
+        plenty.testLinkBps = 30_000_000
+        plenty.start()
+        waitForProbe(plenty)
+        _ = plenty.masterPlaylist()
+        XCTAssertEqual(plenty.openingRung, 0, "a copy that leads has the link to itself")
+    }
+
+    /// A rung above the first is listed unfetched and adopted when it is asked for: one cut on
+    /// another grid (a different segment count) is retired then, and its routes answer 404.
+    func testRungWithMismatchedGridIsRetiredWhenAskedFor() throws {
         XCTAssertFalse(tierSegment.isEmpty, "Fixtures/tier-segment.mpegts is missing")
         let twoSegments = Data("#EXTM3U\n#EXTINF:6.0,\nseg0.ts?s=1\n#EXTINF:6.0,\nseg1.ts?s=1\n#EXT-X-ENDLIST\n".utf8)
         let s = try ladderSession(rung1Playlist: twoSegments)
@@ -430,8 +462,149 @@ final class TierProbeTests: XCTestCase {
         waitForProbe(s)
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"))
-        XCTAssertFalse(master.contains("t1.m3u8"), "a grid-mismatched rung is dropped")
-        XCTAssertNil(s.tierPlaylist(rung: 1))
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/t1.m3u8"), 0, "a rung's playlist is not fetched before the master")
+        XCTAssertNil(s.tierPlaylist(rung: 1), "a grid-mismatched rung is retired")
+        XCTAssertTrue(isNotFound(s.route("t1.m3u8")))
+        XCTAssertTrue(isNotFound(s.route("t1-seg0.m4s")))
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/t1.m3u8"), 1, "a retired rung is not fetched again")
+        XCTAssertNotNil(s.tierPlaylist(rung: 0), "the rest of the ladder stands")
+    }
+
+    // MARK: - The copy decision and the source
+
+    private func settle(_ seconds: Double = 5, until done: () -> Bool) {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end, !done() { usleep(20_000) }
+    }
+
+    /// A probe that reads nothing is a slow link, never an unlimited one: the copy is withheld.
+    func testALinkThatReadNothingWithholdsTheCopy() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let (s, _) = try session(linkCeilingBps: nil)
+        defer { s.stop() }
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertFalse(master.contains("media.m3u8"), "an unmeasured link is not offered the copy")
+        XCTAssertTrue(master.contains("t0.m3u8"))
+    }
+
+    /// A link under the copy, every audio track from the server, no track the demuxer owes: the
+    /// source is let go, and a source that would never have opened costs the session nothing.
+    func testASlowLinkLetsTheSourceGoAndTheSessionLives() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let (s, _) = try session(serverAudioUrl: audioUrl)
+        defer { s.stop() }
+        settle { s.isSourceReleased }
+        XCTAssertTrue(s.isSourceReleased)
+        XCTAssertFalse(s.hasFailed, "the rungs carry a session whose source was let go")
+        let master = s.masterPlaylist()
+        XCTAssertFalse(master.contains("media.m3u8"))
+        XCTAssertTrue(master.contains("t0.m3u8"))
+        XCTAssertTrue(master.contains("GROUP-ID=\"audio-lo\""))
+    }
+
+    /// An image subtitle is decoded on the device, so its source stays open whatever the link.
+    func testATrackOnlyTheDemuxerServesKeepsTheSource() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let image = RemuxSubtitle(index: 3, name: "PGS", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false, serverVttUrl: "")
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+                subtitles: [image],
+                tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
+        s.testLinkBps = 2_000_000
+        defer { s.stop() }
+        s.start()
+        // The source here never opens (file:///dev/null), and nothing else may carry the track.
+        settle { s.hasFailed }
+        XCTAssertFalse(s.isSourceReleased)
+        XCTAssertTrue(s.hasFailed)
+    }
+
+    /// A source that will not open on a link that WOULD carry the copy: the rungs take the session
+    /// before any master names the copy, and the app is not told there is a copy to climb back to.
+    func testASourceThatWillNotOpenIsCarriedByTheRungs() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let (s, _) = try session(serverAudioUrl: audioUrl, linkCeilingBps: 40_000_000)
+        defer { s.stop() }
+        var links: [[String: Any]] = []
+        let lock = NSLock()
+        s.onLink = { report in
+            lock.lock()
+            links.append(report)
+            lock.unlock()
+        }
+        let master = s.masterPlaylist()
+        XCTAssertTrue(s.isSourceReleased)
+        XCTAssertFalse(s.hasFailed)
+        XCTAssertFalse(master.contains("media.m3u8"), "a copy that cannot be produced is never named")
+        XCTAssertTrue(master.contains("t0.m3u8"))
+        s.noteFloorSample(bytes: 2_000_000, from: Date().addingTimeInterval(-1), to: Date())
+        lock.lock()
+        let listed = links.last?["copyListed"] as? Bool
+        lock.unlock()
+        XCTAssertEqual(listed, true, "nothing to climb back to, so no rebuild is asked for")
+    }
+
+    /// A probe the server refuses is a source that is not there, not a slow link: no rebuild is
+    /// asked for toward a copy nothing can produce.
+    func testARefusedProbeLeavesNoCopyToClimbTo() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let (s, _) = try session(serverAudioUrl: audioUrl, linkCeilingBps: nil, sourceRefused: true)
+        defer { s.stop() }
+        settle { s.isSourceReleased }
+        let master = s.masterPlaylist()
+        XCTAssertTrue(s.isSourceReleased)
+        XCTAssertFalse(master.contains("media.m3u8"))
+        XCTAssertTrue(s.reportsCopyListed, "nothing to climb back to")
+    }
+
+    func testTheProbeReadsAnErrorStatusAsRefused() throws {
+        let meter = LinkMeter(wanted: 1024, window: 1.5, settled: 0.75, plentyBps: 0, beside: TransferLedger())
+        let url = try XCTUnwrap(URL(string: "http://tier.test/source"))
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 503, httpVersion: nil, headerFields: nil))
+        let task = URLSession.shared.dataTask(with: url)
+        var disposition: URLSession.ResponseDisposition?
+        meter.urlSession(URLSession.shared, dataTask: task, didReceive: response) { disposition = $0 }
+        XCTAssertTrue(meter.refused)
+        XCTAssertEqual(disposition, .cancel)
+        XCTAssertEqual(meter.done.wait(timeout: .now()), .success)
+    }
+
+    // MARK: - The link rate
+
+    /// Server renditions are a floor under the link: overlapping transfers share one span, a
+    /// floor raises the rate and never lowers it, and only a read of the wire brings it down.
+    func testRenditionTransfersAreAFloorCountedOverTheirUnion() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        let t0 = Date()
+        // A rung segment and its audio, downloading together for the same two seconds.
+        s.noteFloorSample(bytes: 300_000, from: t0, to: t0.addingTimeInterval(2))
+        s.noteFloorSample(bytes: 300_000, from: t0, to: t0.addingTimeInterval(2))
+        XCTAssertEqual(s.pacedLinkBps ?? 0, 2_400_000, accuracy: 1, "600 KB over a shared 2s, not over 4s")
+        // Slower renditions later (the server's encoder, not the wire) leave the rate alone.
+        s.noteFloorSample(bytes: 600_000, from: t0.addingTimeInterval(10), to: t0.addingTimeInterval(16))
+        XCTAssertEqual(s.pacedLinkBps ?? 0, 2_400_000, accuracy: 1)
+        // A read of the source itself is the wire, and may lower it.
+        s.noteLinkSample(bytes: 600_000, seconds: 4)
+        XCTAssertEqual(s.pacedLinkBps ?? 0, 1_200_000, accuracy: 1)
+    }
+
+    /// Jellyfin's cues count from the file's start, which is session time: no anchor is taken off.
+    func testServerCuesAreSessionTimeAsTheyArrive() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        let cues = RemuxSession.parseWebVTT("WEBVTT\n\n00:00:07.000 --> 00:00:09.000\nseven\n\n00:00:13.000 --> 00:00:14.000\nthirteen\n")
+        let body = s.serverSubtitleBody(cues, from: 6, to: 12)
+        XCTAssertTrue(body.contains("00:00:07.000 --> 00:00:09.000"))
+        XCTAssertFalse(body.contains("thirteen"))
     }
 
     func testStoppingDuringTheProbeKillsTheServerTranscode() throws {

@@ -171,6 +171,16 @@ extension RemuxSession {
         return box
     }()
 
+    /// An empty free box: legal anywhere between a segment's boxes, and skipped by every parser.
+    static let freeBox = Data([0, 0, 0, 8] + Array("free".utf8))
+
+    /// A source that will not open or cannot be planned, before any master has named the copy: a
+    /// session whose rungs can carry it alone lets the source go instead of dying.
+    func failStartup(_ message: String) {
+        guard releaseSource(because: message, unusable: true) else { return fail(message) }
+        onStage?(["token": token, "stage": "source_released", "elapsed": Date().timeIntervalSince(startedAt)])
+    }
+
     func fail(_ message: String) {
         NSLog("[LocalRemuxer] Pipeline failed: %@", message)
         stateLock.lock()
@@ -640,14 +650,25 @@ extension RemuxSession {
         let request = URLRequest(url: url, timeoutInterval: 8)
         let semaphore = DispatchSemaphore(value: 0)
         var body: String? = nil
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+        let meter = TransferMeter()
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
             if let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
                 body = String(decoding: data, as: UTF8.self)
             }
             semaphore.signal()
-        }.resume()
+        }
+        task.delegate = meter
+        transfers.begin(task)
+        task.resume()
         _ = semaphore.wait(timeout: .now() + 10)
+        transfers.end(task)
         guard let text = body else { return nil }
+        // A playlist is written before it is sent, so its body moves at the wire's pace.
+        if let transfer = meter.read() {
+            stateLock.lock()
+            if playlistLinkBps == nil { playlistLinkBps = Double(transfer.bytes) * 8 / transfer.end.timeIntervalSince(transfer.start) }
+            stateLock.unlock()
+        }
         var segments: [TierSegment] = []
         var pendingDuration: Double? = nil
         for raw in text.split(separator: "\n") {
@@ -700,40 +721,38 @@ extension RemuxSession {
         adoptedStarts = starts
         adoptedDurations = durations
         stateLock.unlock()
-        // The rest of the ladder is fetched at once, not one after another: each playlist is tens
-        // of kilobytes and a slow link spends seconds per round trip before the first frame. Rungs
-        // the measured link cannot carry are not waited for: the master will not list them, and
-        // their playlists are link the first video segment needs (measured at 0.6 Mb/s: five
-        // playlists cost 256 KB, 3.4s, before the master existed). They still land, for a rebuild.
-        awaitLinkProbe()
-        stateLock.lock()
-        let linkBps = testLinkBps ?? measuredLinkBps ?? 0
-        stateLock.unlock()
-        // The master lists what fits plus one rung of headroom, so the wait covers the same set.
-        let group = DispatchGroup()
-        for k in 1..<config.tiers.count {
-            let blocking = linkBps <= 0 || Double(config.tiers[k - 1].bandwidth) <= linkBps * 0.8
-            if blocking { group.enter() }
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                defer { if blocking { group.leave() } }
-                guard let self, let segs = self.fetchTierSegments(self.config.tiers[k].playlistUrl) else {
-                    NSLog("[LocalRemuxer] Slipstream: rung %d playlist fetch failed, dropping it", k)
-                    return
-                }
-                if segs.count != canonical.count {
-                    NSLog("[LocalRemuxer] Slipstream: rung %d grid mismatch (%d vs %d), dropping it", k, segs.count, canonical.count)
-                    return
-                }
-                self.stateLock.lock()
-                self.tierSegments[k] = segs
-                self.stateLock.unlock()
+        // The other rungs are adopted when AVPlayer asks for them (adoptRung): each playlist is 48 KB,
+        // and on a 0.6 Mb/s link two of them are 1.3s the first video segment needs. A rung whose
+        // playlist then fails answers 404, which AVPlayer steps over (measured: -12938 in its error
+        // log, the next rung up played, no stall).
+        NSLog("[LocalRemuxer] Slipstream: adopted the server grid, %d segments, %.1fs total, %d rungs offered", canonical.count, acc, config.tiers.count)
+    }
+
+    /// A rung's own playlist, fetched the first time anything asks for it and held to the adopted
+    /// grid: the same segment count is the same source-keyframe grid (M1).
+    func adoptRung(_ k: Int) -> Bool {
+        guard k >= 0, k < config.tiers.count else { return false }
+        return dedupedMaterialization("adopt-t\(k)") { () -> Bool? in
+            stateLock.lock()
+            let known = !(tierSegments[k]?.isEmpty ?? true)
+            let retired = rungsUnavailable.contains(k)
+            let grid = adoptedStarts.count
+            stateLock.unlock()
+            if known { return true }
+            if retired || grid == 0 { return false }
+            // A fetch that failed is the link or the server having a moment, and is asked again
+            // on the next request; only a playlist that arrived on another grid retires the rung.
+            guard let segments = fetchTierSegments(config.tiers[k].playlistUrl) else {
+                NSLog("[LocalRemuxer] Slipstream: rung %d playlist fetch failed", k)
+                return false
             }
-        }
-        group.wait()
-        stateLock.lock()
-        let adoptedCount = tierSegments.count
-        stateLock.unlock()
-        NSLog("[LocalRemuxer] Slipstream: adopted the server grid, %d segments, %.1fs total, %d rungs", canonical.count, acc, adoptedCount)
+            let fits = segments.count == grid
+            if !fits { NSLog("[LocalRemuxer] Slipstream: rung %d grid mismatch (%d vs %d), retiring it", k, segments.count, grid) }
+            stateLock.lock()
+            if fits { tierSegments[k] = segments } else { rungsUnavailable.insert(k) }
+            stateLock.unlock()
+            return fits
+        } ?? false
     }
 
     func runPipeline() {
@@ -760,6 +779,14 @@ extension RemuxSession {
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 self?.probeLink()
                 self?.watchLinkWhileRidingTier()
+            }
+            // The rung lane's audio comes from a server transcode Jellyfin has to spin up, and it
+            // was fetched only when AVPlayer first asked: 7s of the first frame's budget, spent in
+            // series (measured at 0.6 Mb/s). Asking now overlaps it with the grid and the probe.
+            if config.audioTracks.first?.serverAudioUrl.isEmpty == false {
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    _ = self?.adoptAudioLo(0)
+                }
             }
         }
 
@@ -804,9 +831,21 @@ extension RemuxSession {
                 self?.fail(refusal)
             }
         }
+        // The link answers before the source is opened: an open stream nobody reads fills the
+        // socket's buffers and takes its share of the link out from under the probe.
+        let verdictLists = decideCopy()
+        stateLock.lock()
+        let refused = sourceRefused
+        stateLock.unlock()
+        if !verdictLists, releaseSource(because: refused ? "the server refused the source" : "the link cannot carry the copy", unusable: refused) {
+            av_dict_free(&openOpts)
+            avformat_free_context(inputCtx)
+            return mark("source_released")
+        }
+
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
         av_dict_free(&openOpts)
-        guard ret >= 0, let input = inputCtx else { return fail("open_input: \(averr(ret))") }
+        guard ret >= 0, let input = inputCtx else { return failStartup("open_input: \(averr(ret))") }
         mark("open_input")
         defer {
             var closing: UnsafeMutablePointer<AVFormatContext>? = input
@@ -814,7 +853,7 @@ extension RemuxSession {
         }
 
         ret = probeStreamInfo(input)
-        guard ret >= 0 else { return fail("find_stream_info: \(averr(ret))") }
+        guard ret >= 0 else { return failStartup("find_stream_info: \(averr(ret))") }
         mark("find_stream_info")
 
         // Audio-only sources run this same pipeline with no video track at all,
@@ -864,7 +903,7 @@ extension RemuxSession {
             let best = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
             if best >= 0 { audioIndices = [best] }
         }
-        guard hasVideo || !audioIndices.isEmpty else { return fail("no video or audio stream") }
+        guard hasVideo || !audioIndices.isEmpty else { return failStartup("no video or audio stream") }
         var imageSubtitleTracks = config.subtitles.filter { $0.isImage }
         // Live: carry every audio stream the demuxer sees. The server's probe of a channel can
         // list fewer tracks than the stream carries (measured: one of two AAC tracks).
@@ -996,7 +1035,7 @@ extension RemuxSession {
             let videoCodecId = videoStream.pointee.codecpar.pointee.codec_id
             if VideoTranscoder.needsTranscode(stream: videoStream) {
                 guard let transcoder = VideoTranscoder(inputStream: videoStream) else {
-                    return fail("no transcode path for video codec \(videoCodecId.rawValue)")
+                    return failStartup("no transcode path for video codec \(videoCodecId.rawValue)")
                 }
                 NSLog("[LocalRemuxer] Transcoding video stream %d via VideoToolbox", videoIn)
                 primaryVideoTranscoder = transcoder
@@ -1015,7 +1054,7 @@ extension RemuxSession {
            let record = DolbyVisionConverter.configuration(stream.pointee.codecpar),
            record.dv_profile == 7, record.rpu_present_flag == 1 {
             guard let converter = DolbyVisionConverter(inputStream: stream) else {
-                return fail("Dolby Vision profile 7 source is not length-prefixed HEVC")
+                return failStartup("Dolby Vision profile 7 source is not length-prefixed HEVC")
             }
             NSLog("[LocalRemuxer] Dolby Vision profile 7 on stream %d: converting RPUs to 8.1", videoIn)
             primaryDolbyVision = converter
@@ -1032,7 +1071,7 @@ extension RemuxSession {
         }
         for (position, audioIndex) in audioIndices.enumerated() {
             guard let transcoder = makeTranscoder(for: audioIndex) else {
-                return fail("no transcode path for audio stream \(audioIndex)")
+                return failStartup("no transcode path for audio stream \(audioIndex)")
             }
             if hasVideo && splitAudio {
                 builtRenditions.append(Rendition(prefix: audioPrefix(position), inputStreams: [audioIndex], transcoder: transcoder, videoTranscoder: nil))
@@ -1059,6 +1098,9 @@ extension RemuxSession {
         // open has nowhere to write and must not try.
         if goneAlready { return }
 
+        stateLock.lock()
+        sourceReady = true
+        stateLock.unlock()
         mark("renditions_built")
         reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions)
 
@@ -1471,13 +1513,34 @@ extension RemuxSession {
                 // starving link is not shared with a pull nobody needs. Any
                 // primary/engine-rendition request flips the timestamps and
                 // reads resume within one poll tick.
-                let tierHold = ridingTierLocked() && seekTo == nil && !stop && !starvedWaiter
+                // On a link with room for the copy beside the rung, the copy is kept just ahead of
+                // AVPlayer's rung fetches instead: its next try at the copy then lands on disk.
+                let riding = ridingTierLocked()
+                var follow = Follow.hold
+                var followSeek = false
+                if riding, seekTo == nil, !stop, !starvedWaiter, copyFollowsLocked() {
+                    follow = followLocked()
+                    if case .seek(let target) = follow {
+                        seekTo = target
+                        followSeek = true
+                    }
+                }
+                let held = riding ? follow == .hold : openingHoldLocked()
+                let tierHold = held && seekTo == nil && !stop && !starvedWaiter
                 // Live never throttles: the source arrives at its own pace and reads must keep up.
                 let throttled = !config.isLive
                     && ((producingSegment > lastRequestedSegment + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold)
                 stateLock.unlock()
 
                 if stop { break readLoop }
+                if let seekTo, followSeek {
+                    // A move nobody asked for must not end a session that plays fine on its rung.
+                    if restart(at: seekTo, failOnSeekError: false) { break }
+                    stateLock.lock()
+                    followDisabled = true
+                    stateLock.unlock()
+                    continue
+                }
                 if let seekTo {
                     guard restart(at: seekTo) else { break readLoop }
                     break
@@ -1621,8 +1684,20 @@ extension RemuxSession {
             // the pacing rate has to follow a link that drops mid-segment, not trail it by a segment.
             bytesSinceLinkSample += Int64(pkt.pointee.size)
             readSecondsSinceLinkSample += readTook
+            // The ledger carries the producer's bytes as they are read, so a probe beside it counts them.
+            transfers.note(bytes: Int64(pkt.pointee.size))
             if bytesSinceLinkSample >= 512 * 1024 {
-                noteLinkSample(bytes: bytesSinceLinkSample, seconds: readSecondsSinceLinkSample)
+                // Alone on the link a source read IS the wire. Beside a rung or an audio transfer it
+                // is a share: counted with them, over the wall clock, as a floor that never lowers.
+                let carried = transfers.carried()
+                let beside = carried - besideAtLinkSample - bytesSinceLinkSample
+                if beside > 0 {
+                    noteFloorSample(bytes: bytesSinceLinkSample + beside, from: linkSampleStartedAt, to: Date())
+                } else {
+                    noteLinkSample(bytes: bytesSinceLinkSample, seconds: readSecondsSinceLinkSample)
+                }
+                besideAtLinkSample = carried
+                linkSampleStartedAt = Date()
                 bytesSinceLinkSample = 0
                 readSecondsSinceLinkSample = 0
             }

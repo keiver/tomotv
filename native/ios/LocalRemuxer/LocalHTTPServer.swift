@@ -21,6 +21,11 @@ enum LocalHTTPResponse {
     /// player acts on, never a fake success. Keeps AVPlayer's short
     /// no-response-headers watchdog (-12889) out of the segment-wait path.
     case streamed(contentType: String, provider: () -> URL?)
+    /// A media segment that is fetched whole before it can be sent. `lead` is the segment's own
+    /// opening box and goes out at once; `padding` (a free box) follows every two seconds until
+    /// the body is ready. AVPlayer fails a segment it hears nothing from in 6s (-12889, measured on
+    /// rungs above the opening one at 750 kb/s), and a whole rung segment can take longer to land.
+    case segment(contentType: String, lead: Data, padding: Data, provider: () -> URL?)
     case notFound
 }
 
@@ -283,6 +288,10 @@ final class LocalHTTPServer {
                 self.sendStreamed(connection, contentType: contentType, provider: provider) { firstBody, bytes in
                     traced(bytes > 0 ? 200 : 0, bytes)(firstBody)
                 }
+            case .segment(let contentType, let lead, let padding, let provider):
+                self.sendStreamed(connection, contentType: contentType, lead: lead, padding: padding, provider: provider) { firstBody, bytes in
+                    traced(bytes > 0 ? 200 : 0, bytes)(firstBody)
+                }
             case .notFound:
                 NSLog("[LocalHTTPServer] 404 %@", path)
                 self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data(), onDone: traced(404, 0))
@@ -295,7 +304,7 @@ final class LocalHTTPServer {
     /// are FIFO, so the linear sequence needs no nesting; a dead connection
     /// just absorbs the later sends. Apple's own LL-HLS delivers segment parts
     /// over chunked transfer, so the client side of this is well-trodden.
-    private func sendStreamed(_ connection: NWConnection, contentType: String, provider: () -> URL?, onDone: @escaping (DispatchTime?, Int) -> Void) {
+    private func sendStreamed(_ connection: NWConnection, contentType: String, lead: Data = Data(), padding: Data = Data(), provider: () -> URL?, onDone: @escaping (DispatchTime?, Int) -> Void) {
         var head = "HTTP/1.1 200 OK\r\n"
         head += "Content-Type: \(contentType)\r\n"
         head += "Transfer-Encoding: chunked\r\n"
@@ -304,13 +313,41 @@ final class LocalHTTPServer {
         connection.send(content: Data(head.utf8), completion: .contentProcessed { error in
             if error != nil { connection.cancel() }
         })
+        func chunk(_ bytes: Data) {
+            connection.send(content: Data(String(format: "%X\r\n", bytes.count).utf8) + bytes + Data("\r\n".utf8), completion: .contentProcessed { _ in })
+        }
+        // The lock orders the last padding box before the body: none may land inside it.
+        let gate = NSLock()
+        var waiting = true
+        var keepAlive: DispatchSourceTimer?
+        if !lead.isEmpty {
+            chunk(lead)
+            if !padding.isEmpty {
+                let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+                timer.schedule(deadline: .now() + 2, repeating: 2)
+                timer.setEventHandler {
+                    gate.lock()
+                    if waiting { chunk(padding) }
+                    gate.unlock()
+                }
+                timer.resume()
+                keepAlive = timer
+            }
+        }
 
-        guard let url = provider(), let body = try? Data(contentsOf: url, options: .mappedIfSafe), !body.isEmpty else {
+        let url = provider()
+        gate.lock()
+        waiting = false
+        gate.unlock()
+        keepAlive?.cancel()
+        guard let url, let whole = try? Data(contentsOf: url, options: .mappedIfSafe), !whole.isEmpty else {
             // Truncated chunked body: the peer sees a hard failure, not silence.
             connection.cancel()
             onDone(nil, 0)
             return
         }
+        // The lead has gone out already; what follows is the rest of the same bytes.
+        let body = !lead.isEmpty && whole.starts(with: lead) ? whole.dropFirst(lead.count) : whole[...]
         // One chunk carries the whole segment; the mapped Data goes out as its
         // own send (same no-copy rule as send() below).
         let firstBody = DispatchTime.now()

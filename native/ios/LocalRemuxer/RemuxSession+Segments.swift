@@ -27,7 +27,10 @@ extension RemuxSession {
         stateLock.unlock()
         if dead || !inRange || (pastEnd && !done) { return .notFound }
         if done { return .file(dir.appendingPathComponent(rendition.segmentName(n)), contentType: "video/iso.segment") }
-        return .streamed(contentType: "video/iso.segment") { [weak self] in self?.segmentURL(n, prefix: prefix) }
+        // A copy segment is megabytes, and on a link that only just carries it the whole of one
+        // takes most of the 6s AVPlayer allows a silent response; live keeps the plain shape.
+        if config.isLive { return .streamed(contentType: "video/iso.segment") { [weak self] in self?.segmentURL(n, prefix: prefix) } }
+        return .segment(contentType: "video/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] in self?.segmentURL(n, prefix: prefix) }
     }
 
     func initResponse(prefix: String = "", generation: Int = 0) -> LocalHTTPResponse {
@@ -53,7 +56,7 @@ extension RemuxSession {
             if FileManager.default.fileExists(atPath: url.path) { return true }
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
-            return self.failed || self.cancelled
+            return self.failed || self.cancelled || self.sourceReleased
         }
         stateLock.lock()
         let dead = failed || cancelled
@@ -83,9 +86,12 @@ extension RemuxSession {
         let url = dir.appendingPathComponent(rendition.segmentName(n))
         if done { return url }
 
-        // Outside the imminent window: restart the pipeline at this segment.
+        // Behind the producer, or more than a step ahead of it: restart the pipeline at this
+        // segment. The step is small and fixed, not the read-ahead depth: a request 10 segments
+        // ahead of a producer with a 20-segment window used to wait for the 10 between to be
+        // pulled at link speed (measured: 13.8s for a rebuild at 63s on a 30 Mb/s link).
         // A live source cannot seek; its playlist only lists produced segments.
-        if !config.isLive && (n < producing || n > producing + aheadWindow) {
+        if !config.isLive && (n < producing || n > producing + Self.seekAheadSegments) {
             stateLock.lock()
             pendingSeekSegment = n
             stateLock.unlock()
@@ -130,7 +136,7 @@ extension RemuxSession {
             let inRecovery = recovering
             if !config.isLive && !completed && !dead && !ended && ticks >= 20 && ticks % 10 == 0
                 && pendingSeekSegment == nil
-                && (n < producingNow || n > producingNow + aheadWindow)
+                && (n < producingNow || n > producingNow + Self.seekAheadSegments)
                 && abs(n - lastRequestedSegment) <= aheadWindow {
                 pendingSeekSegment = n
                 NSLog("[LocalRemuxer] Re-asserting seek for stranded segment %d (producing %d)", n, producingNow)
