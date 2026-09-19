@@ -131,15 +131,19 @@ init, engine audio) answer **410**. Measured, and Apple says it of permanent err
 AVPlayer does not retry a 410 and moves to another variant of the same master. A gone copy is
 not demand on the source. A session with no producer prunes its rungs from the rung path.
 
-## PGS from the server (RemuxSession+ServerImageSubtitles.swift)
+## Image subtitles from the server (RemuxSession+ServerImageSubtitles.swift)
 
-`/Videos/{id}/{id}/Subtitles/{index}/Stream.pgssub` is the track raw (a SUP stream; `Stream.sup`
-answers 400), extracted with `-c:s copy` and no `-copyts`, so its cues are session time. A PGS
-track names it as `serverSupUrl` whenever rungs are offered, and then no longer keeps the source
-open (`demuxerOwesTracks`). The reader opens it with the `sup` input format named, feeds a second
-`ImageSubtitleDecoder` (files `pgs{index}s-*`), and the cue manifest answers from it once it is
-complete or when the demuxer is not feeding. It starts once, only when the source is let go,
-lost, or held under a rung. DVD, DVB and XSUB have no raw server route and stay owed.
+The server hands an embedded image track over raw, and the extension follows the codec
+(measured on Jellyfin 12): PGS is `/Videos/{id}/{id}/Subtitles/{index}/Stream.pgssub`, a SUP
+stream (`.sup` and `.mks` answer 400 for it); DVD is `Stream.mks`, Matroska holding
+`dvd_subtitle` with its palette (`.sub`, `.idx`, `.vobsub`, `.dvdsub` answer 400). Both are
+extracted with `-c:s copy` and no `-copyts`, so their cues are session time. Such a track names
+the stream as `serverSupUrl` whenever rungs are offered, and then no longer keeps the source open
+(`demuxerOwesTracks`). The reader names the `sup` input format for a `.pgssub` URL and probes
+anything else, feeds a second `ImageSubtitleDecoder` (files `pgs{index}s-*`), and the cue
+manifest answers from it once it is complete or when the demuxer is not feeding. It starts once,
+only when the source is let go, lost, or held under a rung. DVB, XSUB and sidecar image files
+have no measured raw route and stay owed.
 
 ## Surround on the upper rungs (services/localRemux.ts `rungAudio`, RemuxSession+AudioLo.swift)
 

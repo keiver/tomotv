@@ -26,7 +26,7 @@ import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 // Submodules, not the barrel: the barrel re-exports liveTv, which imports this module.
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
 import { generatePlaySessionId } from "@/services/jellyfin/session";
-import { getSubtitleUrl, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
+import { getSubtitleUrl, isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
 import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
@@ -1083,7 +1083,7 @@ export type SubtitleRendition = {
   isEngineText: boolean;
   /** The server's WebVTT of an engine text track, for windows the engine cannot read in time (rung sessions). */
   serverVttUrl?: string;
-  /** The server's raw copy of a PGS track, decoded on device when the source is not being read (rung sessions). */
+  /** The server's raw copy of a PGS or DVD track, decoded on device when the source is not being read (rung sessions). */
   serverSupUrl?: string;
 };
 
@@ -1482,14 +1482,16 @@ export async function startLocalRemux(
 
   // A link that needs the rungs cannot carry the source read the engine decodes text cues from,
   // so each engine text track also names the server's WebVTT.
-  // A PGS track has the same problem and the same answer: the server hands the track over raw
-  // (Stream.pgssub) and the device still decodes and draws it. Other image formats have no raw route.
+  // An image track has the same problem and the same answer: the server hands PGS and DVD tracks
+  // over raw (Stream.pgssub, Stream.mks) and the device still decodes and draws them. DVB and XSUB
+  // have no measured raw route, and neither does a sidecar file, which the container never held.
+  const rawImageFormat = (stream: JellyfinMediaStream | undefined) => (!stream || stream.IsExternal === true ? null : isPgsCodec(stream.Codec) ? "pgssub" : isDvdSubCodec(stream.Codec) ? "mks" : null);
   const subtitlesConfig =
     rungs.length > 0
       ? subtitles.map((sub) => {
           if (sub.isEngineText) return { ...sub, serverVttUrl: getSubtitleUrl(videoItem.Id, sub.index, "vtt") };
-          if (sub.isImage && isPgsCodec(streamsByIndex.get(sub.index)?.Codec)) return { ...sub, serverSupUrl: getSubtitleUrl(videoItem.Id, sub.index, "pgssub") };
-          return sub;
+          const format = sub.isImage ? rawImageFormat(streamsByIndex.get(sub.index)) : null;
+          return format ? { ...sub, serverSupUrl: getSubtitleUrl(videoItem.Id, sub.index, format) } : sub;
         })
       : subtitles;
 

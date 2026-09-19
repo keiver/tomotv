@@ -1100,7 +1100,7 @@ describe("startLocalRemux Slipstream tier config", () => {
     expect(config.audioTracks[0].serverAudioHiUrl).toBeUndefined();
   });
 
-  it("names the server's raw stream for a PGS track, and for no other image format", async () => {
+  it("names the server's raw stream for an embedded PGS or DVD track, and for nothing else", async () => {
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
@@ -1109,6 +1109,8 @@ describe("startLocalRemux Slipstream tier config", () => {
           { Type: "Audio", Codec: "ac3", Index: 1, Channels: 6, BitRate: 640_000 },
           { Type: "Subtitle", Codec: "PGSSUB", Index: 2 },
           { Type: "Subtitle", Codec: "dvdsub", Index: 3 },
+          { Type: "Subtitle", Codec: "dvbsub", Index: 4 },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 5, IsExternal: true },
         ],
       }),
     );
@@ -1116,7 +1118,9 @@ describe("startLocalRemux Slipstream tier config", () => {
     const config = mockStartRemux.mock.calls[0][0];
     const byIndex = new Map<number, { serverSupUrl?: string }>(config.subtitles.map((sub: { index: number }) => [sub.index, sub]));
     expect(byIndex.get(2)?.serverSupUrl).toContain("/Videos/item1/item1/Subtitles/2/Stream.pgssub");
-    expect(byIndex.get(3)?.serverSupUrl).toBeUndefined();
+    expect(byIndex.get(3)?.serverSupUrl).toContain("/Videos/item1/item1/Subtitles/3/Stream.mks");
+    expect(byIndex.get(4)?.serverSupUrl).toBeUndefined();
+    expect(byIndex.get(5)?.serverSupUrl).toBeUndefined();
   });
 
   it("carries every audio track as its own AAC rendition, none dropped", async () => {

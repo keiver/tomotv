@@ -35,10 +35,16 @@ export function isImageBasedSubtitleCodec(codec: string | undefined): boolean {
   );
 }
 
-/** Blu-ray PGS, the one image format the server hands over raw (Stream.pgssub). */
+/** Blu-ray PGS, which the server hands over raw as Stream.pgssub. */
 export function isPgsCodec(codec: string | undefined): boolean {
   const lower = (codec ?? "").toLowerCase();
-  return lower === "sup" || lower.includes("pgs");
+  return lower.includes("pgs");
+}
+
+/** DVD/VobSub, which the server hands over raw in Matroska as Stream.mks (the extension follows the codec). */
+export function isDvdSubCodec(codec: string | undefined): boolean {
+  const lower = (codec ?? "").toLowerCase();
+  return lower.includes("dvdsub") || lower.includes("dvd_subtitle") || lower.includes("vobsub");
 }
 
 /**

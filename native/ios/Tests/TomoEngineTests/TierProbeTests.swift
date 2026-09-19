@@ -520,6 +520,24 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(events.first?["time"] as? Double ?? -1, 1.001, accuracy: 0.01, "cue times are the session's, as they arrive")
     }
 
+    /// A DVD track arrives in Matroska and is found by its content, not named like the PGS stream.
+    func testTheServerDvdStreamBecomesTheTracksManifest() throws {
+        let mks = fixtureUrl.deletingLastPathComponent().appendingPathComponent("dvd-track.mks")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mks.path), "Fixtures/dvd-track.mks is missing")
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, subtitles: [pgsTrack(serverSupUrl: mks.path)]))
+        defer { s.stop() }
+        s.startServerImageSubtitles()
+        settle { s.serverImageSubtitles[3]?.isComplete == true }
+        let data = try XCTUnwrap(s.subtitleCueManifest(streamIndex: 3))
+        let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(manifest["streamIndex"] as? Int, 3)
+        XCTAssertEqual(manifest["complete"] as? Bool, true)
+        let events = try XCTUnwrap(manifest["events"] as? [[String: Any]])
+        let drawn = events.compactMap { ($0["images"] as? [[String: Any]])?.first?["file"] as? String }
+        XCTAssertFalse(drawn.isEmpty, "the DVD display sets were decoded")
+        XCTAssertTrue(drawn.allSatisfy { $0.hasPrefix("pgs3s-") })
+    }
+
     // MARK: - A source lost mid-play
 
     private func isGone(_ response: LocalHTTPResponse) -> Bool {

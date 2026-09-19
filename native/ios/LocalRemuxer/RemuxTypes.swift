@@ -42,7 +42,7 @@ struct RemuxSubtitle {
     /// The server's WebVTT of an engine text track: the cue source for a window the read loop
     /// cannot reach in time (a slow link, or a session held on the server rungs).
     var serverVttUrl: String = ""
-    /// The server's raw copy of a PGS track (Stream.pgssub), for when the source is not read.
+    /// The server's raw copy of a PGS or DVD track (Stream.pgssub, Stream.mks), for when the source is not read.
     var serverSupUrl: String = ""
 }
 

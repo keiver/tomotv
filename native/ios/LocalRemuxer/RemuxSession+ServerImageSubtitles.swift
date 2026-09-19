@@ -2,8 +2,8 @@
 //  RemuxSession+ServerImageSubtitles.swift
 //  TomoTV
 //
-//  PGS cues when the source is not being read: the server's raw copy of the track, decoded
-//  here and drawn by the app like any other image subtitle.
+//  PGS and DVD cues when the source is not being read: the server's raw copy of the track,
+//  decoded here and drawn by the app like any other image subtitle.
 //
 
 import Foundation
@@ -15,7 +15,7 @@ import Libavutil
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 
 extension RemuxSession {
-    /// Starts one reader per PGS track that names a server stream. Once a session, and only when
+    /// Starts one reader per image track that names a server stream. Once a session, and only when
     /// the demuxer is not feeding them: the source let go, lost, or held under a rung. A session
     /// that reads its source never makes the server extract anything.
     func startServerImageSubtitles() {
@@ -41,11 +41,13 @@ extension RemuxSession {
         var opts: OpaquePointer? = nil
         av_dict_set(&opts, "rw_timeout", "600000000", 0)
         av_dict_set(&opts, "tls_verify", "0", 0)
-        // Named, not probed: the URL ends in .pgssub, which no demuxer claims.
-        let opened = avformat_open_input(&ctx, track.serverSupUrl, av_find_input_format("sup"), &opts)
+        // A PGS stream is named, not probed: its URL ends in .pgssub, which no demuxer claims. A DVD
+        // track arrives in Matroska, which is found by its content.
+        let isPgs = URL(string: track.serverSupUrl)?.pathExtension == "pgssub"
+        let opened = avformat_open_input(&ctx, track.serverSupUrl, isPgs ? av_find_input_format("sup") : nil, &opts)
         av_dict_free(&opts)
         guard opened >= 0, let input = ctx else {
-            NSLog("[LocalRemuxer] server PGS stream %d did not open", track.index)
+            NSLog("[LocalRemuxer] server subtitle stream %d did not open", track.index)
             return
         }
         defer { avformat_close_input(&ctx) }
@@ -69,6 +71,6 @@ extension RemuxSession {
             av_packet_unref(packet)
         }
         decoder.finish(at: config.durationSeconds)
-        NSLog("[LocalRemuxer] server PGS stream %d read to its end", track.index)
+        NSLog("[LocalRemuxer] server subtitle stream %d read to its end", track.index)
     }
 }
