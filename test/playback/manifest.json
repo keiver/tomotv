@@ -925,6 +925,19 @@
       "comment": "Slipstream drill item: T101's picture with AC3 5.1 and AAC stereo, so every rung switch is checked for both tracks."
     },
     {
+      "id": "T103",
+      "title": "T103 REMUX H264 AAC chapters",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "audio": "aac"
+      },
+      "comment": "Six embedded chapters, each with a server-extracted image: the player draws the server's pictures and makes no frame request of its own."
+    },
+    {
       "id": "L01",
       "title": "T24 MPEG2 MP2 TS",
       "live": true,
