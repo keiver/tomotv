@@ -74,7 +74,8 @@ if [ "$INCREMENTAL" = "1" ]; then
   # pod install runs from tvos/ so Pods record the final path.
   mv ios ios.iphone && mv tvos ios
   unsuffix ios tvOS
-  EXPO_TV=1 expo prebuild --platform ios --no-install
+  # --no-clean: since Expo SDK 57 prebuild clears the tree, Pods included, unless told not to.
+  EXPO_TV=1 expo prebuild --no-clean --platform ios --no-install
   mv ios tvos && mv ios.iphone ios
   if [ "$RUN_PODS" = "1" ]; then
     cache seed tvos
@@ -83,7 +84,7 @@ if [ "$INCREMENTAL" = "1" ]; then
   fi
 
   unsuffix ios iOS
-  expo prebuild --platform ios --no-install
+  expo prebuild --no-clean --platform ios --no-install
   if [ "$RUN_PODS" = "1" ]; then
     cache seed ios
     ( cd ios && pod install )
