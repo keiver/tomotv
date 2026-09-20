@@ -71,6 +71,9 @@ struct RemuxAudioTrack {
     /// The same track in the "audio-hi" group: AAC at its own channel count, for the rungs with
     /// room for it. Empty when the item has no hi group.
     var serverAudioHiUrl: String = ""
+    /// Channels each server rendition arrives with, for the master's CHANNELS. 0 = not told.
+    var serverAudioChannels = 0
+    var serverAudioHiChannels = 0
 }
 
 struct RemuxConfig {

@@ -29,7 +29,7 @@ We are the only client architecture that IS the HLS server. That is the moat.
 #EXT-X-MEDIA TYPE=AUDIO GROUP-ID="audio-lo"  the same tracks at 96 kb/s stereo AAC, from the server
 #EXT-X-MEDIA TYPE=SUBTITLES GROUP-ID="subs"  one rendition per text track, shared by every variant
 #EXT-X-STREAM-INF BANDWIDTH=<source> AUDIO="audio"    → media.m3u8   the on-device copy
-#EXT-X-STREAM-INF BANDWIDTH=236000   AUDIO="audio-lo" → t0.m3u8      the server ladder, ascending
+#EXT-X-STREAM-INF BANDWIDTH=260000   AUDIO="audio-lo" → t0.m3u8      the server ladder, ascending
 ...
 ```
 
@@ -154,6 +154,14 @@ default track's hi rate (800 kb/s and up for 5.1), and its BANDWIDTH carries tha
 one helper that also feeds the app's caps. Every track is in both groups. A stereo item has no
 hi group and its master is unchanged. Natively both groups are one code path keyed by
 (position, hi): files and routes `a{p}s-*` and `a{p}h-*`.
+
+Both groups are fetched from `/Videos/{id}/main.m3u8` with a 64px, 20 kb/s picture, never from
+`/Audio/{id}/main.m3u8`. Measured on Jellyfin 12.0.0: the audio route builds FFmpeg with no `-map`,
+so every `AudioStreamIndex` returned the same stream (T102 tracks 1 and 2 both gave `#0:1`), and
+it exits 134 on T09. The video route maps the track (`-map 0:0 -map 0:2`), costs 16 to 18 KB a
+segment (`AUDIO_CARRIER_BITRATE`, counted in each rung's BANDWIDTH), and `TierRewrapper` keeps
+only the audio. Each line of both groups carries CHANNELS (RFC 8216 4.3.4.1: same codec, different
+channel counts); an engine rendition gets it only when it leaves as AAC.
 
 ## Measuring the link (RemuxSession+LinkProbe.swift)
 

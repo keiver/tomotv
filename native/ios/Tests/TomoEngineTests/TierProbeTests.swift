@@ -431,6 +431,8 @@ final class TierProbeTests: XCTestCase {
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         var track = RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)
         track.serverAudioHiUrl = hiUrl
+        track.serverAudioChannels = 2
+        track.serverAudioHiChannels = 6
         var upper = TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_884_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480)
         upper.audioHi = !hiUrl.isEmpty
         let s = try RemuxSession(
@@ -459,6 +461,9 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(master.contains("URI=\"a0h.m3u8\""))
         XCTAssertTrue(variantLine(master, before: "t1.m3u8").contains("AUDIO=\"audio-hi\""))
         XCTAssertTrue(variantLine(master, before: "t0.m3u8").contains("AUDIO=\"audio-lo\""))
+        let lines = master.components(separatedBy: "\n")
+        XCTAssertTrue(lines.first { $0.contains("GROUP-ID=\"audio-lo\"") }?.contains("CHANNELS=\"2\"") == true, "two AAC groups of different channel counts must say so")
+        XCTAssertTrue(lines.first { $0.contains("GROUP-ID=\"audio-hi\"") }?.contains("CHANNELS=\"6\"") == true)
         XCTAssertFalse(isNotFound(s.route("a0h-init.mp4")), "the hi group has its own routes")
         XCTAssertFalse(isNotFound(s.route("a0s-init.mp4")))
     }
@@ -565,6 +570,8 @@ final class TierProbeTests: XCTestCase {
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("media.m3u8"), "the master named the copy")
         XCTAssertTrue(master.contains("t0.m3u8"))
+        let engineLine = master.components(separatedBy: "\n").first { $0.contains("GROUP-ID=\"audio\"") } ?? ""
+        XCTAssertTrue(engineLine.contains("CHANNELS=\""), "an AAC engine rendition beside the server's AAC group names its channels")
 
         s.fail("read_frame: the source went away")
 

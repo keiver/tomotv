@@ -142,6 +142,7 @@ extension RemuxSession {
         stateLock.lock()
         let tracks = liveAudioTracks ?? config.audioTracks
         let subtitles = liveSubtitles ?? config.subtitles
+        let aacChannels = engineAacChannels
         stateLock.unlock()
         // Same predicate as the pipeline's splitAudio, or the master names a rendition never built.
         let useAudioGroup = tracks.count > 1 || !config.tiers.isEmpty
@@ -154,6 +155,9 @@ extension RemuxSession {
                 // present. Emitting DEFAULT=YES,AUTOSELECT=NO makes
                 // AVFoundation reject the whole master playlist (-12642).
                 line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
+                // Beside the server's AAC groups an AAC rendition of another channel count must say so
+                // (RFC 8216 4.3.4.1). Every other codec is left as it is.
+                if audioLoActive, let channels = aacChannels[track.index] { line += ",CHANNELS=\"\(channels)\"" }
                 line += ",URI=\"\(audioPrefix(position)).m3u8\""
                 out += line + "\n"
             }
@@ -168,6 +172,7 @@ extension RemuxSession {
                 var line = "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio-lo\",NAME=\"\(name)\""
                 line += ",LANGUAGE=\"\(track.language.isEmpty ? "und" : track.language)\""
                 line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
+                if track.serverAudioChannels > 0 { line += ",CHANNELS=\"\(track.serverAudioChannels)\"" }
                 line += ",URI=\"a\(position)s.m3u8\""
                 out += line + "\n"
             }
@@ -179,6 +184,7 @@ extension RemuxSession {
                 var line = "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio-hi\",NAME=\"\(name)\""
                 line += ",LANGUAGE=\"\(track.language.isEmpty ? "und" : track.language)\""
                 line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
+                if track.serverAudioHiChannels > 0 { line += ",CHANNELS=\"\(track.serverAudioHiChannels)\"" }
                 line += ",URI=\"a\(position)h.m3u8\""
                 out += line + "\n"
             }

@@ -1461,14 +1461,19 @@ export async function startLocalRemux(
       ? audioTracks.map((track) => {
           const stream = streamsByIndex.get(track.index);
           const serverAudioUrl = getAudioRenditionUrl(videoItem.Id, videoItem, track.index, generatePlaySessionId(), SURVIVAL_AUDIO_BITRATE);
-          if (!hiGroupOffered) return { ...track, serverAudioUrl };
+          // The server is asked for a maximum: a mono track stays mono (measured). CHANNELS names what arrives.
+          const sourceChannels = stream?.Channels ?? 2;
+          const serverAudioChannels = Math.min(sourceChannels, 2);
+          if (!hiGroupOffered) return { ...track, serverAudioUrl, serverAudioChannels };
           // Every track is a member of both groups (RFC 8216 4.3.4.1.1); a stereo one rides hi at its own two channels.
           const surround = surroundAudioBitrate(stream);
-          const hiChannels = surround === null ? 2 : Math.min(stream?.Channels ?? 2, SURROUND_MAX_CHANNELS);
+          const hiChannels = surround === null ? 2 : Math.min(sourceChannels, SURROUND_MAX_CHANNELS);
           return {
             ...track,
             serverAudioUrl,
+            serverAudioChannels,
             serverAudioHiUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, generatePlaySessionId(), surround ?? SURVIVAL_AUDIO_BITRATE, hiChannels),
+            serverAudioHiChannels: Math.min(sourceChannels, hiChannels),
           };
         })
       : audioTracks;

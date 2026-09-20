@@ -1099,7 +1099,17 @@ extension RemuxSession {
         // open has nowhere to write and must not try.
         if goneAlready { return }
 
+        var aacChannels: [Int: Int] = [:]
+        for index in audioIndices {
+            guard let stream = input.pointee.streams[Int(index)] else { continue }
+            let rendition = builtRenditions.first { $0.inputStreams.contains(index) }
+            guard let par = rendition?.transcoder?.encoderParameters ?? stream.pointee.codecpar else { continue }
+            if par.pointee.codec_id == AV_CODEC_ID_AAC, par.pointee.ch_layout.nb_channels > 0 {
+                aacChannels[Int(index)] = Int(par.pointee.ch_layout.nb_channels)
+            }
+        }
         stateLock.lock()
+        engineAacChannels = aacChannels
         sourceReady = true
         stateLock.unlock()
         mark("renditions_built")
