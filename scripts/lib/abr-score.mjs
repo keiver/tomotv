@@ -189,11 +189,14 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder, heights, 
   // A hand-over scenario replaces the item once, by definition; nothing else may replace it at all.
   const allowed = scenario.handsOver || scenario.climbsByRebuild ? 1 : 0;
   check("player item survives", replacements <= allowed, `${replacements} replacements, ${allowed} allowed`);
+  // A hand-over scenario with no hand-over never met its fault.
+  if (scenario.handsOver) check("hands over once", replacements === 1, `${replacements} replacements`);
   // Playback reached the end of the window, and kept advancing after any replacement.
   const ticks = timeline.filter((r) => r.kind === "tick");
   const lastTick = ticks.at(-1);
   const played = firstFrame && lastTick ? lastTick.position - firstFrame.position : 0;
-  const window = firstFrame && lastTick ? (lastTick.ms - firstFrame.ms) / 1000 : 0;
+  // The run the scenario asks for, not the one that was recorded: ticks that stop early are a failure.
+  const window = firstFrame ? scenario.seconds - firstFrame.ms / 1000 : 0;
   check("plays to the end of the run", window > 0 && played >= window * 0.9, `${played.toFixed(0)}s of media over ${window.toFixed(0)}s`);
   const lastReplacement = timeline.filter((r) => r.kind === "reload" || r.kind === "climb").at(-1);
   if (lastReplacement) {

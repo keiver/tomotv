@@ -259,6 +259,7 @@ export function deviceTimeline({ consoleLog, probeFile }) {
   const at = (t) => t - t0;
   timeline.push({ kind: "start", ms: 0 });
   let lastPosition = -1;
+  let buffering = false;
   let streams = 0;
   /** A climb rebuilds the session, so the stream event that follows it is that rebuild, not a reload. */
   let climbing = false;
@@ -266,10 +267,14 @@ export function deviceTimeline({ consoleLog, probeFile }) {
     const ms = at(e.t);
     if (e.event === "progress") {
       const position = e.position ?? 0;
-      timeline.push({ kind: "tick", ms, position, ahead: 0, status: 2, advanced: position > lastPosition + 0.05 });
+      // A progress event inside a buffering spell is still that spell, or its length reads as zero.
+      timeline.push({ kind: "tick", ms, position, ahead: 0, status: buffering ? 1 : 2, advanced: !buffering && position > lastPosition + 0.05 });
       lastPosition = position;
     }
     if (e.event === "playing") timeline.push({ kind: "firstFrame", ms, position: lastPosition });
+    if (e.event === "buffering") buffering = Boolean(e.on);
+    // The spell runs to the moment it ends: a last stalled tick there, then the one that closes it.
+    if (e.event === "buffering" && !e.on) timeline.push({ kind: "tick", ms, position: e.position ?? lastPosition, ahead: 0, status: 1, advanced: false });
     if (e.event === "buffering") timeline.push({ kind: "tick", ms, position: e.position ?? lastPosition, ahead: 0, status: e.on ? 1 : 2, advanced: !e.on });
     if (e.event === "tracks") timeline.push({ kind: "tracks", ms, audio: e.audio });
     // The first stream event is the session opening; a later one is a genuine rebuild.
@@ -380,6 +385,7 @@ async function main() {
   fs.mkdirSync(path.dirname(RESULTS), { recursive: true });
   fs.appendFileSync(RESULTS, lines.join("\n") + "\n");
   console.log(`\nresults: ${RESULTS}`);
+  if (lines.some((line) => line.startsWith("- FAIL") || line.startsWith("- ERROR"))) process.exitCode = 1;
 }
 
 // Only when run as the command; importing this file re-scores saved runs without starting one.
