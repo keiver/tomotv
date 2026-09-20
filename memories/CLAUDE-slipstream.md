@@ -172,11 +172,13 @@ engine measures it itself. Two kinds of evidence, kept apart:
 
 - **The wire**: a range read of the source (the probe), and the copy pipeline's own reads WHILE
   NOTHING ELSE TRANSFERS. These may move the rate either way. A source read beside a rung or an
-  audio transfer is that read's share of the link: it is counted with what ran beside it, over
-  the wall clock, as a floor. The producer's bytes go in the `TransferLedger` as they are read,
-  so a probe taken beside the producer counts them.
-- **A floor**: rung and audio-lo transfers. A rung is sent as it is encoded, so its pace is a
-  floor under the link, never a reading of it (a recovered 30 Mb/s link read 2.59 Mb/s from rungs).
+  audio transfer is that read's share of the link: its own bytes over the wall clock, as a floor
+  (each transfer beside it notes itself, so counting them here too counted them twice). The
+  producer's bytes go in the `TransferLedger` as they are read, so a probe beside it counts them.
+- **A floor**: rung and server audio transfers. The server sends a segment whole once it is encoded
+  (measured: 3.2 MB in 2 ms after a 1.06 s wait) and only the body is timed, so delivery is never
+  encoder-paced; a short body still reads under a fast wire on TCP's ramp (a recovered 30 Mb/s
+  link read 2.59 Mb/s from rungs). So a recovery shows as rungs outrunning the last wire reading.
   A floor may RAISE the rate and never lowers it, and its time is the UNION of overlapping
   transfers: adding a rung's span to its audio's halved a 1.5 Mb/s link.
 - **A probe counts what ran beside it** (`TransferLedger`): alone it reads its share of a busy

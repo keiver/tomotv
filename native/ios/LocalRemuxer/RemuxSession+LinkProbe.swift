@@ -10,9 +10,9 @@ extension RemuxSession {
     /// How long a first byte may take before the link reads as slow.
     static let linkProbeStartSeconds = 3.0
 
-    /// How often the link is re-read while the session rides a rung. The rungs are transcoded as
-    /// they are sent, so their transfers measure the server's encoder and never the wire: a link
-    /// that recovered read 2.59 Mb/s from them, under a 6.3 Mb/s copy it could carry twice over.
+    /// How often the link is re-read while the session rides a rung. A rung's body is small and
+    /// rides TCP's ramp, so it reads under a fast wire: a link that recovered to 30 Mb/s read
+    /// 2.59 Mb/s from rungs, under a 6.3 Mb/s copy it could carry twice over.
     static let linkRepeatSeconds = 30.0
     /// The shortest gap between two probes, however many slow deliveries ask for one.
     static let linkReprobeGapSeconds = 8.0
@@ -190,11 +190,10 @@ extension RemuxSession {
         reportLinkLocked()
     }
 
-    /// Folds one server rendition's transfer in. A rung is sent as it is encoded, so its pace is a
-    /// floor under the link and never a reading of it: it may raise the rate and never lowers it
-    /// (measured: a recovered 30 Mb/s link read 2.59 Mb/s from rungs, which cancelled the climb a
-    /// probe had just armed). Transfers overlap, a rung beside its audio, so the time is their
-    /// union: adding the two halved a 1.5 Mb/s link.
+    /// Folds one server rendition's transfer in. The server sends a segment whole once it is encoded
+    /// (measured: 3.2 MB in 2 ms after a 1.06 s wait), and only the body is timed, so the pace is the
+    /// wire's; a short body still reads under it on TCP's ramp. So it is a floor: it may raise the
+    /// rate and never lowers it. Transfers overlap, a rung beside its audio, so the time is their union.
     func noteFloorSample(bytes: Int64, from start: Date, to end: Date) {
         guard bytes > 0, end > start else { return }
         stateLock.lock()
