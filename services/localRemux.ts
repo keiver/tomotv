@@ -538,7 +538,14 @@ export type EngineLinkReport = { token: string; bps: number; copyListed?: boolea
 
 type LinkListener = (report: EngineLinkReport) => void;
 const linkListeners = new Map<string, Set<LinkListener>>();
+const linkReports = new Map<string, EngineLinkReport | null>();
 let linkSubscription: { remove: () => void } | null = null;
+
+function rememberLink(token: string, report: EngineLinkReport | null): void {
+  linkReports.delete(token);
+  linkReports.set(token, report);
+  if (linkReports.size > 32) linkReports.delete(linkReports.keys().next().value!);
+}
 
 function watchEngineLink(): void {
   if (linkSubscription || !isLocalRemuxAvailable()) return;
@@ -548,6 +555,8 @@ function watchEngineLink(): void {
   }
   const emitter = new NativeEventEmitter(LocalRemuxer);
   linkSubscription = emitter.addListener("onEngineLink", (report: EngineLinkReport) => {
+    if (!report.token || !Number.isFinite(report.bps) || report.bps <= 0 || linkReports.get(report.token) === null) return;
+    rememberLink(report.token, report);
     linkListeners.get(report.token)?.forEach((listener) => listener(report));
   });
 }
@@ -562,6 +571,8 @@ export function subscribeEngineLink(token: string, listener: LinkListener): () =
   const listeners = linkListeners.get(token) ?? new Set<LinkListener>();
   listeners.add(listener);
   linkListeners.set(token, listeners);
+  const latest = linkReports.get(token);
+  if (latest) listener(latest);
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) linkListeners.delete(token);
@@ -1459,6 +1470,7 @@ export async function startLocalRemux(
   const tierOffered = tiersConfig.length > 0;
   if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierOffered });
 
+  watchEngineLink();
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
     itemId: videoItem.Id,
@@ -1667,6 +1679,8 @@ export function imagesAt(events: ImageSubtitleEvent[], time: number): ImageSubti
  */
 export async function stopLocalRemux(token: string | null): Promise<void> {
   if (!isLocalRemuxAvailable() || !token) return;
+  rememberLink(token, null);
+  linkListeners.delete(token);
   try {
     await LocalRemuxer.stopRemux(token);
   } catch (error) {

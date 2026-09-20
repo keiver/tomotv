@@ -2,7 +2,7 @@
  * The engine session's startup measurement and link steering: the pre-flight gate, the cap
  * AVPlayer picks variants under, the climb back to the copy, and the keep-or-hand-over verdict.
  */
-import { createPreflightGate, dropThroughputWatch, keptForReason, linkAffordsChapterFrames, nextLinkCap, planLinkClimb, stillPullingInput, type ThroughputWatch } from "../videoPlayback/engineSession";
+import { createPreflightGate, dropThroughputWatch, keptForReason, linkAffordsChapterFrames, nextLinkCap, stillPullingInput, type ThroughputWatch } from "../videoPlayback/engineSession";
 
 describe("createPreflightGate", () => {
   jest.useFakeTimers();
@@ -82,38 +82,6 @@ describe("nextLinkCap", () => {
 
   it("follows a material drop", () => {
     expect(nextLinkCap({ bps: 4_000_000, currentCap: 8_000_000, floorBps: 0 })).toBe(3_200_000);
-  });
-});
-
-describe("planLinkClimb", () => {
-  const base = { bps: 12_000_000, sourceBps: 8_000_000, copyListed: false as boolean | null, armed: false, nowMs: 100_000, cooldownUntilMs: 0 };
-
-  it("arms the hold when the link clears the source with margin", () => {
-    expect(planLinkClimb(base)).toBe("arm");
-  });
-
-  it("holds when the master already lists the copy: AVPlayer climbs by itself", () => {
-    expect(planLinkClimb({ ...base, copyListed: true })).toBe("hold");
-  });
-
-  it("holds when the engine reported nothing about the copy", () => {
-    expect(planLinkClimb({ ...base, copyListed: null })).toBe("hold");
-  });
-
-  it("cancels a pending hold when the link falls back under the margin", () => {
-    expect(planLinkClimb({ ...base, bps: 8_400_000, armed: true })).toBe("cancel");
-  });
-
-  it("holds while a rebuild is already armed", () => {
-    expect(planLinkClimb({ ...base, armed: true })).toBe("hold");
-  });
-
-  it("holds inside the cooldown, so a marginal link cannot bounce the session", () => {
-    expect(planLinkClimb({ ...base, cooldownUntilMs: 160_000 })).toBe("hold");
-  });
-
-  it("holds when the source rate is unknown, since there is nothing to climb to", () => {
-    expect(planLinkClimb({ ...base, sourceBps: 0 })).toBe("hold");
   });
 });
 

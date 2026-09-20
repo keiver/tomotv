@@ -14,10 +14,6 @@ export const LINK_CAP_SHARE = 0.8;
 export const LINK_CAP_HYSTERESIS = 0.15;
 /** The link must clear the source rate by this margin before a climb back to the copy. */
 export const LINK_CLIMB_MARGIN = 1.2;
-/** How long the link must carry the source before the session is rebuilt on the on-device copy. */
-export const LINK_CLIMB_HOLD_MS = 5_000;
-/** Smallest gap between two such rebuilds, so a link hovering at the source rate cannot bounce. */
-export const LINK_CLIMB_COOLDOWN_MS = 60_000;
 /** What AVPlayer buffers ahead to reach the first frame on the rung lane, where its own threshold costs a server encode per segment. */
 export const SLIPSTREAM_FORWARD_BUFFER_SECONDS = 12;
 /** A live stream the player has not opened by then is treated as dropped; the live ladder takes it. */

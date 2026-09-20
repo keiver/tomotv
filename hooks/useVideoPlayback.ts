@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
 import { Platform } from "react-native";
-import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, OnPlaybackStateChangedData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
+import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, OnPlaybackStateChangedData, OnBandwidthUpdateData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
 import {
   fetchVideoDetails,
   isAudioOnly,
@@ -93,7 +93,6 @@ import {
   keptForReason,
   nextLinkCap,
   linkAffordsChapterFrames,
-  planLinkClimb,
   stillPullingInput,
   type PreflightOutcome,
   type ThroughputWatch,
@@ -103,8 +102,6 @@ import {
   DIRECT_STALL_DEADLINE_MS,
   ENGINE_PREFLIGHT_CAP_MS,
   ENGINE_SEGMENT_DEADLINE_MS,
-  LINK_CLIMB_COOLDOWN_MS,
-  LINK_CLIMB_HOLD_MS,
   LIVE_START_DEADLINE_MS,
   PLAYHEAD_EPSILON_SEC,
   SLIPSTREAM_FORWARD_BUFFER_SECONDS,
@@ -213,6 +210,8 @@ export interface VideoPlaybackResult {
     onAudioTracks: (data: { audioTracks: AudioTrack[] }) => void;
     onTextTracks: (data: { textTracks: TextTrack[] }) => void;
     onPlaybackStateChanged: (event: OnPlaybackStateChangedData) => void;
+    onBandwidthUpdate: (event: OnBandwidthUpdateData) => void;
+    onReadyForDisplay: () => void;
   };
 
   // State machine state
@@ -313,9 +312,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const pinnedCapRef = useRef<number | null>(null);
   // Smallest variant the master lists, the floor every measured cap is held above.
   const capFloorRef = useRef(0);
-  // The pending hold on a link that cleared the source rate, and the earliest a rebuild may follow.
-  const climbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const climbAtRef = useRef(0);
   // True while the session rides the Slipstream tier as its survival floor: the
   // engine primary is unproducible on this link by design, so primary-starvation
   // teardowns (stall restart, engineStarving handover) are suppressed. The plain
@@ -1042,6 +1038,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // live (RNV maxBitRate -> preferredPeakBitRate), so a drop or a recovery moves it
           // without rebuilding the session; a fixed pin stays the ceiling it already is.
           const stopLink = subscribeEngineLink(token, ({ bps, copyListed }) => {
+            if (!isMountedRef.current || requestIdRef.current !== currentRequestId || localRemuxTokenRef.current !== token) return;
             probeEmit("link", { bps: Math.round(bps), copyListed: copyListed ?? null });
             setLinkAffordsFrames(linkAffordsChapterFrames(bps, details.MediaSources?.[0]?.Bitrate ?? 0));
             if (pinnedCapRef.current != null || currentModeRef.current !== "localRemux") return;
@@ -1053,43 +1050,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             linkCapRef.current = cap;
             setVideoMaxBitRate(cap);
             logger.info("Slipstream cap follows the measured link", { service: "useVideoPlayback", linkMbps: Math.round(bps / 100_000) / 10, capMbps: Math.round(cap / 100_000) / 10 });
-          });
-          // A master written for a link below the source carries no copy variant: AVPlayer
-          // evaluates whatever it is offered, and a copy segment a slow link cannot finish
-          // fails the whole item on its 6s deadline. So a link that recovers is climbed by
-          // rebuilding the session at the playhead, once the recovery has held.
-          const engineSourceBps = details.MediaSources?.[0]?.Bitrate ?? 0;
-          const climbToCopy = (bps: number) => {
-            climbTimerRef.current = null;
-            if (!isMountedRef.current || currentModeRef.current !== "localRemux") return;
-            climbAtRef.current = Date.now() + LINK_CLIMB_COOLDOWN_MS;
-            logger.info("Link carries the source again, rebuilding on the on-device copy", {
-              service: "useVideoPlayback",
-              linkMbps: Math.round(bps / 100_000) / 10,
-              position: Math.round(currentTimeRef.current),
-            });
-            probeEmit("fallback", { from: "localRemux", to: "localRemux", reason: "link recovered above source" });
-            restartAtPlayhead(currentTimeRef.current);
-          };
-          const stopClimb = subscribeEngineLink(token, ({ bps, copyListed }) => {
-            if (currentModeRef.current !== "localRemux") return;
-            // The hold runs on a timer, not on the next report: a link fast enough to fill the
-            // rung read-ahead stops the engine's server reads, and with them the reports it is
-            // measured from (on the TV the last report came 1.5s into the recovery).
-            const verdict = planLinkClimb({
-              bps,
-              sourceBps: engineSourceBps,
-              copyListed,
-              armed: climbTimerRef.current !== null,
-              nowMs: Date.now(),
-              cooldownUntilMs: climbAtRef.current,
-            });
-            if (verdict === "cancel") {
-              if (climbTimerRef.current) clearTimeout(climbTimerRef.current);
-              climbTimerRef.current = null;
-            } else if (verdict === "arm") {
-              climbTimerRef.current = setTimeout(() => climbToCopy(bps), LINK_CLIMB_HOLD_MS);
-            }
           });
           // The engine reports a pipeline failure as it happens, so an input it could not open
           // ends the wait now rather than at the deadline.
@@ -1108,9 +1068,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           throughputRef.current.unsubscribe = () => {
             stopThroughput();
             stopLink();
-            stopClimb();
-            if (climbTimerRef.current) clearTimeout(climbTimerRef.current);
-            climbTimerRef.current = null;
             stopFailure();
             stopStage();
             stopTier();
@@ -1319,6 +1276,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // chain is not lowerable, and one there costs the whole hook its memoization.
           // False means this attempt is over (stale, or the error was already dispatched).
           const openEngineLane = async (): Promise<boolean> => {
+            linkCapRef.current = 0;
+            capFloorRef.current = 0;
+            pinnedCapRef.current = null;
+            onTierLaneRef.current = false;
+            if (!isLiveRef.current && slipstreamEligible(details) && !playsFromDisk(videoId)) {
+              const quality = await getQualitySettings();
+              if (requestIdRef.current !== currentRequestId) return false;
+              pinnedCapRef.current = gatewayMaxBitRate(quality) ?? null;
+            }
+            setVideoMaxBitRate(pinnedCapRef.current);
             // The playing track's Jellyfin index must reach the remux engine:
             // it orders the HLS renditions so that track is DEFAULT=YES. In-
             // playback switches are seamless (AVPlayer swaps renditions, no
@@ -1365,25 +1332,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               seekToPositionAfterLoadRef.current = null;
               currentTimeRef.current = engineOffset;
               logger.info("Engine session opens at the resume point", { service: "useVideoPlayback", offsetSeconds: Math.round(engineOffset) });
-            }
-            // The master carries the on-device copy and every server rung, and AVPlayer switches
-            // between them itself. What it cannot know is the link behind the loopback, which it
-            // measures as 127.0.0.1: without a ceiling it commits to a variant the link cannot
-            // deliver and stalls between attempts (drill S3). So the engine's measured link becomes
-            // the cap, and a viewer's fixed pin outranks it.
-            if (!isLiveRef.current && slipstreamEligible(details) && !playsFromDisk(videoId)) {
-              const quality = await getQualitySettings();
-              const pinned = gatewayMaxBitRate(quality);
-              pinnedCapRef.current = pinned ?? null;
-              linkCapRef.current = 0;
-              onTierLaneRef.current = true;
-              setVideoMaxBitRate(pinned ?? null);
-            } else {
-              pinnedCapRef.current = null;
-              linkCapRef.current = 0;
-              capFloorRef.current = 0;
-              onTierLaneRef.current = false;
-              setVideoMaxBitRate(null);
             }
             return true;
           };
@@ -2161,7 +2109,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (signature !== lastLoggedAudioTracksRef.current) {
         lastLoggedAudioTracksRef.current = signature;
         // The count AVPlayer actually offers, so a drill can see a variant switch drop a track.
-        probeEmit("tracks", { audio: data.audioTracks.length, selected: selected?.index ?? -1 });
+        probeEmit("tracks", {
+          audio: data.audioTracks.length,
+          selected: selected?.index ?? -1,
+          identities: data.audioTracks.map(({ index, title, language }) => ({ index, title, language })),
+        });
         logger.debug("Audio tracks", { service: "useVideoPlayback", count: data.audioTracks.length, selected: selected?.index });
       }
 
@@ -2256,6 +2208,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (trackSignature !== lastLoggedTextTracksRef.current) {
         lastLoggedTextTracksRef.current = trackSignature;
         const selected = data.textTracks.find((track) => track.selected);
+        probeEmit("textTracks", {
+          subtitles: data.textTracks.length,
+          selected: selected?.index ?? -1,
+          identities: data.textTracks.map(({ index, title, language }) => ({ index, title, language })),
+        });
         const detail = {
           service: "useVideoPlayback",
           count: data.textTracks.length,
@@ -2530,8 +2487,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     pinnedCapRef.current = null;
     capFloorRef.current = 0;
     setForwardBufferSeconds(null);
-    if (climbTimerRef.current) clearTimeout(climbTimerRef.current);
-    climbTimerRef.current = null;
     onTierLaneRef.current = false;
     stopFrameProvider(frameProviderTokenRef.current);
     frameProviderTokenRef.current = null;
@@ -2770,6 +2725,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     syncPlayManager.notePlaybackState(event);
   }, []);
 
+  const onBandwidthUpdate = useCallback((event: OnBandwidthUpdateData) => {
+    if (!isMountedRef.current || Platform.OS !== "ios" || !Number.isFinite(event.bitrate) || event.bitrate <= 0) return;
+    probeEmit("access", { indicated: event.bitrate, position: currentTimeRef.current });
+  }, []);
+
+  const onReadyForDisplay = useCallback(() => {
+    if (!isMountedRef.current) return;
+    probeEmit("displayReady", { position: currentTimeRef.current });
+  }, []);
+
+  useEffect(() => {
+    probeEmit("cap", { bps: videoMaxBitRate });
+  }, [videoMaxBitRate]);
+
   /**
    * Retry playback from the beginning
    */
@@ -2827,8 +2796,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       onAudioTracks,
       onTextTracks,
       onPlaybackStateChanged,
+      onBandwidthUpdate,
+      onReadyForDisplay,
     }),
-    [onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks, onPlaybackStateChanged],
+    [onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks, onPlaybackStateChanged, onBandwidthUpdate, onReadyForDisplay],
   );
 
   // Hand the manager a way to drive this player while a group is joined. Re-registered

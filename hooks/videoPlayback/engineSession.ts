@@ -108,30 +108,6 @@ export function linkAffordsChapterFrames(bps: number | null, sourceBps: number):
   return bps !== null && sourceBps > 0 && bps >= sourceBps * LINK_CLIMB_MARGIN;
 }
 
-export interface ClimbInput {
-  bps: number;
-  /** The source's own rate; 0 means nothing to climb back to. */
-  sourceBps: number;
-  /** The master already lists the copy, so AVPlayer climbs to it itself. */
-  copyListed: boolean | null | undefined;
-  /** A hold is already running. */
-  armed: boolean;
-  nowMs: number;
-  /** Earliest a rebuild may follow the last one. */
-  cooldownUntilMs: number;
-}
-
-/**
- * A master written for a link below the source carries no copy variant, so a recovered link
- * is climbed by rebuilding the session at the playhead once the recovery has held.
- */
-export function planLinkClimb(input: ClimbInput): "arm" | "cancel" | "hold" {
-  if (input.sourceBps <= 0 || input.copyListed !== false) return "hold";
-  if (input.bps < input.sourceBps * LINK_CLIMB_MARGIN) return "cancel";
-  if (input.armed || input.nowMs < input.cooldownUntilMs) return "hold";
-  return "arm";
-}
-
 export interface KeptForInput {
   belowRealtime: boolean;
   live: boolean;

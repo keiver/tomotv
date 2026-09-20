@@ -14,6 +14,7 @@ import {
   startLocalRemux,
   stopLocalRemux,
   subscribeEngineFailure,
+  subscribeEngineLink,
   subscribeEngineTier,
   subtitleRenditions,
   videoCodecTag,
@@ -30,7 +31,7 @@ const mockDecodeSupport = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
 const mockListeners = new Map<string, (payload: unknown) => void>();
 /** The events the mocked binary declares; a shorter list is an older build. */
-const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed"];
+const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineLink"];
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -99,6 +100,41 @@ beforeEach(() => {
 describe("isLocalRemuxAvailable", () => {
   it("is available when the native module is present on iOS", () => {
     expect(isLocalRemuxAvailable()).toBe(true);
+  });
+});
+
+describe("engine link ownership", () => {
+  it("replays a report emitted before native startup resolves only to that session", async () => {
+    const token = "early-link-session";
+    const report = { token, bps: 1_500_000, copyListed: false };
+    mockStartRemux.mockImplementationOnce(async () => {
+      mockListeners.get("onEngineLink")!(report);
+      return `http://127.0.0.1:5000/${token}/master.m3u8`;
+    });
+    await startLocalRemux(item());
+    const listener = jest.fn();
+    const other = jest.fn();
+    const stop = subscribeEngineLink(token, listener);
+    const stopOther = subscribeEngineLink("another-session", other);
+    expect(listener).toHaveBeenCalledWith(report);
+    expect(other).not.toHaveBeenCalled();
+    stop();
+    stopOther();
+    await stopLocalRemux(token);
+  });
+
+  it("discards cached and late reports when their session stops", async () => {
+    const token = "stopped-link-session";
+    const listener = jest.fn();
+    const stop = subscribeEngineLink(token, listener);
+    mockListeners.get("onEngineLink")!({ token, bps: 2_000_000 });
+    await stopLocalRemux(token);
+    listener.mockClear();
+    mockListeners.get("onEngineLink")!({ token, bps: 30_000_000 });
+    const stopAgain = subscribeEngineLink(token, listener);
+    expect(listener).not.toHaveBeenCalled();
+    stop();
+    stopAgain();
   });
 });
 

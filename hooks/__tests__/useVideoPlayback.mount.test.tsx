@@ -33,7 +33,10 @@ import {
   stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
+  slipstreamEligible,
+  subscribeEngineLink,
 } from "@/services/localRemux";
+import { getQualitySettings } from "@/services/jellyfin/session";
 import { Platform } from "react-native";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { probeEmit } from "@/services/playbackProbe";
@@ -245,6 +248,9 @@ describe("useVideoPlayback (mounted)", () => {
     mockFailure = () => null;
     mockProgress = () => null;
     throughputListener = null;
+    (subscribeEngineLink as jest.Mock).mockImplementation(() => jest.fn());
+    (slipstreamEligible as jest.Mock).mockReturnValue(false);
+    (getQualitySettings as jest.Mock).mockResolvedValue({ mode: "auto", index: 5, label: "Original" });
     (isLiveSource as jest.Mock).mockReturnValue(false);
     mockPreflight = () => ({
       token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
@@ -1124,6 +1130,91 @@ describe("useVideoPlayback (mounted)", () => {
   });
 
   describe("player callbacks", () => {
+    it.each(["auto", "fixed"])("keeps the %s cap when a link report arrives during engine startup", async (mode) => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      mockTierDeclared = true;
+      (slipstreamEligible as jest.Mock).mockReturnValue(true);
+      (getQualitySettings as jest.Mock).mockResolvedValue({ mode, index: 1, bitrate: 896_000 });
+      (subscribeEngineLink as jest.Mock).mockImplementation((token, listener) => {
+        listener({ token, bps: 1_500_000, copyListed: false });
+        return jest.fn();
+      });
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      expect(ref.current!.get().maxBitRate).toBe(mode === "fixed" ? 896_000 : 1_200_000);
+      const listener = (subscribeEngineLink as jest.Mock).mock.calls.at(-1)![1];
+      await act(async () => {
+        listener({ bps: 30_000_000, copyListed: false });
+      });
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.objectContaining({ reason: "link recovered above source" }));
+      await act(async () => renderer.unmount());
+      mockProbeEmit.mockClear();
+      listener({ bps: 600_000, copyListed: false });
+      expect(mockProbeEmit).not.toHaveBeenCalled();
+    });
+
+    it("records display readiness separately from playback progress", async () => {
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      const result = ref.current!.get();
+      result.currentTimeRef.current = 3;
+      mockProbeEmit.mockClear();
+      result.videoCallbacks.onReadyForDisplay();
+      expect(mockProbeEmit).toHaveBeenCalledWith("displayReady", { position: 3 });
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("playing", expect.anything());
+      await act(async () => renderer.unmount());
+      mockProbeEmit.mockClear();
+      result.videoCallbacks.onReadyForDisplay();
+      expect(mockProbeEmit).not.toHaveBeenCalled();
+    });
+
+    it("records AVPlayer's indicated bitrate at the playhead without changing the cap", async () => {
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      const result = ref.current!.get();
+      result.currentTimeRef.current = 2.25;
+      const cap = result.maxBitRate;
+      const state = result.state;
+
+      await act(async () => {
+        result.videoCallbacks.onBandwidthUpdate({ bitrate: 6_256_603 });
+      });
+
+      expect(mockProbeEmit).toHaveBeenCalledWith("access", { indicated: 6_256_603, position: 2.25 });
+      expect(ref.current!.get().maxBitRate).toBe(cap);
+      expect(ref.current!.get().state).toBe(state);
+      await act(async () => renderer.unmount());
+
+      mockProbeEmit.mockClear();
+      result.videoCallbacks.onBandwidthUpdate({ bitrate: 260_000 });
+      expect(mockProbeEmit).not.toHaveBeenCalled();
+    });
+
+    it("does not record an unknown or invalid indicated bitrate", async () => {
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      mockProbeEmit.mockClear();
+
+      for (const bitrate of [-1, 0, NaN, Infinity]) {
+        ref.current!.get().videoCallbacks.onBandwidthUpdate({ bitrate });
+      }
+
+      expect(mockProbeEmit).not.toHaveBeenCalled();
+      await act(async () => renderer.unmount());
+    });
+
+    it("does not label Android's bandwidth estimate as AVPlayer's indicated bitrate", async () => {
+      const originalOS = Platform.OS;
+      try {
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
+        mockProbeEmit.mockClear();
+        ref.current!.get().videoCallbacks.onBandwidthUpdate({ bitrate: 6_256_603 });
+        expect(mockProbeEmit).not.toHaveBeenCalled();
+        await act(async () => renderer.unmount());
+      } finally {
+        Object.defineProperty(Platform, "OS", { configurable: true, value: originalOS });
+      }
+    });
+
     it("reaches PLAYING through onLoad and onProgress", async () => {
       const { ref } = await mount({ videoId: "video-1" });
 

@@ -475,7 +475,20 @@ export function PlayerHost() {
   // The held URI is the channel already left: its load, end and failure are not the attempt's.
   const showingHeld = sourceUri === null && shownUri !== null;
   const attemptCallbacks = useMemo(
-    () => (showingHeld ? { ...videoCallbacks, onLoad: ignore, onProgress: ignore, onError: ignore, onEnd: ignore, onBuffer: ignore, onPlaybackStateChanged: ignore } : videoCallbacks),
+    () =>
+      showingHeld
+        ? {
+            ...videoCallbacks,
+            onLoad: ignore,
+            onProgress: ignore,
+            onError: ignore,
+            onEnd: ignore,
+            onBuffer: ignore,
+            onPlaybackStateChanged: ignore,
+            onBandwidthUpdate: ignore,
+            onReadyForDisplay: ignore,
+          }
+        : videoCallbacks,
     [showingHeld, videoCallbacks],
   );
   const presentedCallbacks = useMemo(() => {
