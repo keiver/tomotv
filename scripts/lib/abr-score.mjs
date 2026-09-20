@@ -12,6 +12,8 @@ export const SLOW_START_MS = 8_000;
 export const RECOVERY_BUDGET_SEC = 45;
 /** The longest the picture may be gone while a rebuild's new player item opens. */
 export const REBUILD_GAP_SEC = 5;
+/** How far short of the scenario a recording may stop and still count as the whole run. */
+export const RECORDING_SLACK_SEC = 3;
 
 /** How long a steady link gets to settle before its variant is judged, and the span judged at its end. */
 export const SETTLE_SEC = 45;
@@ -124,6 +126,8 @@ export function stallEpisodes(timeline) {
       open = null;
     }
   }
+  // A spell still open when the recording stops ran until then.
+  if (open) open.toMs = Math.max(open.toMs, ...timeline.map((r) => r.ms ?? 0));
   if (open && open.toMs - open.fromMs >= 1000) episodes.push(open);
   return episodes;
 }
@@ -190,14 +194,26 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder, heights, 
   const allowed = scenario.handsOver || scenario.climbsByRebuild ? 1 : 0;
   check("player item survives", replacements <= allowed, `${replacements} replacements, ${allowed} allowed`);
   // A hand-over scenario with no hand-over never met its fault.
-  if (scenario.handsOver) check("hands over once", replacements === 1, `${replacements} replacements`);
+  if (scenario.handsOver) {
+    // The fault is the drop: only a move to the server lane after it is the hand-over under test.
+    const dropAt = at(scenario.profile[1]?.atSec ?? 0);
+    const handOvers = timeline.filter((r) => r.kind === "reload" && r.to === "transcode" && r.ms >= dropAt);
+    check("hands over once", replacements === 1 && handOvers.length === 1, `${replacements} replacements, ${handOvers.length} to the server after the drop`);
+  }
   // Playback reached the end of the window, and kept advancing after any replacement.
   const ticks = timeline.filter((r) => r.kind === "tick");
   const lastTick = ticks.at(-1);
   const played = firstFrame && lastTick ? lastTick.position - firstFrame.position : 0;
   // The run the scenario asks for, not the one that was recorded: ticks that stop early are a failure.
   const window = firstFrame ? scenario.seconds - firstFrame.ms / 1000 : 0;
-  check("plays to the end of the run", window > 0 && played >= window * 0.9, `${played.toFixed(0)}s of media over ${window.toFixed(0)}s`);
+  // The recording itself has to reach the end: one that stops early proves nothing about the rest.
+  const recordedSec = lastTick ? (lastTick.ms - t0) / 1000 : 0;
+  const covered = recordedSec >= scenario.seconds - RECORDING_SLACK_SEC;
+  check(
+    "plays to the end of the run",
+    covered && window > 0 && played >= window * 0.9,
+    `${played.toFixed(0)}s of media over ${window.toFixed(0)}s, recorded to ${recordedSec.toFixed(0)}s of ${scenario.seconds}s`,
+  );
   const lastReplacement = timeline.filter((r) => r.kind === "reload" || r.kind === "climb").at(-1);
   if (lastReplacement) {
     const after = ticks.filter((r) => r.ms > lastReplacement.ms);
@@ -206,8 +222,9 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder, heights, 
   }
 
   const rank = (variant) => (variant === "copy" ? 99 : Number(variant.slice(1)));
+  // Delivered segments only: a request that failed or was given up shows nothing was played from it.
   const requests = timeline
-    .filter((r) => r.kind === "req")
+    .filter((r) => r.kind === "req" && r.status >= 200 && r.status < 300 && (r.bytes ?? 0) > 0)
     .map((r) => ({ ms: r.ms, ...classify(r.path.split("/").pop()) }))
     .filter((r) => r.video);
   for (const [i, step] of scenario.profile.entries()) {

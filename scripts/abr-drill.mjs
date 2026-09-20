@@ -46,6 +46,8 @@ const FIXTURE_ROOT = path.join(os.homedir(), "Movies", "development-videos");
 const LAN_HOST = opt("--lan-host", "192.168.1.5");
 const DEVELOPER_DIR = "/Applications/Xcode.app/Contents/Developer";
 const DEVICECTL = `${DEVELOPER_DIR}/usr/bin/devicectl`;
+/** Longest the app takes from launch to its first probe event. */
+const DEVICE_LAUNCH_SEC = 8;
 
 /** Manifest title -> item id, by path under the fixture root (read-only). */
 async function resolveIds(env, ids) {
@@ -244,7 +246,9 @@ async function deviceRun(env, device, item, scenario, base) {
     { stdio: ["ignore", out, out], env: { ...process.env, DEVICECTL_CHILD_TOMO_REQUEST_LOG: "1" } },
   );
   await control({ profile: scenario.profile, refuse: scenario.refuse ?? null, rttMs: scenario.rttMs ?? 0 });
-  await new Promise((r) => setTimeout(r, scenario.seconds * 1000));
+  // The recording's clock starts at the app's first probe event, seconds after this launch: the
+  // wait runs that much longer, or every device recording ends short of its scenario.
+  await new Promise((r) => setTimeout(r, (scenario.seconds + DEVICE_LAUNCH_SEC) * 1000));
   child.kill();
   fs.closeSync(out);
   await copy("from", "Library/Caches/playback-probe.jsonl", probeFile).catch(() => {});
@@ -286,7 +290,7 @@ export function deviceTimeline({ consoleLog, probeFile }) {
     if (e.event === "fallback") {
       const climb = Boolean(e.reason?.includes("recovered"));
       climbing = true;
-      timeline.push({ kind: climb ? "climb" : "reload", ms, detail: e.reason });
+      timeline.push({ kind: climb ? "climb" : "reload", ms, detail: e.reason, to: e.to });
     }
     if (e.event === "error") timeline.push({ kind: "failed", ms, error: e.message });
   }
@@ -336,6 +340,8 @@ async function main() {
       if (id === "S7" && item.id !== "T102") continue;
       // A broken route is set on the host drill's own router; the app has no such seam.
       if (device && scenario.breakPath) continue;
+      // The hand-over is the app's move to the server lane; the host drill has no app to make it.
+      if (!device && scenario.handsOver) continue;
       const base = path.join(RUN_DIR, `${stamp}-${item.id}-${id}`);
       const proxy = device ? null : startProxy(`${base}-proxy.jsonl`);
       try {
