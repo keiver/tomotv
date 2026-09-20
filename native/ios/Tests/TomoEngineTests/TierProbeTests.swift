@@ -525,6 +525,21 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(events.first?["time"] as? Double ?? -1, 1.001, accuracy: 0.01, "cue times are the session's, as they arrive")
     }
 
+    /// A stream that is not there on the first try is read on a later one.
+    func testAServerStreamThatFailsOnceIsReadOnTheNextTry() throws {
+        let sup = fixtureUrl.deletingLastPathComponent().appendingPathComponent("pgs-track.sup")
+        let late = FileManager.default.temporaryDirectory.appendingPathComponent("late-\(UUID().uuidString).pgssub")
+        defer { try? FileManager.default.removeItem(at: late) }
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, subtitles: [pgsTrack(serverSupUrl: late.path)]))
+        defer { s.stop() }
+        s.startServerImageSubtitles()
+        usleep(500_000)
+        XCTAssertNil(s.serverImageSubtitles[3], "the first try found nothing")
+        try FileManager.default.copyItem(at: sup, to: late)
+        settle(8) { s.serverImageSubtitles[3]?.isComplete == true }
+        XCTAssertEqual(s.serverImageSubtitles[3]?.isComplete, true)
+    }
+
     /// A DVD track arrives in Matroska and is found by its content, not named like the PGS stream.
     func testTheServerDvdStreamBecomesTheTracksManifest() throws {
         let mks = fixtureUrl.deletingLastPathComponent().appendingPathComponent("dvd-track.mks")
