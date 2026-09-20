@@ -688,7 +688,16 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
         const copy = variants.find((v) => v.uri === "media.m3u8");
         if (!copy) problems.push("master playlist withholds the on-device copy on a link that carries it");
         if (copy && new Set([copy, ...rungs].map((v) => v.subs)).size > 1) problems.push("variants name different SUBTITLES groups: a switch would drop subtitles");
-        if (rungs.some((rung) => rung.audio !== "audio-lo")) problems.push("a rung does not name the audio-lo group, so its audio comes from the engine it exists to relieve");
+        // Either server group: audio-lo, or audio-hi on the rungs with room for the track's own channels.
+        const serverGroups = new Set(["audio-lo", "audio-hi"]);
+        if (rungs.some((rung) => !serverGroups.has(rung.audio))) problems.push("a rung does not name a server audio group, so its audio comes from the engine it exists to relieve");
+        const declared = new Set(
+          master
+            .split("\n")
+            .filter((line) => line.startsWith("#EXT-X-MEDIA:TYPE=AUDIO"))
+            .map((line) => /GROUP-ID="([^"]*)"/.exec(line)?.[1]),
+        );
+        if (rungs.some((rung) => !declared.has(rung.audio))) problems.push("a rung names an audio group the master does not declare");
         if (rungs.some((rung) => rung.codecs && !rung.codecs.includes(","))) problems.push("a rung's CODECS omits the audio codec of its group");
         const ascending = rungs.every((rung, i) => i === 0 || rung.bandwidth > rungs[i - 1].bandwidth);
         if (!ascending) problems.push(`rung BANDWIDTHs are not ascending: ${rungs.map((r) => r.bandwidth).join(", ")}`);

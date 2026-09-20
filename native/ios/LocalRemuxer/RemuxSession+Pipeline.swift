@@ -1555,12 +1555,7 @@ extension RemuxSession {
                 usleep(100_000)
             }
             // A sample that spanned a hold would spread its bytes over the whole of it.
-            if heldThisPass {
-                besideAtLinkSample = transfers.carried()
-                linkSampleStartedAt = Date()
-                bytesSinceLinkSample = 0
-                readSecondsSinceLinkSample = 0
-            }
+            if heldThisPass { restartLinkSample() }
 
             let readStarted = Date()
             if let queued = queuedPacket {
@@ -1692,28 +1687,7 @@ extension RemuxSession {
             defer { av_packet_unref(pkt) }
             inputBytesSinceLog += Int64(pkt.pointee.size)
             bytesInSegment += Int64(pkt.pointee.size)
-            // Sample the link inside the segment too: a 4MB segment on a slow link takes 20s, and
-            // the pacing rate has to follow a link that drops mid-segment, not trail it by a segment.
-            bytesSinceLinkSample += Int64(pkt.pointee.size)
-            readSecondsSinceLinkSample += readTook
-            // The ledger carries the producer's bytes as they are read, so a probe beside it counts them.
-            transfers.note(bytes: Int64(pkt.pointee.size))
-            if bytesSinceLinkSample >= 512 * 1024 {
-                // Alone on the link a source read IS the wire. Beside a rung or an audio transfer it
-                // is a share, noted as a floor over the wall clock. Its own bytes only: each transfer
-                // beside it notes itself, and the floor sums them over the union of their spans.
-                let carried = transfers.carried()
-                let beside = carried - besideAtLinkSample - bytesSinceLinkSample
-                if beside > 0 {
-                    noteFloorSample(bytes: bytesSinceLinkSample, from: linkSampleStartedAt, to: Date())
-                } else {
-                    noteLinkSample(bytes: bytesSinceLinkSample, seconds: readSecondsSinceLinkSample)
-                }
-                besideAtLinkSample = carried
-                linkSampleStartedAt = Date()
-                bytesSinceLinkSample = 0
-                readSecondsSinceLinkSample = 0
-            }
+            noteSourceRead(bytes: Int64(pkt.pointee.size), seconds: readTook)
             stateLock.lock()
             pulledBytes += Int64(pkt.pointee.size)
             stateLock.unlock()

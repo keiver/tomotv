@@ -620,6 +620,33 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(s.serverImageSubtitles[3]?.isComplete, true)
     }
 
+    /// A stream that breaks off mid-read is not complete with the cues it got: it is read again.
+    func testAServerStreamThatBreaksOffIsReadAgainInFull() throws {
+        let sup = try Data(contentsOf: fixtureUrl.deletingLastPathComponent().appendingPathComponent("pgs-track.sup"))
+        let whole = try RemuxSession(config: makeConfig(durationSeconds: 18, subtitles: [pgsTrack(serverSupUrl: fixtureUrl.deletingLastPathComponent().appendingPathComponent("pgs-track.sup").path)]))
+        defer { whole.stop() }
+        whole.startServerImageSubtitles()
+        settle { whole.serverImageSubtitles[3]?.isComplete == true }
+        let expected = try cueCount(whole)
+
+        let server = try RawHTTPStub()
+        defer { server.stop() }
+        server.answer("/Subtitles/3/Stream.pgssub", .cutShort(sup, sent: sup.count / 2), .full(sup))
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, subtitles: [pgsTrack(serverSupUrl: "\(server.base)/Subtitles/3/Stream.pgssub")]))
+        defer { s.stop() }
+        s.startServerImageSubtitles()
+        settle(10) { server.requests("/Subtitles/3/Stream.pgssub") >= 2 && s.serverImageSubtitles[3]?.isComplete == true }
+        XCTAssertEqual(server.requests("/Subtitles/3/Stream.pgssub"), 2, "the broken read was tried again")
+        XCTAssertEqual(try cueCount(s), expected, "and the track holds every cue, not half of them")
+    }
+
+    private func cueCount(_ s: RemuxSession) throws -> Int {
+        let data = try XCTUnwrap(s.subtitleCueManifest(streamIndex: 3))
+        let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(manifest["complete"] as? Bool, true)
+        return (manifest["events"] as? [[String: Any]])?.count ?? 0
+    }
+
     /// A DVD track arrives in Matroska and is found by its content, not named like the PGS stream.
     func testTheServerDvdStreamBecomesTheTracksManifest() throws {
         let mks = fixtureUrl.deletingLastPathComponent().appendingPathComponent("dvd-track.mks")
@@ -778,6 +805,32 @@ final class TierProbeTests: XCTestCase {
             wait(for: [done], timeout: 5)
         }
         XCTAssertFalse(s.isTierDisabled, "a segment the player gave up is not the server refusing")
+    }
+
+    /// A rung landing beside the producer is counted once: by its own transfer, not again by the
+    /// producer's sample (which read a 9.6 Mb/s second as 14.4).
+    func testASourceReadBesideARungCountsTheRungOnce() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        let t0 = Date()
+        s.restartLinkSample(now: t0)
+        s.transfers.note(bytes: 600_000)
+        s.noteFloorSample(bytes: 600_000, from: t0, to: t0.addingTimeInterval(1))
+        s.noteSourceRead(bytes: 600_000, seconds: 0.5, now: t0.addingTimeInterval(1))
+        XCTAssertEqual(s.pacedLinkBps ?? 0, 9_600_000, accuracy: 1, "1.2 MB over one shared second")
+    }
+
+    /// A producer that sat out a minute under a rung starts its next sample when it wakes: the
+    /// minute's rung bytes and the minute itself are no part of it.
+    func testASampleDoesNotSpanAHold() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        let t0 = Date()
+        s.restartLinkSample(now: t0)
+        s.transfers.note(bytes: 3_000_000)
+        s.restartLinkSample(now: t0.addingTimeInterval(60))
+        s.noteSourceRead(bytes: 600_000, seconds: 1, now: t0.addingTimeInterval(61))
+        XCTAssertEqual(s.wireLinkBps ?? 0, 4_800_000, accuracy: 1, "600 KB read alone in one second is the wire")
     }
 
     /// The server's audio arrives beside a 64px picture (the one route that maps the track asked

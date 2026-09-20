@@ -138,6 +138,33 @@ extension RemuxSession {
     /// enough to follow a link that drops mid-playback.
     static let linkWindowSeconds = 8.0
 
+    /// One packet read off the source, by the pipeline thread alone. Sampled inside the segment too:
+    /// a 4 MB segment on a slow link takes 20s, and the rate has to follow a link that drops in it.
+    /// Alone on the link a source read IS the wire. Beside a rung or an audio transfer it is a share,
+    /// noted as a floor of its own bytes: each transfer beside it notes itself, and the floor sums them.
+    func noteSourceRead(bytes: Int64, seconds: Double, now: Date = Date()) {
+        bytesSinceLinkSample += bytes
+        readSecondsSinceLinkSample += seconds
+        // The ledger carries the producer's bytes as they are read, so a probe beside it counts them.
+        transfers.note(bytes: bytes)
+        guard bytesSinceLinkSample >= 512 * 1024 else { return }
+        let beside = transfers.carried() - besideAtLinkSample - bytesSinceLinkSample
+        if beside > 0 {
+            noteFloorSample(bytes: bytesSinceLinkSample, from: linkSampleStartedAt, to: now)
+        } else {
+            noteLinkSample(bytes: bytesSinceLinkSample, seconds: readSecondsSinceLinkSample)
+        }
+        restartLinkSample(now: now)
+    }
+
+    /// Starts the next sample from here: after one is taken, and after the producer sat out a hold.
+    func restartLinkSample(now: Date = Date()) {
+        besideAtLinkSample = transfers.carried()
+        linkSampleStartedAt = now
+        bytesSinceLinkSample = 0
+        readSecondsSinceLinkSample = 0
+    }
+
     /// Folds one read of the SOURCE into the link rate. The source is paced by nothing but the
     /// wire, and its reads come off one connection, so their times add without overlapping.
     func noteLinkSample(bytes: Int64, seconds: Double) {
