@@ -627,6 +627,19 @@ final class TierProbeTests: XCTestCase {
         XCTAssertFalse(s.isTierDisabled, "a fetch the player gave up is not a failing tier")
     }
 
+    /// The server's audio arrives beside a 64px picture (the one route that maps the track asked
+    /// for): the rendition AVPlayer gets is the audio alone, on the session's clock.
+    func testTheAudioCarrierIsRewrappedToItsAudioAlone() throws {
+        let fixtures = fixtureUrl.deletingLastPathComponent()
+        let initData = try Data(contentsOf: fixtures.appendingPathComponent("audio-carrier-init.mp4"))
+        let segment = try Data(contentsOf: fixtures.appendingPathComponent("audio-carrier-seg0.mp4"))
+        let out = try XCTUnwrap(TierRewrapper.rewrapAudio(initData: initData, segmentData: segment, targetStartSeconds: 12))
+        XCTAssertNotNil(out.initSegment.range(of: Data("mp4a".utf8)))
+        XCTAssertNil(out.initSegment.range(of: Data("avc1".utf8)), "the picture is dropped")
+        XCTAssertEqual(out.durationSeconds, 6, accuracy: 0.1)
+        XCTAssertLessThan(out.mediaSegment.count, segment.count)
+    }
+
     /// Two requests want the same segment: one leaving does not take it from the other.
     func testASecondLiveRequestKeepsTheFetch() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)

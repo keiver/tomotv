@@ -182,6 +182,8 @@ export const SURVIVAL_AUDIO_BITRATE = 96_000;
 /** The audio-hi group: AAC at the track's own channel count, six at most (measured: the server's AAC 5.1 at 384 kb/s). */
 const SURROUND_BITRATE_PER_CHANNEL = 64_000;
 const SURROUND_MAX_CHANNELS = 6;
+/** The 64px picture a server audio rendition arrives beside (measured: 16 to 18 KB of a 6s segment). */
+export const AUDIO_CARRIER_BITRATE = 24_000;
 
 /** What a multichannel track costs in the audio-hi group; null for mono and stereo, which have no hi rendition of their own. */
 function surroundAudioBitrate(stream: JellyfinMediaStream | undefined): number | null {
@@ -196,7 +198,7 @@ function surroundAudioBitrate(stream: JellyfinMediaStream | undefined): number |
  */
 function rungAudio(rung: TierRung, defaultTrack: JellyfinMediaStream | undefined): { hi: boolean; bandwidth: number } {
   const surround = surroundAudioBitrate(defaultTrack);
-  return surround !== null && rung.bitrate >= surround * 2 ? { hi: true, bandwidth: surround } : { hi: false, bandwidth: SURVIVAL_AUDIO_BITRATE };
+  return surround !== null && rung.bitrate >= surround * 2 ? { hi: true, bandwidth: surround + AUDIO_CARRIER_BITRATE } : { hi: false, bandwidth: SURVIVAL_AUDIO_BITRATE + AUDIO_CARRIER_BITRATE };
 }
 
 const SLIPSTREAM_LADDER: TierRung[] = [
@@ -1439,7 +1441,7 @@ export async function startLocalRemux(
   const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
   // Two server audio groups, both AAC: audio-lo is 96 kb/s stereo for the rungs a thin link lives
   // on, audio-hi keeps the track's channels for the rungs with room for them (rungAudio).
-  const tierAudioPlan = { codec: "aac" as const, bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" };
+  const tierAudioPlan = { bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" };
   const defaultAudioStream = streamsByIndex.get(audioTracks[0]?.index);
   // One TierConfig per offered rung, ascending.
   const tiersConfig = rungs.map((rung) => {
@@ -1458,7 +1460,7 @@ export async function startLocalRemux(
     rungs.length > 0
       ? audioTracks.map((track) => {
           const stream = streamsByIndex.get(track.index);
-          const serverAudioUrl = getAudioRenditionUrl(videoItem.Id, videoItem, track.index, tierAudioPlan.codec, stream?.Channels ?? 6, generatePlaySessionId(), SURVIVAL_AUDIO_BITRATE);
+          const serverAudioUrl = getAudioRenditionUrl(videoItem.Id, videoItem, track.index, generatePlaySessionId(), SURVIVAL_AUDIO_BITRATE);
           if (!hiGroupOffered) return { ...track, serverAudioUrl };
           // Every track is a member of both groups (RFC 8216 4.3.4.1.1); a stereo one rides hi at its own two channels.
           const surround = surroundAudioBitrate(stream);
@@ -1466,16 +1468,7 @@ export async function startLocalRemux(
           return {
             ...track,
             serverAudioUrl,
-            serverAudioHiUrl: getAudioRenditionUrl(
-              videoItem.Id,
-              videoItem,
-              track.index,
-              tierAudioPlan.codec,
-              stream?.Channels ?? 6,
-              generatePlaySessionId(),
-              surround ?? SURVIVAL_AUDIO_BITRATE,
-              hiChannels,
-            ),
+            serverAudioHiUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, generatePlaySessionId(), surround ?? SURVIVAL_AUDIO_BITRATE, hiChannels),
           };
         })
       : audioTracks;

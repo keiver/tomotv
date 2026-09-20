@@ -1069,13 +1069,16 @@ describe("startLocalRemux Slipstream tier config", () => {
     const config = mockStartRemux.mock.calls[0][0];
     // A 20 Mbps source clears every rung's undercut; the ladder leads with the two 144p rungs.
     expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 256, 426, 640, 854, 1280, 1920]);
-    expect(config.tiers.map((t: { bandwidth: number }) => t.bandwidth)[0]).toBe(140_000 + 96_000);
+    expect(config.tiers.map((t: { bandwidth: number }) => t.bandwidth)[0]).toBe(140_000 + 96_000 + 24_000);
     // Seven channels ride audio-hi as six at 64 kb/s each; a rung joins it once its video is twice that.
     expect(config.tiers.map((t: { audioGroup: string }) => t.audioGroup)).toEqual(["lo", "lo", "lo", "hi", "hi", "hi", "hi"]);
     const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
-    expect(r480.bandwidth).toBe(1_500_000 + 384_000);
+    expect(r480.bandwidth).toBe(1_500_000 + 384_000 + 24_000);
     expect(r480.codecs).toBe("avc1.64001F,mp4a.40.2");
-    expect(config.audioTracks[0].serverAudioUrl).toContain("/Audio/item1/main.m3u8");
+    // The video route: the audio one ignores AudioStreamIndex and returns the same stream for every track.
+    expect(config.audioTracks[0].serverAudioUrl).toContain("/Videos/item1/main.m3u8");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioStreamIndex=1");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("VideoBitrate=20000&AudioBitrate=96000&MaxWidth=64");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=aac");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioBitrate=96000");
     expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");
@@ -1096,7 +1099,7 @@ describe("startLocalRemux Slipstream tier config", () => {
 
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.tiers.every((t: { audioGroup: string }) => t.audioGroup === "lo")).toBe(true);
-    expect(config.tiers.find((t: { width: number }) => t.width === 854).bandwidth).toBe(1_500_000 + 96_000);
+    expect(config.tiers.find((t: { width: number }) => t.width === 854).bandwidth).toBe(1_500_000 + 96_000 + 24_000);
     expect(config.audioTracks[0].serverAudioHiUrl).toBeUndefined();
   });
 
@@ -1225,8 +1228,8 @@ describe("slipstreamTierBandwidth", () => {
       { Type: "Audio", Codec: "aac", Index: 2, BitRate: 256_000 },
     ]);
     // The stereo track as default keeps the ladder on audio-lo; the seven-channel one puts the top rung on audio-hi.
-    expect(slipstreamTierBandwidth(withTwoTracks, 2)).toBe(6_000_000 + 96_000);
-    expect(slipstreamTierBandwidth(withTwoTracks)).toBe(6_000_000 + 384_000);
+    expect(slipstreamTierBandwidth(withTwoTracks, 2)).toBe(6_000_000 + 96_000 + 24_000);
+    expect(slipstreamTierBandwidth(withTwoTracks)).toBe(6_000_000 + 384_000 + 24_000);
   });
 
   it("still offers the ladder when the first track is uncarriable: a later track anchors it", () => {
@@ -1234,7 +1237,7 @@ describe("slipstreamTierBandwidth", () => {
       { Type: "Audio", Codec: "dsd_lsbf", Index: 1, Channels: 2, SampleRate: 44100, BitDepth: 24 },
       { Type: "Audio", Codec: "ac3", Index: 2, BitRate: 640_000 },
     ]);
-    expect(slipstreamTierBandwidth(uncarriableFirst)).toBe(6_000_000 + 96_000);
+    expect(slipstreamTierBandwidth(uncarriableFirst)).toBe(6_000_000 + 96_000 + 24_000);
   });
 });
 

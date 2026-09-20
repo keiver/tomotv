@@ -38,37 +38,29 @@ export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem 
 }
 
 /**
- * Slipstream audio-lo: Jellyfin's audio-only HLS of ONE track of a video item
- * (route verified against server source: no item-type guard, `-vn -acodec …`).
- * main.m3u8, NEVER master.m3u8 — the master route NREs server-side for video
- * items with text subtitles (DynamicHlsHelper, null VideoRequest).
- * `copy` ships the original bits for codecs AVPlayer decodes; everything else
- * becomes server FLAC at the source channel count — the rung mirrors the
- * engine group's codec family so a variant switch stays inside AVPlayer's
- * sanctioned switching envelope (WWDC20 10158).
+ * One audio track of a video item as AAC in fMP4, for the rungs' server audio groups. The video
+ * route, because /Audio/{id}/main.m3u8 ignores AudioStreamIndex (no -map: every track came back
+ * as the same stream); the 64px picture beside it costs 16 KB a segment and the engine drops it.
  */
 export function getAudioRenditionUrl(
   itemId: string,
   videoItem: JellyfinVideoItem | null | undefined,
   audioStreamIndex: number,
-  audioCodec: "copy" | "flac" | "aac",
-  channels: number,
   playSessionId: string,
-  aacBitrate?: number,
-  aacChannels: number = 2,
+  bitrate: number,
+  maxChannels: number = 2,
 ): string {
   const config = getCachedConfig();
   if (!config.server || !config.apiKey) return "";
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
-  // aac is the survival codec: a link below the smallest copy-audio rung takes stereo AAC so the
-  // floor fits, at the cost of a gapped switch that a link this slow never reaches the engine to make.
   return (
-    `${config.server}/Audio/${itemId}/main.m3u8?` +
+    `${config.server}/Videos/${itemId}/main.m3u8?` +
     `ApiKey=${config.apiKey}&MediaSourceId=${mediaSourceId}` +
-    `&AudioCodec=${audioCodec}&AudioStreamIndex=${audioStreamIndex}` +
-    (audioCodec === "flac" ? `&TranscodingMaxAudioChannels=${channels}` : "") +
-    (audioCodec === "aac" ? `&AudioBitrate=${aacBitrate ?? 96000}&TranscodingMaxAudioChannels=${aacChannels}` : "") +
-    `&SegmentContainer=mp4&SegmentLength=6&PlaySessionId=${playSessionId}`
+    `&VideoCodec=h264&AudioCodec=aac&AudioStreamIndex=${audioStreamIndex}` +
+    `&VideoBitrate=20000&AudioBitrate=${bitrate}&MaxWidth=64` +
+    `&SegmentContainer=mp4&SegmentLength=6&MinSegments=1` +
+    `&BreakOnNonKeyFrames=false&TranscodingMaxAudioChannels=${maxChannels}` +
+    `&PlaySessionId=${playSessionId}`
   );
 }
 
