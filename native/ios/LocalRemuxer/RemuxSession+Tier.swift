@@ -36,6 +36,11 @@ extension RemuxSession {
         if dead { dropTier("\(reason), after \(Self.tierFailureLimit) failures") }
     }
 
+    /// Whether a fetch that returned nothing was the server saying no. A 2xx whose body never
+    /// finished is a transfer that broke off, most often the player giving the segment up: two of
+    /// those in a row are an ordinary drop, not a dead ladder.
+    static func refused(_ status: Int) -> Bool { status > 0 && !(200..<300).contains(status) }
+
     /// Retires the tier for the session and stops the server transcodes it started.
     func dropTier(_ reason: String) {
         stateLock.lock()
@@ -190,7 +195,7 @@ extension RemuxSession {
         let fetched = fetchTier(remote, key: "t\(rung)-\(n)", counted: counted)
         guard let ts = fetched.data else {
             NSLog("[LocalRemuxer] Slipstream: rung %d segment %d fetch failed (HTTP %d)", rung, n, fetched.status)
-            if fetched.status > 0 { recordTierFailure("HTTP \(fetched.status)") }
+            if Self.refused(fetched.status) { recordTierFailure("HTTP \(fetched.status)") }
             return nil
         }
         // A segment that took most of its own length to arrive cannot be played from for long:
@@ -286,7 +291,7 @@ extension RemuxSession {
             let fetched = TierHeadFetcher.fetch(remote, bytes: Self.tierInitHeadBytes, timeout: 30, ledger: transfers)
             guard let head = fetched.data else {
                 NSLog("[LocalRemuxer] Slipstream: rung %d segment %d head fetch failed (HTTP %d)", rung, n, fetched.status)
-                if fetched.status > 0 { recordTierFailure("HTTP \(fetched.status)") }
+                if Self.refused(fetched.status) { recordTierFailure("HTTP \(fetched.status)") }
                 return nil
             }
             let aligned = head.prefix(head.count / 188 * 188)
@@ -325,7 +330,7 @@ extension RemuxSession {
             if let span = whole.span { noteFloorSample(bytes: span.bytes, from: span.start, to: span.end) }
             guard let ts = whole.data else {
                 NSLog("[LocalRemuxer] Slipstream: rung %d segment %d fetch failed (HTTP %d)", rung, n, whole.status)
-                if whole.status > 0 { recordTierFailure("HTTP \(whole.status)") }
+                if Self.refused(whole.status) { recordTierFailure("HTTP \(whole.status)") }
                 return nil
             }
             guard let rewrapped = TierRewrapper.rewrap(tsData: ts, targetStartSeconds: segmentStartSeconds(n)) else {

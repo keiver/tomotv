@@ -188,7 +188,7 @@ extension RemuxSession {
         }
         guard let initData = initFetch.data, let segData = segFetch.data else {
             NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed (HTTP %d)", n, segFetch.status)
-            if segFetch.status > 0 { recordTierFailure("audio HTTP \(segFetch.status)") }
+            if Self.refused(segFetch.status) { recordTierFailure("audio HTTP \(segFetch.status)") }
             return nil
         }
         // Anchor: chained when sequential, declared grid on a jump.

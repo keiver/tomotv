@@ -1,3 +1,4 @@
+import Network
 import XCTest
 
 @testable import TomoEngine
@@ -60,6 +61,89 @@ final class TierServerStub: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+/// A real socket, for what URLProtocol cannot show: a 200 whose body stops short, or never comes.
+final class RawHTTPStub {
+    enum Answer {
+        case full(Data)
+        /// Declares the whole length, sends `sent` bytes of it, and closes.
+        case cutShort(Data, sent: Int)
+        /// Answers 200, sends the first `sent` bytes, and then nothing more, the connection left open.
+        case stalls(Data, sent: Int)
+    }
+
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "raw-http-stub")
+    private let lock = NSLock()
+    private var answers: [String: [Answer]] = [:]
+    private var seen: [String] = []
+    private var open: [NWConnection] = []
+
+    var base: String { "http://127.0.0.1:\(listener.port?.rawValue ?? 0)" }
+
+    init() throws {
+        listener = try NWListener(using: .tcp, on: .any)
+        let ready = DispatchSemaphore(value: 0)
+        listener.stateUpdateHandler = { if case .ready = $0 { ready.signal() } }
+        listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
+        listener.start(queue: queue)
+        _ = ready.wait(timeout: .now() + 5)
+    }
+
+    /// Successive answers for a path; the last one repeats.
+    func answer(_ path: String, _ sequence: Answer...) {
+        lock.lock()
+        answers[path] = sequence
+        lock.unlock()
+    }
+
+    func requests(_ path: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return seen.filter { $0 == path }.count
+    }
+
+    func stop() {
+        listener.cancel()
+        lock.lock()
+        open.forEach { $0.cancel() }
+        lock.unlock()
+    }
+
+    private func serve(_ connection: NWConnection) {
+        lock.lock()
+        open.append(connection)
+        lock.unlock()
+        connection.start(queue: queue)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, _, _ in
+            guard let self, let data, let line = String(decoding: data, as: UTF8.self).components(separatedBy: "\r\n").first else { return connection.cancel() }
+            let target = line.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            let path = target.components(separatedBy: "?")[0]
+            self.lock.lock()
+            self.seen.append(path)
+            var sequence = self.answers[path] ?? []
+            let answer = sequence.first
+            if sequence.count > 1 {
+                sequence.removeFirst()
+                self.answers[path] = sequence
+            }
+            self.lock.unlock()
+            func head(_ status: String, _ length: Int) -> Data {
+                Data("HTTP/1.1 \(status)\r\nContent-Length: \(length)\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n".utf8)
+            }
+            switch answer {
+            case .full(let body):
+                connection.send(content: head("200 OK", body.count) + body, completion: .contentProcessed { _ in connection.cancel() })
+            case .cutShort(let body, let sent):
+                connection.send(content: head("200 OK", body.count) + body.prefix(sent), completion: .contentProcessed { _ in connection.cancel() })
+            case .stalls(let body, let sent):
+                connection.send(content: head("200 OK", body.count) + body.prefix(sent), completion: .contentProcessed { _ in })
+            case nil:
+                connection.send(content: head("404 Not Found", 0), completion: .contentProcessed { _ in connection.cancel() })
+            }
+        }
+    }
 }
 
 /// The tier lists on grid adoption and is retired in the background when the server stops
@@ -647,6 +731,53 @@ final class TierProbeTests: XCTestCase {
         wait(for: [done], timeout: 5)
         XCTAssertNil(served, "the fetch ended with the server still holding the segment")
         XCTAssertFalse(s.isTierDisabled, "a fetch the player gave up is not a failing tier")
+    }
+
+    /// Measured at 0.6 Mb/s: AVPlayer gave up two rung segments in a row, each fetch ended with the
+    /// server's 200 already in hand ("fetch failed (HTTP 200)"), and the whole ladder was dropped.
+    func testOnlyAnErrorStatusIsTheServerRefusing() {
+        XCTAssertFalse(RemuxSession.refused(200), "a body that never finished is a transfer that broke off")
+        XCTAssertFalse(RemuxSession.refused(0), "and so is one that never answered")
+        XCTAssertTrue(RemuxSession.refused(404))
+        XCTAssertTrue(RemuxSession.refused(500))
+    }
+
+    /// The measured shape itself: the server has answered 200, the body has not come, and the player
+    /// gives the segment up. Twice in a row, and the ladder is still there.
+    func testSegmentsGivenUpAfterThe200DoNotRetireTheLadder() throws {
+        let server = try RawHTTPStub()
+        defer { server.stop() }
+        server.answer("/Videos/x/main.m3u8", .full(playlist))
+        server.answer("/Videos/x/seg0.ts", .full(tierSegment))
+        server.answer("/Videos/x/seg1.ts", .stalls(tierSegment, sent: 4096))
+        server.answer("/Videos/x/seg2.ts", .stalls(tierSegment, sent: 4096))
+        // A source that opens: a session whose pipeline failed answers every rung route notFound.
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                inputUrl: fixtureUrl.absoluteString,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: "")],
+                tierPlaylistUrl: "\(server.base)/Videos/x/main.m3u8?ApiKey=k&PlaySessionId=p", tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
+        s.testLinkBps = 2_000_000
+        s.start()
+        defer { s.stop() }
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        for n in [1, 2] {
+            let response = s.tierSegmentResponse(rung: 0, n)
+            guard case .segment(_, _, _, let serve) = response else { return XCTFail("segment \(n) is not served as a fetch: \(response)") }
+            let request = SegmentRequest()
+            let done = expectation(description: "segment \(n) returns")
+            DispatchQueue.global().async {
+                XCTAssertNil(serve(request))
+                done.fulfill()
+            }
+            settle { server.requests("/Videos/x/seg\(n).ts") > 0 }
+            usleep(300_000)
+            request.abandon()
+            wait(for: [done], timeout: 5)
+        }
+        XCTAssertFalse(s.isTierDisabled, "a segment the player gave up is not the server refusing")
     }
 
     /// The server's audio arrives beside a 64px picture (the one route that maps the track asked
