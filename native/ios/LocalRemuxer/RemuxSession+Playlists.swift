@@ -321,22 +321,15 @@ extension RemuxSession {
             return out
         }
         stateLock.lock()
-        let copyFirst = copyVerdict == .listed && !sourceReleased
+        let copyFirst = !sourceUnusable
         if copyFirst { copyAnnounced = true }
         // A source that cannot be read leaves the probe nothing to time; the ladder is then sized by
         // the canonical playlist's own transfer, the one other body that moves at the wire's pace.
         let linkBps = testLinkBps ?? measuredLinkBps ?? playlistLinkBps ?? 0
         let rungs = (0..<config.tiers.count).filter { !rungsUnavailable.contains($0) }
         stateLock.unlock()
-        let fitting = rungs.filter { Double(config.tiers[$0].bandwidth) <= linkBps * 0.8 }
         let startRung = chooseOpeningRung(linkBps: linkBps)
-        // A variant far above the measured link is not merely unused: AVPlayer fetches its init and
-        // a segment to evaluate it, and on a slow link those probes are the whole budget (measured
-        // at 0.6 Mb/s: probes of 360p through 1080p starved the rung that fit). One rung of headroom
-        // stays listed so a recovering link has somewhere to climb without a new session. A rung
-        // above the first is listed unfetched: its playlist is adopted when AVPlayer asks for it.
-        let headroomRung = fitting.last.flatMap { last in rungs.first { $0 > last } } ?? rungs.first
-        let listed = rungs.filter { fitting.contains($0) || $0 == headroomRung }
+        let listed = rungs
 
         func rungLine(_ k: Int) -> String {
             let rung = config.tiers[k]
@@ -380,11 +373,6 @@ extension RemuxSession {
         } else if copyFirst {
             out += primary
         } else if let startRung {
-            // The copy is NOT listed on a link that cannot carry it. A cap does not stop AVPlayer
-            // evaluating a variant: with the copy listed at 0.6 Mb/s it fetched media.m3u8 and
-            // init.mp4 at 20s and asked for a 4 MB copy segment at 40s, which never finished and
-            // killed the item (-12889). At 1.5 Mb/s the same master survives, so the rule is the
-            // link's ability to finish a copy segment, and recovery is a rebuild at the playhead.
             out += rungLine(startRung) + listed.filter { $0 != startRung }.map(rungLine).joined()
             // Opening on a rung means the copy is not being played: a source still open (one the
             // demuxer owes a track from) holds its pull now rather than ten seconds from now, or the

@@ -75,6 +75,7 @@ extension RemuxSession {
             let afterT = name.dropFirst()
             if let rungEnd = afterT.firstIndex(where: { !$0.isNumber }), rungEnd > afterT.startIndex,
                let rung = Int(afterT[afterT.startIndex..<rungEnd]) {
+                if let deferred = rungResponseDeferral(rung) { return deferred }
                 let rest = String(afterT[rungEnd...])
                 if rest == ".m3u8" {
                     guard let playlist = tierPlaylist(rung: rung) else { return .notFound }

@@ -89,24 +89,14 @@ final class SlipstreamDrillTests: XCTestCase {
             post(proxy.appendingPathComponent("__netsim"), json: ["profile": steps])
         }
 
-        // One playback attempt; returns the position to resume at when the link has recovered past
-        // the source rate (the app rebuilds the session for that, since the copy is not in a master
-        // written for a slower link), or nil when the run is over.
-        var offset = raw["startOffsetSeconds"] as? Double ?? 0
-        var attempt = 0
-        while Date() < deadline {
-            attempt += 1
-            let resume = try playOnce(raw: raw, env: env, offset: offset, deadline: deadline, attempt: attempt)
-            guard let resume else { break }
-            emit("climb", ["fromPosition": resume])
-            offset = resume
-        }
+        let offset = raw["startOffsetSeconds"] as? Double ?? 0
+        try playOnce(raw: raw, env: env, offset: offset, deadline: deadline, attempt: 1)
         if let proxy = env["TOMO_DRILL_PROXY"].flatMap(URL.init(string:)) {
             post(proxy.appendingPathComponent("__netsim"), json: ["kbps": 0])
         }
     }
 
-    private func playOnce(raw: [String: Any], env: [String: String], offset: Double, deadline: Date, attempt: Int) throws -> Double? {
+    private func playOnce(raw: [String: Any], env: [String: String], offset: Double, deadline: Date, attempt: Int) throws {
         var raw = raw
         raw["startOffsetSeconds"] = offset
         let session = try RemuxSession(config: config(from: raw))
@@ -164,8 +154,6 @@ final class SlipstreamDrillTests: XCTestCase {
         var readyAt: Int?
         var firstFrameAt: Int?
         var lastPosition = -1.0
-        var clearedSourceSince: Date?
-        let sourceBps = Double(raw["bandwidth"] as? Int ?? 0)
         player.play()
 
         while Date() < deadline {
@@ -217,22 +205,6 @@ final class SlipstreamDrillTests: XCTestCase {
             }
             loggedEvents = events.count
 
-            // The copy is missing from a master written for a slower link, so a recovered link is
-            // climbed by rebuilding the session at the playhead. Sustained, not a single sample, and
-            // on the engine's own word that a copy is there to reach, as the app takes it.
-            if !session.reportsCopyListed, position > offset + 1, let bps = session.pacedLinkBps, sourceBps > 0 {
-                if bps >= sourceBps * 1.2 {
-                    if let since = clearedSourceSince, Date().timeIntervalSince(since) >= 5 {
-                        for event in item.errorLog()?.events ?? [] {
-                            emit("errorLog", ["uri": event.uri ?? "", "status": event.errorStatusCode, "domain": event.errorDomain, "comment": event.errorComment ?? ""])
-                        }
-                        return position
-                    }
-                    if clearedSourceSince == nil { clearedSourceSince = Date() }
-                } else {
-                    clearedSourceSince = nil
-                }
-            }
         }
 
         let group = DispatchSemaphore(value: 0)
@@ -248,6 +220,5 @@ final class SlipstreamDrillTests: XCTestCase {
             emit("errorLog", ["uri": event.uri ?? "", "status": event.errorStatusCode, "domain": event.errorDomain, "comment": event.errorComment ?? ""])
         }
         emit("end", ["audible": audible, "legible": legible, "readyMs": readyAt ?? -1, "firstFrameMs": firstFrameAt ?? -1, "position": player.currentTime().seconds])
-        return nil
     }
 }

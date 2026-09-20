@@ -347,19 +347,16 @@ final class RemuxSession {
     var onLink: (([String: Any]) -> Void)?
     /// Last rate reported to the app, so a steady link is not re-reported every sample.
     var reportedLinkBps: Double?
-    /// Whether the master this session served lists the on-device copy: when it does not, a link
-    /// that recovers is climbed by rebuilding the session (the app's call, from the link report).
     enum CopyVerdict { case undecided, listed, withheld }
     var copyVerdict = CopyVerdict.undecided
     /// A master naming the copy has gone out, so the copy can no longer be taken back.
     var copyAnnounced = false
     /// The renditions are built: the copy can be produced, so a master may name it.
     var sourceReady = false
-    /// The session runs on the server's rungs alone, its source let go: the link cannot carry the
-    /// copy, or the source would not open. A link that recovers is a rebuild (the app's call).
-    var sourceReleased = false
-    /// The source would not open or could not be planned: there is no copy to climb back to.
-    var sourceUnusable = false
+    enum SourceState { case dormant, warming, ready, unavailable }
+    var sourceState = SourceState.warming
+    var sourceReleased: Bool { sourceState == .dormant || sourceState == .unavailable }
+    var sourceUnusable: Bool { sourceState == .unavailable }
     /// The startup probe met an error status from the server.
     var sourceRefused = false
     /// The canonical playlist's own transfer rate: what the ladder is sized by when the source

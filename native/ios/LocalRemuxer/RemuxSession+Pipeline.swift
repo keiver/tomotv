@@ -839,9 +839,17 @@ extension RemuxSession {
         let refused = sourceRefused
         stateLock.unlock()
         if !verdictLists, releaseSource(because: refused ? "the server refused the source" : "the link cannot carry the copy", unusable: refused) {
-            av_dict_free(&openOpts)
-            avformat_free_context(inputCtx)
-            return mark("source_released")
+            mark("source_released")
+            while !refused && !isCancelled && !hasFailed {
+                if wakeSourceIfAffordable() { break }
+                usleep(100_000)
+            }
+            if refused || isCancelled || hasFailed {
+                av_dict_free(&openOpts)
+                avformat_free_context(inputCtx)
+                return
+            }
+            mark("source_warming")
         }
 
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
@@ -1101,6 +1109,7 @@ extension RemuxSession {
 
         stateLock.lock()
         sourceReady = true
+        sourceState = .ready
         stateLock.unlock()
         mark("renditions_built")
         reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions)
@@ -1493,8 +1502,8 @@ extension RemuxSession {
             while true {
                 stateLock.lock()
                 let stop = cancelled || failed || sourceReleased
-                var seekTo = pendingSeekSegment
-                pendingSeekSegment = nil
+                var seekTo = sessionAnchorUs == nil ? nil : pendingSeekSegment
+                if sessionAnchorUs != nil { pendingSeekSegment = nil }
                 // Drop a seek the pipeline already answered: a waiter's
                 // re-assert can race the restart that is serving it, and
                 // restarting again would tear the muxers down for nothing.
@@ -1520,14 +1529,14 @@ extension RemuxSession {
                 let riding = ridingTierLocked()
                 var follow = Follow.hold
                 var followSeek = false
-                if riding, seekTo == nil, !stop, !starvedWaiter, copyFollowsLocked() {
+                if sessionAnchorUs != nil, riding, seekTo == nil, !stop, !starvedWaiter, copyFollowsLocked() {
                     follow = followLocked()
                     if case .seek(let target) = follow {
                         seekTo = target
                         followSeek = true
                     }
                 }
-                let held = riding ? follow == .hold : openingHoldLocked()
+                let held = sessionAnchorUs != nil && (riding ? follow == .hold : openingHoldLocked())
                 let tierHold = held && seekTo == nil && !stop && !starvedWaiter
                 // Live never throttles: the source arrives at its own pace and reads must keep up.
                 let throttled = !config.isLive

@@ -30,6 +30,7 @@ enum LocalHTTPResponse {
     /// 410: this variant is gone for good. AVPlayer does not retry it and moves to another variant
     /// of the same master (measured; WWDC17 514 says the same of permanent errors).
     case gone
+    case temporarilyUnavailable
 }
 
 /// One segment response in flight. The server marks it abandoned when the player closes the
@@ -338,6 +339,8 @@ final class LocalHTTPServer {
             case .gone:
                 NSLog("[LocalHTTPServer] 410 %@", path)
                 self.send(connection, status: "410 Gone", contentType: "text/plain", body: Data(), onDone: traced(410, 0))
+            case .temporarilyUnavailable:
+                self.send(connection, status: "503 Service Unavailable", contentType: "text/plain", body: Data(), extraHeaders: "Retry-After: 1\r\n", onDone: traced(503, 0))
             case .notFound:
                 NSLog("[LocalHTTPServer] 404 %@", path)
                 self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data(), onDone: traced(404, 0))

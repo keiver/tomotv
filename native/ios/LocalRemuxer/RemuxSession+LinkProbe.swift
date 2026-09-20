@@ -55,7 +55,7 @@ extension RemuxSession {
             pacedLinkBps = bps
             wireLinkBps = bps
         }
-        let listedCopy = copyVerdict != .withheld || sourceUnusable
+        let listedCopy = copyAnnounced
         let moved = reporting && bps != nil && (reportedLinkBps == nil || abs(bps! - reportedLinkBps!) > (reportedLinkBps! * 0.15))
         if moved { reportedLinkBps = bps }
         stateLock.unlock()
@@ -224,8 +224,7 @@ extension RemuxSession {
     /// Tells the app when the rate has moved by more than 15%. Called with stateLock held; releases it.
     private func reportLinkLocked() {
         let rate = pacedLinkBps
-        // An unusable source leaves no copy to climb back to, so the app is not asked to rebuild for one.
-        let listedCopy = copyVerdict != .withheld || sourceUnusable
+        let listedCopy = copyAnnounced
         let moved = rate != nil && (reportedLinkBps == nil || abs(rate! - reportedLinkBps!) > (reportedLinkBps! * 0.15))
         if moved { reportedLinkBps = rate }
         stateLock.unlock()

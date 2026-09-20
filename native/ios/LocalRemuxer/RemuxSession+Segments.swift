@@ -16,6 +16,7 @@ extension RemuxSession {
     /// gets chunked early headers so AVPlayer's short no-response-headers
     /// watchdog (-12889) never fires while the provider waits.
     func segmentResponse(_ n: Int, prefix: String = "") -> LocalHTTPResponse {
+        if let deferred = copyResponseDeferral() { return deferred }
         guard n >= 0, let rendition = rendition(withPrefix: prefix) else { return .notFound }
         stateLock.lock()
         lastRequestedSegment = n
@@ -40,6 +41,7 @@ extension RemuxSession {
     }
 
     func initResponse(prefix: String = "", generation: Int = 0) -> LocalHTTPResponse {
+        if let deferred = copyResponseDeferral() { return deferred }
         let url = dir.appendingPathComponent(Self.liveInitName(prefix: prefix, generation: generation))
         stateLock.lock()
         if !sourceReleased { lastPrimaryDemandAt = Date() }

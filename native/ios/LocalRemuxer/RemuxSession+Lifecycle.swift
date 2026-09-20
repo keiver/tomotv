@@ -73,12 +73,10 @@ extension RemuxSession {
         return sourceReleased
     }
 
-    /// What every link report tells the app under `copyListed`: false only while a rebuild could
-    /// reach a copy, which is what the app rebuilds for.
     var reportsCopyListed: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return copyVerdict != .withheld || sourceUnusable
+        return copyAnnounced
     }
 
     /// Tracks only the demuxer can serve: an image subtitle with no raw server stream, and an
@@ -87,20 +85,16 @@ extension RemuxSession {
         config.subtitles.contains { ($0.isImage && $0.serverSupUrl.isEmpty) || ($0.isEngineText && $0.serverVttUrl.isEmpty) }
     }
 
-    /// Lets the source go and runs the session on the server's rungs alone, when they can carry
-    /// all of it: a ladder on the adopted grid, every audio track from the server, no track the
-    /// demuxer owes, and no master out that names the copy. False leaves the session as it was.
     func releaseSource(because reason: String, unusable: Bool = false) -> Bool {
         guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks else { return false }
         // The grid first: the ladder and its audio group exist only once it is adopted.
         awaitGrid()
         guard tierOffered, audioLoActive else { return false }
         stateLock.lock()
-        let free = !copyAnnounced && !cancelled && !failed
+        let free = !cancelled && !failed
         if free {
             copyVerdict = .withheld
-            sourceReleased = true
-            sourceUnusable = unusable
+            sourceState = unusable ? .unavailable : .dormant
             lastTierDemandAt = Date()
         }
         stateLock.unlock()
@@ -124,8 +118,7 @@ extension RemuxSession {
         let free = copyAnnounced && !sourceReleased && !cancelled && !failed
         if free {
             copyVerdict = .withheld
-            sourceReleased = true
-            sourceUnusable = true
+            sourceState = .unavailable
             lastTierDemandAt = Date()
         }
         stateLock.unlock()
@@ -133,6 +126,42 @@ extension RemuxSession {
         NSLog("[LocalRemuxer] Slipstream: the source is lost (%@), the rungs carry the session from here", message)
         startServerImageSubtitles()
         return true
+    }
+
+    func wakeSourceIfAffordable() -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard sourceState == .dormant, !cancelled, !failed else { return false }
+        let wire = testLinkBps ?? wireLinkBps ?? 0
+        let rung = config.tiers.indices.contains(lastTierRung) ? config.tiers[lastTierRung].bandwidth : 0
+        guard wire >= Double(config.bandwidth) * 1.2 + Double(rung) else { return false }
+        sourceState = .warming
+        pendingSeekSegment = lastRequestedSegment
+        return true
+    }
+
+    func copyResponseDeferral() -> LocalHTTPResponse? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if failed || cancelled { return .notFound }
+        if sourceState == .unavailable { return .gone }
+        guard !config.tiers.isEmpty, !tierDisabled, !adoptedStarts.isEmpty else { return nil }
+        if sourceState == .dormant || !sourceReady { return .temporarilyUnavailable }
+        let wire = testLinkBps ?? wireLinkBps ?? 0
+        if config.bandwidth > 0 && wire < Double(config.bandwidth) * 1.2 { return .temporarilyUnavailable }
+        return nil
+    }
+
+    func rungResponseDeferral(_ rung: Int) -> LocalHTTPResponse? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard config.tiers.indices.contains(rung), !cancelled, !failed, !tierDisabled, !rungsUnavailable.contains(rung) else { return .notFound }
+        let available = config.tiers.indices.filter { !rungsUnavailable.contains($0) }
+        let wire = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
+        let fitting = available.filter { Double(config.tiers[$0].bandwidth) <= wire * 0.8 }
+        let headroom = fitting.last.flatMap { last in available.first { $0 > last } } ?? available.first
+        if fitting.contains(rung) || rung == headroom { return nil }
+        return .temporarilyUnavailable
     }
 
     /// The keyframe at or before `ms` of source time, as a JPEG in the frame pool (the session directory without an item id).

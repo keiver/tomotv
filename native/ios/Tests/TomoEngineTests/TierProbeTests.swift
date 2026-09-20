@@ -259,9 +259,7 @@ final class TierProbeTests: XCTestCase {
 
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"))
-        // A copy segment a 2 Mb/s link cannot finish fails the whole item on AVPlayer's 6s deadline,
-        // so a link below the source is offered the rung alone and climbs back by rebuilding.
-        XCTAssertFalse(master.contains("media.m3u8"), "a link below the source lists no copy")
+        XCTAssertTrue(master.contains("media.m3u8"))
         XCTAssertEqual(states(reports()), ["listed"])
         XCTAssertNotNil(s.tierPlaylist(rung: 0))
 
@@ -374,7 +372,7 @@ final class TierProbeTests: XCTestCase {
         // The probe is still parked on the held segment when the master is written; the rung lists anyway.
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"), "an adopted rung is offered before its segment proves")
-        XCTAssertFalse(master.contains("media.m3u8"), "a link below the source lists no copy")
+        XCTAssertTrue(master.contains("media.m3u8"))
         XCTAssertTrue(s.tierOffered)
         XCTAssertEqual(states(reports()), ["listed"])
     }
@@ -991,21 +989,19 @@ final class TierProbeTests: XCTestCase {
         while Date() < end, !done() { usleep(20_000) }
     }
 
-    /// A probe that reads nothing is a slow link, never an unlimited one: the copy is withheld.
-    func testALinkThatReadNothingWithholdsTheCopy() throws {
+    func testALinkThatReadNothingDefersTheCopy() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
-        let (s, _) = try session(linkCeilingBps: nil)
+        let (s, _) = try session(serverAudioUrl: audioUrl, linkCeilingBps: nil)
         defer { s.stop() }
         waitForProbe(s)
         let master = s.masterPlaylist()
-        XCTAssertFalse(master.contains("media.m3u8"), "an unmeasured link is not offered the copy")
+        XCTAssertTrue(master.contains("media.m3u8"))
+        guard case .temporarilyUnavailable = s.initResponse() else { return XCTFail("a cold copy must defer without starting a streamed response") }
         XCTAssertTrue(master.contains("t0.m3u8"))
     }
 
-    /// A link under the copy, every audio track from the server, no track the demuxer owes: the
-    /// source is let go, and a source that would never have opened costs the session nothing.
-    func testASlowLinkLetsTheSourceGoAndTheSessionLives() throws {
+    func testASlowLinkKeepsTheSourceDormantAndListed() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         let (s, _) = try session(serverAudioUrl: audioUrl)
@@ -1014,9 +1010,75 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(s.isSourceReleased)
         XCTAssertFalse(s.hasFailed, "the rungs carry a session whose source was let go")
         let master = s.masterPlaylist()
-        XCTAssertFalse(master.contains("media.m3u8"))
+        XCTAssertTrue(master.contains("media.m3u8"))
         XCTAssertTrue(master.contains("t0.m3u8"))
         XCTAssertTrue(master.contains("GROUP-ID=\"audio-lo\""))
+        guard case .temporarilyUnavailable = s.segmentResponse(0) else { return XCTFail("cold source segment must return a temporary response") }
+    }
+
+    func testDormantSourceWakesInsideItsOriginalSession() throws {
+        let shortGrid = Data("#EXTM3U\n#EXTINF:1.0,\nseg0.ts?s=1\n#EXTINF:1.0,\nseg1.ts?s=1\n#EXT-X-ENDLIST\n".utf8)
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, shortGrid)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let session = try RemuxSession(config: makeConfig(
+            durationSeconds: 2, inputUrl: fixtureUrl.absoluteString,
+            audioTracks: [RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)],
+            tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
+        session.testLinkBps = 600_000
+        session.start()
+        defer { session.stop() }
+        settle { session.isSourceReleased }
+        let token = session.token
+        let master = session.masterPlaylist()
+        XCTAssertTrue(master.contains("media.m3u8"))
+        XCTAssertNil(session.renditions.first)
+        session.stateLock.lock()
+        session.lastRequestedSegment = 1
+        session.testLinkBps = 40_000_000
+        session.stateLock.unlock()
+        settle { session.sourceReady || session.hasFailed }
+        XCTAssertFalse(session.hasFailed)
+        XCTAssertTrue(session.sourceReady)
+        XCTAssertEqual(session.token, token)
+        XCTAssertNotNil(session.segmentURL(1))
+        XCTAssertEqual(session.sessionAnchorSeconds ?? .infinity, 1.423222, accuracy: 0.01)
+        XCTAssertNil(session.copyResponseDeferral())
+    }
+
+    func testPublishingTheMasterDoesNotPreventSourceDormancy() throws {
+        let session = try RemuxSession(config: makeConfig(
+            durationSeconds: 2,
+            audioTracks: [RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)],
+            tierPlaylistUrl: playlistUrl, tierBandwidth: 260_000))
+        defer { session.stop() }
+        session.adoptedStarts = [0, 1]
+        session.adoptedDurations = [1, 1]
+        session.gridResolved = true
+        session.copyAnnounced = true
+        session.testLinkBps = 600_000
+        XCTAssertTrue(session.releaseSource(because: "thin link"))
+        XCTAssertTrue(session.isSourceReleased)
+        guard case .temporarilyUnavailable = session.initResponse() else { return XCTFail("publishing the copy must not start its input on a thin link") }
+        session.cancelled = true
+        session.testLinkBps = 40_000_000
+        XCTAssertFalse(session.wakeSourceIfAffordable())
+    }
+
+    func testRungsStayListedWhileUnaffordableRoutesDefer() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.testLinkBps = 600_000
+        session.start()
+        waitForProbe(session)
+        let master = session.masterPlaylist()
+        XCTAssertTrue(master.contains("t0.m3u8"))
+        XCTAssertTrue(master.contains("t1.m3u8"))
+        guard case .temporarilyUnavailable = session.route("t1.m3u8") else { return XCTFail("unaffordable rung must not start a server fetch") }
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/t1.m3u8"), 0)
+        session.stateLock.lock()
+        session.testLinkBps = 30_000_000
+        session.stateLock.unlock()
+        guard case .data = session.route("t1.m3u8") else { return XCTFail("the same route must recover without a replacement session") }
     }
 
     /// An image subtitle is decoded on the device, so its source stays open whatever the link.
@@ -1062,7 +1124,7 @@ final class TierProbeTests: XCTestCase {
         lock.lock()
         let listed = links.last?["copyListed"] as? Bool
         lock.unlock()
-        XCTAssertEqual(listed, true, "nothing to climb back to, so no rebuild is asked for")
+        XCTAssertEqual(listed, false, "the master never listed the unusable copy")
     }
 
     /// A probe the server refuses is a source that is not there, not a slow link: no rebuild is
@@ -1076,7 +1138,7 @@ final class TierProbeTests: XCTestCase {
         let master = s.masterPlaylist()
         XCTAssertTrue(s.isSourceReleased)
         XCTAssertFalse(master.contains("media.m3u8"))
-        XCTAssertTrue(s.reportsCopyListed, "nothing to climb back to")
+        XCTAssertFalse(s.reportsCopyListed)
     }
 
     func testTheProbeReadsAnErrorStatusAsRefused() throws {
