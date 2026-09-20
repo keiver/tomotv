@@ -691,6 +691,9 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
         // Either server group: audio-lo, or audio-hi on the rungs with room for the track's own channels.
         const serverGroups = new Set(["audio-lo", "audio-hi"]);
         if (rungs.some((rung) => !serverGroups.has(rung.audio))) problems.push("a rung does not name a server audio group, so its audio comes from the engine it exists to relieve");
+        // AVPlayer stays in one channel count: a rung with no stereo entry is out of a stereo output's reach.
+        const stereoRungs = new Set(rungs.filter((rung) => rung.audio === "audio-lo").map((rung) => rung.uri));
+        if (rungs.some((rung) => !stereoRungs.has(rung.uri))) problems.push("a rung is not listed with the stereo group, so a stereo output cannot climb to it");
         const declared = new Set(
           master
             .split("\n")
@@ -699,8 +702,10 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
         );
         if (rungs.some((rung) => !declared.has(rung.audio))) problems.push("a rung names an audio group the master does not declare");
         if (rungs.some((rung) => rung.codecs && !rung.codecs.includes(","))) problems.push("a rung's CODECS omits the audio codec of its group");
-        const ascending = rungs.every((rung, i) => i === 0 || rung.bandwidth > rungs[i - 1].bandwidth);
-        if (!ascending) problems.push(`rung BANDWIDTHs are not ascending: ${rungs.map((r) => r.bandwidth).join(", ")}`);
+        // Judged on the stereo entries: a rung with surround has a second, dearer entry listed before it.
+        const ladder = rungs.filter((rung) => rung.audio === "audio-lo");
+        const ascending = ladder.every((rung, i) => i === 0 || rung.bandwidth > ladder[i - 1].bandwidth);
+        if (!ascending) problems.push(`rung BANDWIDTHs are not ascending: ${ladder.map((r) => r.bandwidth).join(", ")}`);
       }
     }
 

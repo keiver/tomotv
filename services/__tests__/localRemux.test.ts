@@ -1079,6 +1079,11 @@ describe("startLocalRemux Slipstream tier config", () => {
     expect(config.audioTracks[0].serverAudioUrl).toContain("/Videos/item1/main.m3u8");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioStreamIndex=1");
     expect(config.audioTracks[0].serverAudioUrl).toContain("VideoBitrate=20000&AudioBitrate=96000&MaxWidth=64");
+    // Every rung is also offered in stereo, and each group says how many channels arrive.
+    expect(r480.stereoBandwidth).toBe(1_500_000 + 96_000 + 24_000);
+    expect(config.tiers[0].stereoBandwidth).toBe(config.tiers[0].bandwidth);
+    expect(config.audioTracks[0].serverAudioChannels).toBe(2);
+    expect(config.audioTracks[0].serverAudioHiChannels).toBe(6);
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=aac");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioBitrate=96000");
     expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");

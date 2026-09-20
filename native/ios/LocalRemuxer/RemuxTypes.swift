@@ -71,6 +71,9 @@ struct RemuxAudioTrack {
     /// The same track in the "audio-hi" group: AAC at its own channel count, for the rungs with
     /// room for it. Empty when the item has no hi group.
     var serverAudioHiUrl: String = ""
+    /// Channels each server rendition arrives with, written as CHANNELS. 0 = not told.
+    var serverAudioChannels = 0
+    var serverAudioHiChannels = 0
 }
 
 struct RemuxConfig {
@@ -151,6 +154,8 @@ struct TierConfig {
     let codecs: String
     let width: Int
     let height: Int
-    /// This rung rides the "audio-hi" group and its bandwidth carries that group's rate.
+    /// This rung is also listed with the "audio-hi" group, and `bandwidth` carries that group's rate.
     var audioHi: Bool = false
+    /// The rung with the stereo group, which every rung is listed with. 0 = the same as `bandwidth`.
+    var stereoBandwidth = 0
 }
