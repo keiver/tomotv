@@ -575,6 +575,12 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(isGone(s.initResponse()))
         XCTAssertFalse(isNotFound(s.tierSegmentResponse(rung: 0, 0)), "the rung still serves")
         XCTAssertTrue(s.reportsCopyListed, "nothing to climb back to")
+        _ = s.initResponse()
+        _ = s.tierSegmentResponse(rung: 0, 0)
+        s.stateLock.lock()
+        let riding = s.ridingTierLocked()
+        s.stateLock.unlock()
+        XCTAssertTrue(riding, "AVPlayer asking after a copy that is gone is not leaving the rungs")
     }
 
     /// Without a ladder to carry it, a failure is what it always was.
@@ -640,6 +646,59 @@ final class TierProbeTests: XCTestCase {
         XCTAssertLessThan(out.mediaSegment.count, segment.count)
     }
 
+    /// A player gone before the fetch begins (it waited behind another) starts no transfer at all.
+    func testARequestAbandonedBeforeItsFetchStartsNoTransfer() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        TierServerStub.routes["/Videos/x/seg1.ts"] = (200, tierSegment)
+        let (s, _) = try session()
+        defer { s.stop() }
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        let request = SegmentRequest()
+        request.abandon()
+        let serve = try provider(of: s.tierSegmentResponse(rung: 0, 1))
+        XCTAssertNil(serve(request))
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg1.ts"), 0, "nobody wants it, so the server is never asked")
+        XCTAssertFalse(s.isTierDisabled)
+        XCTAssertNotNil(try provider(of: s.tierSegmentResponse(rung: 0, 1))(SegmentRequest()), "the next request still gets it")
+    }
+
+    /// The server's audio segments end with their player too.
+    func testAnAbandonedAudioRequestStartsNoTransfer() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        TierServerStub.routes["/Audio/x/main.m3u8"] = (200, audioPlaylist)
+        TierServerStub.routes["/Audio/x/a-init.mp4"] = (200, Data("init".utf8))
+        TierServerStub.routes["/Audio/x/a-seg1.mp4"] = (200, Data("seg".utf8))
+        let (s, _) = try session(serverAudioUrl: audioUrl)
+        defer { s.stop() }
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        let request = SegmentRequest()
+        request.abandon()
+        let serve = try provider(of: s.audioLoSegmentResponse(position: 0, n: 1))
+        XCTAssertNil(serve(request))
+        XCTAssertEqual(TierServerStub.hitCount("/Audio/x/a-seg1.mp4"), 0)
+        XCTAssertFalse(s.isTierDisabled, "a fetch nobody wanted is not a failing tier")
+    }
+
+    /// A resumed session's audio init comes from the segment at the resume point, not the film's first.
+    func testTheAudioInitIsCutFromTheSegmentAtThePlayhead() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg1.ts"] = (200, tierSegment)
+        TierServerStub.routes["/Audio/x/main.m3u8"] = (200, audioPlaylist)
+        TierServerStub.routes["/Audio/x/a-init.mp4"] = (200, Data("init".utf8))
+        TierServerStub.routes["/Audio/x/a-seg1.mp4"] = (200, Data("seg".utf8))
+        let (s, _) = try session(serverAudioUrl: audioUrl, startOffsetSeconds: 7)
+        defer { s.stop() }
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        resolve(s.audioLoInitResponse(position: 0))
+        XCTAssertTrue(TierServerStub.sawHit("/Audio/x/a-seg1.mp4"))
+        XCTAssertEqual(TierServerStub.hitCount("/Audio/x/a-seg0.mp4"), 0, "7s in is the second segment of the audio grid")
+    }
+
     /// Two requests want the same segment: one leaving does not take it from the other.
     func testASecondLiveRequestKeepsTheFetch() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
@@ -698,7 +757,32 @@ final class TierProbeTests: XCTestCase {
         plenty.start()
         waitForProbe(plenty)
         _ = plenty.masterPlaylist()
-        XCTAssertEqual(plenty.openingRung, 0, "a copy that leads has the link to itself")
+        XCTAssertNil(plenty.openingRung, "a copy that leads has the link to itself, and latches no rung")
+    }
+
+    /// A fast link whose source will not open is still a fast link: the rungs open where it affords.
+    func testAFastLinkWithNoSourceOpensAboveTheBottomRung() throws {
+        TierServerStub.routes["/Videos/x/t0.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/t1.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        TierServerStub.routes["/Audio/x/main.m3u8"] = (200, audioPlaylist)
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+                tiers: [
+                    TierConfig(playlistUrl: "http://tier.test/Videos/x/t0.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 992_000, codecs: "avc1.64001E,mp4a.40.2", width: 640, height: 360),
+                    TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_692_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480),
+                ]
+            ))
+        s.testLinkBps = 30_000_000
+        s.start()
+        defer { s.stop() }
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertTrue(s.isSourceReleased)
+        XCTAssertFalse(master.contains("media.m3u8"))
+        XCTAssertLessThan(master.range(of: "t1.m3u8")!.lowerBound, master.range(of: "t0.m3u8")!.lowerBound, "30 Mb/s opens on the upper rung, not on the smallest")
     }
 
     /// A rung above the first is listed unfetched and adopted when it is asked for: one cut on

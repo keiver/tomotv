@@ -143,11 +143,24 @@ extension RemuxSession {
     /// untrustworthy (restart rebasing, measured garbage), so every segment is
     /// rebuilt onto the session timeline: sequential requests chain exact
     /// accumulated durations, a seek re-anchors to the declared grid.
-    func materializeAudioLoSegment(position: Int, n: Int, hi: Bool = false) -> URL? {
-        dedupedMaterialization("\(serverAudioPrefix(key: audioKey(position, hi: hi)))-\(n)") { materializeAudioLoSegmentLocked(position: position, n: n, hi: hi) }
+    func materializeAudioLoSegment(position: Int, n: Int, hi: Bool = false, request: SegmentRequest? = nil) -> URL? {
+        let key = "\(serverAudioPrefix(key: audioKey(position, hi: hi)))-\(n)"
+        return withFetchInterest(key, request) {
+            dedupedMaterialization(key) { materializeAudioLoSegmentLocked(position: position, n: n, hi: hi, fetchKey: key, counted: request != nil) }
+        }
     }
 
-    func materializeAudioLoSegmentLocked(position: Int, n: Int, hi: Bool) -> URL? {
+    /// The segment of a server audio grid that holds `seconds`. The grid is the server's own, cut
+    /// on codec frames, so a session index does not name the same stretch of it.
+    func audioLoIndex(_ segments: [TierSegment], at seconds: Double) -> Int {
+        var reached = 0.0
+        return segments.firstIndex { segment in
+            reached += segment.duration
+            return reached > seconds
+        } ?? 0
+    }
+
+    func materializeAudioLoSegmentLocked(position: Int, n: Int, hi: Bool, fetchKey: String, counted: Bool) -> URL? {
         if isTierDisabled { return nil }
         let key = audioKey(position, hi: hi)
         let prefix = serverAudioPrefix(key: key)
@@ -167,7 +180,7 @@ extension RemuxSession {
         // The init is the same bytes for every segment of the rendition: one fetch a session, not
         // one a segment, which on a 150 ms link was a round trip ahead of every audio segment.
         let initFetch = heldInit.map { (data: Optional($0), status: 200, seconds: 0.0) } ?? fetchTier(initRemote)
-        let segFetch = initFetch.data == nil ? initFetch : fetchTier(remote)
+        let segFetch = initFetch.data == nil ? initFetch : fetchTier(remote, key: fetchKey, counted: counted)
         if heldInit == nil, let fresh = initFetch.data {
             stateLock.lock()
             audioLoInitData[key] = fresh
@@ -210,7 +223,13 @@ extension RemuxSession {
         if FileManager.default.fileExists(atPath: initFile.path) { return .file(initFile, contentType: "audio/mp4") }
         return .streamed(contentType: "audio/mp4") { [weak self] in
             guard let self else { return nil }
-            _ = self.materializeAudioLoSegment(position: position, n: 0, hi: hi)
+            // The init falls out of any segment: the one AVPlayer asks for next, not the film's first.
+            self.stateLock.lock()
+            let head = self.lastRequestedSegment
+            self.stateLock.unlock()
+            let playhead = head > 0 ? self.segmentStartSeconds(head) : self.config.startOffsetSeconds
+            let n = self.adoptAudioLo(position, hi: hi).map { self.audioLoIndex($0, at: playhead) } ?? 0
+            _ = self.materializeAudioLoSegment(position: position, n: n, hi: hi)
             let file = self.dir.appendingPathComponent("\(prefix)-init.mp4")
             return FileManager.default.fileExists(atPath: file.path) ? file : nil
         }
@@ -224,7 +243,7 @@ extension RemuxSession {
         if dead { return .notFound }
         let mediaFile = dir.appendingPathComponent("\(serverAudioPrefix(key: audioKey(position, hi: hi)))-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return .file(mediaFile, contentType: "audio/iso.segment") }
-        return .segment(contentType: "audio/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] _ in self?.materializeAudioLoSegment(position: position, n: n, hi: hi) }
+        return .segment(contentType: "audio/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] request in self?.materializeAudioLoSegment(position: position, n: n, hi: hi, request: request) }
     }
 
 }

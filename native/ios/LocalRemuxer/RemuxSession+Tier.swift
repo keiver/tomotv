@@ -79,7 +79,9 @@ extension RemuxSession {
     }
 
     /// One server fetch for the tier: the body on 2xx, else the status (0 for a timeout or transport error).
-    func fetchTier(_ url: URL, key: String? = nil) -> (data: Data?, status: Int, seconds: Double) {
+    /// `counted` marks a fetch made for player requests (withFetchInterest): when they have all
+    /// left before it starts, it does not start.
+    func fetchTier(_ url: URL, key: String? = nil, counted: Bool = false) -> (data: Data?, status: Int, seconds: Double) {
         let request = URLRequest(url: url, timeoutInterval: 30)
         let semaphore = DispatchSemaphore(value: 0)
         var result: Data? = nil
@@ -93,9 +95,16 @@ extension RemuxSession {
         task.delegate = meter
         transfers.begin(task)
         if let key {
+            // One lock with the release that cancels: it either finds this task or has already run.
             fetchLock.lock()
-            fetchTasks[key] = task
+            let unwanted = counted && fetchInterest[key] == nil
+            if !unwanted { fetchTasks[key] = task }
             fetchLock.unlock()
+            if unwanted {
+                task.cancel()
+                transfers.end(task)
+                return (nil, 0, 0)
+            }
         }
         task.resume()
         // The request timeout is an idle one: a transfer that trickles runs past it, so it ends here.
@@ -138,7 +147,7 @@ extension RemuxSession {
     func materializeTierSegment(rung: Int, _ n: Int, demand: Bool = true, request: SegmentRequest? = nil) -> URL? {
         let key = "t\(rung)-\(n)"
         return withFetchInterest(key, request) {
-            dedupedMaterialization(key) { materializeTierSegmentLocked(rung: rung, n, demand: demand) }
+            dedupedMaterialization(key) { materializeTierSegmentLocked(rung: rung, n, demand: demand, counted: request != nil) }
         }
     }
 
@@ -173,12 +182,12 @@ extension RemuxSession {
         return work()
     }
 
-    func materializeTierSegmentLocked(rung: Int, _ n: Int, demand: Bool) -> URL? {
+    func materializeTierSegmentLocked(rung: Int, _ n: Int, demand: Bool, counted: Bool = false) -> URL? {
         if isTierDisabled { return nil }
         let mediaFile = dir.appendingPathComponent("t\(rung)-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
         guard adoptRung(rung), let remote = tierSegmentRemoteURL(rung: rung, n) else { return nil }
-        let fetched = fetchTier(remote, key: "t\(rung)-\(n)")
+        let fetched = fetchTier(remote, key: "t\(rung)-\(n)", counted: counted)
         guard let ts = fetched.data else {
             NSLog("[LocalRemuxer] Slipstream: rung %d segment %d fetch failed (HTTP %d)", rung, n, fetched.status)
             if fetched.status > 0 { recordTierFailure("HTTP \(fetched.status)") }
@@ -342,12 +351,7 @@ extension RemuxSession {
         if config.tiers[rung].audioHi, audioHiActive {
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self, let segments = self.adoptAudioLo(0, hi: true) else { return }
-                var reached = 0.0
-                let opening = segments.firstIndex { segment in
-                    reached += segment.duration
-                    return reached > self.config.startOffsetSeconds
-                } ?? 0
-                _ = self.materializeAudioLoSegment(position: 0, n: opening, hi: true)
+                _ = self.materializeAudioLoSegment(position: 0, n: self.audioLoIndex(segments, at: self.config.startOffsetSeconds), hi: true)
             }
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in

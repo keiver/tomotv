@@ -1489,6 +1489,7 @@ extension RemuxSession {
 
         readLoop: while true {
             // Session control between packets: cancellation, seeks, throttle.
+            var heldThisPass = false
             while true {
                 stateLock.lock()
                 let stop = cancelled || failed || sourceReleased
@@ -1550,7 +1551,15 @@ extension RemuxSession {
                 }
                 if !throttled { break }
                 sleptOnCap = true
+                heldThisPass = true
                 usleep(100_000)
+            }
+            // A sample that spanned a hold would spread its bytes over the whole of it.
+            if heldThisPass {
+                besideAtLinkSample = transfers.carried()
+                linkSampleStartedAt = Date()
+                bytesSinceLinkSample = 0
+                readSecondsSinceLinkSample = 0
             }
 
             let readStarted = Date()
@@ -1691,11 +1700,12 @@ extension RemuxSession {
             transfers.note(bytes: Int64(pkt.pointee.size))
             if bytesSinceLinkSample >= 512 * 1024 {
                 // Alone on the link a source read IS the wire. Beside a rung or an audio transfer it
-                // is a share: counted with them, over the wall clock, as a floor that never lowers.
+                // is a share, noted as a floor over the wall clock. Its own bytes only: each transfer
+                // beside it notes itself, and the floor sums them over the union of their spans.
                 let carried = transfers.carried()
                 let beside = carried - besideAtLinkSample - bytesSinceLinkSample
                 if beside > 0 {
-                    noteFloorSample(bytes: bytesSinceLinkSample + beside, from: linkSampleStartedAt, to: Date())
+                    noteFloorSample(bytes: bytesSinceLinkSample, from: linkSampleStartedAt, to: Date())
                 } else {
                     noteLinkSample(bytes: bytesSinceLinkSample, seconds: readSecondsSinceLinkSample)
                 }

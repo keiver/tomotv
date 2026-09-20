@@ -72,8 +72,11 @@ extension RemuxSession {
         // takes the link from it (measured at 30 Mb/s: AVPlayer hedged onto the bottom rung).
         let copyLeads = copyVerdict != .withheld && !sourceReleased && (config.bandwidth <= 0 || linkBps >= Double(config.bandwidth) * Self.copyLeadsMargin)
         let chosen = latched ?? (copyLeads ? nil : rungs.last { Double(config.tiers[$0].bandwidth) * Self.openingRungShare <= linkBps }) ?? rungs.first
-        let kick = latched == nil && (chosen ?? 0) > 0
-        openingRung = chosen
+        // Nothing is latched while the copy leads: a source that then will not open leaves the
+        // master free to choose by the link.
+        let settles = latched != nil || !copyLeads
+        let kick = latched == nil && !copyLeads && (chosen ?? 0) > 0
+        if settles { openingRung = chosen }
         stateLock.unlock()
         if kick, let chosen { fetchOpeningSegment(rung: chosen) }
         return chosen

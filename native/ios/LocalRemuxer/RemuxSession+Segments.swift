@@ -42,7 +42,7 @@ extension RemuxSession {
     func initResponse(prefix: String = "", generation: Int = 0) -> LocalHTTPResponse {
         let url = dir.appendingPathComponent(Self.liveInitName(prefix: prefix, generation: generation))
         stateLock.lock()
-        lastPrimaryDemandAt = Date()
+        if !sourceReleased { lastPrimaryDemandAt = Date() }
         let dead = failed || cancelled
         let lost = sourceReleased
         stateLock.unlock()

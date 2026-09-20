@@ -110,13 +110,7 @@ extension RemuxSession {
         // The opening audio segment costs a server spin-up of its own; overlap it with the rung's.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self, let segments = self.adoptAudioLo(0) else { return }
-            // The audio grid is the server's own, cut on codec frames: find the opening index on it.
-            var reached = 0.0
-            let opening = segments.firstIndex { segment in
-                reached += segment.duration
-                return reached > self.config.startOffsetSeconds
-            } ?? 0
-            _ = self.materializeAudioLoSegment(position: 0, n: opening)
+            _ = self.materializeAudioLoSegment(position: 0, n: self.audioLoIndex(segments, at: self.config.startOffsetSeconds))
         }
         return true
     }
