@@ -507,71 +507,37 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNotNil(s.tierPlaylist(rung: 1))
     }
 
-    // MARK: - Surround on the upper rungs
-
-    private func surroundSession(hiUrl: String) throws -> RemuxSession {
-        TierServerStub.routes["/Videos/x/t0.m3u8"] = (200, playlist)
-        TierServerStub.routes["/Videos/x/t1.m3u8"] = (200, playlist)
-        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
-        var track = RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)
-        track.serverAudioHiUrl = hiUrl
-        track.serverAudioChannels = 2
-        track.serverAudioHiChannels = 6
-        var upper = TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_884_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480)
-        upper.audioHi = !hiUrl.isEmpty
-        upper.stereoBandwidth = 1_620_000
-        let s = try RemuxSession(
-            config: makeConfig(
-                durationSeconds: 18,
-                audioTracks: [track],
-                tiers: [TierConfig(playlistUrl: "http://tier.test/Videos/x/t0.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 496_000, codecs: "avc1.640015,mp4a.40.2", width: 426, height: 240), upper]))
-        s.testLinkBps = 2_000_000
-        return s
-    }
-
-    private func variantLine(_ master: String, before playlist: String) -> String {
-        let lines = master.components(separatedBy: "\n")
-        guard let index = lines.firstIndex(of: playlist), index > 0 else { return "" }
-        return lines[index - 1]
-    }
+    // MARK: - One stereo group for every rung
 
     private func entries(_ master: String, for playlist: String) -> [String] {
         let lines = master.components(separatedBy: "\n")
         return lines.indices.filter { lines[$0] == playlist && $0 > 0 }.map { lines[$0 - 1] }
     }
 
-    /// Apple's authoring appendix: a player stays in one channel count, so every rung is listed with
-    /// the stereo group, and a rung with room for surround is listed with that group as well.
-    func testTheUpperRungsRideTheSurroundGroup() throws {
-        let s = try surroundSession(hiUrl: "http://tier.test/Audio/x/hi.m3u8?ApiKey=k&PlaySessionId=h")
+    /// A surround output takes only surround entries, so the rungs offer none: each is listed once, in stereo.
+    func testEveryRungIsListedOnceWithTheStereoGroup() throws {
+        TierServerStub.routes["/Videos/x/t0.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/t1.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        var track = RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)
+        track.serverAudioChannels = 2
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                audioTracks: [track],
+                tiers: [TierConfig(playlistUrl: "http://tier.test/Videos/x/t0.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 496_000, codecs: "avc1.640015,mp4a.40.2", width: 426, height: 240),
+                        TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_620_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480)]))
+        s.testLinkBps = 2_000_000
         defer { s.stop() }
         s.start()
         waitForProbe(s)
         let master = s.masterPlaylist()
-        XCTAssertTrue(master.contains("GROUP-ID=\"audio-hi\",NAME=\"Audio 1\""))
-        XCTAssertTrue(master.contains("URI=\"a0h.m3u8\""))
-        let upper = entries(master, for: "t1.m3u8")
-        XCTAssertEqual(upper.count, 2, "one entry per audio group, both naming the same video playlist")
-        XCTAssertTrue(upper[0].contains("AUDIO=\"audio-hi\"") && upper[0].contains("BANDWIDTH=1884000"), "surround first, so an output that takes it starts there")
-        XCTAssertTrue(upper[1].contains("AUDIO=\"audio-lo\"") && upper[1].contains("BANDWIDTH=1620000"), "measured without this entry: a stereo output never left the bottom rungs")
-        XCTAssertEqual(entries(master, for: "t0.m3u8").map { $0.contains("AUDIO=\"audio-lo\"") }, [true])
+        for rung in ["t0.m3u8", "t1.m3u8"] {
+            XCTAssertEqual(entries(master, for: rung).map { $0.contains("AUDIO=\"audio-lo\"") }, [true])
+        }
         let lines = master.components(separatedBy: "\n")
         XCTAssertTrue(lines.first { $0.contains("GROUP-ID=\"audio-lo\"") }?.contains("CHANNELS=\"2\"") == true)
-        XCTAssertTrue(lines.first { $0.contains("GROUP-ID=\"audio-hi\"") }?.contains("CHANNELS=\"6\"") == true)
-        XCTAssertFalse(isNotFound(s.route("a0h-init.mp4")), "the hi group has its own routes")
         XCTAssertFalse(isNotFound(s.route("a0s-init.mp4")))
-    }
-
-    /// An item with no hi rendition gets the master it always got.
-    func testAnItemWithoutSurroundHasNoHiGroup() throws {
-        let s = try surroundSession(hiUrl: "")
-        defer { s.stop() }
-        s.start()
-        waitForProbe(s)
-        let master = s.masterPlaylist()
-        XCTAssertFalse(master.contains("audio-hi"))
-        XCTAssertTrue(variantLine(master, before: "t1.m3u8").contains("AUDIO=\"audio-lo\""))
-        XCTAssertTrue(isNotFound(s.route("a0h-init.mp4")))
     }
 
     // MARK: - PGS from the server

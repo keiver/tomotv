@@ -34,9 +34,7 @@ final class SlipstreamDrillTests: XCTestCase {
         let audioTracks: [RemuxAudioTrack] = ((raw["audioTracks"] as? [[String: Any]]) ?? []).compactMap { t in
             guard let index = t["index"] as? Int else { return nil }
             var track = RemuxAudioTrack(index: index, name: t["name"] as? String ?? "Audio \(index)", language: t["language"] as? String ?? "", serverAudioUrl: t["serverAudioUrl"] as? String ?? "")
-            track.serverAudioHiUrl = t["serverAudioHiUrl"] as? String ?? ""
             track.serverAudioChannels = t["serverAudioChannels"] as? Int ?? 0
-            track.serverAudioHiChannels = t["serverAudioHiChannels"] as? Int ?? 0
             return track
         }
         let subtitles: [RemuxSubtitle] = ((raw["subtitles"] as? [[String: Any]]) ?? []).compactMap { s in
@@ -51,11 +49,8 @@ final class SlipstreamDrillTests: XCTestCase {
             return subtitle
         }
         let tiers: [TierConfig] = ((raw["tiers"] as? [[String: Any]]) ?? []).map { t in
-            var tier = TierConfig(playlistUrl: t["playlistUrl"] as? String ?? "", bandwidth: t["bandwidth"] as? Int ?? 0, codecs: t["codecs"] as? String ?? "",
-                                  width: t["width"] as? Int ?? 0, height: t["height"] as? Int ?? 0)
-            tier.audioHi = (t["audioGroup"] as? String) == "hi"
-            tier.stereoBandwidth = t["stereoBandwidth"] as? Int ?? 0
-            return tier
+            TierConfig(playlistUrl: t["playlistUrl"] as? String ?? "", bandwidth: t["bandwidth"] as? Int ?? 0, codecs: t["codecs"] as? String ?? "",
+                       width: t["width"] as? Int ?? 0, height: t["height"] as? Int ?? 0)
         }.filter { !$0.playlistUrl.isEmpty }
         return RemuxConfig(
             inputUrl: raw["inputUrl"] as? String ?? "", audioTracks: audioTracks, durationSeconds: raw["durationSeconds"] as? Double ?? 0,

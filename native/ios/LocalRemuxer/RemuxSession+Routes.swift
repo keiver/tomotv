@@ -96,22 +96,20 @@ extension RemuxSession {
         // Slipstream audio-lo renditions: "aNs.m3u8", "aNs-init.mp4",
         // "aNs-seg{index}.m4s" — must match before the engine "aN" block,
         // whose digits-only guard would 404 the "s" suffix.
-        // "aNh…" is the same shape for the audio-hi group.
         let digits = name.dropFirst().prefix(while: \.isNumber)
         if name.hasPrefix("a"), !digits.isEmpty, let position = Int(digits),
-           let group = name.dropFirst(1 + digits.count).first, group == "s" || group == "h" {
-            let hi = group == "h"
+           name.dropFirst(1 + digits.count).first == "s" {
             let rest = String(name.dropFirst(2 + digits.count))
             if rest == ".m3u8" {
-                guard let playlist = audioLoPlaylist(position: position, hi: hi) else { return .notFound }
+                guard let playlist = audioLoPlaylist(position: position) else { return .notFound }
                 return .data(Data(playlist.utf8), contentType: m3u8)
             }
             if rest == "-init.mp4" {
-                return audioLoInitResponse(position: position, hi: hi)
+                return audioLoInitResponse(position: position)
             }
             if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
                let n = Int(rest.dropFirst(4).dropLast(4)) {
-                return audioLoSegmentResponse(position: position, n: n, hi: hi)
+                return audioLoSegmentResponse(position: position, n: n)
             }
         }
 

@@ -173,20 +173,6 @@ extension RemuxSession {
                 out += line + "\n"
             }
         }
-        // audio-hi: the same members at their own channel count. CHANNELS tells AVPlayer which group
-        // suits the output, and it then stays in it (Apple's authoring appendix, "Audio rendition
-        // groups and variants"), which is why every rung is listed with audio-lo below.
-        if audioHiActive {
-            for (position, track) in config.audioTracks.enumerated() {
-                let name = track.name.replacingOccurrences(of: "\"", with: "")
-                var line = "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio-hi\",NAME=\"\(name)\""
-                line += ",LANGUAGE=\"\(track.language.isEmpty ? "und" : track.language)\""
-                line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
-                if track.serverAudioHiChannels > 0 { line += ",CHANNELS=\"\(track.serverAudioHiChannels)\"" }
-                line += ",URI=\"a\(position)h.m3u8\""
-                out += line + "\n"
-            }
-        }
 
         // RFC 8216 §4.3.4.1 also forbids a group from carrying more than one
         // member with DEFAULT=YES, and Matroska is happy to flag several
@@ -352,21 +338,10 @@ extension RemuxSession {
         let headroomRung = fitting.last.flatMap { last in rungs.first { $0 > last } } ?? rungs.first
         let listed = rungs.filter { fitting.contains($0) || $0 == headroomRung }
 
-        // One entry per audio group a rung plays with, all naming the same video playlist. Every rung
-        // has the stereo entry; a rung with room for surround has that one too, listed first so an
-        // output that takes it starts there. Measured with surround on the upper rungs ONLY and
-        // CHANNELS set: a stereo output never left the bottom three (240p for 160s on 3 to 6 Mb/s).
         func rungLine(_ k: Int) -> String {
             let rung = config.tiers[k]
-            let surround = rung.audioHi && audioHiActive
-            let stereo = rung.stereoBandwidth > 0 ? rung.stereoBandwidth : rung.bandwidth
-            return (surround ? rungEntry(k, bandwidth: rung.bandwidth, group: "audio-hi") : "")
-                + rungEntry(k, bandwidth: stereo, group: audioLoActive ? "audio-lo" : "audio")
-        }
-
-        func rungEntry(_ k: Int, bandwidth: Int, group: String) -> String {
-            let rung = config.tiers[k]
-            let bw = bandwidth > 0 ? bandwidth : 1_500_000
+            let group = audioLoActive ? "audio-lo" : "audio"
+            let bw = rung.bandwidth > 0 ? rung.bandwidth : 1_500_000
             var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bw),AVERAGE-BANDWIDTH=\(bw)"
             // Rungs are SDR by build; declare their real resolution and codecs.
             if !config.videoRange.isEmpty {

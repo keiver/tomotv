@@ -38,18 +38,11 @@ export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem 
 }
 
 /**
- * One audio track of a video item as AAC in fMP4, for the rungs' server audio groups. The video
+ * One audio track of a video item as stereo AAC in fMP4, for the rungs' server audio group. The video
  * route, because /Audio/{id}/main.m3u8 ignores AudioStreamIndex (no -map: every track came back
  * as the same stream); the 64px picture beside it costs 16 KB a segment and the engine drops it.
  */
-export function getAudioRenditionUrl(
-  itemId: string,
-  videoItem: JellyfinVideoItem | null | undefined,
-  audioStreamIndex: number,
-  playSessionId: string,
-  bitrate: number,
-  maxChannels: number = 2,
-): string {
+export function getAudioRenditionUrl(itemId: string, videoItem: JellyfinVideoItem | null | undefined, audioStreamIndex: number, playSessionId: string, bitrate: number): string {
   const config = getCachedConfig();
   if (!config.server || !config.apiKey) return "";
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
@@ -59,7 +52,7 @@ export function getAudioRenditionUrl(
     `&VideoCodec=h264&AudioCodec=aac&AudioStreamIndex=${audioStreamIndex}` +
     `&VideoBitrate=20000&AudioBitrate=${bitrate}&MaxWidth=64` +
     `&SegmentContainer=mp4&SegmentLength=6&MinSegments=1` +
-    `&BreakOnNonKeyFrames=false&TranscodingMaxAudioChannels=${maxChannels}` +
+    `&BreakOnNonKeyFrames=false&TranscodingMaxAudioChannels=2` +
     `&PlaySessionId=${playSessionId}`
   );
 }

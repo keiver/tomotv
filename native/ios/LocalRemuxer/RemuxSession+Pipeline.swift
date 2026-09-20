@@ -2099,7 +2099,7 @@ extension RemuxSession {
         stateLock.unlock()
         for (key, indices) in audioDoomed {
             for n in indices {
-                try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(serverAudioPrefix(key: key))-seg\(n).m4s"))
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(serverAudioPrefix(key))-seg\(n).m4s"))
             }
         }
     }

@@ -353,11 +353,10 @@ extension RemuxSession {
     /// Starts the opening fetch of a rung above the canonical one, which probeTier does not cover.
     func fetchOpeningSegment(rung: Int) {
         let target = segmentIndex(atSeconds: config.startOffsetSeconds)
-        // The opening audio of each group the rung is listed with: which one the output takes is AVPlayer's call.
-        for hi in [false, true] where hi ? (config.tiers[rung].audioHi && audioHiActive) : audioLoActive {
+        if audioLoActive {
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self, let segments = self.adoptAudioLo(0, hi: hi) else { return }
-                _ = self.materializeAudioLoSegment(position: 0, n: self.audioLoIndex(segments, at: self.config.startOffsetSeconds), hi: hi)
+                guard let self, let segments = self.adoptAudioLo(0) else { return }
+                _ = self.materializeAudioLoSegment(position: 0, n: self.audioLoIndex(segments, at: self.config.startOffsetSeconds))
             }
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in

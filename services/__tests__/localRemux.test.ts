@@ -1077,13 +1077,11 @@ describe("startLocalRemux Slipstream tier config", () => {
     expect(config.audioTracks[0].serverAudioUrl).toContain("/Videos/item1/main.m3u8");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioStreamIndex=1");
     expect(config.audioTracks[0].serverAudioUrl).toContain("VideoBitrate=20000&AudioBitrate=96000&MaxWidth=64");
-    // A seven-channel track arrives as stereo on a rung: no surround group is offered.
+    // A seven-channel track arrives as stereo on a rung.
     expect(config.audioTracks[0].serverAudioChannels).toBe(2);
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=aac");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioBitrate=96000");
     expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");
-    expect(config.audioTracks[0].serverAudioHiUrl).toBeUndefined();
-    expect(config.tiers.every((t: { audioGroup?: string }) => t.audioGroup === undefined)).toBe(true);
   });
 
   it("names the server's raw stream for an embedded PGS or DVD track, and for nothing else", async () => {

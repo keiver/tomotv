@@ -39,7 +39,7 @@ extension RemuxSession {
     /// DELETE /Videos/ActiveEncodings is the public route (M1: 204).
     func killTierTranscode() {
         var urls = config.tiers.map(\.playlistUrl)
-        urls += config.audioTracks.flatMap { [$0.serverAudioUrl, $0.serverAudioHiUrl] }.filter { !$0.isEmpty }
+        urls += config.audioTracks.map(\.serverAudioUrl).filter { !$0.isEmpty }
         for urlString in urls {
             guard let components = URLComponents(string: urlString),
                   let apiKey = components.queryItems?.first(where: { $0.name == "ApiKey" })?.value,

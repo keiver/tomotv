@@ -233,9 +233,7 @@ class LocalRemuxer: RCTEventEmitter {
                 language: raw["language"] as? String ?? "",
                 serverAudioUrl: raw["serverAudioUrl"] as? String ?? ""
             )
-            track.serverAudioHiUrl = raw["serverAudioHiUrl"] as? String ?? ""
             track.serverAudioChannels = raw["serverAudioChannels"] as? Int ?? 0
-            track.serverAudioHiChannels = raw["serverAudioHiChannels"] as? Int ?? 0
             return track
         }
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
@@ -292,16 +290,13 @@ class LocalRemuxer: RCTEventEmitter {
                 bandwidth: (config["bandwidth"] as? Int) ?? 0,
                 readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0,
                 tiers: (config["tiers"] as? [[String: Any]] ?? []).map { t in
-                    var tier = TierConfig(
+                    TierConfig(
                         playlistUrl: (t["playlistUrl"] as? String) ?? "",
                         bandwidth: (t["bandwidth"] as? Int) ?? 0,
                         codecs: (t["codecs"] as? String) ?? "",
                         width: (t["width"] as? Int) ?? 0,
                         height: (t["height"] as? Int) ?? 0
                     )
-                    tier.audioHi = (t["audioGroup"] as? String) == "hi"
-                    tier.stereoBandwidth = (t["stereoBandwidth"] as? Int) ?? 0
-                    return tier
                 }.filter { !$0.playlistUrl.isEmpty },
                 startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,
                 itemId: (config["itemId"] as? String) ?? "",

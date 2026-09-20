@@ -145,37 +145,23 @@ manifest answers from it once it is complete or when the demuxer is not feeding.
 only when the source is let go, lost, or held under a rung. DVB, XSUB and sidecar image files
 have no measured raw route and stay owed.
 
-## Surround on the upper rungs (services/localRemux.ts `rungAudio`, RemuxSession+AudioLo.swift)
+## Server audio on the rungs (services/localRemux.ts, RemuxSession+AudioLo.swift)
 
-Two server audio groups, both AAC. `audio-lo` is 96 kb/s stereo. `audio-hi` is the track at its
-own channel count, six at most, 64 kb/s a channel (measured: the server's AAC 5.1 at 384 kb/s;
-its AC-3 copy exits 134 on Jellyfin 12). A rung is listed with hi, beside its stereo entry, once its video is at least twice the
-default track's hi rate (800 kb/s and up for 5.1), and its BANDWIDTH carries that rate, through
-one helper that also feeds the app's caps. Every track is in both groups. A stereo item has no
-hi group and its master is unchanged. Natively both groups are one code path keyed by
-(position, hi): files and routes `a{p}s-*` and `a{p}h-*`.
+One server audio group, `audio-lo`: 96 kb/s stereo AAC, every track in it, `CHANNELS` from what
+the server sends (a mono track stays mono). Every rung is listed once, with that group. Surround
+comes from the copy; the engine group carries no CHANNELS. Files and routes are `a{p}s-*`.
 
-Both groups are fetched from `/Videos/{id}/main.m3u8` with a 64px, 20 kb/s picture, never from
+Measured on the Apple TV (a surround output): with the rungs from 480p up also listed with a 5.1
+AAC group, AVPlayer took only the surround entries, whatever the link. At 1.5 Mb/s it opened on
+480p, 16.3s to the first frame, then -16172 and a reload; at 12 Mb/s it never reached the copy.
+With stereo on every rung: first frame at 4.8s, the copy at 7.4s.
+
+The group is fetched from `/Videos/{id}/main.m3u8` with a 64px, 20 kb/s picture, never from
 `/Audio/{id}/main.m3u8`. Measured on Jellyfin 12.0.0: the audio route builds FFmpeg with no `-map`,
 so every `AudioStreamIndex` returned the same stream (T102 tracks 1 and 2 both gave `#0:1`), and
 it exits 134 on T09. The video route maps the track (`-map 0:0 -map 0:2`), costs 16 to 18 KB a
 segment (`AUDIO_CARRIER_BITRATE`, counted in each rung's BANDWIDTH), and `TierRewrapper` keeps
 only the audio.
-
-The layout is Apple's (HLS authoring specification, appendix "Audio rendition groups and
-variants"): one group per codec and channel count, each with every track, a stereo AAC group always
-present, and the variant entries REPLICATED per group, because "during playback you don't want to
-switch the number of channels". So both groups carry CHANNELS (RFC 8216 4.3.4.1), every rung has an
-`audio-lo` entry (`stereoBandwidth`), and a rung with room for surround has an `audio-hi` entry as
-well, listed first, naming the same `t{k}.m3u8`. The engine group carries no CHANNELS and is left
-as it shipped. Measured on the host drill, a stereo output:
-
-- Surround on the upper rungs ONLY, with CHANNELS: never left the bottom three rungs, 240p for 160s
-  on 3 to 6 Mb/s, two runs. AVPlayer holds to the groups its output can play.
-- The same without CHANNELS: climbs, and switches 2 to 6 channels at the 400k/800k boundary.
-- Replicated entries with CHANNELS: `a0s` from start to end, t1 to t3 at 7s and t4 at 23s (S6); at
-  12 Mb/s, with a surround entry leading the master, it opens on that rung's stereo entry and is on
-  the copy at 14s (S10). What a 5.1 output does below the lowest surround entry is not measured here.
 
 ## Measuring the link (RemuxSession+LinkProbe.swift)
 
