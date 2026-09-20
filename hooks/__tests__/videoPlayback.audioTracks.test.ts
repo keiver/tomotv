@@ -2,7 +2,7 @@
  * Mapping AVPlayer's positional audio indices onto Jellyfin stream indices, and what a
  * track report means. Drives the real orderAudioTracks/planAudioReport.
  */
-import { orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack, type AudioReportInput } from "../videoPlayback/audioTracks";
+import { isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack, type AudioReportInput } from "../videoPlayback/audioTracks";
 
 const report = (overrides: Partial<AudioReportInput> = {}): AudioReportInput => ({
   tracks: [],
@@ -35,6 +35,23 @@ describe("orderAudioTracks", () => {
     const tracks = [{ Index: 1 }, { Index: 8 }];
     orderAudioTracks(tracks, 8);
     expect(tracks).toEqual([{ Index: 1 }, { Index: 8 }]);
+  });
+});
+
+describe("isFreshManifestReport", () => {
+  it("keeps the viewer's track when an empty report arrives before the rebuilt stream's first real one", () => {
+    // A rebuild moved the stream to generation 5; the viewer had picked Jellyfin stream 2 (position 1).
+    let reported = 4;
+    const empty = isFreshManifestReport(0, reported, 5);
+    expect(empty).toBe(false);
+    // The hook records a generation only for a report with tracks, so the next one is still the first.
+    const fresh = isFreshManifestReport(2, reported, 5);
+    expect(fresh).toBe(true);
+    reported = 5;
+    const plan = planAudioReport(report({ tracks: [track(0, true), track(1)], mapping: [1, 2], viewerPickedStreamIndex: 2, lastSelectedIndex: 1, freshManifest: fresh, seamless: true }));
+    expect(plan.reapplyPosition).toBe(1);
+    expect(plan.recordStreamIndex).toBeNull();
+    expect(isFreshManifestReport(2, reported, 5)).toBe(false);
   });
 });
 

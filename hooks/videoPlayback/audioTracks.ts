@@ -65,6 +65,11 @@ export interface AudioReportPlan {
 
 const NOTHING: AudioReportPlan = { reapplyPosition: null, restartStreamIndex: null, recordStreamIndex: null, setLastSelectedIndex: null, unmapped: false };
 
+/** Whether a report is the first to describe its stream. An empty one names no track, so it leaves the stream fresh. */
+export function isFreshManifestReport(trackCount: number, reportedGeneration: number, streamGeneration: number): boolean {
+  return trackCount > 0 && reportedGeneration !== streamGeneration;
+}
+
 export function planAudioReport(input: AudioReportInput): AudioReportPlan {
   const selectedPosition = input.tracks.find((track) => track.selected)?.index ?? null;
 

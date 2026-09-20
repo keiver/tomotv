@@ -83,7 +83,7 @@ import { videoPlayerReducer, type PlaybackMode, type VideoPlayerState } from "./
 import { planErrorRecovery, planLiveErrorRecovery } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
-import { orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
+import { isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
 import { classifyObservedChoice, planSubtitleApplication } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
 import {
@@ -2165,8 +2165,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         logger.debug("Audio tracks", { service: "useVideoPlayback", count: data.audioTracks.length, selected: selected?.index });
       }
 
-      const freshManifest = audioReportGenerationRef.current !== streamGenerationRef.current;
-      audioReportGenerationRef.current = streamGenerationRef.current;
+      const freshManifest = isFreshManifestReport(data.audioTracks.length, audioReportGenerationRef.current, streamGenerationRef.current);
+      if (data.audioTracks.length > 0) audioReportGenerationRef.current = streamGenerationRef.current;
       const plan = planAudioReport({
         tracks: data.audioTracks,
         mapping: audioTrackMappingRef.current,
