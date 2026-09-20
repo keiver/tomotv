@@ -10,8 +10,6 @@ export const FAST_START_MS = 4_500;
 export const SLOW_START_MS = 8_000;
 /** From the link recovering to the copy playing again. */
 export const RECOVERY_BUDGET_SEC = 45;
-/** The longest the picture may be gone while a rebuild's new player item opens. */
-export const REBUILD_GAP_SEC = 5;
 /** How far short of the scenario a recording may stop and still count as the whole run. */
 export const RECORDING_SLACK_SEC = 3;
 
@@ -45,9 +43,6 @@ export const SCENARIOS = {
     label: "1.5 -> 30 at 60s",
     seconds: 150,
     changeAt: 60,
-    // A master written for a slow link cannot name the copy (listed at 0.6 Mb/s it killed the item,
-    // -12889, measured), so this recovery is one rebuild at the playhead, and exactly one.
-    climbsByRebuild: true,
     profile: [
       { atSec: 0, kbps: 1500 },
       { atSec: 60, kbps: 30000 },
@@ -89,8 +84,6 @@ export const SCENARIOS = {
     // (getTierPlaylistUrl). Refusing /Videos/.../main.m3u8 outright also refuses the server
     // transcode the session falls back to, which is the lane this scenario exists to test.
     refuse: "AudioBitrate=32000",
-    // The rungs are gone, so surviving the drop MEANS handing the item to the server: the lane
-    // change is the outcome under test, not a reload to hold against the session.
     handsOver: true,
     profile: [
       { atSec: 0, kbps: 30000 },
@@ -136,7 +129,7 @@ export function variantRuns(timeline) {
   const runs = [];
   // A request is stamped when it ENDS: in the order AVPlayer asked, a segment that took twenty
   // seconds to die after a drop is not a switch made twenty seconds later.
-  const asked = timeline.filter((r) => r.kind === "req").sort((a, b) => a.ms - (a.doneMs ?? 0) - (b.ms - (b.doneMs ?? 0)));
+  const asked = timeline.filter((record) => record.kind === "req" && record.status >= 200 && record.status < 300 && record.bytes > 0).sort((a, b) => a.ms - (a.doneMs ?? 0) - (b.ms - (b.doneMs ?? 0)));
   for (const r of asked) {
     const c = classify(r.path.split("/").pop());
     if (!c.video) continue;
@@ -175,30 +168,9 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder, heights, 
   const budgetMs = scenario.startBudgetMs ?? (scenario.profile[0].kbps === 0 || scenario.profile[0].kbps >= 10_000 ? FAST_START_MS : SLOW_START_MS);
   const startMs = firstFrame ? firstFrame.ms - t0 : Infinity;
   check("starts inside the budget", startMs <= budgetMs, `${firstFrame ? Math.round(startMs) : "never"}ms of ${budgetMs}ms`);
-  // A rebuild is a new player item, and the picture is gone while it opens. Where a scenario's
-  // recovery IS a rebuild, that one pause is held to a bound of its own; any other stall fails.
-  const climbs = timeline.filter((r) => r.kind === "climb").map((r) => r.ms);
-  const isRebuildGap = (s) => scenario.climbsByRebuild && climbs.some((at) => s.fromMs >= at - 2000 && s.fromMs <= at + 2000);
-  const gaps = stalls.filter(isRebuildGap);
-  const others = stalls.filter((s) => !isRebuildGap(s));
   const seconds = (s) => Math.round((s.toMs - s.fromMs) / 1000);
-  check("no stall after first frame", others.length === 0, others.map((s) => `${seconds(s)}s at ${Math.round(s.position)}s`).join(", ") || "none");
-  if (scenario.climbsByRebuild)
-    check(
-      "the rebuild's pause is short",
-      gaps.every((s) => s.toMs - s.fromMs <= REBUILD_GAP_SEC * 1000),
-      gaps.length ? `${gaps.map(seconds).join(", ")}s of ${REBUILD_GAP_SEC}s` : "no pause",
-    );
-  // A hand-over scenario replaces the item once, by definition; nothing else may replace it at all.
-  const allowed = scenario.handsOver || scenario.climbsByRebuild ? 1 : 0;
-  check("player item survives", replacements <= allowed, `${replacements} replacements, ${allowed} allowed`);
-  // A hand-over scenario with no hand-over never met its fault.
-  if (scenario.handsOver) {
-    // The fault is the drop: only a move to the server lane after it is the hand-over under test.
-    const dropAt = at(scenario.profile[1]?.atSec ?? 0);
-    const handOvers = timeline.filter((r) => r.kind === "reload" && r.to === "transcode" && r.ms >= dropAt);
-    check("hands over once", replacements === 1 && handOvers.length === 1, `${replacements} replacements, ${handOvers.length} to the server after the drop`);
-  }
+  check("no stall after first frame", stalls.length === 0, stalls.map((stall) => `${seconds(stall)}s at ${Math.round(stall.position)}s`).join(", ") || "none");
+  check("player item survives", replacements === 0, `${replacements} replacements, 0 allowed`);
   // Playback reached the end of the window, and kept advancing after any replacement.
   const ticks = timeline.filter((r) => r.kind === "tick");
   const lastTick = ticks.at(-1);
@@ -299,7 +271,7 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder, heights, 
       // Counted per request, not per run: an uninterrupted copy run starts before the first frame
       // and keeps serving after it, so a run filter would find nothing to judge.
       const videoAfter = timeline
-        .filter((r) => r.kind === "req" && (!firstFrame || r.ms > firstFrame.ms))
+        .filter((r) => r.kind === "req" && r.status >= 200 && r.status < 300 && r.bytes > 0 && (!firstFrame || r.ms > firstFrame.ms))
         .map((r) => classify(r.path.split("/").pop()))
         .filter((c) => c.video);
       const probes = videoAfter.filter((c) => c.variant !== "copy").length;
@@ -342,7 +314,23 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder, heights, 
     default:
       break;
   }
-  if (expectAudio != null && end) check("all audio tracks listed", end.audible === expectAudio, `${end.audible}/${expectAudio}`);
-  if (expectSubs != null && end) check("all subtitle tracks listed", end.legible >= expectSubs, `${end.legible}/${expectSubs}`);
+  if (expectAudio != null) {
+    const counts = timeline.filter((record) => record.kind === "tracks" && firstFrame && record.ms >= firstFrame.ms).map((record) => record.audio);
+    counts.push(end?.audible ?? 0);
+    check(
+      "all audio tracks listed",
+      counts.every((count) => count === expectAudio),
+      `${counts.join(",")}/${expectAudio}`,
+    );
+  }
+  if (expectSubs != null) {
+    const counts = timeline.filter((record) => record.kind === "textTracks" && firstFrame && record.ms >= firstFrame.ms).map((record) => record.subtitles);
+    counts.push(end?.legible ?? 0);
+    check(
+      "all subtitle tracks listed",
+      counts.every((count) => count >= expectSubs),
+      `${counts.join(",")}/${expectSubs}`,
+    );
+  }
   return { id, label: scenario.label, pass: checks.every((c) => c.ok), checks, runs };
 }

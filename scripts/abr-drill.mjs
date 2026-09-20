@@ -16,7 +16,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { devicectl, jf, loadEnv } from "./playback-regression.mjs";
+import { devicectl, jf, loadEnv, openDeepLink, pickTarget, simctl } from "./playback-regression.mjs";
 import { SCENARIOS, score } from "./lib/abr-score.mjs";
 
 const exec = promisify(execFile);
@@ -43,7 +43,7 @@ const CAP = !args.includes("--no-cap");
 const START = Number(opt("--start", "0"));
 const FIXTURE_ROOT = path.join(os.homedir(), "Movies", "development-videos");
 /** The address the TV reaches this Mac on; the proxy binds every interface. */
-const LAN_HOST = opt("--lan-host", "192.168.1.5");
+const LAN_HOST = opt("--lan-host", null);
 const DEVELOPER_DIR = "/Applications/Xcode.app/Contents/Developer";
 const DEVICECTL = `${DEVELOPER_DIR}/usr/bin/devicectl`;
 /** Longest the app takes from launch to its first probe event. */
@@ -189,7 +189,7 @@ const served = async () => (await netsim()).served;
  * lands before the JS router is ready is dropped silently, so a sign-in onto the proxy is confirmed
  * by traffic arriving there (measured: one run played the server direct and read 70 Mb/s).
  */
-async function signInto(env, device, serverUrl, credentials) {
+async function signInto(env, target, serverUrl, credentials) {
   const info = await (await fetch(`${serverUrl}/System/Info/Public`)).json();
   const query = new URLSearchParams({
     server: serverUrl,
@@ -203,7 +203,7 @@ async function signInto(env, device, serverUrl, credentials) {
   const throughProxy = serverUrl.includes(`:${PROXY_PORT}`);
   for (let attempt = 1; attempt <= 3; attempt++) {
     const before = throughProxy ? await served() : 0;
-    await devicectl(["device", "process", "launch", "--device", device, "--terminate-existing", "--payload-url", `tomotv://dev-session?${query}`, env.BUNDLE_ID]);
+    await openDeepLink(env, target, `tomotv://dev-session?${query}`);
     await new Promise((r) => setTimeout(r, 12000));
     if (!throughProxy) return;
     for (let i = 0; i < 20; i++) {
@@ -212,7 +212,47 @@ async function signInto(env, device, serverUrl, credentials) {
     }
     console.log(`  sign-in ${attempt}/3 did not reach the proxy, relaunching`);
   }
-  throw new Error(`${device} never read through the proxy after signing in`);
+  throw new Error(`${target.name} never read through the proxy after signing in`);
+}
+
+async function simulatorRun(env, target, item, scenario, base) {
+  const consoleLog = `${base}-console.log`;
+  const probeFile = `${base}-probe.jsonl`;
+  const logStart = new Date().toISOString().slice(0, 19).replace("T", " ") + "+0000";
+  await simctl(["terminate", target.udid, env.BUNDLE_ID]).catch(() => {});
+  const { stdout } = await simctl(["get_app_container", target.udid, env.BUNDLE_ID, "data"]);
+  const sourceProbe = path.join(stdout.trim(), "Library/Caches/playback-probe.jsonl");
+  if (fs.existsSync(sourceProbe)) fs.renameSync(sourceProbe, `${sourceProbe}.before-${path.basename(base)}`);
+  try {
+    await simctl(["launch", target.udid, env.BUNDLE_ID], {
+      env: { ...process.env, SIMCTL_CHILD_TOMO_REQUEST_LOG: "1" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, DEVICE_LAUNCH_SEC * 1000));
+    await control({ profile: scenario.profile, refuse: scenario.refuse ?? null, rttMs: scenario.rttMs ?? 0 });
+    await openDeepLink(env, target, `tomotv://player?videoId=${item.itemId}&probe=1${START ? `&startTicks=${Math.round(START * 10_000_000)}` : ""}`);
+    await new Promise((resolve) => setTimeout(resolve, (scenario.seconds + DEVICE_LAUNCH_SEC) * 1000));
+    if (!fs.existsSync(sourceProbe)) throw new Error("simulator did not write a playback probe");
+    fs.copyFileSync(sourceProbe, probeFile);
+    const logs = await simctl(
+      [
+        "spawn",
+        target.udid,
+        "log",
+        "show",
+        "--start",
+        logStart,
+        "--style",
+        "syslog",
+        "--predicate",
+        'process == "TomoTV" AND (eventMessage CONTAINS "[LocalHTTPServer]" OR eventMessage CONTAINS "[LocalRemuxer]")',
+      ],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
+    fs.writeFileSync(consoleLog, logs.stdout);
+    return { consoleLog, probeFile };
+  } finally {
+    await simctl(["terminate", target.udid, env.BUNDLE_ID]).catch(() => {});
+  }
 }
 
 /** One device run: launch the item, apply the profile, collect the probe file and the engine log. */
@@ -275,12 +315,16 @@ export function deviceTimeline({ consoleLog, probeFile }) {
       timeline.push({ kind: "tick", ms, position, ahead: 0, status: buffering ? 1 : 2, advanced: !buffering && position > lastPosition + 0.05 });
       lastPosition = position;
     }
-    if (e.event === "playing") timeline.push({ kind: "firstFrame", ms, position: lastPosition });
+    if (e.event === "displayReady") timeline.push({ kind: "firstFrame", ms, position: e.position });
+    if (e.event === "playing") timeline.push({ kind: "playing", ms, position: lastPosition });
     if (e.event === "buffering") buffering = Boolean(e.on);
     // The spell runs to the moment it ends: a last stalled tick there, then the one that closes it.
     if (e.event === "buffering" && !e.on) timeline.push({ kind: "tick", ms, position: e.position ?? lastPosition, ahead: 0, status: 1, advanced: false });
     if (e.event === "buffering") timeline.push({ kind: "tick", ms, position: e.position ?? lastPosition, ahead: 0, status: e.on ? 1 : 2, advanced: !e.on });
-    if (e.event === "tracks") timeline.push({ kind: "tracks", ms, audio: e.audio });
+    if (e.event === "tracks") timeline.push({ kind: "tracks", ms, audio: e.audio, selected: e.selected, identities: e.identities });
+    if (e.event === "textTracks") timeline.push({ kind: "textTracks", ms, subtitles: e.subtitles, selected: e.selected, identities: e.identities });
+    if (e.event === "cap") timeline.push({ kind: "cap", ms, mbps: e.bps === null ? 0 : e.bps / 1_000_000 });
+    if (e.event === "access") timeline.push({ kind: "access", ms, indicated: e.indicated, position: e.position });
     // The first stream event is the session opening; a later one is a genuine rebuild.
     if (e.event === "stream") {
       timeline.push({ kind: streams++ === 0 || climbing ? "open" : "reload", ms, detail: e.event });
@@ -305,14 +349,20 @@ export function deviceTimeline({ consoleLog, probeFile }) {
   }
   timeline.sort((a, b) => a.ms - b.ms);
   const tracks = timeline.filter((r) => r.kind === "tracks").at(-1);
-  timeline.push({ kind: "end", ms: timeline.at(-1)?.ms ?? 0, audible: tracks?.audio ?? 0, legible: 0 });
+  const textTracks = timeline.filter((record) => record.kind === "textTracks").at(-1);
+  timeline.push({ kind: "end", ms: timeline.at(-1)?.ms ?? 0, audible: tracks?.audio ?? 0, legible: textTracks?.subtitles ?? 0 });
   return timeline;
 }
 
 async function main() {
   const env = loadEnv();
-  const device = opt("--device", null);
-  if (!flag("--host") && !device) throw new Error("pass --host or --device <name>");
+  if (flag("--host") && (flag("--device") || flag("--udid"))) throw new Error("choose one target: --host, --udid <simulator>, or --device <name>");
+  if (flag("--device") && flag("--udid")) throw new Error("choose either --device or --udid");
+  const target = flag("--host") ? null : await pickTarget();
+  const device = target !== null;
+  if (target?.kind === "device" && !LAN_HOST) throw new Error("--lan-host is required for a physical device");
+  for (const id of IDS) if (!SCENARIOS[id]) throw new Error(`unknown scenario: ${id}`);
+  const proxyHost = target?.kind === "device" ? LAN_HOST : "127.0.0.1";
   await requireFreePort();
   fs.mkdirSync(RUN_DIR, { recursive: true });
   const items = await resolveIds(env, ITEMS);
@@ -320,7 +370,7 @@ async function main() {
   const head = (await exec("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT })).stdout.trim();
   const dirty = (await exec("git", ["status", "--porcelain"], { cwd: ROOT })).stdout.trim() ? "+dirty" : "";
   const lines = [
-    `\n## ${new Date().toISOString()} ${device ? `device ${device}` : "host"}, link=${LINK ?? "measured"}, buffer=${BUFFER ?? "default"}, window=${WINDOW}, cap=${CAP}, start=${START}s, tree ${head}${dirty}\n`,
+    `\n## ${new Date().toISOString()} ${target ? `${target.kind} ${target.name}` : "host"}, link=${LINK ?? "measured"}, buffer=${BUFFER ?? "default"}, window=${WINDOW}, cap=${CAP}, start=${START}s, tree ${head}${dirty}\n`,
   ];
   const credentials = device ? deviceCredentials("Apple TV") : null;
   // One proxy for the whole device run: the app is signed into its address, so it cannot come and
@@ -330,66 +380,72 @@ async function main() {
     deviceProxy = startProxy(path.join(RUN_DIR, `${stamp}-device-proxy.jsonl`));
     await waitForProxy();
   }
-  if (device) {
-    console.log(`Signing ${device} into the netsim proxy at http://${LAN_HOST}:${PROXY_PORT}`);
-    await signInto(env, device, `http://${LAN_HOST}:${PROXY_PORT}`, credentials);
-  }
-  for (const item of items) {
-    for (const id of IDS) {
-      const scenario = SCENARIOS[id];
-      if (id === "S7" && item.id !== "T102") continue;
-      // A broken route is set on the host drill's own router; the app has no such seam.
-      if (device && scenario.breakPath) continue;
-      // The hand-over is the app's move to the server lane; the host drill has no app to make it.
-      if (!device && scenario.handsOver) continue;
-      const base = path.join(RUN_DIR, `${stamp}-${item.id}-${id}`);
-      const proxy = device ? null : startProxy(`${base}-proxy.jsonl`);
-      try {
-        await waitForProxy();
-        await control({ kbps: scenario.profile[0].kbps, refuse: scenario.refuse ?? null, rttMs: scenario.rttMs ?? 0 });
-        let timeline;
-        // The app's own engine config for the item: the drill plays it on the host, and both
-        // targets are scored against the ladder and source rate it declares.
-        await captureConfig(env, item, `${base}-config.json`);
-        const offered = JSON.parse(fs.readFileSync(`${base}-config.json`, "utf8"));
-        if (device) {
-          await resetResume(env, item.itemId, credentials.userId);
-          const collected = await deviceRun(env, device, item, scenario, base);
-          timeline = deviceTimeline(collected);
-          fs.writeFileSync(`${base}-timeline.jsonl`, timeline.map((r) => JSON.stringify(r)).join("\n"));
-        } else {
-          await hostRun(`${base}-config.json`, scenario, `${base}-timeline.jsonl`, `${base}-engine.log`);
-          timeline = readTimeline(`${base}-timeline.jsonl`);
+  try {
+    if (device) {
+      console.log(`Signing ${target.name} into the netsim proxy at http://${proxyHost}:${PROXY_PORT}`);
+      await signInto(env, target, `http://${proxyHost}:${PROXY_PORT}`, credentials);
+    }
+    for (const item of items) {
+      for (const id of IDS) {
+        const scenario = SCENARIOS[id];
+        if (id === "S7" && item.id !== "T102") continue;
+        // A broken route is set on the host drill's own router; the app has no such seam.
+        if (device && scenario.breakPath) continue;
+        // The hand-over is the app's move to the server lane; the host drill has no app to make it.
+        if (!device && scenario.handsOver) continue;
+        const base = path.join(RUN_DIR, `${stamp}-${item.id}-${id}`);
+        const proxy = device ? null : startProxy(`${base}-proxy.jsonl`);
+        try {
+          await waitForProxy();
+          await control({ kbps: scenario.profile[0].kbps, refuse: scenario.refuse ?? null, rttMs: scenario.rttMs ?? 0 });
+          let timeline;
+          // The app's own engine config for the item: the drill plays it on the host, and both
+          // targets are scored against the ladder and source rate it declares.
+          await captureConfig(env, item, `${base}-config.json`);
+          const offered = JSON.parse(fs.readFileSync(`${base}-config.json`, "utf8"));
+          if (device) {
+            await resetResume(env, item.itemId, credentials.userId);
+            const collected = target.kind === "sim" ? await simulatorRun(env, target, item, scenario, base) : await deviceRun(env, target.name, item, scenario, base);
+            timeline = deviceTimeline(collected);
+            fs.writeFileSync(`${base}-timeline.jsonl`, timeline.map((r) => JSON.stringify(r)).join("\n"));
+          } else {
+            await hostRun(`${base}-config.json`, scenario, `${base}-timeline.jsonl`, `${base}-engine.log`);
+            timeline = readTimeline(`${base}-timeline.jsonl`);
+          }
+          const result = score(id, timeline, {
+            expectAudio: item.expect?.audioRenditions ?? 1,
+            expectSubs: item.expect?.subtitles,
+            ladder: (offered.tiers ?? []).map((tier) => tier.bandwidth),
+            heights: (offered.tiers ?? []).map((tier) => tier.height),
+            sourceBps: offered.bandwidth ?? 0,
+          });
+          const line = `- ${result.pass ? "PASS" : "FAIL"} ${item.id} ${id} (${result.label}): ${result.checks.map((c) => `${c.ok ? "ok" : "X"} ${c.name} [${c.detail}]`).join("; ")}`;
+          console.log(line);
+          lines.push(line);
+        } catch (error) {
+          const line = `- ERROR ${item.id} ${id}: ${error.message.split("\n")[0]}`;
+          console.log(line);
+          lines.push(line);
+        } finally {
+          proxy?.kill();
         }
-        const result = score(id, timeline, {
-          expectAudio: item.expect?.audioRenditions ?? 1,
-          // The device probe reports audio counts only; subtitle options are host-drill evidence.
-          expectSubs: device ? undefined : item.expect?.subtitles,
-          ladder: (offered.tiers ?? []).map((tier) => tier.bandwidth),
-          heights: (offered.tiers ?? []).map((tier) => tier.height),
-          sourceBps: offered.bandwidth ?? 0,
-        });
-        const line = `- ${result.pass ? "PASS" : "FAIL"} ${item.id} ${id} (${result.label}): ${result.checks.map((c) => `${c.ok ? "ok" : "X"} ${c.name} [${c.detail}]`).join("; ")}`;
-        console.log(line);
-        lines.push(line);
-      } catch (error) {
-        const line = `- ERROR ${item.id} ${id}: ${error.message.split("\n")[0]}`;
-        console.log(line);
-        lines.push(line);
-      } finally {
-        proxy?.kill();
       }
     }
+  } finally {
+    if (device) {
+      // The TV cannot reach this Mac by "localhost"; it is signed back into the LAN address.
+      const home = target.kind === "device" ? env.JELLYFIN_URL.replace(/\/\/(localhost|127\.0\.0\.1)/, `//${LAN_HOST}`) : env.JELLYFIN_URL;
+      console.log(`Signing ${target.name} back into ${home}`);
+      try {
+        await control({ kbps: 0, refuse: null, rttMs: 0 });
+        await signInto(env, target, home, credentials);
+      } finally {
+        deviceProxy?.kill();
+      }
+    }
+    fs.mkdirSync(path.dirname(RESULTS), { recursive: true });
+    fs.appendFileSync(RESULTS, lines.join("\n") + "\n");
   }
-  if (device) {
-    // The TV cannot reach this Mac by "localhost"; it is signed back into the LAN address.
-    const home = env.JELLYFIN_URL.replace(/\/\/(localhost|127\.0\.0\.1)/, `//${LAN_HOST}`);
-    console.log(`Signing ${device} back into ${home}`);
-    await signInto(env, device, home, credentials);
-    deviceProxy?.kill();
-  }
-  fs.mkdirSync(path.dirname(RESULTS), { recursive: true });
-  fs.appendFileSync(RESULTS, lines.join("\n") + "\n");
   console.log(`\nresults: ${RESULTS}`);
   if (lines.some((line) => line.startsWith("- FAIL") || line.startsWith("- ERROR"))) process.exitCode = 1;
 }

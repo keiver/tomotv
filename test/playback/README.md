@@ -229,15 +229,18 @@ through it, then scores the timeline with `scripts/lib/abr-score.mjs`.
 
 ```bash
 node scripts/abr-drill.mjs --host                  # macOS AVPlayer against the real engine
-node scripts/abr-drill.mjs --device "Main Bedroom" # the app on the Apple TV, over the LAN
+node scripts/abr-drill.mjs --device "Main Bedroom" --lan-host "$(ipconfig getifaddr en0)"
+node scripts/abr-drill.mjs --udid <simulator-UDID> # the real app, not a hardware acceptance gate
 #  --items T101,T102  --scenarios S1,S4  --link 1500000  --buffer 12  --start 0  --no-window
 ```
 
-Eight scenarios: unthrottled, 1.5 Mb/s, a drop, a recovery, 0.6 Mb/s, a
-flapping link, down-then-up with two audio tracks, and the rung playlists
-refused. Each asserts a first frame, no stall after it, no unexpected reload,
-the variant the scenario calls for, and every audio and subtitle track still
-listed at the end. Results append to `$TMPDIR/tomotv-drill/drill-results.md`
+The scenarios in `scripts/lib/abr-score.mjs` cover steady links, network steps,
+latency, and refused routes. No scenario allows a player replacement, including
+recovery and fallback. The app reports display readiness separately from progress
+and records audio/subtitle catalogues through transitions. Request logs describe
+transfers, not displayed frames; quality assertions still need presentation-level
+evidence before these results can be a release gate. Simulator results never
+replace the physical Apple TV matrix. Results append to `$TMPDIR/tomotv-drill/drill-results.md`
 with each run's timeline, proxy log and engine log beside them.
 
 The host path captures the app's real bridge config through
