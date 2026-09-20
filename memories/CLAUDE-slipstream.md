@@ -160,8 +160,10 @@ Both groups are fetched from `/Videos/{id}/main.m3u8` with a 64px, 20 kb/s pictu
 so every `AudioStreamIndex` returned the same stream (T102 tracks 1 and 2 both gave `#0:1`), and
 it exits 134 on T09. The video route maps the track (`-map 0:0 -map 0:2`), costs 16 to 18 KB a
 segment (`AUDIO_CARRIER_BITRATE`, counted in each rung's BANDWIDTH), and `TierRewrapper` keeps
-only the audio. Each line of both groups carries CHANNELS (RFC 8216 4.3.4.1: same codec, different
-channel counts); an engine rendition gets it only when it leaves as AAC.
+only the audio. No group carries CHANNELS, against RFC 8216 4.3.4.1. Measured on the host drill,
+S6, two runs each way: with `CHANNELS="6"` on `audio-hi` AVPlayer on a stereo output never left the
+`audio-lo` rungs (240p for 160s on 3 to 6 Mb/s); without it the same run reached 1080p by 107s and
+crossed to `audio-hi` at 24s.
 
 ## Measuring the link (RemuxSession+LinkProbe.swift)
 

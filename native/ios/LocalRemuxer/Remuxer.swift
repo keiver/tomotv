@@ -238,8 +238,6 @@ final class RemuxSession {
     var openingRungResolved = false
     /// The master leads with a rung, so the opening segment is a rung's and not the copy's.
     var rungLeads = false
-    /// Channels of each engine audio rendition that leaves as AAC, by source stream index.
-    var engineAacChannels: [Int: Int] = [:]
     /// The rung AVPlayer last asked a segment of, and when the producer last moved to follow it.
     var lastTierRung = 0
     var lastFollowSeekAt = Date.distantPast

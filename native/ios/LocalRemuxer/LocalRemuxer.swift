@@ -234,8 +234,6 @@ class LocalRemuxer: RCTEventEmitter {
                 serverAudioUrl: raw["serverAudioUrl"] as? String ?? ""
             )
             track.serverAudioHiUrl = raw["serverAudioHiUrl"] as? String ?? ""
-            track.serverAudioChannels = raw["serverAudioChannels"] as? Int ?? 0
-            track.serverAudioHiChannels = raw["serverAudioHiChannels"] as? Int ?? 0
             return track
         }
         let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
