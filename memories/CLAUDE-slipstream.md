@@ -1,8 +1,27 @@
 # Slipstream: player-native adaptive streaming through the loopback gateway
 
-**Category:** Shipped behaviour (2.2.7). Read this before touching the master
+**Category:** Release work in progress, not accepted for 2.2.7. Read this before touching the master
 playlist, the link measurement or the variant cap.
 **Keywords:** slipstream, adaptive, ABR, gateway, variants, master playlist, quality
+
+## Implementation checkpoint, 2026-09-20
+
+The current working-tree recovery change is not release-accepted. Before that change, the
+tvOS simulator showed T101's first picture at 2.413s unthrottled and 4.323s on 1.5 Mb/s;
+the 1.5-to-30 Mb/s recovery replaced the player once. Evidence is under
+`/tmp/tomotv-slipstream-implementation/`. Those runs used the prior native binary.
+
+The new dormant-producer/503 path passes 49 focused engine tests; 270 focused Jest tests
+pass. Neither result proves AVPlayer will retry the deferred copy within the recovery
+budget. The generated `ios/LocalRemuxer` and `tvos/LocalRemuxer` sources are synchronized;
+the owner must rebuild the simulator before another playback run. No prebuild is needed
+for this increment. The physical TV is unavailable and has not been launched.
+
+Still pending: bounded same-item recovery on the rebuilt app, presentation-level variant
+and native item-identity evidence, unsupported-audio preservation and fallback catalogue
+unification, the complete two-fixture matrix, T40, and the complete release gates. The
+scorer's remaining request-derived quality checks are not proof of displayed quality.
+Do not restore the old rebuild exception or treat this checkpoint as release readiness.
 
 The engine's loopback server is a full HLS gateway: ONE master playlist per
 session, declaring the device's own stream copy beside server-fed rungs, with
@@ -35,7 +54,7 @@ We are the only client architecture that IS the HLS server. That is the moat.
 
 - **The first variant listed is where AVPlayer starts**, and `startsOnFirstEligibleVariant` makes
   that ours to decide (RNV patch; since tvOS 13 AVPlayer otherwise picks its own).
-  - The copy is LISTED when `source * 1.2 <= measured link`.
+  - The copy stays listed on thin links unless its producer is permanently unavailable.
   - The copy LEADS only when `source * 3 <= measured link` (`copyLeadsMargin`), the link on which
     its first 6s segment lands in 2s. Leading at 12 Mb/s (1.9x) its 4.7 MB opening segment took
     3.7s, AVPlayer hedged onto the bottom rung and showed a frame at 8.6s; it then climbed to the
@@ -49,14 +68,11 @@ link` (`openingRungShare`, `chooseOpeningRung`), so t0 up to 2 Mb/s and 480p at 
   - The leading rung's opening segment is fetched the moment the link is known, since its server
     transcode is a second or two of spin-up. NEVER beside a copy that leads: at 30 Mb/s the 3 MB
     of t5 took the link from the copy's first segment and AVPlayer opened on t0.
-- **The copy is decided once** (`decideCopy`, `copyVerdict`), and the pipeline and the master act
-  on the same answer. A probe that read nothing is a SLOW link, never an unlimited one.
-- **A link that cannot carry the copy is not offered the copy at all.** AVPlayer
-  evaluates every variant it is listed, and a copy segment a slow link cannot
-  finish inside its 6s watchdog fails the whole item (-12889, measured at
-  0.6 Mb/s, with the cap in force). One rung of headroom above the fitting set stays listed so a
-  recovering link has somewhere to climb without a new session.
-- **A master names the copy only once it can be produced** (`sourceReady`, the renditions built).
+- The initial producer decision remains measured (`decideCopy`). An unknown rate is slow.
+- The master now lists the full eligible ladder. Admission defers unaffordable routes with
+  HTTP 503 before sending media headers; a permanently unavailable copy returns 410.
+  This replaces pruning/rebuilding. AVPlayer's bounded recovery from those temporary
+  responses is **not yet measured on the rebuilt simulator or physical TV**.
 - Rungs ride `audio-lo` and the copy rides `audio`: the ladder is the degraded
   path, and 96 kb/s stereo is what a link in trouble can spare. Subtitles are
   one group for every variant, so no switch moves the viewer's track.
@@ -85,17 +101,17 @@ reads still fills the socket's buffers: it took 40% of the link out from under t
 read as 7.4), the copy was withheld, the repeat probe read 12, the app rebuilt, and the new
 session read low again, eight times in 90s. And a link that cannot carry the copy has no use for
 the source: `find_stream_info` alone pulled 573 KB, 5.8s of a 0.6 Mb/s first frame.
-`releaseSource` never opens it, and the session runs as a gateway over the server's rungs, when
-the copy is withheld, the grid is adopted, every audio track has a server rendition
+`releaseSource` leaves it dormant, and the session runs as a gateway over the server's rungs, when
+the link is thin, the grid is adopted, every audio track has a server rendition
 (`audioLoActive`), and no track needs the demuxer (`demuxerOwesTracks`: an image subtitle, or an
 engine text track with no server WebVTT).
 
-The same release catches a source that will not open or cannot be planned (`failStartup`): the
-rungs carry the session instead of the server lane, which has no ladder. So does a probe the
-server answers with an error status (`LinkMeter.refused`, `sourceRefused`): read as a slow link it
-was released as rebuildable, and the app rebuilt four times toward a copy nothing could produce.
-The link report then says `copyListed: true`, so the app never rebuilds toward a copy that cannot
-exist. A failure after a master has named the copy is still a failure.
+The pipeline thread stays alive without opening the source. When the wire carries the copy
+beside the current rung, it warms the producer in that same session. It reads the original
+timeline anchor before seeking to the rung's current segment. Permanent startup failures
+leave the source unavailable instead; they must never be treated as recoverable dormancy.
+`copyListed` now describes whether the master actually announced the copy, not whether JS
+should rebuild. The network-triggered rebuild timer has been removed.
 
 ## The producer under a rung (RemuxSession+Pipeline.swift, RemuxSession+Tier.swift)
 
@@ -198,10 +214,10 @@ engine measures it itself. Two kinds of evidence, kept apart:
   RNV's `maxBitRate` (preferredPeakBitRate). The floor matters: a cap under
   every variant leaves AVPlayer nothing it may play and it shows no frame at
   all. A pinned quality preset is the cap instead, and no report moves it.
-- **Climb**: a session whose master has no copy rebuilds at the playhead once
-  the link has carried `source * 1.2` for 5s, with a 60s cooldown. The hold is
-  a TIMER, not the next report: a link fast enough to fill the rung read-ahead
-  stops the engine's server reads, and with them the reports.
+- **Climb**: the native producer wakes in the existing gateway; the app only changes the cap.
+  Quality settings are read before engine startup, so they cannot erase an early link report.
+  Link reports are cached per token and replayed to the first subscriber; stopped sessions
+  cannot update a later attempt's cap.
 - **Startup cushion**: a session asks for 12s of forward buffer (two rung segments, which ride
   out the server encoder's warm-up). Handed back to AVPlayer the moment the picture is up. Holding it for the whole session costs what it buys: a 30 to
   1.5 Mb/s drop found 6s buffered and stalled 37s.
