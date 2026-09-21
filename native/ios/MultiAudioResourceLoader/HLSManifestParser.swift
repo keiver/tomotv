@@ -47,6 +47,10 @@ class HLSManifestParser {
     func parse(_ manifestText: String) throws -> HLSManifest {
         var manifest = HLSManifest()
         let lines = manifestText.components(separatedBy: .newlines)
+        guard lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "#EXTM3U" else {
+            throw NSError(domain: "HLSParser", code: 1, userInfo: [NSLocalizedDescriptionKey: "Response is not an HLS playlist"])
+        }
+        var hasVariant = false
 
         for (index, line) in lines.enumerated() {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
@@ -61,7 +65,8 @@ class HLSManifestParser {
                 manifest.audioGroupId = extractValue(from: trimmedLine, key: "GROUP-ID")
                 manifest.audioLanguage = extractValue(from: trimmedLine, key: "LANGUAGE")
                 manifest.audioName = extractValue(from: trimmedLine, key: "NAME")
-                manifest.audioUri = extractValue(from: trimmedLine, key: "URI")
+                let audioUri = extractValue(from: trimmedLine, key: "URI")
+                manifest.audioUri = audioUri.isEmpty ? nil : audioUri
             }
             // Parse subtitle media tags
             else if trimmedLine.hasPrefix("#EXT-X-MEDIA:TYPE=SUBTITLES") {
@@ -79,6 +84,7 @@ class HLSManifestParser {
             }
             // Parse stream info
             else if trimmedLine.hasPrefix("#EXT-X-STREAM-INF:") {
+                hasVariant = true
                 // Extract bandwidth
                 if trimmedLine.contains("BANDWIDTH=") {
                     let bandwidth = extractValue(from: trimmedLine, key: "BANDWIDTH")
@@ -110,12 +116,10 @@ class HLSManifestParser {
                     }
                 }
             }
-            // Direct URI line (if no #EXT-X-STREAM-INF before it)
-            else if !trimmedLine.isEmpty && !trimmedLine.hasPrefix("#") && manifest.videoUri == nil {
-                manifest.videoUri = trimmedLine
-            }
         }
-
+        guard hasVariant, let videoUri = manifest.videoUri, !videoUri.isEmpty, (manifest.bandwidth ?? 0) > 0 else {
+            throw NSError(domain: "HLSParser", code: 2, userInfo: [NSLocalizedDescriptionKey: "Master playlist has no playable variant"])
+        }
         return manifest
     }
 
@@ -126,7 +130,8 @@ class HLSManifestParser {
     /// - Returns: The value as a string, or empty string if not found
     private func extractValue(from line: String, key: String) -> String {
         // Handle quoted values (e.g., NAME="English")
-        if let quotedRange = line.range(of: "\(key)=\"") {
+        let attributePrefix = "(?:^|[:,])" + NSRegularExpression.escapedPattern(for: key) + "="
+        if let quotedRange = line.range(of: attributePrefix + "\"", options: .regularExpression) {
             let startIndex = quotedRange.upperBound
             let substring = line[startIndex...]
 
@@ -136,7 +141,7 @@ class HLSManifestParser {
         }
 
         // Handle unquoted values (e.g., BANDWIDTH=5000000)
-        if let range = line.range(of: "\(key)=") {
+        if let range = line.range(of: attributePrefix, options: .regularExpression) {
             let startIndex = range.upperBound
             let substring = line[startIndex...]
 
