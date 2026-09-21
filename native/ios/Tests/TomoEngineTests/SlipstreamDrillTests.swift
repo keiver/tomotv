@@ -92,7 +92,7 @@ final class SlipstreamDrillTests: XCTestCase {
         let raw = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: configPath))) as? [String: Any])
         let seconds = Double(env["TOMO_DRILL_SECONDS"] ?? "120") ?? 120
         let deadline = Date().addingTimeInterval(seconds)
-        emit("start", ["config": configPath])
+        emit("start", ["config": configPath, "epochMs": Int(started.timeIntervalSince1970 * 1000)])
 
         if let proxy = env["TOMO_DRILL_PROXY"].flatMap(URL.init(string:)), let profile = env["TOMO_DRILL_PROFILE"],
            let steps = try? JSONSerialization.jsonObject(with: Data(profile.utf8)) {

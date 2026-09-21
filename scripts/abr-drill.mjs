@@ -17,7 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { devicectl, jf, loadEnv, openDeepLink, pickTarget, simctl } from "./playback-regression.mjs";
-import { SCENARIOS, score } from "./lib/abr-score.mjs";
+import { SCENARIOS, copyBitrates, profileRates, score } from "./lib/abr-score.mjs";
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -231,6 +231,7 @@ async function simulatorRun(env, target, item, scenario, base) {
     await control({ profile: scenario.profile, refuse: scenario.refuse ?? null, rttMs: scenario.rttMs ?? 0 });
     await openDeepLink(env, target, `tomotv://player?videoId=${item.itemId}&probe=1${START ? `&startTicks=${Math.round(START * 10_000_000)}` : ""}`);
     await new Promise((resolve) => setTimeout(resolve, (scenario.seconds + DEVICE_LAUNCH_SEC) * 1000));
+    const endedAt = Date.now();
     if (!fs.existsSync(sourceProbe)) throw new Error("simulator did not write a playback probe");
     fs.copyFileSync(sourceProbe, probeFile);
     const logs = await simctl(
@@ -249,7 +250,7 @@ async function simulatorRun(env, target, item, scenario, base) {
       { maxBuffer: 64 * 1024 * 1024 },
     );
     fs.writeFileSync(consoleLog, logs.stdout);
-    return { consoleLog, probeFile };
+    return { consoleLog, probeFile, endedAt };
   } finally {
     await simctl(["terminate", target.udid, env.BUNDLE_ID]).catch(() => {});
   }
@@ -289,25 +290,27 @@ async function deviceRun(env, device, item, scenario, base) {
   // The recording's clock starts at the app's first probe event, seconds after this launch: the
   // wait runs that much longer, or every device recording ends short of its scenario.
   await new Promise((r) => setTimeout(r, (scenario.seconds + DEVICE_LAUNCH_SEC) * 1000));
+  const endedAt = Date.now();
   child.kill();
   fs.closeSync(out);
   await copy("from", "Library/Caches/playback-probe.jsonl", probeFile).catch(() => {});
-  return { consoleLog, probeFile };
+  return { consoleLog, probeFile, endedAt };
 }
 
 /** The app's probe events and the engine's request log, in the shape the scorer reads. */
-export function deviceTimeline({ consoleLog, probeFile }) {
+export function deviceTimeline({ consoleLog, probeFile, endedAt }) {
   const timeline = [];
   const probe = fs.existsSync(probeFile) ? readTimeline(probeFile) : [];
-  const t0 = probe[0]?.t ?? Date.now();
+  const t0 = probe[0]?.t ?? endedAt ?? Date.now();
   const at = (t) => t - t0;
-  timeline.push({ kind: "start", ms: 0 });
+  timeline.push({ kind: "start", ms: 0, epochMs: probe[0]?.t });
   let lastPosition = -1;
   let buffering = false;
   let streams = 0;
   /** A climb rebuilds the session, so the stream event that follows it is that rebuild, not a reload. */
   let climbing = false;
   for (const e of probe) {
+    if (endedAt != null && e.t > endedAt) continue;
     const ms = at(e.t);
     if (e.event === "progress") {
       const position = e.position ?? 0;
@@ -345,12 +348,13 @@ export function deviceTimeline({ consoleLog, probeFile }) {
     if (!m) continue;
     const stamp = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)/);
     const ms = stamp ? at(Date.parse(stamp[1].replace(" ", "T"))) : 0;
+    if (endedAt != null && ms > at(endedAt)) continue;
     timeline.push({ kind: "req", ms, path: m[1], status: Number(m[2]), bytes: Number(m[3]), firstBodyMs: Number(m[4]), doneMs: Number(m[5]) });
   }
   timeline.sort((a, b) => a.ms - b.ms);
   const tracks = timeline.filter((r) => r.kind === "tracks").at(-1);
   const textTracks = timeline.filter((record) => record.kind === "textTracks").at(-1);
-  timeline.push({ kind: "end", ms: timeline.at(-1)?.ms ?? 0, audible: tracks?.audio ?? 0, legible: textTracks?.subtitles ?? 0 });
+  timeline.push({ kind: "end", ms: at(endedAt ?? probe.at(-1)?.t ?? t0), audible: tracks?.audio, legible: textTracks?.subtitles });
   return timeline;
 }
 
@@ -394,7 +398,8 @@ async function main() {
         // The hand-over is the app's move to the server lane; the host drill has no app to make it.
         if (!device && scenario.handsOver) continue;
         const base = path.join(RUN_DIR, `${stamp}-${item.id}-${id}`);
-        const proxy = device ? null : startProxy(`${base}-proxy.jsonl`);
+        const proxyPath = device ? path.join(RUN_DIR, `${stamp}-device-proxy.jsonl`) : `${base}-proxy.jsonl`;
+        const proxy = device ? null : startProxy(proxyPath);
         try {
           await waitForProxy();
           await control({ kbps: scenario.profile[0].kbps, refuse: scenario.refuse ?? null, rttMs: scenario.rttMs ?? 0 });
@@ -407,20 +412,24 @@ async function main() {
             await resetResume(env, item.itemId, credentials.userId);
             const collected = target.kind === "sim" ? await simulatorRun(env, target, item, scenario, base) : await deviceRun(env, target.name, item, scenario, base);
             timeline = deviceTimeline(collected);
-            fs.writeFileSync(`${base}-timeline.jsonl`, timeline.map((r) => JSON.stringify(r)).join("\n"));
           } else {
             await hostRun(`${base}-config.json`, scenario, `${base}-timeline.jsonl`, `${base}-engine.log`);
             timeline = readTimeline(`${base}-timeline.jsonl`);
           }
+          timeline.push(...profileRates(readTimeline(proxyPath), timeline.find((record) => record.kind === "start")?.epochMs));
+          timeline.sort((left, right) => left.ms - right.ms);
+          fs.writeFileSync(`${base}-timeline.jsonl`, timeline.map((record) => JSON.stringify(record)).join("\n"));
           const result = score(id, timeline, {
             expectAudio: item.expect?.audioRenditions ?? 1,
             expectSubs: item.expect?.subtitles,
             ladder: (offered.tiers ?? []).map((tier) => tier.bandwidth),
             heights: (offered.tiers ?? []).map((tier) => tier.height),
-            sourceBps: offered.bandwidth ?? 0,
+            sourceBps: offered.sourceBandwidth || offered.bandwidth || 0,
+            copyBps: copyBitrates(offered),
           });
+          fs.writeFileSync(`${base}-score.json`, JSON.stringify(result, null, 2));
           const startup = `startup ${result.startup.milliseconds === null ? "never" : `${Math.round(result.startup.milliseconds)}ms`}, target ${result.startup.targetMs}ms (${result.startup.meetsTarget ? "met" : "missed"}, informational)`;
-          const line = `- ${result.pass ? "PASS" : "FAIL"} ${item.id} ${id} (${result.label}): ${startup}; ${result.checks.map((c) => `${c.ok ? "ok" : "X"} ${c.name} [${c.detail}]`).join("; ")}`;
+          const line = `- ${result.status} ${item.id} ${id} (${result.label}): ${startup}; ${result.checks.map((check) => `${check.ok === null ? "?" : check.ok ? "ok" : "X"} ${check.name} [${check.detail}]`).join("; ")}; delivery diagnostics: ${base}-score.json`;
           console.log(line);
           lines.push(line);
         } catch (error) {
@@ -448,7 +457,7 @@ async function main() {
     fs.appendFileSync(RESULTS, lines.join("\n") + "\n");
   }
   console.log(`\nresults: ${RESULTS}`);
-  if (lines.some((line) => line.startsWith("- FAIL") || line.startsWith("- ERROR"))) process.exitCode = 1;
+  if (lines.some((line) => line.startsWith("- FAIL") || line.startsWith("- ERROR") || line.startsWith("- INCOMPLETE"))) process.exitCode = 1;
 }
 
 // Only when run as the command; importing this file re-scores saved runs without starting one.

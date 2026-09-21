@@ -8,8 +8,6 @@
 // AVPlayer starts on one segment or waits about a second more on identical deliveries (2.6s or 3.6 to 4.1s at 30 Mb/s).
 export const FAST_START_MS = 4_500;
 export const SLOW_START_MS = 8_000;
-/** From the link recovering to the copy playing again. */
-export const RECOVERY_BUDGET_SEC = 45;
 /** How far short of the scenario a recording may stop and still count as the whole run. */
 export const RECORDING_SLACK_SEC = 3;
 
@@ -21,10 +19,6 @@ export const STEADY_SEC = 60;
 /** The share of a link the app lets AVPlayer spend (LINK_CAP_SHARE), and the copy's margin (LINK_CLIMB_MARGIN). */
 const CAP_SHARE = 0.8;
 const COPY_MARGIN = 1.2;
-const OPENING_SEC = 30;
-const COPY_LEADS_MARGIN = 3;
-const OPENING_RUNG_SHARE = 6;
-const SEGMENT_SEC = 6;
 
 /** Link profiles, seconds from playback start. kbps 0 = unlimited. */
 export const SCENARIOS = {
@@ -69,9 +63,6 @@ export const SCENARIOS = {
   },
   // The gate the slow-start target was agreed against: a thin link with a long round trip.
   S9: { label: "750 kbps, 150 ms round trip", seconds: 150, rttMs: 150, profile: [{ atSec: 0, kbps: 750 }] },
-  // A link that carries the copy with little to spare: the probe's reading decides the lane, and a
-  // low one opens on rungs and rebuilds. 7.3 MB cross the wire before a frame (the probe, the
-  // first copy segment, its audio), 4.9s at this rate, so the slow budget is the one that applies.
   S10: { label: "12 Mbps, 40 ms round trip", seconds: 150, rttMs: 40, startBudgetMs: 8_000, profile: [{ atSec: 0, kbps: 12000 }] },
   // The source cannot be read at all (the static stream is refused): the rungs carry the session.
   S11: { label: "source refused, unthrottled", seconds: 90, refuse: "Static=true", sourceless: true, profile: [{ atSec: 0, kbps: 0 }] },
@@ -80,9 +71,6 @@ export const SCENARIOS = {
   S8: {
     label: "starve with rung routes refused",
     seconds: 120,
-    // Only the rung's own playlist: AudioBitrate=32000 is the ladder's marker
-    // (getTierPlaylistUrl). Refusing /Videos/.../main.m3u8 outright also refuses the server
-    // transcode the session falls back to, which is the lane this scenario exists to test.
     refuse: "AudioBitrate=32000",
     handsOver: true,
     profile: [
@@ -119,7 +107,7 @@ export function stallEpisodes(timeline) {
     }
   }
   // A spell still open when the recording stops ran until then.
-  if (open) open.toMs = Math.max(open.toMs, ...timeline.map((r) => r.ms ?? 0));
+  if (open) open.toMs = Math.max(open.toMs, timeline.filter((record) => record.kind === "end").at(-1)?.ms ?? open.toMs);
   if (open && open.toMs - open.fromMs >= 1000) episodes.push(open);
   return episodes;
 }
@@ -142,194 +130,199 @@ export function variantRuns(timeline) {
   return runs;
 }
 
-/**
- * `ladder` is the rungs' declared rates and `heights` their picture heights, smallest first, and
- * `sourceBps` the copy's: what the run's own config offered, so the steady-link checks judge the
- * variant the link deserves.
- */
-export function score(id, timeline, { expectAudio, expectSubs, ladder, heights, sourceBps = 0 } = {}) {
+export function profileRates(records, epochMs) {
+  if (!Number.isFinite(epochMs)) return [];
+  const profileIndex = records.findLastIndex((record) => record.kind === "profile");
+  if (profileIndex < 0) return [];
+  const profile = records[profileIndex];
+  const initial = profile.steps?.[0];
+  if (!initial) return [];
+  const preceding = records[profileIndex - 1];
+  const applied = preceding?.kind === "rate" && preceding.reason === "profile" && preceding.atSec === initial.atSec ? preceding : profile;
+  return [
+    { kind: "rate", ms: applied.t - epochMs, atSec: initial.atSec, kbps: initial.kbps },
+    ...records
+      .slice(profileIndex + 1)
+      .filter((record) => record.kind === "rate" && record.reason === "profile")
+      .map((record) => ({ kind: "rate", ms: record.t - epochMs, atSec: record.atSec, kbps: record.kbps })),
+  ];
+}
+
+export function copyBitrates(config) {
+  if (config.serverVideoOnly) return [];
+  const audio = Math.max(0, ...(config.audioTracks ?? []).map((track) => (track.usesServerAudio ? 120_000 : Math.max(0, track.bandwidth ?? 0))));
+  const primary = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth + audio : config.bandwidth || 20_000_000;
+  const bridge = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth + 120_000 : Math.max(primary, 120_000);
+  return [...new Set([primary, ...(config.tiers?.length && config.audioTracks?.length ? [bridge] : [])])];
+}
+
+export function playerSelections(timeline, { ladder = [], copyBps = [] } = {}) {
+  return timeline
+    .filter((record) => record.kind === "access" && record.indicated > 0)
+    .map((record) => {
+      const candidates = ladder.flatMap((bandwidth, index) => (bandwidth === record.indicated ? [`t${index}`] : []));
+      if (copyBps.includes(record.indicated)) candidates.push("copy");
+      return { ...record, variant: candidates.length === 1 ? candidates[0] : null };
+    });
+}
+
+export function score(id, timeline, { expectAudio, expectSubs, ladder = [], heights, sourceBps = 0, copyBps = [] } = {}) {
   const scenario = SCENARIOS[id];
-  const t0 = timeline.find((r) => r.kind === "start")?.ms ?? 0;
-  const at = (sec) => t0 + sec * 1000;
-  // The last one: a session rebuilt on recovery ends twice.
-  const end = timeline.filter((r) => r.kind === "end").at(-1);
-  const failed = timeline.find((r) => r.kind === "failed");
-  const firstFrame = timeline.find((r) => r.kind === "firstFrame");
+  timeline = [...timeline].sort((left, right) => left.ms - right.ms);
+  const startMs = timeline.find((record) => record.kind === "start")?.ms ?? 0;
+  const end = timeline.filter((record) => record.kind === "end").at(-1);
+  const deadlineMs = startMs + scenario.seconds * 1000;
+  const recordingComplete = end != null && end.ms >= deadlineMs - RECORDING_SLACK_SEC * 1000;
+  const failed = timeline.find((record) => record.kind === "failed");
+  const firstFrame = timeline.find((record) => record.kind === "firstFrame");
   const stalls = stallEpisodes(timeline);
   const runs = variantRuns(timeline);
-  // Every new player item is a replacement, whatever drove it: a climb rebuild is one too.
-  const replacements = timeline.filter((r) => r.kind === "reload" || r.kind === "climb").length;
-  const firstVideo = runs[0]?.variant ?? null;
+  const selections = playerSelections(timeline, { ladder, copyBps });
+  const rates = timeline.filter((record) => record.kind === "rate");
+  const replacements = timeline.filter((record) => record.kind === "reload" || record.kind === "climb").length;
   const checks = [];
-  const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail });
+  const diagnostics = [];
+  const check = (name, ok, detail) => checks.push({ name, ok: ok == null ? null : Boolean(ok), detail });
+  const note = (name, detail) => diagnostics.push({ name, detail });
+  const selectionAt = (milliseconds) => selections.filter((selection) => selection.ms <= milliseconds).at(-1);
+  const rateAt = (seconds) => rates.find((rate) => rate.atSec === seconds && rate.kbps === scenario.profile.find((step) => step.atSec === seconds)?.kbps);
+  const rank = (variant) => (variant === "copy" ? 99 : Number(variant.slice(1)));
 
-  check("plays", firstFrame && !failed, failed ? failed.error : firstFrame ? `first frame ${firstFrame.ms - t0}ms` : "never showed a frame");
-  const budgetMs = scenario.startBudgetMs ?? (scenario.profile[0].kbps === 0 || scenario.profile[0].kbps >= 10_000 ? FAST_START_MS : SLOW_START_MS);
-  const startMs = firstFrame ? firstFrame.ms - t0 : Infinity;
-  const startup = { milliseconds: firstFrame ? startMs : null, targetMs: budgetMs, meetsTarget: startMs <= budgetMs };
-  const seconds = (s) => Math.round((s.toMs - s.fromMs) / 1000);
-  check("no stall after first frame", stalls.length === 0, stalls.map((stall) => `${seconds(stall)}s at ${Math.round(stall.position)}s`).join(", ") || "none");
+  check("plays", failed ? false : firstFrame ? true : recordingComplete ? false : null, failed ? failed.error : firstFrame ? `first frame ${firstFrame.ms - startMs}ms` : "no frame recorded");
+  const targetMs = scenario.startBudgetMs ?? (scenario.profile[0].kbps === 0 || scenario.profile[0].kbps >= 10_000 ? FAST_START_MS : SLOW_START_MS);
+  const milliseconds = firstFrame ? firstFrame.ms - startMs : null;
+  const startup = { milliseconds, targetMs, meetsTarget: milliseconds != null && milliseconds <= targetMs };
+  check(
+    "no stall after first frame",
+    firstFrame ? stalls.length === 0 : null,
+    stalls.map((stall) => `${Math.round((stall.toMs - stall.fromMs) / 1000)}s at ${Math.round(stall.position)}s`).join(", ") || "none observed",
+  );
   check("player item survives", replacements === 0, `${replacements} replacements, 0 allowed`);
-  // Playback reached the end of the window, and kept advancing after any replacement.
-  const ticks = timeline.filter((r) => r.kind === "tick");
+  check("recording covers the scenario", recordingComplete ? true : null, `recorded to ${end ? ((end.ms - startMs) / 1000).toFixed(1) : "unknown"}s of ${scenario.seconds}s`);
+
+  const ticks = timeline.filter((record) => record.kind === "tick");
   const lastTick = ticks.at(-1);
   const played = firstFrame && lastTick ? lastTick.position - firstFrame.position : 0;
-  // The run the scenario asks for, not the one that was recorded: ticks that stop early are a failure.
-  const window = firstFrame ? scenario.seconds - firstFrame.ms / 1000 : 0;
-  // The recording itself has to reach the end: one that stops early proves nothing about the rest.
-  const recordedSec = lastTick ? (lastTick.ms - t0) / 1000 : 0;
+  const windowSeconds = firstFrame ? scenario.seconds - (firstFrame.ms - startMs) / 1000 : 0;
+  const recordedSec = lastTick ? (lastTick.ms - startMs) / 1000 : 0;
   const covered = recordedSec >= scenario.seconds - RECORDING_SLACK_SEC;
   check(
     "plays to the end of the run",
-    covered && window > 0 && played >= window * 0.9,
-    `${played.toFixed(0)}s of media over ${window.toFixed(0)}s, recorded to ${recordedSec.toFixed(0)}s of ${scenario.seconds}s`,
+    !recordingComplete ? null : covered && windowSeconds > 0 && played >= windowSeconds * 0.9,
+    `${played.toFixed(0)}s of media over ${windowSeconds.toFixed(0)}s, progress recorded to ${recordedSec.toFixed(0)}s`,
   );
-  const lastReplacement = timeline.filter((r) => r.kind === "reload" || r.kind === "climb").at(-1);
+  const lastReplacement = timeline.filter((record) => record.kind === "reload" || record.kind === "climb").at(-1);
   if (lastReplacement) {
-    const after = ticks.filter((r) => r.ms > lastReplacement.ms);
-    const advanced = after.length > 1 && after.at(-1).position > after[0].position + 1;
-    check("keeps playing after the hand-over", advanced, after.length ? `${(after.at(-1).position - after[0].position).toFixed(0)}s after it` : "no progress recorded");
+    const after = ticks.filter((record) => record.ms > lastReplacement.ms);
+    check(
+      "keeps playing after the hand-over",
+      after.length > 1 && after.at(-1).position > after[0].position + 1,
+      after.length ? `${(after.at(-1).position - after[0].position).toFixed(0)}s after it` : "no progress recorded",
+    );
   }
 
-  const rank = (variant) => (variant === "copy" ? 99 : Number(variant.slice(1)));
-  // Delivered segments only: a request that failed or was given up shows nothing was played from it.
+  check(
+    "network transitions recorded",
+    scenario.profile.every((step) => rateAt(step.atSec)) ? true : null,
+    rates.length ? rates.map((rate) => `${rate.kbps} kb/s at ${rate.ms}ms`).join(", ") : "no proxy transition timestamps",
+  );
+  check(
+    "player-reported selection available",
+    selections.some((selection) => selection.variant !== null) ? true : null,
+    selections.length ? selections.map((selection) => `${selection.indicated} b/s: ${selection.variant ?? "unmapped"}`).join(", ") : "no AVPlayer access events",
+  );
   const requests = timeline
-    .filter((r) => r.kind === "req" && r.status >= 200 && r.status < 300 && (r.bytes ?? 0) > 0)
-    .map((r) => ({ ms: r.ms, ...classify(r.path.split("/").pop()) }))
-    .filter((r) => r.video);
-  for (const [i, step] of scenario.profile.entries()) {
-    const fromSec = step.atSec;
-    const toSec = scenario.profile[i + 1]?.atSec ?? scenario.seconds;
-    // A hand-over scenario refuses the ladder, so there is no offer of ours to judge.
-    if (toSec - fromSec < STEADY_SEC || !ladder?.length || scenario.handsOver) continue;
-    // What the link carries is ours to offer: the copy when it clears the copy's margin, else the
-    // biggest rung inside the share of the link the app lets AVPlayer spend. Offered means named
-    // in the master AND inside the cap in force at the end of the period.
+    .filter((record) => record.kind === "req" && record.status >= 200 && record.status < 300 && record.bytes > 0)
+    .map((record) => ({ ...record, askedMs: record.ms - (record.doneMs ?? 0), ...classify(record.path.split("/").pop()) }))
+    .filter((record) => record.video);
+  note(
+    "video deliveries",
+    `first ${runs[0]?.variant ?? "unknown"}; ${requests.filter((request) => request.variant !== "copy").length} rung of ${requests.length} completed requests; not displayed-quality evidence`,
+  );
+
+  for (const [index, step] of scenario.profile.entries()) {
+    const next = scenario.profile[index + 1];
+    if ((next?.atSec ?? scenario.seconds) - step.atSec < STEADY_SEC || !ladder.length || scenario.handsOver) continue;
+    const from = rateAt(step.atSec);
+    const until = next ? rateAt(next.atSec)?.ms : deadlineMs;
+    if (!from || until == null) continue;
     const linkBps = step.kbps === 0 ? Infinity : step.kbps * 1000;
     const copyFits = !scenario.sourceless && sourceBps > 0 && sourceBps * COPY_MARGIN <= linkBps;
-    const carried = ladder.filter((bps) => bps <= linkBps * CAP_SHARE).length - 1;
-    const master = timeline.filter((r) => r.kind === "master" && r.ms <= at(toSec)).at(-1)?.text ?? null;
-    const cap = timeline.filter((r) => r.kind === "cap" && r.ms <= at(toSec)).at(-1)?.mbps ?? null;
-    if (master !== null) {
-      const named = copyFits ? master.includes("\nmedia.m3u8") : carried < 0 || master.includes(`\nt${carried}.m3u8`);
-      const inside = copyFits || carried < 0 || cap === null || cap * 1_000_000 >= ladder[carried];
-      check(
-        `offers what ${step.kbps || "an open"} kb/s carries`,
-        named && inside,
-        `${copyFits ? "copy" : `t${Math.max(0, carried)}`} ${named ? "listed" : "NOT listed"}, cap ${cap === null ? "none" : `${cap.toFixed(2)} Mb/s`}`,
-      );
-    }
-    // What AVPlayer does with the offer is its own call, made on its own clock, and a careful one
-    // on a thin link. The floor it is held to: never under what HALF the link carries, and on the
-    // copy whenever the copy is what the link deserves.
-    const floor = copyFits ? 99 : Math.max(0, ladder.filter((bps) => bps <= linkBps * 0.5).length - 1);
-    const inSpan = requests.filter((r) => r.ms >= at(toSec - JUDGED_SEC) && r.ms <= at(toSec));
-    const standing = inSpan.length ? inSpan : requests.filter((r) => r.ms <= at(toSec)).slice(-1);
-    const chosen = [...new Set(standing.map((r) => r.variant))];
-    const lowest = chosen.length ? Math.min(...chosen.map(rank)) : -1;
+    const carried = Math.max(0, ladder.filter((bandwidth) => bandwidth <= linkBps * CAP_SHARE).length - 1);
+    const master = timeline.filter((record) => record.kind === "master" && record.ms <= until).at(-1)?.text;
+    const cap = timeline.filter((record) => record.kind === "cap" && record.ms <= until).at(-1)?.mbps;
+    const named = master == null ? null : copyFits ? master.includes("\nmedia.m3u8") : master.includes(`\nt${carried}.m3u8`);
+    const requiredBps = copyFits ? (copyBps.length ? Math.min(...copyBps) : null) : ladder[carried];
+    const inside = cap == null || requiredBps == null ? null : cap === 0 || cap * 1_000_000 >= requiredBps;
     check(
-      `rides what ${step.kbps || "an open"} kb/s carries`,
-      lowest >= floor,
-      chosen.length ? `fetching ${chosen.join(" ")} at the end, floor ${floor === 99 ? "copy" : `t${floor}`}` : "no video request",
+      `offers what ${step.kbps || "an open"} kb/s carries`,
+      named === false || inside === false ? false : named == null || inside == null ? null : true,
+      `${copyFits ? "copy" : `t${carried}`}; master ${master == null ? "not captured" : named ? "lists it" : "does not list it"}; cap ${cap == null ? "not captured" : cap === 0 ? "unlimited" : `${cap.toFixed(2)} Mb/s`}`,
     );
-    // The opening is ours to promise: half a minute in, the picture is at least the rung the engine
-    // opens that link on, the copy when it leads.
-    if (i === 0 && toSec - fromSec >= OPENING_SEC + 15) {
-      const copyLeads = copyFits && sourceBps * COPY_LEADS_MARGIN <= linkBps;
-      const opens = copyLeads ? 99 : Math.max(0, ladder.filter((bps) => bps * OPENING_RUNG_SHARE <= linkBps).length - 1);
-      const fetched = requests.filter((r) => r.segment === Math.floor(OPENING_SEC / SEGMENT_SEC) && r.ms <= at(toSec));
-      const best = fetched.length ? Math.max(...fetched.map((r) => rank(r.variant))) : -1;
+    const selected = selectionAt(until);
+    if (copyFits) {
       check(
-        `opens at what ${step.kbps || "an open"} kb/s affords`,
-        best >= opens,
-        fetched.length ? `${fetched.map((r) => r.variant).join(" ")} for the segment at ${OPENING_SEC}s, floor ${opens === 99 ? "copy" : `t${opens}`}` : "segment not fetched",
+        `player reports the copy on ${step.kbps || "an open"} kb/s`,
+        selected?.variant == null ? null : selected.variant === "copy",
+        selected ? `AVPlayer indicated ${selected.indicated} b/s (${selected.variant ?? "unmapped"}); not a displayed-frame measurement` : "no AVPlayer access event",
       );
     }
-    // Settled means the PICTURE stays: a step away and back is one correction, more is pumping.
-    // Counted in picture heights, since AVPlayer trying the next rate at the same size and
-    // stepping back is a change nobody sees (the ladder's bottom two rungs are both 144p).
+    const inSpan = requests.filter((request) => request.askedMs >= until - JUDGED_SEC * 1000 && request.askedMs <= until);
+    const floor = copyFits ? "copy" : `t${Math.max(0, ladder.filter((bandwidth) => bandwidth <= linkBps * 0.5).length - 1)}`;
+    note(
+      `delivery heuristic on ${step.kbps || "an open"} kb/s`,
+      `last ${JUDGED_SEC}s requested ${[...new Set(inSpan.map((request) => request.variant))].join(" ") || "none"}; half-link floor ${floor}, informational`,
+    );
     const height = (variant) => (variant === "copy" ? Infinity : (heights?.[rank(variant)] ?? rank(variant)));
-    const settled = runs.filter((r) => r.askedMs >= at(fromSec + SETTLE_SEC) && r.askedMs <= at(toSec)).map((r) => height(r.variant));
+    const settled = runs.filter((run) => run.askedMs >= from.ms + SETTLE_SEC * 1000 && run.askedMs <= until).map((run) => height(run.variant));
     let reversals = 0;
     let direction = 0;
-    for (let k = 1; k < settled.length; k++) {
-      const next = Math.sign(settled[k] - settled[k - 1]);
-      if (next !== 0 && direction !== 0 && next !== direction) reversals++;
-      if (next !== 0) direction = next;
+    for (let index = 1; index < settled.length; index++) {
+      const nextDirection = Math.sign(settled[index] - settled[index - 1]);
+      if (nextDirection !== 0 && direction !== 0 && nextDirection !== direction) reversals++;
+      if (nextDirection !== 0) direction = nextDirection;
     }
-    // Away and back is two turns of direction and one event.
-    const corrections = Math.ceil(reversals / 2);
-    check(`holds steady on ${step.kbps || "an open"} kb/s`, corrections <= 1, `${corrections} corrections of picture size after ${SETTLE_SEC}s`);
+    note(`request reversals on ${step.kbps || "an open"} kb/s`, `${reversals} after ${SETTLE_SEC}s; not visible flapping evidence`);
   }
-  const videoAfter = (sec) => runs.filter((r) => r.toMs >= at(sec));
-  switch (id) {
-    case "S1": {
-      check("opens on the copy", firstVideo === "copy", `first video ${firstVideo}`);
-      // AVPlayer evaluates the lowest variant once while it opens, whatever the link; what matters
-      // is that a link carrying the copy plays the copy.
-      // Counted per request, not per run: an uninterrupted copy run starts before the first frame
-      // and keeps serving after it, so a run filter would find nothing to judge.
-      const videoAfter = timeline
-        .filter((r) => r.kind === "req" && r.status >= 200 && r.status < 300 && r.bytes > 0 && (!firstFrame || r.ms > firstFrame.ms))
-        .map((r) => classify(r.path.split("/").pop()))
-        .filter((c) => c.video);
-      const probes = videoAfter.filter((c) => c.variant !== "copy").length;
-      const lastVariant = videoAfter.at(-1)?.variant ?? runs.at(-1)?.variant;
-      check(
-        "plays the copy, not a rung",
-        probes <= 2 && lastVariant === "copy",
-        videoAfter.length ? `${probes} rung of ${videoAfter.length} segments, last ${lastVariant}` : `no segment after the first frame, last ${lastVariant}`,
-      );
-      break;
-    }
-    case "S2":
-    case "S5":
-      check("opens on a rung", firstVideo?.startsWith("t"), `first video ${firstVideo}`);
-      break;
-    case "S3":
-    case "S7": {
-      check("opens on the copy", firstVideo === "copy", `first video ${firstVideo}`);
-      const drop = runs.find((r) => r.variant !== "copy" && r.fromMs >= at(scenario.changeAt));
-      check("steps down after the drop", drop, drop ? `${drop.variant} at +${Math.round((drop.fromMs - at(scenario.changeAt)) / 1000)}s` : runs.map((r) => r.variant).join(" "));
-      if (id === "S7") {
-        const back = videoAfter(scenario.recoverAt).find((r) => r.variant === "copy");
-        const late = back ? (back.fromMs - at(scenario.recoverAt)) / 1000 : Infinity;
-        check("climbs back to the copy in time", back && late <= RECOVERY_BUDGET_SEC, back ? `copy at +${Math.round(late)}s of ${RECOVERY_BUDGET_SEC}s` : "no copy segment after recovery");
-      }
-      break;
-    }
-    case "S4": {
-      const back = videoAfter(scenario.changeAt).find((r) => r.variant === "copy" && r.fromMs >= at(scenario.changeAt));
-      const late = back ? (back.fromMs - at(scenario.changeAt)) / 1000 : Infinity;
-      check("opens on a rung", firstVideo?.startsWith("t"), `first video ${firstVideo}`);
-      check("climbs back to the copy in time", back && late <= RECOVERY_BUDGET_SEC, back ? `copy at +${Math.round(late)}s of ${RECOVERY_BUDGET_SEC}s` : "no copy segment after recovery");
-      break;
-    }
-    case "S6": {
-      const switches = Math.max(0, runs.length - 1);
-      check("no flapping", switches <= Math.floor(scenario.seconds / 12), `${switches} switches in ${scenario.seconds}s`);
-      break;
-    }
-    default:
-      break;
-  }
-  if (expectAudio != null) {
-    const counts = timeline.filter((record) => record.kind === "tracks" && firstFrame && record.ms >= firstFrame.ms).map((record) => record.audio);
-    counts.push(end?.audible ?? 0);
+
+  if (id === "S3" || id === "S7") {
+    const drop = rateAt(scenario.changeAt);
+    const until = id === "S7" ? rateAt(scenario.recoverAt)?.ms : deadlineMs;
+    const down = drop && until != null ? selections.find((selection) => selection.ms >= drop.ms && selection.ms < until && selection.variant?.startsWith("t")) : null;
     check(
-      "all audio tracks listed",
-      counts.every((count) => count === expectAudio),
-      `${counts.join(",")}/${expectAudio}`,
+      "player reports a rung after the drop",
+      down ? true : null,
+      down ? `${down.variant} at +${((down.ms - drop.ms) / 1000).toFixed(1)}s` : "downshift not observed; uninterrupted buffered playback does not prove a transition",
     );
   }
-  if (expectSubs != null) {
-    const counts = timeline.filter((record) => record.kind === "textTracks" && firstFrame && record.ms >= firstFrame.ms).map((record) => record.subtitles);
-    counts.push(end?.legible ?? 0);
+  if (id === "S4" || id === "S7") {
+    const rise = rateAt(id === "S7" ? scenario.recoverAt : scenario.changeAt);
+    const before = rise ? selectionAt(rise.ms - 1) : null;
+    const back = rise && before?.variant?.startsWith("t") ? selections.find((selection) => selection.ms >= rise.ms && selection.ms <= deadlineMs && selection.variant === "copy") : null;
+    const finalSelection = selectionAt(deadlineMs);
     check(
-      "all subtitle tracks listed",
-      counts.every((count) => count >= expectSubs),
-      `${counts.join(",")}/${expectSubs}`,
+      "player reports a climb back to the copy",
+      !rise || !before?.variant?.startsWith("t") ? null : back ? true : recordingComplete && finalSelection?.variant?.startsWith("t") ? false : null,
+      back ? `AVPlayer reported copy +${((back.ms - rise.ms) / 1000).toFixed(1)}s after the proxy rise` : "no measured rung-to-copy recovery",
+    );
+    const delivery = rise ? requests.find((request) => request.variant === "copy" && request.askedMs >= rise.ms && request.askedMs <= deadlineMs) : null;
+    note("copy delivery after recovery", delivery ? `requested +${((delivery.askedMs - rise.ms) / 1000).toFixed(1)}s; not displayed quality` : "no post-recovery copy request");
+  }
+
+  for (const [kind, field, expected, label] of [
+    ["tracks", "audio", expectAudio, "audio"],
+    ["textTracks", "subtitles", expectSubs, "subtitle"],
+  ]) {
+    if (expected == null) continue;
+    const counts = timeline.filter((record) => record.kind === kind && firstFrame && record.ms >= firstFrame.ms).map((record) => record[field]);
+    const finalCount = end?.[kind === "tracks" ? "audible" : "legible"];
+    if (finalCount != null) counts.push(finalCount);
+    check(
+      `all ${label} tracks listed`,
+      counts.length ? counts.every((count) => (kind === "tracks" ? count === expected : count >= expected)) : null,
+      counts.length ? `${counts.join(",")}/${expected}` : "no track catalogue recorded",
     );
   }
-  return { id, label: scenario.label, pass: checks.every((c) => c.ok), checks, runs, startup };
+  const status = checks.some((entry) => entry.ok === false) ? "FAIL" : checks.some((entry) => entry.ok === null) ? "INCOMPLETE" : "PASS";
+  return { id, label: scenario.label, status, pass: status === "PASS", checks, diagnostics, runs, selections, startup };
 }

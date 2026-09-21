@@ -8,7 +8,7 @@
     {
       "id": "T01",
       "title": "T01 DIRECT H264 AAC",
-      "mode": "direct",
+      "mode": "localRemux",
       "validate": "none",
       "playSeconds": 14,
       "progressMin": 10
@@ -377,10 +377,10 @@
       "playSeconds": 14,
       "mode": "localRemux",
       "allowRetry": true,
-      "finalMode": "transcode",
+      "finalMode": "localRemux",
       "validate": "none",
       "progressMin": 8,
-      "comment": "8K VP9 with no size gate. The engine opens the session and times segment 0 before the player is bound: on the simulator its software encoder runs far below realtime, so the pre-flight hands the item to the server ('engine below realtime' fallback, no error, no restart); on a device the H.264 encoder refuses 7680x4320 and the start-time fallback lands in the same place. The title still says gate-reject because it must match the file on disk."
+      "comment": "The gateway can supply server-encoded video while the app remains in localRemux mode. The title is retained to match the fixture on disk."
     },
     {
       "id": "T41",

@@ -190,7 +190,7 @@ final class MasterPlaylistTests: XCTestCase {
         session.sourceState = .ready
         session.copyVerdict = .listed
         session.testLinkBps = link
-        session.linkProbeResolved = true
+        session.linkProbeDone = true
         session.openingRung = 0
         return session
     }
@@ -358,7 +358,7 @@ final class MasterPlaylistTests: XCTestCase {
         session.adoptedDurations = [6, 6, 6]
         session.copyVerdict = .withheld
         session.testLinkBps = 1_500_000
-        session.linkProbeResolved = true
+        session.linkProbeDone = true
         session.openingRung = 0
         return session
     }

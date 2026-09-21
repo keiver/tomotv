@@ -1071,7 +1071,7 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
     // start-time fallback (engine below realtime, session failed to open) emits none and the
     // stream event carries the lane instead. Both end in a stream.
     const lastMode = events.filter((e) => e.event === "stream").at(-1) ?? events.filter((e) => e.event === "mode").at(-1);
-    if (lastMode?.mode !== item.finalMode) result.problems.push(`final mode ${lastMode?.mode}, expected ${item.finalMode} after retry`);
+    if (lastMode?.mode !== item.finalMode) result.problems.push(`final mode ${lastMode?.mode}, expected ${item.finalMode}`);
     result.actual = `${modeEvent.mode}->${lastMode?.mode}`;
   }
   const fallback = events.find((e) => e.event === "fallback");
@@ -1346,13 +1346,15 @@ async function main() {
   await assertAppOnSameServer(env);
   await terminateApp(env, target);
 
-  // Every device copy lands here, one directory for the whole run.
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-playback-"));
 
   const results = [];
   for (const item of items) {
     console.log(`\n▶ ${item.id} ${item.title} (expect ${item.mode}, play ${item.playSeconds}s)`);
-    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, work);
+    const itemWork = fs.mkdtempSync(path.join(work, `${item.id}-`));
+    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, itemWork);
+    const probePath = path.join(itemWork, PROBE_FILENAME);
+    if (fs.existsSync(probePath)) r.probePath = probePath;
     results.push(r);
     console.log(r.problems.length ? `  ✗ ${r.problems.join("\n    ")}` : `  ✓ mode=${r.actual} pos=${r.position}s validation=${r.validation}`);
   }

@@ -36,6 +36,15 @@ function createMockVideoItem(overrides: Partial<JellyfinVideoItem> = {}): Jellyf
 }
 
 describe("multiAudioLoader", () => {
+  beforeEach(() => {
+    jest.resetModules();
+  });
+
+  afterEach(() => {
+    jest.dontMock("react-native");
+    jest.resetModules();
+  });
+
   describe("getAudioTracks (no native module dependency)", () => {
     // These tests don't need native module mocking
     let getAudioTracks: any;
@@ -549,9 +558,10 @@ describe("multiAudioLoader", () => {
         await loader.registerMultiAudioPlugin();
         const firstPlayback = loader.prepareMultiAudioPlayback(firstSource.Id, firstSource, "http://server/Videos/test-video/master.m3u8?MediaSourceId=first-source", "first-key");
         const secondPlayback = loader.prepareMultiAudioPlayback(secondSource.Id, secondSource, "http://server/Videos/test-video/master.m3u8?MediaSourceId=second-source", "second-key");
-        await expect(secondPlayback).resolves.toBe(secondUrl);
-        resolveFirst(firstUrl);
-        await expect(firstPlayback).resolves.toBe(firstUrl);
+        const preparations = Promise.all([firstPlayback, secondPlayback]);
+        const completion = expect(preparations).resolves.toEqual([firstUrl, secondUrl]);
+        const secondCompletion = expect(secondPlayback).resolves.toBe(secondUrl).finally(() => resolveFirst(firstUrl));
+        await Promise.all([completion, secondCompletion]);
         expect(configureResourceLoader.mock.calls[0][3]).toEqual(loader.getAudioTracks(firstSource));
         expect(configureResourceLoader.mock.calls[1][3]).toEqual(loader.getAudioTracks(secondSource));
         expect(generateCustomUrl).not.toHaveBeenCalled();
