@@ -28,9 +28,8 @@ export function PlayerLoadingOverlay() {
     <>
       <View style={styles.above} />
       <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} />
-      <View style={styles.below}>
-        <PlaybackStageLine />
-      </View>
+      {/* The stage line is a development aid; release builds show the bare spinner. */}
+      <View style={styles.below}>{__DEV__ ? <PlaybackStageLine /> : null}</View>
     </>
   );
   if (Platform.isTV) {

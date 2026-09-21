@@ -6,7 +6,7 @@ import { DWELL_MS, OUT_MS, PlayerLoadingOverlay, REVEAL_AFTER_MS } from "@/compo
 import { STAGE_HINT_AFTER_SECONDS } from "@/hooks/usePlaybackStage";
 import { resetPlaybackStages, setPlaybackStage } from "@/services/playbackStage";
 import React from "react";
-import { Text } from "react-native";
+import { ActivityIndicator, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 const texts = (renderer: TestRenderer.ReactTestRenderer) =>
@@ -95,5 +95,19 @@ describe("PlayerLoadingOverlay stage line", () => {
     expect(clocks(renderer)).toEqual(["2s", "2s"]);
     act(() => jest.advanceTimersByTime((STAGE_HINT_AFTER_SECONDS - 2) * 1000));
     expect(labels(renderer)).toEqual(["Reading the stream", "Waiting on the stream's first bytes"]);
+  });
+
+  it("shows only the spinner in a release build", () => {
+    const globals = global as unknown as { __DEV__: boolean };
+    globals.__DEV__ = false;
+    try {
+      act(() => renderer.update(<PlayerLoadingOverlay />));
+      act(() => setPlaybackStage("reading"));
+      act(() => jest.advanceTimersByTime(STAGE_HINT_AFTER_SECONDS * 1000));
+      expect(texts(renderer)).toEqual([]);
+      expect(renderer.root.findAllByType(ActivityIndicator)).toHaveLength(1);
+    } finally {
+      globals.__DEV__ = true;
+    }
   });
 });
