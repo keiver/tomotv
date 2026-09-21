@@ -174,7 +174,7 @@ struct TierSegment {
 /// One rung of the Slipstream ladder: a server transcode variant. Every rung of
 /// an item shares the segment grid (source keyframes, item-intrinsic, M1), so
 /// AVPlayer's ABR switches between rungs on aligned boundaries. The master lists
-/// the rungs or the on-device copy, never both (see masterPlaylist).
+/// them beside the on-device copy, or alone once the source is unusable (masterPlaylist).
 struct TierConfig {
     let playlistUrl: String
     let bandwidth: Int

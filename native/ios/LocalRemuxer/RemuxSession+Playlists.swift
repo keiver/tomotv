@@ -118,6 +118,12 @@ extension RemuxSession {
         onTier?(payload)
     }
 
+    /// Whether the copy opens the session: a source being read, on a link that lands its first
+    /// segment at once. A source let go or retrying stays listed and never leads. Caller holds stateLock.
+    func copyLeadsLocked(linkBps: Double) -> Bool {
+        copyVerdict != .withheld && !sourceReleased && (sourceBandwidth <= 0 || linkBps >= Double(sourceBandwidth) * Self.copyLeadsMargin)
+    }
+
     /// The rung the master leads with, latched by the first caller: the biggest whose segment lands
     /// in about a second, so a thin link opens on the fewest bytes (the biggest rung that fits cost
     /// 12.7s at 1.5 Mb/s) and a fast one above 144p. Starts its opening fetch.
@@ -130,7 +136,7 @@ extension RemuxSession {
         let latched = openingRung.flatMap { rungs.contains($0) ? $0 : nil }
         // A copy that leads opens the session itself, and a rung fetched beside its first segment
         // takes the link from it (measured at 30 Mb/s: AVPlayer hedged onto the bottom rung).
-        let copyLeads = copyVerdict != .withheld && !sourceReleased && (sourceBandwidth <= 0 || linkBps >= Double(sourceBandwidth) * Self.copyLeadsMargin)
+        let copyLeads = copyLeadsLocked(linkBps: linkBps)
         let chosen = latched ?? (copyLeads ? nil : rungs.last { Double(config.tiers[$0].bandwidth) * Self.openingRungShare <= linkBps }) ?? rungs.first
         // Nothing is latched while the copy leads: a source that then will not open leaves the
         // master free to choose by the link.
@@ -453,7 +459,9 @@ extension RemuxSession {
         // 12 Mb/s (1.9x the source) its 4.7 MB opening segment took 3.7s, AVPlayer hedged onto the
         // bottom rung and showed a frame at 8.6s; it then climbed to the copy on the same item by
         // itself (measured). So under that margin the smallest rung leads and the copy stays listed.
-        let copyLeads = copyFirst && (sourceBandwidth <= 0 || linkBps >= Double(sourceBandwidth) * Self.copyLeadsMargin)
+        stateLock.lock()
+        let copyLeads = copyLeadsLocked(linkBps: linkBps)
+        stateLock.unlock()
         if copyLeads {
             out += originals + listed.map(rungLine).joined()
         } else if copyFirst, let startRung {

@@ -55,7 +55,7 @@ describe("Slipstream scoring", () => {
   });
 
   it.each(["S4", "S8"])("rejects an item replacement in %s", (scenario) => {
-    const result = evaluate(`score('${scenario}', [{kind:'start', ms:0}, {kind:'firstFrame', ms:2000, position:0}, {kind:'climb', ms:61000}, {kind:'end', ms:150000}])`);
+    const result = evaluate(`score('${scenario}', [{kind:'start', ms:0}, {kind:'firstFrame', ms:2000, position:0}, {kind:'reload', ms:61000}, {kind:'end', ms:150000}])`);
     expect(result.checks.find((check) => check.name === "player item survives")).toMatchObject({ ok: false, detail: "1 replacements, 0 allowed" });
   });
 

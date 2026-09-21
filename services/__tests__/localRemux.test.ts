@@ -628,15 +628,15 @@ describe("startLocalRemux", () => {
     expect(config.tiers.map((tier: { bandwidth: number }) => tier.bandwidth)).toEqual(offeredTierBandwidths(source, undefined, { serverVideoOnly: true }));
   });
 
-  it("does not silently lose an external bitmap in the explicit server fallback", async () => {
+  it("starts the server fallback without an external bitmap it has no supplier for", async () => {
     const source = item({
       streams: [
         { Type: "Video", Codec: "asv1", Index: 0 },
         { Type: "Subtitle", Codec: "pgssub", Index: 2, IsExternal: true },
       ],
     });
-    await expect(startLocalRemux(source, undefined, undefined, { serverVideoOnly: true })).rejects.toThrow("No bitmap subtitle supplier");
-    expect(mockStartRemux).not.toHaveBeenCalled();
+    await startLocalRemux(source, undefined, undefined, { serverVideoOnly: true });
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
   });
 
   it("rejects server-video-only mode for live channels", async () => {
@@ -837,63 +837,56 @@ describe("startLocalRemux", () => {
     expect(mockStartRemux.mock.calls[0][0].subtitles[0].serverSupUrl).toBe("https://subtitles.example/track.sup");
   });
 
-  it("rejects an external bitmap with no supplier so the caller can use its fallback", async () => {
-    await expect(
-      startLocalRemux(
-        item({
-          streams: [
-            { Type: "Video", Codec: "h264", Index: 0 },
-            { Type: "Subtitle", Codec: "pgssub", Index: 8, IsExternal: true },
-          ],
-        }),
-      ),
-    ).rejects.toThrow("No bitmap subtitle supplier");
-    expect(mockStartRemux).not.toHaveBeenCalled();
+  it("plays without an external bitmap that has no supplier", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "pgssub", Index: 8, IsExternal: true },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
   });
 
-  it.each([undefined, -1, 1.5, NaN, 2_147_483_648])("rejects invalid subtitle index %s instead of dropping the track", async (index) => {
-    await expect(
-      startLocalRemux(
-        item({
-          streams: [
-            { Type: "Video", Codec: "h264", Index: 0 },
-            { Type: "Subtitle", Codec: "subrip", Index: index },
-          ],
-        }),
-      ),
-    ).rejects.toThrow("valid Int32 Jellyfin stream index");
-    expect(mockStartRemux).not.toHaveBeenCalled();
+  it.each([undefined, -1, 1.5, NaN, 2_147_483_648])("plays without a subtitle whose index is %s", async (index) => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "subrip", Index: index },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
   });
 
-  it("rejects duplicate subtitle indexes before publishing ambiguous routes", async () => {
-    await expect(
-      startLocalRemux(
-        item({
-          streams: [
-            { Type: "Video", Codec: "h264", Index: 0 },
-            { Type: "Subtitle", Codec: "subrip", Index: 2 },
-            { Type: "Subtitle", Codec: "pgssub", Index: 2 },
-          ],
-        }),
-      ),
-    ).rejects.toThrow("Duplicate subtitle stream index 2");
-    expect(mockStartRemux).not.toHaveBeenCalled();
+  it("keeps the first of two subtitles sharing an index, so no route is ambiguous", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2 },
+          { Type: "Subtitle", Codec: "pgssub", Index: 2 },
+        ],
+      }),
+    );
+    const subtitles = mockStartRemux.mock.calls[0][0].subtitles;
+    expect(subtitles.map((sub: { index: number; isImage: boolean }) => [sub.index, sub.isImage])).toEqual([[2, false]]);
   });
 
-  it("rejects an unresolved external text supplier rather than publishing the other subtitles alone", async () => {
+  it("publishes the other subtitles when an external text track has no supplier", async () => {
     (getCachedConfig as jest.Mock).mockReturnValue({ server: "http://server:8096", apiKey: "", userId: "u" });
-    await expect(
-      startLocalRemux(
-        item({
-          streams: [
-            { Type: "Video", Codec: "h264", Index: 0 },
-            { Type: "Subtitle", Codec: "subrip", Index: 2 },
-            { Type: "Subtitle", Codec: "subrip", Index: 3, IsExternal: true },
-          ],
-        }),
-      ),
-    ).rejects.toThrow("No text subtitle supplier for stream 3");
-    expect(mockStartRemux).not.toHaveBeenCalled();
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2 },
+          { Type: "Subtitle", Codec: "subrip", Index: 3, IsExternal: true },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].subtitles.map((sub: { index: number }) => sub.index)).toEqual([2]);
   });
 
   it("accepts the full nonnegative Int32 subtitle index boundary", () => {

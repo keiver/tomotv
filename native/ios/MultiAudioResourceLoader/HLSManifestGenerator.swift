@@ -27,15 +27,8 @@ class HLSManifestGenerator {
     ///   - fetchUrls: Array of URLs used to fetch each manifest (includes unique audioStreamIndex and playSessionId)
     /// - Returns: Combined HLS manifest string
     /// - Throws: Error if manifests are empty or malformed
-    /// `manifests` and `fetchUrls` carry ONE SLOT PER `audioTrackInfo` ENTRY, nil
-    /// where that track had no usable stream index or its fetch failed.
-    ///
-    /// They used to be dense arrays that the caller appended to while skipping
-    /// unusable tracks, but every index here is an `audioTrackInfo` position, so
-    /// one skipped track shifted every later track onto another track's manifest
-    /// URL — the viewer picked one language and heard a different one. Keeping
-    /// the slots optional makes that misalignment unrepresentable rather than
-    /// something two loops have to agree about.
+    /// `manifests` and `fetchUrls` carry one slot per `audioTrackInfo` entry, so an index names the
+    /// same track in all three. A nil slot fails the whole item: every track is served or none is.
     func combine(
         manifests: [String?],
         audioTrackInfo: [[String: Any]],
@@ -71,21 +64,9 @@ class HLSManifestGenerator {
             return try parser.parse(text)
         }
 
-        // At least one manifest arrived (guarded above), but parsing is what
-        // decides whether it is usable. Fail loudly rather than falling through:
-        // with no parsed manifest there is no EXT-X-STREAM-INF to write, and a
-        // master playlist without one is not playable — a caller would get an
-        // opaque AVPlayer error instead of this message.
-        guard let firstFetched = parsedManifests.firstIndex(where: { $0 != nil }) else {
-            throw NSError(
-                domain: "HLSGenerator",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "No manifest could be parsed"]
-            )
-        }
-
-        // Subtitles are identical across the audio variants, so the first track
-        // that actually returned a manifest supplies them.
+        // Every slot parsed, or the map above threw. Subtitles are identical across the audio
+        // variants, so the first track supplies them.
+        let firstFetched = 0
         let subtitles = parsedManifests[firstFetched]?.subtitleTracks ?? []
 
         // Build combined manifest

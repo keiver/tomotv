@@ -12,7 +12,7 @@ export const ENGINE_PREFLIGHT_CAP_MS = 60_000;
 export const LINK_CAP_SHARE = 0.8;
 /** A cap moving less than this is not worth re-evaluating the variant for. */
 export const LINK_CAP_HYSTERESIS = 0.15;
-/** The link must clear the source rate by this margin before a climb back to the copy. */
+/** Margin over the source rate at which the link carries the copy (linkAffordsChapterFrames). */
 export const LINK_CLIMB_MARGIN = 1.2;
 /** What AVPlayer buffers ahead to reach the first frame on the rung lane, where its own threshold costs a server encode per segment. */
 export const SLIPSTREAM_FORWARD_BUFFER_SECONDS = 12;

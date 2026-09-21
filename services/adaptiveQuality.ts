@@ -2,8 +2,8 @@ import { QUALITY_PRESETS, QualityMode } from "./jellyfin/constants";
 
 /**
  * Live variant cap for a gateway (Slipstream) session, applied through RNV's
- * `maxBitRate` → AVPlayerItem.preferredPeakBitRate (verified live-applied,
- * RCTVideo.swift:1288). A pinned preset caps which variant AVPlayer may pick,
+ * `maxBitRate` → AVPlayerItem.preferredPeakBitRate (applied live by RCTVideo.swift
+ * setMaxBitRate). A pinned preset caps which variant AVPlayer may pick,
  * making pins seamless; Auto leaves the ladder free.
  */
 export function gatewayMaxBitRate(quality: { mode: QualityMode; bitrate: number }): number | undefined {

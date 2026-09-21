@@ -1215,14 +1215,17 @@ function isRemoteSubtitleUrl(value: string): boolean {
 function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolean): SubtitleRendition[] {
   const streamIndexes = new Set<number>();
   const mediaStreams = playbackMediaStreams(videoItem);
+  // A track that cannot be served is left out: the film plays without it.
+  const dropped = (reason: string, index: number | undefined) => {
+    logger.warn("Subtitle track left out of the session", { service: "LocalRemux", itemId: videoItem.Id, streamIndex: index, reason });
+    return [];
+  };
   const shipped = mediaStreams
     .filter((stream) => stream.Type === "Subtitle" && (!imageOnly || isImageBasedSubtitleCodec(stream.Codec)))
-    .map((stream) => {
+    .flatMap((stream) => {
       const index = stream.Index;
-      if (index === undefined || !Number.isInteger(index) || index < 0 || index > 2_147_483_647) {
-        throw new Error(`Subtitle track is missing a valid Int32 Jellyfin stream index for item ${videoItem.Id}`);
-      }
-      if (streamIndexes.has(index)) throw new Error(`Duplicate subtitle stream index ${index} for item ${videoItem.Id}`);
+      if (index === undefined || !Number.isInteger(index) || index < 0 || index > 2_147_483_647) return dropped("no valid stream index", index);
+      if (streamIndexes.has(index)) return dropped("duplicate stream index", index);
       streamIndexes.add(index);
       const isImage = isImageBasedSubtitleCodec(stream.Codec);
       // A track saved with the download is a PATH, not a URL: the engine serves its bytes over
@@ -1232,18 +1235,20 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
       const isEngineText = !isImage && !localVtt && stream.IsExternal !== true;
       const vttUrl = isImage || isEngineText || localVtt ? "" : getSubtitleUrl(videoItem.Id, index, "vtt");
       const serverSupUrl = isImage && stream.IsExternal === true ? externalImageSubtitleUrl(videoItem, stream) : "";
-      if (isImage && stream.IsExternal === true && !serverSupUrl) throw new Error(`No bitmap subtitle supplier for stream ${index} of item ${videoItem.Id}`);
-      if (!isImage && !isEngineText && !localVtt && !isRemoteSubtitleUrl(vttUrl)) throw new Error(`No text subtitle supplier for stream ${index} of item ${videoItem.Id}`);
-      return {
-        stream,
-        index,
-        isImage,
-        isEngineText,
-        localVtt,
-        vttUrl,
-        serverSupUrl,
-        source: imageOnly ? null : sourcePosition(mediaStreams, stream),
-      };
+      if (isImage && stream.IsExternal === true && !serverSupUrl) return dropped("no bitmap subtitle supplier", index);
+      if (!isImage && !isEngineText && !localVtt && !isRemoteSubtitleUrl(vttUrl)) return dropped("no text subtitle supplier", index);
+      return [
+        {
+          stream,
+          index,
+          isImage,
+          isEngineText,
+          localVtt,
+          vttUrl,
+          serverSupUrl,
+          source: imageOnly ? null : sourcePosition(mediaStreams, stream),
+        },
+      ];
     });
 
   const labels = subtitleLabels(shipped.map((entry) => entry.stream));
@@ -1489,9 +1494,8 @@ export async function startLocalRemux(
     watchEngineTier();
   }
 
-  // Slipstream ladder: always offered for a streamable source with audio. AVPlayer's native ABR
-  // opens on the smallest rung and climbs to the engine primary as it measures the segments it
-  // downloads, so a slow link plays at once on a small feed and a fast one reaches the copy. A held
+  // Slipstream ladder: always offered for a streamable source with audio. The engine orders the
+  // master by the link it measures and AVPlayer's own ABR moves between the variants. A held
   // file reads off disk (no server URL belongs in its playlist); a live channel has no server tier.
   // BANDWIDTH covers the variant plus its audio rendition (RFC 8216 4.3.4.2); CODECS names the group.
   const rungs = !live && !playsFromDisk(videoItem.Id) && (audioTracks.length > 0 || serverVideoOnly) ? offeredTierRungs(videoItem, preferredAudioStreamIndex, { serverVideoOnly }) : [];

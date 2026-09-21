@@ -660,7 +660,7 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
 
     // Slipstream gateway shape. tierVariant pins whether the master offers server rungs at all
-    // (eligibility is SDR + audio + a server source, so an HDR fixture asserts absence). The rungs
+    // (eligibility is video + audio + a server source, HDR included). The rungs
     // ride their own low audio group by design; what must hold is that a switch between them never
     // moves the viewer's subtitles, and that each BANDWIDTH counts the group it plays with
     // (RFC 8216 4.3.4.2). The harness link is fast, so the copy is listed beside them.

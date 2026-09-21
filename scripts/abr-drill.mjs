@@ -64,8 +64,8 @@ async function resolveIds(env, ids) {
 /** Proxies this run started, killed on any exit: a survivor owns the port and shapes the next run. */
 const proxies = new Set();
 
-function startProxy(logPath) {
-  const child = spawn(process.execPath, [path.join(ROOT, "scripts", "netsim-proxy.mjs"), "--port", String(PROXY_PORT), "--upstream", "http://127.0.0.1:8096", "--log", logPath], { stdio: "ignore" });
+function startProxy(env, logPath) {
+  const child = spawn(process.execPath, [path.join(ROOT, "scripts", "netsim-proxy.mjs"), "--port", String(PROXY_PORT), "--upstream", env.JELLYFIN_URL, "--log", logPath], { stdio: "ignore" });
   proxies.add(child);
   child.on("close", () => proxies.delete(child));
   return child;
@@ -307,8 +307,8 @@ export function deviceTimeline({ consoleLog, probeFile, endedAt }) {
   let lastPosition = -1;
   let buffering = false;
   let streams = 0;
-  /** A climb rebuilds the session, so the stream event that follows it is that rebuild, not a reload. */
-  let climbing = false;
+  /** Set by a fallback until its stream event lands. */
+  let handingOver = false;
   for (const e of probe) {
     if (endedAt != null && e.t > endedAt) continue;
     const ms = at(e.t);
@@ -330,14 +330,13 @@ export function deviceTimeline({ consoleLog, probeFile, endedAt }) {
     if (e.event === "access") timeline.push({ kind: "access", ms, indicated: e.indicated, position: e.position });
     // The first stream event is the session opening; a later one is a genuine rebuild.
     if (e.event === "stream") {
-      timeline.push({ kind: streams++ === 0 || climbing ? "open" : "reload", ms, detail: e.event });
-      climbing = false;
+      timeline.push({ kind: streams++ === 0 || handingOver ? "open" : "reload", ms, detail: e.event });
+      handingOver = false;
     }
     // A hand-over opens the next lane's stream: that event is this one, not a second reload.
     if (e.event === "fallback") {
-      const climb = Boolean(e.reason?.includes("recovered"));
-      climbing = true;
-      timeline.push({ kind: climb ? "climb" : "reload", ms, detail: e.reason, to: e.to });
+      handingOver = true;
+      timeline.push({ kind: "reload", ms, detail: e.reason, to: e.to });
     }
     if (e.event === "error") timeline.push({ kind: "failed", ms, error: e.message });
   }
@@ -381,7 +380,7 @@ async function main() {
   // go between scenarios the way the host drill's does.
   let deviceProxy = null;
   if (device) {
-    deviceProxy = startProxy(path.join(RUN_DIR, `${stamp}-device-proxy.jsonl`));
+    deviceProxy = startProxy(env, path.join(RUN_DIR, `${stamp}-device-proxy.jsonl`));
     await waitForProxy();
   }
   try {
@@ -399,7 +398,7 @@ async function main() {
         if (!device && scenario.handsOver) continue;
         const base = path.join(RUN_DIR, `${stamp}-${item.id}-${id}`);
         const proxyPath = device ? path.join(RUN_DIR, `${stamp}-device-proxy.jsonl`) : `${base}-proxy.jsonl`;
-        const proxy = device ? null : startProxy(proxyPath);
+        const proxy = device ? null : startProxy(env, proxyPath);
         try {
           await waitForProxy();
           await control({ kbps: scenario.profile[0].kbps, refuse: scenario.refuse ?? null, rttMs: scenario.rttMs ?? 0 });

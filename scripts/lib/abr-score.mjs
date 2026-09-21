@@ -179,7 +179,7 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder = [], heig
   const runs = variantRuns(timeline);
   const selections = playerSelections(timeline, { ladder, copyBps });
   const rates = timeline.filter((record) => record.kind === "rate");
-  const replacements = timeline.filter((record) => record.kind === "reload" || record.kind === "climb").length;
+  const replacements = timeline.filter((record) => record.kind === "reload").length;
   const checks = [];
   const diagnostics = [];
   const check = (name, ok, detail) => checks.push({ name, ok: ok == null ? null : Boolean(ok), detail });
@@ -211,7 +211,7 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder = [], heig
     !recordingComplete ? null : covered && windowSeconds > 0 && played >= windowSeconds * 0.9,
     `${played.toFixed(0)}s of media over ${windowSeconds.toFixed(0)}s, progress recorded to ${recordedSec.toFixed(0)}s`,
   );
-  const lastReplacement = timeline.filter((record) => record.kind === "reload" || record.kind === "climb").at(-1);
+  const lastReplacement = timeline.filter((record) => record.kind === "reload").at(-1);
   if (lastReplacement) {
     const after = ticks.filter((record) => record.ms > lastReplacement.ms);
     check(

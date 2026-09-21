@@ -92,7 +92,7 @@
         "audio": "aac",
         "videoRange": "PQ",
         "codecs": "hvc1.2.4.L120.B0,mp4a.40.2",
-        "tierVariant": false
+        "tierVariant": true
       }
     },
     {

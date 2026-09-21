@@ -1,6 +1,6 @@
 # Slipstream: player-native adaptive streaming through the loopback gateway
 
-**Category:** Release work in progress, not accepted for 2.2.7. Read this before touching the master
+**Category:** On for every eligible item in 2.2.7, no flag. Read this before touching the master
 playlist, the link measurement or the variant cap.
 **Keywords:** slipstream, adaptive, ABR, gateway, variants, master playlist, quality
 
@@ -268,7 +268,7 @@ drill plays a fixture through it and scores the timeline
 | S5       | 0.6 Mb/s                          | plays at all, no stall                      |
 | S6       | 3 ↔ 6 every 20s                   | does not flap                               |
 | S7       | down then up, two audio tracks    | steps down, climbs back, keeps both tracks  |
-| S8       | rung playlists refused            | survives by handing over to the server      |
+| S8       | rung playlists refused            | plays to the end, no player replacement     |
 | S9       | 750 kb/s, 150 ms round trip       | the slow-start gate; rides a rung, no stall |
 | S10      | 12 Mb/s, 40 ms round trip         | opens at 480p, ends on the copy (150s run)  |
 | S11      | the source refused outright       | the rungs carry the session, no rebuild     |

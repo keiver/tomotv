@@ -66,9 +66,8 @@ const PIP_HANDOFF_BURST_MS = 1500;
  *
  * A uri is the chapter's picture: the server's extracted keyframe where the library has one, else
  * the one the engine makes under `frameBase` (FrameGrabber.swift). Both wait for `artwork`, which
- * the host turns on once the viewer summons the chrome: the patched RCTVideoTVUtils fetches a
- * picture the moment a uri reaches it, and the strip cannot be seen before the chrome is up
- * anyway. Titles alone until then (hooks/videoPlayback/chapterFrames.ts).
+ * the host turns on at PLAYING: the patched RCTVideoTVUtils fetches a picture the moment a uri
+ * reaches it. Titles alone until then.
  */
 export function playerChapters(item: JellyfinVideoItem | null, frameBase: string | null = null, artwork = false): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
   if (!item?.Chapters?.length) return undefined;

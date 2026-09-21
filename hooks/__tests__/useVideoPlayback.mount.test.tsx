@@ -31,10 +31,8 @@ import {
   offeredTierBandwidths,
   resolveSubtitlePick,
   sessionSubtitleRenditions,
-  startFrameProvider,
   startLocalRemux,
   startPlaylistShim,
-  stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
   slipstreamEligible,
@@ -522,6 +520,20 @@ describe("useVideoPlayback (mounted)", () => {
         expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine produced no segment within 20s" });
         expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/master.m3u8");
       });
+
+      it("records no verdict for a session that read nothing", async () => {
+        mockProgress = () => ({ alive: true, bytesRead: 0, readSeconds: 0, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+
+        await act(async () => {
+          jest.advanceTimersByTime(20_000);
+        });
+        await act(flush);
+
+        expect(recordTimeoutVerdict).not.toHaveBeenCalled();
+        expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine produced no segment within 20s" });
+        expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/master.m3u8");
+      });
     });
 
     it("sends an HDR source's server stream through the shim, whatever the resume position", async () => {
@@ -541,6 +553,7 @@ describe("useVideoPlayback (mounted)", () => {
       // and a session that read nothing measured nothing about the device.
       mockNeedsTranscoding.mockReturnValue(true);
       mockCanRemux.mockResolvedValue(true);
+      (isLocalRemuxAvailable as jest.Mock).mockReturnValue(true);
       mockPreflight = () => null;
       mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Server returned 404 Not Found" });
 

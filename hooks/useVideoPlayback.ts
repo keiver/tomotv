@@ -177,8 +177,8 @@ export interface VideoPlaybackResult {
 
   /**
    * Loopback directory the tvOS chapter pictures come from: the engine session's own on the remux
-   * lane, a frame provider over the original file on the others. Null until the viewer has asked
-   * for the chrome (hooks/videoPlayback/chapterFrames.ts).
+   * lane, a frame provider over the original file on the others. Null until the item is PLAYING
+   * and, on a session with a ladder, the measured link affords the frames.
    */
   chapterFrameBaseUrl: string | null;
 
@@ -349,8 +349,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const wasPlayedAtStartRef = useRef<boolean | null>(null);
 
   // Status tracking (for debouncing rapid status changes)
-  const isSeekingRef = useRef(false);
-  const lastStatusChangeRef = useRef<number>(0);
   const hasStablePlaybackRef = useRef(false); // Ref for sync access in handlers
 
   // Playback mode & callbacks (avoid stale closures in event listeners)
@@ -817,8 +815,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   /**
    * The engine is losing mid-play: one move to the server at the playhead, before the buffer
-   * runs dry, in place of the stall ladder's restart-then-server. The link is fine, so the
-   * server session opens at the viewer's own preset.
+   * runs dry, in place of the stall ladder's restart-then-server.
    */
   const handOverToServer = useCallback(
     (details: JellyfinVideoItem, sample: ThroughputSample) => {
@@ -1098,11 +1095,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             let outcome: PreflightOutcome = null;
             let waitedMs = 0;
             let bytesSeen = -1;
+            let readNothing = false;
             while (requestIdRef.current === currentRequestId) {
               outcome = await preflight.next(ENGINE_SEGMENT_DEADLINE_MS);
               waitedMs += ENGINE_SEGMENT_DEADLINE_MS;
               if (outcome !== null || waitedMs >= ENGINE_PREFLIGHT_CAP_MS) break;
               const progress = await engineProgress(token);
+              readNothing = progress != null && progress.bytesRead === 0;
               if (!stillPullingInput(progress, bytesSeen, READ_BOUND_SHARE)) break;
               bytesSeen = progress.bytesRead;
               probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, extendedSeconds: waitedMs / 1000 });
@@ -1167,12 +1166,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 readSeconds: sample.readSeconds,
               });
             } else if (!sample || belowRealtime(sample)) {
-              // A channel says nothing about the device: no verdict.
-              const remembered = isLiveRef.current
-                ? false
-                : sample
-                  ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
-                  : await recordTimeoutVerdict(details, waitedMs / 1000, { busy: deviceBusy() });
+              // A channel, or a session that read nothing, says nothing about the device: no verdict.
+              const remembered =
+                isLiveRef.current || (!sample && readNothing)
+                  ? false
+                  : sample
+                    ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
+                    : await recordTimeoutVerdict(details, waitedMs / 1000, { busy: deviceBusy() });
               // The measurement itself, so Diagnostics says what was timed and whether it was kept.
               probeEmit("preflight", {
                 produceSeconds: sample?.produceSeconds ?? null,
@@ -1379,7 +1379,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 hasTriedTranscode: true,
               });
               return false;
-            } else if (remuxError instanceof EngineInputMissingError && !isLocalRemuxAvailable() && !(Platform.OS === "ios" && Platform.isTV)) {
+            } else if (remuxError instanceof EngineInputMissingError) {
               // The server has no file at the path; the transcode lane would read the same path.
               logger.error("The server could not find the file", remuxError, { service: "useVideoPlayback", videoId });
               probeEmit("error", { mode: "localRemux", message: remuxError.message, willRetry: false });
@@ -1427,10 +1427,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // Direct play
           url = getVideoStreamUrl(videoId, details);
         }
-
-        // The on-device frame grabber never runs during playback: it steals the throttled link
-        // from the stream. Player chapters use the server's pre-extracted images only; frame
-        // grabbing is the browsing cards' alone.
 
         // Check if this response is stale (videoId changed while fetching)
         if (!ownsAttempt()) {
@@ -1792,8 +1788,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       probeEmit("buffering", { on: data.isBuffering, position: Math.round(currentTimeRef.current) });
       // Direct-lane stall watchdog. Buffer-empty is AVPlayer's own starvation
       // signal (isPlaybackBufferEmpty KVO, fires for progressive assets, and
-      // a user pause cannot raise it: only the buffer observers write the
-      // flag, RCTVideo.swift:1950/1957). A starved direct stream raises no
+      // a user pause cannot raise it: only handlePlaybackBufferKeyEmpty sets the
+      // flag, RCTVideo.swift). A starved direct stream raises no
       // error, and onProgress ticks stop with the playhead, so only a timer
       // armed here can observe the stall. Expiry with the playhead still
       // frozen re-routes through the existing ladder: directPlayFailedRef
@@ -2527,8 +2523,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // outlive the route, which makes resetting it here the only thing that does.
     isPlayingRef.current = false;
     autoPlayTriggeredRef.current = false;
-    isSeekingRef.current = false;
-    lastStatusChangeRef.current = 0;
     // The reporter reads this as its live position source, without the reset a queue
     // advance would stamp the new video's first reports with the previous video's clock.
     currentTimeRef.current = 0;

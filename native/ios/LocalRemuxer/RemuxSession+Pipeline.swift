@@ -20,7 +20,6 @@ private let SWIFT_AVERROR_EXIT: Int32 = -1_414_092_869 // FFERRTAG('E','X','I','
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
 private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
-private let unavailableInputFormats: Set<Int32> = [-Int32(0x4d4544f8), -Int32(0x4f5250f8), -Int32(0x434544f8)]
 
 private func averr(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 128)
@@ -30,6 +29,15 @@ private func averr(_ code: Int32) -> String {
 
 extension RemuxSession {
     // MARK: - FFmpeg pipeline
+
+    /// Open and probe errors no retry fixes: no demuxer, protocol or decoder, and the HTTP 4xx a
+    /// server answers for good. FFERRTAG(0xF8, a, b, c), since the macros do not import.
+    static let permanentInputErrors: Set<Int32> = Set(["DEM", "PRO", "DEC", "400", "401", "403", "404", "4XX"].map { tag in
+        let bytes = Array(tag.utf8)
+        return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
+    })
+
+    static func isPermanentInputError(_ code: Int32) -> Bool { permanentInputErrors.contains(code) }
 
     /// Interrupt callback: aborts blocking network I/O when the session dies.
     static let interruptCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
@@ -961,7 +969,7 @@ extension RemuxSession {
         }
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
         av_dict_free(&openOpts)
-        guard ret >= 0, let input = inputCtx else { return failStartup("open_input: \(averr(ret))", retryable: !unavailableInputFormats.contains(ret)) }
+        guard ret >= 0, let input = inputCtx else { return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret)) }
         mark("open_input")
         defer {
             var closing: UnsafeMutablePointer<AVFormatContext>? = input
@@ -969,7 +977,7 @@ extension RemuxSession {
         }
 
         ret = probeStreamInfo(input)
-        guard ret >= 0 else { return failStartup("find_stream_info: \(averr(ret))", retryable: !unavailableInputFormats.contains(ret)) }
+        guard ret >= 0 else { return failStartup("find_stream_info: \(averr(ret))", retryable: !Self.isPermanentInputError(ret)) }
         mark("find_stream_info")
 
         // Audio-only sources run this same pipeline with no video track at all,
@@ -1466,8 +1474,11 @@ extension RemuxSession {
                 } catch {
                     return fail("write \(rendition.segmentName(n)): \(error.localizedDescription)")
                 }
+                // One lock with the retry state: a waiter woken by this segment reads a recovered source.
                 stateLock.lock()
                 rendition.completed.insert(n)
+                sourceRetryAttempts = 0
+                recovering = false
                 stateLock.unlock()
             }
 
@@ -1834,11 +1845,8 @@ extension RemuxSession {
             }
             if ret == SWIFT_AVERROR_EXIT { break }
             if ret < 0 {
-                // Input read failed — a stalled feed hitting rw_timeout, or a dropped
-                // connection. FFmpeg's http protocol reopens its connection on seek, so
-                // restarting at the current segment is a full reconnect through the
-                // machinery every seek-restart already exercises. Bounded; exhaustion
-                // fails the session exactly as before (promised segments fail loudly).
+                // A seek reopens FFmpeg's http connection, so restarting at the current segment is a
+                // full reconnect. Three tries; after them a VOD source retries in session, live fails.
                 var recovered = false
                 stateLock.lock()
                 // Recovery seeks the input; a live source has nowhere to seek to.

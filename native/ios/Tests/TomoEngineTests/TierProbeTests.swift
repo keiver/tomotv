@@ -183,6 +183,7 @@ final class TierProbeTests: XCTestCase {
         tierPlaylistUrl: String? = nil,
         serverAudioUrl: String = "",
         startOffsetSeconds: Double = 0,
+        inputUrl: String = "file:///dev/null",
         // Below the 8 Mbps source by default so the master lists the tier; nil leaves the real probe,
         // which cannot reach the stubbed source and so reads nothing.
         linkCeilingBps: Double? = 2_000_000
@@ -190,6 +191,7 @@ final class TierProbeTests: XCTestCase {
         let s = try RemuxSession(
             config: makeConfig(
                 durationSeconds: 18,
+                inputUrl: inputUrl,
                 audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: serverAudioUrl)],
                 tierPlaylistUrl: tierPlaylistUrl ?? playlistUrl,
                 tierBandwidth: 1_700_000,
@@ -214,8 +216,9 @@ final class TierProbeTests: XCTestCase {
         })
     }
 
+    /// Past the master budget: a refused playlist is retried until that budget ends.
     private func waitForProbe(_ s: RemuxSession) {
-        let end = Date().addingTimeInterval(10)
+        let end = Date().addingTimeInterval(RemuxSession.masterBudgetSeconds + 3)
         while Date() < end, !s.tierProbeResolved { usleep(20_000) }
         XCTAssertTrue(s.tierProbeResolved, "probe never resolved")
     }
@@ -454,7 +457,7 @@ final class TierProbeTests: XCTestCase {
     func testALinkThatCarriesThePrimaryStartsOnIt() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
-        let (s, reports) = try session(linkCeilingBps: 30_000_000)
+        let (s, reports) = try session(inputUrl: fixtureUrl.absoluteString, linkCeilingBps: 30_000_000)
         defer { s.stop() }
         waitForProbe(s)
         let master = s.masterPlaylist()
@@ -466,13 +469,14 @@ final class TierProbeTests: XCTestCase {
 
     // MARK: - The ladder
 
-    private func ladderSession(rung1Playlist: Data) throws -> RemuxSession {
+    private func ladderSession(rung1Playlist: Data, inputUrl: String = "file:///dev/null") throws -> RemuxSession {
         TierServerStub.routes["/Videos/x/t0.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/t1.m3u8"] = (200, rung1Playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         let s = try RemuxSession(
             config: makeConfig(
                 durationSeconds: 18,
+                inputUrl: inputUrl,
                 audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: "")],
                 tiers: [
                     TierConfig(playlistUrl: "http://tier.test/Videos/x/t0.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 992_000, codecs: "avc1.64001E,mp4a.40.2", width: 640, height: 360),
@@ -917,7 +921,8 @@ final class TierProbeTests: XCTestCase {
         settle { FileManager.default.fileExists(atPath: fast.dir.appendingPathComponent("t1-seg0.m4s").path) }
         XCTAssertTrue(FileManager.default.fileExists(atPath: fast.dir.appendingPathComponent("t1-seg0.m4s").path), "the opening segment of the leading rung is fetched ahead of the player")
 
-        let plenty = try ladderSession(rung1Playlist: playlist)
+        // A copy leads only while its source is read, so this one opens a real file.
+        let plenty = try ladderSession(rung1Playlist: playlist, inputUrl: fixtureUrl.absoluteString)
         defer { plenty.stop() }
         plenty.testLinkBps = 30_000_000
         plenty.start()
@@ -1609,6 +1614,15 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(LinkProbeFailure.classify(status: 416), .rangeUnsupported(416))
         XCTAssertEqual(LinkProbeFailure.classify(status: 429), .transient(429))
         XCTAssertNil(LinkProbeFailure.classify(status: 206))
+    }
+
+    /// Values from Libavutil/error.h: FFERRTAG(0xF8, a, b, c), negated.
+    func testAnOpenErrorNoRetryFixesFailsTheSource() {
+        let permanent: [Int32] = [-0x4D45_44F8, -0x4F52_50F8, -0x4345_44F8, -0x3030_34F8, -0x3130_34F8, -0x3330_34F8, -0x3430_34F8, -0x5858_34F8]
+        for code in permanent { XCTAssertTrue(RemuxSession.isPermanentInputError(code), "\(code)") }
+        // 429, 5XX, EIO, ETIMEDOUT and invalid data stay with the in-session retry.
+        let retried: [Int32] = [-0x3932_34F8, -0x5858_35F8, -5, -60, -0x4144_4E49]
+        for code in retried { XCTAssertFalse(RemuxSession.isPermanentInputError(code), "\(code)") }
     }
 
     // MARK: - The link rate

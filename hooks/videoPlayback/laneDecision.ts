@@ -89,7 +89,7 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
   const measurable = sourceBps > 0 && !live && !heldOnDisk;
   const linkTooSlowForDirect = measurable && input.measuredBps != null && input.measuredBps < sourceBps;
 
-  // The only reasons that may END at the server, because that rung re-encodes the whole film.
+  // Why direct play cannot run.
   // A repackaged file drops the codec test: the MP4 this app wrote is what opens.
   const cannotDirectPlay = heldAsMp4 ? input.directPlayFailed || input.hasTriedTranscoding : requiresTranscoding || input.directPlayFailed || input.hasTriedTranscoding || linkTooSlowForDirect;
 

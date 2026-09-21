@@ -1566,12 +1566,12 @@ index 5f2f5f6..3858d92 100644
      }
  
      func playerItemPropegateMetadata(_ playerItem: AVPlayerItem!) async -> AVPlayerItem {
-+        #if os(tvOS)
-+            // TomoTV patch: AVPlayerItem.h:574-579. Since tvOS 13 AVPlayer picks its own opening
-+            // variant; this restores "first listed", which is how the loopback master orders what
-+            // the measured link carries. Must be set before selection, so before the item is bound.
++        // TomoTV patch: AVPlayerItem.h:574-580. Since iOS and tvOS 13 AVPlayer picks its own opening
++        // variant; this restores "first listed", which is how the loopback master orders what the
++        // measured link carries. Must be set before selection, so before the item is bound.
++        if #available(iOS 14.0, tvOS 14.0, *) {
 +            playerItem.startsOnFirstEligibleVariant = true
-+        #endif
++        }
          var mapping: [AVMetadataIdentifier: Any] = [:]
  
          if let title = _source?.customMetadata?.title {
