@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 9e848a2274275c90
+ * fingerprint: 68ee7c50b0e84797
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -333,7 +333,6 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "expo-secure-store", version: "57.0.4", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-server", version: "57.0.3", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-splash-screen", version: "57.0.9", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
-  { name: "expo-status-bar", version: "57.0.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-symbols", version: "57.0.3", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-tvos-search", version: "2.3.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2025 Keiver Hernandez"] },
   { name: "exponential-backoff", version: "3.1.3", license: "Apache-2.0", body: "L16", copyright: ["Copyright 2019 Coveo Solutions Inc."] },
