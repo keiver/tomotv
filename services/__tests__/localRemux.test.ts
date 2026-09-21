@@ -9,6 +9,7 @@ import {
   imagesAt,
   isLocalRemuxAvailable,
   localRemuxToken,
+  offeredTierRungs,
   offeredTierBandwidths,
   predictPlaybackLane,
   resolveSubtitlePick,
@@ -1636,6 +1637,60 @@ describe("imagesAt", () => {
 });
 
 describe("startLocalRemux Slipstream tier config", () => {
+  it.each([true, undefined])("keeps the ladder when SupportsTranscoding is %s", async (supportsTranscoding) => {
+    const source = item({ MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000, SupportsTranscoding: supportsTranscoding }] });
+
+    await startLocalRemux(source);
+
+    expect(offeredTierRungs(source)).toHaveLength(7);
+    expect(mockStartRemux.mock.calls[0][0].tiers).toHaveLength(7);
+  });
+
+  it.each([false, true])("does not offer forbidden rungs with serverVideoOnly=%s", (serverVideoOnly) => {
+    const source = item({
+      MediaSources: [
+        { Id: "item1", Container: "mkv", Bitrate: 20_000_000, SupportsTranscoding: false },
+        { Id: "other", SupportsTranscoding: true },
+      ],
+    });
+
+    expect(offeredTierRungs(source, undefined, { serverVideoOnly })).toEqual([]);
+    expect(offeredTierBandwidths(source, undefined, { serverVideoOnly })).toEqual([]);
+    expect(slipstreamTierBandwidth(source, undefined, { serverVideoOnly })).toBeNull();
+  });
+
+  it("rejects a forbidden server-only gateway before native startup", async () => {
+    const source = item({ MediaSources: [{ Id: "item1", SupportsTranscoding: false }] });
+
+    await expect(startLocalRemux(source, undefined, undefined, { serverVideoOnly: true })).rejects.toThrow("Server video transcoding is not permitted");
+    expect(mockStartRemux).not.toHaveBeenCalled();
+  });
+
+  it("keeps local playback and every track without ladder audio when video transcoding is forbidden", async () => {
+    const source = item({
+      MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000, SupportsTranscoding: false }],
+      streams: [
+        { Type: "Video", Codec: "hevc", Index: 0, BitRate: 20_000_000, VideoRangeType: "HDR10", BitDepth: 10 },
+        { Type: "Audio", Codec: "ac3", Index: 1, Channels: 6, Language: "eng" },
+        { Type: "Audio", Codec: "aac", Index: 7, Language: "spa" },
+        { Type: "Subtitle", Codec: "subrip", Index: 2 },
+        { Type: "Subtitle", Codec: "subrip", Index: 5, IsExternal: true },
+      ],
+    });
+
+    expect(await canRemuxLocally(source)).toBe(true);
+    await startLocalRemux(source, 7);
+
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.serverVideoOnly).toBe(false);
+    expect(config.tiers).toEqual([]);
+    expect(config.videoRange).toBe("PQ");
+    expect(config.audioTracks.map((track: { index: number }) => track.index)).toEqual([7, 1]);
+    expect(config.audioTracks.every((track: { usesServerAudio: boolean; serverAudioUrl?: string }) => !track.usesServerAudio && !track.serverAudioUrl)).toBe(true);
+    expect(config.subtitles).toHaveLength(2);
+    expect(config.subtitles).toEqual(expect.arrayContaining([expect.objectContaining({ index: 2, isEngineText: true }), expect.objectContaining({ index: 5 })]));
+  });
+
   it("every rung rides 96k stereo AAC, whatever the source codec or channel count", async () => {
     await startLocalRemux(
       item({

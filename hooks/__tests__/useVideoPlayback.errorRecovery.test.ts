@@ -45,6 +45,23 @@ const base: ErrorRecoveryInput = {
 };
 
 describe("network gateway item recovery", () => {
+  it.each([PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT, PlaybackErrorType.DECODE, PlaybackErrorType.CORRUPT, PlaybackErrorType.UNKNOWN])(
+    "retries the local gateway instead of forbidden server video after %s",
+    (errorType) => {
+      expect(planErrorRecovery({ ...base, networkGateway: true, serverTranscodingAllowed: false, errorType, hasTriedRemuxRestart: true })).toMatchObject({
+        retryGateway: true,
+        latchTranscodeUpFront: false,
+        stallFallback: false,
+        carryPositionSec: 120,
+        action: { kind: "reportError" },
+      });
+    },
+  );
+
+  it("preserves credential refresh when server video is forbidden", () => {
+    expect(planErrorRecovery({ ...base, networkGateway: true, serverTranscodingAllowed: false, errorType: PlaybackErrorType.UNAUTHORIZED }).action).toEqual({ kind: "refreshCredentials" });
+  });
+
   it.each([PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT])("preserves the original supplier after repeated %s failures", (errorType) => {
     const decision = planErrorRecovery({ ...base, networkGateway: true, errorType, hasTriedRemuxRestart: true });
     expect(decision).toMatchObject({ retryGateway: true, latchTranscodeUpFront: false, stallFallback: false, stopRemuxSession: true, carryPositionSec: 120, action: { kind: "reportError" } });

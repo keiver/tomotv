@@ -111,6 +111,13 @@ describe("keptForReason", () => {
   it("hands over when below realtime is the device's own fault", () => {
     expect(keptForReason(base)).toBeNull();
   });
+
+  it("keeps a slow producer when server transcoding is forbidden", () => {
+    expect(keptForReason({ ...base, serverTranscodingAllowed: false })).toBe("noServer");
+    expect(keptForReason({ ...base, serverTranscodingAllowed: true })).toBeNull();
+    expect(keptForReason({ ...base, belowRealtime: false, serverTranscodingAllowed: false })).toBeNull();
+    expect(keptForReason({ ...base, live: true, liveHasServerRung: true, serverTranscodingAllowed: false })).toBeNull();
+  });
 });
 
 describe("dropThroughputWatch", () => {

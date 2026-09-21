@@ -28,7 +28,7 @@ import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
 import { audioCatalogue, playbackMediaStreams, sourcePosition, type AudioCatalogueTrack, type SourcePosition } from "@/services/jellyfin/audioTracks";
 import { generatePlaySessionId, getCachedConfig } from "@/services/jellyfin/session";
 import { getSubtitleUrl, isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
-import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
+import { deviceDecodes, isLiveSource, serverVideoTranscodingAllowed, sourceVideoRange } from "@/services/jellyfin/media";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
@@ -272,6 +272,7 @@ export function slipstreamInputBandwidth(videoItem: JellyfinVideoItem): number {
  * (audio-heavy tiny files), where AVPlayer would rightly refuse the rung.
  */
 export function offeredTierRungs(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number, options: SlipstreamOptions = {}): TierRung[] {
+  if (!serverVideoTranscodingAllowed(videoItem)) return [];
   const serverVideoOnly = options.serverVideoOnly === true && !isLiveSource(videoItem) && !playsFromDisk(videoItem.Id) && playbackMediaStreams(videoItem).some((stream) => stream.Type === "Video");
   if (!slipstreamEligible(videoItem)) return serverVideoOnly ? [...SLIPSTREAM_LADDER] : [];
   const tracks = audioCatalogue(videoItem, preferredAudioStreamIndex);
@@ -1407,6 +1408,9 @@ export async function startLocalRemux(
   const serverVideoOnly = options.serverVideoOnly === true;
   if (serverVideoOnly && (live || playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
     throw new Error("Server-video gateway requires network VOD video");
+  }
+  if (serverVideoOnly && !serverVideoTranscodingAllowed(videoItem)) {
+    throw new Error("Server video transcoding is not permitted for this source");
   }
   const inputUrl = videoItem.liveStreamUrl ?? getVideoStreamUrl(videoItem.Id, videoItem);
   const durationSeconds = live ? 0 : (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;

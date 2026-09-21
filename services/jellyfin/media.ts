@@ -10,6 +10,10 @@ import { logger } from "@/utils/logger";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { JELLYFIN_TIME } from "./constants";
 
+export function serverVideoTranscodingAllowed(item: JellyfinVideoItem | null | undefined): boolean {
+  return item?.MediaSources?.[0]?.SupportsTranscoding !== false;
+}
+
 /** A Live TV channel (BaseItemKind TvChannel). */
 export function isLiveChannel(item: { Type?: string } | null | undefined): boolean {
   return item?.Type === "TvChannel";

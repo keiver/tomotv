@@ -23,6 +23,7 @@ export interface ErrorRecoveryInput {
   /** This item has already given up its subtitles once; the rung is spent. */
   hasDroppedSubtitles: boolean;
   networkGateway?: boolean;
+  serverTranscodingAllowed?: boolean;
 }
 
 export interface ErrorRecoveryDecision {
@@ -48,7 +49,10 @@ export interface ErrorRecoveryDecision {
  */
 export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecision {
   const midPlayback = input.currentTimeSec > 1;
-  const retryGateway = input.networkGateway === true && !input.hasTriedTranscoding && [PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT].includes(input.errorType);
+  const retryGateway =
+    input.networkGateway === true &&
+    !input.hasTriedTranscoding &&
+    (input.serverTranscodingAllowed === false || [PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT].includes(input.errorType));
   const restartRemux = input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && midPlayback && !input.hasTriedRemuxRestart;
   // A held file's engine failure spends its subtitles rather than the transcode rung: the film
   // comes back as direct play off the disk, which is the whole reason it was downloaded.

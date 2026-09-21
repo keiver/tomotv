@@ -20,6 +20,7 @@ import {
   noteOpenFailed,
   openChannel,
 } from "@/services/jellyfinApi";
+import { serverVideoTranscodingAllowed } from "@/services/jellyfin/media";
 import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
@@ -615,7 +616,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       // A file the engine measured below realtime on this device goes to the server from the
       // first request (engineVerdicts.ts); Diagnostics reads the reason like any decline.
-      const remembered = gates.asksRememberedVerdict ? await rememberedVerdict(details) : null;
+      const remembered = gates.asksRememberedVerdict && (audioOnly || serverVideoTranscodingAllowed(details)) ? await rememberedVerdict(details) : null;
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
       if (remembered)
         probeEmit("decline", { reason: "engine below realtime on an earlier play", produceSeconds: remembered.produceSeconds, segmentSeconds: remembered.segmentSeconds, at: remembered.at });
@@ -764,6 +765,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    * Store streamUrl in state to keep it stable across state transitions
    */
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [streamTransport, setStreamTransport] = useState<PlaybackTransport>("direct");
   // For native failures, which name the source that failed.
   const streamUrlRef = useRef<string | null>(null);
   useEffect(() => {
@@ -823,6 +825,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const watch = throughputRef.current;
       // A live channel has no server lane to hand over to.
       if (!isMountedRef.current || transportRef.current !== "gateway" || watch.handedOver || isLiveRef.current || onTierLaneRef.current || readBound(sample)) return;
+      if (!playsFromDisk(details.Id) && !isAudioOnly(details) && !serverVideoTranscodingAllowed(details)) return;
       watch.handedOver = true;
       const position = currentTimeRef.current;
       logger.warn("Engine fell below realtime, leaving the engine lane at the playhead", {
@@ -869,6 +872,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // An item change reaches this effect before the reset below moves the request id, with the
     // previous item's state and the new videoId. Nothing of the old item starts for the new one.
     if (details.Id !== videoId) return;
+    const serverVideoDenied = !isLiveRef.current && !playsFromDisk(videoId) && !isAudioOnly(details) && !serverVideoTranscodingAllowed(details);
     // Capture current request ID to check for stale responses
     const currentRequestId = ++requestIdRef.current;
 
@@ -1033,7 +1037,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             if (!isMountedRef.current || requestIdRef.current !== currentRequestId || localRemuxTokenRef.current !== token) return;
             probeEmit("link", { bps: Math.round(bps), copyListed: copyListed ?? null });
             setLinkAffordsFrames(!serverVideoOnly && linkAffordsChapterFrames(bps, slipstreamInputBandwidth(details)));
-            if (pinnedCapRef.current != null || transportRef.current !== "gateway") return;
+            if (serverVideoDenied || pinnedCapRef.current != null || transportRef.current !== "gateway") return;
             // Never below the smallest variant in the master: a cap under all of them leaves
             // AVPlayer nothing it may play, and it wanders between every one of them without
             // ever showing a frame (drill S5 at 0.6 Mb/s).
@@ -1136,6 +1140,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               liveHasServerRung: under && isLiveRef.current ? (await openLiveServerRung()) !== null : false,
               tierDeclared: tierDeclaredFor(token),
               readBound: sample !== null && readBound(sample),
+              serverTranscodingAllowed: !serverVideoDenied,
             });
             if (requestIdRef.current !== currentRequestId) {
               stopLocalRemux(token);
@@ -1152,7 +1157,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 readSeconds: sample.readSeconds ?? null,
                 thermal: sample.thermal,
                 remembered: false,
-                ...(keptFor === "tier" ? { keptForTier: true } : { keptForLink: true }),
+                ...(keptFor === "tier" ? { keptForTier: true } : keptFor === "noServer" ? { keptForNoServer: true } : { keptForLink: true }),
               });
               logger.info("Engine is below realtime, keeping it", {
                 service: "useVideoPlayback",
@@ -1193,7 +1198,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           capFloorRef.current = 0;
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
-          if (!isLiveRef.current && (serverVideoOnly || slipstreamEligible(details)) && !playsFromDisk(videoId)) {
+          if (!serverVideoDenied && !isLiveRef.current && (serverVideoOnly || slipstreamEligible(details)) && !playsFromDisk(videoId)) {
             const quality = await getQualitySettings();
             if (requestIdRef.current !== currentRequestId) return false;
             pinnedCapRef.current = gatewayMaxBitRate(quality) ?? null;
@@ -1254,6 +1259,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         };
 
         const openServerLane = async (): Promise<void> => {
+          if (serverVideoDenied) fail("Server video transcoding is not permitted for this source");
           if (!isLiveRef.current && !playsFromDisk(videoId) && !isAudioOnly(details) && (isLocalRemuxAvailable() || (Platform.OS === "ios" && Platform.isTV))) {
             if (!isLocalRemuxAvailable()) fail("The native gateway is unavailable for complete-track fallback");
             if (!(await openEngineLane(true))) return;
@@ -1264,7 +1270,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           const hasSelectedAudioTrack = viewerPickedAudioRef.current !== null;
           const subtitles = getTextSubtitleStreams(details);
           const subtitlesOff = viewerSubtitleStreamRef.current === null || appliedSubtitlePreferenceRef.current.kind === "off" || getSubtitlePreferenceSync().kind === "off";
-          const burnInIndex = subtitlesOff ? undefined : (getBurnInSubtitleStream(details)?.Index ?? (subtitles.length > 0 && subtitles.every((track) => track.IsForced) ? subtitles[0].Index : undefined));
+          const burnInIndex = subtitlesOff
+            ? undefined
+            : (getBurnInSubtitleStream(details)?.Index ?? (subtitles.length > 0 && subtitles.every((track) => track.IsForced) ? subtitles[0].Index : undefined));
 
           // Multi-audio builds its own master from the server's transcodes and cannot retag their
           // init segments, so an HDR source takes the single-track path through the shim instead.
@@ -1311,16 +1319,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               isLiveRef.current && details.liveTranscodeUrl
                 ? details.liveTranscodeUrl
                 : await viaShim(
-                    await getTranscodingStreamUrl(
-                      videoId,
-                      details,
-                      audioStreamIndex,
-                      undefined,
-                      burnInIndex,
-                      playSessionIdRef.current,
-                      await resolveTranscodePreset(),
-                      await videoDecodeSupport(),
-                    ),
+                    await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInIndex, playSessionIdRef.current, await resolveTranscodePreset(), await videoDecodeSupport()),
                   );
 
             if (!ownsAttempt()) return;
@@ -1352,6 +1351,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // A run the viewer already left: its session is torn down, and every ref below belongs
             // to the item that replaced it.
             if (requestIdRef.current !== currentRequestId) return false;
+            if (serverVideoDenied) throw remuxError;
             const liveServerUrl = isLiveRef.current ? await openLiveServerRung() : null;
             if (requestIdRef.current !== currentRequestId) return false;
             if (liveServerUrl) {
@@ -1426,7 +1426,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         } else {
           // Direct play
           url = getVideoStreamUrl(videoId, details);
-
         }
 
         // The on-device frame grabber never runs during playback: it steals the throttled link
@@ -1475,6 +1474,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         streamGenerationRef.current += 1;
         streamUrlRef.current = url;
         setStreamUrl(url);
+        setStreamTransport(preparedTransport);
         // Captured here rather than at load: every path that resumes (first play,
         // audio-switch restart, seek recovery) sets the ref before this line.
         setStartPositionMs(IS_MAC && seekToPositionAfterLoadRef.current ? seekToPositionAfterLoadRef.current * 1000 : null);
@@ -1528,6 +1528,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           },
           mode,
           hasTriedTranscode: hasTriedTranscodingRef.current,
+          ...(serverVideoDenied && mode === "localRemux" ? { retryGateway: true } : {}),
           ...(!isLiveRef.current && !playsFromDisk(videoId) ? { autoRetry: shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: classifyPlaybackError(error) }) } : {}),
         });
       };
@@ -1907,6 +1908,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         heldOnDisk: playsFromDisk(videoId),
         hasDroppedSubtitles: heldEngineSpentRef.current,
         networkGateway: transportRef.current === "gateway" && !playsFromDisk(videoId),
+        serverTranscodingAllowed: !videoDetails || isAudioOnly(videoDetails) || serverVideoTranscodingAllowed(videoDetails),
       });
       const { willRetryWithTranscode } = decision;
 
@@ -2054,7 +2056,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       });
     },
-    [videoId, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead],
+    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead],
   );
 
   const onError = useCallback(
@@ -2668,13 +2670,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         directPlayFailedRef.current = true;
       } else if (!state.retryGateway) {
         hasTriedTranscodingRef.current = true;
-        setHasTriedTranscoding(true);
       }
     }
     autoPlayTriggeredRef.current = false;
     isPlayingRef.current = false;
     hasStablePlaybackRef.current = false;
-    setHasStablePlayback(false);
     streamUrlRef.current = null;
     stopLocalRemux(localRemuxTokenRef.current);
     localRemuxTokenRef.current = null;
@@ -2682,15 +2682,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
     // Clear streamUrl to unmount Video component during retry
     // This prevents the old URL from firing additional errors
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStreamUrl(null);
 
     // Auto-retry with transcoding
-    const retryTimer = setTimeout(() => {
-      if (isMountedRef.current && requestIdRef.current === attempt) {
-        dispatch({ type: "RETRY_WITH_TRANSCODE" });
-      }
-    }, state.autoRetry ? automaticRetryDelay(retryAttemptRef.current++) : 500);
+    const retryTimer = setTimeout(
+      () => {
+        if (isMountedRef.current && requestIdRef.current === attempt) {
+          setHasTriedTranscoding(hasTriedTranscodingRef.current);
+          setHasStablePlayback(false);
+          dispatch({ type: "RETRY_WITH_TRANSCODE" });
+        }
+      },
+      state.autoRetry ? automaticRetryDelay(retryAttemptRef.current++) : 500,
+    );
 
     return () => clearTimeout(retryTimer);
   }, [skip, state]);
@@ -2804,55 +2808,57 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const isAudioOnlyFile = videoDetails ? isAudioOnly(videoDetails) : false;
 
   const isLoading =
-    state.type === "FETCHING_METADATA" || state.type === "CREATING_STREAM" || state.type === "INITIALIZING_PLAYER" || state.type === "READY" || (state.type === "ERROR" && state.canRetryWithTranscode) || (state.type === "PLAYING" && !hasStablePlayback);
+    state.type === "FETCHING_METADATA" ||
+    state.type === "CREATING_STREAM" ||
+    state.type === "INITIALIZING_PLAYER" ||
+    state.type === "READY" ||
+    (state.type === "ERROR" && state.canRetryWithTranscode) ||
+    (state.type === "PLAYING" && !hasStablePlayback);
 
   const showLoadingOverlay = isLoading;
 
   /**
    * Video callbacks object for Video component props
    */
-  const videoCallbacks = useMemo(
-    () => {
-      const generation = streamGenerationRef.current;
-      const ownsSource = () => isMountedRef.current && streamUrl !== null && streamUrlRef.current === streamUrl && streamGenerationRef.current === generation;
-      return {
-        onLoad: (data: OnLoadData) => {
-          if (ownsSource()) onLoad(data);
-        },
-        onProgress: (data: OnProgressData) => {
-          if (ownsSource()) onProgress(data);
-        },
-        onError: (error: OnVideoErrorData) => {
-          if (ownsSource()) onError(error);
-        },
-        onEnd: () => {
-          if (ownsSource()) onEnd();
-        },
-        onSeek: () => {
-          if (ownsSource()) onSeek();
-        },
-        onBuffer: (data: { isBuffering: boolean }) => {
-          if (ownsSource()) onBuffer(data);
-        },
-        onAudioTracks: (data: { audioTracks: AudioTrack[] }) => {
-          if (ownsSource()) onAudioTracks(data);
-        },
-        onTextTracks: (data: { textTracks: TextTrack[] }) => {
-          if (ownsSource()) onTextTracks(data);
-        },
-        onPlaybackStateChanged: (data: OnPlaybackStateChangedData) => {
-          if (ownsSource()) onPlaybackStateChanged(data);
-        },
-        onBandwidthUpdate: (data: OnBandwidthUpdateData) => {
-          if (ownsSource()) onBandwidthUpdate(data);
-        },
-        onReadyForDisplay: () => {
-          if (ownsSource()) onReadyForDisplay();
-        },
-      };
-    },
-    [streamUrl, onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks, onPlaybackStateChanged, onBandwidthUpdate, onReadyForDisplay],
-  );
+  const videoCallbacks = useMemo(() => {
+    const generation = streamGenerationRef.current;
+    const ownsSource = () => isMountedRef.current && streamUrl !== null && streamUrlRef.current === streamUrl && streamGenerationRef.current === generation;
+    return {
+      onLoad: (data: OnLoadData) => {
+        if (ownsSource()) onLoad(data);
+      },
+      onProgress: (data: OnProgressData) => {
+        if (ownsSource()) onProgress(data);
+      },
+      onError: (error: OnVideoErrorData) => {
+        if (ownsSource()) onError(error);
+      },
+      onEnd: () => {
+        if (ownsSource()) onEnd();
+      },
+      onSeek: () => {
+        if (ownsSource()) onSeek();
+      },
+      onBuffer: (data: { isBuffering: boolean }) => {
+        if (ownsSource()) onBuffer(data);
+      },
+      onAudioTracks: (data: { audioTracks: AudioTrack[] }) => {
+        if (ownsSource()) onAudioTracks(data);
+      },
+      onTextTracks: (data: { textTracks: TextTrack[] }) => {
+        if (ownsSource()) onTextTracks(data);
+      },
+      onPlaybackStateChanged: (data: OnPlaybackStateChangedData) => {
+        if (ownsSource()) onPlaybackStateChanged(data);
+      },
+      onBandwidthUpdate: (data: OnBandwidthUpdateData) => {
+        if (ownsSource()) onBandwidthUpdate(data);
+      },
+      onReadyForDisplay: () => {
+        if (ownsSource()) onReadyForDisplay();
+      },
+    };
+  }, [streamUrl, onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks, onPlaybackStateChanged, onBandwidthUpdate, onReadyForDisplay]);
 
   // Hand the manager a way to drive this player while a group is joined. Re-registered
   // per item so a queue advance never leaves the manager holding the previous session.
@@ -2894,7 +2900,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // than currentModeRef, which is a ref and would not re-render the overlay.
     // The engine serves its sets over loopback; a held file's sit beside it, and the stream
     // URL is already inside that directory either way.
-    imageSubtitleSessionUrl: "mode" in state && (transportRef.current === "gateway" || (state.mode === "direct" && playsRepackaged(videoId))) ? streamUrl : null,
+    imageSubtitleSessionUrl: "mode" in state && (streamTransport === "gateway" || (state.mode === "direct" && playsRepackaged(videoId))) ? streamUrl : null,
     activeImageSubtitleStream,
     currentTimeRef,
     selectedTextTrack,

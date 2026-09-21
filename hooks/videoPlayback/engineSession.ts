@@ -117,16 +117,18 @@ export interface KeptForInput {
   tierDeclared: boolean;
   /** The segment was slow because the input arrived slowly, not because the device is slow. */
   readBound: boolean;
+  serverTranscodingAllowed?: boolean;
 }
 
 /**
  * Why a below-realtime engine is KEPT instead of routed to the server. Anything below
  * realtime with none of these reasons is the device's fault and hands over.
  */
-export function keptForReason(input: KeptForInput): "tier" | "live" | "link" | null {
+export function keptForReason(input: KeptForInput): "tier" | "live" | "link" | "noServer" | null {
   if (!input.belowRealtime) return null;
   if (input.live) return input.liveHasServerRung ? null : "live";
   if (input.tierDeclared) return "tier";
   if (input.readBound) return "link";
+  if (input.serverTranscodingAllowed === false) return "noServer";
   return null;
 }
