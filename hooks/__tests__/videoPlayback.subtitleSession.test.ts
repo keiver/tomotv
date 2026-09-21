@@ -4,7 +4,10 @@
 import { classifyObservedChoice, planSubtitleApplication, subtitleSelectionForReport } from "../videoPlayback/subtitleSession";
 
 describe("subtitleSelectionForReport", () => {
-  const renditions = [{ index: 4, name: "English" }, { index: 7, name: "English SDH" }];
+  const renditions = [
+    { index: 4, name: "English" },
+    { index: 7, name: "English SDH" },
+  ];
 
   it("preserves the selected source track even when the player adds phantom entries", () => {
     expect(subtitleSelectionForReport(7, renditions, [{ index: 0 }, { index: 1, title: "English" }, { index: 2, title: "English SDH" }])).toEqual({ type: "index", value: "2" });
@@ -17,7 +20,12 @@ describe("subtitleSelectionForReport", () => {
 
   it("does not select a missing track or an ambiguous duplicate name", () => {
     expect(subtitleSelectionForReport(9, renditions, [{ index: 0 }, { index: 1 }])).toBeNull();
-    expect(subtitleSelectionForReport(7, renditions, [{ index: 0, title: "English SDH" }, { index: 1, title: "English SDH" }])).toBeNull();
+    expect(
+      subtitleSelectionForReport(7, renditions, [
+        { index: 0, title: "English SDH" },
+        { index: 1, title: "English SDH" },
+      ]),
+    ).toBeNull();
   });
 
   it("preserves subtitles off regardless of the new group", () => {

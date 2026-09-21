@@ -462,12 +462,24 @@ describe("multiAudioLoader", () => {
     });
 
     it("accepts audio indexes at the nonnegative Int32 boundary", () => {
-      const tracks = getAudioTracks(createMockVideoItem({ MediaStreams: [{ Type: "Audio", Codec: "aac", Index: 0 }, { Type: "Audio", Codec: "aac", Index: 2_147_483_647 }] }));
+      const tracks = getAudioTracks(
+        createMockVideoItem({
+          MediaStreams: [
+            { Type: "Audio", Codec: "aac", Index: 0 },
+            { Type: "Audio", Codec: "aac", Index: 2_147_483_647 },
+          ],
+        }),
+      );
       expect(tracks.map((track: AudioTrackInfo) => track.Index)).toEqual([0, 2_147_483_647]);
     });
 
     it("rejects duplicate stream identities", () => {
-      const source = createMockVideoItem({ MediaStreams: [{ Type: "Audio", Codec: "aac", Index: 2 }, { Type: "Audio", Codec: "ac3", Index: 2 }] });
+      const source = createMockVideoItem({
+        MediaStreams: [
+          { Type: "Audio", Codec: "aac", Index: 2 },
+          { Type: "Audio", Codec: "ac3", Index: 2 },
+        ],
+      });
       expect(() => getAudioTracks(source)).toThrow("Duplicate audio track identity");
     });
 
@@ -560,7 +572,9 @@ describe("multiAudioLoader", () => {
         const secondPlayback = loader.prepareMultiAudioPlayback(secondSource.Id, secondSource, "http://server/Videos/test-video/master.m3u8?MediaSourceId=second-source", "second-key");
         const preparations = Promise.all([firstPlayback, secondPlayback]);
         const completion = expect(preparations).resolves.toEqual([firstUrl, secondUrl]);
-        const secondCompletion = expect(secondPlayback).resolves.toBe(secondUrl).finally(() => resolveFirst(firstUrl));
+        const secondCompletion = expect(secondPlayback)
+          .resolves.toBe(secondUrl)
+          .finally(() => resolveFirst(firstUrl));
         await Promise.all([completion, secondCompletion]);
         expect(configureResourceLoader.mock.calls[0][3]).toEqual(loader.getAudioTracks(firstSource));
         expect(configureResourceLoader.mock.calls[1][3]).toEqual(loader.getAudioTracks(secondSource));
@@ -606,7 +620,10 @@ describe("multiAudioLoader", () => {
         const loader = require("../multiAudioLoader") as typeof import("../multiAudioLoader");
         const source = createMockVideoItem({
           MediaSources: [{ Id: "alternate" }],
-          MediaStreams: [{ Type: "Audio", Codec: "aac", Index: 2 }, { Type: "Audio", Codec: "acelp.kelvin", Index: 8, IsDefault: true }],
+          MediaStreams: [
+            { Type: "Audio", Codec: "aac", Index: 2 },
+            { Type: "Audio", Codec: "acelp.kelvin", Index: 8, IsDefault: true },
+          ],
         });
         await loader.registerMultiAudioPlugin();
         await loader.prepareMultiAudioPlayback(source.Id, source, "http://server/Videos/test-video/master.m3u8?MediaSourceId=alternate", "key");
