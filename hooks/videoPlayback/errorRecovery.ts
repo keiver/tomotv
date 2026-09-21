@@ -6,7 +6,7 @@ export function automaticRetryDelay(attempt: number): number {
 }
 
 export function shouldAutomaticallyRetry(input: { live: boolean; heldOnDisk: boolean; errorType: PlaybackErrorType }): boolean {
-  return !input.live && !input.heldOnDisk && input.errorType !== PlaybackErrorType.UNAUTHORIZED;
+  return !input.live && !input.heldOnDisk && input.errorType !== PlaybackErrorType.UNAUTHORIZED && input.errorType !== PlaybackErrorType.NOT_FOUND;
 }
 
 export interface ErrorRecoveryInput {

@@ -289,6 +289,40 @@ describe("useVideoPlayback (mounted)", () => {
     });
   });
 
+  describe("missing metadata", () => {
+    it.each(["empty details", "HTTP 404"])("shows a terminal error for %s until the viewer retries", async (failure) => {
+      jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+      let renderer: TestRenderer.ReactTestRenderer | undefined;
+      try {
+        if (failure === "empty details") mockDetails.mockResolvedValue(null);
+        else mockDetails.mockRejectedValue(new Error("Failed to fetch video details: 404 Not Found"));
+
+        const mounted = await mount({ videoId: "video-1" });
+        const { ref } = mounted;
+        renderer = mounted.renderer;
+        const terminalError = { type: "ERROR", error: "Video not found on server", autoRetry: false, canRetryWithTranscode: false };
+        expect(ref.current!.get().state).toEqual(terminalError);
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+
+        await act(async () => jest.advanceTimersByTime(180_000));
+        expect(mockDetails).toHaveBeenCalledTimes(1);
+        expect(ref.current!.get().state).toEqual(terminalError);
+
+        await act(async () => ref.current!.get().retry());
+        expect(mockDetails).toHaveBeenCalledTimes(2);
+        expect(ref.current!.get().state).toEqual(terminalError);
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+        await act(async () => jest.advanceTimersByTime(180_000));
+        expect(mockDetails).toHaveBeenCalledTimes(2);
+        expect(mockStartLocalRemux).not.toHaveBeenCalled();
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
+      } finally {
+        await act(async () => renderer?.unmount());
+        jest.useRealTimers();
+      }
+    });
+  });
+
   describe("lane selection", () => {
     it("keeps a forbidden-server source on the engine at startup and when production slows", async () => {
       mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 8_000_000, SupportsTranscoding: false }] }));
@@ -336,17 +370,40 @@ describe("useVideoPlayback (mounted)", () => {
       await act(async () => renderer.unmount());
     });
 
-    it("does not open either server fallback when the engine is unavailable and video transcoding is forbidden", async () => {
-      mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", SupportsTranscoding: false }] }));
-      (isMultiAudioAvailable as jest.Mock).mockReturnValue(true);
-      (shouldUseMultiAudio as jest.Mock).mockReturnValue(true);
+    it.each([false, true])("shows a terminal error when the engine cannot take the file and video transcoding is forbidden (engine available: %s)", async (engineAvailable) => {
+      jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+      let renderer: TestRenderer.ReactTestRenderer | undefined;
+      try {
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", SupportsTranscoding: false }] }));
+        mockNeedsTranscoding.mockReturnValue(true);
+        (isLocalRemuxAvailable as jest.Mock).mockReturnValue(engineAvailable);
+        (isMultiAudioAvailable as jest.Mock).mockReturnValue(true);
+        (shouldUseMultiAudio as jest.Mock).mockReturnValue(true);
 
-      const { ref, renderer } = await mount({ videoId: "video-1" });
-      expect(ref.current!.get().state.type).toBe("ERROR");
-      expect(mockStartLocalRemux).not.toHaveBeenCalled();
-      expect(mockTranscodeUrl).not.toHaveBeenCalled();
-      expect(prepareMultiAudioPlayback).not.toHaveBeenCalled();
-      await act(async () => renderer.unmount());
+        const mounted = await mount({ videoId: "video-1" });
+        const { ref } = mounted;
+        renderer = mounted.renderer;
+        const terminalError = { type: "ERROR", error: "Failed to create video stream. Please check your settings.", autoRetry: false, canRetryWithTranscode: false };
+        expect(ref.current!.get().state).toEqual(terminalError);
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+
+        await act(async () => jest.advanceTimersByTime(180_000));
+        expect(mockDetails).toHaveBeenCalledTimes(1);
+        expect(ref.current!.get().state).toEqual(terminalError);
+
+        await act(async () => ref.current!.get().retry());
+        expect(mockDetails).toHaveBeenCalledTimes(2);
+        expect(ref.current!.get().state).toEqual(terminalError);
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+        await act(async () => jest.advanceTimersByTime(180_000));
+        expect(mockDetails).toHaveBeenCalledTimes(2);
+        expect(mockStartLocalRemux).not.toHaveBeenCalled();
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
+        expect(prepareMultiAudioPlayback).not.toHaveBeenCalled();
+      } finally {
+        await act(async () => renderer?.unmount());
+        jest.useRealTimers();
+      }
     });
 
     it.each(["startup", "playback"])("retries the local engine after a %s failure when server video is forbidden", async (failureAt) => {

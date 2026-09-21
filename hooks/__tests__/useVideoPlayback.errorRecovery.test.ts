@@ -24,6 +24,10 @@ describe("automatic network recovery", () => {
     },
   );
 
+  it("does not automatically retry a missing item", () => {
+    expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: PlaybackErrorType.NOT_FOUND })).toBe(false);
+  });
+
   it("leaves live and offline recovery to their existing policies", () => {
     expect(shouldAutomaticallyRetry({ live: true, heldOnDisk: false, errorType: PlaybackErrorType.NETWORK })).toBe(false);
     expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: true, errorType: PlaybackErrorType.NETWORK })).toBe(false);

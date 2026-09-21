@@ -1525,7 +1525,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           mode,
           hasTriedTranscode: hasTriedTranscodingRef.current,
           ...(serverVideoDenied && mode === "localRemux" ? { retryGateway: true } : {}),
-          ...(!isLiveRef.current && !playsFromDisk(videoId) ? { autoRetry: shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: classifyPlaybackError(error) }) } : {}),
+          ...(!isLiveRef.current && !playsFromDisk(videoId)
+            ? { autoRetry: !(serverVideoDenied && mode === "transcode") && shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: classifyPlaybackError(error) }) }
+            : {}),
         });
       };
 
