@@ -22,6 +22,7 @@
       "infoPlist": {
         "LSApplicationCategoryType": "public.app-category.entertainment",
         "UIBackgroundModes": ["audio"],
+        "UIViewControllerBasedStatusBarAppearance": true,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsArbitraryLoadsForMedia": true,

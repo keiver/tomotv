@@ -1,7 +1,6 @@
 import { COLORS } from "@/constants/colors";
 import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider, useNavigationContainerRef } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { LogBox, Platform } from "react-native";
 import { useCallback, useEffect } from "react";
 import "react-native-reanimated";
@@ -409,7 +408,6 @@ export default function RootLayout() {
                 {/* Opens the group's item when the server pushes a SyncPlay queue. Renders null. */}
                 <SyncPlayDriver />
               </PlayerSessionProvider>
-              <StatusBar style="light" />
             </PlayQueueProvider>
           </LibraryProvider>
         </LoadingProvider>
