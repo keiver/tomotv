@@ -60,6 +60,26 @@ publishing a ready local source. Metadata estimates remain necessary when a slow
 link leaves the original unopened. `SCORE` ranks eligible variants; it cannot
 make a wrongly declared codec or audio channel configuration eligible.
 
+### Fast-link transport tests
+
+Requires macOS and Xcode. Run from the repository root:
+
+```sh
+swift test --package-path native/ios --filter FastLinkPlaybackTests
+```
+
+Optional source-file check (requires ffprobe):
+
+```sh
+TOMO_FAST_LINK_SOURCE=/path/to/video.mkv TOMO_FAST_LINK_START=16 \
+FFPROBE=/path/to/ffprobe swift test --package-path native/ios \
+  --filter FastLinkPlaybackTests/testActualSourceDoesNotRequestServerTranscoding
+```
+
+- Asserts playback progress, original dimensions, and zero server-transcode requests.
+- Uses local HTTP and macOS AVPlayer; does not validate Jellyfin or tvOS.
+- Fails on any AVPlayer error-log entry, including bandwidth declaration errors.
+
 ### Environment
 
 ```bash

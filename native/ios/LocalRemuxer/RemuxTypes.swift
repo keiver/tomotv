@@ -162,6 +162,78 @@ struct RemuxConfig {
     var serverVideoOnly = false
 }
 
+struct SegmentBitrates {
+    struct Sample {
+        let bytes: Int
+        let duration: Double
+    }
+
+    var segments: [Int: Sample] = [:]
+
+    mutating func record(index: Int, bytes: Int, duration: Double) {
+        guard index >= 0, bytes > 0, duration.isFinite, duration > 0 else { return }
+        segments[index] = Sample(bytes: bytes, duration: duration)
+    }
+
+    func peak(targetDuration: Double) -> Int? {
+        guard targetDuration.isFinite, targetDuration > 0 else { return nil }
+        var maximum = 0.0
+        for index in segments.keys {
+            var next = index
+            var bytes = 0.0
+            var duration = 0.0
+            while let sample = segments[next] {
+                bytes += Double(sample.bytes)
+                duration += sample.duration
+                if duration > targetDuration * 1.5 { break }
+                if duration >= targetDuration * 0.5 {
+                    maximum = max(maximum, bytes * 8 / duration)
+                }
+                next += 1
+            }
+        }
+        guard maximum > 0, maximum < Double(Int.max) else { return nil }
+        return Int(ceil(maximum))
+    }
+
+    struct IndexPoint {
+        let seconds: Double
+        let position: Int64
+    }
+
+    static func indexedPeak(points: [IndexPoint], durations: [Double], targetDuration: Double) -> Int? {
+        guard points.count > 1, targetDuration.isFinite, targetDuration > 0,
+              durations.allSatisfy({ $0.isFinite && $0 > 0 }),
+              zip(points, points.dropFirst()).allSatisfy({ $0.seconds.isFinite && $1.seconds.isFinite && $1.seconds > $0.seconds && $1.position > $0.position }) else { return nil }
+        func boundary(_ seconds: Double, roundUp: Bool) -> Int64 {
+            var lower = 0
+            var upper = points.count - 1
+            while lower < upper {
+                let middle = (lower + upper) / 2
+                if points[middle].seconds < seconds { lower = middle + 1 } else { upper = middle }
+            }
+            let index = !roundUp && points[lower].seconds > seconds ? max(0, lower - 1) : lower
+            return points[index].position
+        }
+        var maximum = 0.0
+        var start = 0.0
+        for index in durations.indices {
+            var duration = 0.0
+            for end in index..<durations.count {
+                duration += durations[end]
+                if duration > targetDuration * 1.5 { break }
+                if duration >= targetDuration * 0.5 {
+                    let bytes = boundary(start + duration, roundUp: true) - boundary(start, roundUp: false)
+                    maximum = max(maximum, Double(bytes) * 8 / duration)
+                }
+            }
+            start += durations[index]
+        }
+        guard maximum > 0, maximum < Double(Int.max) else { return nil }
+        return Int(ceil(maximum))
+    }
+}
+
 /// One adopted segment of the server tier's playlist: the server's own
 /// duration and its verbatim segment URL (relative to the item's HLS root),
 /// PlaySessionId included — never recomputed on our side (M1: the server's

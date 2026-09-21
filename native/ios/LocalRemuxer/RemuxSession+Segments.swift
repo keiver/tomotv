@@ -38,10 +38,8 @@ extension RemuxSession {
             }
         }
         if let deferred = mediaResponseDeferral(prefix: prefix) { return deferred }
-        // A copy segment is megabytes, and on a link that only just carries it the whole of one
-        // takes most of the 6s AVPlayer allows a silent response; live keeps the plain shape.
         if config.isLive { return .streamed(contentType: "video/iso.segment") { [weak self] in self?.segmentURL(n, prefix: prefix) } }
-        return .segment(contentType: "video/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] request in self?.segmentURL(n, prefix: prefix, request: request) }
+        return .segment(contentType: "video/iso.segment") { [weak self] request in self?.segmentURL(n, prefix: prefix, request: request) }
     }
 
     func initResponse(prefix: String = "", generation: Int = 0) -> LocalHTTPResponse {

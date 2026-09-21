@@ -105,6 +105,8 @@ final class RemuxSession {
     /// the pipeline thread before production starts; the serving side reads it
     /// under the lock.
     var renditions: [Rendition] = []
+    var renditionBitrates: [String: SegmentBitrates] = [:]
+    var indexedSourcePeak: Int?
     var producingSegment = 0
     /// The segment AVPlayer asked for most recently — the playhead. Note this
     /// is NOT a high-water mark: after seeking backwards it must move back, or

@@ -105,6 +105,79 @@ final class MasterPlaylistTests: XCTestCase {
         XCTAssertTrue(try playlist(bandwidth: 3_000_000).contains("BANDWIDTH=3000000"))
     }
 
+    func testPeakUsesSegmentBytesAndDurationsRatherThanAverage() {
+        var rates = SegmentBitrates()
+        rates.record(index: 0, bytes: 300_000, duration: 6)
+        rates.record(index: 1, bytes: 900_000, duration: 6)
+        rates.record(index: 2, bytes: 150_000, duration: 6)
+        XCTAssertEqual(rates.peak(targetDuration: 12), 1_200_000)
+    }
+
+    func testPeakCombinesShortContiguousSegmentsWithinTargetWindow() {
+        var rates = SegmentBitrates()
+        rates.record(index: 0, bytes: 90_000, duration: 1)
+        rates.record(index: 1, bytes: 90_000, duration: 1)
+        rates.record(index: 2, bytes: 120_000, duration: 4)
+        XCTAssertEqual(rates.peak(targetDuration: 12), 400_000)
+        rates.record(index: 2, bytes: 60_000, duration: 4)
+        XCTAssertEqual(rates.peak(targetDuration: 12), 320_000)
+    }
+
+    func testPeakDoesNotJoinSamplesAcrossASeekGap() {
+        var rates = SegmentBitrates()
+        rates.record(index: 0, bytes: 90_000, duration: 3)
+        rates.record(index: 2, bytes: 120_000, duration: 3)
+        XCTAssertNil(rates.peak(targetDuration: 12))
+        rates.record(index: 1, bytes: 30_000, duration: 3)
+        XCTAssertEqual(rates.peak(targetDuration: 12), 213_334)
+    }
+
+    func testIndexedPeakIncludesBurstsBeyondTheOpeningBuffer() {
+        let points: [SegmentBitrates.IndexPoint] = [
+            .init(seconds: 0, position: 0),
+            .init(seconds: 60, position: 3_000_000),
+            .init(seconds: 66, position: 6_000_000),
+            .init(seconds: 72, position: 6_300_000),
+        ]
+        XCTAssertEqual(SegmentBitrates.indexedPeak(points: points, durations: [60, 6, 6], targetDuration: 12), 4_000_000)
+    }
+
+    func testIndexedPeakIncludesWholeIntervalsAtSegmentBoundaries() {
+        let points: [SegmentBitrates.IndexPoint] = [
+            .init(seconds: 0, position: 0),
+            .init(seconds: 4, position: 100_000),
+            .init(seconds: 8, position: 700_000),
+            .init(seconds: 12, position: 800_000),
+        ]
+        XCTAssertEqual(SegmentBitrates.indexedPeak(points: points, durations: [6, 6], targetDuration: 12), 933_334)
+    }
+
+    func testInvalidByteIndexDoesNotProduceAPeak() {
+        let points: [SegmentBitrates.IndexPoint] = [
+            .init(seconds: 0, position: 1_000),
+            .init(seconds: 6, position: 0),
+        ]
+        XCTAssertNil(SegmentBitrates.indexedPeak(points: points, durations: [6], targetDuration: 12))
+    }
+
+    func testMeasuredPeaksKeepOriginalAndBridgeAveragesSeparate() throws {
+        let session = try gateway(audio: [serverAudio(1), serverAudio(2)])
+        defer { session.stop() }
+        session.renditionBitrates["", default: SegmentBitrates()].record(index: 0, bytes: 7_500_000, duration: 6)
+        session.renditionBitrates["a0", default: SegmentBitrates()].record(index: 0, bytes: 600_000, duration: 6)
+        session.renditionBitrates["a1", default: SegmentBitrates()].record(index: 0, bytes: 720_000, duration: 6)
+        let variants = session.masterPlaylist().split(separator: "\n").filter { $0.hasPrefix("#EXT-X-STREAM-INF") }
+        XCTAssertTrue(variants[0].contains(":BANDWIDTH=10960000,AVERAGE-BANDWIDTH=6640000,"))
+        XCTAssertTrue(variants[1].contains(":BANDWIDTH=10120000,AVERAGE-BANDWIDTH=6120000,"))
+    }
+
+    func testMuxedAudioIsNotAddedToMeasuredPrimaryTwice() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [serverAudio(1)], bandwidth: 640_000))
+        defer { session.stop() }
+        session.renditionBitrates["", default: SegmentBitrates()].record(index: 0, bytes: 900_000, duration: 6)
+        XCTAssertTrue(session.masterPlaylist().contains(":BANDWIDTH=1200000,AVERAGE-BANDWIDTH=640000,"))
+    }
+
     /// With the attribute absent AVFoundation offers an empty legible option
     /// that AVKit lists as "CC" and that draws nothing (measured on T88).
     func testClosedCaptionsAreDeclaredNone() throws {

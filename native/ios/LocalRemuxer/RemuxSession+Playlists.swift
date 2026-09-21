@@ -81,6 +81,22 @@ extension RemuxSession {
         tracks.map { $0.usesServerAudio ? Self.serverAudioBandwidth : max(0, $0.bandwidth) }.max() ?? 0
     }
 
+    func originalPeakBandwidths(_ tracks: [RemuxAudioTrack], splitAudio: Bool, fallback: Int) -> (original: Int, bridge: Int) {
+        let target = Double(sessionTargetDuration())
+        stateLock.lock()
+        let measured = renditionBitrates
+        let indexed = indexedSourcePeak ?? 0
+        stateLock.unlock()
+        let declaredAudio = originalAudioBandwidth(tracks)
+        let videoFallback = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth : max(1, fallback - (splitAudio ? declaredAudio : 0))
+        let primary = max(indexed, measured[""]?.peak(targetDuration: target) ?? videoFallback)
+        let audio = splitAudio ? tracks.enumerated().map { position, track in
+            track.usesServerAudio ? Self.serverAudioBandwidth
+                : measured[audioPrefix(position)]?.peak(targetDuration: target) ?? max(0, track.bandwidth)
+        }.max() ?? 0 : 0
+        return (max(fallback, primary + audio), primary + Self.serverAudioBandwidth)
+    }
+
     func masterBudgetLeft() -> Double {
         max(0.5, Self.masterBudgetSeconds - Date().timeIntervalSince(openedAt))
     }
@@ -319,17 +335,13 @@ extension RemuxSession {
             out += line
         }
 
-        // Peak bit rate of the variant (req 9.13), and the average alongside it
-        // (req 9.14). This was a hardcoded 20 Mbps, which was true of nothing.
-        // Zero means Jellyfin gave us no bit rate, and an absent attribute beats
-        // an invented one — except that BANDWIDTH is the single required
-        // attribute of this tag, so it falls back rather than disappearing.
         let audioBandwidth = originalAudioBandwidth(tracks)
         let bandwidth = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth + audioBandwidth : (config.bandwidth > 0 ? config.bandwidth : 20_000_000)
+        let peaks = originalPeakBandwidths(tracks, splitAudio: useAudioGroup, fallback: bandwidth)
         let videoCodecs = originalVideoCodecs()
         let audioCodecs = originalAudioCodecs(tracks)
         let primaryCodecs = videoCodecs.isEmpty ? config.codecs : (videoCodecs + audioCodecs).joined(separator: ",")
-        var primary = "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth)"
+        var primary = "#EXT-X-STREAM-INF:BANDWIDTH=\(peaks.original),AVERAGE-BANDWIDTH=\(bandwidth)"
         let originalScore = config.tiers.count + 2
         if offered { primary += ",SCORE=\(originalScore)" }
         // Unquoted enumerated value per RFC 8216 §4.3.4.2. RFC 8216 §4.3.4.2
@@ -402,7 +414,8 @@ extension RemuxSession {
         if useServerAudioGroup {
             let bridgeBandwidth = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth + Self.serverAudioBandwidth : max(bandwidth, Self.serverAudioBandwidth)
             let bridgeCodecs = (videoCodecs + [Self.serverAudioCodecs]).joined(separator: ",")
-            var bridge = primary.replacingOccurrences(of: "BANDWIDTH=\(bandwidth)", with: "BANDWIDTH=\(bridgeBandwidth)")
+            var bridge = primary.replacingOccurrences(of: ":BANDWIDTH=\(peaks.original),", with: ":BANDWIDTH=\(max(bridgeBandwidth, peaks.bridge)),")
+            bridge = bridge.replacingOccurrences(of: ",AVERAGE-BANDWIDTH=\(bandwidth),", with: ",AVERAGE-BANDWIDTH=\(bridgeBandwidth),")
             bridge = bridge.replacingOccurrences(of: ",SCORE=\(originalScore)", with: ",SCORE=\(originalScore - 1)")
             bridge = bridge.replacingOccurrences(of: "AUDIO=\"audio\"", with: "AUDIO=\"audio-lo\"")
             if !videoCodecs.isEmpty {

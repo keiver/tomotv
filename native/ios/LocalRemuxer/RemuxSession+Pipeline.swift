@@ -936,6 +936,35 @@ extension RemuxSession {
         readSpanUpTo = 0
     }
 
+    private func sourceIndexPeak(input: UnsafeMutablePointer<AVFormatContext>, streamIndex: Int32) -> Int? {
+        guard let stream = input.pointee.streams[Int(streamIndex)],
+              let io = input.pointee.pb, io.pointee.seekable & 1 != 0 else { return nil }
+        let format = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
+        guard format.contains("matroska") || format.contains("webm") || format.split(separator: ",").contains("mov") else { return nil }
+        if format.contains("matroska") || format.contains("webm") {
+            let start = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
+            guard avformat_seek_file(input, -1, Int64.min, start, start, SWIFT_AVSEEK_FLAG_BACKWARD) >= 0 else { return nil }
+        }
+        let count = avformat_index_get_entries_count(stream)
+        guard count > 1, let first = avformat_index_get_entry(stream, 0) else { return nil }
+        let origin = first.pointee.timestamp
+        let timeBase = av_q2d(stream.pointee.time_base)
+        var points: [SegmentBitrates.IndexPoint] = []
+        for index in 0..<count {
+            guard let entry = avformat_index_get_entry(stream, index), entry.pointee.pos >= 0 else { return nil }
+            let seconds = Double(entry.pointee.timestamp - origin) * timeBase
+            if points.last?.position == entry.pointee.pos { continue }
+            points.append(.init(seconds: seconds, position: entry.pointee.pos))
+        }
+        let durations = (0..<segmentCount).map { segmentDurationSeconds($0) }
+        let duration = durations.reduce(0, +)
+        let size = avio_size(io)
+        guard let last = points.last, last.seconds < duration, last.position < size else { return nil }
+        guard duration - last.seconds <= Double(sessionTargetDuration()) * 1.5 else { return nil }
+        points.append(.init(seconds: duration, position: size))
+        return SegmentBitrates.indexedPeak(points: points, durations: durations, targetDuration: Double(sessionTargetDuration()))
+    }
+
     private func runSourcePipeline(mark: (String) -> Void) {
         stateLock.lock()
         archiveReadSpanLocked()
@@ -1255,6 +1284,14 @@ extension RemuxSession {
             primaryDolbyVision = converter
         }
 
+        if !config.isLive, hasVideo, primaryVideoTranscoder == nil {
+            awaitGrid()
+            let peak = sourceIndexPeak(input: input, streamIndex: videoIn)
+            stateLock.lock()
+            indexedSourcePeak = peak
+            stateLock.unlock()
+        }
+
         var builtRenditions: [Rendition] = []
         // Slipstream sessions always de-mux audio into its own rendition group
         // (see masterPlaylist): variant switches must never touch audio. Keyed on the
@@ -1495,9 +1532,13 @@ extension RemuxSession {
                 } catch {
                     return fail("write \(rendition.segmentName(n)): \(error.localizedDescription)")
                 }
+                let duration = segmentDurationSeconds(n)
                 // One lock with the retry state: a waiter woken by this segment reads a recovered source.
                 stateLock.lock()
                 rendition.completed.insert(n)
+                if !config.isLive {
+                    renditionBitrates[rendition.prefix, default: SegmentBitrates()].record(index: n, bytes: segment.count, duration: duration)
+                }
                 sourceRetryAttempts = 0
                 recovering = false
                 stateLock.unlock()

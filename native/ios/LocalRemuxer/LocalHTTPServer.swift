@@ -25,7 +25,7 @@ enum LocalHTTPResponse {
     /// opening box and goes out at once; `padding` (a free box) follows every two seconds until
     /// the body is ready. AVPlayer fails a segment it hears nothing from in 6s (-12889, measured on
     /// rungs above the opening one at 750 kb/s), and a whole rung segment can take longer to land.
-    case segment(contentType: String, lead: Data, padding: Data, provider: (SegmentRequest) -> URL?)
+    case segment(contentType: String, lead: Data = Data(), padding: Data = Data(), provider: (SegmentRequest) -> URL?)
     case notFound
     /// 410: this variant is gone for good. AVPlayer does not retry it and moves to another variant
     /// of the same master (measured; WWDC17 514 says the same of permanent errors).
