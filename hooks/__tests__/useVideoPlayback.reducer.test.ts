@@ -6,6 +6,45 @@ describe("videoPlayerReducer", () => {
     Name: "Example",
   } as any;
 
+  it("publishes the actual fallback mode with the prepared URL", () => {
+    const next = videoPlayerReducer(
+      { type: "CREATING_STREAM", mode: "localRemux", details: baseDetails, hasSubtitles: true },
+      { type: "STREAM_CREATED", mode: "transcode", streamUrl: "https://server/master.m3u8" },
+    );
+    expect(next).toEqual({ type: "INITIALIZING_PLAYER", mode: "transcode", streamUrl: "https://server/master.m3u8" });
+  });
+
+  it("changes processing without replacing the URL or resetting playback state", () => {
+    const initial: VideoPlayerState = { type: "INITIALIZING_PLAYER", mode: "localRemux", streamUrl: "http://127.0.0.1/session/master.m3u8" };
+    expect(videoPlayerReducer(initial, { type: "PROCESSING_CHANGED", mode: "transcode" })).toEqual({ ...initial, mode: "transcode" });
+    const playing: VideoPlayerState = { type: "PLAYING", mode: "localRemux" };
+    expect(videoPlayerReducer(playing, { type: "PROCESSING_CHANGED", mode: "transcode" })).toEqual({ type: "PLAYING", mode: "transcode" });
+  });
+
+  it("keeps a server failure retryable when automatic recovery is requested", () => {
+    const next = videoPlayerReducer(
+      { type: "PLAYING", mode: "transcode" },
+      { type: "PLAYER_ERROR", mode: "transcode", error: { message: "temporary failure" }, hasTriedTranscode: true, autoRetry: true },
+    );
+    expect(next).toMatchObject({ type: "ERROR", canRetryWithTranscode: true, autoRetry: true });
+  });
+
+  it("allows exhausted authentication recovery to reach the dialog", () => {
+    const next = videoPlayerReducer(
+      { type: "PLAYING", mode: "localRemux" },
+      { type: "PLAYER_ERROR", mode: "localRemux", error: { message: "Unauthorized" }, hasTriedTranscode: false, autoRetry: false },
+    );
+    expect(next).toMatchObject({ type: "ERROR", canRetryWithTranscode: false, autoRetry: false });
+  });
+
+  it("carries a recoverable gateway's retry destination with its error", () => {
+    const next = videoPlayerReducer(
+      { type: "PLAYING", mode: "localRemux" },
+      { type: "PLAYER_ERROR", mode: "localRemux", error: { message: "Connection reset" }, hasTriedTranscode: false, autoRetry: true, retryGateway: true },
+    );
+    expect(next).toMatchObject({ type: "ERROR", autoRetry: true, retryGateway: true, canRetryWithTranscode: true });
+  });
+
   it("moves through happy-path states", () => {
     let state: VideoPlayerState = { type: "IDLE" };
 

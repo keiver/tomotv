@@ -24,8 +24,6 @@ export const LIVE_START_DEADLINE_MS = 45_000;
  * ~38s stall watchdog.
  */
 export const VOD_OPEN_DEADLINE_MS = 25_000;
-/** Smallest gap between climb-backs to the on-device copy, each of which re-buffers. */
-export const CLIMB_BACK_COOLDOWN_MS = 60_000;
 /** A direct stream frozen this long after a buffer-empty edge is stalled, not filling. */
 export const DIRECT_STALL_DEADLINE_MS = 12_000;
 /** Playhead movement that counts as progress rather than a frozen clock. */

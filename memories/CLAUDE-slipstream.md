@@ -4,25 +4,6 @@
 playlist, the link measurement or the variant cap.
 **Keywords:** slipstream, adaptive, ABR, gateway, variants, master playlist, quality
 
-## Implementation checkpoint, 2026-09-20
-
-The current working-tree recovery change is not release-accepted. Before that change, the
-tvOS simulator showed T101's first picture at 2.413s unthrottled and 4.323s on 1.5 Mb/s;
-the 1.5-to-30 Mb/s recovery replaced the player once. Evidence is under
-`/tmp/tomotv-slipstream-implementation/`. Those runs used the prior native binary.
-
-The new dormant-producer/503 path passes 49 focused engine tests; 270 focused Jest tests
-pass. Neither result proves AVPlayer will retry the deferred copy within the recovery
-budget. The generated `ios/LocalRemuxer` and `tvos/LocalRemuxer` sources are synchronized;
-the owner must rebuild the simulator before another playback run. No prebuild is needed
-for this increment. The physical TV is unavailable and has not been launched.
-
-Still pending: bounded same-item recovery on the rebuilt app, presentation-level variant
-and native item-identity evidence, unsupported-audio preservation and fallback catalogue
-unification, the complete two-fixture matrix, T40, and the complete release gates. The
-scorer's remaining request-derived quality checks are not proof of displayed quality.
-Do not restore the old rebuild exception or treat this checkpoint as release readiness.
-
 The engine's loopback server is a full HLS gateway: ONE master playlist per
 session, declaring the device's own stream copy beside server-fed rungs, with
 audio and subtitles as rendition groups. AVPlayer's own ABR moves between them
@@ -48,6 +29,7 @@ We are the only client architecture that IS the HLS server. That is the moat.
 #EXT-X-MEDIA TYPE=AUDIO GROUP-ID="audio-lo"  the same tracks at 96 kb/s stereo AAC, from the server
 #EXT-X-MEDIA TYPE=SUBTITLES GROUP-ID="subs"  one rendition per text track, shared by every variant
 #EXT-X-STREAM-INF BANDWIDTH=<source> AUDIO="audio"    → media.m3u8   the on-device copy
+#EXT-X-STREAM-INF BANDWIDTH=<video+AAC> AUDIO="audio-lo" → media.m3u8
 #EXT-X-STREAM-INF BANDWIDTH=260000   AUDIO="audio-lo" → t0.m3u8      the server ladder, ascending
 ...
 ```
@@ -73,7 +55,7 @@ link` (`openingRungShare`, `chooseOpeningRung`), so t0 up to 2 Mb/s and 480p at 
   HTTP 503 before sending media headers; a permanently unavailable copy returns 410.
   This replaces pruning/rebuilding. AVPlayer's bounded recovery from those temporary
   responses is **not yet measured on the rebuilt simulator or physical TV**.
-- Rungs ride `audio-lo` and the copy rides `audio`: the ladder is the degraded
+- Rungs ride `audio-lo`; the copy has both `audio` and `audio-lo` associations: the ladder is the degraded
   path, and 96 kb/s stereo is what a link in trouble can spare. Subtitles are
   one group for every variant, so no switch moves the viewer's track.
 - `CLOSED-CAPTIONS` is mirrored across variants (RFC 8216 4.3.4.2): NONE
@@ -89,10 +71,9 @@ sized for STARTUP, not for the steady state: AVPlayer buffers about two
 segments before the first frame, and on a 0.6 Mb/s link those bytes are the
 whole budget.
 
-Eligibility (`slipstreamEligible`): SDR video, at least one carriable audio
-track, a server source (never a held file), not a live channel. HDR is excluded
-because mixing VIDEO-RANGE across switchable variants breaks the authoring
-spec, and a tone-map mid-film is a visible lie.
+Eligibility (`slipstreamEligible`): video and audio, including HDR and server-backed
+audio tracks, a server source (never a held file), not a live channel.
+HDR originals retain their range; server rungs declare SDR.
 
 ## The source is let go when the rungs carry the session (RemuxSession+Lifecycle.swift)
 
@@ -107,7 +88,7 @@ the link is thin, the grid is adopted, every audio track has a server rendition
 engine text track with no server WebVTT).
 
 The pipeline thread stays alive without opening the source. When the wire carries the copy
-beside the current rung, it warms the producer in that same session. It reads the original
+at `source * 1.2`, it warms the producer in that same session. It reads the original
 timeline anchor before seeking to the rung's current segment. Permanent startup failures
 leave the source unavailable instead; they must never be treated as recoverable dormancy.
 `copyListed` now describes whether the master actually announced the copy, not whether JS
@@ -141,7 +122,8 @@ same way, and a rung asked for after an abandoned copy request counts as riding 
 
 ## A source lost mid-play (RemuxSession+Lifecycle.swift `handOverToRungs`)
 
-Once the master has named the copy, `fail()` no longer ends a session the ladder can carry: the
+Transient source open/read failures reopen the producer in the same session with capped backoff.
+For permanent producer failures, `fail()` no longer ends a session the ladder can carry: the
 source is marked released and unusable, `failed` stays false, and the copy's routes (segments,
 init, engine audio) answer **410**. Measured, and Apple says it of permanent errors (WWDC17 514):
 AVPlayer does not retry a 410 and moves to another variant of the same master. A gone copy is
@@ -193,8 +175,8 @@ engine measures it itself. Two kinds of evidence, kept apart:
   (measured: 3.2 MB in 2 ms after a 1.06 s wait) and only the body is timed, so delivery is never
   encoder-paced; a short body still reads under a fast wire on TCP's ramp (a recovered 30 Mb/s
   link read 2.59 Mb/s from rungs). So a recovery shows as rungs outrunning the last wire reading.
-  A floor may RAISE the rate and never lowers it, and its time is the UNION of overlapping
-  transfers: adding a rung's span to its audio's halved a 1.5 Mb/s link.
+  A floor requests a confirming probe. It supplies capacity directly only while the source
+  cannot be probed or is unavailable/retrying. Its time is the UNION of overlapping transfers.
 - **A probe counts what ran beside it** (`TransferLedger`): alone it reads its share of a busy
   link. Measured on 0.6 Mb/s: 0.20 alone, 0.59 with the bytes beside it; on 1.5: 0.75 and 1.50.
 - The startup probe ends early on a link already reading 2.4x the source over a megabyte (every
@@ -292,8 +274,8 @@ drill plays a fixture through it and scores the timeline
 | S11      | the source refused outright       | the rungs carry the session, no rebuild     |
 | S12      | 1.5 Mb/s, one rung's playlist 404 | the ladder goes on without it               |
 
-Every scenario also asserts: a first frame inside 4.5s on a fast link and 8s on a slow one, no
-stall, no player item replaced (S4 is allowed its one rebuild, S8 its one hand-over), playback to
+Startup targets are 4.5s on a fast link and 8s on a slow one, not hard playback deadlines.
+Every scenario asserts no stall, no player item replaced, playback to
 the end of the run, and every audio and subtitle track still listed. On every steady stretch of a
 profile (60s or more) it asserts what the engine owes and what AVPlayer does with it, apart:
 
@@ -326,7 +308,7 @@ Host and device both run 15/15 (T101 and T102, S1-S8) as of 2026-09-17: copy in
 
 ## What Slipstream does NOT change
 
-Direct play, the decision tree in `canRemuxLocally`, the retry ladder, reporter
+Offline and live lane selection, reporter
 semantics (one PlaySessionId per SESSION for reporting; rung PlaySessionIds are
 transcode plumbing and are never reported), Top Shelf, the audio player. The
 gateway adds variants to a master that already existed.

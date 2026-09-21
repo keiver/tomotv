@@ -10,7 +10,26 @@
  */
 
 import { PlaybackErrorType, planErrorRecovery, type ErrorRecoveryInput } from "../useVideoPlayback";
-import { planLiveErrorRecovery } from "../videoPlayback/errorRecovery";
+import { automaticRetryDelay, planLiveErrorRecovery, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+
+describe("automatic network recovery", () => {
+  it("caps the delay without exhausting retries", () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 20, 1000].map(automaticRetryDelay)).toEqual([500, 1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
+  });
+
+  it.each([PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT, PlaybackErrorType.STALLED, PlaybackErrorType.CORRUPT, PlaybackErrorType.DECODE, PlaybackErrorType.UNKNOWN])(
+    "keeps retrying %s rather than treating its message as proof of an unplayable file",
+    (errorType) => {
+      expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType })).toBe(true);
+    },
+  );
+
+  it("leaves live and offline recovery to their existing policies", () => {
+    expect(shouldAutomaticallyRetry({ live: true, heldOnDisk: false, errorType: PlaybackErrorType.NETWORK })).toBe(false);
+    expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: true, errorType: PlaybackErrorType.NETWORK })).toBe(false);
+    expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: PlaybackErrorType.UNAUTHORIZED })).toBe(false);
+  });
+});
 
 // A mid-playback baseline; individual tests override what they probe.
 const base: ErrorRecoveryInput = {
@@ -24,6 +43,21 @@ const base: ErrorRecoveryInput = {
   heldOnDisk: false,
   hasDroppedSubtitles: false,
 };
+
+describe("network gateway item recovery", () => {
+  it.each([PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT])("preserves the original supplier after repeated %s failures", (errorType) => {
+    const decision = planErrorRecovery({ ...base, networkGateway: true, errorType, hasTriedRemuxRestart: true });
+    expect(decision).toMatchObject({ retryGateway: true, latchTranscodeUpFront: false, stallFallback: false, stopRemuxSession: true, carryPositionSec: 120, action: { kind: "reportError" } });
+  });
+
+  it.each([PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT])("does not revive a confirmed unavailable producer after %s", (errorType) => {
+    expect(planErrorRecovery({ ...base, networkGateway: true, hasTriedTranscoding: true, errorType }).retryGateway).toBe(false);
+  });
+
+  it.each([PlaybackErrorType.DECODE, PlaybackErrorType.CORRUPT, PlaybackErrorType.UNKNOWN])("retains server-only fallback for structural %s failures", (errorType) => {
+    expect(planErrorRecovery({ ...base, networkGateway: true, errorType })).toMatchObject({ retryGateway: false, latchTranscodeUpFront: true });
+  });
+});
 
 describe("planErrorRecovery — engine restart rung", () => {
   it("restarts the engine once for a mid-playback starvation", () => {

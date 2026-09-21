@@ -7,6 +7,7 @@ import { logger } from "@/utils/logger";
  * container AVPlayer accepts.
  */
 export type PlaybackMode = "direct" | "transcode" | "localRemux";
+export type PlaybackTransport = "direct" | "server" | "gateway";
 
 /**
  * IDLE → FETCHING_METADATA → CREATING_STREAM → INITIALIZING_PLAYER → READY → PLAYING
@@ -19,7 +20,7 @@ export type VideoPlayerState =
   | { type: "INITIALIZING_PLAYER"; mode: PlaybackMode; streamUrl: string }
   | { type: "READY"; mode: PlaybackMode }
   | { type: "PLAYING"; mode: PlaybackMode }
-  | { type: "ERROR"; error: string; canRetryWithTranscode: boolean };
+  | { type: "ERROR"; error: string; canRetryWithTranscode: boolean; autoRetry?: boolean; retryGateway?: boolean };
 
 export interface PlaybackError {
   message: string;
@@ -28,10 +29,11 @@ export interface PlaybackError {
 export type VideoPlayerAction =
   | { type: "FETCH_METADATA" }
   | { type: "METADATA_FETCHED"; details: JellyfinVideoItem; mode: PlaybackMode; hasSubtitles: boolean }
-  | { type: "STREAM_CREATED"; streamUrl: string }
+  | { type: "STREAM_CREATED"; streamUrl: string; mode?: PlaybackMode }
+  | { type: "PROCESSING_CHANGED"; mode: PlaybackMode }
   | { type: "PLAYER_READY" }
   | { type: "PLAYER_PLAYING" }
-  | { type: "PLAYER_ERROR"; error: PlaybackError; mode: PlaybackMode; hasTriedTranscode: boolean }
+  | { type: "PLAYER_ERROR"; error: PlaybackError; mode: PlaybackMode; hasTriedTranscode: boolean; autoRetry?: boolean; retryGateway?: boolean }
   | { type: "RETRY" }
   | { type: "RETRY_WITH_TRANSCODE" };
 
@@ -64,9 +66,13 @@ function reduce(state: VideoPlayerState, action: VideoPlayerAction): VideoPlayer
       if (state.type !== "CREATING_STREAM") return state;
       return {
         type: "INITIALIZING_PLAYER",
-        mode: state.mode,
+        mode: action.mode ?? state.mode,
         streamUrl: action.streamUrl,
       };
+
+    case "PROCESSING_CHANGED":
+      if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING") return state;
+      return state.mode === action.mode ? state : { ...state, mode: action.mode };
 
     case "PLAYER_READY":
       if (state.type !== "INITIALIZING_PLAYER") return state;
@@ -85,12 +91,14 @@ function reduce(state: VideoPlayerState, action: VideoPlayerAction): VideoPlayer
     case "PLAYER_ERROR": {
       // Both direct play and a local remux fall back to the server transcode once;
       // onError marks a failed localRemux as spent so the retry can't loop on it.
-      const canRetry = (action.mode === "direct" || action.mode === "localRemux") && !action.hasTriedTranscode;
+      const canRetry = action.autoRetry ?? ((action.mode === "direct" || action.mode === "localRemux") && !action.hasTriedTranscode);
       const errorMsg = action.error?.message || "Failed to load video";
       return {
         type: "ERROR",
         error: errorMsg,
         canRetryWithTranscode: canRetry,
+        ...(action.autoRetry !== undefined ? { autoRetry: action.autoRetry } : {}),
+        ...(action.retryGateway ? { retryGateway: true } : {}),
       };
     }
 

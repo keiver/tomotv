@@ -4,6 +4,19 @@
  */
 import { languageAvailable, type ObservedSubtitle, type SubtitlePreference } from "@/services/subtitlePreference";
 
+export function subtitleSelectionForReport(
+  streamIndex: number | null,
+  renditions: { index: number; name: string }[],
+  tracks: { index: number; title?: string }[],
+): { type: "disabled" } | { type: "index"; value: string } | null {
+  if (streamIndex === null) return { type: "disabled" };
+  const ordinal = renditions.findIndex((rendition) => rendition.index === streamIndex);
+  if (ordinal < 0) return null;
+  const named = tracks.filter((track) => track.title === renditions[ordinal].name);
+  const position = named.length === 1 ? named[0].index : named.length === 0 && tracks.length === renditions.length ? tracks[ordinal]?.index : undefined;
+  return position === undefined ? null : { type: "index", value: String(position) };
+}
+
 export interface ApplyInput {
   /** What the viewer's stored choice says. */
   stored: SubtitlePreference;

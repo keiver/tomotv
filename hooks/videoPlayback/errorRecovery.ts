@@ -1,6 +1,14 @@
 import { PlaybackErrorType } from "@/utils/errorClassification";
 import type { PlaybackMode } from "./machine";
 
+export function automaticRetryDelay(attempt: number): number {
+  return Math.min(30_000, 500 * 2 ** Math.min(Math.max(0, attempt), 6));
+}
+
+export function shouldAutomaticallyRetry(input: { live: boolean; heldOnDisk: boolean; errorType: PlaybackErrorType }): boolean {
+  return !input.live && !input.heldOnDisk && input.errorType !== PlaybackErrorType.UNAUTHORIZED;
+}
+
 export interface ErrorRecoveryInput {
   mode: PlaybackMode;
   errorType: PlaybackErrorType;
@@ -14,9 +22,11 @@ export interface ErrorRecoveryInput {
   heldOnDisk: boolean;
   /** This item has already given up its subtitles once; the rung is spent. */
   hasDroppedSubtitles: boolean;
+  networkGateway?: boolean;
 }
 
 export interface ErrorRecoveryDecision {
+  retryGateway: boolean;
   /** A localRemux failure heading to the server spends the engine rung up front. */
   latchTranscodeUpFront: boolean;
   /** The auto-retry-effect eligibility, as the reducer expects it. */
@@ -38,6 +48,7 @@ export interface ErrorRecoveryDecision {
  */
 export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecision {
   const midPlayback = input.currentTimeSec > 1;
+  const retryGateway = input.networkGateway === true && !input.hasTriedTranscoding && [PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT].includes(input.errorType);
   const restartRemux = input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && midPlayback && !input.hasTriedRemuxRestart;
   // A held file's engine failure spends its subtitles rather than the transcode rung: the film
   // comes back as direct play off the disk, which is the whole reason it was downloaded.
@@ -48,26 +59,29 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
   // Spent up front so the retry's lane pick cannot loop back into the engine, except when the
   // engine restart rung is taking this error, which must leave the ladder intact. Never for a
   // held file, whose ladder is engine then its own disk.
-  const latchTranscodeUpFront = input.mode === "localRemux" && willRetryWithTranscode && !restartRemux && !input.heldOnDisk;
+  const latchTranscodeUpFront = input.mode === "localRemux" && willRetryWithTranscode && !restartRemux && !input.heldOnDisk && !retryGateway;
 
   const action: ErrorRecoveryDecision["action"] =
     input.errorType === PlaybackErrorType.UNAUTHORIZED && !input.hasTriedCredentialRefresh
       ? { kind: "refreshCredentials" }
-      : restartRemux
-        ? { kind: "restartRemux" }
-        : input.mode === "transcode" && midPlayback && !input.hasTriedSeekRecovery
-          ? { kind: "transcodeSeekRecovery" }
-          : { kind: "reportError" };
+      : retryGateway
+        ? { kind: "reportError" }
+        : restartRemux
+          ? { kind: "restartRemux" }
+          : input.mode === "transcode" && midPlayback && !input.hasTriedSeekRecovery
+            ? { kind: "transcodeSeekRecovery" }
+            : { kind: "reportError" };
 
   return {
+    retryGateway,
     latchTranscodeUpFront,
     willRetryWithTranscode,
     // Any mid-playback rung change resumes at the playhead. The credential-refresh path keeps
     // its own resume semantics.
     carryPositionSec: action.kind === "refreshCredentials" ? null : midPlayback && (restartRemux || action.kind === "transcodeSeekRecovery" || willRetryWithTranscode) ? input.currentTimeSec : null,
-    stopRemuxSession: input.mode === "localRemux" && (restartRemux || latchTranscodeUpFront || dropSubtitles),
+    stopRemuxSession: input.mode === "localRemux" && (retryGateway || restartRemux || latchTranscodeUpFront || dropSubtitles),
     dropSubtitles,
-    stallFallback: input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && !restartRemux,
+    stallFallback: input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && !restartRemux && !retryGateway,
     action,
   };
 }

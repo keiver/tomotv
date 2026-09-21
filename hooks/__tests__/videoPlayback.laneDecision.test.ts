@@ -57,8 +57,8 @@ const audioItem = (codec: string, container: string): JellyfinVideoItem =>
   }) as JellyfinVideoItem;
 
 describe("lane selection", () => {
-  it("direct-plays an H.264 MP4 with no subtitles", () => {
-    expect(pick(mp4Item([])).mode).toBe("direct");
+  it("routes a network H.264 MP4 with no subtitles through the gateway", () => {
+    expect(pick(mp4Item([])).mode).toBe("localRemux");
   });
 
   it("remuxes an H.264 MP4 carrying an external sidecar .srt", () => {
@@ -103,8 +103,8 @@ describe("lane selection", () => {
         ]),
       ],
       ["a file with image subtitles", mp4Item([{ Type: "Subtitle", Codec: "pgssub", Index: 2 }])],
-    ])("plays %s as it stands: a subtitle never buys a re-encode", (_label, details) => {
-      expect(pick(details, declined).mode).toBe("direct");
+    ])("keeps %s on the server fallback when the gateway cannot open it", (_label, details) => {
+      expect(pick(details, declined).mode).toBe("transcode");
     });
 
     it("transcodes a file AVPlayer cannot open either", () => {
@@ -154,9 +154,9 @@ describe("lane selection", () => {
       expect(pick(source(), { measuredBps: 2_000_000 }).mode).toBe("localRemux");
     });
 
-    it("keeps direct play when it carries the source, with no trust factor shaved off", () => {
+    it("keeps the gateway on a fast link so a later drop needs no transport change", () => {
       // A 0.7 factor called a 5.5 Mb/s link carrying a 4.4 Mb/s file too slow.
-      expect(pick(source(), { measuredBps: 5_500_000 }).mode).toBe("direct");
+      expect(pick(source(), { measuredBps: 5_500_000 }).mode).toBe("localRemux");
     });
 
     it("says nothing about a file read off this device's own disk", () => {

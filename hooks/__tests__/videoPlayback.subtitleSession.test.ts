@@ -1,7 +1,29 @@
 /**
  * When an item's subtitle choice is applied, and what counts as the viewer making one.
  */
-import { classifyObservedChoice, planSubtitleApplication } from "../videoPlayback/subtitleSession";
+import { classifyObservedChoice, planSubtitleApplication, subtitleSelectionForReport } from "../videoPlayback/subtitleSession";
+
+describe("subtitleSelectionForReport", () => {
+  const renditions = [{ index: 4, name: "English" }, { index: 7, name: "English SDH" }];
+
+  it("preserves the selected source track even when the player adds phantom entries", () => {
+    expect(subtitleSelectionForReport(7, renditions, [{ index: 0 }, { index: 1, title: "English" }, { index: 2, title: "English SDH" }])).toEqual({ type: "index", value: "2" });
+  });
+
+  it("uses ordinals only when the reported group matches the published group", () => {
+    expect(subtitleSelectionForReport(7, renditions, [{ index: 0 }, { index: 1 }])).toEqual({ type: "index", value: "1" });
+    expect(subtitleSelectionForReport(7, renditions, [{ index: 0 }, { index: 1 }, { index: 2 }])).toBeNull();
+  });
+
+  it("does not select a missing track or an ambiguous duplicate name", () => {
+    expect(subtitleSelectionForReport(9, renditions, [{ index: 0 }, { index: 1 }])).toBeNull();
+    expect(subtitleSelectionForReport(7, renditions, [{ index: 0, title: "English SDH" }, { index: 1, title: "English SDH" }])).toBeNull();
+  });
+
+  it("preserves subtitles off regardless of the new group", () => {
+    expect(subtitleSelectionForReport(null, renditions, [{ index: 0 }, { index: 1 }])).toEqual({ type: "disabled" });
+  });
+});
 
 describe("planSubtitleApplication", () => {
   it("applies a remembered language the item carries", () => {

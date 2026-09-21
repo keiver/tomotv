@@ -32,6 +32,7 @@ export interface LaneGatesInput {
 export interface LaneGates {
   live: boolean;
   audioOnly: boolean;
+  networkVideo: boolean;
   heldOnDisk: boolean;
   heldAsMp4: boolean;
   requiresTranscoding: boolean;
@@ -66,6 +67,7 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
   const { details, heldOnDisk, heldAsMp4 } = input;
   const live = isLiveSource(details);
   const audioOnly = isAudioOnly(details);
+  const networkVideo = !live && !heldOnDisk && !audioOnly;
 
   // Audio-only is not "always direct-plays": Vorbis in Ogg, APE and TTA all need the rewrap.
   const requiresTranscoding = audioOnly ? audioNeedsRewrap(details) : needsTranscoding(details, input.decodeSupport);
@@ -97,7 +99,7 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
   const heldNeedsEngineForSubs = hasImageSubs || textSubtitles.some((stream) => stream.IsExternal === true);
   const subtitlesWantEngine = !heldAsMp4 && !input.heldEngineSpent && (heldOnDisk ? heldNeedsEngineForSubs : hasImageSubs || hasTextSubs);
 
-  const leavesDirectPlay = live || cannotDirectPlay || subtitlesWantEngine;
+  const leavesDirectPlay = networkVideo || live || cannotDirectPlay || subtitlesWantEngine;
 
   // A live channel takes the server's transcode once the engine is spent on it, or when the
   // open gave the engine nothing to read.
@@ -107,6 +109,7 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
   return {
     live,
     audioOnly,
+    networkVideo,
     heldOnDisk,
     heldAsMp4,
     requiresTranscoding,
@@ -147,7 +150,7 @@ export interface LaneDecision {
 }
 
 export function selectLane(gates: LaneGates, input: LanePickInput): LaneDecision {
-  const burnInFromStream = gates.burnInStream?.Index ?? null;
+  const burnInFromStream = input.subtitlesOff ? null : (gates.burnInStream?.Index ?? null);
 
   if (input.canRemux) {
     // The engine draws these itself. Cleared only here, so a fallback to the server keeps its
@@ -167,7 +170,7 @@ export function selectLane(gates: LaneGates, input: LanePickInput): LaneDecision
     };
   }
 
-  if (!gates.cannotDirectPlay) {
+  if (!gates.cannotDirectPlay && !gates.networkVideo) {
     return { mode: "direct", burnInSubtitleIndex: burnInFromStream, unplayable: null, liveFallbackReason: null };
   }
 
