@@ -696,6 +696,50 @@ async function buildChapters() {
   return [{ ...CHAPTERS, out }];
 }
 
+/**
+ * Issue 84's file: two audio codecs, two embedded text tracks and a sidecar. Jellyfin 12 lists the
+ * sidecar first and renumbers, so no embedded Index is a file position. Each track names itself.
+ */
+const SIDECAR_SHIFT = { id: "T104", title: "T104 REMUX H264 multi-audio sidecar", seconds: 120 };
+
+async function buildSidecarShift() {
+  if (!wanted(SIDECAR_SHIFT.id)) return [];
+  const out = path.join(VIDEO_DIR, `${SIDECAR_SHIFT.title}.mkv`);
+  if (exists(out) && !FORCE) {
+    log(`  = ${SIDECAR_SHIFT.title}`);
+    return [{ ...SIDECAR_SHIFT, out }];
+  }
+  log(`  + ${SIDECAR_SHIFT.title}`);
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const seconds = SIDECAR_SHIFT.seconds;
+  const script = (name, label) => {
+    const file = path.join(CACHE_DIR, `sidecar-shift-${name}.srt`);
+    fs.writeFileSync(file, srtScript(seconds, label));
+    return file;
+  };
+  const everyChannel = "pan=5.1(side)|FL=c0|FR=c0|FC=c0|LFE=c0|SL=c0|SR=c0";
+  const argv = [
+    "-y",
+    ...["-f", "lavfi", "-i", `testsrc2=size=1920x1080:rate=24:duration=${seconds}`],
+    ...["-f", "lavfi", "-i", `sine=frequency=330:duration=${seconds}:sample_rate=${RATE}`],
+    ...["-f", "lavfi", "-i", `sine=frequency=880:duration=${seconds}:sample_rate=${RATE}`],
+    ...["-i", script("rus", "EMBEDDED RUS"), "-i", script("eng", "EMBEDDED ENG")],
+    ...["-filter_complex", `[0:v]${legend("T104 issue 84", "rus 330Hz AC3   dan 880Hz DTS")}[v];[1:a]${everyChannel}[a0];[2:a]${everyChannel}[a1]`],
+    ...["-map", "[v]", "-map", "[a0]", "-map", "[a1]", "-map", "3:s", "-map", "4:s"],
+    ...["-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-b:v", "3M", "-maxrate", "4M", "-bufsize", "8M", "-g", "48"],
+    ...["-c:a:0", "ac3", "-b:a:0", "640k", "-c:a:1", "dca", "-strict", "-2", "-b:a:1", "1509k", "-c:s", "subrip"],
+    ...["-metadata:s:a:0", "language=rus", "-disposition:a:0", "default", "-metadata:s:a:1", "language=dan", "-disposition:a:1", "0"],
+    ...["-metadata:s:s:0", "language=rus", "-disposition:s:0", "0", "-metadata:s:s:1", "language=eng", "-disposition:s:1", "0"],
+    out,
+  ];
+  if (!(await ff(argv, SIDECAR_SHIFT.title))) {
+    failures.push(`${SIDECAR_SHIFT.id} encode failed`);
+    return [];
+  }
+  fs.writeFileSync(path.join(VIDEO_DIR, `${SIDECAR_SHIFT.title}.da.srt`), srtScript(seconds, "SIDECAR DAN"));
+  return [{ ...SIDECAR_SHIFT, out }];
+}
+
 async function buildSlipstream() {
   const built = [];
   const items = SLIPSTREAM.filter((item) => wanted(item.id));
@@ -1193,6 +1237,9 @@ async function main() {
   log("\nChaptered item");
   const chaptered = await buildChapters();
   sources.chaptered = chaptered.map((item) => ({ id: item.id, title: item.title }));
+
+  log("\nSidecar index shift item");
+  await buildSidecarShift();
 
   let downloaded = [];
   let atmos = [];

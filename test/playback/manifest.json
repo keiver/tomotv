@@ -938,6 +938,22 @@
       "comment": "Six embedded chapters, each with a server-extracted image: the player draws the server's pictures and makes no frame request of its own."
     },
     {
+      "id": "T104",
+      "title": "T104 REMUX H264 multi-audio sidecar",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "audio": "ac3",
+        "audioRenditions": 4,
+        "audioCopy": true,
+        "subtitles": 3
+      },
+      "comment": "Issue 84: a sidecar makes Jellyfin 12 list it first and renumber, so the embedded Index is one past the file position. audioCopy proves the default rendition holds the file's first audio stream. Four renditions: both tracks in the engine group and in audio-lo."
+    },
+    {
       "id": "L01",
       "title": "T24 MPEG2 MP2 TS",
       "live": true,
