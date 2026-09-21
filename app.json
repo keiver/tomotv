@@ -33,6 +33,14 @@
     "plugins": [
       "expo-router",
       [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/brand/splash-icon.png",
