@@ -25,7 +25,7 @@ import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 // Submodules, not the barrel: the barrel re-exports liveTv, which imports this module.
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
-import { audioCatalogue, playbackMediaStreams, type AudioCatalogueTrack } from "@/services/jellyfin/audioTracks";
+import { audioCatalogue, playbackMediaStreams, sourcePosition, type AudioCatalogueTrack, type SourcePosition } from "@/services/jellyfin/audioTracks";
 import { generatePlaySessionId, getCachedConfig } from "@/services/jellyfin/session";
 import { getSubtitleUrl, isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
 import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
@@ -240,7 +240,8 @@ function primaryBandwidths(videoItem: JellyfinVideoItem, audioBandwidth: number)
 }
 
 function audioOutput(stream: JellyfinMediaStream): { usesServerAudio: boolean; codecs: string; bandwidth: number } {
-  if (!isAudioTrackCarriable(stream.Codec)) return { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH };
+  // A sidecar audio file is not in the container the engine reads.
+  if (stream.IsExternal === true || !isAudioTrackCarriable(stream.Codec)) return { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH };
   const codec = (stream.Codec ?? "").toLowerCase();
   const lossless = Math.round((stream.Channels ?? 2) * (stream.SampleRate ?? 48000) * (stream.BitDepth ?? 16) * 0.6);
   const encodedBandwidth = Math.max(lossless, 192_000, (stream.Channels ?? 2) * 64_000);
@@ -1115,6 +1116,8 @@ export type SubtitleRendition = {
   serverVttUrl?: string;
   /** The server's raw copy of a PGS or DVD track, decoded on device when the source is not being read (rung sessions). */
   serverSupUrl?: string;
+  /** Where an embedded track sits in the container; absent for a sidecar and on a live source. */
+  source?: SourcePosition;
 };
 
 /**
@@ -1210,7 +1213,8 @@ function isRemoteSubtitleUrl(value: string): boolean {
 
 function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolean): SubtitleRendition[] {
   const streamIndexes = new Set<number>();
-  const shipped = playbackMediaStreams(videoItem)
+  const mediaStreams = playbackMediaStreams(videoItem);
+  const shipped = mediaStreams
     .filter((stream) => stream.Type === "Subtitle" && (!imageOnly || isImageBasedSubtitleCodec(stream.Codec)))
     .map((stream) => {
       const index = stream.Index;
@@ -1237,6 +1241,7 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
         localVtt,
         vttUrl,
         serverSupUrl,
+        source: imageOnly ? null : sourcePosition(mediaStreams, stream),
       };
     });
 
@@ -1266,6 +1271,7 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
     isExternal: entry.stream.IsExternal === true,
     isEngineText: entry.isEngineText,
     ...(entry.isImage && entry.stream.IsExternal === true ? { serverSupUrl: entry.serverSupUrl } : {}),
+    ...(entry.source ? { source: entry.source } : {}),
   }));
 }
 
@@ -1289,7 +1295,10 @@ export type SubtitlePick = {
 };
 
 function manifestName(name: string): string {
-  return name.replace(/"/g, "'").replace(/\r\n|[\p{Cc}\p{Cf}]/gu, " ").trim();
+  return name
+    .replace(/"/g, "'")
+    .replace(/\r\n|[\p{Cc}\p{Cf}]/gu, " ")
+    .trim();
 }
 
 function publishedRenditionNames(tracks: { name: string; index: number }[]): string[] {
@@ -1409,6 +1418,7 @@ export async function startLocalRemux(
     name: track.name,
     language: track.stream.Language || "und",
     isDefault: track.stream.IsDefault === true,
+    ...(!live && track.source ? { source: track.source } : {}),
     ...(serverVideoOnly ? { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH } : audioOutput(track.stream)),
   }));
   if (audioTracks.some((track) => track.usesServerAudio) && (live || playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {

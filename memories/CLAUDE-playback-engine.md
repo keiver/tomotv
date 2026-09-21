@@ -289,3 +289,7 @@ to direct play and fails identically forever.
 3. Every coverage change gets a fixture whose manifest entry flips from
    `transcode` to `localRemux`. That diff is the proof, and it is the only proof
    that distinguishes "the lane works" from "the lane compiles".
+4. Jellyfin's stream `Index` is an identity (URLs, `sub<N>`/`pgs<N>` routes, reports), never a
+   file position: 12.0 lists sidecars first and renumbers (jellyfin 19b756a507). The engine finds a
+   track by `source` (nth of its type, count, FFmpeg codec name; `sourcePosition` in
+   `services/jellyfin/audioTracks.ts`) and refuses a mismatch. Fixture: T104.

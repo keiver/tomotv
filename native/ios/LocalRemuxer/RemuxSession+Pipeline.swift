@@ -556,6 +556,24 @@ extension RemuxSession {
         ]
     }
 
+    /// The input stream a configured track names. A sourced track is the nth stream of its type, held to
+    /// the count and codec the server probed; a mismatch is refused, never re-guessed.
+    func sourceStream(_ input: UnsafeMutablePointer<AVFormatContext>, index: Int, source: SourcePosition?, type: AVMediaType) -> (stream: Int32?, refusal: String) {
+        let ofType = (0..<Int32(input.pointee.nb_streams)).filter { input.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == type }
+        guard let source else {
+            return ofType.contains(where: { Int($0) == index }) ? (Int32(index), "") : (nil, "stream \(index) is not present in the input")
+        }
+        guard ofType.count == source.count else {
+            return (nil, "stream \(index) expects \(source.count) of its type, the input has \(ofType.count)")
+        }
+        let stream = ofType[source.ordinal]
+        let codec = input.pointee.streams[Int(stream)].map { String(cString: avcodec_get_name($0.pointee.codecpar.pointee.codec_id)) } ?? ""
+        guard codec == source.codec else {
+            return (nil, "stream \(index) expects \(source.codec) at position \(source.ordinal), the input has \(codec)")
+        }
+        return (stream, "")
+    }
+
     /// Publish what the engine decided for every stream, once the renditions
     /// exist and before a single packet moves. Goes to the device console and,
     /// through `onPlan`, to JS — which is the only channel that reaches a
@@ -577,6 +595,7 @@ extension RemuxSession {
         input: UnsafeMutablePointer<AVFormatContext>,
         videoIn: Int32,
         audioIndices: [Int32],
+        audioIdentity: [Int32: Int],
         renditions: [Rendition]
     ) {
         // Read the video transcoder off the renditions rather than taking it as
@@ -630,14 +649,21 @@ extension RemuxSession {
                 "encoder": "server:aac",
                 "output": ["codec": "aac", "channels": track.serverAudioChannels, "bitRate": 96_000],
             ]
-            if track.index >= 0, track.index < Int(input.pointee.nb_streams), let stream = input.pointee.streams[track.index] {
+            if let index = sourceStream(input, index: track.index, source: track.source, type: AVMEDIA_TYPE_AUDIO).stream,
+               let stream = input.pointee.streams[Int(index)] {
                 entry["source"] = EnginePlan.describe(stream.pointee.codecpar)
             }
             audio.append(entry)
         }
         if !config.isLive, !config.audioTracks.isEmpty {
             let positions = Dictionary(uniqueKeysWithValues: config.audioTracks.enumerated().map { ($0.element.index, $0.offset) })
-            audio.sort { (positions[$0["streamIndex"] as? Int ?? -1] ?? Int.max) < (positions[$1["streamIndex"] as? Int ?? -1] ?? Int.max) }
+            // A local entry reports the input stream it read; the track list is keyed by Index.
+            let position = { (entry: [String: Any]) -> Int in
+                let reported = entry["streamIndex"] as? Int ?? -1
+                let identity = entry["identity"] == nil ? audioIdentity[Int32(reported)] ?? reported : reported
+                return positions[identity] ?? Int.max
+            }
+            audio.sort { position($0) < position($1) }
         }
 
         // One line per stream, keyed on what the report actually claims, so an
@@ -987,17 +1013,18 @@ extension RemuxSession {
         // for why (picker labels). A lone track is muxed with the video.
         let streamCount = Int32(input.pointee.nb_streams)
         let localAudioTracks = config.audioTracks.filter { !$0.usesServerAudio }
-        if !config.isLive {
-            for track in localAudioTracks {
-                guard track.index >= 0, track.index < Int(streamCount),
-                      input.pointee.streams[track.index]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO else {
-                    return failStartup("configured audio stream \(track.index) is not present in the input")
-                }
+        // Input stream to the configured track's Index, which names it everywhere outside the demuxer.
+        var audioIdentity: [Int32: Int] = [:]
+        var audioIndices: [Int32] = []
+        for track in localAudioTracks {
+            let found = sourceStream(input, index: track.index, source: track.source, type: AVMEDIA_TYPE_AUDIO)
+            guard let stream = found.stream else {
+                if config.isLive { continue }
+                return failStartup("configured audio \(found.refusal)")
             }
+            audioIdentity[stream] = track.index
+            audioIndices.append(stream)
         }
-        var audioIndices: [Int32] = localAudioTracks
-            .map { Int32($0.index) }
-            .filter { $0 >= 0 && $0 < streamCount && input.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO }
         if audioIndices.isEmpty && config.audioTracks.isEmpty {
             let best = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
             if best >= 0 { audioIndices = [best] }
@@ -1076,8 +1103,12 @@ extension RemuxSession {
         let videoParams = hasVideo ? input.pointee.streams[Int(videoIn)]?.pointee.codecpar : nil
         let fallbackWidth = Int(videoParams?.pointee.width ?? 0)
         let fallbackHeight = Int(videoParams?.pointee.height ?? 0)
+        // Input stream to the subtitle's Index: the decoders are keyed by Index, which the routes ask by.
+        var subtitleIdentity: [Int32: Int32] = [:]
         for sub in imageSubtitleTracks {
             let index = Int32(sub.index)
+            let found = sub.isExternal ? (stream: Int32?.none, refusal: "") : sourceStream(input, index: sub.index, source: sub.source, type: AVMEDIA_TYPE_SUBTITLE)
+            if let stream = found.stream { subtitleIdentity[stream] = index }
             stateLock.lock()
             let existingDecoder = imageSubtitles[index]
             stateLock.unlock()
@@ -1090,19 +1121,20 @@ extension RemuxSession {
                 startServerImageSubtitles()
                 continue
             }
-            guard index >= 0, index < streamCount, let stream = input.pointee.streams[Int(index)],
-                  stream.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE else {
+            guard let streamIndex = found.stream, let stream = input.pointee.streams[Int(streamIndex)] else {
                 if !sub.serverSupUrl.isEmpty {
                     startServerImageSubtitles()
                     continue
                 }
-                return failStartup("configured image subtitle \(sub.index) is not present in the input")
+                return failStartup("configured image subtitle \(found.refusal)")
             }
             guard let decoder = ImageSubtitleDecoder(
                 stream: stream,
                 fallbackWidth: fallbackWidth,
                 fallbackHeight: fallbackHeight,
-                dir: dir
+                dir: dir,
+                reportedIndex: index,
+                namePrefix: "pgs\(sub.index)"
             ) else {
                 if !sub.serverSupUrl.isEmpty {
                     startServerImageSubtitles()
@@ -1121,6 +1153,8 @@ extension RemuxSession {
         // Same terms as the image ones: decode cost, nothing off the network.
         for sub in config.subtitles where sub.isEngineText {
             let index = Int32(sub.index)
+            let found = sourceStream(input, index: sub.index, source: sub.source, type: AVMEDIA_TYPE_SUBTITLE)
+            if let stream = found.stream { subtitleIdentity[stream] = index }
             stateLock.lock()
             let existingDecoder = textSubtitles[index]
             stateLock.unlock()
@@ -1128,10 +1162,9 @@ extension RemuxSession {
                 existingDecoder.flush()
                 continue
             }
-            guard index >= 0, index < streamCount, let stream = input.pointee.streams[Int(index)],
-                  stream.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE else {
+            guard let streamIndex = found.stream, let stream = input.pointee.streams[Int(streamIndex)] else {
                 if !sub.serverVttUrl.isEmpty { continue }
-                return failStartup("configured text subtitle \(sub.index) is not present in the input")
+                return failStartup("configured text subtitle \(found.refusal)")
             }
             guard let decoder = TextSubtitleDecoder(stream: stream) else {
                 if !sub.serverVttUrl.isEmpty { continue }
@@ -1208,7 +1241,7 @@ extension RemuxSession {
                                              dolbyVision: primaryDolbyVision))
         }
         for (discoveredPosition, audioIndex) in audioIndices.enumerated() {
-            let position = config.isLive ? discoveredPosition : config.audioTracks.firstIndex(where: { $0.index == Int(audioIndex) }) ?? discoveredPosition
+            let position = config.isLive ? discoveredPosition : config.audioTracks.firstIndex(where: { $0.index == audioIdentity[audioIndex] }) ?? discoveredPosition
             guard let transcoder = makeTranscoder(for: audioIndex) else {
                 return failStartup("no transcode path for audio stream \(audioIndex)")
             }
@@ -1249,7 +1282,7 @@ extension RemuxSession {
         sourceState = .ready
         stateLock.unlock()
         mark("renditions_built")
-        reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions)
+        reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, audioIdentity: audioIdentity, renditions: builtRenditions)
 
         let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
 
@@ -1551,7 +1584,7 @@ extension RemuxSession {
             // plan so a rebuild that reached a different decision cannot leave
             // JS (and the regression suite) asserting against a stale claim.
             // No-ops when the decisions are unchanged, which is the normal case.
-            reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, renditions: builtRenditions)
+            reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, audioIdentity: audioIdentity, renditions: builtRenditions)
             return true
         }
 
@@ -1872,7 +1905,8 @@ extension RemuxSession {
 
             // Harvested where the image ones are: the guard below drops every
             // subtitle packet, and a cue's time is its own PTS.
-            if let textDecoder = textSubtitles[pkt.pointee.stream_index] {
+            let subtitleIndex = subtitleIdentity[pkt.pointee.stream_index]
+            if let textDecoder = subtitleIndex.flatMap({ textSubtitles[$0] }) {
                 textDecoder.handle(packet: pkt)
                 continue
             }
@@ -1884,7 +1918,7 @@ extension RemuxSession {
             // the keyframe gate: an event's time comes from its own PTS in
             // source time, so it does not care which generation of the output
             // timeline is being produced.
-            if let subtitleDecoder = imageSubtitles[pkt.pointee.stream_index] {
+            if let subtitleDecoder = subtitleIndex.flatMap({ imageSubtitles[$0] }) {
                 // Live: cues before the first keyframe belong to frames never output, and the
                 // rest land on the output timeline through the generation's anchor.
                 if config.isLive {

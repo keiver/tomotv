@@ -39,6 +39,7 @@ final class SlipstreamDrillTests: XCTestCase {
             track.codecs = entry["codecs"] as? String ?? ""
             track.bandwidth = entry["bandwidth"] as? Int ?? 0
             track.identity = entry["identity"] as? String ?? ""
+            track.source = SourcePosition(entry["source"])
             return track
         }
         let subtitles: [RemuxSubtitle] = ((raw["subtitles"] as? [[String: Any]]) ?? []).compactMap { entry in
@@ -51,6 +52,7 @@ final class SlipstreamDrillTests: XCTestCase {
                 serverVttUrl: entry["serverVttUrl"] as? String ?? "")
             subtitle.serverSupUrl = entry["serverSupUrl"] as? String ?? ""
             subtitle.isExternal = entry["isExternal"] as? Bool ?? false
+            subtitle.source = SourcePosition(entry["source"])
             return subtitle
         }
         let tiers: [TierConfig] = ((raw["tiers"] as? [[String: Any]]) ?? []).map { t in

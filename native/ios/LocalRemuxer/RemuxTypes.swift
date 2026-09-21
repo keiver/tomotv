@@ -45,6 +45,27 @@ struct RemuxSubtitle {
     /// The server's raw copy of a PGS or DVD track (Stream.pgssub, Stream.mks), for when the source is not read.
     var serverSupUrl: String = ""
     var isExternal = false
+    var source: SourcePosition? = nil
+}
+
+/// Where a track sits in the container: the nth stream of its type, of how many, and its FFmpeg codec name.
+/// Jellyfin's Index is not a file position: 12.0 lists sidecars first and renumbers.
+struct SourcePosition {
+    let ordinal: Int
+    let count: Int
+    let codec: String
+
+    init(ordinal: Int, count: Int, codec: String) {
+        self.ordinal = ordinal
+        self.count = count
+        self.codec = codec
+    }
+
+    init?(_ raw: Any?) {
+        guard let raw = raw as? [String: Any], let ordinal = raw["ordinal"] as? Int, let count = raw["count"] as? Int,
+              let codec = raw["codec"] as? String, ordinal >= 0, ordinal < count, !codec.isEmpty else { return nil }
+        self.init(ordinal: ordinal, count: count, codec: codec)
+    }
 }
 
 /// One cue of a server WebVTT, in source time like the decoder's.
@@ -60,7 +81,7 @@ struct ServerCue {
 /// (services/localRemux.ts) sorts the preferred track first (user selection,
 /// else Jellyfin's default) and masterPlaylist() marks position 0 DEFAULT=YES.
 struct RemuxAudioTrack {
-    /// ffprobe/Jellyfin stream index in the source file.
+    /// Jellyfin's stream Index: the track's identity in URLs, routes and reports. `source` is its file position.
     let index: Int
     let name: String
     let language: String
@@ -75,6 +96,7 @@ struct RemuxAudioTrack {
     var codecs = ""
     var bandwidth = 0
     var identity = ""
+    var source: SourcePosition? = nil
 }
 
 struct RemuxConfig {

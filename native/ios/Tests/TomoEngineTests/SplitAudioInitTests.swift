@@ -26,7 +26,8 @@ final class SplitAudioInitTests: XCTestCase {
 
     /// Video + one or two audio tracks. `audioEncoders` in map order become
     /// stream indices 1, 2, ...; the video is stream 0.
-    private func fixture(name: String, audioEncoders: [String]) -> URL? {
+    /// `subtitleTexts` follow the audio as SubRip tracks, one cue each naming itself.
+    private func fixture(name: String, audioEncoders: [String], subtitleTexts: [String] = []) -> URL? {
         let out = Self.fixtureDir.appendingPathComponent("\(name).mkv")
         if FileManager.default.fileExists(atPath: out.path) { return out }
         var args = ["-hide_banner", "-loglevel", "error", "-y",
@@ -34,13 +35,20 @@ final class SplitAudioInitTests: XCTestCase {
         for (i, _) in audioEncoders.enumerated() {
             args += ["-f", "lavfi", "-i", "sine=frequency=\(440 + i * 220):duration=3:sample_rate=48000"]
         }
+        for (i, text) in subtitleTexts.enumerated() {
+            let srt = Self.fixtureDir.appendingPathComponent("\(name)-\(i).srt")
+            try? "1\n00:00:00,500 --> 00:00:02,500\n\(text)\n".write(to: srt, atomically: true, encoding: .utf8)
+            args += ["-i", srt.path]
+        }
         args += ["-map", "0:v"]
         for i in audioEncoders.indices { args += ["-map", "\(i + 1):a"] }
+        for i in subtitleTexts.indices { args += ["-map", "\(audioEncoders.count + i + 1):s"] }
         args += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "25"]
         for (i, enc) in audioEncoders.enumerated() {
             args += ["-c:a:\(i)", enc]
             if enc == "ac3" { args += ["-ac:a:\(i)", "6"] }
         }
+        if !subtitleTexts.isEmpty { args += ["-c:s", "subrip"] }
         args += [out.path]
 
         let p = Process()
@@ -92,7 +100,7 @@ final class SplitAudioInitTests: XCTestCase {
                 let name = $0.isEmpty ? "init.mp4" : "\($0)-init.mp4"
                 return FileManager.default.fileExists(atPath: session.dir.appendingPathComponent(name).path)
             }
-            if allInits { break }
+            if allInits || session.hasFailed { break }
             usleep(200_000)
         }
         return session
@@ -167,6 +175,75 @@ final class SplitAudioInitTests: XCTestCase {
         XCTAssertTrue(session.audioLoActive)
         XCTAssertFalse(session.tierActive)
         XCTAssertTrue(session.masterPlaylist().contains("URI=\"a0s.m3u8\""))
+    }
+
+    /// A track as services/localRemux.ts sends it: Jellyfin's Index, and where the stream sits in the file.
+    private func sourcedTrack(_ index: Int, _ name: String, ordinal: Int, count: Int, codec: String) -> RemuxAudioTrack {
+        var sourced = track(index, name)
+        sourced.source = SourcePosition(ordinal: ordinal, count: count, codec: codec)
+        return sourced
+    }
+
+    private func sourcedText(_ index: Int, ordinal: Int, count: Int) -> RemuxSubtitle {
+        var sourced = RemuxSubtitle(index: index, name: "Track \(index)", language: "eng", vttUrl: "", localVtt: "",
+                                    isDefault: false, isForced: false, isImage: false, isEngineText: true)
+        sourced.source = SourcePosition(ordinal: ordinal, count: count, codec: "subrip")
+        return sourced
+    }
+
+    /// video 0, ac3 1, aac 2, srt 3 ("ONE"), srt 4 ("TWO"). `shift` is how many sidecars Jellyfin lists first.
+    private func assertTracksReadTheirOwnStreams(shift: Int) throws {
+        guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg),
+              let source = fixture(name: "two-audio-two-text", audioEncoders: ["ac3", "aac"], subtitleTexts: ["ONE", "TWO"]) else {
+            throw XCTSkip("could not generate the two-audio two-text fixture")
+        }
+        let config = makeConfig(
+            durationSeconds: 3, inputUrl: source.path,
+            audioTracks: [sourcedTrack(1 + shift, "AC3", ordinal: 0, count: 2, codec: "ac3"),
+                          sourcedTrack(2 + shift, "AAC", ordinal: 1, count: 2, codec: "aac")],
+            subtitles: [sourcedText(3 + shift, ordinal: 0, count: 2), sourcedText(4 + shift, ordinal: 1, count: 2)],
+            width: 320, height: 240, frameRate: 25, bandwidth: 4_000_000, readAheadSegments: 8)
+        let session = try run(config, expecting: ["", "a0", "a1"])
+        defer { session.stop() }
+
+        XCTAssertFalse(session.hasFailed)
+        XCTAssertEqual(session.rendition(withPrefix: "a0")?.inputStreams, [1])
+        XCTAssertEqual(session.rendition(withPrefix: "a1")?.inputStreams, [2])
+        XCTAssertTrue(session.subtitleSegment(streamIndex: 3 + shift, segment: 0)?.contains("ONE") ?? false)
+        XCTAssertTrue(session.subtitleSegment(streamIndex: 4 + shift, segment: 0)?.contains("TWO") ?? false)
+    }
+
+    /// Jellyfin 12 lists a sidecar first and renumbers, so every Index is one past the file's.
+    func testJellyfin12IndexesReadTheirOwnStreams() throws {
+        try assertTracksReadTheirOwnStreams(shift: 1)
+    }
+
+    func testPreTwelveIndexesReadTheirOwnStreams() throws {
+        try assertTracksReadTheirOwnStreams(shift: 0)
+    }
+
+    /// A probe that disagrees with the file is refused: the engine never reads a neighbour in its place.
+    private func assertRefused(_ tracks: [RemuxAudioTrack]) throws {
+        guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg),
+              let source = fixture(name: "two-audio-two-text", audioEncoders: ["ac3", "aac"], subtitleTexts: ["ONE", "TWO"]) else {
+            throw XCTSkip("could not generate the two-audio two-text fixture")
+        }
+        let config = makeConfig(
+            durationSeconds: 3, inputUrl: source.path, audioTracks: tracks,
+            width: 320, height: 240, frameRate: 25, bandwidth: 4_000_000, readAheadSegments: 8)
+        let session = try run(config, expecting: ["", "a0", "a1"])
+        defer { session.stop() }
+
+        XCTAssertTrue(session.hasFailed)
+        XCTAssertNil(session.rendition(withPrefix: "a0"))
+    }
+
+    func testASourceCodecTheFileDoesNotHoldIsRefused() throws {
+        try assertRefused([sourcedTrack(2, "AC3", ordinal: 0, count: 2, codec: "dts"), sourcedTrack(3, "AAC", ordinal: 1, count: 2, codec: "aac")])
+    }
+
+    func testASourceCountTheFileDoesNotHoldIsRefused() throws {
+        try assertRefused([sourcedTrack(2, "AC3", ordinal: 0, count: 3, codec: "ac3"), sourcedTrack(3, "AAC", ordinal: 1, count: 3, codec: "aac")])
     }
 
     func testSplitAc3AudioOnlyRenditionInitIsValid() throws {

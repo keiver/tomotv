@@ -239,6 +239,8 @@ class LocalRemuxer: RCTEventEmitter {
             track.codecs = raw["codecs"] as? String ?? ""
             track.bandwidth = raw["bandwidth"] as? Int ?? 0
             track.identity = raw["identity"] as? String ?? ""
+            track.source = SourcePosition(raw["source"])
+            guard raw["source"] == nil || track.source != nil else { return nil }
             return track
         }
         guard audioTracks.count == rawAudioTracks.count,
@@ -270,6 +272,8 @@ class LocalRemuxer: RCTEventEmitter {
             )
             subtitle.serverSupUrl = raw["serverSupUrl"] as? String ?? ""
             subtitle.isExternal = raw["isExternal"] as? Bool ?? false
+            subtitle.source = SourcePosition(raw["source"])
+            guard raw["source"] == nil || subtitle.source != nil else { return nil }
             return subtitle
         }
         guard subtitles.count == rawSubtitles.count,
