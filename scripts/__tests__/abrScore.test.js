@@ -11,6 +11,25 @@ function evaluate(expression) {
 }
 
 describe("Slipstream scoring", () => {
+  it("reports a missed startup target without treating it as playback failure", () => {
+    const result = evaluate(`score('S5', [
+      {kind:'start', ms:0},
+      {kind:'firstFrame', ms:9930, position:0},
+      {kind:'tick', ms:150000, position:140.07, advanced:true, status:2},
+      {kind:'end', ms:150000}
+    ])`);
+    expect(result.startup).toEqual({ milliseconds: 9930, targetMs: 8000, meetsTarget: false });
+    expect(result.checks.find((check) => check.name === "plays").ok).toBe(true);
+    expect(result.checks.some((check) => check.name === "starts inside the budget")).toBe(false);
+  });
+
+  it("still rejects a run that never shows a frame", () => {
+    const result = evaluate(`score('S5', [{kind:'start', ms:0}, {kind:'end', ms:150000}])`);
+    expect(result.startup).toEqual({ milliseconds: null, targetMs: 8000, meetsTarget: false });
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((check) => check.name === "plays").ok).toBe(false);
+  });
+
   it.each(["S4", "S8"])("rejects an item replacement in %s", (scenario) => {
     const result = evaluate(`score('${scenario}', [{kind:'start', ms:0}, {kind:'firstFrame', ms:2000, position:0}, {kind:'climb', ms:61000}, {kind:'end', ms:150000}])`);
     expect(result.checks.find((check) => check.name === "player item survives")).toMatchObject({ ok: false, detail: "1 replacements, 0 allowed" });

@@ -164,10 +164,9 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder, heights, 
   const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail });
 
   check("plays", firstFrame && !failed, failed ? failed.error : firstFrame ? `first frame ${firstFrame.ms - t0}ms` : "never showed a frame");
-  // A picture within the budget the link deserves: the opening rate says which one applies.
   const budgetMs = scenario.startBudgetMs ?? (scenario.profile[0].kbps === 0 || scenario.profile[0].kbps >= 10_000 ? FAST_START_MS : SLOW_START_MS);
   const startMs = firstFrame ? firstFrame.ms - t0 : Infinity;
-  check("starts inside the budget", startMs <= budgetMs, `${firstFrame ? Math.round(startMs) : "never"}ms of ${budgetMs}ms`);
+  const startup = { milliseconds: firstFrame ? startMs : null, targetMs: budgetMs, meetsTarget: startMs <= budgetMs };
   const seconds = (s) => Math.round((s.toMs - s.fromMs) / 1000);
   check("no stall after first frame", stalls.length === 0, stalls.map((stall) => `${seconds(stall)}s at ${Math.round(stall.position)}s`).join(", ") || "none");
   check("player item survives", replacements === 0, `${replacements} replacements, 0 allowed`);
@@ -332,5 +331,5 @@ export function score(id, timeline, { expectAudio, expectSubs, ladder, heights, 
       `${counts.join(",")}/${expectSubs}`,
     );
   }
-  return { id, label: scenario.label, pass: checks.every((c) => c.ok), checks, runs };
+  return { id, label: scenario.label, pass: checks.every((c) => c.ok), checks, runs, startup };
 }

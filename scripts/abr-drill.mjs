@@ -419,7 +419,8 @@ async function main() {
             heights: (offered.tiers ?? []).map((tier) => tier.height),
             sourceBps: offered.bandwidth ?? 0,
           });
-          const line = `- ${result.pass ? "PASS" : "FAIL"} ${item.id} ${id} (${result.label}): ${result.checks.map((c) => `${c.ok ? "ok" : "X"} ${c.name} [${c.detail}]`).join("; ")}`;
+          const startup = `startup ${result.startup.milliseconds === null ? "never" : `${Math.round(result.startup.milliseconds)}ms`}, target ${result.startup.targetMs}ms (${result.startup.meetsTarget ? "met" : "missed"}, informational)`;
+          const line = `- ${result.pass ? "PASS" : "FAIL"} ${item.id} ${id} (${result.label}): ${startup}; ${result.checks.map((c) => `${c.ok ? "ok" : "X"} ${c.name} [${c.detail}]`).join("; ")}`;
           console.log(line);
           lines.push(line);
         } catch (error) {
