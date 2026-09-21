@@ -82,4 +82,5 @@ test("steps photos on TV left and right presses", async () => {
     mockTvHandler?.({ eventType: "left" });
   });
   expect(counter(tree)).toMatch(/1\| \/ \|2/);
+  tree.unmount();
 });
