@@ -20,6 +20,7 @@ private let SWIFT_AVERROR_EXIT: Int32 = -1_414_092_869 // FFERRTAG('E','X','I','
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
 private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
+private let unavailableInputFormats: Set<Int32> = [-Int32(0x4d4544f8), -Int32(0x4f5250f8), -Int32(0x434544f8)]
 
 private func averr(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 128)
@@ -176,7 +177,11 @@ extension RemuxSession {
 
     /// A source that will not open or cannot be planned, before any master has named the copy: a
     /// session whose rungs can carry it alone lets the source go instead of dying.
-    func failStartup(_ message: String) {
+    func failStartup(_ message: String, retryable: Bool = false) {
+        if retryable, !config.isLive {
+            retrySource(because: message)
+            return
+        }
         guard releaseSource(because: message, unusable: true) else { return fail(message) }
         onStage?(["token": token, "stage": "source_released", "elapsed": Date().timeIntervalSince(startedAt)])
     }
@@ -538,7 +543,17 @@ extension RemuxSession {
     func progress() -> [String: Any] {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return ["alive": !cancelled && !failed, "bytesRead": pulledBytes, "readSeconds": pulledReadSeconds, "elapsedSeconds": Date().timeIntervalSince(startedAt)]
+        let serverAvailable = !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
+        return [
+            "alive": !cancelled && !failed,
+            "bytesRead": pulledBytes,
+            "readSeconds": pulledReadSeconds,
+            "elapsedSeconds": Date().timeIntervalSince(startedAt),
+            "sourceState": sourceState.rawValue,
+            "recovering": recovering,
+            "hasPlayableSupplier": !cancelled && !failed && (sourceReady || serverAvailable),
+            "sourceRetryAfterSeconds": sourceState == .retryWait ? max(0, sourceRetryAt.timeIntervalSinceNow) : 0,
+        ]
     }
 
     /// Publish what the engine decided for every stream, once the renditions
@@ -606,6 +621,24 @@ extension RemuxSession {
             }
             audio.append(entry)
         }
+        for (position, track) in config.audioTracks.enumerated() where track.usesServerAudio {
+            var entry: [String: Any] = [
+                "streamIndex": track.index,
+                "identity": track.identity,
+                "rendition": serverAudioPrefix(position),
+                "action": "encode",
+                "encoder": "server:aac",
+                "output": ["codec": "aac", "channels": track.serverAudioChannels, "bitRate": 96_000],
+            ]
+            if track.index >= 0, track.index < Int(input.pointee.nb_streams), let stream = input.pointee.streams[track.index] {
+                entry["source"] = EnginePlan.describe(stream.pointee.codecpar)
+            }
+            audio.append(entry)
+        }
+        if !config.isLive, !config.audioTracks.isEmpty {
+            let positions = Dictionary(uniqueKeysWithValues: config.audioTracks.enumerated().map { ($0.element.index, $0.offset) })
+            audio.sort { (positions[$0["streamIndex"] as? Int ?? -1] ?? Int.max) < (positions[$1["streamIndex"] as? Int ?? -1] ?? Int.max) }
+        }
 
         // One line per stream, keyed on what the report actually claims, so an
         // unchanged plan after a seek is silent and a changed one is loud.
@@ -646,29 +679,34 @@ extension RemuxSession {
 
     /// Fetch a rung's media playlist and parse its segment list (durations +
     /// verbatim URLs). nil = fetch/parse failed.
-    func fetchTierSegments(_ urlString: String) -> [TierSegment]? {
+    func fetchTierSegments(_ urlString: String, timeout: Double = 8) -> [TierSegment]? {
         guard let url = URL(string: urlString) else { return nil }
-        let request = URLRequest(url: url, timeoutInterval: 8)
+        let request = URLRequest(url: url, timeoutInterval: timeout)
         let semaphore = DispatchSemaphore(value: 0)
+        let resultLock = NSLock()
         var body: String? = nil
         let meter = TransferMeter()
-        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
-            if let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            resultLock.lock()
+            if error == nil, let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
                 body = String(decoding: data, as: UTF8.self)
             }
+            resultLock.unlock()
             semaphore.signal()
         }
         task.delegate = meter
         transfers.begin(task)
         task.resume()
-        _ = semaphore.wait(timeout: .now() + 10)
+        let timedOut = semaphore.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut { task.cancel() }
         transfers.end(task)
-        guard let text = body else { return nil }
+        resultLock.lock()
+        let text = timedOut ? nil : body
+        resultLock.unlock()
+        guard let text, text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTM3U") else { return nil }
         // A playlist is written before it is sent, so its body moves at the wire's pace.
         if let transfer = meter.read() {
-            stateLock.lock()
-            if playlistLinkBps == nil { playlistLinkBps = Double(transfer.bytes) * 8 / transfer.end.timeIntervalSince(transfer.start) }
-            stateLock.unlock()
+            notePlaylistTransfer(bytes: transfer.bytes, from: transfer.start, to: transfer.end)
         }
         var segments: [TierSegment] = []
         var pendingDuration: Double? = nil
@@ -681,6 +719,7 @@ extension RemuxSession {
                 pendingDuration = nil
             }
         }
+        guard !segments.isEmpty, segments.allSatisfy({ $0.duration.isFinite && $0.duration > 0 }) else { return nil }
         return segments
     }
 
@@ -700,10 +739,21 @@ extension RemuxSession {
         // The tier variants are video-only and lean on the audio GROUP; a
         // config with no explicit track list can't build one (see
         // masterPlaylist), so the session stays on the fixed grid.
-        guard !config.audioTracks.isEmpty else {
+        guard !config.audioTracks.isEmpty || config.serverVideoOnly else {
             return declineAdoption("no explicit audio tracks")
         }
-        guard let canonical = fetchTierSegments(config.tiers[0].playlistUrl) else {
+        let deadline = openedAt.addingTimeInterval(Self.masterBudgetSeconds)
+        var canonicalRung = 0
+        var adopted: [TierSegment]?
+        var attempt = 0
+        while adopted == nil && !isCancelled && !hasFailed && deadline.timeIntervalSinceNow > 0.1 {
+            canonicalRung = attempt % config.tiers.count
+            adopted = fetchTierSegments(config.tiers[canonicalRung].playlistUrl, timeout: min(8, deadline.timeIntervalSinceNow))
+            if adopted == nil { recordSupplierFailure(.rung(canonicalRung), failure: .transport) }
+            attempt += 1
+            if adopted == nil { usleep(100_000) }
+        }
+        guard let canonical = adopted else {
             return declineAdoption("playlist fetch failed")
         }
         guard canonical.count > 1 else {
@@ -718,9 +768,11 @@ extension RemuxSession {
             acc += seg.duration
         }
         stateLock.lock()
-        tierSegments = [0: canonical]
+        guard !gridResolved, !cancelled, !failed else { return stateLock.unlock() }
+        tierSegments = [canonicalRung: canonical]
         adoptedStarts = starts
         adoptedDurations = durations
+        gridResolved = true
         stateLock.unlock()
         // The other rungs are adopted when AVPlayer asks for them (adoptRung): each playlist is 48 KB,
         // and on a 0.6 Mb/s link two of them are 1.3s the first video segment needs. A rung whose
@@ -737,28 +789,29 @@ extension RemuxSession {
             stateLock.lock()
             let known = !(tierSegments[k]?.isEmpty ?? true)
             let retired = rungsUnavailable.contains(k)
-            let grid = adoptedStarts.count
+            let durations = adoptedDurations
             stateLock.unlock()
             if known { return true }
-            if retired || grid == 0 { return false }
+            if retired || durations.isEmpty { return false }
+            guard awaitSupplierRetry(.rung(k)) else { return false }
             // A fetch that failed is the link or the server having a moment, and is asked again
             // on the next request; only a playlist that arrived on another grid retires the rung.
             guard let segments = fetchTierSegments(config.tiers[k].playlistUrl) else {
                 NSLog("[LocalRemuxer] Slipstream: rung %d playlist fetch failed", k)
+                recordSupplierFailure(.rung(k), failure: .transport)
                 return false
             }
-            let fits = segments.count == grid
-            if !fits { NSLog("[LocalRemuxer] Slipstream: rung %d grid mismatch (%d vs %d), retiring it", k, segments.count, grid) }
+            let fits = segments.count == durations.count && zip(segments, durations).allSatisfy { abs($0.0.duration - $0.1) <= 0.001 }
+            if !fits { NSLog("[LocalRemuxer] Slipstream: rung %d grid mismatch (%d vs %d), retiring it", k, segments.count, durations.count) }
             stateLock.lock()
             if fits { tierSegments[k] = segments } else { rungsUnavailable.insert(k) }
             stateLock.unlock()
+            if !fits { recordSupplierFailure(.rung(k), failure: .unsupported) }
             return fits
         } ?? false
     }
 
     func runPipeline() {
-        let opaque = Unmanaged.passUnretained(self).toOpaque()
-
         // Startup breakdown. Nothing between startRemux resolving and the plan was
         // timed, and that window is 6-8s on the first session of a process.
         let tStart = CFAbsoluteTimeGetCurrent()
@@ -790,6 +843,54 @@ extension RemuxSession {
                 }
             }
         }
+
+        if config.serverVideoOnly {
+            awaitGrid()
+            guard !config.isLive, !demuxerOwesTracks, tierOffered, config.audioTracks.isEmpty || audioLoActive,
+                  releaseSource(because: "server-video fallback", unusable: true) else {
+                return fail("server-video fallback cannot serve the complete track catalogue")
+            }
+            mark("source_released")
+            return
+        }
+        let verdictLists = decideCopy()
+        stateLock.lock()
+        let refused = sourceProbeFailure != nil
+        stateLock.unlock()
+        if !verdictLists, releaseSource(because: refused ? "the source request failed" : "the link cannot carry the copy") {
+            mark("source_released")
+        }
+        while !isCancelled && !hasFailed {
+            stateLock.lock()
+            let state = sourceState
+            stateLock.unlock()
+            if state == .unavailable { break }
+            if state == .dormant || state == .retryWait {
+                guard wakeSourceIfAffordable() else {
+                    usleep(100_000)
+                    continue
+                }
+                mark("source_warming")
+            }
+            runSourcePipeline(mark: mark)
+            stateLock.lock()
+            let retrying = sourceState == .retryWait || sourceState == .dormant
+            stateLock.unlock()
+            if !retrying { break }
+        }
+    }
+
+    func archiveReadSpanLocked() {
+        if let from = readSpanFrom { readSpans.append((from: from, upTo: readSpanUpTo)) }
+        readSpanFrom = nil
+        readSpanUpTo = 0
+    }
+
+    private func runSourcePipeline(mark: (String) -> Void) {
+        stateLock.lock()
+        archiveReadSpanLocked()
+        stateLock.unlock()
+        let opaque = Unmanaged.passUnretained(self).toOpaque()
 
         // ---- Input: opened once; seeks reuse the same context ----
         EngineLog.configure()
@@ -832,29 +933,9 @@ extension RemuxSession {
                 self?.fail(refusal)
             }
         }
-        // The link answers before the source is opened: an open stream nobody reads fills the
-        // socket's buffers and takes its share of the link out from under the probe.
-        let verdictLists = decideCopy()
-        stateLock.lock()
-        let refused = sourceRefused
-        stateLock.unlock()
-        if !verdictLists, releaseSource(because: refused ? "the server refused the source" : "the link cannot carry the copy", unusable: refused) {
-            mark("source_released")
-            while !refused && !isCancelled && !hasFailed {
-                if wakeSourceIfAffordable() { break }
-                usleep(100_000)
-            }
-            if refused || isCancelled || hasFailed {
-                av_dict_free(&openOpts)
-                avformat_free_context(inputCtx)
-                return
-            }
-            mark("source_warming")
-        }
-
         var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
         av_dict_free(&openOpts)
-        guard ret >= 0, let input = inputCtx else { return failStartup("open_input: \(averr(ret))") }
+        guard ret >= 0, let input = inputCtx else { return failStartup("open_input: \(averr(ret))", retryable: !unavailableInputFormats.contains(ret)) }
         mark("open_input")
         defer {
             var closing: UnsafeMutablePointer<AVFormatContext>? = input
@@ -862,7 +943,7 @@ extension RemuxSession {
         }
 
         ret = probeStreamInfo(input)
-        guard ret >= 0 else { return failStartup("find_stream_info: \(averr(ret))") }
+        guard ret >= 0 else { return failStartup("find_stream_info: \(averr(ret))", retryable: !unavailableInputFormats.contains(ret)) }
         mark("find_stream_info")
 
         // Audio-only sources run this same pipeline with no video track at all,
@@ -905,10 +986,19 @@ extension RemuxSession {
         // ("a0", "a1", …) and the variant is video-only — see masterPlaylist()
         // for why (picker labels). A lone track is muxed with the video.
         let streamCount = Int32(input.pointee.nb_streams)
-        var audioIndices: [Int32] = config.audioTracks
+        let localAudioTracks = config.audioTracks.filter { !$0.usesServerAudio }
+        if !config.isLive {
+            for track in localAudioTracks {
+                guard track.index >= 0, track.index < Int(streamCount),
+                      input.pointee.streams[track.index]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO else {
+                    return failStartup("configured audio stream \(track.index) is not present in the input")
+                }
+            }
+        }
+        var audioIndices: [Int32] = localAudioTracks
             .map { Int32($0.index) }
             .filter { $0 >= 0 && $0 < streamCount && input.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO }
-        if audioIndices.isEmpty {
+        if audioIndices.isEmpty && config.audioTracks.isEmpty {
             let best = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
             if best >= 0 { audioIndices = [best] }
         }
@@ -988,13 +1078,38 @@ extension RemuxSession {
         let fallbackHeight = Int(videoParams?.pointee.height ?? 0)
         for sub in imageSubtitleTracks {
             let index = Int32(sub.index)
-            guard index >= 0, index < streamCount, let stream = input.pointee.streams[Int(index)] else { continue }
+            stateLock.lock()
+            let existingDecoder = imageSubtitles[index]
+            stateLock.unlock()
+            if let existingDecoder {
+                existingDecoder.flush(demuxedUpTo: demuxedUpTo)
+                continue
+            }
+            if sub.isExternal {
+                guard !sub.serverSupUrl.isEmpty else { return failStartup("external image subtitle \(sub.index) has no producer") }
+                startServerImageSubtitles()
+                continue
+            }
+            guard index >= 0, index < streamCount, let stream = input.pointee.streams[Int(index)],
+                  stream.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE else {
+                if !sub.serverSupUrl.isEmpty {
+                    startServerImageSubtitles()
+                    continue
+                }
+                return failStartup("configured image subtitle \(sub.index) is not present in the input")
+            }
             guard let decoder = ImageSubtitleDecoder(
                 stream: stream,
                 fallbackWidth: fallbackWidth,
                 fallbackHeight: fallbackHeight,
                 dir: dir
-            ) else { continue }
+            ) else {
+                if !sub.serverSupUrl.isEmpty {
+                    startServerImageSubtitles()
+                    continue
+                }
+                return failStartup("image subtitle \(sub.index) has no decoder")
+            }
             stateLock.lock()
             imageSubtitles[index] = decoder
             stateLock.unlock()
@@ -1006,8 +1121,22 @@ extension RemuxSession {
         // Same terms as the image ones: decode cost, nothing off the network.
         for sub in config.subtitles where sub.isEngineText {
             let index = Int32(sub.index)
-            guard index >= 0, index < streamCount, let stream = input.pointee.streams[Int(index)] else { continue }
-            guard let decoder = TextSubtitleDecoder(stream: stream) else { continue }
+            stateLock.lock()
+            let existingDecoder = textSubtitles[index]
+            stateLock.unlock()
+            if let existingDecoder {
+                existingDecoder.flush()
+                continue
+            }
+            guard index >= 0, index < streamCount, let stream = input.pointee.streams[Int(index)],
+                  stream.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE else {
+                if !sub.serverVttUrl.isEmpty { continue }
+                return failStartup("configured text subtitle \(sub.index) is not present in the input")
+            }
+            guard let decoder = TextSubtitleDecoder(stream: stream) else {
+                if !sub.serverVttUrl.isEmpty { continue }
+                return failStartup("text subtitle \(sub.index) has no decoder")
+            }
             stateLock.lock()
             textSubtitles[index] = decoder
             stateLock.unlock()
@@ -1073,12 +1202,13 @@ extension RemuxSession {
         // Slipstream sessions always de-mux audio into its own rendition group
         // (see masterPlaylist): variant switches must never touch audio. Keyed on the
         // configured ladder, not the adopted one: adoption can finish after this line runs.
-        let splitAudio = audioIndices.count > 1 || !config.tiers.isEmpty
+        let splitAudio = audioIndices.count > 1 || config.audioTracks.count > 1 || !config.tiers.isEmpty || config.audioTracks.contains(where: { $0.usesServerAudio })
         if hasVideo && splitAudio {
             builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder,
                                              dolbyVision: primaryDolbyVision))
         }
-        for (position, audioIndex) in audioIndices.enumerated() {
+        for (discoveredPosition, audioIndex) in audioIndices.enumerated() {
+            let position = config.isLive ? discoveredPosition : config.audioTracks.firstIndex(where: { $0.index == Int(audioIndex) }) ?? discoveredPosition
             guard let transcoder = makeTranscoder(for: audioIndex) else {
                 return failStartup("no transcode path for audio stream \(audioIndex)")
             }
@@ -1100,7 +1230,14 @@ extension RemuxSession {
 
         stateLock.lock()
         let goneAlready = cancelled
+        for rendition in builtRenditions {
+            if let previous = renditions.first(where: { $0.prefix == rendition.prefix }) {
+                rendition.completed = previous.completed
+            }
+        }
         renditions = builtRenditions
+        producingSegment = 0
+        reachedEnd = false
         stateLock.unlock()
         defer { builtRenditions.forEach { $0.freeMuxer() } }
         // stop() deletes the segment directory, so a session torn down during the
@@ -1292,7 +1429,7 @@ extension RemuxSession {
                 }
 
                 do {
-                    try segment.write(to: dir.appendingPathComponent(rendition.segmentName(n)))
+                    try segment.write(to: dir.appendingPathComponent(rendition.segmentName(n)), options: .atomic)
                 } catch {
                     return fail("write \(rendition.segmentName(n)): \(error.localizedDescription)")
                 }
@@ -1303,6 +1440,11 @@ extension RemuxSession {
 
             stateLock.lock()
             let playhead = lastRequestedSegment
+            sourceRetryAttempts = 0
+            recovering = false
+            if let takeover = sourceTakeoverSegment, n >= takeover + Self.followSegments {
+                sourceTakeoverSegment = nil
+            }
             stateLock.unlock()
             if config.isLive {
                 // The window trails production, not the playhead: live never seeks back to regenerate.
@@ -1478,9 +1620,7 @@ extension RemuxSession {
             producingSegment = segment
             reachedEnd = false
             // The seek skips a region: this generation's read starts a new span.
-            if let from = readSpanFrom { readSpans.append((from: from, upTo: readSpanUpTo)) }
-            readSpanFrom = nil
-            readSpanUpTo = 0
+            archiveReadSpanLocked()
             stateLock.unlock()
             NSLog("[LocalRemuxer] Seek-restart at segment %d took %.2fs", segment, Date().timeIntervalSince(restartStart))
             generation += 1
@@ -1508,7 +1648,7 @@ extension RemuxSession {
                 // re-assert can race the restart that is serving it, and
                 // restarting again would tear the muxers down for nothing.
                 if let target = seekTo,
-                   target == producingSegment || (renditions.first?.completed.contains(target) ?? false) {
+                   target == producingSegment || (sourceTakeoverSegment == nil && (renditions.first?.completed.contains(target) ?? false)) {
                     seekTo = nil
                 }
                 // Never sleep while a request waits on a segment inside the
@@ -1536,7 +1676,10 @@ extension RemuxSession {
                         followSeek = true
                     }
                 }
-                let held = sessionAnchorUs != nil && (riding ? follow == .hold : openingHoldLocked())
+                let takeoverCapacity = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
+                if sourceBandwidth > 0, takeoverCapacity < Double(sourceBandwidth) * 1.2 { sourceTakeoverSegment = nil }
+                let takingOver = sourceTakeoverSegment != nil
+                let held = sessionAnchorUs != nil && !takingOver && !demuxerOwesTracks && (riding ? follow == .hold : openingHoldLocked())
                 let tierHold = held && seekTo == nil && !stop && !starvedWaiter
                 // Live never throttles: the source arrives at its own pace and reads must keep up.
                 let throttled = !config.isLive
@@ -1690,7 +1833,11 @@ extension RemuxSession {
                     NSLog("[LocalRemuxer] Input recovered at segment %d", producingSegment)
                     continue
                 }
-                fail("read_frame: \(averr(ret))")
+                if allowRecovery {
+                    retrySource(because: "read_frame: \(averr(ret))")
+                } else {
+                    fail("read_frame: \(averr(ret))")
+                }
                 break
             }
             defer { av_packet_unref(pkt) }

@@ -44,6 +44,7 @@ struct RemuxSubtitle {
     var serverVttUrl: String = ""
     /// The server's raw copy of a PGS or DVD track (Stream.pgssub, Stream.mks), for when the source is not read.
     var serverSupUrl: String = ""
+    var isExternal = false
 }
 
 /// One cue of a server WebVTT, in source time like the decoder's.
@@ -70,6 +71,10 @@ struct RemuxAudioTrack {
     let serverAudioUrl: String
     /// Channels the server rendition arrives with, written as CHANNELS. 0 = not told.
     var serverAudioChannels = 0
+    var usesServerAudio = false
+    var codecs = ""
+    var bandwidth = 0
+    var identity = ""
 }
 
 struct RemuxConfig {
@@ -129,6 +134,10 @@ struct RemuxConfig {
     var httpHeaders: [String: String] = [:]
     /// Live: the input is an origin's HLS playlist, checked for refusal alongside the open.
     var probeOrigin: Bool = false
+    var primaryVideoCodecs = ""
+    var primaryVideoBandwidth = 0
+    var sourceBandwidth = 0
+    var serverVideoOnly = false
 }
 
 /// One adopted segment of the server tier's playlist: the server's own

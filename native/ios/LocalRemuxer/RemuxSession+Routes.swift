@@ -35,24 +35,41 @@ extension RemuxSession {
         // "sub{stream}-{segment}.vtt": one window of an engine-decoded text
         // track. Blocks on the read loop, like a media segment does.
         if name.hasPrefix("sub"), name.hasSuffix(".vtt"), name.contains("-") {
-            let parts = name.dropFirst(3).dropLast(4).split(separator: "-")
-            if parts.count == 2, let index = Int(parts[0]), let segment = Int(parts[1]),
-               let body = subtitleSegment(streamIndex: index, segment: segment) {
+            let parts = name.dropFirst(3).dropLast(4).split(separator: "-", omittingEmptySubsequences: false)
+            guard parts.count == 2, let index = Int(parts[0]), let segment = Int(parts[1]), segment >= 0 else { return .notFound }
+            stateLock.lock()
+            let subtitles = liveSubtitles ?? config.subtitles
+            let dead = failed || cancelled
+            let inRange = config.isLive ? segment >= firstRetainedSegment && segment <= lastProducedSegment : segment < segmentCount
+            stateLock.unlock()
+            guard !dead, inRange, let subtitle = subtitles.first(where: { $0.index == index }) else { return .notFound }
+            if config.isLive, subtitle.isImage {
+                return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
+            }
+            guard subtitle.isEngineText else { return .notFound }
+            if let body = subtitleSegment(streamIndex: index, segment: segment) {
                 return .data(Data(body.utf8), contentType: "text/vtt")
             }
-            return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
+            return isCancelled || hasFailed ? .notFound : .temporarilyUnavailable
         }
         // The cue-less body an image subtitle rendition resolves to. AVKit
         // lists and selects the track and draws none of it; the app draws
         // the bitmaps over the video instead.
         if name.hasPrefix("sub"), name.hasSuffix(".vtt") {
-            // A track saved with a download serves its own bytes; an image track, and any
-            // local file that has since gone, fall back to the cue-less body.
-            if let index = Int(name.dropFirst(3).dropLast(4)),
-               let body = localSubtitleBody(streamIndex: index) {
+            guard let index = Int(name.dropFirst(3).dropLast(4)) else { return .notFound }
+            stateLock.lock()
+            let subtitles = liveSubtitles ?? config.subtitles
+            let dead = failed || cancelled
+            stateLock.unlock()
+            guard !dead, let subtitle = subtitles.first(where: { $0.index == index }) else { return .notFound }
+            if subtitle.isImage {
+                return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
+            }
+            guard !subtitle.localVtt.isEmpty else { return .notFound }
+            if let body = localSubtitleBody(streamIndex: index) {
                 return .data(body, contentType: "text/vtt")
             }
-            return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
+            return .temporarilyUnavailable
         }
         // Cue manifest for an image subtitle track, and the cue images
         // themselves. Both are read by the app, never by AVPlayer.
@@ -75,11 +92,9 @@ extension RemuxSession {
             let afterT = name.dropFirst()
             if let rungEnd = afterT.firstIndex(where: { !$0.isNumber }), rungEnd > afterT.startIndex,
                let rung = Int(afterT[afterT.startIndex..<rungEnd]) {
-                if let deferred = rungResponseDeferral(rung) { return deferred }
                 let rest = String(afterT[rungEnd...])
                 if rest == ".m3u8" {
-                    guard let playlist = tierPlaylist(rung: rung) else { return .notFound }
-                    return .data(Data(playlist.utf8), contentType: m3u8)
+                    return tierPlaylistResponse(rung: rung)
                 }
                 if rest == "-init.mp4" {
                     return tierInitResponse(rung: rung)
@@ -102,8 +117,7 @@ extension RemuxSession {
            name.dropFirst(1 + digits.count).first == "s" {
             let rest = String(name.dropFirst(2 + digits.count))
             if rest == ".m3u8" {
-                guard let playlist = audioLoPlaylist(position: position) else { return .notFound }
-                return .data(Data(playlist.utf8), contentType: m3u8)
+                return audioLoPlaylistResponse(position: position)
             }
             if rest == "-init.mp4" {
                 return audioLoInitResponse(position: position)

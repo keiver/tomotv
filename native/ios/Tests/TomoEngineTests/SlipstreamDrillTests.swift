@@ -31,34 +31,44 @@ final class SlipstreamDrillTests: XCTestCase {
 
     /// The bridge dictionary to RemuxConfig, field for field as LocalRemuxer.startRemux reads it.
     private func config(from raw: [String: Any]) -> RemuxConfig {
-        let audioTracks: [RemuxAudioTrack] = ((raw["audioTracks"] as? [[String: Any]]) ?? []).compactMap { t in
-            guard let index = t["index"] as? Int else { return nil }
-            var track = RemuxAudioTrack(index: index, name: t["name"] as? String ?? "Audio \(index)", language: t["language"] as? String ?? "", serverAudioUrl: t["serverAudioUrl"] as? String ?? "")
-            track.serverAudioChannels = t["serverAudioChannels"] as? Int ?? 0
+        let audioTracks: [RemuxAudioTrack] = ((raw["audioTracks"] as? [[String: Any]]) ?? []).compactMap { entry in
+            guard let index = entry["index"] as? Int else { return nil }
+            var track = RemuxAudioTrack(index: index, name: entry["name"] as? String ?? "Audio \(index)", language: entry["language"] as? String ?? "", serverAudioUrl: entry["serverAudioUrl"] as? String ?? "")
+            track.serverAudioChannels = entry["serverAudioChannels"] as? Int ?? 0
+            track.usesServerAudio = entry["usesServerAudio"] as? Bool ?? false
+            track.codecs = entry["codecs"] as? String ?? ""
+            track.bandwidth = entry["bandwidth"] as? Int ?? 0
+            track.identity = entry["identity"] as? String ?? ""
             return track
         }
-        let subtitles: [RemuxSubtitle] = ((raw["subtitles"] as? [[String: Any]]) ?? []).compactMap { s in
-            guard let index = s["index"] as? Int else { return nil }
+        let subtitles: [RemuxSubtitle] = ((raw["subtitles"] as? [[String: Any]]) ?? []).compactMap { entry in
+            guard let index = entry["index"] as? Int else { return nil }
             var subtitle = RemuxSubtitle(
-                index: index, name: s["name"] as? String ?? "Subtitle \(index)", language: s["language"] as? String ?? "",
-                vttUrl: s["vttUrl"] as? String ?? "", localVtt: s["localVtt"] as? String ?? "",
-                isDefault: s["isDefault"] as? Bool ?? false, isForced: s["isForced"] as? Bool ?? false,
-                isImage: s["isImage"] as? Bool ?? false, isEngineText: s["isEngineText"] as? Bool ?? false,
-                serverVttUrl: s["serverVttUrl"] as? String ?? "")
-            subtitle.serverSupUrl = s["serverSupUrl"] as? String ?? ""
+                index: index, name: entry["name"] as? String ?? "Subtitle \(index)", language: entry["language"] as? String ?? "",
+                vttUrl: entry["vttUrl"] as? String ?? "", localVtt: entry["localVtt"] as? String ?? "",
+                isDefault: entry["isDefault"] as? Bool ?? false, isForced: entry["isForced"] as? Bool ?? false,
+                isImage: entry["isImage"] as? Bool ?? false, isEngineText: entry["isEngineText"] as? Bool ?? false,
+                serverVttUrl: entry["serverVttUrl"] as? String ?? "")
+            subtitle.serverSupUrl = entry["serverSupUrl"] as? String ?? ""
+            subtitle.isExternal = entry["isExternal"] as? Bool ?? false
             return subtitle
         }
         let tiers: [TierConfig] = ((raw["tiers"] as? [[String: Any]]) ?? []).map { t in
             TierConfig(playlistUrl: t["playlistUrl"] as? String ?? "", bandwidth: t["bandwidth"] as? Int ?? 0, codecs: t["codecs"] as? String ?? "",
                        width: t["width"] as? Int ?? 0, height: t["height"] as? Int ?? 0)
         }.filter { !$0.playlistUrl.isEmpty }
-        return RemuxConfig(
+        var config = RemuxConfig(
             inputUrl: raw["inputUrl"] as? String ?? "", audioTracks: audioTracks, durationSeconds: raw["durationSeconds"] as? Double ?? 0,
             subtitles: subtitles, videoRange: raw["videoRange"] as? String ?? "SDR", supplementalCodecs: raw["supplementalCodecs"] as? String ?? "",
             codecs: raw["codecs"] as? String ?? "", width: raw["width"] as? Int ?? 0, height: raw["height"] as? Int ?? 0,
             frameRate: raw["frameRate"] as? Double ?? 0, bandwidth: raw["bandwidth"] as? Int ?? 0,
             readAheadSegments: raw["readAheadSegments"] as? Int ?? 0, tiers: tiers,
             startOffsetSeconds: raw["startOffsetSeconds"] as? Double ?? 0, itemId: raw["itemId"] as? String ?? "")
+        config.primaryVideoCodecs = raw["primaryVideoCodecs"] as? String ?? ""
+        config.primaryVideoBandwidth = raw["primaryVideoBandwidth"] as? Int ?? 0
+        config.sourceBandwidth = raw["sourceBandwidth"] as? Int ?? 0
+        config.serverVideoOnly = raw["serverVideoOnly"] as? Bool ?? false
+        return config
     }
 
     private func post(_ url: URL, json: Any) {

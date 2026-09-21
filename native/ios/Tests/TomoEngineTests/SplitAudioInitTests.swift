@@ -122,10 +122,53 @@ final class SplitAudioInitTests: XCTestCase {
         XCTAssertTrue(primary.ok, "muxed single-AC3 primary init should be valid: \(primary.detail)")
     }
 
-    // Suspect: AC3 alongside AAC forces the AC3 track into its own audio-only
-    // rendition ("a0"), the exact construction tierActive uses for a lone track.
-    // If a0-init.mp4 never becomes a valid fMP4, AVPlayer loops on it and the
-    // copy never starts.
+    func testServerBackedDefaultAudioPreservesTheLocalAlternatePosition() throws {
+        guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg),
+              let source = fixture(name: "server-default-local-alternate", audioEncoders: ["aac", "aac"]) else {
+            throw XCTSkip("could not generate the two-audio fixture")
+        }
+        var serverTrack = RemuxAudioTrack(index: 1, name: "Server audio", language: "eng", serverAudioUrl: "https://audio.invalid/default.m3u8")
+        serverTrack.usesServerAudio = true
+        serverTrack.codecs = "mp4a.40.2"
+        serverTrack.bandwidth = 96_000
+        let config = makeConfig(
+            durationSeconds: 3, inputUrl: source.path,
+            audioTracks: [serverTrack, track(2, "Local alternate")],
+            width: 320, height: 240, frameRate: 25, bandwidth: 4_000_000, readAheadSegments: 8)
+        let session = try run(config, expecting: ["", "a1"])
+        defer { session.stop() }
+
+        XCTAssertFalse(session.hasFailed)
+        XCTAssertNil(session.rendition(withPrefix: "a0"))
+        XCTAssertEqual(session.rendition(withPrefix: "a1")?.inputStreams, [2])
+        XCTAssertTrue(isValidInit(session.dir.appendingPathComponent("a1-init.mp4")).ok)
+        XCTAssertTrue(session.masterPlaylist().contains("URI=\"a0s.m3u8\""))
+        XCTAssertTrue(session.masterPlaylist().contains("URI=\"a1.m3u8\""))
+        XCTAssertTrue(session.hasServerAudio(0))
+        XCTAssertFalse(session.tierActive)
+    }
+
+    func testSingleServerBackedAudioLeavesThePrimaryVideoOnly() throws {
+        guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg),
+              let source = fixture(name: "server-only-audio", audioEncoders: ["aac"]) else {
+            throw XCTSkip("could not generate the audio fixture")
+        }
+        var serverTrack = RemuxAudioTrack(index: 1, name: "Server audio", language: "eng", serverAudioUrl: "https://audio.invalid/default.m3u8")
+        serverTrack.usesServerAudio = true
+        let config = makeConfig(
+            durationSeconds: 3, inputUrl: source.path,
+            audioTracks: [serverTrack],
+            width: 320, height: 240, frameRate: 25, bandwidth: 4_000_000, readAheadSegments: 8)
+        let session = try run(config, expecting: [""])
+        defer { session.stop() }
+
+        XCTAssertEqual(session.rendition(withPrefix: "")?.inputStreams, [0])
+        XCTAssertNil(session.rendition(withPrefix: "a0"))
+        XCTAssertTrue(session.audioLoActive)
+        XCTAssertFalse(session.tierActive)
+        XCTAssertTrue(session.masterPlaylist().contains("URI=\"a0s.m3u8\""))
+    }
+
     func testSplitAc3AudioOnlyRenditionInitIsValid() throws {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else {
             throw XCTSkip("no ffmpeg at \(Self.ffmpeg)")

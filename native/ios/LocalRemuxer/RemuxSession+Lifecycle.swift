@@ -89,12 +89,15 @@ extension RemuxSession {
         guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks else { return false }
         // The grid first: the ladder and its audio group exist only once it is adopted.
         awaitGrid()
-        guard tierOffered, audioLoActive else { return false }
+        guard tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
         stateLock.lock()
         let free = !cancelled && !failed
         if free {
             copyVerdict = .withheld
             sourceState = unusable ? .unavailable : .dormant
+            sourceReady = false
+            sourceTakeoverSegment = nil
+            recovering = false
             lastTierDemandAt = Date()
         }
         stateLock.unlock()
@@ -113,12 +116,15 @@ extension RemuxSession {
     /// copy's routes answer 410 from here and AVPlayer carries on with them: the session lives
     /// where it used to end and leave for the server's single stream. Same test as releaseSource.
     func handOverToRungs(because message: String) -> Bool {
-        guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks, tierOffered, audioLoActive else { return false }
+        guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks, tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
         stateLock.lock()
         let free = copyAnnounced && !sourceReleased && !cancelled && !failed
         if free {
             copyVerdict = .withheld
             sourceState = .unavailable
+            sourceReady = false
+            sourceTakeoverSegment = nil
+            recovering = false
             lastTierDemandAt = Date()
         }
         stateLock.unlock()
@@ -128,14 +134,30 @@ extension RemuxSession {
         return true
     }
 
-    func wakeSourceIfAffordable() -> Bool {
+    func retrySource(because message: String, now: Date = Date()) {
+        stateLock.lock()
+        guard !cancelled, !failed else { return stateLock.unlock() }
+        sourceRetryAttempts = min(sourceRetryAttempts + 1, 6)
+        sourceRetryAt = now.addingTimeInterval(min(30, pow(2, Double(sourceRetryAttempts - 1))))
+        sourceState = .retryWait
+        sourceReady = false
+        sourceTakeoverSegment = nil
+        recovering = true
+        stateLock.unlock()
+        NSLog("[LocalRemuxer] source will retry in this session: %@", message)
+        startServerImageSubtitles()
+    }
+
+    func wakeSourceIfAffordable(now: Date = Date()) -> Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
-        guard sourceState == .dormant, !cancelled, !failed else { return false }
-        let wire = testLinkBps ?? wireLinkBps ?? 0
-        let rung = config.tiers.indices.contains(lastTierRung) ? config.tiers[lastTierRung].bandwidth : 0
-        guard wire >= Double(config.bandwidth) * 1.2 + Double(rung) else { return false }
+        guard sourceState == .dormant || sourceState == .retryWait,
+              !cancelled, !failed, now >= sourceRetryAt else { return false }
+        let hasAlternative = !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
+        let wire = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
+        guard !hasAlternative || sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2 else { return false }
         sourceState = .warming
+        sourceTakeoverSegment = lastRequestedSegment
         pendingSeekSegment = lastRequestedSegment
         return true
     }
@@ -145,17 +167,17 @@ extension RemuxSession {
         defer { stateLock.unlock() }
         if failed || cancelled { return .notFound }
         if sourceState == .unavailable { return .gone }
-        guard !config.tiers.isEmpty, !tierDisabled, !adoptedStarts.isEmpty else { return nil }
-        if sourceState == .dormant || !sourceReady { return .temporarilyUnavailable }
+        guard !config.tiers.isEmpty, !adoptedStarts.isEmpty else { return nil }
+        if sourceState == .dormant || sourceState == .retryWait || !sourceReady { return .temporarilyUnavailable }
         let wire = testLinkBps ?? wireLinkBps ?? 0
-        if config.bandwidth > 0 && wire < Double(config.bandwidth) * 1.2 { return .temporarilyUnavailable }
+        if sourceBandwidth > 0 && wire < Double(sourceBandwidth) * 1.2 { return .temporarilyUnavailable }
         return nil
     }
 
     func rungResponseDeferral(_ rung: Int) -> LocalHTTPResponse? {
         stateLock.lock()
         defer { stateLock.unlock() }
-        guard config.tiers.indices.contains(rung), !cancelled, !failed, !tierDisabled, !rungsUnavailable.contains(rung) else { return .notFound }
+        guard config.tiers.indices.contains(rung), !cancelled, !failed, !rungsUnavailable.contains(rung) else { return .notFound }
         let available = config.tiers.indices.filter { !rungsUnavailable.contains($0) }
         let wire = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         let fitting = available.filter { Double(config.tiers[$0].bandwidth) <= wire * 0.8 }

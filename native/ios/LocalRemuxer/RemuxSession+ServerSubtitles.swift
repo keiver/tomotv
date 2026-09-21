@@ -23,6 +23,10 @@ extension RemuxSession {
             stateLock.unlock()
             return cached
         }
+        if cancelled || failed {
+            stateLock.unlock()
+            return nil
+        }
         let owner = serverCueFetches.insert(streamIndex).inserted
         stateLock.unlock()
         if owner { fetchServerCues(streamIndex: streamIndex, url: url) }
@@ -32,8 +36,9 @@ extension RemuxSession {
             self.stateLock.lock()
             found = self.serverCues[streamIndex]
             let pending = self.serverCueFetches.contains(streamIndex)
+            let stopped = self.cancelled || self.failed
             self.stateLock.unlock()
-            return found != nil || !pending
+            return found != nil || !pending || stopped
         }
         return found
     }
@@ -55,9 +60,9 @@ extension RemuxSession {
             guard let self else { return }
             if let task { self.transfers.end(task) }
             let ok = (response as? HTTPURLResponse)?.statusCode == 200
-            let cues = ok ? data.flatMap { String(data: $0, encoding: .utf8) }.map(Self.parseWebVTT) : nil
+            let cues = ok ? Self.decodedServerWebVTT(data) : nil
             self.stateLock.lock()
-            if let cues { self.serverCues[streamIndex] = cues }
+            if let cues, !self.cancelled { self.serverCues[streamIndex] = cues }
             self.serverCueFetches.remove(streamIndex)
             self.stateLock.unlock()
             NSLog("[LocalRemuxer] server subtitles for stream %d: %@", streamIndex, cues.map { "\($0.count) cues" } ?? "unavailable")
@@ -66,6 +71,16 @@ extension RemuxSession {
             transfers.begin(task)
             task.resume()
         }
+    }
+
+    static func decodedServerWebVTT(_ data: Data?) -> [ServerCue]? {
+        guard var body = data.flatMap({ String(data: $0, encoding: .utf8) }) else { return nil }
+        if body.hasPrefix("\u{feff}") { body.removeFirst() }
+        guard let header = body.components(separatedBy: .newlines).first,
+              header == "WEBVTT" || header.hasPrefix("WEBVTT ") || header.hasPrefix("WEBVTT\t") else { return nil }
+        let cues = parseWebVTT(body)
+        if cues.isEmpty, body.contains("-->") { return nil }
+        return cues
     }
 
     /// Cues of a WebVTT body. Timestamps are hh:mm:ss.mmm or mm:ss.mmm; settings after the end time are dropped.

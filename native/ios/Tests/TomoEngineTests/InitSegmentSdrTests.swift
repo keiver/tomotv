@@ -87,4 +87,32 @@ final class InitSegmentSdrTests: XCTestCase {
         let out = try XCTUnwrap(InitSegmentSdr.normalise(original))
         XCTAssertEqual(boxes(sampleEntry(in: out).1, from: 86).map(\.0), ["avcC"])
     }
+
+    func testHdrSourcesNormaliseOnlyTheServerRungInit() throws {
+        let original = initSegment(entry: "avc1", children: [box("avcC", avcC), colr(pq), box("clli", Data(repeating: 0, count: 4))])
+        let expected = try XCTUnwrap(InitSegmentSdr.normalise(original))
+        for videoRange in ["PQ", "HLG"] {
+            let session = try RemuxSession(config: makeConfig(durationSeconds: 18, videoRange: videoRange))
+            defer { session.stop() }
+            XCTAssertEqual(session.serverRungInitData(original), expected)
+
+            let sourceInit = session.dir.appendingPathComponent("init.mp4")
+            try original.write(to: sourceInit)
+            guard case .file(let served, _) = session.initResponse() else { return XCTFail("the original initialization segment must remain available") }
+            XCTAssertEqual(try Data(contentsOf: served), original)
+        }
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        XCTAssertEqual(session.serverRungInitData(original), original)
+    }
+
+    func testServerRungNormalisationLeavesAudioEntriesUnchanged() throws {
+        let audio = initSegment(entry: "mp4a", children: [box("esds", Data([0, 0, 0, 0]))])
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, videoRange: "PQ"))
+        defer { session.stop() }
+        XCTAssertEqual(session.serverRungInitData(audio), audio)
+        try audio.write(to: session.dir.appendingPathComponent("a0-init.mp4"))
+        guard case .file(let served, _) = session.initResponse(prefix: "a0") else { return XCTFail("cached engine audio must remain available") }
+        XCTAssertEqual(try Data(contentsOf: served), audio)
+    }
 }

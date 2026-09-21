@@ -244,7 +244,7 @@ final class TextSubtitleTests: XCTestCase {
     /// Identity-mapped: the engine's timeline starts at zero, where Jellyfin's
     /// MPEGTS:900000 displaced every cue by 10s.
     func testSegmentBodyIsIdentityMappedWebVTT() throws {
-        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [engineSub(2)]))
+        let session = try serverBackedSession()
         defer { session.stop() }
         let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
 
@@ -266,6 +266,209 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertEqual(webVTTTimestamp(61.25), "00:01:01.250")
         XCTAssertEqual(webVTTTimestamp(3661.007), "01:01:01.007")
         XCTAssertEqual(webVTTTimestamp(-2), "00:00:00.000")
+    }
+
+    private func serverBackedSession() throws -> RemuxSession {
+        var subtitle = engineSub(2)
+        subtitle.serverVttUrl = "http://subtitle.test/2.vtt"
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [subtitle]))
+        session.sessionAnchorSeconds = 0
+        session.serverCues[2] = [ServerCue(start: 1, end: 3, text: "server first window"), ServerCue(start: 7, end: 9, text: "server second window")]
+        return session
+    }
+
+    private func decodedTrack() throws -> TextSubtitleDecoder {
+        var input: UnsafeMutablePointer<AVFormatContext>?
+        XCTAssertGreaterThanOrEqual(avformat_open_input(&input, matroska.path, nil, nil), 0)
+        defer { avformat_close_input(&input) }
+        XCTAssertGreaterThanOrEqual(avformat_find_stream_info(input, nil), 0)
+        let context = try XCTUnwrap(input)
+        let stream = try XCTUnwrap(context.pointee.streams[2])
+        let decoder = try XCTUnwrap(TextSubtitleDecoder(stream: stream))
+        var packet = av_packet_alloc()
+        defer { av_packet_free(&packet) }
+        while av_read_frame(context, packet) >= 0 {
+            if packet?.pointee.stream_index == 2, let packet { decoder.handle(packet: packet) }
+            av_packet_unref(packet)
+        }
+        return decoder
+    }
+
+    func testSourceWarmingWithoutLocalDecoderKeepsCachedServerCues() throws {
+        let session = try serverBackedSession()
+        defer { session.stop() }
+        session.sourceState = .warming
+        session.subtitleDecodersBuilt = false
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertTrue(body.contains("server first window"))
+        XCTAssertTrue(body.contains("00:00:01.000 --> 00:00:03.000"))
+    }
+
+    func testReadGenerationStartingInsideWindowDoesNotDisplaceServerCues() throws {
+        let session = try serverBackedSession()
+        defer { session.stop() }
+        session.textSubtitles[2] = try decodedTrack()
+        session.subtitleDecodersBuilt = true
+        session.readSpanFrom = 9
+        session.readSpanUpTo = 18
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 1))
+        XCTAssertTrue(body.contains("server second window"))
+    }
+
+    func testLocalWindowCoverageWinsEvenWhenSourceIsDormant() throws {
+        let session = try serverBackedSession()
+        defer { session.stop() }
+        session.textSubtitles[2] = try decodedTrack()
+        session.sourceState = .dormant
+        session.readSpanFrom = 0
+        session.readSpanUpTo = 18
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertFalse(body.contains("server first window"))
+        XCTAssertTrue(body.contains(" --> "))
+    }
+
+    func testDecoderEofAfterASeekDoesNotClaimEarlierWindows() throws {
+        let session = try serverBackedSession()
+        defer { session.stop() }
+        let decoder = try decodedTrack()
+        decoder.finish()
+        session.textSubtitles[2] = decoder
+        session.readSpanFrom = 12
+        session.readSpanUpTo = 30
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertTrue(body.contains("server first window"))
+    }
+
+    func testUncoveredWindowIsNotPublishedAsAnEmptySuccessfulSubtitle() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [engineSub(2)]))
+        defer { session.stop() }
+        session.textSubtitles[2] = try decodedTrack()
+        session.sessionAnchorSeconds = 0
+        session.readSpanFrom = 12
+        session.readSpanUpTo = 30
+        session.cancelled = true
+        XCTAssertNil(session.subtitleSegment(streamIndex: 2, segment: 0))
+    }
+
+    func testCoverageRequiresTheWholeWindowAndCanJoinAdjacentReadSpans() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30))
+        defer { session.stop() }
+        session.readSpans = [(from: 0, upTo: 6), (from: 9, upTo: 18)]
+        XCTAssertFalse(session.readCoversLocked(from: 6, to: 12))
+        XCTAssertFalse(session.readCoversLocked(from: 7, to: 7))
+        session.readSpanFrom = 6
+        session.readSpanUpTo = 9
+        XCTAssertTrue(session.readCoversLocked(from: 6, to: 12))
+        XCTAssertTrue(session.readCoversLocked(from: 0, to: 18))
+    }
+
+    func testServerWebVttRejectsErrorBodiesInsteadOfCachingAnEmptyTrack() {
+        XCTAssertNil(RemuxSession.decodedServerWebVTT(Data("<html>try again</html>".utf8)))
+        XCTAssertNil(RemuxSession.decodedServerWebVTT(Data("WEBVTT\n\ninvalid --> time\nMissing timing\n".utf8)))
+        XCTAssertEqual(RemuxSession.decodedServerWebVTT(Data("\u{feff}WEBVTT\n\n".utf8))?.count, 0)
+        let body = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhello\n"
+        XCTAssertEqual(RemuxSession.decodedServerWebVTT(Data(body.utf8))?.first?.text, "hello")
+    }
+
+    func testArchivedReadSpanDoesNotJoinTheUnreadGapAfterSourceReopensAtZero() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 120))
+        defer { session.stop() }
+        session.stateLock.lock()
+        defer { session.stateLock.unlock() }
+        session.readSpanFrom = 60
+        session.readSpanUpTo = 90
+        session.archiveReadSpanLocked()
+        XCTAssertNil(session.readSpanFrom)
+        XCTAssertEqual(session.readSpanUpTo, 0)
+        session.readSpanFrom = min(session.readSpanFrom ?? 0, 0)
+        session.readSpanUpTo = max(session.readSpanUpTo, 6)
+        XCTAssertTrue(session.readCoversLocked(from: 0, to: 6))
+        XCTAssertTrue(session.readCoversLocked(from: 60, to: 90))
+        XCTAssertFalse(session.readCoversLocked(from: 6, to: 60))
+        XCTAssertFalse(session.readCoversLocked(from: 0, to: 90))
+    }
+
+    func testImageSupplierUsesCoverageRatherThanLocalDecoderExistence() {
+        XCTAssertTrue(RemuxSession.prefersServerImageSubtitles(localAvailable: true, localCoversWindow: false,
+                                                              localCoversStart: false, serverComplete: false,
+                                                              serverReadUpTo: 24, windowStart: 18))
+        XCTAssertFalse(RemuxSession.prefersServerImageSubtitles(localAvailable: true, localCoversWindow: true,
+                                                               localCoversStart: true, serverComplete: false,
+                                                               serverReadUpTo: 12, windowStart: 18))
+        XCTAssertTrue(RemuxSession.prefersServerImageSubtitles(localAvailable: true, localCoversWindow: true,
+                                                              localCoversStart: true, serverComplete: true,
+                                                              serverReadUpTo: 30, windowStart: 18))
+        XCTAssertFalse(RemuxSession.prefersServerImageSubtitles(localAvailable: true, localCoversWindow: false,
+                                                               localCoversStart: true, localReadUpTo: 4, serverComplete: false,
+                                                               serverReadUpTo: 0, windowStart: 0))
+        XCTAssertTrue(RemuxSession.prefersServerImageSubtitles(localAvailable: true, localCoversWindow: false,
+                                                              localCoversStart: true, localReadUpTo: 4, serverComplete: false,
+                                                              serverReadUpTo: 5, windowStart: 0))
+    }
+
+    func testImageRetryDelayStaysBoundedBeyondFourAttempts() {
+        XCTAssertEqual(RemuxSession.serverImageRetryDelay(attempt: 1), 2)
+        XCTAssertEqual(RemuxSession.serverImageRetryDelay(attempt: 5), 10)
+        XCTAssertEqual(RemuxSession.serverImageRetryDelay(attempt: 1000), 30)
+    }
+
+    private func imageDecoder(session: RemuxSession, prefix: String) throws -> ImageSubtitleDecoder {
+        let source = matroska.deletingLastPathComponent().appendingPathComponent("pgs-track.sup")
+        var input: UnsafeMutablePointer<AVFormatContext>?
+        XCTAssertGreaterThanOrEqual(avformat_open_input(&input, source.path, av_find_input_format("sup"), nil), 0)
+        defer { avformat_close_input(&input) }
+        let context = try XCTUnwrap(input)
+        let stream = try XCTUnwrap(context.pointee.streams[0])
+        return try XCTUnwrap(ImageSubtitleDecoder(stream: stream, fallbackWidth: 1920, fallbackHeight: 1080,
+                                                 dir: session.dir, reportedIndex: 3, namePrefix: prefix))
+    }
+
+    func testImageManifestKeepsServerCoverageUntilLocalWindowCatchesUp() throws {
+        let subtitle = RemuxSubtitle(index: 3, name: "English", language: "eng", vttUrl: "", localVtt: "",
+                                     isDefault: false, isForced: false, isImage: true, isEngineText: false)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 90, subtitles: [subtitle]))
+        defer { session.stop() }
+        session.imageSubtitles[3] = try imageDecoder(session: session, prefix: "local")
+        session.serverImageSubtitles[3] = try imageDecoder(session: session, prefix: "server")
+        session.serverImageReadUpTo[3] = 24
+        session.sessionAnchorSeconds = 0
+        session.lastRequestedSegment = 3
+        session.readSpanFrom = 60
+        session.readSpanUpTo = 90
+        session.demuxedUpTo = 90
+        session.sourceState = .warming
+        let warmingData = try XCTUnwrap(session.subtitleCueManifest(streamIndex: 3))
+        let warming = try XCTUnwrap(JSONSerialization.jsonObject(with: warmingData) as? [String: Any])
+        XCTAssertEqual(warming["demuxedUpTo"] as? Double, 24)
+        XCTAssertEqual(warming["complete"] as? Bool, false)
+
+        session.readSpanFrom = 0
+        session.readSpanUpTo = 30
+        session.demuxedUpTo = 30
+        session.sourceState = .ready
+        let readyData = try XCTUnwrap(session.subtitleCueManifest(streamIndex: 3))
+        let ready = try XCTUnwrap(JSONSerialization.jsonObject(with: readyData) as? [String: Any])
+        XCTAssertEqual(ready["demuxedUpTo"] as? Double, 30)
+    }
+
+    func testUnsupportedServerImageTrackReportsFailureWithoutDiscardingCachedCoverage() throws {
+        let subtitle = RemuxSubtitle(index: 3, name: "English", language: "eng", vttUrl: "", localVtt: "",
+                                     isDefault: false, isForced: false, isImage: true, isEngineText: false)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [subtitle]))
+        defer { session.stop() }
+        let decoder = try imageDecoder(session: session, prefix: "server")
+        session.serverImageSubtitles[3] = decoder
+        session.serverImageReadUpTo[3] = 12
+        var failures: [[String: Any]] = []
+        session.onFailed = { failures.append($0) }
+        session.reportUnavailableServerImageSubtitle(subtitle, reason: "unsupported codec")
+        session.reportUnavailableServerImageSubtitle(subtitle, reason: "unsupported codec")
+        XCTAssertTrue(session.hasFailed)
+        XCTAssertEqual(failures.count, 1)
+        XCTAssertEqual(failures[0]["streamIndex"] as? Int, 3)
+        XCTAssertTrue((failures[0]["message"] as? String)?.contains("unsupported codec") == true)
+        XCTAssertTrue(session.serverImageSubtitles[3] === decoder)
+        XCTAssertEqual(session.serverImageReadUpTo[3], 12)
     }
 }
 

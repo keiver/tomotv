@@ -94,6 +94,7 @@ final class RemuxSession {
     let token = UUID().uuidString
     let config: RemuxConfig
     let dir: URL
+    var sourceBandwidth: Int { config.sourceBandwidth > 0 ? config.sourceBandwidth : config.bandwidth }
 
     let stateLock = NSLock()
     /// Chapter keyframes for the tvOS info panel, from a context of their own; the
@@ -210,25 +211,10 @@ final class RemuxSession {
     var adoptedStarts: [Double] = []
     /// Segment durations of the shared grid (from the canonical rung).
     var adoptedDurations: [Double] = []
-    /// Per rung id, its own segment list: durations match the shared grid (M1,
-    /// validated on adoption), URLs are the rung's own transcode. Rung 0 is the
-    /// canonical rung whose playlist defines adoptedStarts.
     var tierSegments: [Int: [TierSegment]] = [:]
     /// Per rung id, tier segment indices with a rewrapped file on disk (prune).
     var tierMaterialized: [Int: Set<Int>] = [:]
-    /// Rewrap failures this session (tier + audio-lo together). A server whose
-    /// segments cannot be rewrapped (no keyframe index → mid-GOP cuts, seen on
-    /// demo.jellyfin.org) fails EVERY cold segment; after the threshold the
-    /// session disables the tier and answers its routes with instant 404s so
-    /// AVPlayer's retries stop burning the starving link with server fetches.
-    /// Structural rewrap failures and HTTP refusals ONLY: a fetch timeout is
-    /// the link being slow, and on a slow link the tier is the one variant
-    /// that fits, so a timeout must never kill it.
-    var tierRewrapFailures = 0
-    var lastTierFailure: String? = nil
-    var tierDisabled = false
-    var tierDropReason: String? = nil
-    static let tierFailureLimit = 2
+    var supplierRecovery: [SlipstreamSupplier: SupplierRecoveryState] = [:]
     /// Why adoption declined the tier, for the report the master sends.
     var tierUnavailableReason: String? = nil
     /// The opening segment was fetched and rewrapped ahead of the master, or found unavailable.
@@ -353,12 +339,14 @@ final class RemuxSession {
     var copyAnnounced = false
     /// The renditions are built: the copy can be produced, so a master may name it.
     var sourceReady = false
-    enum SourceState { case dormant, warming, ready, unavailable }
+    enum SourceState: String { case dormant, warming, ready, retryWait, unavailable }
     var sourceState = SourceState.warming
-    var sourceReleased: Bool { sourceState == .dormant || sourceState == .unavailable }
+    var sourceReleased: Bool { sourceState == .dormant || sourceState == .retryWait || sourceState == .unavailable }
     var sourceUnusable: Bool { sourceState == .unavailable }
-    /// The startup probe met an error status from the server.
-    var sourceRefused = false
+    var sourceRetryAttempts = 0
+    var sourceRetryAt = Date.distantPast
+    var sourceTakeoverSegment: Int?
+    var sourceProbeFailure: LinkProbeFailure?
     /// The canonical playlist's own transfer rate: what the ladder is sized by when the source
     /// cannot be read at all, so the probe has nothing to say.
     var playlistLinkBps: Double?
@@ -392,6 +380,7 @@ final class RemuxSession {
 
     init(config: RemuxConfig) throws {
         self.config = config
+        if config.serverVideoOnly { sourceState = .unavailable }
         self.aheadWindow = config.readAheadSegments > 0 ? config.readAheadSegments : Self.defaultAheadWindow
         self.keepWindow = config.isLive
             ? max(3, Int(config.liveWindowSeconds / max(1, config.liveSegmentSeconds)))

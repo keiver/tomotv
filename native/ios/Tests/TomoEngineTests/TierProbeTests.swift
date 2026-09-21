@@ -185,8 +185,7 @@ final class TierProbeTests: XCTestCase {
         startOffsetSeconds: Double = 0,
         // Below the 8 Mbps source by default so the master lists the tier; nil leaves the real probe,
         // which cannot reach the stubbed source and so reads nothing.
-        linkCeilingBps: Double? = 2_000_000,
-        sourceRefused: Bool = false
+        linkCeilingBps: Double? = 2_000_000
     ) throws -> (RemuxSession, () -> [[String: Any]]) {
         let s = try RemuxSession(
             config: makeConfig(
@@ -200,7 +199,6 @@ final class TierProbeTests: XCTestCase {
                 startOffsetSeconds: startOffsetSeconds
             ))
         s.testLinkBps = linkCeilingBps
-        s.sourceRefused = sourceRefused
         let lock = NSLock()
         var reports: [[String: Any]] = []
         s.onTier = { report in
@@ -290,45 +288,45 @@ final class TierProbeTests: XCTestCase {
         XCTAssertFalse(TierServerStub.hits.contains("/Videos/x/seg0.ts"), "an unadopted grid is never probed")
     }
 
-    func testOpeningSegmentRefusedDeclinesTheTierBeforeTheMaster() throws {
+    func testOpeningSegmentServerErrorKeepsTheTierRetryable() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (500, Data())
         let (s, reports) = try session()
         defer { s.stop() }
         waitForProbe(s)
         XCTAssertTrue(TierServerStub.hits.contains("/Videos/x/seg0.ts"))
-        XCTAssertTrue(TierServerStub.sawHit("/Videos/ActiveEncodings"), "the transcode the probe started is killed")
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/ActiveEncodings"), 0)
         let master = s.masterPlaylist()
-        XCTAssertFalse(master.contains("t0.m3u8"))
+        XCTAssertTrue(master.contains("t0.m3u8"))
         XCTAssertTrue(master.contains("media.m3u8"), "the primary is still offered")
-        XCTAssertNil(s.tierPlaylist(rung: 0))
-        XCTAssertEqual(states(reports()), ["declined"])
-        XCTAssertEqual(reports().first?["reason"] as? String, "opening segment 0 HTTP 500")
+        XCTAssertNotNil(s.tierPlaylist(rung: 0))
+        XCTAssertEqual(states(reports()), ["listed"])
+        XCTAssertEqual(s.supplierRecovery[.rung(0)]?.failure, .http(500))
     }
 
-    /// A dead link answers with no status at all. The tier is still declined, but nothing is
-    /// counted as a structural failure: on a slow link the tier is the one variant that fits.
-    func testTransportErrorOnTheOpeningSegmentDeclinesTheTier() throws {
+    func testTransportErrorOnTheOpeningSegmentKeepsTheTierRetryable() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.transportErrors.insert("/Videos/x/seg0.ts")
         let (s, reports) = try session()
         defer { s.stop() }
         waitForProbe(s)
-        XCTAssertFalse(s.masterPlaylist().contains("t0.m3u8"))
-        XCTAssertEqual(states(reports()), ["declined"])
-        XCTAssertEqual(reports().first?["reason"] as? String, "opening segment 0 timed out")
+        XCTAssertTrue(s.masterPlaylist().contains("t0.m3u8"))
+        XCTAssertEqual(states(reports()), ["listed"])
+        XCTAssertEqual(s.supplierRecovery[.rung(0)]?.failure, .transport)
     }
 
     /// A server that answers with something that is not a transport stream (an error page).
-    func testUnrewrappableOpeningSegmentDeclinesTheTier() throws {
+    func testUnrewrappableOpeningSegmentDoesNotDisableOtherSuppliers() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, Data("<html>no transcoder</html>".utf8))
         let (s, reports) = try session()
         defer { s.stop() }
         waitForProbe(s)
-        XCTAssertFalse(s.masterPlaylist().contains("t0.m3u8"))
-        XCTAssertEqual(states(reports()), ["declined"])
-        XCTAssertEqual(reports().first?["reason"] as? String, "opening segment 0 rewrap failed")
+        XCTAssertTrue(s.masterPlaylist().contains("t0.m3u8"))
+        XCTAssertEqual(states(reports()), ["listed"])
+        XCTAssertEqual(s.supplierRecovery[.rung(0)]?.failure, .invalidMedia)
+        XCTAssertNil(s.supplierRecovery[.audio(0)])
+        XCTAssertTrue(s.tierOffered)
     }
 
     func testResumeProbesTheSegmentAtTheOffset() throws {
@@ -377,21 +375,19 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(states(reports()), ["listed"])
     }
 
-    func testADroppedTierAnswersEveryOneOfItsRoutesWithNotFound() throws {
+    func testAnOpeningFailureDoesNotRemoveTheRungsRoutes() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (500, Data())
         let (s, _) = try session()
         defer { s.stop() }
         waitForProbe(s)
-        XCTAssertNil(s.tierPlaylist(rung: 0))
-        XCTAssertTrue(isNotFound(s.tierSegmentResponse(rung: 0, 0)))
-        XCTAssertTrue(isNotFound(s.tierInitResponse(rung: 0)))
-        XCTAssertTrue(isNotFound(s.audioLoInitResponse(position: 0)))
-        XCTAssertTrue(isNotFound(s.audioLoSegmentResponse(position: 0, n: 0)))
+        XCTAssertNotNil(s.tierPlaylist(rung: 0))
+        XCTAssertFalse(isNotFound(s.tierSegmentResponse(rung: 0, 0)))
+        XCTAssertFalse(isNotFound(s.tierInitResponse(rung: 0)))
+        XCTAssertTrue(s.tierOffered)
     }
 
-    /// The audio the tier rides on is server-fed too: its refusals retire the tier the same way.
-    func testAudioRefusalsRetireTheTier() throws {
+    func testAudioRefusalsDoNotRetireTheTier() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         TierServerStub.routes["/Audio/x/main.m3u8"] = (200, audioPlaylist)
@@ -404,13 +400,13 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(states(reports()), ["listed"])
         XCTAssertTrue(s.audioLoActive)
 
-        // Two refusals is the limit the session carries for structural failures.
         resolve(s.audioLoInitResponse(position: 0))
-        XCTAssertTrue(s.tierOffered, "one refusal is not enough to retire it")
+        XCTAssertTrue(s.tierOffered)
         resolve(s.audioLoInitResponse(position: 0))
-        XCTAssertFalse(s.tierOffered)
-        XCTAssertEqual(states(reports()), ["listed", "dropped"])
-        XCTAssertEqual(reports().last?["reason"] as? String, "audio HTTP 500, after 2 failures")
+        XCTAssertTrue(s.tierOffered)
+        XCTAssertEqual(states(reports()), ["listed"])
+        XCTAssertEqual(s.supplierRecovery[.audio(0)]?.failure, .http(500))
+        XCTAssertNil(s.supplierRecovery[.rung(0)])
     }
 
     // MARK: - Reporting
@@ -428,7 +424,7 @@ final class TierProbeTests: XCTestCase {
     }
 
     func testADeclinedTierIsNeverAlsoReportedDropped() throws {
-        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, Data("#EXTM3U\n#EXTINF:6.0,\nseg0.ts\n#EXT-X-ENDLIST\n".utf8))
         TierServerStub.routes["/Videos/x/seg0.ts"] = (500, Data())
         let (s, reports) = try session()
         defer { s.stop() }
@@ -650,8 +646,6 @@ final class TierProbeTests: XCTestCase {
         return false
     }
 
-    /// After the master has named the copy, a dead source no longer ends the session: the copy's
-    /// routes answer 410, the rungs keep serving, and nothing asks for a rebuild toward the copy.
     func testASourceLostAfterTheMasterHandsTheSessionToTheRungs() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
@@ -676,10 +670,11 @@ final class TierProbeTests: XCTestCase {
         XCTAssertFalse(s.hasFailed)
         XCTAssertEqual(failures, 0, "the app is not told to leave")
         XCTAssertTrue(s.isSourceReleased)
-        XCTAssertTrue(isGone(s.segmentResponse(0)), "the copy is gone for good")
-        XCTAssertTrue(isGone(s.initResponse()))
+        let original = s.segmentResponse(0)
+        XCTAssertTrue(isGone(original) || isFile(original))
+        XCTAssertTrue(isFile(s.initResponse()), "valid cached initialization data remains usable")
         XCTAssertFalse(isNotFound(s.tierSegmentResponse(rung: 0, 0)), "the rung still serves")
-        XCTAssertTrue(s.reportsCopyListed, "nothing to climb back to")
+        XCTAssertTrue(s.reportsCopyListed)
         _ = s.initResponse()
         _ = s.tierSegmentResponse(rung: 0, 0)
         s.stateLock.lock()
@@ -735,16 +730,7 @@ final class TierProbeTests: XCTestCase {
         request.abandon()
         wait(for: [done], timeout: 5)
         XCTAssertNil(served, "the fetch ended with the server still holding the segment")
-        XCTAssertFalse(s.isTierDisabled, "a fetch the player gave up is not a failing tier")
-    }
-
-    /// Measured at 0.6 Mb/s: AVPlayer gave up two rung segments in a row, each fetch ended with the
-    /// server's 200 already in hand ("fetch failed (HTTP 200)"), and the whole ladder was dropped.
-    func testOnlyAnErrorStatusIsTheServerRefusing() {
-        XCTAssertFalse(RemuxSession.refused(200), "a body that never finished is a transfer that broke off")
-        XCTAssertFalse(RemuxSession.refused(0), "and so is one that never answered")
-        XCTAssertTrue(RemuxSession.refused(404))
-        XCTAssertTrue(RemuxSession.refused(500))
+        XCTAssertNil(s.supplierRecovery[.rung(0)], "a fetch the player gave up is not a failing supplier")
     }
 
     /// The measured shape itself: the server has answered 200, the body has not come, and the player
@@ -782,7 +768,7 @@ final class TierProbeTests: XCTestCase {
             request.abandon()
             wait(for: [done], timeout: 5)
         }
-        XCTAssertFalse(s.isTierDisabled, "a segment the player gave up is not the server refusing")
+        XCTAssertNil(s.supplierRecovery[.rung(0)], "a segment the player gave up is not the server refusing")
     }
 
     /// A rung landing beside the producer is counted once: by its own transfer, not again by the
@@ -795,7 +781,9 @@ final class TierProbeTests: XCTestCase {
         s.transfers.note(bytes: 600_000)
         s.noteFloorSample(bytes: 600_000, from: t0, to: t0.addingTimeInterval(1))
         s.noteSourceRead(bytes: 600_000, seconds: 0.5, now: t0.addingTimeInterval(1))
-        XCTAssertEqual(s.pacedLinkBps ?? 0, 9_600_000, accuracy: 1, "1.2 MB over one shared second")
+        XCTAssertEqual(s.floorLinkBps ?? 0, 9_600_000, accuracy: 1, "1.2 MB over one shared second")
+        XCTAssertNil(s.wireLinkBps)
+        XCTAssertNil(s.pacedLinkBps)
     }
 
     /// A producer that sat out a minute under a rung starts its next sample when it wakes: the
@@ -838,7 +826,7 @@ final class TierProbeTests: XCTestCase {
         let serve = try provider(of: s.tierSegmentResponse(rung: 0, 1))
         XCTAssertNil(serve(request))
         XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg1.ts"), 0, "nobody wants it, so the server is never asked")
-        XCTAssertFalse(s.isTierDisabled)
+        XCTAssertNil(s.supplierRecovery[.rung(0)])
         XCTAssertNotNil(try provider(of: s.tierSegmentResponse(rung: 0, 1))(SegmentRequest()), "the next request still gets it")
     }
 
@@ -858,7 +846,7 @@ final class TierProbeTests: XCTestCase {
         let serve = try provider(of: s.audioLoSegmentResponse(position: 0, n: 1))
         XCTAssertNil(serve(request))
         XCTAssertEqual(TierServerStub.hitCount("/Audio/x/a-seg1.mp4"), 0)
-        XCTAssertFalse(s.isTierDisabled, "a fetch nobody wanted is not a failing tier")
+        XCTAssertTrue(s.tierOffered)
     }
 
     /// A resumed session's audio init comes from the segment at the resume point, not the film's first.
@@ -938,6 +926,65 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNil(plenty.openingRung, "a copy that leads has the link to itself, and latches no rung")
     }
 
+    func testOpeningChoiceSkipsAFailedLatchWithoutRetiringItsRendition() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.sourceState = .dormant
+        session.openingRung = 0
+        session.openingRungResolved = true
+        session.recordSupplierFailure(.rung(0), failure: .http(503))
+
+        XCTAssertEqual(session.chooseOpeningRung(linkBps: 2_000_000), 1)
+        XCTAssertEqual(session.openingRung, 1)
+        XCTAssertFalse(session.openingRungResolved)
+        XCTAssertFalse(session.rungsUnavailable.contains(0))
+        XCTAssertEqual(session.supplierRecovery[.rung(0)]?.failure, .http(503))
+    }
+
+    func testSelectingRungZeroStartsItsOwnOpeningFetch() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.sourceState = .dormant
+        session.adoptedStarts = [0, 6, 12]
+        session.adoptedDurations = [6, 6, 6]
+        session.gridResolved = true
+        session.openingRung = 1
+        session.openingRungResolved = false
+        session.recordSupplierFailure(.rung(1), failure: .http(503))
+        let media = try XCTUnwrap(TierRewrapper.rewrap(tsData: tierSegment, targetStartSeconds: 0))
+        try media.mediaSegment.write(to: session.dir.appendingPathComponent("t0-seg0.m4s"))
+
+        XCTAssertEqual(session.chooseOpeningRung(linkBps: 2_000_000), 0)
+        settle {
+            session.stateLock.lock()
+            defer { session.stateLock.unlock() }
+            return session.openingRungResolved
+        }
+        session.stateLock.lock()
+        let resolved = session.openingRungResolved
+        session.stateLock.unlock()
+        XCTAssertTrue(resolved)
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg0.ts"), 0)
+    }
+
+    func testOpeningHoldUsesTheSelectedRungRatherThanTheCanonicalProbe() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.rungLeads = true
+        for selectedRung in [0, 1] {
+            session.openingRung = selectedRung
+            session.tierProbeResolved = true
+            session.openingRungResolved = false
+            XCTAssertTrue(session.openingHoldLocked())
+            session.tierProbeResolved = false
+            session.openingRungResolved = true
+            XCTAssertFalse(session.openingHoldLocked())
+        }
+        session.rungLeads = false
+        session.openingRungResolved = false
+        XCTAssertFalse(session.openingHoldLocked())
+    }
+
     /// A fast link whose source will not open is still a fast link: the rungs open where it affords.
     func testAFastLinkWithNoSourceOpensAboveTheBottomRung() throws {
         TierServerStub.routes["/Videos/x/t0.m3u8"] = (200, playlist)
@@ -959,7 +1006,7 @@ final class TierProbeTests: XCTestCase {
         waitForProbe(s)
         let master = s.masterPlaylist()
         XCTAssertTrue(s.isSourceReleased)
-        XCTAssertFalse(master.contains("media.m3u8"))
+        XCTAssertTrue(master.contains("media.m3u8"))
         XCTAssertLessThan(master.range(of: "t1.m3u8")!.lowerBound, master.range(of: "t0.m3u8")!.lowerBound, "30 Mb/s opens on the upper rung, not on the smallest")
     }
 
@@ -997,7 +1044,7 @@ final class TierProbeTests: XCTestCase {
         waitForProbe(s)
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("media.m3u8"))
-        guard case .temporarilyUnavailable = s.initResponse() else { return XCTFail("a cold copy must defer without starting a streamed response") }
+        guard case .temporarilyUnavailable = s.initResponse() else { return XCTFail("an unready supplier must defer before media headers") }
         XCTAssertTrue(master.contains("t0.m3u8"))
     }
 
@@ -1013,7 +1060,7 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(master.contains("media.m3u8"))
         XCTAssertTrue(master.contains("t0.m3u8"))
         XCTAssertTrue(master.contains("GROUP-ID=\"audio-lo\""))
-        guard case .temporarilyUnavailable = s.segmentResponse(0) else { return XCTFail("cold source segment must return a temporary response") }
+        guard case .temporarilyUnavailable = s.segmentResponse(0) else { return XCTFail("a cold source must defer before media headers") }
     }
 
     func testDormantSourceWakesInsideItsOriginalSession() throws {
@@ -1034,6 +1081,7 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNil(session.renditions.first)
         session.stateLock.lock()
         session.lastRequestedSegment = 1
+        session.sourceRetryAttempts = 4
         session.testLinkBps = 40_000_000
         session.stateLock.unlock()
         settle { session.sourceReady || session.hasFailed }
@@ -1043,6 +1091,363 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNotNil(session.segmentURL(1))
         XCTAssertEqual(session.sessionAnchorSeconds ?? .infinity, 1.423222, accuracy: 0.01)
         XCTAssertNil(session.copyResponseDeferral())
+        XCTAssertEqual(session.sourceRetryAttempts, 0)
+    }
+
+    func testForegroundWakeDoesNotRequireCapacityForTwoVideoSuppliers() throws {
+        let session = try RemuxSession(config: makeConfig(
+            durationSeconds: 18, bandwidth: 4_000_000,
+            tierPlaylistUrl: playlistUrl, tierBandwidth: 4_000_000))
+        defer { session.stop() }
+        session.adoptedStarts = [0, 6, 12]
+        session.adoptedDurations = [6, 6, 6]
+        session.sourceState = .dormant
+        session.copyAnnounced = true
+        session.lastRequestedSegment = 1
+        session.lastTierRung = 0
+        session.wireLinkBps = 5_000_000
+        let token = session.token
+
+        XCTAssertTrue(session.wakeSourceIfAffordable())
+        XCTAssertEqual(session.sourceState, .warming)
+        XCTAssertEqual(session.sourceTakeoverSegment, 1)
+        XCTAssertEqual(session.pendingSeekSegment, 1)
+        XCTAssertEqual(session.token, token)
+        XCTAssertFalse(session.sourceReady)
+        XCTAssertTrue(session.awaitCopyAdmission(until: Date()))
+        XCTAssertFalse(session.copyFollowsLocked())
+    }
+
+    func testTheFullMultiplexedSourceCostGovernsCopyAdmissionAndWake() throws {
+        var configuration = makeConfig(durationSeconds: 18, bandwidth: 4_000_000,
+                                       tierPlaylistUrl: playlistUrl, tierBandwidth: 1_000_000)
+        configuration.sourceBandwidth = 8_000_000
+        let session = try RemuxSession(config: configuration)
+        defer { session.stop() }
+        session.adoptedStarts = [0, 6, 12]
+        session.adoptedDurations = [6, 6, 6]
+        session.copyAnnounced = true
+        session.testLinkBps = 6_000_000
+        session.finishLinkProbe(6_000_000, reporting: false)
+        session.sourceState = .dormant
+
+        XCTAssertFalse(session.decideCopy())
+        XCTAssertFalse(session.wakeSourceIfAffordable())
+        session.sourceState = .warming
+        XCTAssertFalse(session.awaitCopyAdmission(until: Date()))
+        XCTAssertFalse(session.copyFollowsLocked())
+        XCTAssertEqual(session.wireLinkBps, 6_000_000)
+
+        session.sourceState = .dormant
+        session.testLinkBps = 12_000_000
+        session.finishLinkProbe(12_000_000, reporting: true)
+        XCTAssertTrue(session.wakeSourceIfAffordable())
+        XCTAssertTrue(session.awaitCopyAdmission(until: Date()))
+        XCTAssertTrue(session.copyFollowsLocked())
+    }
+
+    func testMissingSavedSubtitleDefersWhileImagePlaceholdersRemainIntentional() throws {
+        let saved = RemuxSubtitle(index: 2, name: "Text", language: "eng", vttUrl: "",
+                                  localVtt: "file:///missing-\(UUID().uuidString).vtt", isDefault: false,
+                                  isForced: false, isImage: false, isEngineText: false)
+        let image = RemuxSubtitle(index: 3, name: "Image", language: "eng", vttUrl: "", localVtt: "",
+                                  isDefault: false, isForced: false, isImage: true, isEngineText: false)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, subtitles: [saved, image]))
+        defer { session.stop() }
+        guard case .temporarilyUnavailable = session.route("sub2.vtt") else { return XCTFail("missing text is not empty successful text") }
+        guard case .data(let body, _) = session.route("sub3.vtt") else { return XCTFail("image captions keep their cue-less picker rendition") }
+        XCTAssertEqual(String(decoding: body, as: UTF8.self), session.emptySubtitleBody())
+        XCTAssertTrue(isNotFound(session.route("sub99.vtt")))
+        XCTAssertTrue(isNotFound(session.route("sub3--1.vtt")))
+        XCTAssertTrue(isNotFound(session.route("sub3-99.vtt")))
+        XCTAssertTrue(isNotFound(session.route("sub2-0.vtt")))
+    }
+
+    func testAnUncoveredTextWindowDefersBeforeHeaders() throws {
+        var subtitle = RemuxSubtitle(index: 2, name: "Text", language: "eng", vttUrl: "", localVtt: "",
+                                     isDefault: false, isForced: false, isImage: false, isEngineText: true)
+        subtitle.serverVttUrl = "http://tier.test/missing-subtitle.vtt"
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, subtitles: [subtitle]))
+        defer { session.stop() }
+        session.subtitleDecodersBuilt = true
+        guard case .temporarilyUnavailable = session.route("sub2-0.vtt") else { return XCTFail("uncovered text is not an empty successful window") }
+        XCTAssertTrue(isNotFound(session.route("sub99-0.vtt")))
+        XCTAssertTrue(isNotFound(session.route("sub2-3.vtt")))
+    }
+
+    func testSourceRetryWaitIsBoundedAndKeepsTheSessionRecoverable() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.sourceState = .ready
+        session.sourceReady = true
+        session.sourceTakeoverSegment = 2
+        let now = Date()
+        session.retrySource(because: "network timeout", now: now)
+
+        XCTAssertEqual(session.sourceState, .retryWait)
+        XCTAssertFalse(session.sourceReady)
+        XCTAssertNil(session.sourceTakeoverSegment)
+        XCTAssertTrue(session.recovering)
+        XCTAssertFalse(session.sourceUnusable)
+        XCTAssertFalse(session.hasFailed)
+        XCTAssertEqual(session.sourceRetryAttempts, 1)
+        XCTAssertEqual(session.sourceRetryAt.timeIntervalSince(now), 1, accuracy: 0.001)
+        XCTAssertFalse(session.wakeSourceIfAffordable(now: now))
+        XCTAssertFalse(session.awaitCopyAdmission(until: now))
+        XCTAssertTrue(session.wakeSourceIfAffordable(now: now.addingTimeInterval(1)))
+
+        for _ in 0..<20 { session.retrySource(because: "network timeout", now: now) }
+        XCTAssertEqual(session.sourceRetryAttempts, 6)
+        XCTAssertEqual(session.sourceRetryAt.timeIntervalSince(now), 30, accuracy: 0.001)
+        XCTAssertFalse(session.sourceUnusable)
+        session.cancelled = true
+        XCTAssertFalse(session.wakeSourceIfAffordable(now: now.addingTimeInterval(60)))
+    }
+
+    func testCachedRungMediaBypassesAdmissionButNotSessionCancellation() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.adoptedStarts = [0, 6, 12]
+        session.adoptedDurations = [6, 6, 6]
+        session.testLinkBps = 600_000
+        let media = try XCTUnwrap(TierRewrapper.rewrap(tsData: tierSegment, targetStartSeconds: 0))
+        try media.initSegment.write(to: session.dir.appendingPathComponent("t1-init.mp4"))
+        try media.mediaSegment.write(to: session.dir.appendingPathComponent("t1-seg0.m4s"))
+        session.recordSupplierFailure(.rung(1), failure: .http(503))
+
+        XCTAssertTrue(isFile(session.route("t1-init.mp4")))
+        XCTAssertTrue(isFile(session.route("t1-seg0.m4s")))
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/t1.m3u8"), 0)
+        session.cancelled = true
+        XCTAssertTrue(isNotFound(session.route("t1-init.mp4")))
+        XCTAssertTrue(isNotFound(session.route("t1-seg0.m4s")))
+    }
+
+    func testCachedOriginalVideoAndAudioSurviveSourceUnavailability() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        let video = RemuxSession.Rendition(prefix: "", inputStreams: [], transcoder: nil)
+        let audio = RemuxSession.Rendition(prefix: "a0", inputStreams: [], transcoder: nil)
+        let media = try XCTUnwrap(TierRewrapper.rewrap(tsData: tierSegment, targetStartSeconds: 0))
+        session.renditions = [video, audio]
+        for rendition in session.renditions {
+            rendition.completed.insert(0)
+            try media.initSegment.write(to: session.dir.appendingPathComponent(rendition.initName))
+            try media.mediaSegment.write(to: session.dir.appendingPathComponent(rendition.segmentName(0)))
+        }
+        session.sourceState = .unavailable
+        session.wireLinkBps = 600_000
+
+        XCTAssertTrue(isFile(session.initResponse()))
+        XCTAssertTrue(isFile(session.segmentResponse(0)))
+        XCTAssertTrue(isFile(session.initResponse(prefix: "a0")))
+        XCTAssertTrue(isFile(session.segmentResponse(0, prefix: "a0")))
+        XCTAssertNotNil(session.segmentURL(0))
+        XCTAssertNotNil(session.segmentURL(0, prefix: "a0"))
+        session.cancelled = true
+        XCTAssertTrue(isNotFound(session.initResponse()))
+        XCTAssertTrue(isNotFound(session.segmentResponse(0)))
+        XCTAssertNil(session.segmentURL(0))
+    }
+
+    func testColdVideoDefersBeforeHeadersWithoutGatingEngineAudioByVideoBitrate() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.adoptedStarts = [0, 6, 12]
+        session.adoptedDurations = [6, 6, 6]
+        session.sourceState = .ready
+        session.sourceReady = true
+        session.testLinkBps = 600_000
+        session.renditions = [
+            RemuxSession.Rendition(prefix: "", inputStreams: [], transcoder: nil),
+            RemuxSession.Rendition(prefix: "a0", inputStreams: [], transcoder: nil),
+        ]
+
+        guard case .temporarilyUnavailable = session.initResponse() else { return XCTFail("cold video init must defer before headers") }
+        guard case .temporarilyUnavailable = session.segmentResponse(0) else { return XCTFail("cold video segment must defer before headers") }
+        guard case .temporarilyUnavailable = session.route("t1-init.mp4") else { return XCTFail("cold rung init must defer before headers") }
+        guard case .temporarilyUnavailable = session.route("t1-seg0.m4s") else { return XCTFail("cold rung media must defer before headers") }
+        guard case .streamed = session.initResponse(prefix: "a0") else { return XCTFail("audio init does not require capacity for the whole video") }
+        guard case .segment = session.segmentResponse(0, prefix: "a0") else { return XCTFail("audio media does not require capacity for the whole video") }
+    }
+
+    func testSegmentWaiterFollowsTheRenditionAfterProducerRecovery() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.sourceState = .ready
+        session.sourceReady = true
+        session.renditions = [RemuxSession.Rendition(prefix: "", inputStreams: [], transcoder: nil)]
+        let served = expectation(description: "the original waiter receives the recovered producer's segment")
+        DispatchQueue.global().async {
+            XCTAssertNotNil(session.segmentURL(0))
+            served.fulfill()
+        }
+        settle {
+            session.stateLock.lock()
+            defer { session.stateLock.unlock() }
+            return session.activeWaiters[0] != nil
+        }
+        let replacement = RemuxSession.Rendition(prefix: "", inputStreams: [], transcoder: nil)
+        let media = try XCTUnwrap(TierRewrapper.rewrap(tsData: tierSegment, targetStartSeconds: 0))
+        try media.mediaSegment.write(to: session.dir.appendingPathComponent("seg0.m4s"))
+        session.stateLock.lock()
+        replacement.completed.insert(0)
+        session.renditions = [replacement]
+        session.stateLock.unlock()
+        wait(for: [served], timeout: 2)
+    }
+
+    func testSupplierFailuresAndSuccessesAreIsolated() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        let now = Date()
+        for _ in 0..<12 { session.recordSupplierFailure(.rung(1), failure: .http(503), now: now) }
+        session.recordSupplierFailure(.audio(0), failure: .invalidMedia, now: now)
+
+        XCTAssertEqual(session.supplierRecovery[.rung(1)]?.failures, 6)
+        XCTAssertEqual(try XCTUnwrap(session.supplierRecovery[.rung(1)]).retryAt.timeIntervalSince(now), 30, accuracy: 0.001)
+        XCTAssertNil(session.supplierRecovery[.rung(0)])
+        XCTAssertNil(session.supplierRecovery[.audio(1)])
+        XCTAssertEqual(session.supplierRecovery.count, 2)
+        guard let deferral = session.supplierResponseDeferral(.rung(1), now: now),
+              case .temporarilyUnavailable = deferral else { return XCTFail("retry backoff must defer before headers") }
+        XCTAssertNil(session.supplierResponseDeferral(.rung(1), now: now.addingTimeInterval(30)))
+        session.recordSupplierSuccess(.rung(1))
+        XCTAssertNil(session.supplierRecovery[.rung(1)])
+        XCTAssertEqual(session.supplierRecovery[.audio(0)]?.failure, .invalidMedia)
+        XCTAssertTrue(session.awaitSupplierRetry(.rung(1)))
+        session.recordSupplierFailure(.rung(0), failure: .unsupported)
+        XCTAssertFalse(session.awaitSupplierRetry(.rung(0)))
+        XCTAssertNil(session.supplierResponseDeferral(.rung(1)))
+    }
+
+    func testAbandonedFetchDoesNotChangeSupplierHealth() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        let request = SegmentRequest()
+        request.abandon()
+        session.withFetchInterest("t0-1", request) {
+            session.recordSupplierFetchFailure(.rung(0), status: 200, key: "t0-1", counted: true)
+        }
+        XCTAssertNil(session.supplierRecovery[.rung(0)])
+        XCTAssertFalse(session.awaitSupplierRetry(.rung(0), request: request))
+    }
+
+    func testAudioBackoffDefersColdMediaButPreservesCachedMediaAndPlaylist() throws {
+        let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))
+        defer { session.stop() }
+        session.wireLinkBps = 1
+        session.sourceState = .unavailable
+        session.audioLoSegments[0] = [TierSegment(duration: 6, url: "a-seg0.mp4")]
+        session.recordSupplierFailure(.audio(0), failure: .http(503))
+        guard case .temporarilyUnavailable = session.audioLoInitResponse(position: 0) else { return XCTFail("cold audio init must defer before headers") }
+        guard case .temporarilyUnavailable = session.audioLoSegmentResponse(position: 0, n: 0) else { return XCTFail("cold audio media must defer before headers") }
+        guard case .data = session.route("a0s.m3u8") else { return XCTFail("the valid cached audio playlist must remain available") }
+
+        let fixtures = fixtureUrl.deletingLastPathComponent()
+        let initData = try Data(contentsOf: fixtures.appendingPathComponent("audio-carrier-init.mp4"))
+        let segmentData = try Data(contentsOf: fixtures.appendingPathComponent("audio-carrier-seg0.mp4"))
+        let audio = try XCTUnwrap(TierRewrapper.rewrapAudio(initData: initData, segmentData: segmentData, targetStartSeconds: 0))
+        try audio.initSegment.write(to: session.dir.appendingPathComponent("a0s-init.mp4"))
+        try audio.mediaSegment.write(to: session.dir.appendingPathComponent("a0s-seg0.m4s"))
+        XCTAssertTrue(isFile(session.audioLoInitResponse(position: 0)))
+        XCTAssertTrue(isFile(session.audioLoSegmentResponse(position: 0, n: 0)))
+        XCTAssertTrue(isNotFound(session.audioLoSegmentResponse(position: 0, n: 1)))
+        XCTAssertTrue(isNotFound(session.audioLoInitResponse(position: 1)))
+        session.cancelled = true
+        XCTAssertTrue(isNotFound(session.audioLoInitResponse(position: 0)))
+        XCTAssertTrue(isNotFound(session.audioLoSegmentResponse(position: 0, n: 0)))
+    }
+
+    func testAudioPlaylistFailureReturnsBackpressureAndDoesNotRefetchDuringBackoff() throws {
+        TierServerStub.routes["/Audio/x/main.m3u8"] = (503, Data())
+        let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))
+        defer { session.stop() }
+        guard case .temporarilyUnavailable = session.route("a0s.m3u8") else { return XCTFail("a temporary playlist failure must remain retryable") }
+        guard case .temporarilyUnavailable = session.route("a0s.m3u8") else { return XCTFail("retry backoff must be reported before headers") }
+        XCTAssertEqual(TierServerStub.hitCount("/Audio/x/main.m3u8"), 1)
+        XCTAssertEqual(session.supplierRecovery[.audio(0)]?.failure, .http(503))
+        XCTAssertTrue(isNotFound(session.route("a1s.m3u8")))
+    }
+
+    func testInvalidAudioInitIsNotCachedAndTheNextAttemptFetchesAReplacement() throws {
+        let fixtures = fixtureUrl.deletingLastPathComponent()
+        let validInit = try Data(contentsOf: fixtures.appendingPathComponent("audio-carrier-init.mp4"))
+        let validSegment = try Data(contentsOf: fixtures.appendingPathComponent("audio-carrier-seg0.mp4"))
+        TierServerStub.routes["/Audio/x/main.m3u8"] = (200, audioPlaylist)
+        TierServerStub.routes["/Audio/x/a-init.mp4"] = (200, Data("invalid init".utf8))
+        TierServerStub.routes["/Audio/x/a-seg0.mp4"] = (200, validSegment)
+        let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))
+        defer { session.stop() }
+
+        XCTAssertNil(session.materializeAudioLoSegment(position: 0, n: 0))
+        XCTAssertNil(session.audioLoInitData[0])
+        XCTAssertNil(session.audioLoChain[0])
+        XCTAssertEqual(session.supplierRecovery[.audio(0)]?.failure, .invalidMedia)
+        XCTAssertEqual(TierServerStub.hitCount("/Audio/x/a-init.mp4"), 1)
+
+        TierServerStub.routes["/Audio/x/a-init.mp4"] = (200, validInit)
+        session.recordSupplierFailure(.audio(0), failure: .invalidMedia, now: Date().addingTimeInterval(-5))
+        XCTAssertNotNil(session.materializeAudioLoSegment(position: 0, n: 0))
+        XCTAssertEqual(session.audioLoInitData[0], validInit)
+        XCTAssertNil(session.supplierRecovery[.audio(0)])
+        XCTAssertEqual(TierServerStub.hitCount("/Audio/x/a-init.mp4"), 2)
+    }
+
+    func testRungPlaylistFailureIsTemporaryAndCanRecoverOnTheSameRoute() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        TierServerStub.routes["/Videos/x/t1.m3u8"] = (503, Data())
+        session.adoptTierGrid()
+        guard case .temporarilyUnavailable = session.route("t1.m3u8") else { return XCTFail("a temporary rung failure must not become a missing rendition") }
+        XCTAssertFalse(session.rungsUnavailable.contains(1))
+        XCTAssertTrue(session.tierOffered)
+        TierServerStub.routes["/Videos/x/t1.m3u8"] = (200, playlist)
+        session.recordSupplierFailure(.rung(1), failure: .transport, now: Date().addingTimeInterval(-5))
+        guard case .data = session.route("t1.m3u8") else { return XCTFail("the same rendition can recover after backoff") }
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/t1.m3u8"), 2)
+        XCTAssertTrue(isNotFound(session.route("t99.m3u8")))
+    }
+
+    func testAnAbandonedAudioRequestLeavesBackoffWithoutStartingItsInitFetch() throws {
+        let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))
+        defer { session.stop() }
+        session.recordSupplierFailure(.audio(0), failure: .http(503))
+        let request = SegmentRequest()
+        request.abandon()
+        XCTAssertNil(session.materializeAudioLoSegment(position: 0, n: 0, request: request))
+        XCTAssertEqual(TierServerStub.hitCount("/Audio/x/main.m3u8"), 0)
+        XCTAssertEqual(TierServerStub.hitCount("/Audio/x/a-init.mp4"), 0)
+        XCTAssertEqual(session.supplierRecovery[.audio(0)]?.failures, 1)
+    }
+
+    func testAbandoningAudioCancelsItsInFlightInitWithoutPenalizingTheSupplier() throws {
+        let server = try RawHTTPStub()
+        defer { server.stop() }
+        let initData = try Data(contentsOf: fixtureUrl.deletingLastPathComponent().appendingPathComponent("audio-carrier-init.mp4"))
+        server.answer("/audio-init.mp4", .stalls(initData, sent: 16))
+        let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: "\(server.base)/main.m3u8")
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))
+        defer { session.stop() }
+        session.audioLoSegments[0] = [TierSegment(duration: 6, url: "audio-seg0.mp4")]
+        session.audioLoInitRemote[0] = URL(string: "\(server.base)/audio-init.mp4")
+        let request = SegmentRequest()
+        let serve = try provider(of: session.audioLoSegmentResponse(position: 0, n: 0))
+        let returned = expectation(description: "the cancelled audio init fetch returns")
+        DispatchQueue.global().async {
+            XCTAssertNil(serve(request))
+            returned.fulfill()
+        }
+        settle { server.requests("/audio-init.mp4") > 0 }
+        XCTAssertEqual(server.requests("/audio-init.mp4"), 1)
+        request.abandon()
+        wait(for: [returned], timeout: 5)
+        XCTAssertEqual(server.requests("/audio-seg0.mp4"), 0)
+        XCTAssertNil(session.supplierRecovery[.audio(0)])
     }
 
     func testPublishingTheMasterDoesNotPreventSourceDormancy() throws {
@@ -1058,13 +1463,13 @@ final class TierProbeTests: XCTestCase {
         session.testLinkBps = 600_000
         XCTAssertTrue(session.releaseSource(because: "thin link"))
         XCTAssertTrue(session.isSourceReleased)
-        guard case .temporarilyUnavailable = session.initResponse() else { return XCTFail("publishing the copy must not start its input on a thin link") }
+        guard case .temporarilyUnavailable = session.initResponse() else { return XCTFail("publishing the copy must not announce unready media") }
         session.cancelled = true
         session.testLinkBps = 40_000_000
         XCTAssertFalse(session.wakeSourceIfAffordable())
     }
 
-    func testRungsStayListedWhileUnaffordableRoutesDefer() throws {
+    func testRungPlaylistsRemainAvailableBelowTheirMediaBudget() throws {
         let session = try ladderSession(rung1Playlist: playlist)
         defer { session.stop() }
         session.testLinkBps = 600_000
@@ -1073,8 +1478,9 @@ final class TierProbeTests: XCTestCase {
         let master = session.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"))
         XCTAssertTrue(master.contains("t1.m3u8"))
-        guard case .temporarilyUnavailable = session.route("t1.m3u8") else { return XCTFail("unaffordable rung must not start a server fetch") }
-        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/t1.m3u8"), 0)
+        guard case .data = session.route("t1.m3u8") else { return XCTFail("a rendition playlist is not gated by the video's transfer budget") }
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/t1.m3u8"), 1)
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg1.ts"), 0)
         session.stateLock.lock()
         session.testLinkBps = 30_000_000
         session.stateLock.unlock()
@@ -1095,15 +1501,14 @@ final class TierProbeTests: XCTestCase {
         s.testLinkBps = 2_000_000
         defer { s.stop() }
         s.start()
-        // The source here never opens (file:///dev/null), and nothing else may carry the track.
-        settle { s.hasFailed }
-        XCTAssertFalse(s.isSourceReleased)
-        XCTAssertTrue(s.hasFailed)
+        settle { s.sourceRetryAttempts > 0 }
+        XCTAssertTrue(s.demuxerOwesTracks)
+        XCTAssertFalse(s.sourceUnusable)
+        XCTAssertFalse(s.hasFailed)
+        XCTAssertGreaterThan(s.sourceRetryAttempts, 0)
     }
 
-    /// A source that will not open on a link that WOULD carry the copy: the rungs take the session
-    /// before any master names the copy, and the app is not told there is a copy to climb back to.
-    func testASourceThatWillNotOpenIsCarriedByTheRungs() throws {
+    func testAnOpeningSourceFailureKeepsTheOriginalRetryableBesideTheRungs() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         let (s, _) = try session(serverAudioUrl: audioUrl, linkCeilingBps: 40_000_000)
@@ -1118,59 +1523,183 @@ final class TierProbeTests: XCTestCase {
         let master = s.masterPlaylist()
         XCTAssertTrue(s.isSourceReleased)
         XCTAssertFalse(s.hasFailed)
-        XCTAssertFalse(master.contains("media.m3u8"), "a copy that cannot be produced is never named")
+        XCTAssertTrue(master.contains("media.m3u8"))
+        XCTAssertFalse(s.sourceUnusable)
+        XCTAssertGreaterThan(s.sourceRetryAttempts, 0)
         XCTAssertTrue(master.contains("t0.m3u8"))
         s.noteFloorSample(bytes: 2_000_000, from: Date().addingTimeInterval(-1), to: Date())
         lock.lock()
         let listed = links.last?["copyListed"] as? Bool
         lock.unlock()
-        XCTAssertEqual(listed, false, "the master never listed the unusable copy")
+        XCTAssertEqual(listed, true)
     }
 
-    /// A probe the server refuses is a source that is not there, not a slow link: no rebuild is
-    /// asked for toward a copy nothing can produce.
-    func testARefusedProbeLeavesNoCopyToClimbTo() throws {
+    func testARefusedProbeDoesNotPermanentlyDisableTheOriginal() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.finishLinkProbe(nil, reporting: false, failure: .unavailable(404))
+        XCTAssertEqual(session.sourceProbeFailure, .unavailable(404))
+        XCTAssertFalse(session.sourceUnusable)
+    }
+
+    func testServerVideoOnlyFallbackKeepsTheCatalogueWithoutOpeningTheSourceProducer() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
-        let (s, _) = try session(serverAudioUrl: audioUrl, linkCeilingBps: nil, sourceRefused: true)
-        defer { s.stop() }
-        settle { s.isSourceReleased }
-        let master = s.masterPlaylist()
-        XCTAssertTrue(s.isSourceReleased)
-        XCTAssertFalse(master.contains("media.m3u8"))
-        XCTAssertFalse(s.reportsCopyListed)
+        TierServerStub.routes["/Audio/x/main.m3u8"] = (200, audioPlaylist)
+        TierServerStub.routes["/subtitles/3.vtt"] = (200, Data("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nCaption\n".utf8))
+        let fixtures = fixtureUrl.deletingLastPathComponent()
+        TierServerStub.routes["/Audio/x/a-init.mp4"] = (200, try Data(contentsOf: fixtures.appendingPathComponent("audio-carrier-init.mp4")))
+        TierServerStub.routes["/Audio/x/a-seg0.mp4"] = (200, try Data(contentsOf: fixtures.appendingPathComponent("audio-carrier-seg0.mp4")))
+        let tracks = [
+            RemuxAudioTrack(index: 1, name: "English", language: "eng", serverAudioUrl: audioUrl),
+            RemuxAudioTrack(index: 2, name: "Spanish", language: "spa", serverAudioUrl: audioUrl + "&AudioStreamIndex=2"),
+        ]
+        var subtitle = RemuxSubtitle(index: 3, name: "Captions", language: "eng", vttUrl: "", localVtt: "",
+                                     isDefault: false, isForced: false, isImage: false, isEngineText: true)
+        subtitle.serverVttUrl = "http://tier.test/subtitles/3.vtt"
+        var configuration = makeConfig(durationSeconds: 18, inputUrl: fixtureUrl.absoluteString,
+                                       audioTracks: tracks, subtitles: [subtitle], tierPlaylistUrl: playlistUrl,
+                                       tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480)
+        configuration.serverVideoOnly = true
+        let session = try RemuxSession(config: configuration)
+        defer { session.stop() }
+        session.testLinkBps = 30_000_000
+        let lock = NSLock()
+        var stages: [String] = []
+        session.onStage = { event in
+            lock.lock()
+            if let stage = event["stage"] as? String { stages.append(stage) }
+            lock.unlock()
+        }
+        session.start()
+        waitForProbe(session)
+        let master = session.masterPlaylist()
+        XCTAssertFalse(session.hasFailed)
+        XCTAssertTrue(session.sourceUnusable)
+        XCTAssertFalse(session.sourceReady)
+        XCTAssertTrue(session.renditions.isEmpty)
+        XCTAssertFalse(master.contains("\nmedia.m3u8\n"))
+        XCTAssertTrue(master.contains("\nt0.m3u8\n"))
+        XCTAssertTrue(master.contains("URI=\"a0s.m3u8\""))
+        XCTAssertTrue(master.contains("URI=\"a1s.m3u8\""))
+        XCTAssertTrue(master.contains("URI=\"sub3.m3u8\""))
+        XCTAssertTrue(master.contains("NAME=\"English\""))
+        XCTAssertTrue(master.contains("NAME=\"Spanish\""))
+        lock.lock()
+        let openedSource = stages.contains("open_input") || stages.contains("renditions_built")
+        lock.unlock()
+        XCTAssertFalse(openedSource)
+        XCTAssertFalse(session.wakeSourceIfAffordable())
     }
 
-    func testTheProbeReadsAnErrorStatusAsRefused() throws {
+    func testTheProbeDistinguishesTemporaryErrorsFromUnavailableSources() throws {
         let meter = LinkMeter(wanted: 1024, window: 1.5, settled: 0.75, plentyBps: 0, beside: TransferLedger())
         let url = try XCTUnwrap(URL(string: "http://tier.test/source"))
         let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 503, httpVersion: nil, headerFields: nil))
         let task = URLSession.shared.dataTask(with: url)
         var disposition: URLSession.ResponseDisposition?
         meter.urlSession(URLSession.shared, dataTask: task, didReceive: response) { disposition = $0 }
-        XCTAssertTrue(meter.refused)
+        XCTAssertEqual(meter.failure, .transient(503))
+        XCTAssertFalse(try XCTUnwrap(meter.failure).usesServerTransferFallback)
         XCTAssertEqual(disposition, .cancel)
         XCTAssertEqual(meter.done.wait(timeout: .now()), .success)
+        XCTAssertEqual(LinkProbeFailure.classify(status: 403), .authentication(403))
+        XCTAssertEqual(LinkProbeFailure.classify(status: 404), .unavailable(404))
+        XCTAssertEqual(LinkProbeFailure.classify(status: 410), .unavailable(410))
+        XCTAssertEqual(LinkProbeFailure.classify(status: 416), .rangeUnsupported(416))
+        XCTAssertEqual(LinkProbeFailure.classify(status: 429), .transient(429))
+        XCTAssertNil(LinkProbeFailure.classify(status: 206))
     }
 
     // MARK: - The link rate
 
-    /// Server renditions are a floor under the link: overlapping transfers share one span, a
-    /// floor raises the rate and never lowers it, and only a read of the wire brings it down.
-    func testRenditionTransfersAreAFloorCountedOverTheirUnion() throws {
+    func testRenditionFloorsRequestConfirmationWithoutChangingCapacity() throws {
         let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { s.stop() }
+        s.finishLinkProbe(2_000_000, reporting: false)
+        s.lastLinkProbeAt = .distantPast
         let t0 = Date()
-        // A rung segment and its audio, downloading together for the same two seconds.
         s.noteFloorSample(bytes: 300_000, from: t0, to: t0.addingTimeInterval(2))
         s.noteFloorSample(bytes: 300_000, from: t0, to: t0.addingTimeInterval(2))
-        XCTAssertEqual(s.pacedLinkBps ?? 0, 2_400_000, accuracy: 1, "600 KB over a shared 2s, not over 4s")
-        // Slower renditions later (the server's encoder, not the wire) leave the rate alone.
+        XCTAssertEqual(s.floorLinkBps ?? 0, 2_400_000, accuracy: 1, "600 KB over a shared 2s, not over 4s")
+        XCTAssertEqual(s.pacedLinkBps, 2_000_000)
+        s.noteFloorSample(bytes: 1_000_000, from: t0.addingTimeInterval(3), to: t0.addingTimeInterval(4))
+        XCTAssertTrue(s.reprobeAsked)
+        XCTAssertEqual(s.wireLinkBps, 2_000_000)
         s.noteFloorSample(bytes: 600_000, from: t0.addingTimeInterval(10), to: t0.addingTimeInterval(16))
-        XCTAssertEqual(s.pacedLinkBps ?? 0, 2_400_000, accuracy: 1)
-        // A read of the source itself is the wire, and may lower it.
+        XCTAssertEqual(s.pacedLinkBps, 2_000_000)
         s.noteLinkSample(bytes: 600_000, seconds: 4)
         XCTAssertEqual(s.pacedLinkBps ?? 0, 1_200_000, accuracy: 1)
+        XCTAssertEqual(s.wireLinkBps, s.pacedLinkBps)
+        XCTAssertEqual(s.measuredLinkBps, s.wireLinkBps)
+    }
+
+    func testProbeCapacityIsTheSameSnapshotReportedToTheApp() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        var reports: [[String: Any]] = []
+        session.onLink = { reports.append($0) }
+        session.copyAnnounced = true
+        session.finishLinkProbe(1_500_000, reporting: true)
+        XCTAssertEqual(reports.last?["bps"] as? Double, session.wireLinkBps)
+        XCTAssertEqual(session.wireLinkBps, session.pacedLinkBps)
+        XCTAssertEqual(session.wireLinkBps, session.measuredLinkBps)
+        XCTAssertEqual(reports.last?["copyListed"] as? Bool, true)
+
+        session.noteLinkSample(bytes: 2_000_000, seconds: 1)
+        XCTAssertEqual(session.wireLinkBps, 1_500_000)
+        XCTAssertTrue(session.reprobeAsked)
+        session.finishLinkProbe(30_000_000, reporting: true)
+        XCTAssertEqual(reports.last?["bps"] as? Double, 30_000_000)
+        XCTAssertEqual(session.wireLinkBps, session.measuredLinkBps)
+        XCTAssertEqual(session.wireLinkBps, session.pacedLinkBps)
+
+        session.cancelled = true
+        let count = reports.count
+        session.finishLinkProbe(600_000, reporting: true)
+        session.noteLinkSample(bytes: 600_000, seconds: 4)
+        session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-4), to: Date())
+        XCTAssertEqual(reports.count, count)
+        XCTAssertEqual(session.wireLinkBps, 30_000_000)
+    }
+
+    func testUnavailableOriginalUsesMeasuredServerTransfersInBothDirections() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        let now = Date()
+        session.finishLinkProbe(nil, reporting: false, failure: .unavailable(404))
+        session.notePlaylistTransfer(bytes: 30_000, from: now, to: now.addingTimeInterval(0.2))
+        XCTAssertEqual(session.wireLinkBps ?? 0, 1_200_000, accuracy: 1)
+        session.noteFloorSample(bytes: 600_000, from: now, to: now.addingTimeInterval(1))
+        XCTAssertEqual(session.wireLinkBps ?? 0, 4_800_000, accuracy: 1)
+        session.noteFloorSample(bytes: 600_000, from: now.addingTimeInterval(10), to: now.addingTimeInterval(18))
+        XCTAssertEqual(session.wireLinkBps ?? 0, 600_000, accuracy: 1)
+        XCTAssertEqual(session.wireLinkBps, session.pacedLinkBps)
+
+        session.finishLinkProbe(2_000_000, reporting: true)
+        XCTAssertNil(session.sourceProbeFailure)
+        session.noteFloorSample(bytes: 2_000_000, from: now.addingTimeInterval(30), to: now.addingTimeInterval(31))
+        XCTAssertEqual(session.wireLinkBps, 2_000_000)
+        XCTAssertEqual(session.pacedLinkBps, 2_000_000)
+    }
+
+    func testRetryingSourceUsesServerCapacityWithoutBeingMarkedUnsupported() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.retrySource(because: "connection reset")
+        session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-2), to: Date())
+        XCTAssertNotNil(session.wireLinkBps)
+        XCTAssertEqual(session.wireLinkBps, session.measuredLinkBps)
+        XCTAssertFalse(session.sourceUnusable)
+    }
+
+    func testARecoveryObservationInsideTheProbeGapStaysQueued() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.finishLinkProbe(600_000, reporting: false)
+        session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-1), to: Date())
+        XCTAssertTrue(session.reprobeAsked)
+        XCTAssertEqual(session.wireLinkBps, 600_000)
     }
 
     /// Jellyfin's cues count from the file's start, which is session time: no anchor is taken off.

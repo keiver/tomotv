@@ -17,7 +17,7 @@ extension RemuxSession {
     /// engine group (RFC 8216 §4.3.4.1.1 — groups of one TYPE must expose the
     /// same member set).
     var audioLoActive: Bool {
-        tierActive && !config.audioTracks.isEmpty && config.audioTracks.allSatisfy { !$0.serverAudioUrl.isEmpty }
+        !config.audioTracks.isEmpty && config.audioTracks.allSatisfy { !$0.serverAudioUrl.isEmpty }
     }
 
     /// File and route prefix of a server rendition: "a0s" for track 0.
@@ -28,11 +28,19 @@ extension RemuxSession {
         return config.audioTracks[position].serverAudioUrl
     }
 
+    func hasServerAudio(_ position: Int) -> Bool {
+        config.audioTracks.indices.contains(position) && !config.audioTracks[position].serverAudioUrl.isEmpty
+    }
+
     /// Adopt the server audio-only playlist for track `position` (one fetch,
     /// cached). Returns the segment list, or nil when the rendition is
     /// unavailable this session. Concurrent segment requests share one fetch.
     func adoptAudioLo(_ position: Int) -> [TierSegment]? {
         stateLock.lock()
+        guard !failed, !cancelled, hasServerAudio(position) else {
+            stateLock.unlock()
+            return nil
+        }
         if let cached = audioLoSegments[position] {
             stateLock.unlock()
             return cached.isEmpty ? nil : cached
@@ -44,33 +52,46 @@ extension RemuxSession {
     func adoptAudioLoLocked(_ position: Int) -> [TierSegment]? {
         // The winner's result: losers re-read it here instead of refetching.
         stateLock.lock()
+        guard !failed, !cancelled else {
+            stateLock.unlock()
+            return nil
+        }
         if let cached = audioLoSegments[position] {
             stateLock.unlock()
             return cached.isEmpty ? nil : cached
         }
         stateLock.unlock()
-        guard let url = URL(string: serverAudioUrl(position)) else { return nil }
+        guard hasServerAudio(position), awaitSupplierRetry(.audio(position)),
+              let url = URL(string: serverAudioUrl(position)) else { return nil }
         // The server spins up a fresh audio-only transcode on this request; on a
         // slow link that start plus the playlist body can outrun a short timeout,
         // and a miss 404s the rung's audio group and stalls the tier. Match the
         // tier segment budget (30s) so the audio rung survives the spin-up.
         let request = URLRequest(url: url, timeoutInterval: 30)
         let semaphore = DispatchSemaphore(value: 0)
+        let resultLock = NSLock()
         var body: String? = nil
-        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
-            if let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+        var status = 0
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            resultLock.lock()
+            status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if error == nil, let data, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
                 body = String(decoding: data, as: UTF8.self)
             }
+            resultLock.unlock()
             semaphore.signal()
         }
         transfers.begin(task)
         task.resume()
-        _ = semaphore.wait(timeout: .now() + 32)
+        let timedOut = semaphore.wait(timeout: .now() + 32) == .timedOut
+        if timedOut { task.cancel() }
         transfers.end(task)
-        // A fetch failure is the link being slow, and on a slow link the tier is
-        // the one variant that fits: leave it uncached so the next request
-        // retries. Only a playlist that arrived and is unusable is cached below.
-        guard let text = body else {
+        resultLock.lock()
+        let text = timedOut ? nil : body
+        let responseStatus = status
+        resultLock.unlock()
+        guard let text else {
+            recordSupplierFetchFailure(.audio(position), status: responseStatus)
             NSLog("[LocalRemuxer] Slipstream: audio-lo playlist fetch failed for track %d, will retry", position)
             return nil
         }
@@ -93,11 +114,16 @@ extension RemuxSession {
                 pendingDuration = nil
             }
         }
-        if segments.isEmpty || initRemote == nil {
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTM3U") || segments.isEmpty || initRemote == nil || segments.contains(where: { !$0.duration.isFinite || $0.duration <= 0 }) {
             NSLog("[LocalRemuxer] Slipstream: audio-lo adoption failed for track %d", position)
-            segments = []
+            recordSupplierFailure(.audio(position), failure: .invalidMedia)
+            return nil
         }
         stateLock.lock()
+        guard !failed, !cancelled else {
+            stateLock.unlock()
+            return nil
+        }
         audioLoSegments[position] = segments
         if let initRemote { audioLoInitRemote[position] = initRemote }
         stateLock.unlock()
@@ -109,7 +135,7 @@ extension RemuxSession {
     /// grid); timestamps are rebuilt by the rewrapper, which is what must
     /// match across renditions (RFC 8216 §6.2.4), not the cut points.
     func audioLoPlaylist(position: Int) -> String? {
-        guard audioLoActive, let segments = adoptAudioLo(position) else { return nil }
+        guard hasServerAudio(position), let segments = adoptAudioLo(position) else { return nil }
         let prefix = serverAudioPrefix(position)
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
@@ -121,6 +147,18 @@ extension RemuxSession {
         }
         out += "#EXT-X-ENDLIST\n"
         return out
+    }
+
+    func audioLoPlaylistResponse(position: Int) -> LocalHTTPResponse {
+        guard hasServerAudio(position), !isCancelled, !hasFailed else { return .notFound }
+        stateLock.lock()
+        let cached = !(audioLoSegments[position]?.isEmpty ?? true)
+        stateLock.unlock()
+        if !cached, let deferred = supplierResponseDeferral(.audio(position)) { return deferred }
+        guard let playlist = audioLoPlaylist(position: position) else {
+            return supplierResponseDeferral(.audio(position)) ?? .temporarilyUnavailable
+        }
+        return .data(Data(playlist.utf8), contentType: "application/vnd.apple.mpegurl")
     }
 
     /// Fetch + rewrap audio-lo segment n for track `position` (blocking; runs
@@ -146,16 +184,18 @@ extension RemuxSession {
     }
 
     func materializeAudioLoSegmentLocked(position: Int, n: Int, fetchKey: String, counted: Bool) -> URL? {
-        if isTierDisabled { return nil }
+        if isCancelled || hasFailed || !hasServerAudio(position) { return nil }
         let prefix = serverAudioPrefix(position)
         let mediaFile = dir.appendingPathComponent("\(prefix)-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return mediaFile }
+        guard awaitSupplierRetry(.audio(position), key: fetchKey, counted: counted) else { return nil }
         guard let segments = adoptAudioLo(position), n >= 0, n < segments.count,
               let playlistUrl = URL(string: serverAudioUrl(position)),
               let remote = URL(string: segments[n].url, relativeTo: playlistUrl)?.absoluteURL
         else { return nil }
+        guard awaitSupplierRetry(.audio(position), key: fetchKey, counted: counted) else { return nil }
         stateLock.lock()
-        lastTierDemandAt = Date()
+        if sourceReleased || ridingTierLocked() { lastTierDemandAt = Date() }
         let initRemote = audioLoInitRemote[position]
         let chain = audioLoChain[position]
         let heldInit = audioLoInitData[position]
@@ -163,16 +203,11 @@ extension RemuxSession {
         guard let initRemote else { return nil }
         // The init is the same bytes for every segment of the rendition: one fetch a session, not
         // one a segment, which on a 150 ms link was a round trip ahead of every audio segment.
-        let initFetch = heldInit.map { (data: Optional($0), status: 200, seconds: 0.0) } ?? fetchTier(initRemote)
+        let initFetch = heldInit.map { (data: Optional($0), status: 200, seconds: 0.0) } ?? fetchTier(initRemote, key: fetchKey, counted: counted)
         let segFetch = initFetch.data == nil ? initFetch : fetchTier(remote, key: fetchKey, counted: counted)
-        if heldInit == nil, let fresh = initFetch.data {
-            stateLock.lock()
-            audioLoInitData[position] = fresh
-            stateLock.unlock()
-        }
         guard let initData = initFetch.data, let segData = segFetch.data else {
             NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed (HTTP %d)", n, segFetch.status)
-            if Self.refused(segFetch.status) { recordTierFailure("audio HTTP \(segFetch.status)") }
+            recordSupplierFetchFailure(.audio(position), status: segFetch.status, key: fetchKey, counted: counted)
             return nil
         }
         // Anchor: chained when sequential, declared grid on a jump.
@@ -183,28 +218,35 @@ extension RemuxSession {
             target = segments.prefix(n).reduce(0) { $0 + $1.duration }
         }
         guard let rewrapped = TierRewrapper.rewrapAudio(initData: initData, segmentData: segData, targetStartSeconds: target) else {
-            recordTierFailure("audio rewrap failed")
+            stateLock.lock()
+            audioLoInitData[position] = nil
+            audioLoChain[position] = nil
+            stateLock.unlock()
+            recordSupplierFailure(.audio(position), failure: .invalidMedia)
             return nil
         }
         do {
-            try rewrapped.mediaSegment.write(to: mediaFile)
+            try rewrapped.mediaSegment.write(to: mediaFile, options: .atomic)
             let initFile = dir.appendingPathComponent("\(prefix)-init.mp4")
             if !FileManager.default.fileExists(atPath: initFile.path) {
-                try rewrapped.initSegment.write(to: initFile)
+                try rewrapped.initSegment.write(to: initFile, options: .atomic)
             }
         } catch { return nil }
         stateLock.lock()
+        audioLoInitData[position] = initData
         audioLoChain[position] = (next: n + 1, start: target + rewrapped.durationSeconds)
         audioLoMaterialized[position, default: []].insert(n)
         stateLock.unlock()
+        recordSupplierSuccess(.audio(position))
         return mediaFile
     }
 
     func audioLoInitResponse(position: Int) -> LocalHTTPResponse {
-        guard audioLoActive, !isTierDisabled else { return .notFound }
+        guard hasServerAudio(position), !isCancelled, !hasFailed else { return .notFound }
         let prefix = serverAudioPrefix(position)
         let initFile = dir.appendingPathComponent("\(prefix)-init.mp4")
         if FileManager.default.fileExists(atPath: initFile.path) { return .file(initFile, contentType: "audio/mp4") }
+        if let deferred = supplierResponseDeferral(.audio(position)) { return deferred }
         return .streamed(contentType: "audio/mp4") { [weak self] in
             guard let self else { return nil }
             // The init falls out of any segment: the one AVPlayer asks for next, not the film's first.
@@ -220,13 +262,16 @@ extension RemuxSession {
     }
 
     func audioLoSegmentResponse(position: Int, n: Int) -> LocalHTTPResponse {
-        guard audioLoActive, !isTierDisabled else { return .notFound }
+        guard hasServerAudio(position), n >= 0 else { return .notFound }
         stateLock.lock()
         let dead = failed || cancelled
+        let segmentCount = audioLoSegments[position]?.count
         stateLock.unlock()
         if dead { return .notFound }
         let mediaFile = dir.appendingPathComponent("\(serverAudioPrefix(position))-seg\(n).m4s")
         if FileManager.default.fileExists(atPath: mediaFile.path) { return .file(mediaFile, contentType: "audio/iso.segment") }
+        if let segmentCount, n >= segmentCount { return .notFound }
+        if let deferred = supplierResponseDeferral(.audio(position)) { return deferred }
         return .segment(contentType: "audio/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] request in self?.materializeAudioLoSegment(position: position, n: n, request: request) }
     }
 

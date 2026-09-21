@@ -33,19 +33,30 @@ extension RemuxSession {
         }
     }
 
-    /// How many times a stream that will not open, or breaks off mid-read, is asked for.
-    static let serverImageAttempts = 4
+    static func serverImageRetryDelay(attempt: Int) -> Double {
+        Double(min(15, max(1, attempt))) * 2
+    }
+
+    func reportUnavailableServerImageSubtitle(_ track: RemuxSubtitle, reason: String) {
+        stateLock.lock()
+        guard !failed, !cancelled else { return stateLock.unlock() }
+        failed = true
+        stateLock.unlock()
+        let message = "server image subtitle \(track.index) unavailable: \(reason)"
+        NSLog("[LocalRemuxer] %@", message)
+        onFailed?(["token": token, "message": message, "streamIndex": track.index])
+    }
 
     /// A stream that did not open or broke off is read again from its start: nothing else will
     /// ever serve these cues. The wait grows with each try and ends with the session.
     private func readServerImageSubtitles(_ track: RemuxSubtitle) {
-        for attempt in 1...Self.serverImageAttempts {
+        var attempt = 1
+        while !isCancelled, !hasFailed {
             if readServerImageSubtitlesOnce(track) { return }
-            if attempt == Self.serverImageAttempts { break }
-            let over = waitUntil(deadline: 2.0 * Double(attempt)) { [weak self] in self.map { $0.isCancelled || $0.hasFailed } ?? true }
+            let over = waitUntil(deadline: Self.serverImageRetryDelay(attempt: attempt)) { [weak self] in self.map { $0.isCancelled || $0.hasFailed } ?? true }
             if over { return }
+            attempt = min(15, attempt + 1)
         }
-        NSLog("[LocalRemuxer] server subtitle stream %d gave up after %d tries", track.index, Self.serverImageAttempts)
     }
 
     /// Jellyfin extracts with `-c:s copy` and no `-copyts`, so the cues count from the file's
@@ -53,7 +64,7 @@ extension RemuxSession {
     /// True when there is nothing left to try: read to its end, the session over, or a stream no try will decode.
     private func readServerImageSubtitlesOnce(_ track: RemuxSubtitle) -> Bool {
         var ctx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
-        guard ctx != nil else { return true }
+        guard ctx != nil else { return false }
         ctx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
         var opts: OpaquePointer? = nil
         av_dict_set(&opts, "rw_timeout", "600000000", 0)
@@ -68,24 +79,66 @@ extension RemuxSession {
             return isCancelled || hasFailed
         }
         defer { avformat_close_input(&ctx) }
-        guard input.pointee.nb_streams > 0, let stream = input.pointee.streams[0],
-              let decoder = ImageSubtitleDecoder(stream: stream, fallbackWidth: config.width, fallbackHeight: config.height, dir: dir,
-                                                 reportedIndex: Int32(track.index), namePrefix: "pgs\(track.index)s"),
-              var packet = Optional(av_packet_alloc()), packet != nil else { return true }
-        defer { av_packet_free(&packet) }
+        func subtitleStream() -> UnsafeMutablePointer<AVStream>? {
+            (0..<Int(input.pointee.nb_streams)).compactMap { input.pointee.streams[$0] }.first {
+                $0.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE
+            }
+        }
+        if subtitleStream() == nil || subtitleStream()?.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_NONE {
+            guard avformat_find_stream_info(input, nil) >= 0 else {
+                NSLog("[LocalRemuxer] server subtitle stream %d could not be probed, will retry", track.index)
+                return isCancelled || hasFailed
+            }
+        }
+        guard let stream = subtitleStream() else {
+            reportUnavailableServerImageSubtitle(track, reason: "the response contains no subtitle stream")
+            return true
+        }
+        let codec = stream.pointee.codecpar.pointee.codec_id
+        guard codec != AV_CODEC_ID_NONE else { return false }
+        guard ImageSubtitleDecoder.handles(codec), avcodec_find_decoder(codec) != nil else {
+            reportUnavailableServerImageSubtitle(track, reason: "unsupported codec \(codec.rawValue)")
+            return true
+        }
         stateLock.lock()
-        serverImageSubtitles[Int32(track.index)] = decoder
+        let previous = serverImageSubtitles[Int32(track.index)]
+        let previousReadUpTo = serverImageReadUpTo[Int32(track.index)] ?? 0
         stateLock.unlock()
+        let namePrefix = previous == nil ? "pgs\(track.index)s" : "pgs\(track.index)s-\(UUID().uuidString)"
+        guard let decoder = ImageSubtitleDecoder(stream: stream, fallbackWidth: config.width, fallbackHeight: config.height, dir: dir,
+                                                 reportedIndex: Int32(track.index), namePrefix: namePrefix) else {
+            NSLog("[LocalRemuxer] server subtitle stream %d decoder initialization failed, will retry", track.index)
+            return isCancelled || hasFailed
+        }
+        var packet = av_packet_alloc()
+        guard packet != nil else { return false }
+        defer { av_packet_free(&packet) }
+        if previous == nil {
+            stateLock.lock()
+            serverImageSubtitles[Int32(track.index)] = decoder
+            serverImageReadUpTo[Int32(track.index)] = 0
+            stateLock.unlock()
+        }
         let timeBase = av_q2d(stream.pointee.time_base)
+        var readUpTo = 0.0
         var read = av_read_frame(input, packet)
         while read >= 0 {
             if isCancelled { return true }
+            if packet!.pointee.stream_index != stream.pointee.index {
+                av_packet_unref(packet)
+                read = av_read_frame(input, packet)
+                continue
+            }
             if packet!.pointee.pts != SWIFT_AV_NOPTS_VALUE {
-                stateLock.lock()
-                serverImageReadUpTo[Int32(track.index)] = Double(packet!.pointee.pts) * timeBase
-                stateLock.unlock()
+                readUpTo = max(readUpTo, Double(packet!.pointee.pts) * timeBase)
             }
             decoder.handle(packet: packet!)
+            if readUpTo >= previousReadUpTo {
+                stateLock.lock()
+                serverImageSubtitles[Int32(track.index)] = decoder
+                serverImageReadUpTo[Int32(track.index)] = readUpTo
+                stateLock.unlock()
+            }
             av_packet_unref(packet)
             read = av_read_frame(input, packet)
         }
@@ -95,6 +148,10 @@ extension RemuxSession {
             return isCancelled || hasFailed
         }
         decoder.finish(at: config.durationSeconds)
+        stateLock.lock()
+        serverImageSubtitles[Int32(track.index)] = decoder
+        serverImageReadUpTo[Int32(track.index)] = config.durationSeconds
+        stateLock.unlock()
         NSLog("[LocalRemuxer] server subtitle stream %d read to its end", track.index)
         return true
     }

@@ -16,24 +16,28 @@ extension RemuxSession {
     /// gets chunked early headers so AVPlayer's short no-response-headers
     /// watchdog (-12889) never fires while the provider waits.
     func segmentResponse(_ n: Int, prefix: String = "") -> LocalHTTPResponse {
-        if let deferred = copyResponseDeferral() { return deferred }
-        guard n >= 0, let rendition = rendition(withPrefix: prefix) else { return .notFound }
+        guard n >= 0 else { return .notFound }
         stateLock.lock()
+        let rendition = renditions.first { $0.prefix == prefix }
         lastRequestedSegment = n
         // A copy that is gone is not demand on the source: AVPlayer asking after it again must not
         // read as leaving the rungs.
-        if !sourceReleased { lastPrimaryDemandAt = Date() }
         let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
-        let done = rendition.completed.contains(n)
+        let done = rendition?.completed.contains(n) == true
         let dead = failed || cancelled
         let pastEnd = reachedEnd && n > lastProducedSegment
-        let lost = sourceReleased
         stateLock.unlock()
         if dead || !inRange || (pastEnd && !done) { return .notFound }
-        // A copy with no source behind it is gone for good, segments already on disk included:
-        // AVPlayer must leave the variant, not play out what is left of it and then stall.
-        if lost { return .gone }
-        if done { return .file(dir.appendingPathComponent(rendition.segmentName(n)), contentType: "video/iso.segment") }
+        if done, let rendition {
+            let file = dir.appendingPathComponent(rendition.segmentName(n))
+            if FileManager.default.fileExists(atPath: file.path) {
+                stateLock.lock()
+                if !sourceReleased { lastPrimaryDemandAt = Date() }
+                stateLock.unlock()
+                return .file(file, contentType: "video/iso.segment")
+            }
+        }
+        if let deferred = mediaResponseDeferral(prefix: prefix) { return deferred }
         // A copy segment is megabytes, and on a link that only just carries it the whole of one
         // takes most of the 6s AVPlayer allows a silent response; live keeps the plain shape.
         if config.isLive { return .streamed(contentType: "video/iso.segment") { [weak self] in self?.segmentURL(n, prefix: prefix) } }
@@ -41,16 +45,18 @@ extension RemuxSession {
     }
 
     func initResponse(prefix: String = "", generation: Int = 0) -> LocalHTTPResponse {
-        if let deferred = copyResponseDeferral() { return deferred }
         let url = dir.appendingPathComponent(Self.liveInitName(prefix: prefix, generation: generation))
         stateLock.lock()
-        if !sourceReleased { lastPrimaryDemandAt = Date() }
         let dead = failed || cancelled
-        let lost = sourceReleased
         stateLock.unlock()
         if dead { return .notFound }
-        if lost { return .gone }
-        if FileManager.default.fileExists(atPath: url.path) { return .file(url, contentType: "video/mp4") }
+        if FileManager.default.fileExists(atPath: url.path) {
+            stateLock.lock()
+            if !sourceReleased { lastPrimaryDemandAt = Date() }
+            stateLock.unlock()
+            return .file(url, contentType: "video/mp4")
+        }
+        if let deferred = mediaResponseDeferral(prefix: prefix) { return deferred }
         return .streamed(contentType: "video/mp4") { [weak self] in self?.initSegmentURL(prefix: prefix, generation: generation) }
     }
 
@@ -66,7 +72,7 @@ extension RemuxSession {
             if FileManager.default.fileExists(atPath: url.path) { return true }
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
-            return self.failed || self.cancelled || self.sourceReleased
+            return self.failed || self.cancelled || (prefix.isEmpty && self.sourceUnusable)
         }
         stateLock.lock()
         let dead = failed || cancelled
@@ -79,14 +85,31 @@ extension RemuxSession {
     /// rendition ("" = primary, "aN" = alternate audio).
     func segmentURL(_ n: Int, prefix: String = "", request: SegmentRequest? = nil) -> URL? {
         guard n >= 0 else { return nil }
-        guard let rendition = rendition(withPrefix: prefix) else { return nil }
+        defer {
+            if prefix.isEmpty, request?.isAbandoned == true {
+                stateLock.lock()
+                copyAbandonedAt = Date()
+                stateLock.unlock()
+            }
+        }
+        let deadline = Date().addingTimeInterval(20)
+        var availableRendition = rendition(withPrefix: prefix)
+        while availableRendition == nil {
+            stateLock.lock()
+            let dead = failed || cancelled || (prefix.isEmpty && sourceUnusable)
+            stateLock.unlock()
+            if dead || request?.isAbandoned == true || Date() >= deadline { return nil }
+            usleep(100_000)
+            availableRendition = rendition(withPrefix: prefix)
+        }
+        guard let rendition = availableRendition else { return nil }
 
         stateLock.lock()
         lastRequestedSegment = n
         let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
         let done = rendition.completed.contains(n)
         let producing = producingSegment
-        let sessionFailed = failed
+        let sessionFailed = failed || cancelled
         // Past the real end of the stream: nothing will ever produce this, so
         // answer immediately instead of waiting out the segment timeout.
         let pastEnd = reachedEnd && n > lastProducedSegment
@@ -94,7 +117,12 @@ extension RemuxSession {
         if sessionFailed || !inRange || (pastEnd && !done) { return nil }
 
         let url = dir.appendingPathComponent(rendition.segmentName(n))
-        if done { return url }
+        if done, FileManager.default.fileExists(atPath: url.path) { return url }
+
+        if prefix.isEmpty, !awaitCopyAdmission(until: deadline, request: request) { return nil }
+        stateLock.lock()
+        if !sourceReleased { lastPrimaryDemandAt = Date() }
+        stateLock.unlock()
 
         // Behind the producer, or more than a step ahead of it: restart the pipeline at this
         // segment. The step is small and fixed, not the read-ahead depth: a request 10 segments
@@ -131,7 +159,6 @@ extension RemuxSession {
         // ~0s and the back-out's Stopped report wiped the server resume
         // point). Only a waiter near the playhead re-asserts, so an obsolete
         // request left over from a scrub can't drag the producer around.
-        let deadline = Date().addingTimeInterval(20)
         // The 20s deadline stretches to a hard ceiling while input recovery is
         // live: 404ing a promised segment mid-recovery would demote the whole
         // session to the server over a stall the pipeline is already healing.
@@ -139,8 +166,8 @@ extension RemuxSession {
         var ticks = 0
         while true {
             stateLock.lock()
-            let completed = rendition.completed.contains(n)
-            let dead = failed || cancelled || sourceReleased
+            let completed = renditions.first { $0.prefix == prefix }?.completed.contains(n) == true
+            let dead = failed || cancelled || (prefix.isEmpty && sourceUnusable)
             let ended = reachedEnd && n > lastProducedSegment
             let producingNow = producingSegment
             let inRecovery = recovering
@@ -154,9 +181,6 @@ extension RemuxSession {
             stateLock.unlock()
             if completed || dead || ended { break }
             if request?.isAbandoned == true {
-                stateLock.lock()
-                copyAbandonedAt = Date()
-                stateLock.unlock()
                 break
             }
             let now = Date()
@@ -166,7 +190,8 @@ extension RemuxSession {
         }
 
         stateLock.lock()
-        let ok = rendition.completed.contains(n)
+        let completed = renditions.first { $0.prefix == prefix }?.completed.contains(n) == true
+        let ok = !failed && !cancelled && completed
         let producingAtEnd = producingSegment
         let playheadAtEnd = lastRequestedSegment
         stateLock.unlock()
@@ -174,7 +199,33 @@ extension RemuxSession {
             NSLog("[LocalRemuxer] Segment request %d%@ unserved (producing %d, playhead %d)",
                   n, prefix.isEmpty ? "" : " [\(prefix)]", producingAtEnd, playheadAtEnd)
         }
-        return ok ? url : nil
+        return ok && FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func awaitCopyAdmission(until deadline: Date, request: SegmentRequest? = nil) -> Bool {
+        while true {
+            stateLock.lock()
+            let dead = failed || cancelled || sourceUnusable
+            let hasAlternative = !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
+            let wire = testLinkBps ?? wireLinkBps ?? 0
+            let affordable = !hasAlternative || sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2
+            let ready = !sourceReleased && affordable
+            stateLock.unlock()
+            if dead || request?.isAbandoned == true { return false }
+            if ready { return true }
+            if Date() >= deadline { return false }
+            usleep(100_000)
+        }
+    }
+
+    private func mediaResponseDeferral(prefix: String) -> LocalHTTPResponse? {
+        if prefix.isEmpty { return copyResponseDeferral() }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if failed || cancelled { return .notFound }
+        if sourceUnusable { return .gone }
+        if sourceReleased || !sourceReady { return .temporarilyUnavailable }
+        return nil
     }
 
     func rendition(withPrefix prefix: String) -> Rendition? {

@@ -225,8 +225,9 @@ class LocalRemuxer: RCTEventEmitter {
             return
         }
 
-        let audioTracks: [RemuxAudioTrack] = ((config["audioTracks"] as? [[String: Any]]) ?? []).compactMap { raw in
-            guard let index = raw["index"] as? Int else { return nil }
+        let rawAudioTracks = (config["audioTracks"] as? [[String: Any]]) ?? []
+        let audioTracks: [RemuxAudioTrack] = rawAudioTracks.compactMap { raw in
+            guard let index = raw["index"] as? Int, index >= 0, index <= Int(Int32.max) else { return nil }
             var track = RemuxAudioTrack(
                 index: index,
                 name: raw["name"] as? String ?? "Audio \(index)",
@@ -234,10 +235,21 @@ class LocalRemuxer: RCTEventEmitter {
                 serverAudioUrl: raw["serverAudioUrl"] as? String ?? ""
             )
             track.serverAudioChannels = raw["serverAudioChannels"] as? Int ?? 0
+            track.usesServerAudio = raw["usesServerAudio"] as? Bool ?? false
+            track.codecs = raw["codecs"] as? String ?? ""
+            track.bandwidth = raw["bandwidth"] as? Int ?? 0
+            track.identity = raw["identity"] as? String ?? ""
             return track
         }
-        let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
-            guard let index = raw["index"] as? Int else { return nil }
+        guard audioTracks.count == rawAudioTracks.count,
+              Set(audioTracks.map(\.index)).count == audioTracks.count,
+              audioTracks.allSatisfy({ !$0.usesServerAudio || !$0.serverAudioUrl.isEmpty }) else {
+            reject("invalid_audio_tracks", "Every audio track needs its own stream index and a configured producer", nil)
+            return
+        }
+        let rawSubtitles = (config["subtitles"] as? [[String: Any]]) ?? []
+        let subtitles: [RemuxSubtitle] = rawSubtitles.compactMap { raw in
+            guard let index = raw["index"] as? Int, index >= 0, index <= Int(Int32.max) else { return nil }
             let isImage = raw["isImage"] as? Bool ?? false
             let isEngineText = raw["isEngineText"] as? Bool ?? false
             // A track with nowhere to read from has nothing to serve. An image
@@ -257,7 +269,13 @@ class LocalRemuxer: RCTEventEmitter {
                 serverVttUrl: raw["serverVttUrl"] as? String ?? ""
             )
             subtitle.serverSupUrl = raw["serverSupUrl"] as? String ?? ""
+            subtitle.isExternal = raw["isExternal"] as? Bool ?? false
             return subtitle
+        }
+        guard subtitles.count == rawSubtitles.count,
+              Set(subtitles.map(\.index)).count == subtitles.count else {
+            reject("invalid_subtitle_tracks", "Every subtitle track needs its own stream index and a configured producer", nil)
+            return
         }
 
         Self.lock.lock()
@@ -304,7 +322,11 @@ class LocalRemuxer: RCTEventEmitter {
                 liveSegmentSeconds: (config["liveSegmentSeconds"] as? Double) ?? 6.0,
                 liveWindowSeconds: (config["liveWindowSeconds"] as? Double) ?? 300.0,
                 httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:],
-                probeOrigin: (config["probeOrigin"] as? Bool) ?? false
+                probeOrigin: (config["probeOrigin"] as? Bool) ?? false,
+                primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
+                primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
+                sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,
+                serverVideoOnly: (config["serverVideoOnly"] as? Bool) ?? false
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
