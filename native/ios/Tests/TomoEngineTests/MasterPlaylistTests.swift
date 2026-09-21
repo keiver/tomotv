@@ -251,6 +251,27 @@ final class MasterPlaylistTests: XCTestCase {
         }
     }
 
+    func testQualityScoresPreferOriginalAudioEvenWhenTheServerAssociationCostsMore() throws {
+        for audioBandwidth in [32_001, 120_000, 640_000] {
+            var audio = serverAudio(1)
+            audio.codecs = "mp4a.40.5"
+            audio.bandwidth = audioBandwidth
+            let session = try gateway(audio: [audio])
+            defer { session.stop() }
+            let master = session.masterPlaylist()
+            let originals = variants(master, uri: "media.m3u8")
+            XCTAssertEqual(originals.count, 2)
+            XCTAssertTrue(originals[0].contains(",SCORE=4"))
+            XCTAssertTrue(originals[0].contains("BANDWIDTH=\(6_000_000 + audioBandwidth),"))
+            XCTAssertTrue(originals[1].contains(",SCORE=3"))
+            XCTAssertTrue(originals[1].contains("BANDWIDTH=6120000,"))
+            XCTAssertTrue(try XCTUnwrap(variants(master, uri: "t0.m3u8").first).contains(",SCORE=1"))
+            XCTAssertTrue(try XCTUnwrap(variants(master, uri: "t1.m3u8").first).contains(",SCORE=2"))
+            XCTAssertTrue(master.components(separatedBy: "\n").filter { $0.hasPrefix("#EXT-X-STREAM-INF:") }.allSatisfy { $0.contains(",SCORE=") })
+            XCTAssertTrue(master.contains("#EXT-X-VERSION:10\n"))
+        }
+    }
+
     func testServerBackedTrackKeepsItsCataloguePositionInBothGroups() throws {
         let session = try gateway(audio: [serverAudio(1), serverAudio(4, usesServerAudio: true), serverAudio(7)])
         defer { session.stop() }

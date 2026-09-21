@@ -111,7 +111,7 @@ extension RemuxSession {
         tierListed = listed
         let reason = tierUnavailableReason
         stateLock.unlock()
-        NSLog("[LocalRemuxer] Slipstream: master %@ the tier%@", listed ? "leads with" : "withholds", reason.map { ", \($0)" } ?? "")
+        NSLog("[LocalRemuxer] Slipstream: master %@ the tier%@", listed ? "lists" : "withholds", reason.map { ", \($0)" } ?? "")
         var payload: [String: Any] = ["token": token, "state": listed ? "listed" : "declined"]
         if probeSeconds > 0 { payload["probeSeconds"] = round(probeSeconds * 100) / 100 }
         if !listed, let reason { payload["reason"] = reason }
@@ -181,7 +181,7 @@ extension RemuxSession {
                 return self.sourceReady || self.sourceReleased || self.failed || self.cancelled
             }
         }
-        var out = "#EXTM3U\n#EXT-X-VERSION:7\n"
+        var out = "#EXTM3U\n#EXT-X-VERSION:\(offered ? 10 : 7)\n"
 
         // Audio renditions. Every track points at its own audio-only playlist
         // — none is muxed into the variant. A muxed (URI-less) rendition gets
@@ -317,6 +317,8 @@ extension RemuxSession {
         let audioCodecs = originalAudioCodecs(tracks)
         let primaryCodecs = videoCodecs.isEmpty ? config.codecs : (videoCodecs + audioCodecs).joined(separator: ",")
         var primary = "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth)"
+        let originalScore = config.tiers.count + 2
+        if offered { primary += ",SCORE=\(originalScore)" }
         // Unquoted enumerated value per RFC 8216 §4.3.4.2. RFC 8216 §4.3.4.2
         // scopes VIDEO-RANGE to variants that carry video, so an audio-only
         // session sends an empty string and the attribute is left off.
@@ -388,6 +390,7 @@ extension RemuxSession {
             let bridgeBandwidth = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth + Self.serverAudioBandwidth : max(bandwidth, Self.serverAudioBandwidth)
             let bridgeCodecs = (videoCodecs + [Self.serverAudioCodecs]).joined(separator: ",")
             var bridge = primary.replacingOccurrences(of: "BANDWIDTH=\(bandwidth)", with: "BANDWIDTH=\(bridgeBandwidth)")
+            bridge = bridge.replacingOccurrences(of: ",SCORE=\(originalScore)", with: ",SCORE=\(originalScore - 1)")
             bridge = bridge.replacingOccurrences(of: "AUDIO=\"audio\"", with: "AUDIO=\"audio-lo\"")
             if !videoCodecs.isEmpty {
                 bridge = bridge.replacingOccurrences(of: ",CODECS=\"\(primaryCodecs)\"", with: ",CODECS=\"\(bridgeCodecs)\"")
@@ -429,7 +432,7 @@ extension RemuxSession {
             let group = useServerAudioGroup ? "audio-lo" : "audio"
             let rungBandwidth = rung.bandwidth > 0 ? rung.bandwidth : 1_500_000
             let bandwidth = useServerAudioGroup || audioBandwidth == 0 ? rungBandwidth : max(1, rungBandwidth - Self.serverAudioBandwidth) + audioBandwidth
-            var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth)"
+            var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth),SCORE=\(index + 1)"
             // Rungs are SDR by build; declare their real resolution and codecs.
             if !config.videoRange.isEmpty {
                 line += ",VIDEO-RANGE=SDR"

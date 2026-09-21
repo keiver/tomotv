@@ -281,6 +281,29 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(reports().first?["reason"] as? String, "playlist fetch failed")
     }
 
+    func testFastCopyLeavesServerEncodersIdleUntilAFallbackIsNeeded() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let (session, _) = try session(
+            serverAudioUrl: "http://tier.test/Audio/x/main.m3u8",
+            inputUrl: fixtureUrl.absoluteString,
+            linkCeilingBps: 30_000_000
+        )
+        defer { session.stop() }
+        waitForProbe(session)
+        let master = session.masterPlaylist()
+        XCTAssertTrue(session.sourceReady)
+        XCTAssertNil(session.openingRung)
+        XCTAssertLessThan(try XCTUnwrap(master.range(of: "media.m3u8")).lowerBound, try XCTUnwrap(master.range(of: "t0.m3u8")).lowerBound)
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg0.ts"), 0)
+        XCTAssertEqual(TierServerStub.hitCount("/Audio/x/main.m3u8"), 0)
+        XCTAssertEqual(session.probeSeconds, 0)
+
+        XCTAssertEqual(session.chooseOpeningRung(linkBps: 2_000_000), 0)
+        XCTAssertTrue(TierServerStub.sawHit("/Videos/x/seg0.ts"))
+        XCTAssertTrue(TierServerStub.sawHit("/Audio/x/main.m3u8"))
+    }
+
     func testPlaylistWithOneSegmentDeclinesTheTier() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, Data("#EXTM3U\n#EXTINF:6.0,\nseg0.ts\n#EXT-X-ENDLIST\n".utf8))
         let (s, reports) = try session()

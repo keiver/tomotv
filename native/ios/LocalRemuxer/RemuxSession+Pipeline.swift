@@ -868,14 +868,6 @@ extension RemuxSession {
                 self?.probeLink()
                 self?.watchLinkWhileRidingTier()
             }
-            // The rung lane's audio comes from a server transcode Jellyfin has to spin up, and it
-            // was fetched only when AVPlayer first asked: 7s of the first frame's budget, spent in
-            // series (measured at 0.6 Mb/s). Asking now overlaps it with the grid and the probe.
-            if config.audioTracks.first?.serverAudioUrl.isEmpty == false {
-                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                    _ = self?.adoptAudioLo(0)
-                }
-            }
         }
 
         if config.serverVideoOnly {

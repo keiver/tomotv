@@ -737,6 +737,60 @@ describe("startLocalRemux", () => {
     expect(config.audioTracks.map((track: { name: string }) => track.name)).toEqual(getAudioTracks(source).map((track) => track.DisplayTitle));
   });
 
+  it("declares the HEVC Main original beside its 144p fallback rungs", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 426_777 }],
+        streams: [
+          { Type: "Video", Codec: "hevc", Profile: "Main", Level: 93, BitDepth: 8, Index: 0, BitRate: 393_055, Width: 1280, Height: 720, VideoRangeType: "SDR" },
+          { Type: "Audio", Codec: "aac", Profile: "HE-AAC", Index: 1, BitRate: 32_001, Channels: 2 },
+        ],
+      }),
+      undefined,
+      461,
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config).toMatchObject({
+      primaryVideoCodecs: "hvc1.1.4.L93.B0",
+      codecs: "hvc1.1.4.L93.B0,mp4a.40.5",
+      primaryVideoBandwidth: 393_055,
+      bandwidth: 425_056,
+      width: 1280,
+      height: 720,
+      startOffsetSeconds: 461,
+    });
+    expect(config.tiers).toHaveLength(2);
+    expect(config.tiers.map((tier: { height: number }) => tier.height)).toEqual([144, 144]);
+  });
+
+  it.each([
+    { profile: "Main", level: 120, width: 1920, height: 1080, bitDepth: 8, videoRange: "SDR", bitrate: 12_000_000, codec: "hvc1.1.4.L120.B0" },
+    { profile: "Main", level: 153, width: 3840, height: 2160, bitDepth: 8, videoRange: "SDR", bitrate: 35_000_000, codec: "hvc1.1.4.L153.B0" },
+    { profile: "Main 10", level: 153, width: 3840, height: 2160, bitDepth: 10, videoRange: "HDR10", bitrate: 80_000_000, codec: "hvc1.2.4.L153.B0" },
+  ])("preserves the $height-p $profile original at $bitrate bps", async ({ profile, level, width, height, bitDepth, videoRange, bitrate, codec }) => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: bitrate + 192_000 }],
+        streams: [
+          { Type: "Video", Codec: "hevc", Profile: profile, Level: level, BitDepth: bitDepth, Index: 0, BitRate: bitrate, Width: width, Height: height, VideoRangeType: videoRange },
+          { Type: "Audio", Codec: "aac", Profile: "LC", Index: 1, BitRate: 192_000, Channels: 2 },
+        ],
+      }),
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config).toMatchObject({
+      primaryVideoCodecs: codec,
+      codecs: `${codec},mp4a.40.2`,
+      primaryVideoBandwidth: bitrate,
+      bandwidth: bitrate + 192_000,
+      sourceBandwidth: bitrate + 192_000,
+      width,
+      height,
+      videoRange: videoRange === "HDR10" ? "PQ" : "SDR",
+    });
+    expect(config.tiers.length).toBeGreaterThan(2);
+  });
+
   it("declares every source-group audio codec and the largest selectable output bandwidth", async () => {
     await startLocalRemux(
       item({
@@ -1380,6 +1434,8 @@ describe("videoCodecTag", () => {
     ["h264", "Main", 30, "avc1.4D401E"],
     ["h264", "Main", 31, "avc1.4D401F"],
     ["h264", "Main", 51, "avc1.4D4033"],
+    ["hevc", "Main", 93, "hvc1.1.4.L93.B0"],
+    ["hevc", "Main", 120, "hvc1.1.4.L120.B0"],
     ["hevc", "Main 10", 120, "hvc1.2.4.L120.B0"],
   ])("matches Jellyfin for %s %s level %s", (Codec, Profile, Level, expected) => {
     expect(videoCodecTag({ Codec, Profile, Level, Type: "Video" } as JellyfinMediaStream, true)).toBe(expected);
@@ -1395,7 +1451,7 @@ describe("videoCodecTag", () => {
   it("says nothing for a profile no fixture can prove", () => {
     expect(videoCodecTag({ Codec: "vc1", Profile: "Advanced", Level: 3, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
     expect(videoCodecTag({ Codec: "h264", Profile: "Baseline", Level: 31, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
-    expect(videoCodecTag({ Codec: "hevc", Profile: "Main", Level: 120, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
+    expect(videoCodecTag({ Codec: "hevc", Profile: "Rext", Level: 120, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
   });
 
   it("says nothing without a level, since half a tag is not a tag", () => {

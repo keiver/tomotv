@@ -1020,7 +1020,8 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
  * for the same file, on files it stream-copies so both describe one bitstream:
  *
  *   High/31 avc1.64001F   High/41 avc1.640029   Main/30 avc1.4D401E
- *   Main/31 avc1.4D401F   Main/51 avc1.4D4033   HEVC Main 10/120 hvc1.2.4.L120.B0
+ *   Main/31 avc1.4D401F   Main/51 avc1.4D4033
+ *   HEVC Main/93 hvc1.1.4.L93.B0   HEVC Main 10/120 hvc1.2.4.L120.B0
  *
  * Baseline and the High 4:2:x profiles are deliberately absent. A CODECS string
  * AVPlayer disagrees with is a hard rejection of the whole variant, and nothing
@@ -1051,8 +1052,7 @@ export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, will
     const tag = H264_PROFILE_TAG[profile];
     return tag ? `avc1.${tag}${level.toString(16).toUpperCase().padStart(2, "0")}` : "";
   }
-  // HDR10 and HLG are Main 10 by definition, which is the one HEVC profile the
-  // library can prove. Other HEVC profiles fall through to no attribute.
+  if (codec === "hevc" && profile === "main") return `hvc1.1.4.L${level}.B0`;
   if (codec === "hevc" && profile === "main 10") return `hvc1.2.4.L${level}.B0`;
   // Copied AV1. Jellyfin's Level is the sequence header's seq_level_idx
   // verbatim; the bitstream spec forces Main tier ("M") for levels <= 7, and

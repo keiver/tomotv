@@ -115,10 +115,12 @@ extension RemuxSession {
             stateLock.unlock()
         }
         guard tierActive else { return }
+        awaitLinkProbe()
         stateLock.lock()
+        let copyLeads = copyLeadsLocked(linkBps: testLinkBps ?? measuredLinkBps ?? 0)
         let canonicalRung = tierSegments.keys.sorted().first { !rungsUnavailable.contains($0) }
         stateLock.unlock()
-        guard let canonicalRung else { return }
+        guard !copyLeads, let canonicalRung else { return }
         probedRung = canonicalRung
         let target = segmentIndex(atSeconds: config.startOffsetSeconds)
         let started = Date()
