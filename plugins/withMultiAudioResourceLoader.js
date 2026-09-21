@@ -63,6 +63,7 @@ const REMUXER_FILES = [
   "TierRewrapper.swift",
   "PlaylistShim.swift",
   "InitSegmentSdr.swift",
+  "VideoCodecDeclaration.swift",
   "LocalHTTPServer.swift",
   "EndpointProbe.swift",
   "EnginePlan.swift",

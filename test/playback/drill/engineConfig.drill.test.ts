@@ -3,8 +3,6 @@
  * host Slipstream drill (native/ios/Tests/TomoEngineTests/SlipstreamDrillTests.swift). Skipped
  * unless DRILL_ITEM_ID is set; scripts/abr-drill.mjs sets the rest.
  *
- * Env: DRILL_ITEM_ID, DRILL_OUT (json path), DRILL_SERVER (the URL the config points at, the
- * netsim proxy), DRILL_UPSTREAM (where the item is read from), DRILL_API_KEY, DRILL_START (s).
  */
 import fs from "node:fs";
 import http from "node:http";
@@ -37,19 +35,39 @@ jest.mock("@/services/playbackProbe", () => ({ probeEmit: () => undefined, noteD
 jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => null }));
 jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: async () => null, measureServerBitrate: async () => null }));
 jest.mock("@/services/jellyfin/session", () => ({
-  getCachedConfig: () => ({ server: process.env.DRILL_SERVER, apiKey: process.env.DRILL_API_KEY, userId: "drill" }),
+  getCachedConfig: () => ({ server: "${JELLYFIN_URL}", apiKey: "${JELLYFIN_API_KEY}", userId: "drill" }),
   generatePlaySessionId: () => `drill${Math.random().toString(36).slice(2, 10)}`,
 }));
 
 const run = process.env.DRILL_ITEM_ID ? it : it.skip;
 
 describe("Slipstream drill engine config", () => {
+  it("captures environment references instead of credentials", async () => {
+    await startLocalRemux({
+      Id: "fixture",
+      Name: "HEVC Main",
+      RunTimeTicks: 600_000_000,
+      MediaSources: [{ Id: "fixture", Container: "mkv", Bitrate: 4_000_000 }],
+      MediaStreams: [
+        { Type: "Video", Index: 0, Codec: "hevc", Profile: "Main", Level: 93, Width: 1280, Height: 720, BitRate: 3_800_000 },
+        { Type: "Audio", Index: 1, Codec: "aac", Profile: "LC", Channels: 2, BitRate: 128_000 },
+      ],
+    } as JellyfinVideoItem);
+    const serialized = JSON.stringify(mockCaptured.config);
+    expect(serialized).toContain("${JELLYFIN_URL}/Videos/fixture/");
+    expect(serialized).toContain("ApiKey=${JELLYFIN_API_KEY}");
+    if (process.env.JELLYFIN_API_KEY) expect(serialized).not.toContain(process.env.JELLYFIN_API_KEY);
+  });
+
   run("writes the bridge config startLocalRemux builds for the item", async () => {
-    const upstream = process.env.DRILL_UPSTREAM ?? "http://127.0.0.1:8096";
+    const outPath = process.env.DRILL_OUT ?? "drill-config.json";
+    const upstream = process.env.JELLYFIN_URL;
+    const apiKey = process.env.JELLYFIN_API_KEY;
+    if (!upstream || !apiKey) throw new Error("Set JELLYFIN_URL and JELLYFIN_API_KEY in the environment");
     // jest-expo replaces global fetch, so the item is read with node's own client.
     const body = await new Promise<string>((resolve, reject) => {
       http
-        .get(`${upstream}/Items?Ids=${process.env.DRILL_ITEM_ID}&Fields=MediaSources,MediaStreams`, { headers: { Authorization: `MediaBrowser Token="${process.env.DRILL_API_KEY}"` } }, (res) => {
+        .get(`${upstream}/Items?Ids=${process.env.DRILL_ITEM_ID}&Fields=MediaSources,MediaStreams`, { headers: { Authorization: `MediaBrowser Token="${apiKey}"` } }, (res) => {
           let text = "";
           res.on("data", (chunk) => (text += chunk));
           res.on("end", () => resolve(text));
@@ -63,6 +81,8 @@ describe("Slipstream drill engine config", () => {
     const detailed = { ...item, MediaStreams: item.MediaStreams ?? item.MediaSources?.[0]?.MediaStreams } as JellyfinVideoItem;
     await startLocalRemux(detailed, undefined, Number(process.env.DRILL_START ?? "0") || undefined);
     expect(mockCaptured.config).toBeDefined();
-    fs.writeFileSync(process.env.DRILL_OUT ?? "drill-config.json", JSON.stringify(mockCaptured.config, null, 2));
+    const serialized = JSON.stringify(mockCaptured.config, null, 2);
+    if (serialized.includes(apiKey) || serialized.includes(encodeURIComponent(apiKey))) throw new Error("Capture contains a credential; refusing to write it");
+    fs.writeFileSync(outPath, serialized);
   });
 });

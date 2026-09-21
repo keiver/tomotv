@@ -324,6 +324,22 @@ final class MasterPlaylistTests: XCTestCase {
         XCTAssertEqual(names[3], "Track 4")
     }
 
+    func testResolvedOutputReplacesGuessedCodecsAndDeclaresNativeChannels() throws {
+        var encoded = serverAudio(1)
+        encoded.codecs = "fLaC,mp4a.40.2"
+        let session = try gateway(audio: [encoded])
+        defer { session.stop() }
+        session.resolvedVideoCodecs = "hvc1.1.6.L93.80"
+        session.resolvedAudioCodecs = ["a0": "fLaC"]
+        session.resolvedAudioChannels = ["a0": 6]
+        let master = session.masterPlaylist()
+        let originals = variants(master, uri: "media.m3u8")
+        XCTAssertTrue(originals[0].contains("CODECS=\"hvc1.1.6.L93.80,fLaC\""))
+        XCTAssertTrue(originals[1].contains("CODECS=\"hvc1.1.6.L93.80,mp4a.40.2\""))
+        XCTAssertTrue(master.components(separatedBy: "\n").first { $0.contains("GROUP-ID=\"audio\"") }?.contains("CHANNELS=\"6\"") == true)
+        XCTAssertTrue(master.components(separatedBy: "\n").first { $0.contains("GROUP-ID=\"audio-lo\"") }?.contains("CHANNELS=\"2\"") == true)
+    }
+
     func testOriginalLeadingMarginDoesNotChangeForTheAacAssociation() throws {
         XCTAssertEqual(RemuxSession.copyLeadsMargin, 3)
         XCTAssertEqual(RemuxSession.openingRungShare, 6)

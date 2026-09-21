@@ -28,11 +28,6 @@
  *   npm run test:playback -- --verify-manifest   manifest/baseline agreement, no device needed
  *   npm run test:playback -- --json out.json     write the run record for CI
  *
- * Requires: gitignored .env.playback-test with JELLYFIN_URL and
- * JELLYFIN_API_KEY (+ optional BUNDLE_ID, JELLYFIN_USER/JELLYFIN_PASSWORD to
- * sign a dev build in through tomotv://dev-session); ffmpeg/ffprobe on PATH; the app
- * installed on the target simulator with its JS available (Metro running for a
- * dev build).
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -46,7 +41,6 @@ const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST_PATH = path.join(ROOT, "test", "playback", "manifest.json");
 const BASELINE_DIR = path.join(ROOT, "test", "playback", "baselines");
-const ENV_PATH = path.join(ROOT, ".env.playback-test");
 const PROBE_FILENAME = "playback-probe.jsonl";
 const VERDICTS_FILENAME = "engine-verdicts.json";
 const HASH_WINDOW_SECONDS = 30;
@@ -94,25 +88,22 @@ function fail(msg) {
   process.exit(1);
 }
 
-export function loadEnv() {
-  if (!fs.existsSync(ENV_PATH)) {
-    fail(
-      `Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n` +
-        `  # optional: BUNDLE_ID=dev.keiver.tomotv\n  # optional: JELLYFIN_FIXTURE_ROOTS=${DEFAULT_FIXTURE_ROOTS}\n` +
-        `  # optional: JELLYFIN_USER=<name> and JELLYFIN_PASSWORD=<pw> (dev build signs itself in via tomotv://dev-session)`,
-    );
-  }
+export function loadEnv(environment = process.env) {
   const env = {};
-  for (const line of fs.readFileSync(ENV_PATH, "utf8").split("\n")) {
-    const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/);
-    if (m) env[m[1]] = m[2];
+  for (const key of [
+    "JELLYFIN_URL",
+    "JELLYFIN_API_KEY",
+    "JELLYFIN_USER",
+    "JELLYFIN_PASSWORD",
+    "JELLYFIN_ACCESS_TOKEN",
+    "JELLYFIN_USER_ID",
+    "JELLYFIN_DEVICE_ID",
+    "BUNDLE_ID",
+    "JELLYFIN_FIXTURE_ROOTS",
+  ]) {
+    if (environment[key]) env[key] = environment[key];
   }
-  // The shell wins: a device run needs the LAN address the app is signed in to,
-  // where the file names localhost for the simulator.
-  for (const key of ["JELLYFIN_URL", "JELLYFIN_API_KEY", "JELLYFIN_USER", "JELLYFIN_PASSWORD", "BUNDLE_ID", "JELLYFIN_FIXTURE_ROOTS"]) {
-    if (process.env[key]) env[key] = process.env[key];
-  }
-  if (!env.JELLYFIN_URL || !env.JELLYFIN_API_KEY) fail(`${ENV_PATH} must define JELLYFIN_URL and JELLYFIN_API_KEY`);
+  if (!env.JELLYFIN_URL || !env.JELLYFIN_API_KEY) throw new Error("Set JELLYFIN_URL and JELLYFIN_API_KEY in the environment");
   env.JELLYFIN_URL = env.JELLYFIN_URL.replace(/\/$/, "");
   env.BUNDLE_ID = env.BUNDLE_ID || "dev.keiver.tomotv";
   env.JELLYFIN_FIXTURE_ROOTS = env.JELLYFIN_FIXTURE_ROOTS || DEFAULT_FIXTURE_ROOTS;
@@ -309,7 +300,7 @@ async function assertAppOnSameServer(env) {
       `It is almost certainly signed in to a DIFFERENT server, in which case every item\n` +
       `resolved here is a 404 there and all ${"items"} fail as "Video not found or unavailable".\n\n` +
       `Clients seen on this server: ${seen.length ? seen.join(", ") : "none"}\n\n` +
-      `Fix: set JELLYFIN_USER and JELLYFIN_PASSWORD in .env.playback-test so the run signs the app in itself\n` +
+      `Fix: set JELLYFIN_USER and JELLYFIN_PASSWORD in the environment so the run signs the app in itself\n` +
       `(dev builds only), or open the app, Settings -> sign out, reconnect to ${env.JELLYFIN_URL}, and re-run.\n` +
       `To confirm what it is talking to: lsof -nP -a -p $(pgrep -f 'TomoTV.app/TomoTV') -i`,
   );
@@ -1229,15 +1220,8 @@ async function preflight() {
   };
 
   let env = null;
-  await check(".env.playback-test", async () => {
-    if (!fs.existsSync(ENV_PATH)) throw new Error(`missing ${ENV_PATH}`);
-    const parsed = {};
-    for (const line of fs.readFileSync(ENV_PATH, "utf8").split("\n")) {
-      const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/);
-      if (m) parsed[m[1]] = m[2];
-    }
-    if (!parsed.JELLYFIN_URL || !parsed.JELLYFIN_API_KEY) throw new Error("JELLYFIN_URL and JELLYFIN_API_KEY are both required");
-    env = { ...parsed, JELLYFIN_URL: parsed.JELLYFIN_URL.replace(/\/$/, ""), BUNDLE_ID: parsed.BUNDLE_ID || "dev.keiver.tomotv" };
+  await check("playback environment", async () => {
+    env = loadEnv();
     return env.JELLYFIN_URL;
   });
 

@@ -16,8 +16,55 @@ npm run test:playback -- --list              # print the manifest and exit
 
 ## First-time setup
 
+### Host manifest acceptance
+
+Unit tests cannot establish which HLS variant AVPlayer actually selects. The host
+drill captures the app's bridge configuration and plays the native engine's
+loopback HLS through macOS AVPlayer. It does not launch or control the Apple TV.
+
+For a captured config on an unthrottled link, run:
+
+```sh
+TOMO_DRILL_CONFIG=/private/tmp/item-config.json \
+TOMO_DRILL_OUT=/private/tmp/item-timeline.jsonl \
+TOMO_DRILL_SECONDS=60 TOMO_DRILL_WINDOW=1 TOMO_DRILL_CAP=1 \
+TOMO_DRILL_EXPECT_ORIGINAL=1 \
+swift test --package-path native/ios --filter SlipstreamDrillTests
+```
+
+The strict mode requires playback progress, source presentation dimensions,
+original-video access-log entries, no server-rendition requests (audio included),
+and no AVPlayer error-log events. Check Jellyfin's FFmpeg-start log entries for
+the same source and time window too: an engine `copy` plan alone does not prove
+the player consumed that stream or that no server encoder ran.
+
+Keep slow-link coverage separate:
+
+```sh
+node scripts/abr-drill.mjs --host --items T101 --scenarios S2,S4 \
+  --results /private/tmp/tomo-manifest-matrix/results.md
+```
+
+S2 holds 1.5 Mbps; S4 changes from 1.5 to 30 Mbps. Do not enable the strict
+original-only assertion for scenarios that intentionally require fallback.
+Host results are not physical-tvOS certification or validation of Apple's private
+yellow HUD fields. Configs contain literal `${JELLYFIN_URL}` and
+`${JELLYFIN_API_KEY}` references, never credentials. Native tests resolve them
+from environment variables in memory. Configs and tests are versionable files;
+there are no playback-artifact ignore rules or private test-file requirements.
+The host matrix enables strict original-only assertions automatically for S1.
+
+The native master resolves video codec identifiers from the muxed initialization
+segment and audio codecs/channels from the selected output parameters before
+publishing a ready local source. Metadata estimates remain necessary when a slow
+link leaves the original unopened. `SCORE` ranks eligible variants; it cannot
+make a wrongly declared codec or audio channel configuration eligible.
+
+### Environment
+
 ```bash
-cp /dev/null .env.playback-test   # then fill in JELLYFIN_URL and JELLYFIN_API_KEY (below)
+export JELLYFIN_URL=http://localhost:8096
+export JELLYFIN_API_KEY='<your API key>'
 npm run make:test-media -- --with-library   # builds the media set, registers the libraries
 npm run test:playback
 ```
@@ -26,7 +73,7 @@ npm run test:playback
 nothing: it generates the synthetic matrix with Jellyfin's bundled ffmpeg, downloads
 the real-encoder samples it cannot synthesise and, only under `--with-library`,
 registers the three Jellyfin libraries and attaches posters over the API. That step
-is opt-in because it mutates whatever server `.env.playback-test` points at, which is
+is opt-in because it mutates whatever server `JELLYFIN_URL` points at, which is
 somebody's personal one. It is idempotent, so re-running it only fills gaps.
 Source URLs and checksums for every downloaded file are recorded in
 `test/playback/media-sources.json`.
@@ -57,7 +104,7 @@ is, via `npm run make:test-media`. Per-fixture origin is recorded in
 **A Jellyfin server must be running and indexing those folders.** Which library
 holds them does not matter, and neither do their names. The driver resolves a
 manifest title only against items whose own directory is one of the three roots
-above, overridable with `JELLYFIN_FIXTURE_ROOTS` in `.env.playback-test`.
+above, overridable with the `JELLYFIN_FIXTURE_ROOTS` environment variable.
 
 Anchoring on the path is what survives a misconfigured server. Jellyfin attributes
 a file to the top-level physical folder that owns it, so a library nested inside
@@ -79,7 +126,8 @@ also lands as its own item in a library that accepts photos. The older items sti
 it the file way and carry that clutter; the generator uploads to
 `/Items/{id}/Images/Primary` instead.
 
-**`.env.playback-test`** (repo root, gitignored, never commit) must exist:
+**Environment variables** are the only credential source. The runners do not read
+credential files or extract credentials from the server database:
 
 ```
 JELLYFIN_URL=http://localhost:8096
@@ -87,6 +135,9 @@ JELLYFIN_API_KEY=<Dashboard -> Advanced -> API Keys>
 # optional: BUNDLE_ID=dev.keiver.tomotv
 # optional: JELLYFIN_USER=<name> and JELLYFIN_PASSWORD=<pw>, the run signs the app in itself (dev builds)
 ```
+
+Device ABR drills additionally require `JELLYFIN_ACCESS_TOKEN` and
+`JELLYFIN_USER_ID`, with optional `JELLYFIN_DEVICE_ID`, in the environment.
 
 The key is also used to reset each item's resume position before launch, for every user on the server, so every run starts at 0; without that, resume carries across runs and the hash window starts past seg0.
 

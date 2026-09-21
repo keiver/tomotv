@@ -294,6 +294,11 @@ final class TierProbeTests: XCTestCase {
         let master = session.masterPlaylist()
         XCTAssertTrue(session.sourceReady)
         XCTAssertNil(session.openingRung)
+        let initialization = try Data(contentsOf: session.dir.appendingPathComponent("init.mp4"))
+        let actualCodec = try XCTUnwrap(VideoCodecDeclaration.fromInit(initialization))
+        XCTAssertTrue(actualCodec.hasPrefix("avc1.42"))
+        XCTAssertTrue(master.contains("CODECS=\"\(actualCodec),mp4a.40.2\""))
+        XCTAssertEqual(session.resolvedAudioCodecs["a0"], "mp4a.40.2")
         XCTAssertLessThan(try XCTUnwrap(master.range(of: "media.m3u8")).lowerBound, try XCTUnwrap(master.range(of: "t0.m3u8")).lowerBound)
         XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg0.ts"), 0)
         XCTAssertEqual(TierServerStub.hitCount("/Audio/x/main.m3u8"), 0)
@@ -312,6 +317,18 @@ final class TierProbeTests: XCTestCase {
         XCTAssertFalse(s.masterPlaylist().contains("t0.m3u8"))
         XCTAssertEqual(reports().first?["reason"] as? String, "playlist held 1 segments")
         XCTAssertFalse(TierServerStub.hits.contains("/Videos/x/seg0.ts"), "an unadopted grid is never probed")
+    }
+
+    func testLocalOnlyMasterWaitsForActualOutputCodecs() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 2, inputUrl: fixtureUrl.absoluteString,
+            audioTracks: [RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: "")], codecs: ""))
+        defer { session.stop() }
+        session.start()
+        let master = session.masterPlaylist()
+        XCTAssertTrue(session.sourceReady)
+        let initialization = try Data(contentsOf: session.dir.appendingPathComponent("init.mp4"))
+        let actualCodec = try XCTUnwrap(VideoCodecDeclaration.fromInit(initialization))
+        XCTAssertTrue(master.contains("CODECS=\"\(actualCodec),mp4a.40.2\""))
     }
 
     func testOpeningSegmentServerErrorKeepsTheTierRetryable() throws {

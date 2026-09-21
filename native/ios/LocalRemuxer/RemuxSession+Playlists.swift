@@ -55,15 +55,23 @@ extension RemuxSession {
     }
 
     func originalVideoCodecs() -> [String] {
+        stateLock.lock()
+        let resolved = resolvedVideoCodecs
+        stateLock.unlock()
+        if let resolved { return [resolved] }
         if !config.primaryVideoCodecs.isEmpty { return Self.codecTokens(config.primaryVideoCodecs) }
         return Self.codecTokens(config.codecs).filter { !Self.isAudioCodec($0) }
     }
 
     func originalAudioCodecs(_ tracks: [RemuxAudioTrack]) -> [String] {
+        stateLock.lock()
+        let resolved = resolvedAudioCodecs
+        stateLock.unlock()
         let fallback = Self.codecTokens(config.codecs).filter(Self.isAudioCodec)
         var result: [String] = []
-        for track in tracks {
-            let codecs = track.usesServerAudio ? [Self.serverAudioCodecs] : (track.codecs.isEmpty ? fallback : Self.codecTokens(track.codecs))
+        for (position, track) in tracks.enumerated() {
+            let actual = resolved[audioPrefix(position)] ?? (tracks.count == 1 ? resolved[""] : nil)
+            let codecs = track.usesServerAudio ? [Self.serverAudioCodecs] : actual.map { [$0] } ?? (track.codecs.isEmpty ? fallback : Self.codecTokens(track.codecs))
             for codec in codecs where !result.contains(codec) { result.append(codec) }
         }
         return tracks.isEmpty ? fallback : result
@@ -171,9 +179,12 @@ extension RemuxSession {
             }
         }
         let offered = tierOffered
+        stateLock.lock()
+        let awaitLocalOutput = pipelineStarted && !offered && !config.isLive
+        stateLock.unlock()
         // A copy is named only once it can be produced: a source that will not open, or cannot be
         // planned, lets itself go before this returns, and the rungs carry the session instead.
-        if offered, decideCopy() {
+        if awaitLocalOutput || (offered && decideCopy()) {
             _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
                 guard let self else { return true }
                 self.stateLock.lock()
@@ -211,6 +222,7 @@ extension RemuxSession {
         stateLock.lock()
         let tracks = liveAudioTracks ?? config.audioTracks
         let subtitles = liveSubtitles ?? config.subtitles
+        let audioChannels = resolvedAudioChannels
         stateLock.unlock()
         // Same predicate as the pipeline's splitAudio, or the master names a rendition never built.
         let useAudioGroup = tracks.count > 1 || !config.tiers.isEmpty || tracks.contains(where: { $0.usesServerAudio })
@@ -227,7 +239,8 @@ extension RemuxSession {
                 // AVFoundation reject the whole master playlist (-12642).
                 line += position == 0 ? ",DEFAULT=YES,AUTOSELECT=YES" : ",DEFAULT=NO,AUTOSELECT=NO"
                 let prefix = track.usesServerAudio ? serverAudioPrefix(position) : audioPrefix(position)
-                if track.usesServerAudio, track.serverAudioChannels > 0 { line += ",CHANNELS=\"\(track.serverAudioChannels)\"" }
+                let channels = track.usesServerAudio ? track.serverAudioChannels : audioChannels[prefix] ?? 0
+                if channels > 0 { line += ",CHANNELS=\"\(channels)\"" }
                 line += ",URI=\"\(prefix).m3u8\""
                 out += line + "\n"
             }

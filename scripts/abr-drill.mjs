@@ -9,7 +9,7 @@
  * Results append to the drill results file (--results, default $TMPDIR/tomotv-drill) and each
  * run's timeline is kept next to it.
  */
-import { spawn, execFile, execFileSync } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import http from "node:http";
@@ -18,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { devicectl, jf, loadEnv, openDeepLink, pickTarget, simctl } from "./playback-regression.mjs";
 import { SCENARIOS, copyBitrates, profileRates, score } from "./lib/abr-score.mjs";
+import { redactedTestWriter } from "./lib/test-environment.mjs";
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -114,27 +115,26 @@ async function waitForProxy() {
 async function captureConfig(env, item, outPath) {
   await exec("npx", ["jest", "test/playback/drill", "--silent"], {
     cwd: ROOT,
-    // DRILL_SERVER is what the captured config points at (the shaped proxy); the item itself is read
-    // from the server directly, so the capture is not paced by the scenario's link.
     env: {
       ...process.env,
       DRILL_ITEM_ID: item.itemId,
       DRILL_OUT: outPath,
-      DRILL_SERVER: `http://127.0.0.1:${PROXY_PORT}`,
-      DRILL_UPSTREAM: env.JELLYFIN_URL,
-      DRILL_API_KEY: env.JELLYFIN_API_KEY,
+      JELLYFIN_URL: env.JELLYFIN_URL,
+      JELLYFIN_API_KEY: env.JELLYFIN_API_KEY,
       DRILL_START: String(START),
     },
     maxBuffer: 16 * 1024 * 1024,
   });
 }
 
-async function hostRun(configPath, scenario, timelinePath, logPath) {
+async function hostRun(env, configPath, scenario, timelinePath, logPath) {
   const child = spawn("swift", ["test", "--package-path", "native/ios", "--filter", "SlipstreamDrillTests"], {
     cwd: ROOT,
     env: {
       ...process.env,
       DEVELOPER_DIR,
+      JELLYFIN_URL: `http://127.0.0.1:${PROXY_PORT}`,
+      JELLYFIN_API_KEY: env.JELLYFIN_API_KEY,
       TOMO_DRILL_CONFIG: configPath,
       TOMO_DRILL_OUT: timelinePath,
       TOMO_DRILL_PROXY: `http://127.0.0.1:${PROXY_PORT}`,
@@ -144,6 +144,7 @@ async function hostRun(configPath, scenario, timelinePath, logPath) {
       ...(BUFFER ? { TOMO_DRILL_BUFFER: BUFFER } : {}),
       ...(WINDOW ? { TOMO_DRILL_WINDOW: "1" } : {}),
       ...(CAP ? { TOMO_DRILL_CAP: "1" } : {}),
+      ...(scenario === SCENARIOS.S1 ? { TOMO_DRILL_EXPECT_ORIGINAL: "1" } : {}),
       ...(scenario.breakPath ? { TOMO_DRILL_BREAK: scenario.breakPath } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -154,9 +155,14 @@ async function hostRun(configPath, scenario, timelinePath, logPath) {
     log?.write(d);
     tail = (tail + d).slice(-4000);
   };
-  child.stdout.on("data", keep);
-  child.stderr.on("data", keep);
+  const stdout = redactedTestWriter(keep, env);
+  const stderr = redactedTestWriter(keep, env);
+  child.stdout.on("data", stdout.write);
+  child.stderr.on("data", stderr.write);
   const code = await new Promise((resolve) => child.on("close", resolve));
+  stdout.end();
+  stderr.end();
+  log?.end();
   if (code !== 0) throw new Error(`host drill exited ${code}\n${tail}`);
 }
 
@@ -167,14 +173,9 @@ const readTimeline = (p) =>
     .filter(Boolean)
     .map((l) => JSON.parse(l));
 
-/** The TV's own Jellyfin credentials, read out of the desktop server's database (read-only). */
-function deviceCredentials(deviceName) {
-  const db = path.join(os.homedir(), "Library", "Application Support", "jellyfin", "data", "jellyfin.db");
-  const sql = `SELECT AccessToken, UserId, DeviceId FROM Devices WHERE DeviceName LIKE '%${deviceName.replace(/'/g, "")}%' ORDER BY DateLastActivity DESC LIMIT 1;`;
-  const stdout = execFileSync("sqlite3", ["-readonly", "-separator", "\t", db, sql], { encoding: "utf8" });
-  const [token, userId, deviceId] = stdout.trim().split("\t");
-  if (!token || !userId) throw new Error(`no Jellyfin device row matching "${deviceName}"; play something on the TV once`);
-  return { token, userId, deviceId };
+function deviceCredentials(env) {
+  if (!env.JELLYFIN_ACCESS_TOKEN || !env.JELLYFIN_USER_ID) throw new Error("Set JELLYFIN_ACCESS_TOKEN and JELLYFIN_USER_ID in the environment for device drills");
+  return { token: env.JELLYFIN_ACCESS_TOKEN, userId: env.JELLYFIN_USER_ID, deviceId: env.JELLYFIN_DEVICE_ID };
 }
 
 /** Clears the fixture's resume point, so every run opens the item at the start. */
@@ -375,7 +376,7 @@ async function main() {
   const lines = [
     `\n## ${new Date().toISOString()} ${target ? `${target.kind} ${target.name}` : "host"}, link=${LINK ?? "measured"}, buffer=${BUFFER ?? "default"}, window=${WINDOW}, cap=${CAP}, start=${START}s, tree ${head}${dirty}\n`,
   ];
-  const credentials = device ? deviceCredentials("Apple TV") : null;
+  const credentials = device ? deviceCredentials(env) : null;
   // One proxy for the whole device run: the app is signed into its address, so it cannot come and
   // go between scenarios the way the host drill's does.
   let deviceProxy = null;
@@ -412,7 +413,7 @@ async function main() {
             const collected = target.kind === "sim" ? await simulatorRun(env, target, item, scenario, base) : await deviceRun(env, target.name, item, scenario, base);
             timeline = deviceTimeline(collected);
           } else {
-            await hostRun(`${base}-config.json`, scenario, `${base}-timeline.jsonl`, `${base}-engine.log`);
+            await hostRun(env, `${base}-config.json`, scenario, `${base}-timeline.jsonl`, `${base}-engine.log`);
             timeline = readTimeline(`${base}-timeline.jsonl`);
           }
           timeline.push(...profileRates(readTimeline(proxyPath), timeline.find((record) => record.kind === "start")?.epochMs));

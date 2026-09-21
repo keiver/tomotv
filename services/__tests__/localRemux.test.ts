@@ -1765,6 +1765,7 @@ describe("startLocalRemux Slipstream tier config", () => {
     // A seven-channel track arrives as stereo on a rung.
     expect(config.audioTracks[0].serverAudioChannels).toBe(2);
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=aac");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AllowAudioStreamCopy=false");
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioBitrate=96000");
     expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");
   });

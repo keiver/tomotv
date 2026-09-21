@@ -436,6 +436,24 @@ extension RemuxSession {
                 DolbyVisionConverter.rewriteConfiguration(outStream.pointee.codecpar)
             }
             streamMap[inIndex] = Int32(output.pointee.nb_streams - 1)
+            if codecType == AVMEDIA_TYPE_AUDIO {
+                let parameters = outStream.pointee.codecpar.pointee
+                let codec: String?
+                switch parameters.codec_id {
+                case AV_CODEC_ID_AAC:
+                    codec = parameters.profile >= 0 ? "mp4a.40.\(parameters.profile + 1)" : nil
+                case AV_CODEC_ID_FLAC: codec = "fLaC"
+                case AV_CODEC_ID_ALAC: codec = "alac"
+                case AV_CODEC_ID_AC3: codec = "ac-3"
+                case AV_CODEC_ID_EAC3: codec = "ec-3"
+                case AV_CODEC_ID_OPUS: codec = "Opus"
+                default: codec = nil
+                }
+                stateLock.lock()
+                resolvedAudioCodecs[rendition.prefix] = codec
+                resolvedAudioChannels[rendition.prefix] = Int(parameters.ch_layout.nb_channels)
+                stateLock.unlock()
+            }
         }
 
         var muxOpts: OpaquePointer? = nil
@@ -490,7 +508,13 @@ extension RemuxSession {
             // Bytes emitted by write_header (ftyp + empty moov) are the init
             // segment. Identical every generation, so overwriting is harmless.
             do {
-                try rendition.takePending().write(to: dir.appendingPathComponent(rendition.initName))
+                let initialization = rendition.takePending()
+                try initialization.write(to: dir.appendingPathComponent(rendition.initName))
+                if let codec = VideoCodecDeclaration.fromInit(initialization) {
+                    stateLock.lock()
+                    resolvedVideoCodecs = codec
+                    stateLock.unlock()
+                }
             } catch {
                 fail("write \(rendition.initName): \(error.localizedDescription)")
                 return false
@@ -1277,10 +1301,6 @@ extension RemuxSession {
         // open has nowhere to write and must not try.
         if goneAlready { return }
 
-        stateLock.lock()
-        sourceReady = true
-        sourceState = .ready
-        stateLock.unlock()
         mark("renditions_built")
         reportPlan(input: input, videoIn: videoIn, audioIndices: audioIndices, audioIdentity: audioIdentity, renditions: builtRenditions)
 
@@ -1345,12 +1365,16 @@ extension RemuxSession {
 
         stateLock.lock()
         if embeddedCaptions { NSLog("[LocalRemuxer] CEA-608/708 captions in the opening video packets, declared in the master") }
-        liveStreamsResolved = true
         stateLock.unlock()
 
         for rendition in builtRenditions {
             guard buildMuxer(for: rendition, input: input) else { return }
         }
+        stateLock.lock()
+        sourceReady = true
+        sourceState = .ready
+        liveStreamsResolved = true
+        stateLock.unlock()
         segmentClock = Date()
 
         var currentSegment = 0
@@ -1419,6 +1443,11 @@ extension RemuxSession {
                 if rendition.awaitingDeferredInit {
                     do {
                         try data.write(to: dir.appendingPathComponent(rendition.initName))
+                        if let codec = VideoCodecDeclaration.fromInit(data) {
+                            stateLock.lock()
+                            resolvedVideoCodecs = codec
+                            stateLock.unlock()
+                        }
                     } catch {
                         return fail("write \(rendition.initName): \(error.localizedDescription)")
                     }

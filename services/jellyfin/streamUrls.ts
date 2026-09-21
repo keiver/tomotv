@@ -50,6 +50,7 @@ export function getAudioRenditionUrl(itemId: string, videoItem: JellyfinVideoIte
     `${config.server}/Videos/${itemId}/main.m3u8?` +
     `ApiKey=${config.apiKey}&MediaSourceId=${mediaSourceId}` +
     `&VideoCodec=h264&AudioCodec=aac&AudioStreamIndex=${audioStreamIndex}` +
+    `&AllowAudioStreamCopy=false` +
     `&VideoBitrate=20000&AudioBitrate=${bitrate}&MaxWidth=64` +
     `&SegmentContainer=mp4&SegmentLength=6&MinSegments=1` +
     `&BreakOnNonKeyFrames=false&TranscodingMaxAudioChannels=2` +

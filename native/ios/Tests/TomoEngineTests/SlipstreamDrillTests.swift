@@ -17,12 +17,14 @@ final class SlipstreamDrillTests: XCTestCase {
     private var out: FileHandle?
     private let started = Date()
     private let outLock = NSLock()
+    private var fallbackRequests: [String] = []
 
     private func emit(_ kind: String, _ fields: [String: Any]) {
         var record = fields
         record["kind"] = kind
         record["ms"] = Int(Date().timeIntervalSince(started) * 1000)
-        guard var data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]) else { return }
+        let safeRecord = DrillEnvironment.redact(record, environment: ProcessInfo.processInfo.environment)
+        guard var data = try? JSONSerialization.data(withJSONObject: safeRecord, options: [.sortedKeys]) else { return }
         data.append(Data("\n".utf8))
         outLock.lock()
         out?.write(data)
@@ -91,7 +93,8 @@ final class SlipstreamDrillTests: XCTestCase {
         out = FileHandle(forWritingAtPath: outPath)
         defer { try? out?.close() }
 
-        let raw = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: configPath))) as? [String: Any])
+        let template = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: configPath)))
+        let raw = try XCTUnwrap(DrillEnvironment.resolve(template, environment: env) as? [String: Any])
         let seconds = Double(env["TOMO_DRILL_SECONDS"] ?? "120") ?? 120
         let deadline = Date().addingTimeInterval(seconds)
         emit("start", ["config": configPath, "epochMs": Int(started.timeIntervalSince1970 * 1000)])
@@ -130,7 +133,13 @@ final class SlipstreamDrillTests: XCTestCase {
             return session.route(parts[1])
         }
         server.requestObserver = { [weak self] r in
-            self?.emit("req", ["path": r.path, "status": r.status, "bytes": r.bytes, "firstBodyMs": r.firstBodyMs, "doneMs": r.doneMs])
+            guard let self else { return }
+            self.emit("req", ["path": r.path, "status": r.status, "bytes": r.bytes, "firstBodyMs": r.firstBodyMs, "doneMs": r.doneMs])
+            if r.path.range(of: #"/(t\d+|a\d+s)[.-]"#, options: .regularExpression) != nil {
+                self.outLock.lock()
+                self.fallbackRequests.append(r.path)
+                self.outLock.unlock()
+            }
         }
         let port = try server.start()
         defer { server.stop() }
@@ -174,6 +183,7 @@ final class SlipstreamDrillTests: XCTestCase {
             if readyAt == nil, item.status == .readyToPlay { readyAt = now; emit("ready", ["attempt": attempt]) }
             if item.status == .failed {
                 emit("failed", ["error": String(describing: item.error)])
+                XCTFail("AVPlayer failed: \(String(describing: item.error))")
                 break
             }
             let position = player.currentTime().seconds
@@ -193,6 +203,8 @@ final class SlipstreamDrillTests: XCTestCase {
                 "waiting": player.reasonForWaitingToPlay?.rawValue ?? "",
                 "advanced": position > lastPosition + 0.05,
                 "linkMbps": (session.pacedLinkBps ?? 0) / 1_000_000,
+                "width": item.presentationSize.width,
+                "height": item.presentationSize.height,
             ])
             lastPosition = position
             // What the app does with the engine's measurement: cap the variant choice to the
@@ -232,5 +244,20 @@ final class SlipstreamDrillTests: XCTestCase {
             emit("errorLog", ["uri": event.uri ?? "", "status": event.errorStatusCode, "domain": event.errorDomain, "comment": event.errorComment ?? ""])
         }
         emit("end", ["audible": audible, "legible": legible, "readyMs": readyAt ?? -1, "firstFrameMs": firstFrameAt ?? -1, "position": player.currentTime().seconds])
+        XCTAssertNotNil(firstFrameAt, "AVPlayer never advanced")
+        if env["TOMO_DRILL_EXPECT_ORIGINAL"] == "1" {
+            XCTAssertEqual(item.presentationSize.width, CGFloat(session.config.width))
+            XCTAssertEqual(item.presentationSize.height, CGFloat(session.config.height))
+            let events = item.accessLog()?.events ?? []
+            XCTAssertFalse(events.isEmpty)
+            for event in events {
+                XCTAssertTrue(event.uri?.hasSuffix("/media.m3u8") == true, "selected a server video rung")
+            }
+            outLock.lock()
+            let requests = fallbackRequests
+            outLock.unlock()
+            XCTAssertTrue(requests.isEmpty, "fast link requested server renditions: \(requests)")
+            XCTAssertTrue(item.errorLog()?.events.isEmpty ?? true)
+        }
     }
 }

@@ -72,6 +72,7 @@ let package = Package(
                 "TierRewrapper.swift",
                 "PlaylistShim.swift",
                 "InitSegmentSdr.swift",
+                "VideoCodecDeclaration.swift",
                 "LocalHTTPServer.swift",
                 "EndpointProbe.swift",
                 "EnginePlan.swift",

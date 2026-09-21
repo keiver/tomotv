@@ -339,6 +339,10 @@ final class RemuxSession {
     var copyAnnounced = false
     /// The renditions are built: the copy can be produced, so a master may name it.
     var sourceReady = false
+    var pipelineStarted = false
+    var resolvedAudioCodecs: [String: String] = [:]
+    var resolvedAudioChannels: [String: Int] = [:]
+    var resolvedVideoCodecs: String?
     enum SourceState: String { case dormant, warming, ready, retryWait, unavailable }
     var sourceState = SourceState.warming
     var sourceReleased: Bool { sourceState == .dormant || sourceState == .retryWait || sourceState == .unavailable }
