@@ -34,7 +34,7 @@ HLS on loopback             a playlist and segments the engine writes
 AVPlayer / AVKit            the platform's player, transport, AirPlay, PiP
 ```
 
-Each item takes one of four lanes, chosen before playback starts:
+Playback starts in one of four lanes:
 
 | Lane                    | What happens                                       |
 | ----------------------- | -------------------------------------------------- |
@@ -50,30 +50,26 @@ required, so a box with no HEVC silicon re-encodes rather than handing AVPlayer
 a stream it can only decode in software, and a frame taller than the decoder
 opens takes the same path. Every other codec on the engine's list is decoded in
 software and re-encoded on the device, at any size, interlaced or not. The
-engine times its first segment before the player is bound. When the device, not
-a slow link, runs that segment below realtime, the file goes to the server with
-nothing on screen to restart, and two such measurements on one build keep that
-file on the server.
+first-segment timing gate applies outside adaptive sessions. If on-device
+conversion cannot keep up, playback falls back to the server. Two such
+measurements on one build keep that file on the server.
 
 - **Dolby Vision** profiles 8.1 and 8.4 ride a stream copy. Profile 7, which
   Apple decodes nowhere, is rewritten to single-layer 8.1 as the copy runs.
-- **Audio** AVPlayer decodes (AAC, ALAC, AC-3, E-AC-3, FLAC) is copied, so Dolby
-  Atmos passes through untouched. Everything else the engine carries (TrueHD,
-  DTS-HD, PCM, MP3, Opus and the rest) is decoded and rewrapped as lossless
-  FLAC, up to 7.1.
+- **Original-quality audio** AVPlayer decodes (AAC, ALAC, AC-3, E-AC-3, FLAC)
+  is copied, so Dolby Atmos passes through untouched. Everything else the
+  engine carries (TrueHD, DTS-HD, PCM, MP3, Opus and the rest) is decoded and
+  rewrapped as lossless FLAC, up to 7.1.
 - **Subtitles** never send a file to the server's transcoder on their own.
   Embedded text tracks are decoded on the device and served as WebVTT; a sidecar
   file is read from the server as it is; image tracks (PGS, VobSub, DVB, XSUB)
   are decoded to bitmaps the app draws over the native player.
-- **Quality.** Auto measures the link to each server and opens on the highest
-  rung it carries, the original file as the ceiling. The engine lane carries
-  that copy and a ladder of server-fed rungs in one master, each rung proved
-  before it is offered, and AVPlayer switches between them on a shared segment
-  grid with no reload. The engine goes on measuring the link behind the
-  loopback: the master leads with what the link carries, withholds the copy
-  from a link that cannot finish a copy segment, and rebuilds on the copy once
-  the link carries it again. Audio and subtitle tracks are unaffected by a
-  switch. A fixed preset caps the server lane and the engine's ladder alike.
+- **Quality.** Auto uses original quality on fast connections and smaller
+  server-converted streams on slow connections, with transcoding permission.
+  Eligible sessions keep both in one playlist and adapt without replacing
+  the player. Server fallback segments are not prefetched when the original
+  leads. All audio and subtitle tracks remain selectable; smaller streams
+  use up to stereo AAC audio. Fixed presets cap both playback paths.
 - **Live TV** channels ride the same engine, cut live on keyframes. An HLS or
   DASH origin is read directly, a tuner stream arrives through the server
   untouched, and the server's live transcode is the rung below.
@@ -184,7 +180,7 @@ committed fixtures, the playlist rules, and a codec matrix that measures coverag
 rather than claiming it ([`docs/playback-coverage.md`](docs/playback-coverage.md)).
 
 The playback suite deep-links into the player against a real Jellyfin server
-across 78 manifest items (73 files, 5 Live TV channels) and catches what unit
+across 82 manifest items (77 files, 5 Live TV channels) and catches what unit
 tests cannot: an item quietly taking the wrong lane, playback that does not
 advance, and engine output that changed, since the loopback HLS is checked
 against committed baselines. If you

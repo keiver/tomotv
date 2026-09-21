@@ -6,13 +6,13 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- Playback follows the connection while the film runs. The device's own copy of the file plays whenever the link carries it; when it cannot, the picture steps down to smaller streams the server feeds, and it climbs back to the copy once the link recovers. Every audio and subtitle track stays selectable on every step, including when a session hands over to the server
+- Auto quality adapts between the original and smaller server-converted streams as the connection changes, without replacing the player. Audio and subtitle tracks remain selectable
 - Live TV on iPhone: a grip on the seam between the channel column and the guide resizes the column; drag it left past the snap zone and the column magnets to the channel logos alone, collapsing the rows to logos
 - A Live TV channel with no listings fills its guide cell with "No guide data" over "Listings unavailable for this channel", following the device language
 
 ### Changed
 
-- A slow connection reaches a picture in seconds instead of waiting on the full-quality stream: the player opens on the smallest feed the connection carries, with two segments buffered ahead, and builds its cushion from there
+- Slow connections start with a smaller stream selected for the measured connection, with two segments buffered ahead
 - Home shelves show larger cards, with landscape artwork cropped to a 3:2 frame
 - A grid card's title sits on a translucent bar, so scrimmed artwork shows through behind it
 - On Apple TV the home shelves are sized so a third row peeks above the fold
@@ -21,6 +21,12 @@ All notable changes to Tomo TV are documented here.
 
 ### Fixed
 
+- Supported originals no longer trigger unnecessary server conversion on fast connections
+- Corrected HEVC and audio declarations that could prevent original-quality playback
+- Original video and audio responses wait for real media instead of sending placeholder bytes during preparation
+- Peak BANDWIDTH declarations account for indexed source data and produced segments instead of relying on average bitrate alone
+- Audio tracks map correctly when separate subtitle files change Jellyfin's stream numbering
+- Server fallback streams respect the account's video-transcoding permission
 - On iPhone and iPad, Live TV Recordings and Schedule show their own back title instead of "(tabs)"
 - A book that renders no pages is turned away with an error instead of hanging the reader
 

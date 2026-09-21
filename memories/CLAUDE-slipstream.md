@@ -26,7 +26,7 @@ We are the only client architecture that IS the HLS server. That is the moat.
 
 ```
 #EXT-X-MEDIA TYPE=AUDIO GROUP-ID="audio"     one rendition per track, the engine's own bits
-#EXT-X-MEDIA TYPE=AUDIO GROUP-ID="audio-lo"  the same tracks at 96 kb/s stereo AAC, from the server
+#EXT-X-MEDIA TYPE=AUDIO GROUP-ID="audio-lo"  the same tracks at 96 kb/s AAC, up to stereo, from the server
 #EXT-X-MEDIA TYPE=SUBTITLES GROUP-ID="subs"  one rendition per text track, shared by every variant
 #EXT-X-STREAM-INF BANDWIDTH=<source> AUDIO="audio"    → media.m3u8   the on-device copy
 #EXT-X-STREAM-INF BANDWIDTH=<video+AAC> AUDIO="audio-lo" → media.m3u8
@@ -53,20 +53,31 @@ link` (`openingRungShare`, `chooseOpeningRung`), so t0 up to 2 Mb/s and 480p at 
 - The initial producer decision remains measured (`decideCopy`). An unknown rate is slow.
 - The master now lists the full eligible ladder. Admission defers unaffordable routes with
   HTTP 503 before sending media headers; a permanently unavailable copy returns 410.
-  This replaces pruning/rebuilding. AVPlayer's bounded recovery from those temporary
-  responses is **not yet measured on the rebuilt simulator or physical TV**.
+  Link changes do not prune the master or rebuild the player.
 - Rungs ride `audio-lo`; the copy has both `audio` and `audio-lo` associations: the ladder is the degraded
   path, and 96 kb/s stereo is what a link in trouble can spare. Subtitles are
   one group for every variant, so no switch moves the viewer's track.
 - `CLOSED-CAPTIONS` is mirrored across variants (RFC 8216 4.3.4.2): NONE
   everywhere, or the `cc` group when the copied packets carry A/53 captions.
-- BANDWIDTH counts the variant plus the audio group it plays with (4.3.4.2).
+- `CODECS` and audio `CHANNELS` describe the output streams, using native
+  declarations when available.
+- `SCORE` ranks the original above original video with server audio, then
+  the server-converted variants.
+- `BANDWIDTH` declares peak demand separately from `AVERAGE-BANDWIDTH`,
+  including the associated audio group. For seekable MKV/WebM and MOV/MP4
+  stream copies, source indexes provide a conservative whole-source bound;
+  produced segments provide measured output rates. The index bound is not
+  an exact measurement of every output segment. Paths without a usable
+  index use available segment measurements and metadata.
 
 ## The ladder (services/localRemux.ts)
 
 `SLIPSTREAM_LADDER`, ascending: 140k and 240k at 256x144, 400k at 426x240,
 800k at 640x360, 1.5M at 854x480, 4M at 1280x720, 6M at 1920x1080. A rung is
-offered when `rung + 96k` undercuts the source total by 0.85. The 140k rung is
+offered when `rung + 120k < primaryBandwidth * 0.85`: 96k for AAC plus a
+24k video-carrier allowance. Unknown primary bandwidth keeps the candidate
+rungs; server-only playback retains the full ladder if filtering removes
+every rung. Server video-transcoding permission is required. The 140k rung is
 sized for STARTUP, not for the steady state: AVPlayer buffers about two
 segments before the first frame, and on a 0.6 Mb/s link those bytes are the
 whole budget.
@@ -145,9 +156,10 @@ have no measured raw route and stay owed.
 
 ## Server audio on the rungs (services/localRemux.ts, RemuxSession+AudioLo.swift)
 
-One server audio group, `audio-lo`: 96 kb/s stereo AAC, every track in it, `CHANNELS` from what
-the server sends (a mono track stays mono). Every rung is listed once, with that group. Surround
-comes from the copy; the engine group carries no CHANNELS. Files and routes are `a{p}s-*`.
+One server audio group, `audio-lo`: 96 kb/s AAC, up to stereo, with every track
+available. `CHANNELS` reflects the output; mono remains mono. Every rung uses
+this group. Original-quality audio retains supported surround, and the engine
+group declares output channels when known. Files and routes are `a{p}s-*`.
 
 Measured on the Apple TV (a surround output): with the rungs from 480p up also listed with a 5.1
 AAC group, AVPlayer took only the surround entries, whatever the link. At 1.5 Mb/s it opened on
@@ -243,8 +255,9 @@ engine measures it itself. Two kinds of evidence, kept apart:
   the read-ahead depth. It used to be the 20-segment window, so a rebuild or a resume inside a
   film's first two minutes waited for every segment between to be pulled at link speed (measured:
   13.8s for a rebuild at 63s on a 30 Mb/s link, 3s after).
-- A copy segment's response leads and pads the same way: it is megabytes, and on a link that only
-  just carries it the whole of one takes most of the 6s AVPlayer allows a silent response.
+- Original video and engine-audio responses wait for real media; they do not
+  send placeholder `styp` or `free` boxes while preparing. Server-rung and
+  server-audio responses retain their preparation keepalives.
 - Starting on a rung holds the engine's source pull, so the slow link goes
   wholly to the server renditions; any copy request resumes it.
 - A session riding a rung serves the SERVER's WebVTT for text subtitles: the
