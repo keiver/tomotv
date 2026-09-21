@@ -26,6 +26,7 @@ import {
 import {
   canRemuxLocally,
   isLocalRemuxAvailable,
+  needsSingleServerTranscode,
   engineProgress,
   liveSubtitleRenditions,
   offeredTierBandwidths,
@@ -134,6 +135,7 @@ jest.mock("@/services/localRemux", () => ({
   READ_BOUND_SHARE: jest.requireActual("@/services/localRemux").READ_BOUND_SHARE,
   canRemuxLocally: jest.fn(() => Promise.resolve(false)),
   isLocalRemuxAvailable: jest.fn(() => false),
+  needsSingleServerTranscode: jest.fn(() => Promise.resolve(false)),
   liveSubtitleRenditions: jest.fn(() => Promise.resolve(null)),
   subscribeSubtitleRequests: jest.fn((_token: string, listener: (request: { token: string; streamIndex: number; requestedAt: number }) => void) => {
     mockSubtitleRequest = listener;
@@ -245,6 +247,7 @@ describe("useVideoPlayback (mounted)", () => {
     mockNeedsTranscoding.mockReturnValue(false);
     mockCanRemux.mockResolvedValue(false);
     (isLocalRemuxAvailable as jest.Mock).mockReturnValue(false);
+    (needsSingleServerTranscode as jest.Mock).mockResolvedValue(false);
     mockRememberedBitrate.mockResolvedValue(null);
     mockDirectUrl.mockReturnValue("https://server/Videos/id/stream.mkv");
     mockTranscodeUrl.mockResolvedValue("https://server/Videos/id/master.m3u8");
@@ -1357,6 +1360,20 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().sourceUri).toBeNull();
       expect(mockTranscodeUrl).not.toHaveBeenCalled();
       expect(prepareMultiAudioPlayback).not.toHaveBeenCalled();
+      await act(async () => renderer.unmount());
+    });
+
+    it("plays 8K the device does not copy as one server transcode, never the gateway or a job per track", async () => {
+      (isLocalRemuxAvailable as jest.Mock).mockReturnValue(true);
+      (needsSingleServerTranscode as jest.Mock).mockResolvedValue(true);
+      (isMultiAudioAvailable as jest.Mock).mockReturnValue(true);
+      (shouldUseMultiAudio as jest.Mock).mockReturnValue(true);
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      expect(mockStartLocalRemux).not.toHaveBeenCalled();
+      expect(prepareMultiAudioPlayback).not.toHaveBeenCalled();
+      expect(mockTranscodeUrl).toHaveBeenCalledTimes(1);
+      expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "transcode" });
+      expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/master.m3u8");
       await act(async () => renderer.unmount());
     });
 

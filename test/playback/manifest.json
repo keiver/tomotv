@@ -375,12 +375,10 @@
       "id": "T40",
       "title": "T40 SERVER VP9 8K gate-reject",
       "playSeconds": 14,
-      "mode": "localRemux",
-      "allowRetry": true,
-      "finalMode": "localRemux",
+      "mode": "transcode",
       "validate": "none",
       "progressMin": 8,
-      "comment": "The gateway can supply server-encoded video while the app remains in localRemux mode. The title is retained to match the fixture on disk."
+      "comment": "8K video the device does not copy plays as one server transcode (needsSingleServerTranscode). The title is retained to match the fixture on disk."
     },
     {
       "id": "T41",

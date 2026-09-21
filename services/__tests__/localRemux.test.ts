@@ -272,7 +272,7 @@ describe("canRemuxLocally", () => {
     },
   );
 
-  // No size gate: whether a device keeps up is measured by the session itself
+  // Below 8K, whether a device keeps up is measured by the session itself
   // (Remuxer.reportThroughput) and remembered per item (engineVerdicts.ts).
   it("accepts 4K VP9 for on-device transcode", async () => {
     const fourK = item({
@@ -284,14 +284,16 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(fourK)).resolves.toBe(true);
   });
 
-  it("accepts 8K VP9: the encoder refusing to open is the session's own start-time fallback", async () => {
+  it("declines 8K VP9, which no device copies", async () => {
+    mockProbeEmit.mockClear();
     const eightK = item({
       streams: [
         { Type: "Video", Codec: "vp9", Index: 0, Width: 7680, Height: 4320, BitDepth: 8 },
         { Type: "Audio", Codec: "opus", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(eightK)).resolves.toBe(true);
+    await expect(canRemuxLocally(eightK)).resolves.toBe(false);
+    expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "8K video this device does not copy", width: 7680, height: 4320 }));
   });
 
   // T44 and T45 guard the server-HLS subtitle-sync invariant (X-TIMESTAMP-MAP
@@ -515,7 +517,7 @@ describe("canRemuxLocally", () => {
     await expect(canRemux(av1Item(1280, 720))).resolves.toBe(true);
   });
 
-  // The software path has no size gate: the session measures whether this
+  // Below 8K the software path has no size gate: the session measures whether this
   // device keeps up, and the player answers before AVPlayer is bound.
   it("transcodes 4K AV1 on device without hardware decode", async () => {
     const canRemux = withAV1Hardware(false);
@@ -2070,6 +2072,36 @@ describe("device decode support: a box with no HEVC decoder", () => {
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.videoRange).toBe("PQ");
     expect(config.codecs).toContain("hvc1.2.4.L120.B0");
+  });
+
+  describe("8K video", () => {
+    const tv = { hevc: true, hevcMain10: true, av1: false, h264MaxHeight: 4320, hevcMaxHeight: 4320 };
+    const video = (stream: Record<string, unknown>) =>
+      item({
+        streams: [
+          { Type: "Video", Index: 0, BitDepth: 8, ...stream },
+          { Type: "Audio", Codec: "opus", Index: 1 },
+        ],
+      });
+
+    it("sends T40's 8K VP9 to one server transcode", async () => {
+      const remux = withDevice(tv);
+      const t40 = video({ Codec: "vp9", Width: 7680, Height: 4320 });
+      await expect(remux.needsSingleServerTranscode(t40)).resolves.toBe(true);
+      await expect(remux.canRemuxLocally(t40)).resolves.toBe(false);
+      await expect(remux.predictPlaybackLane(t40)).resolves.toMatchObject({ lane: "server" });
+    });
+
+    it("reads a cropped 8K picture by its width", async () => {
+      const remux = withDevice(tv);
+      await expect(remux.needsSingleServerTranscode(video({ Codec: "vp9", Width: 7680, Height: 3200 }))).resolves.toBe(true);
+    });
+
+    it("keeps 8K HEVC on the device that decodes it, and declines it on one that stops at 4K", async () => {
+      const hevc8k = video({ Codec: "hevc", Width: 7680, Height: 4320 });
+      await expect(withDevice(tv).canRemuxLocally(hevc8k)).resolves.toBe(true);
+      await expect(withDevice({ ...tv, hevcMaxHeight: 2160 }).canRemuxLocally(hevc8k)).resolves.toBe(false);
+    });
   });
 });
 

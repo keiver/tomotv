@@ -65,9 +65,13 @@ subtitles rather than not playing: the film outranks the sidecar.
 
 ### The engine decides by doing
 
-There is no size gate. `canRemuxLocally` admits every codec in
-`TRANSCODABLE_VIDEO_CODECS` at any resolution, depth or field order; whether
-this device keeps up is measured by the session itself.
+One size gate: 8K video (7680 wide or 4320 tall) the device does not copy is declined by
+`canRemuxLocally` and plays as one server transcode at the preset the measured link carries
+(`needsSingleServerTranscode`; `openServerLane` skips the gateway and the multi-audio loader for
+it). Measured on T40: the gateway's rung and audio carrier each decode the source, one 8K decode
+ran at 1.17x to 1.49x on the server, two at 0.83x. Below 8K `canRemuxLocally` admits every codec in
+`TRANSCODABLE_VIDEO_CODECS` at any depth or field order; whether this device keeps up is measured
+by the session itself.
 
 - **Pre-flight.** The producer times every segment it closes
   (`Remuxer.reportThroughput`: wall seconds against the segment's media

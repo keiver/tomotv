@@ -869,6 +869,18 @@ async function copiesVideo(videoStream: JellyfinMediaStream | undefined): Promis
   return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport(), videoStream?.Height);
 }
 
+/** 8K UHD. A cropped 8K picture keeps the width, so either side marks it. */
+const EIGHT_K = { width: 7680, height: 4320 };
+
+/** 8K video this device does not copy plays as one server transcode: each gateway supplier decodes the source again. */
+export async function needsSingleServerTranscode(videoItem: JellyfinVideoItem | null | undefined): Promise<boolean> {
+  if (!videoItem || isLiveSource(videoItem) || playsFromDisk(videoItem.Id)) return false;
+  const videoStream = playbackMediaStreams(videoItem).find((stream) => stream.Type === "Video");
+  if (!videoStream) return false;
+  const eightK = (videoStream.Width ?? 0) >= EIGHT_K.width || (videoStream.Height ?? 0) >= EIGHT_K.height;
+  return eightK && !(await copiesVideo(videoStream));
+}
+
 /** One measured pass of VideoTranscoder.benchmark, as the native side records it. */
 export type TranscodeBenchmark = {
   encode: boolean;
@@ -964,6 +976,8 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
 
   if (audioOnly) return true;
 
+  if (await needsSingleServerTranscode(videoItem)) return declineRemux("8K video this device does not copy", { width: videoStream?.Width, height: videoStream?.Height });
+
   // Prefix match everywhere, same reason as the audio list: family variants
   // match ("hvc1", "wmv3", "vp6f"), codecs that merely CONTAIN an entry do not
   // ("msmpeg4v3" contains "mpeg4", and the two are unrelated formats decoded by
@@ -973,7 +987,7 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
   if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return true;
   if (AV1_CODECS.some((known) => codec.startsWith(known))) return true;
 
-  // Exotic codecs, decoded and re-encoded on device at any size, depth or field
+  // Exotic codecs, decoded and re-encoded on device below 8K at any depth or field
   // order. Whether this device keeps up is measured by the session itself
   // (reportThroughput), never guessed from the metadata.
   if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) return true;

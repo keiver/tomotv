@@ -247,15 +247,14 @@ FF="/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
 
 The current file was made from the previous DivX3 fixture the same way T44 was: `-map 0 -vf scale=1280:960 -c:v asv1 -q:v 10 -c:a copy -c:s copy`.
 
-## The engine decides by doing (T40, and the verdict file)
+## The engine decides by doing (the verdict file)
 
-There is no size gate on the engine lane. The engine times segment 0 before the player is bound
+The engine lane has one size gate: 8K video the device does not copy (`needsSingleServerTranscode`,
+7680 wide or 4320 tall) plays as one server transcode, which is T40 (`mode: transcode`). Below
+that the engine times segment 0 before the player is bound
 and the player takes the server lane when that segment ran below realtime (`fallback` event,
 reason `engine below realtime`, no `error`, no restart), then remembers the file in
-`engine-verdicts.json` (`services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS). T40, the 8K VP9, is the item
-that exercises it: `mode: localRemux`, `allowRetry: true`, `finalMode: transcode`. On the
-simulator the software encoder opens and the pre-flight moves it; on a device the encoder
-refuses 8K and the start-time fallback lands in the same place.
+`engine-verdicts.json` (`services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS).
 
 The driver deletes the verdict file from the app container before every item, the way it deletes
 the probe file, so a verdict from an earlier run cannot change the first mode the manifest

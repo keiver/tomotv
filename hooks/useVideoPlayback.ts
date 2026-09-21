@@ -32,6 +32,7 @@ import {
   belowRealtime,
   canRemuxLocally,
   isLocalRemuxAvailable,
+  needsSingleServerTranscode,
   tierDeclaredFor,
   engineInputMissing,
   engineProgress,
@@ -1260,7 +1261,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
         const openServerLane = async (): Promise<void> => {
           if (serverVideoDenied) fail("Server video transcoding is not permitted for this source");
-          if (!isLiveRef.current && !playsFromDisk(videoId) && !isAudioOnly(details) && (isLocalRemuxAvailable() || (Platform.OS === "ios" && Platform.isTV))) {
+          // One transcode job, where the gateway's rungs and audio carriers each decode the source.
+          const singleTranscode = await needsSingleServerTranscode(details);
+          if (!ownsAttempt()) return;
+          if (!singleTranscode && !isLiveRef.current && !playsFromDisk(videoId) && !isAudioOnly(details) && (isLocalRemuxAvailable() || (Platform.OS === "ios" && Platform.isTV))) {
             if (!isLocalRemuxAvailable()) fail("The native gateway is unavailable for complete-track fallback");
             if (!(await openEngineLane(true))) return;
             burnInSubtitleIndexRef.current = null;
@@ -1278,7 +1282,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // init segments, so an HDR source takes the single-track path through the shim instead.
           // A track the viewer chose does not narrow it: the stream carries every track and the
           // choice is re-applied by position on its first report (planAudioReport).
-          const useMultiAudio = serverLaneCarriesEveryTrack({ live: isLiveRef.current, hdrSource, loaderAvailable: isMultiAudioAvailable(), multiTrack: shouldUseMultiAudio(details) });
+          const useMultiAudio =
+            !singleTranscode && serverLaneCarriesEveryTrack({ live: isLiveRef.current, hdrSource, loaderAvailable: isMultiAudioAvailable(), multiTrack: shouldUseMultiAudio(details) });
 
           if (useMultiAudio) {
             // Use multi-audio loader for seamless track switching
