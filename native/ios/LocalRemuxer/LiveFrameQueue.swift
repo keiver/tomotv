@@ -83,6 +83,24 @@ final class LiveFrameQueue {
         }
     }
 
+    /// The newest frame on disk for each channel that has one, by the time in its name. A reload
+    /// or a relaunch reads these before any grab, so a card never loses the picture it had.
+    func latest(channelIds: [String]) -> [String: URL] {
+        var found: [String: URL] = [:]
+        for channelId in channelIds {
+            guard let location = ChapterFramePool.location(for: channelId, in: root),
+                  let entries = try? FileManager.default.contentsOfDirectory(at: location, includingPropertiesForKeys: nil) else { continue }
+            let frames = entries.filter { $0.lastPathComponent.hasPrefix(Self.filePrefix) }
+            if let newest = frames.max(by: { Self.stamp($0) < Self.stamp($1) }) { found[channelId] = newest }
+        }
+        return found
+    }
+
+    /// The grab time a frame's name carries, 0 for a name without one.
+    static func stamp(_ url: URL) -> Int64 {
+        Int64(url.deletingPathExtension().lastPathComponent.dropFirst(filePrefix.count)) ?? 0
+    }
+
     /// A pending job for the channel completes cancelled without opening its source; one already
     /// decoding is stopped.
     func cancel(channelId: String) {

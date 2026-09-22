@@ -4,6 +4,7 @@
  * their rows leave, backoff on failure, and standing down for the screen, the app and playback.
  */
 const mockLiveFrame = jest.fn();
+const mockOnDisk = jest.fn();
 const mockResolveOrigin = jest.fn();
 const mockWarm = jest.fn();
 const mockWarmedUrl = jest.fn();
@@ -21,7 +22,7 @@ jest.mock("react-native", () => ({
       return { remove: jest.fn() };
     },
   },
-  NativeModules: { LocalRemuxer: { liveFrame: (config: unknown) => mockLiveFrame(config) } },
+  NativeModules: { LocalRemuxer: { liveFrame: (config: unknown) => mockLiveFrame(config), liveFramesOnDisk: (ids: string[]) => mockOnDisk(ids) } },
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true }));
@@ -62,7 +63,8 @@ describe("live frames", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(1_000_000);
-    mockLiveFrame.mockReset().mockImplementation(async ({ channelId }: { channelId: string }) => ({ uri: `file:///pool/${channelId}/live-1.jpg`, cancelled: false }));
+    mockLiveFrame.mockReset().mockImplementation(async ({ channelId }: { channelId: string }) => ({ uri: `file:///pool/${channelId}/live-${Date.now()}.jpg`, cancelled: false }));
+    mockOnDisk.mockReset().mockResolvedValue({});
     mockResolveOrigin.mockReset().mockImplementation(async (id: string) => (id.startsWith("m") ? { url: `https://origin/${id}.m3u8`, headers: { "User-Agent": "Tuner" } } : null));
     held.clear();
     mockWarm.mockReset().mockImplementation(async (id: string) => {
@@ -91,7 +93,8 @@ describe("live frames", () => {
     await advance(0);
     expect(grabs()).toEqual(["m1"]);
     expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ channelId: "m1", inputUrl: "https://origin/m1.m3u8", httpHeaders: { "User-Agent": "Tuner" } });
-    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1.jpg", cacheKey: "live-m1-1000000" });
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000.jpg", cacheKey: "live-m1-1000000" });
+    expect(mockOnDisk).toHaveBeenCalledWith(["m1", "m2"]);
     await advance(LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["m1", "m2"]);
     expect(mockWarm).not.toHaveBeenCalled();
@@ -174,6 +177,23 @@ describe("live frames", () => {
     expect(held.size).toBe(0);
     await advance(LIVE_FRAME_REFRESH_MS * 2);
     expect(grabs()).toHaveLength(3);
+  });
+
+  it("shows the newest frame on disk before any grab and counts the refresh from its time", async () => {
+    mockOnDisk.mockResolvedValue({ m1: `file:///pool/m1/live-${1_000_000 - 20_000}.jpg` });
+    const listener = jest.fn();
+    subscribeLiveFrame("m1", listener);
+    setLiveFramesActive(true);
+    setLiveFrameViewable(["m1", "m2"]);
+    await advance(0);
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-980000.jpg", cacheKey: "live-m1-980000" });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(grabs()).toEqual(["m2"]);
+    await advance(LIVE_FRAME_REFRESH_MS - 20_000 - LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m2"]);
+    await advance(LIVE_FRAME_SPACING_MS * 2);
+    expect(grabs()).toEqual(["m2", "m1"]);
+    expect(mockOnDisk).toHaveBeenCalledTimes(1);
   });
 
   it("tells a channel's subscribers about its frame and drops every frame on a clear", async () => {

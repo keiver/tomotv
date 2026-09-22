@@ -583,6 +583,19 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
+    /// The newest live frame on disk per channel: `{ channelId: fileUrl }` for those that have one.
+    @objc func liveFramesOnDisk(
+        _ channelIds: NSArray,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let ids = (channelIds as? [String]) ?? []
+        Self.liveFrames.queue.async {
+            let found = Self.liveFrames.latest(channelIds: ids)
+            resolve(found.mapValues { $0.absoluteString })
+        }
+    }
+
     /// Empties the frame pool. Item ids repeat across servers, so a switch of server or
     /// account must leave no frame behind to answer for the next one's item of the same id.
     @objc func clearFramePool(

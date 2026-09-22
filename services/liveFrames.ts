@@ -34,6 +34,8 @@ interface Entry {
   /** When the last grab started; 0 before any. */
   lastAt: number;
   frame?: LiveFrame;
+  /** The frame pool was asked for this channel's last frame: a reload keeps the picture it had. */
+  seeded?: boolean;
   lane?: "origin" | "server";
   origin?: ChannelOrigin;
   failure?: { at: number; attempts: number };
@@ -41,6 +43,8 @@ interface Entry {
 
 const entries = new Map<string, Entry>();
 const listeners = new Map<string, Set<() => void>>();
+/** A seed from disk in flight; a viewable set that changes while it runs waits for it. */
+let seeding: Promise<void> | null = null;
 /** Channels in view, in the column's order, plus the lookahead row. */
 let viewable: string[] = [];
 /** When each server-lane hold's row left view; cleared when it returns. */
@@ -95,6 +99,40 @@ function notify(channelId: string): void {
   for (const listener of listeners.get(channelId) ?? []) listener();
 }
 
+/** The grab time a frame file's name carries (`live-<ms>.jpg`), 0 for a name without one. */
+function stampOf(uri: string): number {
+  const match = /live-(\d+)\.jpg$/.exec(uri);
+  return match ? Number(match[1]) : 0;
+}
+
+function frameFor(channelId: string, uri: string): LiveFrame {
+  return { uri, cacheKey: `live-${channelId}-${stampOf(uri)}` };
+}
+
+/**
+ * Channels in view the pool has not been asked about: their newest frame on disk stands in
+ * until a grab replaces it, and its time is what the refresh counts from.
+ */
+async function seedFromDisk(): Promise<void> {
+  const asking = viewable.filter((channelId) => !entry(channelId).seeded);
+  if (asking.length === 0 || typeof LocalRemuxer?.liveFramesOnDisk !== "function") return;
+  for (const channelId of asking) entry(channelId).seeded = true;
+  const gen = generation;
+  try {
+    const found: Record<string, string> = (await LocalRemuxer.liveFramesOnDisk(asking)) ?? {};
+    if (gen !== generation) return;
+    for (const [channelId, uri] of Object.entries(found)) {
+      const item = entry(channelId);
+      if (item.frame) continue;
+      item.frame = frameFor(channelId, uri);
+      item.lastAt = Math.max(item.lastAt, stampOf(uri));
+      notify(channelId);
+    }
+  } catch (error) {
+    logger.debug("Live frames on disk unreadable", { service: "LiveFrames", error: String(error) });
+  }
+}
+
 function backoffUntil(failure: Entry["failure"]): number {
   if (!failure) return 0;
   return failure.at + Math.min(LIVE_FRAME_RETRY_MS * 2 ** (failure.attempts - 1), LIVE_FRAME_RETRY_CAP_MS);
@@ -133,6 +171,9 @@ function nextTrimWait(now: number): number {
 }
 
 async function pump(): Promise<void> {
+  if (!running() || grabbing) return;
+  if (!seeding) seeding = seedFromDisk().finally(() => (seeding = null));
+  await seeding;
   if (!running() || grabbing) return;
   const now = Date.now();
   trimHolds(now);
@@ -192,7 +233,7 @@ async function grab(channelId: string): Promise<void> {
     });
     if (gen !== generation || result?.cancelled) return;
     if (result?.uri) {
-      item.frame = { uri: result.uri, cacheKey: `live-${channelId}-${now}` };
+      item.frame = frameFor(channelId, result.uri);
       item.failure = undefined;
       notify(channelId);
     } else {

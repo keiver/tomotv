@@ -104,6 +104,21 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(left, [second.lastPathComponent])
     }
 
+    func testTheNewestFrameOnDiskAnswersForAChannelBeforeAnyGrab() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = root.appendingPathComponent("chan-a", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for name in ["live-1000.jpg", "live-3000.jpg", "live-2000.jpg", "poster.jpg"] {
+            try Data([0xFF, 0xD8]).write(to: dir.appendingPathComponent(name))
+        }
+        let queue = LiveFrameQueue(root: root)
+        let found = queue.latest(channelIds: ["chan-a", "chan-none", "../escape"])
+        XCTAssertEqual(found.keys.sorted(), ["chan-a"])
+        XCTAssertEqual(found["chan-a"]?.lastPathComponent, "live-3000.jpg")
+        XCTAssertEqual(LiveFrameQueue.stamp(found["chan-a"]!), 3000)
+    }
+
     func testADuplicateRequestForAChannelInFlightAnswersCancelled() throws {
         let stream = try midGopStream()
         let root = try scratchRoot()
