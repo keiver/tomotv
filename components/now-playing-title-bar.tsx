@@ -48,7 +48,7 @@ export function NowPlayingTitleBar({ video, focused, kind, progressPercent = 0, 
       {hasFill && <View style={[styles.infoProgressFill, { width: `${fillPercent}%` }]} pointerEvents="none" testID="now-playing-progress" />}
       {/* Bars and title share the difference blend, so both invert to black over the fill. */}
       <View style={styles.infoTitleBlend}>
-        <View style={styles.mark}>
+        <View style={styles.mark} pointerEvents="none">
           <LevelBars size={BARS} playing={isPlaying} />
         </View>
         <MarqueeText active={focused} style={styles.infoTitle}>
@@ -87,17 +87,18 @@ const styles = StyleSheet.create({
   infoTitleBlend: {
     width: "100%",
     paddingHorizontal: IS_TV ? 16 : 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: IS_TV ? 12 : 6,
     mixBlendMode: "difference",
   },
-  // Pulled halfway into the side inset, the same pull the camera title mark gets.
+  // Out of flow at the line's left end, where the grid card's title mark sits.
   mark: {
-    marginLeft: IS_TV ? -8 : -7,
+    position: "absolute",
+    left: IS_TV ? 20 : 10,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
   },
   infoTitle: {
-    flex: 1,
+    width: "100%",
     color: COLORS.ACCENT,
     fontSize: TITLE_SIZE,
     fontWeight: "700",

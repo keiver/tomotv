@@ -274,8 +274,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // over the fill). Decorative to a11y — the card announces name + value.
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
-              <View style={[styles.infoTitleBlend, styles.infoTitleRow]}>
-                {titleIcon ? <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} style={styles.titleMark} /> : null}
+              <View style={styles.infoTitleBlend}>
+                {titleIcon ? (
+                  <View style={styles.titleMark} pointerEvents="none">
+                    <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} />
+                  </View>
+                ) : null}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                   {video?.Name || t("common.unknown")}
                 </MarqueeText>
@@ -284,8 +288,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : // Focused: opaque gold bar
           focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
-              <View style={styles.infoTitleRow}>
-                {titleIcon ? <Ionicons name={titleIcon} size={TITLE_SIZE} color={CARD_FOCUS.TITLE_TEXT_FOCUSED} style={styles.titleMark} /> : null}
+              <View style={styles.infoTitleLine}>
+                {titleIcon ? (
+                  <View style={styles.titleMark} pointerEvents="none">
+                    <Ionicons name={titleIcon} size={TITLE_SIZE} color={CARD_FOCUS.TITLE_TEXT_FOCUSED} />
+                  </View>
+                ) : null}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
                   {video?.Name || t("common.unknown")}
                 </MarqueeText>
@@ -293,8 +301,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <View style={styles.infoTitleRow}>
-                {titleIcon ? <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} style={styles.titleMark} /> : null}
+              <View style={styles.infoTitleLine}>
+                {titleIcon ? (
+                  <View style={styles.titleMark} pointerEvents="none">
+                    <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} />
+                  </View>
+                ) : null}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                   {video?.Name || t("common.unknown")}
                 </MarqueeText>
@@ -501,22 +513,23 @@ const styles = StyleSheet.create({
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.
   infoValueTitle: {
-    flex: 1,
     color: COLORS.TEXT_PRIMARY,
     fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",
+    width: "100%",
   },
   // Pulled halfway into the bar's side inset, closer to the card edge than the title sits.
+  // Out of flow at the line's left end, so the title keeps the whole line to centre in.
   titleMark: {
-    marginLeft: IS_TV ? -8 : -7,
+    position: "absolute",
+    left: IS_TV ? 4 : -4,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
   },
-  // The mark and the title in one row, the same layout the now-playing bar uses.
-  infoTitleRow: {
+  infoTitleLine: {
     width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: IS_TV ? 12 : 6,
   },
   infoValueTitleFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
