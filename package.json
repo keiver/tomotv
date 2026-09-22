@@ -72,7 +72,8 @@
     "archive": "bash scripts/archive-both.sh",
     "prepare": "husky",
     "probe:pixel-transfer": "node scripts/probe-pixel-transfer.mjs",
-    "notes": "node scripts/translate-notes.mjs"
+    "notes": "node scripts/translate-notes.mjs",
+    "demo:livetv": "scripts/demo-livetv/deploy.sh"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",

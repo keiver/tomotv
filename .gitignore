@@ -80,3 +80,6 @@ __pycache__/
 
 # probe output redirects
 *.out
+
+# demo Live TV deploy artifacts (scripts/demo-livetv/deploy.sh)
+scripts/demo-livetv/build/
