@@ -162,7 +162,7 @@
   "player.hint.engine": "Die Engine startet langsam",
   "player.hint.reading": "Warten auf die ersten Bytes des Streams",
   "player.hint.analysing": "Der Stream beschreibt seine Spuren langsam",
-  "player.hint.preparing": "Das erste Segment dauert lange: langsame Verbindung oder schwerer Stream",
+  "player.hint.preparing": "Das dauert etwas. Deine Verbindung ist vielleicht langsam, oder das Video ist groß.",
   "player.hint.server": "Der Server startet die Transkodierung",
   "player.hint.player": "Der Player hat den Stream noch nicht geöffnet",
   "player.hint.buffering": "Der Player füllt noch seinen Puffer",

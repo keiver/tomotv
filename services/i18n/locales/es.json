@@ -162,7 +162,7 @@
   "player.hint.engine": "El motor tarda en arrancar",
   "player.hint.reading": "Esperando los primeros bytes de la emisión",
   "player.hint.analysing": "La emisión tarda en describir sus pistas",
-  "player.hint.preparing": "El primer segmento tarda: enlace lento o emisión pesada",
+  "player.hint.preparing": "Esto está tardando un poco. Puede que tu conexión sea lenta o que el video sea grande.",
   "player.hint.server": "El servidor está arrancando su transcodificación",
   "player.hint.player": "El reproductor aún no ha abierto la emisión",
   "player.hint.buffering": "El reproductor sigue llenando su búfer",

@@ -162,7 +162,7 @@
   "player.hint.engine": "The engine is slow to start",
   "player.hint.reading": "Waiting on the stream's first bytes",
   "player.hint.analysing": "The stream is slow to describe its tracks",
-  "player.hint.preparing": "The first segment is taking long: a slow link or a heavy stream",
+  "player.hint.preparing": "This is taking a while. Your connection may be slow, or the video is large.",
   "player.hint.server": "The server is starting its transcode",
   "player.hint.player": "The player has not opened the stream yet",
   "player.hint.buffering": "The player is still filling its buffer",

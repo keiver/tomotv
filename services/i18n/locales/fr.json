@@ -162,7 +162,7 @@
   "player.hint.engine": "Le moteur tarde à démarrer",
   "player.hint.reading": "En attente des premiers octets du flux",
   "player.hint.analysing": "Le flux tarde à décrire ses pistes",
-  "player.hint.preparing": "Le premier segment prend du temps : liaison lente ou flux lourd",
+  "player.hint.preparing": "Ça prend un moment. Ta connexion est peut-être lente, ou la vidéo est volumineuse.",
   "player.hint.server": "Le serveur démarre son transcodage",
   "player.hint.player": "Le lecteur n'a pas encore ouvert le flux",
   "player.hint.buffering": "Le lecteur remplit encore sa mémoire tampon",
