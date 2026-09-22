@@ -493,6 +493,13 @@ export async function fetchLiveTvManagement(): Promise<boolean> {
   return user.Policy?.EnableLiveTvManagement === true;
 }
 
+/** The recordings library's folder id: the ParentId the Filters facets and filtered browse key on. */
+export async function fetchRecordingsFolderId(): Promise<string | null> {
+  const response = await liveTvRequest(`/LiveTv/Recordings/Folders?${await userQuery()}`);
+  const json = (await response.json()) as { Items?: { Id: string }[] };
+  return json.Items?.[0]?.Id ?? null;
+}
+
 /** Finished recordings, ordinary playable items in the server's recordings library. */
 export async function fetchRecordings(): Promise<{ items: JellyfinItem[]; total?: number }> {
   const response = await liveTvRequest(

@@ -11,6 +11,8 @@ interface LibraryHeaderProps {
   stack: FolderStackEntry[];
   /** Jumps to the home shelves. Renders the home glass button only when provided. */
   onGoHome?: () => void;
+  /** The leading button reads as Back where the route sits one level above its opener. */
+  homeAsBack?: boolean;
   /** Opens the Filters panel. Renders the glass Filters capsule only when provided. */
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
@@ -28,7 +30,16 @@ interface LibraryHeaderProps {
  * pushed to the right. Home is for viewers who don't reach for the remote's Menu button — one
  * press exits folder browsing, where a back button would have to be refocused at every level.
  */
-function LibraryHeaderComponent({ stack, onGoHome, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef, onFiltersFocusChange }: LibraryHeaderProps) {
+function LibraryHeaderComponent({
+  stack,
+  onGoHome,
+  homeAsBack = false,
+  onOpenFilters,
+  activeFilterCount = 0,
+  filtersButtonHasPreferredFocus = false,
+  onFiltersButtonRef,
+  onFiltersFocusChange,
+}: LibraryHeaderProps) {
   const filtersButtonRef = useCallback(
     (node: View | null) => {
       onFiltersButtonRef?.(node);
@@ -44,7 +55,13 @@ function LibraryHeaderComponent({ stack, onGoHome, onOpenFilters, activeFilterCo
 
   return (
     <View style={styles.container}>
-      {onGoHome ? <GlassButton onPress={onGoHome} accessibilityLabel={t("tab.home")} icon={<Ionicons name="home" size={24} color={COLORS.ACCENT} />} /> : null}
+      {onGoHome ? (
+        <GlassButton
+          onPress={onGoHome}
+          accessibilityLabel={homeAsBack ? t("common.back") : t("tab.home")}
+          icon={<Ionicons name={homeAsBack ? "chevron-back" : "home"} size={24} color={COLORS.ACCENT} />}
+        />
+      ) : null}
       <View style={styles.path} pointerEvents="none">
         {stack.map((entry, index) => {
           const isLast = index === stack.length - 1;

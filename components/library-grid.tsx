@@ -55,6 +55,8 @@ interface LibraryGridProps {
   onLoadMore: () => void;
   /** Folder path for the header, innermost last. */
   crumbs?: FolderStackEntry[];
+  /** The header's leading button wears a back chevron instead of the home mark. */
+  homeAsBack?: boolean;
   /** Opens the Filters panel. Renders the header Filters button only when provided ("folder" variant). */
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
@@ -92,6 +94,7 @@ export function LibraryGrid({
   onItemPress,
   onLoadMore,
   crumbs,
+  homeAsBack,
   onOpenFilters,
   activeFilterCount = 0,
   onItemLongPress,
@@ -663,11 +666,10 @@ export function LibraryGrid({
   const renderEmpty = useCallback(() => {
     if (isLoading) {
       // No spinner — the FolderLoadingBar at the bottom is the progress indicator; a faded
-      // folder glyph (the empty state's icon at low opacity) anchors the center of the screen
-      // so eyes landing there see the state, not a void.
+      // hourglass anchors the center of the screen so eyes landing there see a wait, not a void.
       return (
         <View style={styles.centerContainer} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} style={styles.loadingGlyph} />
+          <Ionicons name="hourglass-outline" size={64} color={COLORS.TEXT_SECONDARY} style={styles.loadingGlyph} />
         </View>
       );
     }
@@ -727,6 +729,7 @@ export function LibraryGrid({
       <LibraryHeader
         stack={crumbs ?? []}
         onGoHome={handleGoHome}
+        homeAsBack={homeAsBack}
         onOpenFilters={onOpenFilters}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}
