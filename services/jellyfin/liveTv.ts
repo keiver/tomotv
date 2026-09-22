@@ -367,8 +367,9 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   const body = {
     UserId: config.userId,
     DeviceProfile: liveDeviceProfile(),
-    EnableDirectPlay: true,
-    EnableDirectStream: true,
+    // The server builds a TranscodingUrl only for a source it will not direct play.
+    EnableDirectPlay: !options.serverOnly,
+    EnableDirectStream: !options.serverOnly,
     EnableTranscoding: true,
     AutoOpenLiveStream: true,
     MaxStreamingBitrate: LIVE_BITRATE_CAP,

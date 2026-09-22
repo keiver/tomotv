@@ -519,6 +519,40 @@ describe("live TV client", () => {
     expect(isServerLaneChannel("c9")).toBe(true);
   });
 
+  it("asks the server to transcode a direct-playable TS channel when it opens for the server lane", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        PlaySessionId: "ps-11",
+        MediaSources: [
+          {
+            Id: "ms-11",
+            Container: "ts",
+            Protocol: "Http",
+            Path: "http://172.18.0.2:8096/LiveTv/LiveStreamFiles/abc/stream.ts",
+            SupportsDirectPlay: false,
+            SupportsTranscoding: true,
+            TranscodingUrl: "/videos/c11/master.m3u8?LiveStreamId=ls-11",
+            LiveStreamId: "ls-11",
+            MediaStreams: [
+              { Type: "Video", Codec: "h264" },
+              { Type: "Audio", Codec: "aac" },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const channel = await openChannel("c11", { Id: "c11", Name: "Eleven", Type: "TvChannel", Path: "" }, { serverOnly: true });
+
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body.EnableDirectPlay).toBe(false);
+    expect(body.EnableDirectStream).toBe(false);
+    expect(body.EnableTranscoding).toBe(true);
+    expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/c11/master.m3u8?LiveStreamId=ls-11`);
+    expect(channel.liveStreamUrl).toBeUndefined();
+  });
+
   it("leaves a channel whose server open failed out of the server lane", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
