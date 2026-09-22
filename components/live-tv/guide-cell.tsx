@@ -125,7 +125,7 @@ function GuideCellComponent({
         accessibilityRole="button"
         accessibilityLabel={program.EpisodeTitle ? `${program.Name}, ${program.EpisodeTitle}` : program.Name}
         style={[styles.label, pinStyle]}>
-        <View style={styles.textScrim} pointerEvents="none" />
+        <View style={[styles.textScrim, focused && styles.textScrimFocused]} pointerEvents="none" />
         <View style={styles.text}>
           <View style={styles.titleRow}>
             {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
@@ -203,14 +203,20 @@ const styles = StyleSheet.create({
   text: {
     gap: IS_TV ? 4 : 2,
   },
-  // Inset by the ring's width: the ring draws below the label, and the scrim would cover its edges.
   textScrim: {
     position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: IS_TV ? -110 : -55,
+    experimental_backgroundImage: TEXT_SCRIM,
+  },
+  // Focused only: steps back by the ring's width, since the ring draws below the label. At rest the
+  // scrim runs to the cell's edges, so no art shows through above or below it.
+  textScrimFocused: {
     top: IS_TV ? 2 : 1,
     bottom: IS_TV ? 2 : 1,
     left: IS_TV ? 2 : 1,
-    right: IS_TV ? -110 : -55,
-    experimental_backgroundImage: TEXT_SCRIM,
   },
   meta: {
     color: COLORS.TEXT_TERTIARY,
