@@ -71,7 +71,7 @@ export default function LiveTvScreen() {
   const edgeLeft = IS_TV ? gridEdgePadding(insets.left, IS_TV) / 2 : insets.left;
   // Phone: the transparent native header floats over the content, so the body starts under it.
   const topClearance = IS_TV ? 10 + insets.top : headerHeight + 8;
-  // Phone: Recordings, Channels and Schedule are native bar items; TV draws them as labelled glass pills.
+  // Phone: Channels, Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
       IS_TV
@@ -79,8 +79,8 @@ export default function LiveTvScreen() {
         : {
             title: params.name ?? t("liveTv.title"),
             unstable_headerRightItems: () => [
-              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
               { type: "button", label: t("liveTv.channels"), icon: { type: "sfSymbol", name: "square.grid.2x2" }, tintColor: COLORS.ACCENT, onPress: openChannels },
+              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
               ...(canManage
                 ? [{ type: "button" as const, label: t("liveTv.scheduled"), icon: { type: "sfSymbol" as const, name: "calendar" as const }, tintColor: COLORS.ACCENT, onPress: openSchedule }]
                 : []),
@@ -98,10 +98,10 @@ export default function LiveTvScreen() {
           {IS_TV ? (
             <>
               <View style={styles.headerSlot}>
-                <GlassButton ref={handleFirstActionRef} title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
+                <GlassButton ref={handleFirstActionRef} title={t("liveTv.channels")} icon={<Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openChannels} />
               </View>
               <View style={[styles.headerSlot, styles.headerSlotCenter]}>
-                <GlassButton title={t("liveTv.channels")} icon={<Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openChannels} />
+                <GlassButton title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
               </View>
               <View style={[styles.headerSlot, styles.headerSlotEnd]}>
                 {canManage ? <GlassButton title={t("liveTv.scheduled")} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openSchedule} /> : null}
@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  // TV: three equal slots, so Channels sits dead centre whatever the two outer pills weigh.
+  // TV: three equal slots, so Recordings sits dead centre whatever the two outer pills weigh.
   header: {
     flexDirection: "row",
     paddingBottom: IS_TV ? 28 : 0,
