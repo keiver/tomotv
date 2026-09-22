@@ -33,12 +33,10 @@ const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
-function indexBadgeSegments(video: JellyfinVideoItem, recording: boolean): BadgeSegment[] | null {
+function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
   // A channel with something on air wears the live mark; the title bar names the programme.
   if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
   const badge = formatIndexBadge(video);
-  // A recording wears the camera the way the Live TV folder wears the screen; the episode tag rides beside it.
-  if (recording) return [badge?.kind === "seasonEpisode" ? { icon: "videocam-outline", label: badge.label } : { icon: "videocam-outline" }];
   if (badge === null) return null;
   if (badge.kind !== "track") return [{ label: badge.label }];
 
@@ -81,8 +79,8 @@ interface VideoGridItemProps {
   slotOrientation?: SlotOrientation;
   /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
   numColumns?: number;
-  /** A finished Live TV recording: the server types it Episode/Movie, only the screen knows. */
-  recording?: boolean;
+  /** A mark drawn at the title's left end, where the now-playing bars sit; the placeholder face too. */
+  titleIcon?: keyof typeof Ionicons.glyphMap;
 }
 
 /**
@@ -115,7 +113,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     fitArtwork = false,
     slotOrientation = "portrait",
     numColumns,
-    recording = false,
+    titleIcon,
   },
   ref,
 ) {
@@ -151,7 +149,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const badgeSegments = useMemo(() => indexBadgeSegments(video, recording), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, recording]);
+  const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name]);
   const airingName = video.Type === "TvChannel" ? video.CurrentProgram?.Name?.trim() : undefined;
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
@@ -248,8 +246,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // same mark the Top Shelf placeholder uses. The title lives in the
             // bottom bar (always rendered), same as postered cards.
             <View style={styles.placeholderPoster}>
-              {recording ? (
-                <Ionicons name="videocam-outline" size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
+              {titleIcon ? (
+                <Ionicons name={titleIcon} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
               ) : (
                 <Image source={require("@/assets/brand/layer-front.png")} style={styles.placeholderFace} contentFit="cover" transition={0} />
               )}
@@ -275,7 +273,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // over the fill). Decorative to a11y — the card announces name + value.
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
-              <View style={styles.infoTitleBlend}>
+              <View style={[styles.infoTitleBlend, styles.infoTitleRow]}>
+                {titleIcon ? <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} style={styles.titleMark} /> : null}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                   {video?.Name || t("common.unknown")}
                 </MarqueeText>
@@ -284,15 +283,21 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : // Focused: opaque gold bar
           focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
-              <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
-                {video?.Name || t("common.unknown")}
-              </MarqueeText>
+              <View style={styles.infoTitleRow}>
+                {titleIcon ? <Ionicons name={titleIcon} size={TITLE_SIZE} color={CARD_FOCUS.TITLE_TEXT_FOCUSED} style={styles.titleMark} /> : null}
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
+                  {video?.Name || t("common.unknown")}
+                </MarqueeText>
+              </View>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
-                {video?.Name || t("common.unknown")}
-              </MarqueeText>
+              <View style={styles.infoTitleRow}>
+                {titleIcon ? <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} style={styles.titleMark} /> : null}
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
+                  {video?.Name || t("common.unknown")}
+                </MarqueeText>
+              </View>
             </View>
           )}
 
@@ -358,7 +363,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.fitArtwork === nextProps.fitArtwork &&
     prevProps.slotOrientation === nextProps.slotOrientation &&
     prevProps.numColumns === nextProps.numColumns &&
-    prevProps.recording === nextProps.recording
+    prevProps.titleIcon === nextProps.titleIcon
   );
 }
 
@@ -495,11 +500,22 @@ const styles = StyleSheet.create({
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.
   infoValueTitle: {
+    flex: 1,
     color: COLORS.TEXT_PRIMARY,
     fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",
+  },
+  // Pulled halfway into the bar's side inset, closer to the card edge than the title sits.
+  titleMark: {
+    marginLeft: IS_TV ? -8 : -7,
+  },
+  // The mark and the title in one row, the same layout the now-playing bar uses.
+  infoTitleRow: {
     width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: IS_TV ? 12 : 6,
   },
   infoValueTitleFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,

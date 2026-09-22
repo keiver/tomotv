@@ -497,7 +497,7 @@ export function LibraryGrid({
                 cardHeight={card.cardHeight}
                 fitArtwork
                 progressPercent={cardResumeProgress(item)}
-                recording={recordings}
+                titleIcon={recordings ? "videocam-outline" : undefined}
               />
             );
           })}
