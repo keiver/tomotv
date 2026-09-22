@@ -9,6 +9,8 @@ All notable changes to Tomo TV are documented here.
 - Auto quality adapts between the original and smaller server-converted streams as the connection changes, without replacing the player. Audio and subtitle tracks remain selectable
 - Live TV on iPhone: a grip on the seam between the channel column and the guide resizes the column; drag it left past the snap zone and the column magnets to the channel logos alone, collapsing the rows to logos
 - A Live TV channel with no listings fills its guide cell with "No guide data" over "Listings unavailable for this channel", following the device language
+- On Apple TV, folder browsing covers the tab bar, and the folder header carries a Home button that leaves the whole folder stack in one press
+- A folder's background is tinted from its own artwork: its backdrop, else its poster, else the first poster inside it
 
 ### Changed
 
@@ -18,6 +20,10 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV the home shelves are sized so a third row peeks above the fold
 - The phone's Live TV programme panel closes with a glass button
 - The Filters button carries a funnel icon
+- On Apple TV, a focused glass button deepens its gold tint and turns its icon and text white
+- A poster the engine takes from a file is the keyframe nearest the batch's average, read from the 10% mark, with letterbox and pillarbox bars cropped out
+- Chapter pictures the engine makes are asked for once the picture is playing, and not on a connection measured too thin to carry them beside the stream
+- The stage line under the player's spinner is kept to development builds
 
 ### Fixed
 
@@ -27,6 +33,7 @@ All notable changes to Tomo TV are documented here.
 - Peak BANDWIDTH declarations account for indexed source data and produced segments instead of relying on average bitrate alone
 - Audio tracks map correctly when separate subtitle files change Jellyfin's stream numbering
 - Server fallback streams respect the account's video-transcoding permission
+- 8K video the device does not copy plays as one server transcode; the adaptive rungs each decoded the source and the pair stalled
 - On iPhone and iPad, Live TV Recordings and Schedule show their own back title instead of "(tabs)"
 - A book that renders no pages is turned away with an error instead of hanging the reader
 
