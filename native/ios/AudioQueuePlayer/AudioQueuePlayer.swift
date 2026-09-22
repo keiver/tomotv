@@ -60,6 +60,14 @@ private final class TomoAudioPlayerViewController: AVPlayerViewController {
         })
     }
 
+    /// The overlay's first windowed pass can run mid-presentation, against a view still in
+    /// transit, and its bounds never change afterwards: place the poster again once landed.
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        artworkOverlay?.setNeedsLayout()
+        artworkOverlay?.layoutIfNeeded()
+    }
+
     /// Runs ahead of AVKit's own disappear work, so the handler reads the transport state the
     /// user left rather than the one the dismissal imposes.
     override func viewWillDisappear(_ animated: Bool) {
