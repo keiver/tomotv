@@ -162,7 +162,7 @@ async function main() {
     console.log(`  ${platform}: version ${version.attributes.versionString}`);
   }
 
-  for (const { locale, deviceKey, slot, files } of plan) {
+  for (const { locale, slot, files } of plan) {
     const version = versions[slot.platform];
     const localizations = await api.get(`/v1/appStoreVersions/${version.id}/appStoreVersionLocalizations`);
     const existing = localizations.data.find((l) => l.attributes.locale === STORE_LOCALES[locale]);

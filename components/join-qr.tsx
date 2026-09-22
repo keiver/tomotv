@@ -1,5 +1,5 @@
 import { qrPngDataUri } from "@/utils/qrPng";
-import qrcode from "qrcode-generator";
+import qrcodeGenerator from "qrcode-generator";
 import { Image, Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import { t } from "@/services/i18n";
 
@@ -22,7 +22,7 @@ export function joinQrDataUri(serverId: string, groupId: string): string {
   const link = buildJoinLink(serverId, groupId);
   const hit = cache.get(link);
   if (hit) return hit;
-  const qr = qrcode(0, "M");
+  const qr = qrcodeGenerator(0, "M");
   qr.addData(link);
   qr.make();
   const uri = qrPngDataUri(qr.getModuleCount(), (row, col) => qr.isDark(row, col), MODULE_PX, AMBER);

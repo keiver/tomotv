@@ -1,5 +1,5 @@
 import { qrPngDataUri } from "@/utils/qrPng";
-import qrcode from "qrcode-generator";
+import qrcodeGenerator from "qrcode-generator";
 import { Image, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -23,7 +23,7 @@ let docsQr: string | undefined;
 /** The setup-guide code, encoded once per process and kept. */
 export function docsQrDataUri(): string {
   if (docsQr) return docsQr;
-  const qr = qrcode(0, "M");
+  const qr = qrcodeGenerator(0, "M");
   qr.addData(DOCS_URL);
   qr.make();
   docsQr = qrPngDataUri(qr.getModuleCount(), (row, col) => qr.isDark(row, col), MODULE_PX, AMBER);
