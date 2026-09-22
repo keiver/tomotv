@@ -2,7 +2,7 @@ import { GRID_LINE, GuideCell, type RecordingMark } from "@/components/live-tv/g
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { cellGeometry, NO_GUIDE_PREFIX, programTimes, type GuideMetrics } from "@/utils/guide";
+import { cellGeometry, NO_GUIDE_PREFIX, programTimes, repeatedArt, type GuideMetrics } from "@/utils/guide";
 import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
@@ -87,31 +87,36 @@ function GuideRowComponent({
     // TV: a focused cell lands its row on the list's top edge (snapToAlignment="item" on the list).
     <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapAlign={IS_TV ? "start" : undefined}>
       <View style={styles.line} pointerEvents="none" />
-      {rowCells(channel, programs, windowStartMs, windowEndMs, metrics).map((program) => {
-        const { startMs, endMs } = programTimes(program);
-        const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
-        if (!geometry || !program.Id) return null;
-        const targets = focusTargets?.programId === program.Id ? focusTargets : undefined;
-        return (
-          <GuideCell
-            key={program.Id}
-            program={program}
-            left={geometry.left}
-            width={geometry.width}
-            height={cellHeight}
-            nowMs={nowMs}
-            recording={recordingMark(program, timersByProgramId)}
-            scrollX={scrollX}
-            nextFocusUp={targets?.up ?? nextFocusUp}
-            nextFocusDown={targets?.down}
-            hasTVPreferredFocus={focusProgramId === program.Id}
-            onFocus={onCellFocus ? (focused) => onCellFocus(focused, channel) : undefined}
-            onHandle={onCellHandle}
-            onPress={(pressed) => onProgramPress(pressed, channel)}
-            onLongPress={(pressed) => onProgramLongPress(pressed, channel)}
-          />
-        );
-      })}
+      {(() => {
+        const cells = rowCells(channel, programs, windowStartMs, windowEndMs, metrics);
+        const repeats = repeatedArt(cells);
+        return cells.map((program, index) => {
+          const { startMs, endMs } = programTimes(program);
+          const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
+          if (!geometry || !program.Id) return null;
+          const targets = focusTargets?.programId === program.Id ? focusTargets : undefined;
+          return (
+            <GuideCell
+              key={program.Id}
+              program={program}
+              left={geometry.left}
+              width={geometry.width}
+              height={cellHeight}
+              nowMs={nowMs}
+              recording={recordingMark(program, timersByProgramId)}
+              artDimmed={repeats[index]}
+              scrollX={scrollX}
+              nextFocusUp={targets?.up ?? nextFocusUp}
+              nextFocusDown={targets?.down}
+              hasTVPreferredFocus={focusProgramId === program.Id}
+              onFocus={onCellFocus ? (focused) => onCellFocus(focused, channel) : undefined}
+              onHandle={onCellHandle}
+              onPress={(pressed) => onProgramPress(pressed, channel)}
+              onLongPress={(pressed) => onProgramLongPress(pressed, channel)}
+            />
+          );
+        });
+      })()}
     </View>
   );
 }

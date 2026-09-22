@@ -29,6 +29,8 @@ interface GuideCellProps {
   height: number;
   nowMs: number;
   recording: RecordingMark;
+  /** The art is the cell before's again (a run of the same programme): drawn faint, so the run does not wallpaper the row. */
+  artDimmed?: boolean;
   /** The canvas's horizontal offset; the label rides it so it stays on the visible edge. */
   scrollX: SharedValue<number>;
   onPress: (program: JellyfinProgram) => void;
@@ -53,6 +55,7 @@ function GuideCellComponent({
   height,
   nowMs,
   recording,
+  artDimmed = false,
   scrollX,
   onPress,
   onLongPress,
@@ -101,7 +104,7 @@ function GuideCellComponent({
     <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, { left, width, height }]}>
       {/* Bled in from the right, under the text, full height in its own shape. */}
       {art ? (
-        <View style={[styles.art, { width: artWidth }]} pointerEvents="none" testID="guide-cell-art">
+        <View style={[styles.art, { width: artWidth }, artDimmed && styles.artDimmed]} pointerEvents="none" testID={artDimmed ? "guide-cell-art-dimmed" : "guide-cell-art"}>
           <Animated.View style={[styles.artImage, artZoomStyle]}>
             <Image source={{ uri: art }} style={styles.artImage} contentFit="cover" transition={150} />
           </Animated.View>
@@ -179,6 +182,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     overflow: "hidden",
   },
+  artDimmed: {
+    opacity: 0.35,
+  },
   artImage: {
     width: "100%",
     height: "100%",
@@ -220,7 +226,7 @@ const styles = StyleSheet.create({
   },
   meta: {
     color: COLORS.TEXT_TERTIARY,
-    fontSize: IS_TV ? 17 : 11,
+    fontSize: IS_TV ? 17 : 10,
   },
   titleRow: {
     flexDirection: "row",
@@ -229,13 +235,13 @@ const styles = StyleSheet.create({
   },
   title: {
     color: COLORS.TEXT_PRIMARY,
-    fontSize: IS_TV ? 24 : 14,
+    fontSize: IS_TV ? 24 : 13,
     fontWeight: "600",
     flexShrink: 1,
   },
   subtitle: {
     color: COLORS.TEXT_SECONDARY,
-    fontSize: IS_TV ? 19 : 12,
+    fontSize: IS_TV ? 19 : 11,
   },
   textPast: {
     opacity: 0.5,

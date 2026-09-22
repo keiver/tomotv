@@ -24,6 +24,7 @@ const IS_TV = Platform.isTV;
 const SCREEN = Dimensions.get("screen");
 const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
 const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
+const LOGO_DISC = IS_TV ? 64 : 36;
 const CARD_PADDING = IS_TV ? 16 : 8;
 // The title bar's own padding, and how far past the card's bottom edge the bar hangs. The
 // overhang is clipped by the image container, and it is what puts the bar's fill UNDER the
@@ -249,7 +250,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 accessibilityLabel={t("a11y.poster").replace("{name}", video.Name || t("a11y.video"))}
               />
               {liveFrame && posterSource ? (
-                <Image source={posterSource} style={styles.logoMark} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={`${video.Id}-logo`} accessible={false} />
+                <View style={styles.logoDisc} pointerEvents="none">
+                  <Image source={posterSource} style={styles.logoMark} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={`${video.Id}-logo`} accessible={false} />
+                </View>
               ) : null}
               <CardScrim />
               {focused && badgeSegments ? <CardCornerScrim /> : null}
@@ -453,13 +456,21 @@ const styles = StyleSheet.create({
     height: "50%",
     alignSelf: "center",
   },
-  // The channel's logo over its live frame, in the corner the LIVE badge leaves free.
-  logoMark: {
+  // The channel's logo over its live frame, on a gold disc in the corner the LIVE badge leaves
+  // free: a dark logo vanishes on footage, and every logo reads on the brand colour.
+  logoDisc: {
     position: "absolute",
     top: CARD_BADGE_INSET,
     right: CARD_BADGE_INSET,
-    width: "28%",
-    height: "22%",
+    width: LOGO_DISC,
+    height: LOGO_DISC,
+    borderRadius: LOGO_DISC / 2,
+    padding: LOGO_DISC / 6,
+    backgroundColor: COLORS.ACCENT,
+  },
+  logoMark: {
+    width: "100%",
+    height: "100%",
   },
   // Anchors the index pill to the top-left corner of the card.
   indexBadge: {

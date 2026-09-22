@@ -72,6 +72,14 @@ export function rulerTicks(windowStartMs: number, windowEndMs: number, metrics: 
   return ticks;
 }
 
+/** For each cell, whether its art repeats the cell before it: the same programme with a picture, a run of airings. */
+export function repeatedArt(cells: Pick<JellyfinProgram, "Name" | "ImageTags">[]): boolean[] {
+  return cells.map((cell, index) => {
+    const previous = index > 0 ? cells[index - 1] : undefined;
+    return !!previous && !!cell.ImageTags?.Primary && !!previous.ImageTags?.Primary && cell.Name === previous.Name;
+  });
+}
+
 /** How far a cell's label slides right so it stays on the visible edge as the canvas scrolls. Runs on the UI thread. */
 export function labelPin(scrollX: number, cellLeft: number, cellWidth: number, labelWidth: number): number {
   "worklet";

@@ -1,4 +1,4 @@
-import { adjacentChannelId, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
+import { adjacentChannelId, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, repeatedArt, rulerTicks } from "../guide";
 
 const tv = guideMetrics(true);
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -53,6 +53,13 @@ describe("guide geometry", () => {
     const majors = ticks.filter((tick) => !tick.isMinor);
     expect(majors.map((tick) => tick.left)).toEqual([0, 240, 480]);
     expect(majors.map((tick) => tick.isHour)).toEqual([true, false, true]);
+  });
+
+  it("marks the art of a run of the same programme as repeated after its first cell", () => {
+    const news = { Name: "Top Stories", ImageTags: { Primary: "a" } };
+    const film = { Name: "Film", ImageTags: { Primary: "b" } };
+    const bare = { Name: "Top Stories" };
+    expect(repeatedArt([news, news, news, film, bare, bare, news])).toEqual([false, true, true, false, false, false, false]);
   });
 
   it("pins a label to the visible edge without pushing it out of its cell", () => {

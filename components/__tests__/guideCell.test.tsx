@@ -37,6 +37,18 @@ describe("GuideCell", () => {
     expect(testIds(render({ program: { ...program, Id: "p2", ImageTags: { Primary: "tag" } } }))).toContain("guide-cell-art");
   });
 
+  it("draws repeated art faint", () => {
+    const withArt = { ...program, Id: "p3", ImageTags: { Primary: "tag" } };
+    expect(testIds(render({ program: withArt, artDimmed: true }))).toContain("guide-cell-art-dimmed");
+    expect(testIds(render({ program: withArt }))).not.toContain("guide-cell-art-dimmed");
+  });
+
+  it("draws repeated art faint", () => {
+    const withArt = { ...program, Id: "p3", ImageTags: { Primary: "tag" } };
+    expect(testIds(render({ program: withArt, artDimmed: true }))).toContain("guide-cell-art-dimmed");
+    expect(testIds(render({ program: withArt }))).not.toContain("guide-cell-art-dimmed");
+  });
+
   it("marks a recording with the dot and a series rule with the repeat glyph", () => {
     expect(testIds(render({ recording: "single" }))).toContain("guide-cell-recording");
     expect(testIds(render({ recording: "series" }))).toContain("guide-cell-series");
