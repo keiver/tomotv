@@ -11,6 +11,12 @@ All notable changes to Tomo TV are documented here.
 - A Live TV channel with no listings fills its guide cell with "No guide data" over "Listings unavailable for this channel", following the device language
 - On Apple TV, folder browsing covers the tab bar, and the folder header carries a Home button that leaves the whole folder stack in one press
 - A folder's background is tinted from its own artwork: its backdrop, else its poster, else the first poster inside it
+- Live TV Channels: a wall of every channel behind a Channels button that leads the Live TV header, its cards the guide's, tuning on select. Its Settings hold Auto update previews, Favorites only and the sort, channel number or name, and the wall and the guide follow them alike; a filter toggle beside Settings sets or lifts Favorites only
+- Live TV favorites: press and hold a channel on the wall or in the guide's column for a sheet that favorites or unfavorites it. Favorites wear a heart and are kept on the device by channel number and name, so they outlive the server; with Favorites only on, the wall and the guide hold to them and the Channels button shows the filter symbol
+- Live previews: every channel card in view wears a fresh frame of its channel, refreshed while it stays in view and kept across a reload, with the channel logo as a mark in the corner. A master playlist is read at one of its own variants
+- The guide's channel column is made of the same video cards as the wall, and programme cells carry a slot line and their artwork, a run of the same programme dimming its repeats
+- Recordings: Filters and the folder header on the Recordings screen, and Show in Folder on a recording opens it there
+- The playing track's card wears the level bars on iPhone and iPad too
 
 ### Changed
 
@@ -23,6 +29,8 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV, a focused glass button deepens its gold tint and turns its icon and text white
 - A poster the engine takes from a file is the keyframe nearest the batch's average, read from the 10% mark, with letterbox and pillarbox bars cropped out
 - Chapter pictures the engine makes are asked for once the picture is playing, and not on a connection measured too thin to carry them beside the stream
+- A channel card titles the programme on air before the channel name, recording cards wear a camera mark, and a card with no artwork wears a glyph for its kind
+- The guide ruler's marks centre on the cell edge, and the cell scrim reaches the cell's edges at rest
 
 ### Fixed
 
@@ -36,6 +44,8 @@ All notable changes to Tomo TV are documented here.
 - On iPhone and iPad, Live TV Recordings and Schedule show their own back title instead of "(tabs)"
 - A book that renders no pages is turned away with an error instead of hanging the reader
 - A file the server no longer has shows its error at once instead of being retried through the server first
+- The loading stage line under the spinner shows in every build
+- On iPhone and iPad a folder stays put when the Show in Folder target already sits in view
 
 ## [2.2.6]
 

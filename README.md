@@ -79,10 +79,14 @@ measurements on one build keep that file on the server.
 
 ## Beyond playback
 
-- **Live TV.** A guide laid out by time and channel, and Recordings; accounts the
-  server lets manage recordings also get the Schedule and record controls. On
-  Apple TV the remote's channel-skip gesture flips channels, and the channels
-  either side keep running in the engine.
+- **Live TV.** A guide laid out by time and channel, a Channels wall of every
+  channel, and Recordings with Filters; accounts the server lets manage
+  recordings also get the Schedule and record controls. Channel cards wear a
+  live preview of their channel while in view. Favorites are set by pressing
+  and holding a channel and kept on the device by channel number and name;
+  settings hold the wall and the guide to them, sort by number or name, and
+  pause the previews. On Apple TV the remote's channel-skip gesture flips
+  channels, and the channels either side keep running in the engine.
 - **Books.** PDF, comics (CBZ, CBR, CBT, CB7), EPUB, MOBI and Kindle AZW/AZW3 in
   a full-screen reader, with the reading position written back to the server.
 - **Languages.** English, German, French and Spanish, following the device.
