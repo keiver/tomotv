@@ -35,6 +35,7 @@ All notable changes to Tomo TV are documented here.
 - 8K video the device does not copy plays as one server transcode; the adaptive rungs each decoded the source and the pair stalled
 - On iPhone and iPad, Live TV Recordings and Schedule show their own back title instead of "(tabs)"
 - A book that renders no pages is turned away with an error instead of hanging the reader
+- A file the server no longer has shows its error at once instead of being retried through the server first
 
 ## [2.2.6]
 
