@@ -6,7 +6,7 @@ import { settingsStyles } from "@/components/settings/styles";
 import { TVFocusHolder } from "@/components/tv-focus-holder";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
-import { fetchSeriesTimers, fetchTimers } from "@/services/jellyfinApi";
+import { fetchLiveTvManagement, fetchSeriesTimers, fetchTimers } from "@/services/jellyfinApi";
 import type { JellyfinSeriesTimer, JellyfinTimer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -40,9 +40,10 @@ export default function ScheduleScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const isScreenFocused = useIsFocused();
-  const [schedule, setSchedule] = useState<{ timers: JellyfinTimer[]; series: JellyfinSeriesTimer[]; isLoading: boolean; error: string | null }>({
+  const [schedule, setSchedule] = useState<{ timers: JellyfinTimer[]; series: JellyfinSeriesTimer[]; canManage: boolean; isLoading: boolean; error: string | null }>({
     timers: [],
     series: [],
+    canManage: false,
     isLoading: true,
     error: null,
   });
@@ -56,10 +57,10 @@ export default function ScheduleScreen() {
   useEffect(() => {
     if (!isScreenFocused) return;
     let cancelled = false;
-    Promise.all([fetchTimers(), fetchSeriesTimers()])
-      .then(([timers, series]) => {
+    Promise.all([fetchTimers(), fetchSeriesTimers(), fetchLiveTvManagement()])
+      .then(([timers, series, canManage]) => {
         if (cancelled) return;
-        setSchedule({ timers, series, isLoading: false, error: null });
+        setSchedule({ timers, series, canManage, isLoading: false, error: null });
         setNowMs(Date.now());
       })
       .catch((err) => {
@@ -115,6 +116,15 @@ export default function ScheduleScreen() {
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.emptyText}>{schedule.error}</Text>
           <FocusableButton title={t("common.retry")} variant="primary" onPress={reload} icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} />
+        </View>
+      );
+    }
+    if (!schedule.canManage) {
+      return (
+        <View style={styles.center}>
+          <Ionicons name="lock-closed-outline" size={64} color={COLORS.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>{t("liveTv.noManagement")}</Text>
+          <TVFocusHolder preferred={isScreenFocused} />
         </View>
       );
     }

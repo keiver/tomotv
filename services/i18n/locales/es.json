@@ -41,6 +41,7 @@
   "liveTv.seriesRules": "Series",
   "liveTv.noRecordings": "Aún no hay grabaciones",
   "liveTv.noTimers": "Nada programado",
+  "liveTv.noManagement": "No tienes permisos de gestión de Televisión en vivo en este servidor.",
   "liveTv.noGuide": "Sin datos de guía",
   "liveTv.noGuideHint": "Guía no disponible para este canal",
   "liveTv.noChannels": "Sin canales",

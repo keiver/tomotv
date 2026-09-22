@@ -8,7 +8,6 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useChannelFavoriteMenu } from "@/hooks/useChannelFavoriteMenu";
 import { useGuide } from "@/hooks/useGuide";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
-import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { NO_GUIDE_PREFIX } from "@/utils/guide";
@@ -43,7 +42,6 @@ export default function LiveTvScreen() {
   const openFavoriteMenu = useChannelFavoriteMenu();
   // The Channels pill wears the filled filter symbol while the channels are held to the favorites.
   const { favoritesOnly } = useLiveTvPreferences();
-  const canManage = useLiveTvManagement();
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
@@ -93,12 +91,10 @@ export default function LiveTvScreen() {
                 onPress: openChannels,
               },
               { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
-              ...(canManage
-                ? [{ type: "button" as const, label: t("liveTv.scheduled"), icon: { type: "sfSymbol" as const, name: "calendar" as const }, tintColor: COLORS.ACCENT, onPress: openSchedule }]
-                : []),
+              { type: "button", label: t("liveTv.scheduled"), icon: { type: "sfSymbol", name: "calendar" }, tintColor: COLORS.ACCENT, onPress: openSchedule },
             ],
           },
-    [params.name, openRecordings, openChannels, openSchedule, canManage, favoritesOnly],
+    [params.name, openRecordings, openChannels, openSchedule, favoritesOnly],
   );
 
   return (
@@ -108,28 +104,18 @@ export default function LiveTvScreen() {
         <AmbientBackground />
         <View style={[styles.header, { paddingTop: topClearance, paddingHorizontal: edgeLeft }]}>
           {IS_TV ? (
-            <>
-              <View style={styles.headerSlot}>
-                <GlassButton
-                  ref={handleFirstActionRef}
-                  title={t("liveTv.channels")}
-                  icon={
-                    favoritesOnly ? (
-                      <SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={ICON} color={COLORS.ACCENT} />
-                    ) : (
-                      <Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />
-                    )
-                  }
-                  onPress={openChannels}
-                />
-              </View>
-              <View style={[styles.headerSlot, styles.headerSlotCenter]}>
-                <GlassButton title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
-              </View>
-              <View style={[styles.headerSlot, styles.headerSlotEnd]}>
-                {canManage ? <GlassButton title={t("liveTv.scheduled")} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openSchedule} /> : null}
-              </View>
-            </>
+            <View style={styles.headerBar}>
+              <GlassButton
+                ref={handleFirstActionRef}
+                title={t("liveTv.channels")}
+                icon={
+                  favoritesOnly ? <SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={ICON} color={COLORS.ACCENT} /> : <Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />
+                }
+                onPress={openChannels}
+              />
+              <GlassButton title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
+              <GlassButton title={t("liveTv.scheduled")} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openSchedule} />
+            </View>
           ) : null}
         </View>
         <View style={[styles.body, { paddingLeft: edgeLeft }]}>
@@ -151,20 +137,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  // TV: three equal slots, so Recordings sits dead centre whatever the two outer pills weigh.
   header: {
     flexDirection: "row",
     paddingBottom: IS_TV ? 28 : 0,
   },
-  headerSlot: {
+  // TV: the pills sit as one centred group.
+  headerBar: {
     flex: 1,
     flexDirection: "row",
-  },
-  headerSlotCenter: {
     justifyContent: "center",
-  },
-  headerSlotEnd: {
-    justifyContent: "flex-end",
+    gap: 16,
   },
   body: {
     flex: 1,

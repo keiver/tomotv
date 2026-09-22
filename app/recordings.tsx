@@ -7,7 +7,7 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { t } from "@/services/i18n";
-import { fetchFilteredVideos, fetchRecordings, fetchRecordingsFolderId } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, fetchLiveTvManagement, fetchRecordings, fetchRecordingsFolderId } from "@/services/jellyfinApi";
 import { countActiveFilters, EMPTY_FILTERS, type FolderStackEntry, type JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,7 +26,12 @@ export default function RecordingsScreen() {
   const { focusId } = useLocalSearchParams<{ focusId?: string }>();
   const openItem = useOpenShelfItem();
   const onItemLongPress = useItemLongPress();
-  const [recordings, setRecordings] = useState<{ items: JellyfinItem[]; isLoading: boolean; error: string | null }>({ items: [], isLoading: true, error: null });
+  const [recordings, setRecordings] = useState<{ items: JellyfinItem[]; canManage: boolean; isLoading: boolean; error: string | null }>({
+    items: [],
+    canManage: false,
+    isLoading: true,
+    error: null,
+  });
   const [reloadKey, setReloadKey] = useState(0);
   const loadedFilterKey = useRef("");
 
@@ -54,8 +59,8 @@ export default function RecordingsScreen() {
     if (loadedFilterKey.current !== filterKey) setRecordings((current) => ({ ...current, isLoading: true }));
     loadedFilterKey.current = filterKey;
     const load = filterKey && folderId ? fetchFilteredVideos(folderId, filters).then((items) => ({ items })) : fetchRecordings();
-    load
-      .then(({ items }) => !cancelled && setRecordings({ items, isLoading: false, error: null }))
+    Promise.all([load, fetchLiveTvManagement()])
+      .then(([{ items }, canManage]) => !cancelled && setRecordings({ items, canManage, isLoading: false, error: null }))
       .catch((err) => {
         logger.warn("Recordings load failed", err, { screen: "Recordings" });
         if (!cancelled) setRecordings((current) => ({ ...current, isLoading: false, error: err instanceof Error ? err.message : String(err) }));
@@ -105,6 +110,19 @@ export default function RecordingsScreen() {
     [folderId, activeFilterCount, handleOpenFilters],
   );
 
+  if (!recordings.isLoading && !recordings.error && !recordings.canManage) {
+    return (
+      <View style={styles.container}>
+        <Stack.Screen options={screenOptions} />
+        <AmbientBackground />
+        <View style={styles.center}>
+          <Ionicons name="lock-closed-outline" size={64} color={COLORS.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>{t("liveTv.noManagement")}</Text>
+        </View>
+        <TVFocusHolder preferred={isScreenFocused} />
+      </View>
+    );
+  }
   if (!recordings.isLoading && !recordings.error && recordings.items.length === 0 && activeFilterCount === 0) {
     return (
       <View style={styles.container}>
