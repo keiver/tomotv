@@ -23,7 +23,6 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV, a focused glass button deepens its gold tint and turns its icon and text white
 - A poster the engine takes from a file is the keyframe nearest the batch's average, read from the 10% mark, with letterbox and pillarbox bars cropped out
 - Chapter pictures the engine makes are asked for once the picture is playing, and not on a connection measured too thin to carry them beside the stream
-- The stage line under the player's spinner is kept to development builds
 
 ### Fixed
 
