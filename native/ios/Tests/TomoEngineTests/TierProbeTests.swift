@@ -319,6 +319,22 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(TierServerStub.sawHit("/Audio/x/main.m3u8"))
     }
 
+    func testAStoppedSessionSendsNothingItHadQueued() throws {
+        TierServerStub.routes["/Audio/x/main.m3u8"] = (200, audioPlaylist)
+        let (s, _) = try session(serverAudioUrl: audioUrl)
+        let queued = URLSession.shared.dataTask(with: try XCTUnwrap(URL(string: "http://tier.test/Audio/x/queued.m3u8")))
+        s.transfers.begin(queued)
+        s.stop()
+        queued.resume()
+        let late = URLSession.shared.dataTask(with: try XCTUnwrap(URL(string: "http://tier.test/Audio/x/late.m3u8")))
+        s.transfers.begin(late)
+        late.resume()
+        XCTAssertFalse(TierServerStub.sawHit("/Audio/x/queued.m3u8", within: 0.5))
+        XCTAssertFalse(TierServerStub.sawHit("/Audio/x/late.m3u8", within: 0.5))
+        XCTAssertNil(s.adoptAudioLo(0))
+        XCTAssertEqual(TierServerStub.hitCount("/Audio/x/main.m3u8"), 0)
+    }
+
     func testPlaylistWithOneSegmentDeclinesTheTier() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, Data("#EXTM3U\n#EXTINF:6.0,\nseg0.ts\n#EXT-X-ENDLIST\n".utf8))
         let (s, reports) = try session()

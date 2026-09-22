@@ -29,6 +29,8 @@ extension RemuxSession {
         let frames = frameGrabber
         stateLock.unlock()
         frames?.stop()
+        // Before the kill, so no request of this session reaches the server after it.
+        transfers.close()
         killTierTranscode()
         // The pipeline thread notices `cancelled` between packets (or through
         // the AVIO interrupt callback during a blocking read) and exits; the

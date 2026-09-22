@@ -297,11 +297,23 @@ final class TransferLedger {
     private let lock = NSLock()
     private var inFlight: [ObjectIdentifier: URLSessionTask] = [:]
     private var settled: Int64 = 0
+    private var closed = false
 
+    /// A closed ledger cancels the task before it can resume: a stopped session starts nothing on the server.
     func begin(_ task: URLSessionTask) {
         lock.lock()
-        inFlight[ObjectIdentifier(task)] = task
+        let refused = closed
+        if !refused { inFlight[ObjectIdentifier(task)] = task }
         lock.unlock()
+        if refused { task.cancel() }
+    }
+
+    func close() {
+        lock.lock()
+        closed = true
+        let tasks = Array(inFlight.values)
+        lock.unlock()
+        tasks.forEach { $0.cancel() }
     }
 
     func end(_ task: URLSessionTask) {
