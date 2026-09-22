@@ -2,10 +2,13 @@
  * Guide geometry: time to pixels, cells clipped to the loaded window, ruler ticks. Pure, so the
  * canvas and its tests share one source of truth.
  */
+import { GRID, slotCardPadding } from "@/constants/app";
 import type { JellyfinProgram } from "@/types/jellyfin";
 
 export const MINUTE_MS = 60_000;
 export const TICK_MINUTES = 30;
+/** Minor scale marks between the labelled half hours. */
+export const MINOR_TICK_MINUTES = 5;
 /** Programs loaded per fetch, and how far the window grows when the canvas nears its end. */
 export const GUIDE_SPAN_MINUTES = 360;
 
@@ -16,8 +19,12 @@ export interface GuideMetrics {
   rulerHeight: number;
 }
 
+/** A row is as tall as the channel card the column draws at its width: a wide slot inside the card's padding. */
 export function guideMetrics(isTV: boolean): GuideMetrics {
-  return isTV ? { pxPerMinute: 8, rowHeight: 96, channelColumnWidth: 300, rulerHeight: 56 } : { pxPerMinute: 4, rowHeight: 64, channelColumnWidth: 150, rulerHeight: 36 };
+  const channelColumnWidth = isTV ? 300 : 150;
+  const padding = slotCardPadding(isTV);
+  const rowHeight = Math.round((channelColumnWidth - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding);
+  return isTV ? { pxPerMinute: 8, rowHeight, channelColumnWidth, rulerHeight: 56 } : { pxPerMinute: 4, rowHeight, channelColumnWidth, rulerHeight: 36 };
 }
 
 /** The window opens on the half hour the current time falls in. */
@@ -47,13 +54,16 @@ export interface RulerTick {
   left: number;
   atMs: number;
   isHour: boolean;
+  /** A bare mark between the labelled half hours. */
+  isMinor: boolean;
 }
 
 export function rulerTicks(windowStartMs: number, windowEndMs: number, metrics: GuideMetrics): RulerTick[] {
   const ticks: RulerTick[] = [];
-  const step = TICK_MINUTES * MINUTE_MS;
+  const step = MINOR_TICK_MINUTES * MINUTE_MS;
   for (let at = windowStartMs; at < windowEndMs; at += step) {
-    ticks.push({ left: ((at - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute, atMs: at, isHour: new Date(at).getMinutes() === 0 });
+    const minutes = new Date(at).getMinutes();
+    ticks.push({ left: ((at - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute, atMs: at, isHour: minutes === 0, isMinor: minutes % TICK_MINUTES !== 0 });
   }
   return ticks;
 }
@@ -62,12 +72,6 @@ export function rulerTicks(windowStartMs: number, windowEndMs: number, metrics: 
 export function labelPin(scrollX: number, cellLeft: number, cellWidth: number, labelWidth: number): number {
   "worklet";
   return Math.min(Math.max(0, scrollX - cellLeft), Math.max(0, cellWidth - labelWidth));
-}
-
-/** 0..1 through the airing at `nowMs`; 0 before it starts, 1 after it ends. */
-export function airingProgress(startMs: number, endMs: number, nowMs: number): number {
-  if (!(endMs > startMs)) return 0;
-  return Math.min(1, Math.max(0, (nowMs - startMs) / (endMs - startMs)));
 }
 
 export type ProgramCategory = "news" | "sports" | "kids" | "movie";

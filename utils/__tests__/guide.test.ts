@@ -1,4 +1,4 @@
-import { adjacentChannelId, airingProgress, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
+import { adjacentChannelId, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
 
 const tv = guideMetrics(true);
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -46,10 +46,13 @@ describe("guide geometry", () => {
     expect(cell?.width).toBe(tv.pxPerMinute);
   });
 
-  it("lays one tick per half hour and marks the hours", () => {
+  it("lays a minor mark every five minutes, labels the half hours and marks the hours", () => {
     const ticks = rulerTicks(T0, T0 + 90 * MINUTE_MS, tv);
-    expect(ticks.map((tick) => tick.left)).toEqual([0, 240, 480]);
-    expect(ticks.map((tick) => tick.isHour)).toEqual([true, false, true]);
+    expect(ticks).toHaveLength(18);
+    expect(ticks[1]).toMatchObject({ left: 40, isMinor: true, isHour: false });
+    const majors = ticks.filter((tick) => !tick.isMinor);
+    expect(majors.map((tick) => tick.left)).toEqual([0, 240, 480]);
+    expect(majors.map((tick) => tick.isHour)).toEqual([true, false, true]);
   });
 
   it("pins a label to the visible edge without pushing it out of its cell", () => {
@@ -57,12 +60,6 @@ describe("guide geometry", () => {
     expect(labelPin(250, 100, 400, 120)).toBe(150);
     expect(labelPin(900, 100, 400, 120)).toBe(280);
     expect(labelPin(900, 100, 80, 120)).toBe(0);
-  });
-
-  it("reports airing progress clamped to the airing", () => {
-    expect(airingProgress(T0, T0 + 60 * MINUTE_MS, T0 + 15 * MINUTE_MS)).toBeCloseTo(0.25);
-    expect(airingProgress(T0, T0 + 60 * MINUTE_MS, T0 - MINUTE_MS)).toBe(0);
-    expect(airingProgress(T0, T0 + 60 * MINUTE_MS, T0 + 61 * MINUTE_MS)).toBe(1);
   });
 
   it("names the airing program by its dates", () => {

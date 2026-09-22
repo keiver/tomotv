@@ -1,7 +1,7 @@
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
-import { airingProgress, labelPin, NO_GUIDE_PREFIX, programTimes } from "@/utils/guide";
+import { labelPin, programTimes } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useState } from "react";
 import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -37,7 +37,7 @@ interface GuideCellProps {
 /**
  * One program on the guide canvas. The label is the focusable, not the cell: a cell can be wider
  * than the screen, and the focus engine moves and scrolls by the focused frame. Focus is a gold
- * line, no scale (grid rule); the airing cell carries a progress bar, a past one dims its text.
+ * wash, no scale (grid rule); a past cell dims its text.
  */
 function GuideCellComponent({
   program,
@@ -55,11 +55,8 @@ function GuideCellComponent({
   nextFocusDown,
   hasTVPreferredFocus = false,
 }: GuideCellProps) {
-  const { startMs, endMs } = programTimes(program);
-  const placeholder = !!program.Id?.startsWith(NO_GUIDE_PREFIX);
-  const airing = !placeholder && startMs <= nowMs && nowMs < endMs;
+  const { endMs } = programTimes(program);
   const past = endMs <= nowMs;
-  const progress = airing ? airingProgress(startMs, endMs, nowMs) : 0;
   const [labelWidth, setLabelWidth] = useState(0);
   const [focused, setFocused] = useState(false);
   const handleLabelLayout = useCallback((event: LayoutChangeEvent) => setLabelWidth(event.nativeEvent.layout.width), []);
@@ -110,11 +107,6 @@ function GuideCellComponent({
           </Text>
         ) : null}
       </AnimatedPressable>
-      {airing ? (
-        <View style={styles.progressTrack} testID="guide-cell-progress">
-          <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
-        </View>
-      ) : null}
     </Pressable>
   );
 }
@@ -132,9 +124,9 @@ const styles = StyleSheet.create({
     borderColor: GRID_LINE,
     overflow: "hidden",
   },
+  // A colour change only, so the cell keeps its box and the label stays put.
   cellFocused: {
-    borderWidth: 1,
-    borderColor: COLORS.ACCENT,
+    backgroundColor: "rgba(255, 195, 18, 0.15)",
   },
   // Full cell height so a vertical move reveals the whole row; only as wide as its text.
   label: {
@@ -169,18 +161,5 @@ const styles = StyleSheet.create({
     height: IS_TV ? 12 : 8,
     borderRadius: DESIGN.BORDER_RADIUS_ROUND,
     backgroundColor: COLORS.DESTRUCTIVE,
-  },
-  progressTrack: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: IS_TV ? 3 : 2,
-    backgroundColor: "transparent",
-  },
-  // The LIVE badge's red: gold here would blend into the focus line.
-  progressFill: {
-    height: "100%",
-    backgroundColor: COLORS.DESTRUCTIVE_DEEP,
   },
 });

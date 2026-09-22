@@ -1,11 +1,11 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
-import { GuideChannelRow } from "@/components/live-tv/guide-channel-row";
+import { VideoGridItem } from "@/components/video-grid-item";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { GuideMetrics } from "@/utils/guide";
 import React, { useCallback } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
-import Animated, { type AnimatedRef, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
+import Animated, { type AnimatedRef, type ScrollHandlerProcessed } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 
@@ -19,47 +19,35 @@ interface GuideChannelColumnProps {
   dayLabel: string;
   /** The grid list's measured height, so both lists scroll the same span. */
   listHeight: number;
-  /** The column's live width, driven by the resize handle; fixed at the metric on TV. */
-  columnWidth: SharedValue<number>;
   /** Bottom padding under the last channel so the tab bar never covers it. */
   contentBottomPad: number;
-  /** Collapsed to logos alone once the column is dragged to the left magnet. */
-  compact: boolean;
   onChannelPress: (channel: JellyfinItem) => void;
   onChannelFocus?: () => void;
   onEndReached?: () => void;
 }
 
 /**
- * Channel numbers, logos and names beside the canvas, each one tuning its channel on select.
- * A sibling to the LEFT of the scroll view, never above it: nothing here may cover a cell.
+ * One video card per channel beside the canvas, each one tuning its channel on select. The card
+ * is the row's height (guideMetrics). A sibling to the LEFT of the scroll view, never above it.
  */
-export function GuideChannelColumn({
-  channels,
-  metrics,
-  listRef,
-  onScroll,
-  dayLabel,
-  listHeight,
-  columnWidth,
-  contentBottomPad,
-  compact,
-  onChannelPress,
-  onChannelFocus,
-  onEndReached,
-}: GuideChannelColumnProps) {
+export function GuideChannelColumn({ channels, metrics, listRef, onScroll, dayLabel, listHeight, contentBottomPad, onChannelPress, onChannelFocus, onEndReached }: GuideChannelColumnProps) {
+  // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows,
+  // and the TV snap target, so a focused card lands its row on the list's top edge.
   const renderItem = useCallback(
-    ({ item }: { item: JellyfinItem }) => <GuideChannelRow channel={item} height={metrics.rowHeight} compact={compact} onPress={onChannelPress} onFocus={onChannelFocus} />,
-    [metrics.rowHeight, compact, onChannelPress, onChannelFocus],
+    ({ item, index }: { item: JellyfinItem; index: number }) => (
+      <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapAlign={IS_TV ? "start" : undefined}>
+        <VideoGridItem video={item} index={index} cardWidth={metrics.channelColumnWidth} slotOrientation="landscape" hideAiring onPress={onChannelPress} onItemFocus={onChannelFocus} />
+      </View>
+    ),
+    [metrics.rowHeight, metrics.channelColumnWidth, onChannelPress, onChannelFocus],
   );
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
     [metrics.rowHeight],
   );
-  const widthStyle = useAnimatedStyle(() => ({ width: columnWidth.get() }));
 
   return (
-    <Animated.View style={[styles.column, widthStyle]}>
+    <View style={[styles.column, { width: metrics.channelColumnWidth }]}>
       <View style={[styles.corner, { height: metrics.rulerHeight }]}>
         <Text style={styles.cornerLabel} numberOfLines={1}>
           {dayLabel}
@@ -76,19 +64,19 @@ export function GuideChannelColumn({
         onEndReached={onEndReached}
         onEndReachedThreshold={1}
         showsVerticalScrollIndicator={false}
+        snapToAlignment={IS_TV ? "item" : undefined}
         removeClippedSubviews={!IS_TV}
         windowSize={5}
         style={{ height: listHeight }}
         contentContainerStyle={{ paddingBottom: contentBottomPad }}
       />
-    </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // Phone draws the seam in the resize divider so the grip sits on it; TV keeps its own border.
   column: {
-    borderRightWidth: IS_TV ? 1 : 0,
+    borderRightWidth: 1,
     borderRightColor: GRID_LINE,
   },
   corner: {

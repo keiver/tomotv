@@ -24,15 +24,8 @@ const texts = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByType(
 const testIds = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => typeof node.props.testID === "string").map((node) => node.props.testID as string);
 
 describe("GuideCell", () => {
-  it("shows the title and episode and a progress bar while airing", () => {
-    const tree = render();
-    expect(texts(tree)).toEqual(expect.arrayContaining(["Evening News", "Episode 9"]));
-    expect(testIds(tree)).toContain("guide-cell-progress");
-  });
-
-  it("draws no progress bar before or after the airing", () => {
-    expect(testIds(render({ nowMs: T0 - MINUTE_MS }))).not.toContain("guide-cell-progress");
-    expect(testIds(render({ nowMs: T0 + 61 * MINUTE_MS }))).not.toContain("guide-cell-progress");
+  it("shows the title and episode", () => {
+    expect(texts(render())).toEqual(expect.arrayContaining(["Evening News", "Episode 9"]));
   });
 
   it("marks a recording with the dot and a series rule with the repeat glyph", () => {

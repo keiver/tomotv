@@ -4,8 +4,10 @@ import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { cellGeometry, NO_GUIDE_PREFIX, programTimes, type GuideMetrics } from "@/utils/guide";
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
+
+const IS_TV = Platform.isTV;
 
 /** The neighbouring cells one focused cell names: set on that cell alone. */
 export interface FocusTargets {
@@ -82,7 +84,8 @@ function GuideRowComponent({
 }: GuideRowProps) {
   const cellHeight = metrics.rowHeight - 1;
   return (
-    <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]}>
+    // TV: a focused cell lands its row on the list's top edge (snapToAlignment="item" on the list).
+    <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapAlign={IS_TV ? "start" : undefined}>
       <View style={styles.line} pointerEvents="none" />
       {rowCells(channel, programs, windowStartMs, windowEndMs, metrics).map((program) => {
         const { startMs, endMs } = programTimes(program);

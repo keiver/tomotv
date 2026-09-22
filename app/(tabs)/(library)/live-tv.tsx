@@ -17,7 +17,7 @@ import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-const CIRCLE = 62;
+const ICON = 26;
 
 /**
  * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
@@ -70,7 +70,7 @@ export default function LiveTvScreen() {
   const edgeLeft = IS_TV ? gridEdgePadding(insets.left, IS_TV) / 2 : insets.left;
   // Phone: the transparent native header floats over the content, so the body starts under it.
   const topClearance = IS_TV ? 10 + insets.top : headerHeight + 8;
-  // Phone: Recordings and Schedule are native bar items; TV draws them as glass circles.
+  // Phone: Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
       IS_TV
@@ -92,19 +92,11 @@ export default function LiveTvScreen() {
       <Stack.Screen options={screenOptions} />
       <View style={styles.container}>
         <AmbientBackground />
-        <View style={[styles.header, { paddingTop: topClearance, paddingLeft: edgeLeft }]}>
+        <View style={[styles.header, { paddingTop: topClearance, paddingHorizontal: edgeLeft }]}>
           {IS_TV ? (
             <>
-              <GlassButton
-                ref={handleFirstActionRef}
-                style={styles.circle}
-                icon={<Ionicons name="recording-outline" size={30} color={COLORS.ACCENT} />}
-                accessibilityLabel={t("liveTv.recordings")}
-                onPress={openRecordings}
-              />
-              {canManage ? (
-                <GlassButton style={styles.circle} icon={<Ionicons name="calendar-outline" size={30} color={COLORS.ACCENT} />} accessibilityLabel={t("liveTv.scheduled")} onPress={openSchedule} />
-              ) : null}
+              <GlassButton ref={handleFirstActionRef} title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
+              {canManage ? <GlassButton title={t("liveTv.scheduled")} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openSchedule} /> : null}
             </>
           ) : null}
         </View>
@@ -120,22 +112,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  // TV: the circles sit over the channel column, so Up from a channel and Down from a circle are plain geometry.
+  // TV: Recordings at the guide's left edge, Schedule at the right, each in its own capsule.
   header: {
     flexDirection: "row",
-    gap: IS_TV ? 24 : 0,
+    justifyContent: "space-between",
     paddingBottom: IS_TV ? 28 : 0,
   },
   body: {
     flex: 1,
-  },
-  // Square, which the base radius rounds to a circle; minHeight restated or the control floor wins.
-  circle: {
-    width: CIRCLE,
-    height: CIRCLE,
-    minWidth: 0,
-    minHeight: CIRCLE,
-    paddingVertical: 0,
-    paddingHorizontal: 0,
   },
 });
