@@ -15,7 +15,10 @@ interface GuideTimeRulerProps {
   nowMs: number;
 }
 
-/** A red scale over the canvas, gold up to now; the only place "now" is drawn, never over a cell. */
+/**
+ * A red scale over the canvas, gold up to now; the only place "now" is drawn, never over a cell.
+ * A cell's edge is the previous cell's 1px right border, one pixel left of its offset: marks centre on it.
+ */
 export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, nowMs }: GuideTimeRulerProps) {
   const ticks = rulerTicks(windowStartMs, windowEndMs, metrics);
   const nowLeft = ((nowMs - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute;
@@ -25,9 +28,9 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
       {showNow ? <View style={[styles.elapsed, { width: nowLeft }]} /> : null}
       {ticks.map((tick) =>
         tick.isMinor ? (
-          <View key={tick.atMs} style={[styles.minorMark, { left: tick.left }]} />
+          <View key={tick.atMs} style={[styles.minorMark, { left: Math.max(0, tick.left - 1) }]} />
         ) : (
-          <View key={tick.atMs} style={[styles.tick, { left: tick.left }]}>
+          <View key={tick.atMs} style={[styles.tick, { left: Math.max(0, tick.left - 2) }]}>
             <View style={[styles.majorMark, tick.isHour && styles.hourMark]} />
             <Text style={[styles.tickLabel, tick.isHour && styles.tickLabelHour]} numberOfLines={1}>
               {formatClock(tick.atMs)}
@@ -72,7 +75,7 @@ const styles = StyleSheet.create({
     gap: IS_TV ? 8 : 5,
   },
   majorMark: {
-    width: 2,
+    width: 3,
     height: IS_TV ? 16 : 10,
     backgroundColor: RED,
   },
