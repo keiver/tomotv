@@ -84,7 +84,7 @@ interface VideoGridItemProps {
   numColumns?: number;
   /** A mark drawn at the title's left end, where the now-playing bars sit; the placeholder face too. */
   titleIcon?: keyof typeof Ionicons.glyphMap;
-  /** Channel cards: leave the airing programme's name off the badge (the guide beside them shows it). */
+  /** Channel cards: leave the airing programme off the title (the guide beside them shows it). */
   hideAiring?: boolean;
   /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
   liveFrame?: { uri: string; cacheKey: string };
@@ -162,6 +162,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name]);
   const isChannel = video.Type === "TvChannel";
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
+  // A channel card names what is on, then the channel: the logo and the badge already say which channel.
+  const cardTitle = airingName ? `${airingName} - ${video.Name}` : video?.Name || t("common.unknown");
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -228,7 +230,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       // subtree): name as the label, watched progress as the VALUE — screen
       // readers announce "Name, 42% watched, button" and re-announce the value
       // if it changes, without the name/percent fused into one string.
-      accessibilityLabel={video.Name || t("a11y.video")}
+      accessibilityLabel={airingName ? cardTitle : video.Name || t("a11y.video")}
       accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: t("a11y.percentWatched").replace("{percent}", String(watchedPercent)) } : undefined}
       accessibilityRole="button"
       accessibilityHint={IS_TV ? (hasProgress ? t("a11y.pressToResume") : t("a11y.pressToPlay")) : hasProgress ? t("a11y.doubleTapResume") : t("a11y.doubleTapPlay")}
@@ -257,20 +259,22 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 accessibilityLabel={t("a11y.poster").replace("{name}", video.Name || t("a11y.video"))}
               />
               <CardScrim />
-              {focused && badgeSegments ? <CardCornerScrim /> : null}
+              {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
               {liveFrame && posterSource ? (
                 <>
                   <CardCornerScrim corner="right" />
-                  <Image
-                    source={posterSource}
-                    style={styles.logoMark}
-                    contentFit="contain"
-                    transition={0}
-                    cachePolicy="memory-disk"
-                    recyclingKey={`${video.Id}-logo`}
-                    accessible={false}
-                    pointerEvents="none"
-                  />
+                  <View style={styles.logoHalo} pointerEvents="none">
+                    <Image
+                      source={posterSource}
+                      style={styles.logoMark}
+                      contentFit="contain"
+                      transition={0}
+                      cachePolicy="memory-disk"
+                      recyclingKey={`${video.Id}-logo`}
+                      accessible={false}
+                      pointerEvents="none"
+                    />
+                  </View>
                 </>
               ) : null}
             </>
@@ -304,7 +308,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <View style={[styles.infoTitleBlend, titleIcon && styles.titleLineInset]}>
                 {renderTitleMark(COLORS.ACCENT)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
-                  {video?.Name || t("common.unknown")}
+                  {cardTitle}
                 </MarqueeText>
               </View>
             </View>
@@ -314,7 +318,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
                 {renderTitleMark(CARD_FOCUS.TITLE_TEXT_FOCUSED)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
-                  {video?.Name || t("common.unknown")}
+                  {cardTitle}
                 </MarqueeText>
               </View>
             </View>
@@ -323,7 +327,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
                 {renderTitleMark(COLORS.ACCENT)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
-                  {video?.Name || t("common.unknown")}
+                  {cardTitle}
                 </MarqueeText>
               </View>
             </View>
@@ -333,12 +337,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               cards put in this same corner; "S01E05" needs no help. */}
           {badgeSegments ? (
             <View style={styles.indexBadge} pointerEvents="none">
-              {airingName ? (
-                <View style={styles.airingBadge}>
-                  <CardBadge segments={[{ label: airingName }]} focused={focused} compact />
-                </View>
-              ) : null}
-              <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" ? "live" : "gold"} compact={!!airingName} />
+              <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" ? "live" : "gold"} />
             </View>
           ) : null}
 
@@ -350,7 +349,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               cards start the sweep from their watched fraction. Mounted only
               around a press (visible lingers past the handoff fade) — idle
               cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={video?.Name || t("common.unknown")} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
         </View>
       </View>
     </TouchableOpacity>
@@ -463,12 +462,21 @@ const styles = StyleSheet.create({
   },
   // A channel's logo at the title's left end while its frame fills the card: flair, not identification.
   // The channel's logo over its live frame, in the corner the LIVE badge leaves free: flair, not identification.
-  logoMark: {
+  // No background, so the layer shadow traces the logo's own alpha: a white halo round a dark mark.
+  logoHalo: {
     position: "absolute",
     top: CARD_BADGE_INSET,
     right: CARD_BADGE_INSET,
     width: LOGO_MARK_HEIGHT * 2,
     height: LOGO_MARK_HEIGHT,
+    shadowColor: "#FFFFFF",
+    shadowOpacity: 0.9,
+    shadowRadius: IS_TV ? 3 : 2,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  logoMark: {
+    width: "100%",
+    height: "100%",
   },
   // Anchors the index pill to the top-left corner of the card.
   indexBadge: {
@@ -478,15 +486,9 @@ const styles = StyleSheet.create({
     right: CARD_BADGE_INSET,
     flexDirection: "row",
     alignItems: "center",
-    // A lone badge stays left; a channel's programme pill sits left with LIVE at the far right.
-    justifyContent: "space-between",
     gap: IS_TV ? 8 : 5,
   },
   // About two words of programme name; the badge ellipsizes the rest and yields to LIVE first.
-  airingBadge: {
-    maxWidth: IS_TV ? 220 : 120,
-    flexShrink: 1,
-  },
   // The watched fraction, drawn as the title bar's own background: a solid
   // gold fill spanning `width` percent of the bar, clipped by the bar's
   // rounded bottom corners (infoOverlay has overflow: hidden). Full gold in
