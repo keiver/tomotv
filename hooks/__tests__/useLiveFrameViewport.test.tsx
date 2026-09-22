@@ -65,15 +65,23 @@ describe("useLiveFrameViewport", () => {
     expect(mockViewable).toHaveBeenLastCalledWith("wall", []);
   });
 
-  it("touches the sampler only while enabled", () => {
+  it("keeps reporting the rows while disabled, so turning the setting on activates with the rows in view", () => {
+    const rows: Row[] = [{ ids: ["a"] }];
     const ref = React.createRef<Handle>();
     let renderer!: TestRenderer.ReactTestRenderer;
     act(() => {
-      renderer = TestRenderer.create(<Probe ref={ref} rows={[{ ids: ["a"] }]} enabled={false} />);
+      renderer = TestRenderer.create(<Probe ref={ref} rows={rows} enabled={false} />);
     });
-    act(() => ref.current?.report([token({ ids: ["a"] }, 0)]));
-    act(() => renderer.unmount());
+    act(() => ref.current?.report([token(rows[0], 0)]));
     expect(mockActive).not.toHaveBeenCalled();
-    expect(mockViewable).not.toHaveBeenCalled();
+    expect(mockViewable).toHaveBeenLastCalledWith("wall", ["a"]);
+
+    act(() => renderer.update(<Probe ref={ref} rows={rows} enabled />));
+    expect(mockActive).toHaveBeenLastCalledWith("wall", true);
+
+    act(() => renderer.update(<Probe ref={ref} rows={rows} enabled={false} />));
+    expect(mockActive).toHaveBeenLastCalledWith("wall", false);
+    act(() => renderer.unmount());
+    expect(mockViewable).toHaveBeenLastCalledWith("wall", []);
   });
 });

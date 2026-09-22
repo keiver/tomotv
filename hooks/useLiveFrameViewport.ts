@@ -16,7 +16,9 @@ export function viewportChannelIds<T>(viewableItems: ViewToken<T>[], items: read
 
 /**
  * A list of channel rows feeding the live frame sampler as its surface: active while its screen
- * is on top, its rows in view reported as they change. A list keeps the first viewability
+ * is on top and the setting allows, its rows in view reported as they change. The rows are
+ * reported even while disabled, since a list only re-reports on a scroll: turning the setting on
+ * activates the surface with the rows already in view. A list keeps the first viewability
  * callback it is given, so the rows and the mapper reach it through refs.
  */
 export function useLiveFrameViewport<T>(surface: LiveFrameSurface, enabled: boolean, items: readonly T[], idsOf: (item: T) => string[]) {
@@ -32,15 +34,11 @@ export function useLiveFrameViewport<T>(surface: LiveFrameSurface, enabled: bool
     setLiveFramesActive(surface, isScreenFocused);
     return () => setLiveFramesActive(surface, false);
   }, [enabled, surface, isScreenFocused]);
-  useEffect(() => {
-    if (!enabled) return;
-    return () => setLiveFrameViewable(surface, []);
-  }, [enabled, surface]);
+  useEffect(() => () => setLiveFrameViewable(surface, []), [surface]);
+  // Stable for the list's life: a list refuses a new viewability callback once mounted.
   const onViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken<T>[] }) => {
-      if (enabled) setLiveFrameViewable(surface, viewportChannelIds(viewableItems, itemsRef.current, idsOfRef.current));
-    },
-    [enabled, surface],
+    ({ viewableItems }: { viewableItems: ViewToken<T>[] }) => setLiveFrameViewable(surface, viewportChannelIds(viewableItems, itemsRef.current, idsOfRef.current)),
+    [surface],
   );
   return { viewabilityConfig: LIVE_FRAME_VIEWABILITY, onViewableItemsChanged };
 }
