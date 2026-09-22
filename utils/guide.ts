@@ -16,6 +16,8 @@ export interface GuideMetrics {
   pxPerMinute: number;
   rowHeight: number;
   channelColumnWidth: number;
+  /** Phone: the column's width once dragged to the left magnet, a portrait channel card per row. */
+  compactColumnWidth: number;
   rulerHeight: number;
 }
 
@@ -24,7 +26,9 @@ export function guideMetrics(isTV: boolean): GuideMetrics {
   const channelColumnWidth = isTV ? 300 : 150;
   const padding = slotCardPadding(isTV);
   const rowHeight = Math.round((channelColumnWidth - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding);
-  return isTV ? { pxPerMinute: 8, rowHeight, channelColumnWidth, rulerHeight: 56 } : { pxPerMinute: 4, rowHeight, channelColumnWidth, rulerHeight: 36 };
+  // The compact column holds a portrait card the row's own height, capping the row: padded on the left only.
+  const compactColumnWidth = isTV ? channelColumnWidth : Math.round((rowHeight - 1) * GRID.PORTRAIT_RATIO + padding);
+  return isTV ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 56 } : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 36 };
 }
 
 /** The window opens on the half hour the current time falls in. */
