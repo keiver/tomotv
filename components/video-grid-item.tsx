@@ -120,8 +120,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const [pressFocused, setPressFocused] = useState(false);
   // Touch has no focus engine, so a card can only be marked from the outside.
   const focused = pressFocused || highlighted;
-  // TV: the playing item's card is marked, and select brings its native player back.
-  const nowPlayingAudio = useIsNowPlaying(IS_TV ? video.Id : null);
+  // The playing track's card is marked, and select brings its native player back. Video stays
+  // TV only: the re-push with adopt is the PiP restore path there.
+  const nowPlayingAudio = useIsNowPlaying(video.Id);
   const nowPlayingVideo = useNowPlayingVideo(IS_TV ? video.Id : null);
   const nowPlaying = nowPlayingAudio || nowPlayingVideo.active;
   const openNowPlaying = useOpenNowPlaying();
