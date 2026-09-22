@@ -259,16 +259,19 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <CardScrim />
               {focused && badgeSegments ? <CardCornerScrim /> : null}
               {liveFrame && posterSource ? (
-                <Image
-                  source={posterSource}
-                  style={styles.logoMark}
-                  contentFit="contain"
-                  transition={0}
-                  cachePolicy="memory-disk"
-                  recyclingKey={`${video.Id}-logo`}
-                  accessible={false}
-                  pointerEvents="none"
-                />
+                <>
+                  <CardCornerScrim corner="right" />
+                  <Image
+                    source={posterSource}
+                    style={styles.logoMark}
+                    contentFit="contain"
+                    transition={0}
+                    cachePolicy="memory-disk"
+                    recyclingKey={`${video.Id}-logo`}
+                    accessible={false}
+                    pointerEvents="none"
+                  />
+                </>
               ) : null}
             </>
           ) : (
