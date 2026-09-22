@@ -878,10 +878,10 @@ export function PlayerHost() {
           resizeMode={fills ? "cover" : "contain"}
           controls={true}
           paused={paused}
-          // Slipstream: live variant cap (pins); undefined everywhere else.
-          maxBitRate={maxBitRate ?? undefined}
-          // Slipstream rung sessions start a segment ahead; every other session keeps AVPlayer's own.
-          preferredForwardBufferDuration={forwardBufferSeconds ?? undefined}
+          // Both float props stay set: 0 is AVFoundation's "no cap" and "own threshold". Clearing a scalar
+          // prop makes React restore a default RNV never exposes a getter for, an uninitialised float.
+          maxBitRate={maxBitRate ?? 0}
+          preferredForwardBufferDuration={forwardBufferSeconds ?? 0}
           // The viewer's remembered subtitle choice, applied at item start.
           // Unset is {type: "system"}, which is the automatic path the lib
           // already takes, so a fresh install is unchanged.
