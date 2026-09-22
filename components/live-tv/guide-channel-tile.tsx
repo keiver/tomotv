@@ -6,7 +6,7 @@ import type { GuideMetrics } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import React, { useCallback } from "react";
-import { Pressable, StyleSheet } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 /** The ambient canvas in miniature: a dark neutral field lit from above. */
 const TILE = "linear-gradient(to bottom, #3A3A3E 0%, #232326 55%, #1C1C1E 100%)";
@@ -28,7 +28,9 @@ export function GuideChannelTile({ channel, metrics, onPress }: GuideChannelTile
   return (
     <Pressable onPress={press} accessibilityRole="button" accessibilityLabel={channel.Name} style={[styles.card, { width }]}>
       {hasPoster(channel) ? (
-        <Image source={{ uri: getPosterUrl(channel.Id, metrics.rowHeight * 2) }} style={styles.logo} contentFit="contain" transition={150} />
+        <View style={styles.logoHalo} pointerEvents="none">
+          <Image source={{ uri: getPosterUrl(channel.Id, metrics.rowHeight * 2) }} style={styles.logo} contentFit="contain" transition={150} />
+        </View>
       ) : (
         <Ionicons name="tv-outline" size={28} color="rgba(255, 255, 255, 0.45)" />
       )}
@@ -51,11 +53,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  logo: {
+  // No background, so the layer shadow traces the logo's own alpha: a white halo round a dark mark.
+  logoHalo: {
     position: "absolute",
     top: "12%",
     left: "12%",
     right: "12%",
     bottom: "12%",
+    shadowColor: "#FFFFFF",
+    shadowOpacity: 0.9,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  logo: {
+    width: "100%",
+    height: "100%",
   },
 });
