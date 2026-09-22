@@ -71,6 +71,8 @@ final class FrameGrabber {
     private var openFailed = false
     /// The container and its streams were read, whether or not a video stream was in them.
     private(set) var sourceOpened = false
+    /// Bytes the last live grab read through the container's own I/O: the whole pull for a raw stream, the playlist alone for HLS.
+    private(set) var bytesRead: Int64 = 0
 
     init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch,
          httpHeaders: [String: String] = [:], live: Bool = false) {
@@ -143,8 +145,9 @@ final class FrameGrabber {
         return queue.sync {
             guard !isCancelled, open() else { return nil }
             let started = Date()
-            guard let picture = decode(target: .firstKeyframe, nearestFromStart: false, batch: 1, started: started).first,
-                  write(picture, to: url, enhanced: false) else { return nil }
+            let picture = decode(target: .firstKeyframe, nearestFromStart: false, batch: 1, started: started).first
+            if let pb = input?.pointee.pb { bytesRead = pb.pointee.bytes_read }
+            guard let picture, write(picture, to: url, enhanced: false) else { return nil }
             guard ChapterFramePool.epoch == epoch else {
                 try? FileManager.default.removeItem(at: url)
                 return nil
@@ -224,6 +227,13 @@ final class FrameGrabber {
             return false
         }
         var freeing: UnsafeMutablePointer<AVCodecContext>? = dec
+        // Live: every other stream is discarded, so the HLS demuxer reads one variant's segments
+        // and no audio (measured on a 5-variant master: 11 to 16 s a grab reading them all).
+        if live {
+            for i in 0 ..< Int(opened.pointee.nb_streams) where Int32(i) != index {
+                opened.pointee.streams[i]?.pointee.discard = AVDISCARD_ALL
+            }
+        }
         // A poster is a keyframe; the decoder never touches the frames between them.
         dec.pointee.skip_frame = AVDISCARD_NONKEY
         guard avcodec_parameters_to_context(dec, params) >= 0, avcodec_open2(dec, codec, nil) >= 0 else {

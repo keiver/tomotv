@@ -73,7 +73,7 @@ final class LiveFrameQueue {
             let elapsed = Date().timeIntervalSince(started)
             if let result {
                 Self.removeOthers(in: location, keeping: result)
-                NSLog("[LiveFrame] %@", String(format: "%@ %.2fs", channelId, elapsed))
+                NSLog("[LiveFrame] %@", String(format: "%@ %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
                 completion(.frame(result))
             } else {
                 NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d", channelId, elapsed, grabber.sourceOpened ? 1 : 0))
