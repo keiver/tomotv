@@ -311,6 +311,7 @@ export function LibraryGrid({
     }
     return { lengths, offsets };
   }, [packedRows, topClearance, headerLength]);
+  const contentLength = (rowLayout.offsets[rowLayout.offsets.length - 1] ?? 0) + (rowLayout.lengths[rowLayout.lengths.length - 1] ?? 0) + bottomClearance;
 
   const getItemLayout = useCallback(
     (_data: ArrayLike<PackedRow<JellyfinItem>> | null | undefined, index: number) => ({
@@ -576,7 +577,13 @@ export function LibraryGrid({
     if (hasFolderHeader && headerHeight === null) return;
     focusedTargetRef.current = focusItemId;
     scrollFailuresRef.current = 0;
-    if (!userScrolledRef.current) listRef.current?.scrollToIndex({ index: targetRowIndex, animated: false, viewPosition: 0.5 });
+    // Phone: the list rests under the transparent bar at a negative offset, and scrollToIndex floors
+    // at 0. A folder that fits the screen, or a row that centres at or above the top, keeps the
+    // resting offset: scrolled to 0 the first row sits under the bar with no way back.
+    const rowOffset = rowLayout.offsets[targetRowIndex] ?? 0;
+    const rowLength = rowLayout.lengths[targetRowIndex] ?? 0;
+    const restsAtTop = !IS_TV && (contentLength <= windowHeight || rowOffset - 0.5 * (windowHeight - rowLength) <= 0);
+    if (!userScrolledRef.current && !restsAtTop) listRef.current?.scrollToIndex({ index: targetRowIndex, animated: false, viewPosition: 0.5 });
     if (!IS_TV) {
       // Phone has no focus engine to land on the card, so the scroll carries a highlight instead.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -595,7 +602,7 @@ export function LibraryGrid({
       schedule(tryFocus, 100);
     };
     schedule(tryFocus, 60);
-  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule, hasFolderHeader, headerHeight]);
+  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule, hasFolderHeader, headerHeight, rowLayout, contentLength, windowHeight]);
 
   // Two-phase focus handoff. Removing the FOCUSED holder in the SAME commit that first mounts the
   // grid made the focus engine race the native layout of 15 fresh cells; when it lost, focus sat
