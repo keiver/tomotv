@@ -2,7 +2,19 @@
  * Live TV client: the channel list, opening a channel as raw direct play on the address the
  * app signed into (never the server's own bind address), and releasing the tuner.
  */
-import { closeLiveStream, closeWarmedChannels, fetchChannels, isServerLaneChannel, openChannel, refreshConfig, resolveChannel, warmChannel } from "../jellyfinApi";
+import {
+  closeLiveStream,
+  closeWarmedChannels,
+  fetchChannels,
+  isServerLaneChannel,
+  openChannel,
+  refreshConfig,
+  resolveChannel,
+  resolveChannelOrigin,
+  warmChannel,
+  warmedChannelCount,
+  warmedStreamUrl,
+} from "../jellyfinApi";
 import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
 
 jest.mock("expo-secure-store", () => ({
@@ -288,6 +300,39 @@ describe("live TV client", () => {
     expect(JSON.parse(opens[0][1].body).EnableTranscoding).toBe(true);
   });
 
+  it("keeps a warm open's stream URL on the configured server until the open closes", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
+      return { ok: true, json: async () => (channel ? { MediaSources: [{ LiveStreamId: `ls-${channel}`, Path: "http://172.17.0.2:8096/LiveTv/LiveStreamFiles/ls-c30/stream.ts" }] } : {}) };
+    });
+    await warmChannel("c30");
+    expect(warmedStreamUrl("c30")).toBe(`${SERVER}/LiveTv/LiveStreamFiles/ls-c30/stream.ts?ApiKey=test-api-key`);
+    expect(warmedChannelCount()).toBe(1);
+    await closeWarmedChannels();
+    expect(warmedStreamUrl("c30")).toBeUndefined();
+    expect(warmedChannelCount()).toBe(0);
+  });
+
+  it("resolves a manifest channel's origin for a frame grab without opening it, and no origin for a tuner channel", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      if (url.includes("/Items/c40/PlaybackInfo")) {
+        return {
+          ok: true,
+          json: async () => ({ MediaSources: [{ Protocol: "Http", Container: "hls", Path: "https://origin.example/live/master.m3u8", RequiredHttpHeaders: { "User-Agent": "Tuner" } }] }),
+        };
+      }
+      if (url.includes("/Items/c41/PlaybackInfo")) {
+        return { ok: true, json: async () => ({ MediaSources: [{ Protocol: "Http", Container: "ts", Path: "http://172.17.0.2:8096/LiveTv/LiveStreamFiles/x/stream.ts" }] }) };
+      }
+      return { ok: true, url, text: async () => "#EXTM3U\n#EXTINF:6,\nseg1.ts\n" };
+    });
+    expect(await resolveChannelOrigin("c40")).toEqual({ url: "https://origin.example/live/master.m3u8", headers: { "User-Agent": "Tuner" } });
+    expect(await resolveChannelOrigin("c41")).toBeNull();
+    const calls = (global.fetch as jest.Mock).mock.calls;
+    expect(calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    expect(calls.filter(([url]) => String(url).includes("/LiveStreams/"))).toHaveLength(0);
+  });
+
   it("closes every warm open it is not told to keep, and warms a closed channel again", async () => {
     (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
       const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
@@ -560,7 +605,7 @@ describe("guide and DVR calls", () => {
 
   const ok = (payload: unknown) => (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => payload });
 
-  it("asks for the window's programs by start time, images and user data off", async () => {
+  it("asks for the window's programs by start time, images on and user data off", async () => {
     ok({ Items: [{ Id: "p1", Name: "News", ChannelId: "c1" }] });
     const programs = await fetchGuidePrograms({ channelIds: ["c1", "c2"], startMs: Date.UTC(2026, 8, 12, 4), endMs: Date.UTC(2026, 8, 12, 10) });
     expect(programs).toEqual([{ Id: "p1", Name: "News", ChannelId: "c1" }]);
@@ -573,10 +618,10 @@ describe("guide and DVR calls", () => {
       MinEndDate: "2026-09-12T04:00:00.000Z",
       MaxStartDate: "2026-09-12T10:00:00.000Z",
       SortBy: ["StartDate"],
-      EnableImages: false,
+      EnableImages: true,
       EnableUserData: false,
       EnableTotalRecordCount: false,
-      Fields: ["ChannelInfo"],
+      Fields: ["ChannelInfo", "Genres", "PrimaryImageAspectRatio"],
     });
   });
 

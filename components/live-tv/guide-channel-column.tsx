@@ -1,13 +1,16 @@
+import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
-import { VideoGridItem } from "@/components/video-grid-item";
 import { COLORS } from "@/constants/colors";
+import { setLiveFrameViewable } from "@/services/liveFrames";
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { GuideMetrics } from "@/utils/guide";
-import React, { useCallback } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef } from "react";
+import { Platform, StyleSheet, Text, View, type ViewToken } from "react-native";
 import Animated, { type AnimatedRef, type ScrollHandlerProcessed } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
+/** Any visible pixel counts, held a beat so a fling past a row never asks for its frame. */
+const VIEWABILITY = { viewAreaCoveragePercentThreshold: 0, minimumViewTime: 300 };
 
 interface GuideChannelColumnProps {
   channels: JellyfinItem[];
@@ -36,11 +39,25 @@ export function GuideChannelColumn({ channels, metrics, listRef, onScroll, dayLa
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
       <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapAlign={IS_TV ? "start" : undefined}>
-        <VideoGridItem video={item} index={index} cardWidth={metrics.channelColumnWidth} slotOrientation="landscape" hideAiring onPress={onChannelPress} onItemFocus={onChannelFocus} />
+        <GuideChannelCard channel={item} index={index} width={metrics.channelColumnWidth} onPress={onChannelPress} onFocus={onChannelFocus} />
       </View>
     ),
     [metrics.rowHeight, metrics.channelColumnWidth, onChannelPress, onChannelFocus],
   );
+  // The rows in view plus the one below feed the live frame sampler. The list keeps the first
+  // viewability callback it is given, so the channels reach it through a ref.
+  const channelsRef = useRef(channels);
+  useEffect(() => {
+    channelsRef.current = channels;
+  }, [channels]);
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken<JellyfinItem>[] }) => {
+    const ids = viewableItems.filter((token) => token.isViewable && token.index !== null).map((token) => token.item.Id);
+    const last = viewableItems.reduce((max, token) => Math.max(max, token.index ?? -1), -1);
+    const lookahead = channelsRef.current[last + 1];
+    if (lookahead) ids.push(lookahead.Id);
+    setLiveFrameViewable(ids);
+  }, []);
+  useEffect(() => () => setLiveFrameViewable([]), []);
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
     [metrics.rowHeight],
@@ -63,6 +80,8 @@ export function GuideChannelColumn({ channels, metrics, listRef, onScroll, dayLa
         scrollEventThrottle={16}
         onEndReached={onEndReached}
         onEndReachedThreshold={1}
+        viewabilityConfig={VIEWABILITY}
+        onViewableItemsChanged={onViewableItemsChanged}
         showsVerticalScrollIndicator={false}
         snapToAlignment={IS_TV ? "item" : undefined}
         removeClippedSubviews={!IS_TV}

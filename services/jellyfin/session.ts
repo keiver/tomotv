@@ -381,7 +381,9 @@ export async function clearContentCaches(context: string): Promise<void> {
   // disk. Its own step: the engine is native.
   try {
     const { clearFramePool, clearPosterFrameCache } = await import("@/services/localRemux");
+    const { clearLiveFrames } = await import("@/services/liveFrames");
     clearPosterFrameCache();
+    clearLiveFrames();
     await clearFramePool();
   } catch (frameError) {
     logger.warn(`Failed to clear the frame pool ${context}`, frameError, {

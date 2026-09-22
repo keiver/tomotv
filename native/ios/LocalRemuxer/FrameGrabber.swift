@@ -48,6 +48,10 @@ final class FrameGrabber {
     private static let minKeep = 0.5
 
     private let inputUrl: String
+    /// Headers the origin requires (a live manifest's User-Agent), as the remux pipeline sends them.
+    private let httpHeaders: [String: String]
+    /// A live source: opened with a small probe and read from its first keyframe, never sought.
+    private let live: Bool
     private let directory: URL
     /// The pool `directory` sits in, trimmed behind every write; nil for a private or session directory.
     private let pool: URL?
@@ -68,8 +72,11 @@ final class FrameGrabber {
     /// The container and its streams were read, whether or not a video stream was in them.
     private(set) var sourceOpened = false
 
-    init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch) {
+    init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch,
+         httpHeaders: [String: String] = [:], live: Bool = false) {
         self.inputUrl = inputUrl
+        self.httpHeaders = httpHeaders
+        self.live = live
         self.directory = directory
         self.pool = pool
         self.epoch = epoch
@@ -128,6 +135,24 @@ final class FrameGrabber {
         return frame(atMilliseconds: ms, alternatives: alternatives)
     }
 
+    /// The first keyframe the source gives, written under `name`: a live channel's picture now.
+    /// The name is unique per grab, so nothing is served from the directory.
+    func liveFrame(named name: String) -> URL? {
+        guard ChapterFramePool.epoch == epoch else { return nil }
+        let url = directory.appendingPathComponent(name)
+        return queue.sync {
+            guard !isCancelled, open() else { return nil }
+            let started = Date()
+            guard let picture = decode(target: .firstKeyframe, nearestFromStart: false, batch: 1, started: started).first,
+                  write(picture, to: url, enhanced: false) else { return nil }
+            guard ChapterFramePool.epoch == epoch else {
+                try? FileManager.default.removeItem(at: url)
+                return nil
+            }
+            return url
+        }
+    }
+
     /// A hit refreshes the file's date, which is the pool's eviction order.
     private func touch(_ url: URL) -> Bool {
         guard FileManager.default.fileExists(atPath: url.path) else { return false }
@@ -163,6 +188,20 @@ final class FrameGrabber {
         av_dict_set(&opts, "reconnect_delay_max", "5", 0)
         av_dict_set(&opts, "rw_timeout", "15000000", 0)
         av_dict_set(&opts, "tls_verify", "0", 0)
+        for (name, value) in httpHeaders {
+            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
+                av_dict_set(&opts, "user_agent", value, 0)
+            } else {
+                av_dict_set(&opts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+            }
+        }
+        if live {
+            // Extension-less segment URLs (RemuxSession+Pipeline), and a probe bounded well under
+            // FFmpeg's 5 MB default: one keyframe is wanted, not every program in the multiplex.
+            av_dict_set(&opts, "extension_picky", "0", 0)
+            av_dict_set(&opts, "probesize", "1500000", 0)
+            av_dict_set(&opts, "analyzeduration", "1500000", 0)
+        }
         var ret = avformat_open_input(&ctx, inputUrl, nil, &opts)
         av_dict_free(&opts)
         // Silent: the caller reports the reason once per item (localRemux.ts). A file still being
@@ -241,10 +280,13 @@ final class FrameGrabber {
     private enum Target {
         case milliseconds(Int64)
         case keyframe(pts: Int64, ms: Int64)
+        /// Wherever the source is now: no seek, the first keyframe read.
+        case firstKeyframe
 
         var ms: Int64 {
             switch self {
             case .milliseconds(let ms), .keyframe(_, let ms): return ms
+            case .firstKeyframe: return 0
             }
         }
     }
@@ -335,6 +377,9 @@ final class FrameGrabber {
         case .keyframe(let pts, _):
             seekRet = avformat_seek_file(opened, videoIndex, Int64.min, pts, pts, SWIFT_AVSEEK_FLAG_BACKWARD)
             reached = { framePts, _ in framePts >= pts }
+        case .firstKeyframe:
+            seekRet = 0
+            reached = { _, _ in true }
         }
         // An index that keys no video frame refuses every seek. Reopened at the start, the
         // frames within the budget stand in, the last one decoded being the nearest.

@@ -155,6 +155,8 @@ const WARM_TTL_MS = 120_000;
 /** A warm open's stream and the server it was opened against; the close must reach that same server. */
 interface WarmStream {
   liveStreamId: string;
+  /** The stream through the server, what a frame grab reads while the open is held. */
+  url: string;
   server: string;
   deviceId: string;
   apiKey: string;
@@ -219,7 +221,8 @@ export async function warmChannel(channelId: string): Promise<void> {
     }
     warmedAt.set(channelId, Date.now());
     const info = await response.json();
-    const liveStreamId: string | undefined = info.MediaSources?.[0]?.LiveStreamId;
+    const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
+    const liveStreamId = source?.LiveStreamId;
     if (!liveStreamId) return;
     const origin = { server: config.server, deviceId: config.deviceId, apiKey: config.apiKey };
     if (discardOnArrival.delete(channelId)) {
@@ -227,13 +230,23 @@ export async function warmChannel(channelId: string): Promise<void> {
       await closeLiveStream(liveStreamId, origin);
       return;
     }
-    warmedStreams.set(channelId, { liveStreamId, ...origin });
+    warmedStreams.set(channelId, { liveStreamId, url: source.Path ? liveStreamUrlFor(config.server, config.apiKey, source.Path) : "", ...origin });
   } catch (error) {
     noteOpenFailed(channelId);
     logger.debug("Channel warm-up failed", { service: "LiveTv", channelId, error: String(error) });
   } finally {
     warming.delete(channelId);
   }
+}
+
+/** The held stream's URL for a channel the server keeps open, or nothing while none is held. */
+export function warmedStreamUrl(channelId: string): string | undefined {
+  return warmedStreams.get(channelId)?.url || undefined;
+}
+
+/** How many opens the server holds for this device right now. */
+export function warmedChannelCount(): number {
+  return warmedStreams.size;
 }
 
 /** Close every warm open except the channels named; a closed channel warms again on the next ask. */
@@ -301,16 +314,43 @@ export async function resolveChannel(
   if (!source || !isManifestSource(source)) return openChannel(channelId, channel, { quiet: options.quiet });
 
   if (!options.quiet) setPlaybackStage("opening");
-  const liveStreamUrl = await originVariantUrl(source.Path!, source.RequiredHttpHeaders);
-  logger.info("Live channel resolved to its origin", { service: "LiveTv", channel: channel.Name, variant: liveStreamUrl !== source.Path });
+  const origin = await manifestOrigin(source);
+  logger.info("Live channel resolved to its origin", { service: "LiveTv", channel: channel.Name, variant: origin.url !== source.Path });
   return {
     ...channel,
     MediaSources: info.MediaSources,
     MediaStreams: source.MediaStreams ?? [],
     PlaySessionId: info.PlaySessionId,
-    liveStreamUrl,
-    ...(source.RequiredHttpHeaders ? { liveHttpHeaders: source.RequiredHttpHeaders } : {}),
+    liveStreamUrl: origin.url,
+    ...(origin.headers ? { liveHttpHeaders: origin.headers } : {}),
   };
+}
+
+/** What the engine reads for a manifest channel: the origin's variant, with the headers it requires. */
+export interface ChannelOrigin {
+  url: string;
+  headers?: Record<string, string>;
+}
+
+async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigin> {
+  const url = await originVariantUrl(source.Path!, source.RequiredHttpHeaders);
+  return { url, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
+}
+
+/**
+ * A channel's origin for a frame grab, off the read-only PlaybackInfo: nothing is opened on the
+ * server. Null for a channel the server carries, whose stream a warm open holds.
+ */
+export async function resolveChannelOrigin(channelId: string): Promise<ChannelOrigin | null> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
+  const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
+  const response = await fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { headers }, API_TIMEOUTS.NORMAL);
+  if (!response.ok) throwRequestError(response, `Failed to fetch channel playback info: ${response.status}`);
+  const info = await response.json();
+  const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
+  if (!source || !isManifestSource(source)) return null;
+  return manifestOrigin(source);
 }
 
 /**

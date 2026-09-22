@@ -84,6 +84,8 @@ interface VideoGridItemProps {
   titleIcon?: keyof typeof Ionicons.glyphMap;
   /** Channel cards: leave the airing programme's name off the badge (the guide beside them shows it). */
   hideAiring?: boolean;
+  /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
+  liveFrame?: { uri: string; cacheKey: string };
 }
 
 /**
@@ -118,6 +120,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     numColumns,
     titleIcon,
     hideAiring = false,
+    liveFrame,
   },
   ref,
 ) {
@@ -231,19 +234,23 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       ]}>
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
-          {posterSource ? (
+          {liveFrame || posterSource ? (
             <>
               <Image
-                source={posterSource}
-                style={[styles.poster, isChannel && styles.posterLogo]}
-                contentFit={isChannel ? "contain" : "cover"}
+                source={liveFrame ?? posterSource}
+                style={[styles.poster, isChannel && !liveFrame && styles.posterLogo]}
+                contentFit={isChannel && !liveFrame ? "contain" : "cover"}
                 transition={0}
                 priority={index < 10 ? "high" : "normal"}
-                cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload
+                // A live frame is a local file replaced every minute; nothing to keep on disk.
+                cachePolicy={liveFrame ? "none" : "memory-disk"}
                 recyclingKey={video.Id} // Helps with memory recycling
                 accessible={true}
                 accessibilityLabel={t("a11y.poster").replace("{name}", video.Name || t("a11y.video"))}
               />
+              {liveFrame && posterSource ? (
+                <Image source={posterSource} style={styles.logoMark} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={`${video.Id}-logo`} accessible={false} />
+              ) : null}
               <CardScrim />
               {focused && badgeSegments ? <CardCornerScrim /> : null}
             </>
@@ -377,7 +384,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.slotOrientation === nextProps.slotOrientation &&
     prevProps.numColumns === nextProps.numColumns &&
     prevProps.titleIcon === nextProps.titleIcon &&
-    prevProps.hideAiring === nextProps.hideAiring
+    prevProps.hideAiring === nextProps.hideAiring &&
+    prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey
   );
 }
 
@@ -444,6 +452,14 @@ const styles = StyleSheet.create({
     width: "70%",
     height: "50%",
     alignSelf: "center",
+  },
+  // The channel's logo over its live frame, in the corner the LIVE badge leaves free.
+  logoMark: {
+    position: "absolute",
+    top: CARD_BADGE_INSET,
+    right: CARD_BADGE_INSET,
+    width: "28%",
+    height: "22%",
   },
   // Anchors the index pill to the top-left corner of the card.
   indexBadge: {

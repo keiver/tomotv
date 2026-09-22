@@ -59,9 +59,13 @@ export {
   openChannel,
   openRecentlyFailed,
   resolveChannel,
+  resolveChannelOrigin,
   warmChannel,
+  warmedChannelCount,
+  warmedStreamUrl,
 } from "./jellyfin/liveTv";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
+export type { ChannelOrigin } from "./jellyfin/liveTv";
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";

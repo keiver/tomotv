@@ -4,13 +4,14 @@ import { GuideRow, rowCells, type FocusTargets } from "@/components/live-tv/guid
 import { GuideTimeRuler } from "@/components/live-tv/guide-time-ruler";
 import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
+import { setLiveFramesActive } from "@/services/liveFrames";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cellAtEdge, cellGeometry, formatDayLabel, guideMetrics, isAiring, MINUTE_MS, programTimes } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useSharedValue } from "react-native-reanimated";
 
@@ -37,6 +38,11 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
+  // The live frame sampler runs only while the guide is the screen; leaving closes its holds.
+  useEffect(() => {
+    setLiveFramesActive(isScreenFocused);
+    return () => setLiveFramesActive(false);
+  }, [isScreenFocused]);
 
   const scrollX = useSharedValue(0);
   const columnRef = useAnimatedRef<Animated.FlatList<JellyfinItem>>();

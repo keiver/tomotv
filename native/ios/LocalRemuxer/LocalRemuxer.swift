@@ -55,6 +55,8 @@ class LocalRemuxer: RCTEventEmitter {
 
     /// Keyframe posters for cards without artwork (PosterQueue.swift), one job at a time.
     private static let posters = PosterQueue()
+    /// Live channel frames for the guide's cards (LiveFrameQueue.swift), one grab at a time.
+    private static let liveFrames = LiveFrameQueue()
 
     private static var server: LocalHTTPServer?
 
@@ -546,6 +548,38 @@ class LocalRemuxer: RCTEventEmitter {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         Self.posters.cancel(itemId: itemId as String)
+        resolve(nil)
+    }
+
+    /// A live channel's frame now. Config: channelId, inputUrl, httpHeaders, deadline (seconds).
+    /// Resolves `{uri}` with a file URL, or a null uri with `cancelled` set, else `reason`: `open` or `frame`.
+    @objc func liveFrame(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let channelId = config["channelId"] as? String, !channelId.isEmpty,
+              let inputUrl = config["inputUrl"] as? String, !inputUrl.isEmpty else {
+            reject("invalid_config", "liveFrame needs channelId and inputUrl", nil)
+            return
+        }
+        let headers = (config["httpHeaders"] as? [String: String]) ?? [:]
+        let deadline = max(1, (config["deadline"] as? Double) ?? LiveFrameQueue.defaultDeadline)
+        Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline) { outcome in
+            switch outcome {
+            case .frame(let url): resolve(["uri": url.absoluteString, "cancelled": false])
+            case .none(let opened): resolve(["uri": NSNull(), "cancelled": false, "reason": opened ? "frame" : "open"])
+            case .cancelled: resolve(["uri": NSNull(), "cancelled": true])
+            }
+        }
+    }
+
+    @objc func cancelLiveFrame(
+        _ channelId: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.liveFrames.cancel(channelId: channelId as String)
         resolve(nil)
     }
 
