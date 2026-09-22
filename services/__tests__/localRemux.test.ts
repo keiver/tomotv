@@ -239,9 +239,10 @@ describe("canRemuxLocally", () => {
     const live = item({
       RunTimeTicks: undefined,
       MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1" }],
+      // Jellyfin 12 probes a channel's streams with Index -1 (measured on the Live rig).
       streams: [
-        { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
-        { Type: "Audio", Codec: "mp2", Index: 1 },
+        { Type: "Video", Codec: "mpeg2video", Index: -1, Width: 1920, Height: 1080, BitDepth: 8 },
+        { Type: "Audio", Codec: "mp2", Index: -1 },
       ],
     });
     await expect(canRemuxLocally(live)).resolves.toBe(true);
@@ -2217,8 +2218,9 @@ describe("startLocalRemux on a live channel", () => {
       LiveStreamId: "ls-1",
       liveStreamUrl: "http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k",
       streams: [
-        { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
-        { Type: "Audio", Codec: "mp2", Index: 1 },
+        { Type: "Video", Codec: "mpeg2video", Index: -1, Width: 1920, Height: 1080, BitDepth: 8 },
+        { Type: "Audio", Codec: "mp2", Index: -1 },
+        { Type: "Audio", Codec: "mp2", Index: -1 },
         { Type: "Subtitle", Codec: "dvbsub", Index: 2 },
       ],
     });
@@ -2227,6 +2229,11 @@ describe("startLocalRemux on a live channel", () => {
     await startLocalRemux(live(), undefined, 120);
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.isLive).toBe(true);
+    // Jellyfin's -1 goes through as-is; the ordinal keeps the identities apart and nothing names a file position.
+    expect(config.audioTracks.map((track: { index: number; identity: string; name: string; source?: unknown }) => [track.index, track.identity, track.name, track.source])).toEqual([
+      [-1, "c1:live0", "Audio 1", undefined],
+      [-1, "c1:live1", "Audio 2", undefined],
+    ]);
     expect(config.liveSegmentSeconds).toBe(2);
     expect(config.inputUrl).toBe("http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k");
     expect(config.durationSeconds).toBe(0);

@@ -80,7 +80,7 @@ final class LivePipelineTests: XCTestCase {
         }
         guard FileManager.default.isExecutableFile(atPath: Self.ffprobe) else { throw XCTSkip("no ffprobe at \(Self.ffprobe)") }
         // The server's probe listed one track (measured); the engine carries every stream it finds.
-        let tracks = [RemuxAudioTrack(index: 1, name: "Stereo", language: "und", serverAudioUrl: "")]
+        let tracks = [RemuxAudioTrack(index: -1, name: "Stereo", language: "und", serverAudioUrl: "")]
         let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, audioTracks: tracks, codecs: "avc1.4d401f,mp4a.40.2", width: 1024, height: 576, isLive: true))
         let lock = NSLock()
         var failure: String?

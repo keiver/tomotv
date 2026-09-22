@@ -227,7 +227,8 @@ class LocalRemuxer: RCTEventEmitter {
 
         let rawAudioTracks = (config["audioTracks"] as? [[String: Any]]) ?? []
         let audioTracks: [RemuxAudioTrack] = rawAudioTracks.compactMap { raw in
-            guard let index = raw["index"] as? Int, index >= 0, index <= Int(Int32.max) else { return nil }
+            // A live channel's tracks carry Jellyfin's -1: the pipeline discovers them off the container.
+            guard let index = raw["index"] as? Int, index >= 0 || isLive, index <= Int(Int32.max) else { return nil }
             var track = RemuxAudioTrack(
                 index: index,
                 name: raw["name"] as? String ?? "Audio \(index)",
@@ -244,7 +245,7 @@ class LocalRemuxer: RCTEventEmitter {
             return track
         }
         guard audioTracks.count == rawAudioTracks.count,
-              Set(audioTracks.map(\.index)).count == audioTracks.count,
+              isLive || Set(audioTracks.map(\.index)).count == audioTracks.count,
               audioTracks.allSatisfy({ !$0.usesServerAudio || !$0.serverAudioUrl.isEmpty }) else {
             reject("invalid_audio_tracks", "Every audio track needs its own stream index and a configured producer", nil)
             return

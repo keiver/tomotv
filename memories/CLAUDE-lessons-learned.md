@@ -3210,3 +3210,17 @@ Every intentionally non-recursive `/Items` request states `Recursive=false` (`fe
 
 - native/ios/LocalRemuxer: DeviceDecode.swift, Remuxer.swift, LocalRemuxer.swift, LocalRemuxer.m, PlaylistShim.swift, InitSegmentSdr.swift (new), Package.swift; plugins/withMultiAudioResourceLoader.js (source list)
 - services/localRemux.ts, services/jellyfin/streamUrls.ts (`serverVideoCodecs`, `sourceIsHdr`), services/jellyfin/media.ts (`sourceVideoRange`), hooks/useVideoPlayback.ts (`viaShim`, pre-flight loop)
+
+## Note: Jellyfin Lists a Live Channel's Streams With Index -1 (September 2026)
+
+Every live channel failed on release/2.2.7 with "live channel cannot reach the engine and the
+server offers no transcode" (L01-L05 on the Docker rig, 2026-09-21). Measured on
+jellyfin/jellyfin:12.0: `POST /Items/{channel}/PlaybackInfo` returns the probed streams with
+`Index: -1` (`Video mpeg2video`, `Audio mp2`), after the live stream has opened. 753ac3a5 added
+`audioCatalogue` (services/jellyfin/audioTracks.ts), which threw on any index below 0, and a
+bridge guard in LocalRemuxer.swift that dropped negative indexes and then rejected the config;
+`canRemuxLocally` reported the throw as "invalid audio catalogue". main shipped -1 through and
+the engine's live path never reads it: a `sourceStream` miss is skipped on live and every audio
+stream is discovered off the container. The catalogue keeps -1 on a live source, identifies the
+track by ordinal (`c1:live0`), and the bridge admits negative and repeated indexes only when
+`isLive`; a file with no index still throws. Every live test fixture had used `Index: 1`.

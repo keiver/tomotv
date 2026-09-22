@@ -1,4 +1,5 @@
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
+import { isLiveSource } from "./media";
 
 export interface AudioCatalogueTrack {
   identity: string;
@@ -39,25 +40,27 @@ export function audioCatalogue(videoItem: JellyfinVideoItem, preferredStreamInde
   const mediaSourceId = videoItem.MediaSources?.[0]?.Id || videoItem.Id;
   const mediaStreams = playbackMediaStreams(videoItem);
   const streams = mediaStreams.filter((stream) => stream.Type === "Audio");
+  // A live channel's probed streams all carry Index -1 (Jellyfin 12): the ordinal identifies them.
+  const live = isLiveSource(videoItem);
   const identities = new Set<string>();
-  const tracks = streams.map((stream) => {
+  const tracks = streams.map((stream, ordinal) => {
     const index = stream.Index;
-    if (index === undefined || !Number.isInteger(index) || index < 0 || index > 2_147_483_647) {
-      throw new Error(`Audio track is missing a valid Jellyfin stream index for media source ${mediaSourceId}`);
-    }
-    const identity = `${mediaSourceId}:${index}`;
+    const indexed = index !== undefined && Number.isInteger(index) && index >= 0 && index <= 2_147_483_647;
+    if (!indexed && !live) throw new Error(`Audio track is missing a valid Jellyfin stream index for media source ${mediaSourceId}`);
+    const identity = indexed ? `${mediaSourceId}:${index}` : `${mediaSourceId}:live${ordinal}`;
     if (identities.has(identity)) throw new Error(`Duplicate audio track identity ${identity}`);
     identities.add(identity);
-    const name = (stream.DisplayTitle || stream.Language || `Audio ${index}`).replace(/["\r\n]/g, "").trim() || `Audio ${index}`;
-    return { identity, mediaSourceId, index, name, stream, source: sourcePosition(mediaStreams, stream) };
+    const label = indexed ? index : ordinal + 1;
+    const name = (stream.DisplayTitle || stream.Language || `Audio ${label}`).replace(/["\r\n]/g, "").trim() || `Audio ${label}`;
+    return { identity, mediaSourceId, index: indexed ? index : -1, name, label, stream, source: sourcePosition(mediaStreams, stream) };
   });
   const labelCounts = new Map<string, number>();
   for (const track of tracks) labelCounts.set(track.name, (labelCounts.get(track.name) ?? 0) + 1);
   const usedNames = new Set(tracks.filter((track) => labelCounts.get(track.name) === 1).map((track) => track.name));
   for (const track of tracks) {
     if (labelCounts.get(track.name) === 1) continue;
-    let name = `${track.name} (${track.index})`;
-    while (usedNames.has(name)) name += ` (${track.index})`;
+    let name = `${track.name} (${track.label})`;
+    while (usedNames.has(name)) name += ` (${track.label})`;
     track.name = name;
     usedNames.add(name);
   }

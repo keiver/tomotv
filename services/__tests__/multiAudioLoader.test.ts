@@ -461,6 +461,22 @@ describe("multiAudioLoader", () => {
       expect(() => getAudioTracks(source)).toThrow("valid Jellyfin stream index");
     });
 
+    it("keeps a live channel's Index -1 tracks apart by ordinal", () => {
+      const channel = createMockVideoItem({
+        MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1" }],
+        MediaStreams: [
+          { Type: "Video", Codec: "h264", Index: -1 },
+          { Type: "Audio", Codec: "aac", Index: -1 },
+          { Type: "Audio", Codec: "aac", Index: -1 },
+        ],
+      });
+      const tracks = getAudioTracks(channel);
+      expect(tracks.map((track: AudioTrackInfo) => [track.Index, track.Identity, track.DisplayTitle])).toEqual([
+        [-1, "c1:live0", "Audio 1"],
+        [-1, "c1:live1", "Audio 2"],
+      ]);
+    });
+
     it("accepts audio indexes at the nonnegative Int32 boundary", () => {
       const tracks = getAudioTracks(
         createMockVideoItem({
