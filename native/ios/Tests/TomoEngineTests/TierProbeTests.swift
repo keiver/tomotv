@@ -10,6 +10,8 @@ final class TierServerStub: URLProtocol {
     /// Paths answered with a transport error instead of a status, the shape of a dead link.
     static var transportErrors: Set<String> = []
     static var hits: [String] = []
+    /// Full request URLs, for a query a test needs to tell sessions apart (a kill's playSessionId).
+    static var requests: [String] = []
     /// Segment responses wait on this while set, so a test can serve the master first.
     static var holdSegments: DispatchSemaphore?
 
@@ -18,6 +20,7 @@ final class TierServerStub: URLProtocol {
         routes = [:]
         transportErrors = []
         hits = []
+        requests = []
         holdSegments = nil
         lock.unlock()
     }
@@ -26,6 +29,12 @@ final class TierServerStub: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         return hits.filter { $0 == path }.count
+    }
+
+    static func requestCount(containing fragment: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests.filter { $0.contains(fragment) }.count
     }
 
     static func sawHit(_ path: String, within seconds: Double = 5) -> Bool {
@@ -44,6 +53,7 @@ final class TierServerStub: URLProtocol {
         let path = request.url?.path ?? ""
         Self.lock.lock()
         Self.hits.append(path)
+        Self.requests.append(request.url?.absoluteString ?? "")
         let route = Self.routes[path]
         let dead = Self.transportErrors.contains(path)
         let hold = path.hasSuffix(".ts") ? Self.holdSegments : nil
@@ -334,11 +344,12 @@ final class TierProbeTests: XCTestCase {
     func testOpeningSegmentServerErrorKeepsTheTierRetryable() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (500, Data())
-        let (s, reports) = try session()
+        // Its own PlaySessionId: an earlier session's fire-and-forget kill can land after the reset.
+        let (s, reports) = try session(tierPlaylistUrl: "http://tier.test/Videos/x/main.m3u8?ApiKey=k&PlaySessionId=retryable")
         defer { s.stop() }
         waitForProbe(s)
         XCTAssertTrue(TierServerStub.hits.contains("/Videos/x/seg0.ts"))
-        XCTAssertEqual(TierServerStub.hitCount("/Videos/ActiveEncodings"), 0)
+        XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=retryable"), 0)
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"))
         XCTAssertTrue(master.contains("media.m3u8"), "the primary is still offered")
