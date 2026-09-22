@@ -3,6 +3,8 @@ import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { GuideMetrics } from "@/utils/guide";
 import React, { useCallback } from "react";
@@ -11,6 +13,7 @@ import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHand
 
 const IS_TV = Platform.isTV;
 const channelIds = (channel: JellyfinItem) => [channel.Id];
+const favoriteMark = (preferences: LiveTvPreferences, channel: JellyfinItem) => (isFavoriteChannel(preferences, channel) ? ("heart" as const) : undefined);
 
 interface GuideChannelColumnProps {
   channels: JellyfinItem[];
@@ -29,6 +32,8 @@ interface GuideChannelColumnProps {
   /** Phone: the left magnet holds the column, and the tile takes the card's presses. */
   compact: boolean;
   onChannelPress: (channel: JellyfinItem) => void;
+  /** A held card marks the channel a favorite, or unmarks it. */
+  onChannelLongPress: (channel: JellyfinItem) => void;
   onChannelFocus?: () => void;
   onEndReached?: () => void;
 }
@@ -48,24 +53,44 @@ export function GuideChannelColumn({
   columnWidth,
   compact,
   onChannelPress,
+  onChannelLongPress,
   onChannelFocus,
   onEndReached,
 }: GuideChannelColumnProps) {
+  const preferences = useLiveTvPreferences();
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows,
   // and the TV snap target, so a focused card lands its row on the list's top edge.
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
       <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapAlign={IS_TV ? "start" : undefined}>
         {IS_TV ? (
-          <GuideChannelCard channel={item} index={index} cardWidth={metrics.channelColumnWidth} hideAiring onPress={onChannelPress} onItemFocus={onChannelFocus} />
+          <GuideChannelCard
+            channel={item}
+            index={index}
+            cardWidth={metrics.channelColumnWidth}
+            hideAiring
+            titleIcon={favoriteMark(preferences, item)}
+            onPress={onChannelPress}
+            onLongPress={onChannelLongPress}
+            onItemFocus={onChannelFocus}
+          />
         ) : (
-          <ChannelMorph channel={item} index={index} metrics={metrics} columnWidth={columnWidth} compact={compact} onPress={onChannelPress} />
+          <ChannelMorph
+            channel={item}
+            index={index}
+            metrics={metrics}
+            columnWidth={columnWidth}
+            compact={compact}
+            titleIcon={favoriteMark(preferences, item)}
+            onPress={onChannelPress}
+            onLongPress={onChannelLongPress}
+          />
         )}
       </View>
     ),
-    [metrics, columnWidth, compact, onChannelPress, onChannelFocus],
+    [metrics, columnWidth, compact, preferences, onChannelPress, onChannelLongPress, onChannelFocus],
   );
-  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("guide", true, channels, channelIds);
+  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
     [metrics.rowHeight],
@@ -95,7 +120,9 @@ export function GuideChannelColumn({
         showsVerticalScrollIndicator={false}
         snapToAlignment={IS_TV ? "item" : undefined}
         removeClippedSubviews={!IS_TV}
-        windowSize={5}
+        maxToRenderPerBatch={4}
+        updateCellsBatchingPeriod={16}
+        windowSize={7}
         style={{ height: listHeight }}
         contentContainerStyle={{ paddingBottom: contentBottomPad }}
       />
@@ -114,14 +141,18 @@ function ChannelMorph({
   metrics,
   columnWidth,
   compact,
+  titleIcon,
   onPress,
+  onLongPress,
 }: {
   channel: JellyfinItem;
   index: number;
   metrics: GuideMetrics;
   columnWidth: SharedValue<number>;
   compact: boolean;
+  titleIcon?: "heart";
   onPress: (channel: JellyfinItem) => void;
+  onLongPress: (channel: JellyfinItem) => void;
 }) {
   const range = [metrics.compactColumnWidth, metrics.channelColumnWidth];
   const cardStyle = useAnimatedStyle(() => {
@@ -135,7 +166,7 @@ function ChannelMorph({
   return (
     <>
       <Animated.View style={[styles.cardLayer, cardStyle]} pointerEvents={compact ? "none" : "auto"}>
-        <GuideChannelCard channel={channel} index={index} cardWidth={metrics.channelColumnWidth} hideAiring onPress={onPress} />
+        <GuideChannelCard channel={channel} index={index} cardWidth={metrics.channelColumnWidth} hideAiring titleIcon={titleIcon} onPress={onPress} onLongPress={onLongPress} />
       </Animated.View>
       <Animated.View style={[styles.tileLayer, { width: metrics.compactColumnWidth }, tileStyle]} pointerEvents={compact ? "auto" : "none"}>
         <GuideChannelTile channel={channel} metrics={metrics} onPress={onPress} />

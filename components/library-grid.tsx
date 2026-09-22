@@ -6,7 +6,7 @@ import { FolderGridItem } from "@/components/folder-grid-item";
 import { LoadingRow } from "@/components/loading-row";
 // import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
-import { LibraryHeader } from "@/components/library-header";
+import { LibraryHeader, type HeaderAction } from "@/components/library-header";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
@@ -82,6 +82,14 @@ interface LibraryGridProps {
   recordings?: boolean;
   /** The channel wall: landscape channel cards wearing their live frames, the rows in view sampled. */
   liveChannels?: boolean;
+  /** Channel wall: the sampler runs while true; off, the cards keep the frames they have. */
+  liveFramesEnabled?: boolean;
+  /** Channel wall: the mark a card wears at its title's left end (a favorite's heart). */
+  titleIconFor?: (item: JellyfinItem) => keyof typeof Ionicons.glyphMap | undefined;
+  /** TV: the header's trailing capsule when the grid has no Filters (the wall's Settings). */
+  headerAction?: HeaderAction;
+  /** TV: a capsule left of headerAction (the wall's favorites filter toggle). */
+  headerSecondaryAction?: HeaderAction;
 }
 
 /**
@@ -109,6 +117,10 @@ export function LibraryGrid({
   backdropSource,
   recordings = false,
   liveChannels = false,
+  liveFramesEnabled = true,
+  titleIconFor,
+  headerAction,
+  headerSecondaryAction,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -274,7 +286,7 @@ export function LibraryGrid({
       ),
     [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels],
   );
-  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("wall", liveChannels, packedRows, rowChannelIds);
+  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
   // Global item index of each row's first card (drives image-priority for the first cards).
   const rowStartIndices = useMemo(() => {
@@ -508,6 +520,7 @@ export function LibraryGrid({
                   nextFocusUp={nextFocusUpForRow}
                   nextFocusDown={nextFocusDown}
                   cardHeight={card.cardHeight}
+                  titleIcon={titleIconFor?.(item)}
                 />
               );
             }
@@ -556,6 +569,7 @@ export function LibraryGrid({
       handleFocusAndLastCellRef,
       recordings,
       liveChannels,
+      titleIconFor,
     ],
   );
 
@@ -663,14 +677,14 @@ export function LibraryGrid({
       // drops the first card's mount-time claim.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setHandoffDone(true);
-    } else if (onOpenFilters || error) {
+    } else if (onOpenFilters || headerAction || error) {
       // Loaded-empty with a Filters button, or error state with the Configure button: removing
       // the FOCUSED holder triggers UIKit's automatic focus update, which resolves to that
       // button's mount-time hasTVPreferredFocus.
       setHandoffDone(true);
     }
     // else: loaded-empty with no Filters button — the holder stays as the permanent anchor.
-  }, [isLoading, items.length, onOpenFilters, error, isScreenFocused, handoffDone, focusTargetCard]);
+  }, [isLoading, items.length, onOpenFilters, headerAction, error, isScreenFocused, handoffDone, focusTargetCard]);
 
   // On tvOS the focus engine must always have a target, and the outer trapFocusUp keeps it on the
   // screen. During the initial folder load nothing focusable is rendered — the header (and its
@@ -761,6 +775,8 @@ export function LibraryGrid({
         onGoHome={handleGoHome}
         homeAsBack={homeAsBack}
         onOpenFilters={onOpenFilters}
+        action={headerAction}
+        secondaryAction={headerSecondaryAction}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}
         onFiltersFocusChange={handleFiltersFocusChange}

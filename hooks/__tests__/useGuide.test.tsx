@@ -13,6 +13,8 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchTimers: jest.fn(),
 }));
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
+let mockPreferences = { version: 1, autoUpdate: true, favoritesOnly: false, sort: "number", favorites: [] as { number?: string; name: string }[] };
+jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => mockPreferences }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
 type Hook = ReturnType<typeof useGuide>;
@@ -62,7 +64,25 @@ const program = (id: string, channelId: string, startMin: number, endMin: number
 describe("useGuide", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPreferences = { version: 1, autoUpdate: true, favoritesOnly: false, sort: "number", favorites: [] };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
+  });
+
+  it("held to favorites, keeps only their rows, asks programs for them alone, and pages on by itself until every channel is seen", async () => {
+    const many = Array.from({ length: GUIDE_CHANNEL_PAGE + 5 }, (_, i) => channel(i + 1));
+    mockPreferences = { ...mockPreferences, favoritesOnly: true, favorites: [{ name: "Channel 2" }, { name: `Channel ${GUIDE_CHANNEL_PAGE + 3}` }] };
+    (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex, limit }: { startIndex: number; limit: number }) => ({
+      items: many.slice(startIndex, startIndex + limit),
+      total: many.length,
+    }));
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ channelIds, startMs }: { channelIds: string[]; startMs: number }) => channelIds.map((id) => program(`${id}-p`, id, 0, 30, startMs)));
+
+    const ref = await mount();
+    await settle();
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c2", `c${GUIDE_CHANNEL_PAGE + 3}`]);
+    expect((fetchChannels as jest.Mock).mock.calls.map(([args]) => args.startIndex)).toEqual([0, GUIDE_CHANNEL_PAGE]);
+    expect((fetchGuidePrograms as jest.Mock).mock.calls.map(([args]) => args.channelIds)).toEqual([["c2"], [`c${GUIDE_CHANNEL_PAGE + 3}`]]);
+    expect(ref.current!.get().rows[1].programs).toHaveLength(1);
   });
 
   it("loads the channels, the first page of programs and the timers", async () => {
@@ -84,7 +104,7 @@ describe("useGuide", () => {
     const [{ channelIds, startMs, endMs }] = (fetchGuidePrograms as jest.Mock).mock.calls[0];
     expect(channelIds).toEqual(["c1", "c2"]);
     expect(endMs - startMs).toBe(GUIDE_SPAN_MINUTES * MINUTE_MS);
-    expect((fetchChannels as jest.Mock).mock.calls[0][0]).toEqual({ startIndex: 0, limit: GUIDE_CHANNEL_PAGE });
+    expect((fetchChannels as jest.Mock).mock.calls[0][0]).toEqual({ startIndex: 0, limit: GUIDE_CHANNEL_PAGE, sortBy: "SortName" });
     // The server has no more channels, so nearing the bottom asks for nothing.
     await act(async () => {
       ref.current!.get().loadMoreRows();
@@ -111,7 +131,7 @@ describe("useGuide", () => {
       ref.current!.get().loadMoreRows();
     });
     await settle();
-    expect((fetchChannels as jest.Mock).mock.calls[1][0]).toEqual({ startIndex: GUIDE_CHANNEL_PAGE, limit: GUIDE_CHANNEL_PAGE });
+    expect((fetchChannels as jest.Mock).mock.calls[1][0]).toEqual({ startIndex: GUIDE_CHANNEL_PAGE, limit: GUIDE_CHANNEL_PAGE, sortBy: "SortName" });
     expect(ref.current!.get().rows).toHaveLength(many.length);
     expect(ref.current!.get().rows[GUIDE_CHANNEL_PAGE].programs).toHaveLength(1);
     expect((fetchGuidePrograms as jest.Mock).mock.calls[1][0].channelIds).toEqual(many.slice(GUIDE_CHANNEL_PAGE).map((c) => c.Id));

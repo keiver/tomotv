@@ -1,4 +1,6 @@
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { fetchChannels, fetchGuidePrograms, fetchTimers } from "@/services/jellyfinApi";
+import { channelSortParam, favoriteChannels } from "@/services/liveTvPreferences";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS } from "@/utils/guide";
 import { logger } from "@/utils/logger";
@@ -58,9 +60,21 @@ export function useGuide(): GuideState {
   const pagePendingRef = useRef(false);
   const windowEndRef = useRef(windowEndMs);
   const channelsRef = useRef<JellyfinItem[]>([]);
+  // Channels the server has handed over, favorites or not: the next page starts after them.
+  const loadedRef = useRef(0);
   // Whether the server has channels past the loaded ones: its total when it reports one, else a full page.
   const hasMoreRef = useRef(false);
   const isFocused = useIsFocused();
+  const preferences = useLiveTvPreferences();
+  const { sort, favoritesOnly } = preferences;
+  // Only the favorites list matters, and only while the guide is held to it.
+  const favorites = favoritesOnly ? preferences : null;
+  // Read by the page loader instead of state: a chained page runs before the loading render commits.
+  const loadingRef = useRef(true);
+  const favoritesOnlyRef = useRef(favoritesOnly);
+  const loadMoreRef = useRef<() => void>(() => {});
+  // Bumped by every fresh load, so a page from the previous sort or filter lands nowhere.
+  const generationRef = useRef(0);
 
   const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[]) => {
     setProgramsByChannel((current) => {
@@ -82,16 +96,17 @@ export function useGuide(): GuideState {
     [applyPrograms],
   );
 
-  /** The channel page at `startIndex` and its programs over the loaded window. */
+  /** The channel page at `startIndex`, held to the favorites when asked, and its programs over the loaded window. */
   const loadChannelPage = useCallback(
     async (startIndex: number) => {
-      const { items, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE });
-      const loaded = startIndex + items.length;
-      const hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
+      const { items: page, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort) });
+      const loaded = startIndex + page.length;
+      const hasMore = total !== undefined ? loaded < total : page.length >= GUIDE_CHANNEL_PAGE;
+      const items = favorites ? favoriteChannels(favorites, page) : page;
       const programs = items.length > 0 ? await fetchGuidePrograms({ channelIds: items.map((channel) => channel.Id), startMs: windowStartMs, endMs: windowEndRef.current }) : [];
-      return { items, programs, hasMore };
+      return { items, programs, hasMore, pageLength: page.length };
     },
-    [windowStartMs],
+    [windowStartMs, sort, favorites],
   );
 
   const refreshTimers = useCallback(() => {
@@ -102,11 +117,14 @@ export function useGuide(): GuideState {
 
   useEffect(() => {
     let cancelled = false;
+    generationRef.current += 1;
+    loadingRef.current = true;
     (async () => {
       try {
-        const { items, programs, hasMore } = await loadChannelPage(0);
+        const { items, programs, hasMore, pageLength } = await loadChannelPage(0);
         if (cancelled) return;
         hasMoreRef.current = hasMore;
+        loadedRef.current = pageLength;
         channelsRef.current = items;
         setChannels(items);
         applyPrograms(items, programs);
@@ -116,13 +134,18 @@ export function useGuide(): GuideState {
         logger.error("Guide load failed", err, { hook: "useGuide" });
         setError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) {
+          loadingRef.current = false;
+          setIsLoading(false);
+          // Favorites are the viewer's own list: the pages keep coming until every channel has been seen.
+          if (favorites && hasMoreRef.current) loadMoreRef.current();
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [attempt, loadChannelPage, applyPrograms, refreshTimers]);
+  }, [attempt, loadChannelPage, applyPrograms, refreshTimers, favorites]);
 
   // A minute tick moves the airing cells' progress and the ruler's now mark.
   useEffect(() => {
@@ -138,7 +161,7 @@ export function useGuide(): GuideState {
   }, [isFocused, isLoading, refreshTimers]);
 
   const loadMoreRows = useCallback(() => {
-    if (isLoading || !hasMoreRef.current) return;
+    if (loadingRef.current || !hasMoreRef.current) return;
     if (busyRef.current) {
       // A page already loading answers this request; an extension does not.
       if (busyRef.current === "window") pagePendingRef.current = true;
@@ -146,9 +169,12 @@ export function useGuide(): GuideState {
     }
     pagePendingRef.current = false;
     busyRef.current = "page";
-    loadChannelPage(channelsRef.current.length)
-      .then(({ items, programs, hasMore }) => {
+    const generation = generationRef.current;
+    loadChannelPage(loadedRef.current)
+      .then(({ items, programs, hasMore, pageLength }) => {
+        if (generationRef.current !== generation) return;
         hasMoreRef.current = hasMore;
+        loadedRef.current += pageLength;
         if (items.length === 0) return;
         channelsRef.current = channelsRef.current.concat(items);
         setChannels(channelsRef.current);
@@ -159,9 +185,15 @@ export function useGuide(): GuideState {
         logger.warn("Guide page load failed", err, { hook: "useGuide" });
       })
       .finally(() => {
+        if (generationRef.current !== generation) return;
         busyRef.current = null;
+        if (favoritesOnlyRef.current && hasMoreRef.current && !pagePendingRef.current) loadMoreRef.current();
       });
-  }, [isLoading, loadChannelPage, applyPrograms]);
+  }, [loadChannelPage, applyPrograms]);
+  useEffect(() => {
+    loadMoreRef.current = loadMoreRows;
+    favoritesOnlyRef.current = favoritesOnly;
+  }, [loadMoreRows, favoritesOnly]);
 
   const extendWindow = useCallback(() => {
     if (busyRef.current || isLoading) return;

@@ -1,8 +1,11 @@
-import { GUIDE_CHANNEL_PAGE } from "@/hooks/useGuide";
 import { fetchChannels } from "@/services/jellyfinApi";
+import { channelSortParam, type ChannelSort } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+/** Channels per page: the wall carries no programmes, so its pages run larger than the guide's. */
+export const CHANNEL_WALL_PAGE = 100;
 
 export interface ChannelsState {
   items: JellyfinItem[];
@@ -14,8 +17,8 @@ export interface ChannelsState {
   retry: () => void;
 }
 
-/** The channel list a page at a time, the guide's page size, without the programmes the guide loads beside it. */
-export function useChannels(): ChannelsState {
+/** The channel list a page at a time in the server's order for the sort; a new sort starts over. */
+export function useChannels(sort: ChannelSort): ChannelsState {
   const [items, setItems] = useState<JellyfinItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -24,15 +27,21 @@ export function useChannels(): ChannelsState {
   const [attempt, setAttempt] = useState(0);
   const itemsRef = useRef<JellyfinItem[]>([]);
   const busyRef = useRef(false);
+  // Bumped by every fresh load, so a page from the previous sort lands nowhere.
+  const generationRef = useRef(0);
 
-  const loadPage = useCallback(async (startIndex: number) => {
-    const { items: page, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE });
-    const loaded = startIndex + page.length;
-    return { page, hasMore: total !== undefined ? loaded < total : page.length >= GUIDE_CHANNEL_PAGE };
-  }, []);
+  const loadPage = useCallback(
+    async (startIndex: number) => {
+      const { items: page, total } = await fetchChannels({ startIndex, limit: CHANNEL_WALL_PAGE, sortBy: channelSortParam(sort) });
+      const loaded = startIndex + page.length;
+      return { page, hasMore: total !== undefined ? loaded < total : page.length >= CHANNEL_WALL_PAGE };
+    },
+    [sort],
+  );
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++generationRef.current;
     busyRef.current = true;
     loadPage(0)
       .then(({ page, hasMore: more }) => {
@@ -40,6 +49,7 @@ export function useChannels(): ChannelsState {
         itemsRef.current = page;
         setItems(page);
         setHasMore(more);
+        setError(null);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -47,7 +57,7 @@ export function useChannels(): ChannelsState {
         setError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
-        busyRef.current = false;
+        if (generationRef.current === generation) busyRef.current = false;
         if (!cancelled) setIsLoading(false);
       });
     return () => {
@@ -57,10 +67,12 @@ export function useChannels(): ChannelsState {
 
   const loadMore = useCallback(() => {
     if (isLoading || !hasMore || busyRef.current) return;
+    const generation = generationRef.current;
     busyRef.current = true;
     setIsLoadingMore(true);
     loadPage(itemsRef.current.length)
       .then(({ page, hasMore: more }) => {
+        if (generationRef.current !== generation) return;
         setHasMore(more);
         if (page.length === 0) return;
         itemsRef.current = itemsRef.current.concat(page);
@@ -68,7 +80,7 @@ export function useChannels(): ChannelsState {
       })
       .catch((err) => logger.warn("Channels page load failed", err, { hook: "useChannels" }))
       .finally(() => {
-        busyRef.current = false;
+        if (generationRef.current === generation) busyRef.current = false;
         setIsLoadingMore(false);
       });
   }, [isLoading, hasMore, loadPage]);

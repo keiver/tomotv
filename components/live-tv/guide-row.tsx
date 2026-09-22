@@ -3,7 +3,7 @@ import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { cellGeometry, NO_GUIDE_PREFIX, programTimes, repeatedArt, type GuideMetrics } from "@/utils/guide";
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 
@@ -15,6 +15,8 @@ export interface FocusTargets {
   up?: number;
   down?: number;
 }
+/** Names the cells above and below a program's focused cell, by native handle. */
+export type FocusTargetsFor = (rowIndex: number, program: JellyfinProgram) => Pick<FocusTargets, "up" | "down">;
 
 interface GuideRowProps {
   channel: JellyfinItem;
@@ -26,9 +28,11 @@ interface GuideRowProps {
   nowMs: number;
   timersByProgramId: Map<string, JellyfinTimer>;
   scrollX: SharedValue<number>;
+  rowIndex: number;
   /** Top row only: Up leaves the canvas for the screen's actions above it. */
   nextFocusUp?: number;
-  focusTargets?: FocusTargets;
+  /** TV: asked on a cell's focus; the answer rides that cell until it blurs. */
+  targetsFor?: FocusTargetsFor;
   /** The one cell that claims focus on mount, until the latch retires the claim. */
   focusProgramId?: string;
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
@@ -74,8 +78,9 @@ function GuideRowComponent({
   nowMs,
   timersByProgramId,
   scrollX,
+  rowIndex,
   nextFocusUp,
-  focusTargets,
+  targetsFor,
   focusProgramId,
   onProgramPress,
   onProgramLongPress,
@@ -83,6 +88,18 @@ function GuideRowComponent({
   onCellHandle,
 }: GuideRowProps) {
   const cellHeight = metrics.rowHeight - 1;
+  // Row-local, so a focus move re-renders this row and the one it left, never the canvas.
+  const [focusTargets, setFocusTargets] = useState<FocusTargets | undefined>(undefined);
+  const press = useCallback((program: JellyfinProgram) => onProgramPress(program, channel), [onProgramPress, channel]);
+  const longPress = useCallback((program: JellyfinProgram) => onProgramLongPress(program, channel), [onProgramLongPress, channel]);
+  const focus = useCallback(
+    (program: JellyfinProgram) => {
+      if (targetsFor && program.Id) setFocusTargets({ programId: program.Id, ...targetsFor(rowIndex, program) });
+      onCellFocus?.(program, channel);
+    },
+    [targetsFor, rowIndex, onCellFocus, channel],
+  );
+  const blur = useCallback((program: JellyfinProgram) => setFocusTargets((current) => (current?.programId === program.Id ? undefined : current)), []);
   return (
     // TV: a focused cell lands its row on the list's top edge (snapToAlignment="item" on the list).
     <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapAlign={IS_TV ? "start" : undefined}>
@@ -109,10 +126,11 @@ function GuideRowComponent({
               nextFocusUp={targets?.up ?? nextFocusUp}
               nextFocusDown={targets?.down}
               hasTVPreferredFocus={focusProgramId === program.Id}
-              onFocus={onCellFocus ? (focused) => onCellFocus(focused, channel) : undefined}
+              onFocus={focus}
+              onBlur={IS_TV ? blur : undefined}
               onHandle={onCellHandle}
-              onPress={(pressed) => onProgramPress(pressed, channel)}
-              onLongPress={(pressed) => onProgramLongPress(pressed, channel)}
+              onPress={press}
+              onLongPress={longPress}
             />
           );
         });

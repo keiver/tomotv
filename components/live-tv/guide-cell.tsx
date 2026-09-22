@@ -36,6 +36,7 @@ interface GuideCellProps {
   onPress: (program: JellyfinProgram) => void;
   onLongPress: (program: JellyfinProgram) => void;
   onFocus?: (program: JellyfinProgram) => void;
+  onBlur?: (program: JellyfinProgram) => void;
   /** Reports the native node, so a neighbouring row can name this cell as its focus target. */
   onHandle?: (programId: string, handle: number | undefined) => void;
   nextFocusUp?: number;
@@ -60,6 +61,7 @@ function GuideCellComponent({
   onPress,
   onLongPress,
   onFocus,
+  onBlur,
   onHandle,
   nextFocusUp,
   nextFocusDown,
@@ -73,13 +75,14 @@ function GuideCellComponent({
   // only a cell narrower than that cuts it, at the cell's left edge.
   const artWidth = Math.round(height * (program.PrimaryImageAspectRatio || 16 / 9));
   const past = endMs <= nowMs;
-  const [labelWidth, setLabelWidth] = useState(0);
+  // On the UI thread with the pin: a measured width that re-rendered the cell doubled every mount.
+  const labelWidth = useSharedValue(0);
   const [focused, setFocused] = useState(false);
   // Focus zooms the art, not the cell: a cell can be wider than the screen, and scaling it would move its visible edge.
   const artZoom = useSharedValue(1);
   const artZoomStyle = useAnimatedStyle(() => ({ transform: [{ scale: artZoom.value }] }));
-  const handleLabelLayout = useCallback((event: LayoutChangeEvent) => setLabelWidth(event.nativeEvent.layout.width), []);
-  const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateX: labelPin(scrollX.value, left, width, labelWidth) }] }), [left, width, labelWidth]);
+  const handleLabelLayout = useCallback((event: LayoutChangeEvent) => labelWidth.set(event.nativeEvent.layout.width), [labelWidth]);
+  const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateX: labelPin(scrollX.value, left, width, labelWidth.value) }] }), [left, width]);
   const programId = program.Id;
   const handleRef = useCallback(
     (node: View | null) => {
@@ -96,7 +99,8 @@ function GuideCellComponent({
   const handleBlur = useCallback(() => {
     setFocused(false);
     artZoom.set(withTiming(1, { duration: 220 }));
-  }, [artZoom]);
+    onBlur?.(program);
+  }, [onBlur, program, artZoom]);
   const press = useCallback(() => onPress(program), [onPress, program]);
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
 

@@ -20,6 +20,12 @@ jest.mock("expo-secure-store", () => ({
   deleteItemAsync: jest.fn(),
 }));
 
+// The device defaults behind react-native's Settings: an in-memory map per test file.
+jest.mock("react-native/Libraries/Settings/Settings", () => {
+  const store = {};
+  return { __esModule: true, default: { get: (key) => store[key], set: (values) => Object.assign(store, values), watchKeys: jest.fn(), clearWatch: jest.fn() } };
+});
+
 // Mock expo-constants so the reported app version is deterministic in tests
 jest.mock("expo-constants", () => ({
   __esModule: true,

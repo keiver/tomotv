@@ -1,7 +1,7 @@
-/** useChannels: the first page on mount, the next on loadMore while the server has more, a failed load retried. */
-import { useChannels } from "@/hooks/useChannels";
-import { GUIDE_CHANNEL_PAGE } from "@/hooks/useGuide";
+/** useChannels: the first page on mount, the next on loadMore while the server has more, a new sort starting over, a failed load retried. */
+import { CHANNEL_WALL_PAGE, useChannels } from "@/hooks/useChannels";
 import { fetchChannels } from "@/services/jellyfinApi";
+import type { ChannelSort } from "@/services/liveTvPreferences";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
@@ -12,8 +12,8 @@ const mockFetch = fetchChannels as jest.Mock;
 type Hook = ReturnType<typeof useChannels>;
 type HookRef = { get: () => Hook };
 
-const Harness = forwardRef<HookRef, object>((_props, ref) => {
-  const result = useChannels();
+const Harness = forwardRef<HookRef, { sort: ChannelSort }>(({ sort }, ref) => {
+  const result = useChannels(sort);
   useImperativeHandle(ref, () => ({ get: () => result }), [result]);
   return null;
 });
@@ -32,21 +32,21 @@ const channels = (from: number, count: number) => Array.from({ length: count }, 
 describe("useChannels", () => {
   beforeEach(() => mockFetch.mockReset());
 
-  it("loads the first page, then the next on loadMore until the server's total is reached", async () => {
-    const total = GUIDE_CHANNEL_PAGE + 3;
-    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: channels(startIndex, Math.min(GUIDE_CHANNEL_PAGE, total - startIndex)), total }));
+  it("loads the first page in the sort's server order, then the next on loadMore until the total is reached", async () => {
+    const total = CHANNEL_WALL_PAGE + 3;
+    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: channels(startIndex, Math.min(CHANNEL_WALL_PAGE, total - startIndex)), total }));
     const ref = React.createRef<HookRef>();
     await act(async () => {
-      TestRenderer.create(<Harness ref={ref} />);
+      TestRenderer.create(<Harness ref={ref} sort="number" />);
     });
     await settle();
-    expect(mockFetch).toHaveBeenCalledWith({ startIndex: 0, limit: GUIDE_CHANNEL_PAGE });
-    expect(ref.current?.get().items).toHaveLength(GUIDE_CHANNEL_PAGE);
+    expect(mockFetch).toHaveBeenCalledWith({ startIndex: 0, limit: CHANNEL_WALL_PAGE, sortBy: "SortName" });
+    expect(ref.current?.get().items).toHaveLength(CHANNEL_WALL_PAGE);
     expect(ref.current?.get()).toMatchObject({ isLoading: false, hasMore: true, error: null });
 
     act(() => ref.current?.get().loadMore());
     await settle();
-    expect(mockFetch).toHaveBeenLastCalledWith({ startIndex: GUIDE_CHANNEL_PAGE, limit: GUIDE_CHANNEL_PAGE });
+    expect(mockFetch).toHaveBeenLastCalledWith({ startIndex: CHANNEL_WALL_PAGE, limit: CHANNEL_WALL_PAGE, sortBy: "SortName" });
     expect(ref.current?.get().items).toHaveLength(total);
     expect(ref.current?.get()).toMatchObject({ isLoadingMore: false, hasMore: false });
 
@@ -55,11 +55,36 @@ describe("useChannels", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("starts over in the server's name order when the sort changes, dropping a page from the old sort", async () => {
+    let releaseOld: (value: { items: unknown[]; total: number }) => void = () => {};
+    mockFetch.mockImplementation(async ({ startIndex, sortBy }: { startIndex: number; sortBy: string }) => {
+      if (sortBy === "SortName" && startIndex > 0) return new Promise((resolve) => (releaseOld = resolve));
+      return { items: sortBy === "Name" ? channels(500, 2) : channels(startIndex, CHANNEL_WALL_PAGE), total: CHANNEL_WALL_PAGE * 3 };
+    });
+    const ref = React.createRef<HookRef>();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    act(() => ref.current?.get().loadMore());
+    await settle();
+
+    await act(async () => renderer.update(<Harness ref={ref} sort="name" />));
+    await settle();
+    expect(mockFetch).toHaveBeenLastCalledWith({ startIndex: 0, limit: CHANNEL_WALL_PAGE, sortBy: "Name" });
+    expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c500", "c501"]);
+
+    await act(async () => releaseOld({ items: channels(CHANNEL_WALL_PAGE, CHANNEL_WALL_PAGE), total: CHANNEL_WALL_PAGE * 3 }));
+    await settle();
+    expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c500", "c501"]);
+  });
+
   it("reports a failed load and retries it", async () => {
     mockFetch.mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce({ items: channels(0, 2), total: 2 });
     const ref = React.createRef<HookRef>();
     await act(async () => {
-      TestRenderer.create(<Harness ref={ref} />);
+      TestRenderer.create(<Harness ref={ref} sort="number" />);
     });
     await settle();
     expect(ref.current?.get()).toMatchObject({ isLoading: false, error: "down", items: [] });

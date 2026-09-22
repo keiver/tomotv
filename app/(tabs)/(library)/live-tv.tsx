@@ -1,10 +1,13 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GlassButton } from "@/components/glass-button";
+import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
 import { gridEdgePadding } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
+import { useChannelFavoriteMenu } from "@/hooks/useChannelFavoriteMenu";
 import { useGuide } from "@/hooks/useGuide";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
@@ -37,6 +40,9 @@ export default function LiveTvScreen() {
   }, []);
 
   const guide = useGuide();
+  const openFavoriteMenu = useChannelFavoriteMenu();
+  // The Channels pill wears the filled filter symbol while the channels are held to the favorites.
+  const { favoritesOnly } = useLiveTvPreferences();
   const canManage = useLiveTvManagement();
 
   const tune = useCallback(
@@ -79,14 +85,20 @@ export default function LiveTvScreen() {
         : {
             title: params.name ?? t("liveTv.title"),
             unstable_headerRightItems: () => [
-              { type: "button", label: t("liveTv.channels"), icon: { type: "sfSymbol", name: "square.grid.2x2" }, tintColor: COLORS.ACCENT, onPress: openChannels },
+              {
+                type: "button",
+                label: t("liveTv.channels"),
+                icon: { type: "sfSymbol", name: favoritesOnly ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2" },
+                tintColor: COLORS.ACCENT,
+                onPress: openChannels,
+              },
               { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
               ...(canManage
                 ? [{ type: "button" as const, label: t("liveTv.scheduled"), icon: { type: "sfSymbol" as const, name: "calendar" as const }, tintColor: COLORS.ACCENT, onPress: openSchedule }]
                 : []),
             ],
           },
-    [params.name, openRecordings, openChannels, openSchedule, canManage],
+    [params.name, openRecordings, openChannels, openSchedule, canManage, favoritesOnly],
   );
 
   return (
@@ -98,7 +110,18 @@ export default function LiveTvScreen() {
           {IS_TV ? (
             <>
               <View style={styles.headerSlot}>
-                <GlassButton ref={handleFirstActionRef} title={t("liveTv.channels")} icon={<Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openChannels} />
+                <GlassButton
+                  ref={handleFirstActionRef}
+                  title={t("liveTv.channels")}
+                  icon={
+                    favoritesOnly ? (
+                      <SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={ICON} color={COLORS.ACCENT} />
+                    ) : (
+                      <Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />
+                    )
+                  }
+                  onPress={openChannels}
+                />
               </View>
               <View style={[styles.headerSlot, styles.headerSlotCenter]}>
                 <GlassButton title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
@@ -110,7 +133,14 @@ export default function LiveTvScreen() {
           ) : null}
         </View>
         <View style={[styles.body, { paddingLeft: edgeLeft }]}>
-          <GuideCanvas guide={guide} topFocusHandle={topFocusHandle} onProgramPress={handleProgramPress} onProgramLongPress={openProgram} onChannelPress={handleChannelPress} />
+          <GuideCanvas
+            guide={guide}
+            topFocusHandle={topFocusHandle}
+            onProgramPress={handleProgramPress}
+            onProgramLongPress={openProgram}
+            onChannelPress={handleChannelPress}
+            onChannelLongPress={openFavoriteMenu}
+          />
         </View>
       </View>
     </>

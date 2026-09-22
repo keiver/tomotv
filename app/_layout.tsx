@@ -275,6 +275,21 @@ export default function RootLayout() {
                         }
                       />
                       <Stack.Screen
+                        name="channel-settings"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.channelSettings"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.channels"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
                         name="schedule"
                         options={
                           Platform.isTV

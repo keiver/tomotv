@@ -23,6 +23,22 @@ interface LibraryHeaderProps {
   onFiltersButtonRef?: (node: View | null) => void;
   /** TV: the Filters button gained/lost focus (grid focus bookkeeping, see library-grid's recovery). */
   onFiltersFocusChange?: (focused: boolean) => void;
+  /** The trailing capsule where Filters would sit, for a grid with a different action (the channel wall's Settings). */
+  action?: HeaderAction;
+  /** A capsule to the left of `action` (the wall's favorites filter toggle). */
+  secondaryAction?: HeaderAction;
+}
+
+export interface HeaderAction {
+  /** Omit for an icon-only capsule, and name it through accessibilityLabel. */
+  title?: string;
+  icon: keyof typeof Ionicons.glyphMap | React.ReactElement;
+  accessibilityLabel?: string;
+  onPress: () => void;
+}
+
+function actionIcon(icon: HeaderAction["icon"]) {
+  return typeof icon === "string" ? <Ionicons name={icon} size={24} color={COLORS.ACCENT} /> : icon;
 }
 
 /**
@@ -39,6 +55,8 @@ function LibraryHeaderComponent({
   filtersButtonHasPreferredFocus = false,
   onFiltersButtonRef,
   onFiltersFocusChange,
+  action,
+  secondaryAction,
 }: LibraryHeaderProps) {
   const filtersButtonRef = useCallback(
     (node: View | null) => {
@@ -75,6 +93,9 @@ function LibraryHeaderComponent({
           );
         })}
       </View>
+      {secondaryAction ? (
+        <GlassButton title={secondaryAction.title} accessibilityLabel={secondaryAction.accessibilityLabel} onPress={secondaryAction.onPress} icon={actionIcon(secondaryAction.icon)} />
+      ) : null}
       {onOpenFilters ? (
         <GlassButton
           ref={filtersButtonRef}
@@ -84,6 +105,17 @@ function LibraryHeaderComponent({
           onFocus={handleFiltersFocus}
           onBlur={handleFiltersBlur}
           icon={<Ionicons name="funnel-outline" size={24} color={COLORS.ACCENT} />}
+        />
+      ) : action ? (
+        <GlassButton
+          ref={filtersButtonRef}
+          title={action.title}
+          hasTVPreferredFocus={filtersButtonHasPreferredFocus}
+          onPress={action.onPress}
+          onFocus={handleFiltersFocus}
+          onBlur={handleFiltersBlur}
+          accessibilityLabel={action.accessibilityLabel}
+          icon={actionIcon(action.icon)}
         />
       ) : null}
     </View>

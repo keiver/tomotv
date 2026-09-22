@@ -1,7 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
 import { GuideColumnDivider } from "@/components/live-tv/guide-column-divider";
-import { GuideRow, rowCells, type FocusTargets } from "@/components/live-tv/guide-row";
+import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
 import { GuideTimeRuler } from "@/components/live-tv/guide-time-ruler";
 import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
@@ -11,7 +11,7 @@ import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cellAtEdge, cellGeometry, formatDayLabel, guideMetrics, isAiring, MINUTE_MS, programTimes } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useSharedValue } from "react-native-reanimated";
@@ -30,6 +30,7 @@ interface GuideCanvasProps {
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onChannelPress: (channel: JellyfinItem) => void;
+  onChannelLongPress: (channel: JellyfinItem) => void;
 }
 
 /**
@@ -37,7 +38,7 @@ interface GuideCanvasProps {
  * with the channel column beside it kept level with the rows. Cells and channels are the
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
-export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLongPress, onChannelPress }: GuideCanvasProps) {
+export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
@@ -101,7 +102,11 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
     },
     [handles],
   );
-  const [focusTargets, setFocusTargets] = useState<{ rowIndex: number; targets: FocusTargets } | undefined>(undefined);
+  // Read at focus time through a ref: the lookup stays one function for the rows' whole life.
+  const rowDataRef = useRef(rows);
+  useEffect(() => {
+    rowDataRef.current = rows;
+  }, [rows]);
   const neighbourHandle = useCallback(
     (row: GuideRowData | undefined, edgeMs: number) => {
       if (!row) return undefined;
@@ -110,22 +115,20 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
     },
     [handles, windowStartMs, windowEndMs],
   );
-  const handleCellFocus = useCallback(
-    (program: JellyfinProgram, channel: JellyfinItem) => {
-      if (!IS_TV || !program.Id) return;
-      driver.set("grid");
-      setFocusLatched(true);
-      const rowIndex = rows.findIndex((row) => row.channel.Id === channel.Id);
+  const targetsFor = useCallback<FocusTargetsFor>(
+    (rowIndex, program) => {
       const { startMs, endMs } = programTimes(program);
       const left = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, METRICS)?.left ?? 0;
       const edgeMs = windowStartMs + (Math.max(left, scrollX.value) / METRICS.pxPerMinute) * MINUTE_MS;
-      setFocusTargets({
-        rowIndex,
-        targets: { programId: program.Id, up: neighbourHandle(rows[rowIndex - 1], edgeMs), down: neighbourHandle(rows[rowIndex + 1], edgeMs) },
-      });
+      return { up: neighbourHandle(rowDataRef.current[rowIndex - 1], edgeMs), down: neighbourHandle(rowDataRef.current[rowIndex + 1], edgeMs) };
     },
-    [rows, windowStartMs, windowEndMs, scrollX, driver, neighbourHandle],
+    [windowStartMs, windowEndMs, scrollX, neighbourHandle],
   );
+  const handleCellFocus = useCallback(() => {
+    if (!IS_TV) return;
+    driver.set("grid");
+    setFocusLatched(true);
+  }, [driver]);
   const handleChannelFocus = useCallback(() => {
     if (!IS_TV) return;
     driver.set("column");
@@ -153,8 +156,9 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
         nowMs={nowMs}
         timersByProgramId={timersByProgramId}
         scrollX={scrollX}
+        rowIndex={index}
         nextFocusUp={index === 0 ? topFocusHandle : undefined}
-        focusTargets={focusTargets?.rowIndex === index ? focusTargets.targets : undefined}
+        targetsFor={IS_TV ? targetsFor : undefined}
         focusProgramId={index === 0 ? focusProgramId : undefined}
         onProgramPress={onProgramPress}
         onProgramLongPress={onProgramLongPress}
@@ -162,7 +166,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
         onCellHandle={handleCellHandle}
       />
     ),
-    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, topFocusHandle, focusTargets, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus, handleCellHandle],
+    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, topFocusHandle, targetsFor, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus, handleCellHandle],
   );
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
@@ -206,6 +210,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
         columnWidth={columnW}
         compact={compact}
         onChannelPress={onChannelPress}
+        onChannelLongPress={onChannelLongPress}
         onChannelFocus={handleChannelFocus}
         onEndReached={loadMoreRows}
       />
@@ -233,9 +238,12 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
               showsVerticalScrollIndicator={false}
               snapToAlignment={IS_TV ? "item" : undefined}
               removeClippedSubviews={!IS_TV}
-              initialNumToRender={IS_TV ? 10 : 12}
-              maxToRenderPerBatch={8}
-              windowSize={5}
+              // Three viewports each side mounted ahead of a held press, in small batches so rows
+              // paint one after another instead of as a block; a press costs no canvas render now.
+              initialNumToRender={12}
+              maxToRenderPerBatch={4}
+              updateCellsBatchingPeriod={16}
+              windowSize={7}
               style={{ height: listHeight, width: spanPx }}
               contentContainerStyle={{ paddingBottom: LIST_BOTTOM_PAD }}
             />
