@@ -2,7 +2,7 @@ import { GRID_LINE, GuideCell, type RecordingMark } from "@/components/live-tv/g
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { cellGeometry, NO_GUIDE_PREFIX, programTimes, repeatedArt, type GuideMetrics } from "@/utils/guide";
+import { cellGeometry, NO_GUIDE_PREFIX, programTimes, type GuideMetrics } from "@/utils/guide";
 import React, { useCallback, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
@@ -105,9 +105,7 @@ function GuideRowComponent({
     <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapAlign={IS_TV ? "start" : undefined}>
       <View style={styles.line} pointerEvents="none" />
       {(() => {
-        const cells = rowCells(channel, programs, windowStartMs, windowEndMs, metrics);
-        const repeats = repeatedArt(cells);
-        return cells.map((program, index) => {
+        return rowCells(channel, programs, windowStartMs, windowEndMs, metrics).map((program) => {
           const { startMs, endMs } = programTimes(program);
           const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
           if (!geometry || !program.Id) return null;
@@ -121,7 +119,6 @@ function GuideRowComponent({
               height={cellHeight}
               nowMs={nowMs}
               recording={recordingMark(program, timersByProgramId)}
-              artDimmed={repeats[index]}
               scrollX={scrollX}
               nextFocusUp={targets?.up ?? nextFocusUp}
               nextFocusDown={targets?.down}

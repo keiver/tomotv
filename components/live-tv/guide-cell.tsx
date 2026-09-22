@@ -1,11 +1,12 @@
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
-import { formatClock, labelPin, programCategory, programTimes } from "@/utils/guide";
+import { useArtTint } from "@/hooks/useArtTint";
+import { type ArtTint, formatClock, labelPin, programCategory, programTimes } from "@/utils/guide";
 import { getPosterUrl } from "@/services/jellyfinApi";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { SharedValue, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
@@ -14,11 +15,14 @@ const IS_TV = Platform.isTV;
 export const GRID_LINE = "rgba(255, 255, 255, 0.14)";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const SURFACE_TINT: ArtTint = "44, 44, 46";
 /** The art fades into the cell across its whole width, so the text reads over it. */
-const ART_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 44, 46, 0) 100%)";
-const ART_ZOOM = 1.08;
+const artFade = (tint: ArtTint) => `linear-gradient(to right, rgb(${tint}) 0%, rgba(${tint}, 0) 100%)`;
 /** Rides under the label and past its right edge, so the text reads over art on a narrow cell. */
-const TEXT_SCRIM = "linear-gradient(to right, rgba(44, 44, 46, 0.97) 0%, rgba(44, 44, 46, 0.85) 55%, rgba(44, 44, 46, 0.45) 80%, rgba(44, 44, 46, 0) 100%)";
+const textScrim = (tint: ArtTint) => `linear-gradient(to right, rgba(${tint}, 0.97) 0%, rgba(${tint}, 0.85) 55%, rgba(${tint}, 0.45) 80%, rgba(${tint}, 0) 100%)`;
+const ART_FADE = artFade(SURFACE_TINT);
+const TEXT_SCRIM = textScrim(SURFACE_TINT);
+const ART_ZOOM = 1.08;
 
 export type RecordingMark = "single" | "series" | null;
 
@@ -29,8 +33,6 @@ interface GuideCellProps {
   height: number;
   nowMs: number;
   recording: RecordingMark;
-  /** The art is the cell before's again (a run of the same programme): drawn faint, so the run does not wallpaper the row. */
-  artDimmed?: boolean;
   /** The canvas's horizontal offset; the label rides it so it stays on the visible edge. */
   scrollX: SharedValue<number>;
   onPress: (program: JellyfinProgram) => void;
@@ -56,7 +58,6 @@ function GuideCellComponent({
   height,
   nowMs,
   recording,
-  artDimmed = false,
   scrollX,
   onPress,
   onLongPress,
@@ -78,6 +79,12 @@ function GuideCellComponent({
   // On the UI thread with the pin: a measured width that re-rendered the cell doubled every mount.
   const labelWidth = useSharedValue(0);
   const [focused, setFocused] = useState(false);
+  // The focused cell's greys take the art's own colour, so the fade ends in the picture, not the grid.
+  const tint = useArtTint(program.Id, art, focused);
+  const tinted = useMemo(
+    () => (tint ? { cell: { backgroundColor: `rgb(${tint})` }, fade: { experimental_backgroundImage: artFade(tint) }, scrim: { experimental_backgroundImage: textScrim(tint) } } : null),
+    [tint],
+  );
   // Focus zooms the art, not the cell: a cell can be wider than the screen, and scaling it would move its visible edge.
   const artZoom = useSharedValue(1);
   const artZoomStyle = useAnimatedStyle(() => ({ transform: [{ scale: artZoom.value }] }));
@@ -105,14 +112,14 @@ function GuideCellComponent({
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
 
   return (
-    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, { left, width, height }]}>
+    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, { left, width, height }, tinted?.cell]}>
       {/* Bled in from the right, under the text, full height in its own shape. */}
       {art ? (
-        <View style={[styles.art, { width: artWidth }, artDimmed && styles.artDimmed]} pointerEvents="none" testID={artDimmed ? "guide-cell-art-dimmed" : "guide-cell-art"}>
+        <View style={[styles.art, { width: artWidth }]} pointerEvents="none" testID="guide-cell-art">
           <Animated.View style={[styles.artImage, artZoomStyle]}>
             <Image source={{ uri: art }} style={styles.artImage} contentFit="cover" transition={150} />
           </Animated.View>
-          <View style={styles.artFade} />
+          <View style={[styles.artFade, tinted?.fade]} />
         </View>
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
@@ -132,7 +139,7 @@ function GuideCellComponent({
         accessibilityRole="button"
         accessibilityLabel={program.EpisodeTitle ? `${program.Name}, ${program.EpisodeTitle}` : program.Name}
         style={[styles.label, pinStyle]}>
-        <View style={[styles.textScrim, focused && styles.textScrimFocused]} pointerEvents="none" />
+        <View style={[styles.textScrim, focused && styles.textScrimFocused, tinted?.scrim]} pointerEvents="none" />
         <View style={styles.text}>
           <View style={styles.titleRow}>
             {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
@@ -185,9 +192,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     overflow: "hidden",
-  },
-  artDimmed: {
-    opacity: 0.35,
   },
   artImage: {
     width: "100%",
