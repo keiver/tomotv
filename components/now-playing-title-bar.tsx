@@ -1,4 +1,4 @@
-import { LevelBars } from "@/components/level-bars";
+import { LEVEL_BARS_WIDTH, LevelBars } from "@/components/level-bars";
 import { MarqueeText } from "@/components/MarqueeText";
 import { DESIGN, GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -17,6 +17,8 @@ const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
 const BAR_PADDING_V = IS_TV ? 10 : 8;
 const BAR_DROP = 2;
 const BARS = IS_TV ? 20 : 12;
+const BARS_WIDTH = LEVEL_BARS_WIDTH;
+const MARK_LEFT = IS_TV ? 20 : 10;
 
 interface NowPlayingTitleBarProps {
   video: JellyfinVideoItem;
@@ -83,16 +85,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.ACCENT,
   },
   // Holds the side inset, not the bar: the fill measures this parent's content box, so padding
-  // up there stops it short of the card's right edge at 100%.
+  // up there stops it short of the card's right edge at 100%. Both sides clear the mark, so the
+  // TV title stays centred.
   infoTitleBlend: {
     width: "100%",
-    paddingHorizontal: IS_TV ? 16 : 14,
+    paddingHorizontal: MARK_LEFT + BARS_WIDTH + (IS_TV ? 12 : 6),
     mixBlendMode: "difference",
   },
   // Out of flow at the line's left end, where the grid card's title mark sits.
   mark: {
     position: "absolute",
-    left: IS_TV ? 20 : 10,
+    left: MARK_LEFT,
     top: 0,
     bottom: 0,
     justifyContent: "center",

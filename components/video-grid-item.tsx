@@ -8,6 +8,7 @@ import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
 import { t } from "@/services/i18n";
+import { isAudioItem, isBook } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
@@ -81,6 +82,8 @@ interface VideoGridItemProps {
   numColumns?: number;
   /** A mark drawn at the title's left end, where the now-playing bars sit; the placeholder face too. */
   titleIcon?: keyof typeof Ionicons.glyphMap;
+  /** Channel cards: leave the airing programme's name off the badge (the guide beside them shows it). */
+  hideAiring?: boolean;
 }
 
 /**
@@ -114,6 +117,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     slotOrientation = "portrait",
     numColumns,
     titleIcon,
+    hideAiring = false,
   },
   ref,
 ) {
@@ -151,7 +155,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // item objects without touching these fields, and must not re-parse every card.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name]);
-  const airingName = video.Type === "TvChannel" ? video.CurrentProgram?.Name?.trim() : undefined;
+  const isChannel = video.Type === "TvChannel";
+  const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -230,8 +235,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <>
               <Image
                 source={posterSource}
-                style={styles.poster}
-                contentFit="cover"
+                style={[styles.poster, isChannel && styles.posterLogo]}
+                contentFit={isChannel ? "contain" : "cover"}
                 transition={0}
                 priority={index < 10 ? "high" : "normal"}
                 cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload
@@ -243,15 +248,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               {focused && badgeSegments ? <CardCornerScrim /> : null}
             </>
           ) : (
-            // No artwork: the brand face (layer-front) on the dark card fill,
-            // same mark the Top Shelf placeholder uses. The title lives in the
-            // bottom bar (always rendered), same as postered cards.
+            // No artwork: a glyph for the item's kind on the dark card fill. The title
+            // lives in the bottom bar (always rendered), same as postered cards.
             <View style={styles.placeholderPoster}>
-              {titleIcon ? (
-                <Ionicons name={titleIcon} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
-              ) : (
-                <Image source={require("@/assets/brand/layer-front.png")} style={styles.placeholderFace} contentFit="cover" transition={0} />
-              )}
+              <Ionicons name={titleIcon ?? (isAudioItem(video) ? "musical-note-outline" : isBook(video) ? "book-outline" : "tv-outline")} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
             </View>
           )}
 
@@ -274,7 +274,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // over the fill). Decorative to a11y — the card announces name + value.
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
-              <View style={styles.infoTitleBlend}>
+              <View style={[styles.infoTitleBlend, titleIcon && styles.titleLineInset]}>
                 {titleIcon ? (
                   <View style={styles.titleMark} pointerEvents="none">
                     <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} />
@@ -288,7 +288,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : // Focused: opaque gold bar
           focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
-              <View style={styles.infoTitleLine}>
+              <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
                 {titleIcon ? (
                   <View style={styles.titleMark} pointerEvents="none">
                     <Ionicons name={titleIcon} size={TITLE_SIZE} color={CARD_FOCUS.TITLE_TEXT_FOCUSED} />
@@ -301,7 +301,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <View style={styles.infoTitleLine}>
+              <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
                 {titleIcon ? (
                   <View style={styles.titleMark} pointerEvents="none">
                     <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} />
@@ -376,7 +376,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.fitArtwork === nextProps.fitArtwork &&
     prevProps.slotOrientation === nextProps.slotOrientation &&
     prevProps.numColumns === nextProps.numColumns &&
-    prevProps.titleIcon === nextProps.titleIcon
+    prevProps.titleIcon === nextProps.titleIcon &&
+    prevProps.hideAiring === nextProps.hideAiring
   );
 }
 
@@ -438,6 +439,12 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  // A channel logo is a mark, not a picture: whole and centred, clear of the badges and the title bar.
+  posterLogo: {
+    width: "70%",
+    height: "50%",
+    alignSelf: "center",
+  },
   // Anchors the index pill to the top-left corner of the card.
   indexBadge: {
     position: "absolute",
@@ -478,10 +485,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: COLORS.SURFACE, // Elevated card color - matches design system
-  },
-  placeholderFace: {
-    width: "100%",
-    height: "100%",
   },
   // Opaque sliver at the very bottom showing just the title.
   infoOverlay: {
@@ -530,6 +533,10 @@ const styles = StyleSheet.create({
   },
   infoTitleLine: {
     width: "100%",
+  },
+  // Both sides, so the TV title stays centred while it clears the mark on the left.
+  titleLineInset: {
+    paddingHorizontal: IS_TV ? TITLE_SIZE + 16 : TITLE_SIZE + 2,
   },
   infoValueTitleFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
