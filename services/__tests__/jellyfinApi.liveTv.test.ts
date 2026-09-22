@@ -331,6 +331,7 @@ describe("live TV client", () => {
     const calls = (global.fetch as jest.Mock).mock.calls;
     expect(calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
     expect(calls.filter(([url]) => String(url).includes("/LiveStreams/"))).toHaveLength(0);
+    expect(calls.filter(([url]) => String(url).includes("origin.example"))).toHaveLength(0);
   });
 
   it("closes every warm open it is not told to keep, and warms a closed channel again", async () => {

@@ -339,7 +339,8 @@ async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigi
 
 /**
  * A channel's origin for a frame grab, off the read-only PlaybackInfo: nothing is opened on the
- * server. Null for a channel the server carries, whose stream a warm open holds.
+ * server, and the playlist goes as given (the engine picks the variant a card needs, through its
+ * own HTTP, which App Transport Security does not gate). Null for a channel the server carries.
  */
 export async function resolveChannelOrigin(channelId: string): Promise<ChannelOrigin | null> {
   const config = await getConfig();
@@ -350,7 +351,7 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   const info = await response.json();
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   if (!source || !isManifestSource(source)) return null;
-  return manifestOrigin(source);
+  return { url: source.Path!, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
 }
 
 /**

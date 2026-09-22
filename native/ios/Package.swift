@@ -81,6 +81,7 @@ let package = Package(
                 "ImageWriter.swift",
                 "PosterQueue.swift",
                 "LiveFrameQueue.swift",
+                "LiveVariantPicker.swift",
             ],
             swiftSettings: [.swiftLanguageMode(.v5)],
             // Same set the app links, measured by `nm -u` across the archives

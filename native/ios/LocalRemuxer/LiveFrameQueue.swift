@@ -76,7 +76,8 @@ final class LiveFrameQueue {
                 NSLog("[LiveFrame] %@", String(format: "%@ %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
                 completion(.frame(result))
             } else {
-                NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d", channelId, elapsed, grabber.sourceOpened ? 1 : 0))
+                NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@", channelId, elapsed, grabber.sourceOpened ? 1 : 0,
+                                                 grabber.openFailure ?? "no keyframe", grabber.openedUrl ?? inputUrl))
                 completion(.none(opened: grabber.sourceOpened))
             }
         }

@@ -73,6 +73,10 @@ final class FrameGrabber {
     private(set) var sourceOpened = false
     /// Bytes the last live grab read through the container's own I/O: the whole pull for a raw stream, the playlist alone for HLS.
     private(set) var bytesRead: Int64 = 0
+    /// Why the source would not open, for the live grab's log line.
+    private(set) var openFailure: String?
+    /// What was opened: the variant picked off a multivariant playlist, else the input itself.
+    private(set) var openedUrl: String?
 
     init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch,
          httpHeaders: [String: String] = [:], live: Bool = false) {
@@ -181,23 +185,10 @@ final class FrameGrabber {
         EngineLog.configure()
         var ctx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
         guard ctx != nil else { return false }
-        ctx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
+        let interrupt = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
+        ctx!.pointee.interrupt_callback = interrupt
 
-        // The same terms the remux pipeline opens with (Remuxer.swift): reconnects on a
-        // dropped link, a bounded wait per I/O call, and no trust store to verify against.
-        var opts: OpaquePointer? = nil
-        av_dict_set(&opts, "reconnect", "1", 0)
-        av_dict_set(&opts, "reconnect_streamed", "1", 0)
-        av_dict_set(&opts, "reconnect_delay_max", "5", 0)
-        av_dict_set(&opts, "rw_timeout", "15000000", 0)
-        av_dict_set(&opts, "tls_verify", "0", 0)
-        for (name, value) in httpHeaders {
-            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
-                av_dict_set(&opts, "user_agent", value, 0)
-            } else {
-                av_dict_set(&opts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
-            }
-        }
+        var opts = httpOptions()
         if live {
             // Extension-less segment URLs (RemuxSession+Pipeline), and a probe bounded well under
             // FFmpeg's 5 MB default: one keyframe is wanted, not every program in the multiplex.
@@ -205,14 +196,20 @@ final class FrameGrabber {
             av_dict_set(&opts, "probesize", "1500000", 0)
             av_dict_set(&opts, "analyzeduration", "1500000", 0)
         }
-        var ret = avformat_open_input(&ctx, inputUrl, nil, &opts)
+        let url = live ? resolveVariant(interrupt: interrupt) : inputUrl
+        openedUrl = url
+        var ret = avformat_open_input(&ctx, url, nil, &opts)
         av_dict_free(&opts)
         // Silent: the caller reports the reason once per item (localRemux.ts). A file still being
         // copied, or one the server cannot read, fails here on every retry.
-        guard ret >= 0, let opened = ctx else { return false }
+        guard ret >= 0, let opened = ctx else {
+            openFailure = "open: \(grabErr(ret))"
+            return false
+        }
         var closing: UnsafeMutablePointer<AVFormatContext>? = opened
         ret = probeStreamInfo(opened)
         guard ret >= 0 else {
+            openFailure = "probe: \(grabErr(ret))"
             avformat_close_input(&closing)
             return false
         }
@@ -223,6 +220,7 @@ final class FrameGrabber {
               let codec = avcodec_find_decoder(params.pointee.codec_id),
               let dec = avcodec_alloc_context3(codec) else {
             NSLog("[FrameGrabber] no decodable video stream")
+            openFailure = "no decodable video stream"
             avformat_close_input(&closing)
             return false
         }
@@ -248,6 +246,55 @@ final class FrameGrabber {
         videoIndex = index
         openFailed = false
         return true
+    }
+
+    /// The same terms the remux pipeline opens with (Remuxer.swift): reconnects on a dropped link,
+    /// a bounded wait per I/O call, no trust store to verify against, and the origin's headers.
+    private func httpOptions() -> OpaquePointer? {
+        var opts: OpaquePointer? = nil
+        av_dict_set(&opts, "reconnect", "1", 0)
+        av_dict_set(&opts, "reconnect_streamed", "1", 0)
+        av_dict_set(&opts, "reconnect_delay_max", "5", 0)
+        av_dict_set(&opts, "rw_timeout", "15000000", 0)
+        av_dict_set(&opts, "tls_verify", "0", 0)
+        for (name, value) in httpHeaders {
+            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
+                av_dict_set(&opts, "user_agent", value, 0)
+            } else {
+                av_dict_set(&opts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+            }
+        }
+        return opts
+    }
+
+    /// A playlist input read through FFmpeg's own HTTP (no App Transport Security in the way): a
+    /// multivariant playlist resolves to the variant a card needs, anything else is opened as given.
+    private func resolveVariant(interrupt: AVIOInterruptCB) -> String {
+        guard let parsed = URL(string: inputUrl), ["m3u8", "m3u"].contains(parsed.pathExtension.lowercased()) else { return inputUrl }
+        var pb: UnsafeMutablePointer<AVIOContext>? = nil
+        var opts = httpOptions()
+        var cb = interrupt
+        let ret = avio_open2(&pb, inputUrl, AVIO_FLAG_READ, &cb, &opts)
+        av_dict_free(&opts)
+        guard ret >= 0, let reader = pb else { return inputUrl }
+        var text = Data()
+        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        while text.count < 1024 * 1024 {
+            let got = chunk.withUnsafeMutableBufferPointer { avio_read(reader, $0.baseAddress, Int32($0.count)) }
+            guard got > 0 else { break }
+            text.append(contentsOf: chunk[0 ..< Int(got)])
+        }
+        // A shortlink master: its variants resolve against where it landed.
+        var base = inputUrl
+        var location: UnsafeMutablePointer<UInt8>? = nil
+        if av_opt_get(reader, "location", 1 /* AV_OPT_SEARCH_CHILDREN */, &location) >= 0, let location {
+            if let landed = String(validatingUTF8: UnsafeRawPointer(location).assumingMemoryBound(to: CChar.self)), !landed.isEmpty { base = landed }
+            av_free(location)
+        }
+        var closingPb = pb
+        avio_closep(&closingPb)
+        guard let master = String(data: text, encoding: .utf8) else { return inputUrl }
+        return LiveVariantPicker.pick(master, base: base) ?? inputUrl
     }
 
     private func close() {

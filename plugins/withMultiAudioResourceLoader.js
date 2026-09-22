@@ -73,6 +73,7 @@ const REMUXER_FILES = [
   "ImageWriter.swift",
   "PosterQueue.swift",
   "LiveFrameQueue.swift",
+  "LiveVariantPicker.swift",
   "LocalRemuxer.swift",
   "LocalRemuxer.m",
 ];
