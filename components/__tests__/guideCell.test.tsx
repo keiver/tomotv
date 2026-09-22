@@ -2,7 +2,7 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
-import { MINUTE_MS, NO_GUIDE_PREFIX } from "@/utils/guide";
+import { guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `poster:${id}` }));
@@ -35,6 +35,13 @@ describe("GuideCell", () => {
   it("bleeds the programme's art in from the right only when it has one", () => {
     expect(testIds(render())).not.toContain("guide-cell-art");
     expect(testIds(render({ program: { ...program, Id: "p2", ImageTags: { Primary: "tag" } } }))).toContain("guide-cell-art");
+  });
+
+  it("draws no art in a cell that ends inside its first half hour", () => {
+    const withArt = { ...program, Id: "p3", ImageTags: { Primary: "tag" } };
+    const halfHour = guideMetrics(false).pxPerMinute * TICK_MINUTES;
+    expect(testIds(render({ program: withArt, width: halfHour }))).not.toContain("guide-cell-art");
+    expect(testIds(render({ program: withArt, width: halfHour + 1 }))).toContain("guide-cell-art");
   });
 
   it("marks a recording with the dot and a series rule with the repeat glyph", () => {

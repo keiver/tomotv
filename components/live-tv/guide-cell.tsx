@@ -1,7 +1,7 @@
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
-import { formatClock, labelPin, programCategory, programTimes } from "@/utils/guide";
+import { formatClock, guideMetrics, labelPin, programCategory, programTimes, TICK_MINUTES } from "@/utils/guide";
 import { getPosterUrl } from "@/services/jellyfinApi";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,7 +15,7 @@ export const GRID_LINE = "rgba(255, 255, 255, 0.14)";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 /** The first half hour of a cell is text alone: the art is clipped out of it, so a short cell shows none. */
-const ART_START = IS_TV ? 240 : 120;
+const ART_START = guideMetrics(IS_TV).pxPerMinute * TICK_MINUTES;
 /** The art fades into the cell across its whole width, so the text reads over it. */
 const ART_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 44, 46, 0) 100%)";
 const TEXT_SHADOW = { textShadowColor: "rgba(0, 0, 0, 0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: IS_TV ? 4 : 3 } as const;
@@ -99,7 +99,7 @@ function GuideCellComponent({
   return (
     <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, { left, width, height }]}>
       {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
-      {art ? (
+      {art && artWidth > 0 ? (
         <View style={[styles.art, { width: artWidth }]} pointerEvents="none" testID="guide-cell-art">
           <Image source={{ uri: art }} style={styles.artImage} contentFit="cover" contentPosition="right" transition={150} />
           <View style={styles.artFade} />
