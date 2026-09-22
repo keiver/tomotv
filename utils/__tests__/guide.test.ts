@@ -1,4 +1,4 @@
-import { adjacentChannelId, artTint, blurhashAverage, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
+import { adjacentChannelId, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
 
 const tv = guideMetrics(true);
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -95,27 +95,5 @@ describe("guide geometry", () => {
     expect(adjacentChannelId(list, "missing", 1)).toBeNull();
     expect(adjacentChannelId([{ Id: "only" }], "only", 1)).toBeNull();
     expect(adjacentChannelId([], "x", 1)).toBeNull();
-  });
-});
-
-describe("art tint", () => {
-  it("reads the average colour off a blurhash's DC term", () => {
-    expect(blurhashAverage("00M_AE")).toEqual([200, 40, 60]);
-    expect(blurhashAverage("00~y")).toBeNull();
-    expect(blurhashAverage("00~y!)")).toBeNull();
-  });
-
-  it("keeps the grid grey for a neutral picture and pulls a coloured one dark, saturated and hued", () => {
-    expect(artTint([128, 128, 128])).toBeNull();
-    expect(artTint([130, 126, 128])).toBeNull();
-    const red = artTint([255, 80, 80])!.split(", ").map(Number);
-    expect(red[0]).toBeGreaterThan(red[1]);
-    expect((Math.max(...red) + Math.min(...red)) / 2 / 255).toBeLessThanOrEqual(0.225);
-    const dull = artTint([70, 60, 90])!.split(", ").map(Number);
-    const [max, min] = [Math.max(...dull), Math.min(...dull)];
-    expect((max - min) / (max + min)).toBeGreaterThanOrEqual(0.29);
-    expect(dull[2]).toBeGreaterThan(dull[1]);
-    const dark = artTint([20, 30, 10])!.split(", ").map(Number);
-    expect((Math.max(...dark) + Math.min(...dark)) / 2 / 255).toBeGreaterThanOrEqual(0.115);
   });
 });
