@@ -123,6 +123,23 @@ describe("useShowInFolder", () => {
     expect(mockPush.mock.calls[1][0].params.focusId).toBe("photo-1");
   });
 
+  it("opens a recording in the Recordings screen instead of the folder levels", async () => {
+    mockFolderPath.mockResolvedValue([
+      { id: "recordings-1", name: "Recordings", type: "folder" },
+      { id: "series-1", name: "Les Observateurs", type: "folder" },
+    ]);
+    const harness = mountHarness();
+    await act(async () => {
+      void harness.show(photo, { dismissFirst: true });
+    });
+    await act(async () => {
+      commitPop();
+    });
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/recordings", params: { focusId: "photo-1" } });
+  });
+
   it("pushes straight away when the caller is not on a root route", async () => {
     const harness = mountHarness();
     await act(async () => {

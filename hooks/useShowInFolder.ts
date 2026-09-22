@@ -6,6 +6,9 @@ import { Alert } from "react-native";
 
 type ContainerRef = ReturnType<typeof useNavigationContainerRef>;
 
+/** The recording libraries Jellyfin creates and names itself. */
+const RECORDING_LIBRARY_NAMES = new Set(["Recordings", "Recorded Movies", "Recorded Shows"]);
+
 /** Ceiling on the settle wait, so a press can never hang on a state event that never comes. */
 const DISMISS_SETTLE_TIMEOUT_MS = 400;
 
@@ -73,6 +76,13 @@ export function useShowInFolder() {
         const before = navigationRef.isReady() ? navigationRef.getRootState() : undefined;
         router.back();
         await whenRootStateSettles(navigationRef, before);
+      }
+
+      // A recording lives in the library the server names itself (RecordingsManager.GetRecordingFolders);
+      // it opens in the Recordings screen, the same view Live TV reaches, not the generic folder grid.
+      if (RECORDING_LIBRARY_NAMES.has(path[0].name)) {
+        router.push({ pathname: "/recordings", params: { focusId: item.Id } });
+        return;
       }
 
       path.forEach((level, index) => {

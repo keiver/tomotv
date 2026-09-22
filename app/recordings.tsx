@@ -9,7 +9,7 @@ import { fetchRecordings } from "@/services/jellyfinApi";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
-import { useIsFocused } from "expo-router";
+import { useIsFocused, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
@@ -18,6 +18,8 @@ const IS_TV = Platform.isTV;
 /** The guide's finished recordings. A root route: TV crossfades it, phone pushes it under a native bar. */
 export default function RecordingsScreen() {
   const isScreenFocused = useIsFocused();
+  // "Show in Folder" on a recording lands here with the card to mark.
+  const { focusId } = useLocalSearchParams<{ focusId?: string }>();
   const openItem = useOpenShelfItem();
   const onItemLongPress = useItemLongPress();
   const [recordings, setRecordings] = useState<{ items: JellyfinItem[]; isLoading: boolean; error: string | null }>({ items: [], isLoading: true, error: null });
@@ -69,6 +71,7 @@ export default function RecordingsScreen() {
       onItemLongPress={handleLongPress}
       onLoadMore={() => {}}
       onRetry={reload}
+      focusItemId={focusId}
     />
   );
 }
