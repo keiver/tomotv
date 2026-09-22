@@ -24,13 +24,11 @@ interface GuideChannelTileProps {
  */
 export function GuideChannelTile({ channel, metrics, onPress }: GuideChannelTileProps) {
   const press = useCallback(() => onPress(channel), [onPress, channel]);
-  // One short of the row, so the grid's row line runs under it too.
-  const height = metrics.rowHeight - 1;
   const width = metrics.compactColumnWidth - PADDING;
   return (
-    <Pressable onPress={press} accessibilityRole="button" accessibilityLabel={channel.Name} style={[styles.card, { width, height }]}>
+    <Pressable onPress={press} accessibilityRole="button" accessibilityLabel={channel.Name} style={[styles.card, { width }]}>
       {hasPoster(channel) ? (
-        <Image source={{ uri: getPosterUrl(channel.Id, height * 2) }} style={styles.logo} contentFit="contain" transition={150} />
+        <Image source={{ uri: getPosterUrl(channel.Id, metrics.rowHeight * 2) }} style={styles.logo} contentFit="contain" transition={150} />
       ) : (
         <Ionicons name="tv-outline" size={28} color="rgba(255, 255, 255, 0.45)" />
       )}
@@ -39,7 +37,9 @@ export function GuideChannelTile({ channel, metrics, onPress }: GuideChannelTile
 }
 
 const styles = StyleSheet.create({
+  // Stretches to the row it sits in: the grid's rows are contiguous, so the caps are too.
   card: {
+    flex: 1,
     borderTopLeftRadius: DESIGN.BORDER_RADIUS_CARD,
     borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
     borderWidth: 1,
