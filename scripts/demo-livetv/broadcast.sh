@@ -59,7 +59,7 @@ while :; do
           len=${SECS[$i]}
         fi
         "$FF" -nostdin -hide_banner -loglevel warning -re "${seek[@]}" -i "/media/${PATHS[$i]}" \
-          -map 0:v:0 -map 0:a:0 -c copy -f mpegts -output_ts_offset "$acc" pipe:1 || exit 1
+          -map 0:v:0 -map 0:a:0 -c copy -f mpegts -output_ts_offset "$acc" pipe:1 || break 2
         acc=$(awk -v a="$acc" -v l="$len" 'BEGIN { printf "%.3f", a + l }')
       done
     done
