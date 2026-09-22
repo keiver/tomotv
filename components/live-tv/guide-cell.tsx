@@ -1,17 +1,24 @@
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
-import { labelPin, programTimes } from "@/utils/guide";
+import { formatClock, labelPin, programCategory, programTimes } from "@/utils/guide";
+import { getPosterUrl } from "@/services/jellyfinApi";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useState } from "react";
 import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, { SharedValue, useAnimatedStyle } from "react-native-reanimated";
+import Animated, { SharedValue, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 /** The grid's line, the same the ruler and the channel column draw. */
 export const GRID_LINE = "rgba(255, 255, 255, 0.14)";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+/** The art fades into the cell across its whole width, so the text reads over it. */
+const ART_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 44, 46, 0) 100%)";
+const ART_ZOOM = 1.08;
+/** Rides under the label and past its right edge, so the text reads over art on a narrow cell. */
+const TEXT_SCRIM = "linear-gradient(to right, rgba(44, 44, 46, 0.97) 0%, rgba(44, 44, 46, 0.85) 55%, rgba(44, 44, 46, 0.45) 80%, rgba(44, 44, 46, 0) 100%)";
 
 export type RecordingMark = "single" | "series" | null;
 
@@ -55,10 +62,19 @@ function GuideCellComponent({
   nextFocusDown,
   hasTVPreferredFocus = false,
 }: GuideCellProps) {
-  const { endMs } = programTimes(program);
+  const { startMs, endMs } = programTimes(program);
+  // One line under the titles: the slot, then whatever the guide source filled in.
+  const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter(Boolean).join("  ·  ");
+  const art = program.Id && program.ImageTags?.Primary ? getPosterUrl(program.Id, height * 2) : null;
+  // The art box is the picture's own shape at the cell's height, so cover fills it without a crop;
+  // only a cell narrower than that cuts it, at the cell's left edge.
+  const artWidth = Math.round(height * (program.PrimaryImageAspectRatio || 16 / 9));
   const past = endMs <= nowMs;
   const [labelWidth, setLabelWidth] = useState(0);
   const [focused, setFocused] = useState(false);
+  // Focus zooms the art, not the cell: a cell can be wider than the screen, and scaling it would move its visible edge.
+  const artZoom = useSharedValue(1);
+  const artZoomStyle = useAnimatedStyle(() => ({ transform: [{ scale: artZoom.value }] }));
   const handleLabelLayout = useCallback((event: LayoutChangeEvent) => setLabelWidth(event.nativeEvent.layout.width), []);
   const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateX: labelPin(scrollX.value, left, width, labelWidth) }] }), [left, width, labelWidth]);
   const programId = program.Id;
@@ -71,14 +87,29 @@ function GuideCellComponent({
   );
   const handleFocus = useCallback(() => {
     setFocused(true);
+    artZoom.set(withTiming(ART_ZOOM, { duration: 220 }));
     onFocus?.(program);
-  }, [onFocus, program]);
-  const handleBlur = useCallback(() => setFocused(false), []);
+  }, [onFocus, program, artZoom]);
+  const handleBlur = useCallback(() => {
+    setFocused(false);
+    artZoom.set(withTiming(1, { duration: 220 }));
+  }, [artZoom]);
   const press = useCallback(() => onPress(program), [onPress, program]);
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
 
   return (
-    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, { left, width, height }, focused && styles.cellFocused]}>
+    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, { left, width, height }]}>
+      {/* Bled in from the right, under the text, full height in its own shape. */}
+      {art ? (
+        <View style={[styles.art, { width: artWidth }]} pointerEvents="none" testID="guide-cell-art">
+          <Animated.View style={[styles.artImage, artZoomStyle]}>
+            <Image source={{ uri: art }} style={styles.artImage} contentFit="cover" transition={150} />
+          </Animated.View>
+          <View style={styles.artFade} />
+        </View>
+      ) : null}
+      {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
+      {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
       <AnimatedPressable
         ref={handleRef}
         onPress={press}
@@ -94,18 +125,24 @@ function GuideCellComponent({
         accessibilityRole="button"
         accessibilityLabel={program.EpisodeTitle ? `${program.Name}, ${program.EpisodeTitle}` : program.Name}
         style={[styles.label, pinStyle]}>
-        <View style={styles.titleRow}>
-          {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
-          {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
-          <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
-            {program.Name}
+        <View style={styles.textScrim} pointerEvents="none" />
+        <View style={styles.text}>
+          <View style={styles.titleRow}>
+            {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
+            {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
+            <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
+              {program.Name}
+            </Text>
+          </View>
+          {program.EpisodeTitle ? (
+            <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
+              {program.EpisodeTitle}
+            </Text>
+          ) : null}
+          <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+            {meta}
           </Text>
         </View>
-        {program.EpisodeTitle ? (
-          <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
-            {program.EpisodeTitle}
-          </Text>
-        ) : null}
       </AnimatedPressable>
     </Pressable>
   );
@@ -124,9 +161,35 @@ const styles = StyleSheet.create({
     borderColor: GRID_LINE,
     overflow: "hidden",
   },
-  // A colour change only, so the cell keeps its box and the label stays put.
-  cellFocused: {
-    backgroundColor: "rgba(255, 195, 18, 0.15)",
+  // Drawn inside the cell, not as its border: a border would take a pixel off the content box and nudge the label.
+  focusRing: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderWidth: IS_TV ? 2 : 1,
+    borderColor: COLORS.ACCENT,
+  },
+  // Clips the zoom to the box, so the picture grows within its edges and stays under the fade.
+  art: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    overflow: "hidden",
+  },
+  artImage: {
+    width: "100%",
+    height: "100%",
+  },
+  artFade: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    experimental_backgroundImage: ART_FADE,
   },
   // Full cell height so a vertical move reveals the whole row; only as wide as its text.
   label: {
@@ -136,7 +199,22 @@ const styles = StyleSheet.create({
     paddingLeft: IS_TV ? 16 : 10,
     paddingRight: IS_TV ? 14 : 8,
     paddingTop: IS_TV ? 14 : 8,
+  },
+  text: {
     gap: IS_TV ? 4 : 2,
+  },
+  // Inset by the ring's width: the ring draws below the label, and the scrim would cover its edges.
+  textScrim: {
+    position: "absolute",
+    top: IS_TV ? 2 : 1,
+    bottom: IS_TV ? 2 : 1,
+    left: IS_TV ? 2 : 1,
+    right: IS_TV ? -110 : -55,
+    experimental_backgroundImage: TEXT_SCRIM,
+  },
+  meta: {
+    color: COLORS.TEXT_TERTIARY,
+    fontSize: IS_TV ? 17 : 11,
   },
   titleRow: {
     flexDirection: "row",

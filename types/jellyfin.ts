@@ -75,6 +75,8 @@ export interface JellyfinProgram {
   IsNews?: boolean;
   IsRepeat?: boolean;
   ProductionYear?: number;
+  OfficialRating?: string;
+  Genres?: string[];
   // Set while a timer covers this airing; the series id when a series rule created it.
   TimerId?: string | null;
   SeriesTimerId?: string | null;

@@ -433,7 +433,7 @@ export interface GuideWindow {
   endMs: number;
 }
 
-/** Every program overlapping the window, by start time; no images, no user data. */
+/** Every program overlapping the window, by start time; image tags for the cell's thumbnail, no user data. */
 export async function fetchGuidePrograms({ channelIds, startMs, endMs }: GuideWindow): Promise<JellyfinProgram[]> {
   const config = await getConfig();
   const body = {
@@ -442,10 +442,10 @@ export async function fetchGuidePrograms({ channelIds, startMs, endMs }: GuideWi
     MinEndDate: new Date(startMs).toISOString(),
     MaxStartDate: new Date(endMs).toISOString(),
     SortBy: ["StartDate"],
-    EnableImages: false,
+    EnableImages: true,
     EnableUserData: false,
     EnableTotalRecordCount: false,
-    Fields: ["ChannelInfo"],
+    Fields: ["ChannelInfo", "Genres", "PrimaryImageAspectRatio"],
   };
   const response = await liveTvRequest("/LiveTv/Programs", { method: "POST", body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED);
   const json = await response.json();
