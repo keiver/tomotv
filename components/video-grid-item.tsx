@@ -82,7 +82,7 @@ interface VideoGridItemProps {
   slotOrientation?: SlotOrientation;
   /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
   numColumns?: number;
-  /** A mark drawn at the title's left end, where the now-playing bars sit; the placeholder face too. */
+  /** A mark drawn at the title's left end, where the now-playing bars sit; the placeholder face too, except on a channel. */
   titleIcon?: keyof typeof Ionicons.glyphMap;
   /** Channel cards: leave the airing programme off the title (the guide beside them shows it). */
   hideAiring?: boolean;
@@ -282,7 +282,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // No artwork: a glyph for the item's kind on the dark card fill. The title
             // lives in the bottom bar (always rendered), same as postered cards.
             <View style={styles.placeholderPoster}>
-              <Ionicons name={titleIcon ?? (isAudioItem(video) ? "musical-note-outline" : isBook(video) ? "book-outline" : "tv-outline")} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
+              <Ionicons
+                name={isChannel ? "tv-outline" : (titleIcon ?? (isAudioItem(video) ? "musical-note-outline" : isBook(video) ? "book-outline" : "tv-outline"))}
+                size={IS_TV ? 90 : 56}
+                color="rgba(255, 255, 255, 0.45)"
+              />
             </View>
           )}
 
