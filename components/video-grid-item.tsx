@@ -10,6 +10,7 @@ import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/
 import { t } from "@/services/i18n";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
+import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
@@ -32,10 +33,12 @@ const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
-function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
+function indexBadgeSegments(video: JellyfinVideoItem, recording: boolean): BadgeSegment[] | null {
   // A channel with something on air wears the live mark; the title bar names the programme.
   if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
   const badge = formatIndexBadge(video);
+  // A recording wears the camera the way the Live TV folder wears the screen; the episode tag rides beside it.
+  if (recording) return [badge?.kind === "seasonEpisode" ? { icon: "videocam-outline", label: badge.label } : { icon: "videocam-outline" }];
   if (badge === null) return null;
   if (badge.kind !== "track") return [{ label: badge.label }];
 
@@ -78,6 +81,8 @@ interface VideoGridItemProps {
   slotOrientation?: SlotOrientation;
   /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
   numColumns?: number;
+  /** A finished Live TV recording: the server types it Episode/Movie, only the screen knows. */
+  recording?: boolean;
 }
 
 /**
@@ -110,6 +115,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     fitArtwork = false,
     slotOrientation = "portrait",
     numColumns,
+    recording = false,
   },
   ref,
 ) {
@@ -145,7 +151,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name]);
+  const badgeSegments = useMemo(() => indexBadgeSegments(video, recording), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, recording]);
   const airingName = video.Type === "TvChannel" ? video.CurrentProgram?.Name?.trim() : undefined;
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
@@ -242,7 +248,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // same mark the Top Shelf placeholder uses. The title lives in the
             // bottom bar (always rendered), same as postered cards.
             <View style={styles.placeholderPoster}>
-              <Image source={require("@/assets/brand/layer-front.png")} style={styles.placeholderFace} contentFit="cover" transition={0} />
+              {recording ? (
+                <Ionicons name="videocam-outline" size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
+              ) : (
+                <Image source={require("@/assets/brand/layer-front.png")} style={styles.placeholderFace} contentFit="cover" transition={0} />
+              )}
             </View>
           )}
 
@@ -347,7 +357,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.cardHeight === nextProps.cardHeight &&
     prevProps.fitArtwork === nextProps.fitArtwork &&
     prevProps.slotOrientation === nextProps.slotOrientation &&
-    prevProps.numColumns === nextProps.numColumns
+    prevProps.numColumns === nextProps.numColumns &&
+    prevProps.recording === nextProps.recording
   );
 }
 

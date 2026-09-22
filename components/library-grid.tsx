@@ -73,6 +73,8 @@ interface LibraryGridProps {
   topClearance?: number;
   /** The folder's ambient wash (resolved once on open); layered over the baked ambient background. */
   backdropSource?: FolderBackdropSource | null;
+  /** The Live TV recordings list: every video card wears the camera mark. */
+  recordings?: boolean;
 }
 
 /**
@@ -97,6 +99,7 @@ export function LibraryGrid({
   focusItemId,
   topClearance: topClearanceProp,
   backdropSource,
+  recordings = false,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -493,6 +496,7 @@ export function LibraryGrid({
                 cardHeight={card.cardHeight}
                 fitArtwork
                 progressPercent={cardResumeProgress(item)}
+                recording={recordings}
               />
             );
           })}
@@ -517,6 +521,7 @@ export function LibraryGrid({
       handleFocusCellRef,
       handleLastCellRef,
       handleFocusAndLastCellRef,
+      recordings,
     ],
   );
 

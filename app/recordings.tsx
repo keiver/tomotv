@@ -60,6 +60,7 @@ export default function RecordingsScreen() {
   return (
     <LibraryGrid
       items={recordingCards}
+      recordings
       isLoading={recordings.isLoading}
       isLoadingMore={false}
       hasMoreResults={false}
