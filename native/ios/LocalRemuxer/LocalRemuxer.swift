@@ -551,8 +551,8 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// A live channel's frame now. Config: channelId, inputUrl, httpHeaders, deadline (seconds).
-    /// Resolves `{uri}` with a file URL, or a null uri with `cancelled` set, else `reason`: `open` or `frame`.
+    /// A live channel's frame now. Config: channelId, inputUrl, httpHeaders, deadline (seconds), shownPts.
+    /// Resolves `{uri, pts}`, `{unchanged}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
     @objc func liveFrame(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -565,9 +565,13 @@ class LocalRemuxer: RCTEventEmitter {
         }
         let headers = (config["httpHeaders"] as? [String: String]) ?? [:]
         let deadline = max(1, (config["deadline"] as? Double) ?? LiveFrameQueue.defaultDeadline)
-        Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline) { outcome in
+        let shownPts = (config["shownPts"] as? NSNumber)?.int64Value
+        Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline, shownPts: shownPts) { outcome in
             switch outcome {
-            case .frame(let url): resolve(["uri": url.absoluteString, "cancelled": false])
+            case .frame(let url, let pts):
+                let shown: Any = pts.map { NSNumber(value: $0) } ?? NSNull()
+                resolve(["uri": url.absoluteString, "cancelled": false, "pts": shown])
+            case .unchanged: resolve(["uri": NSNull(), "cancelled": false, "unchanged": true])
             case .none(let opened): resolve(["uri": NSNull(), "cancelled": false, "reason": opened ? "frame" : "open"])
             case .cancelled: resolve(["uri": NSNull(), "cancelled": true])
             }

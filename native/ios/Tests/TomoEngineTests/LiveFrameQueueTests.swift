@@ -3,8 +3,8 @@ import ImageIO
 import XCTest
 @testable import TomoEngine
 
-/// The live frame path: the first keyframe with no seek, a time-named file replacing the last,
-/// a duplicate request refused, a cancel before its turn, and the watchdog on a dead origin.
+/// The live frame path: the first keyframe with no seek, a time-named file replacing the last, a keyframe
+/// already shown left alone, grabs side by side, a duplicate refused, a cancel before its turn, and the watchdog.
 final class LiveFrameQueueTests: XCTestCase {
     private static let ffmpeg: String = {
         let jellyfin = "/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
@@ -84,7 +84,7 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .frame(let url)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no frame") }
+        guard case .frame(let url, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no frame") }
         XCTAssertTrue(url.lastPathComponent.hasPrefix("live-"))
         XCTAssertEqual(url.deletingLastPathComponent().lastPathComponent, "chan-a")
         XCTAssertEqual(pixelWidth(url), 480)
@@ -96,9 +96,9 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .frame(let first)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no first frame") }
+        guard case .frame(let first, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no first frame") }
         Thread.sleep(forTimeInterval: 0.01)
-        guard case .frame(let second)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no second frame") }
+        guard case .frame(let second, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no second frame") }
         XCTAssertNotEqual(first, second, "a live grab is never served from the directory")
         let left = try FileManager.default.contentsOfDirectory(atPath: first.deletingLastPathComponent().path)
         XCTAssertEqual(left, [second.lastPathComponent])
@@ -117,6 +117,61 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(found.keys.sorted(), ["chan-a"])
         XCTAssertEqual(found["chan-a"]?.lastPathComponent, "live-3000.jpg")
         XCTAssertEqual(LiveFrameQueue.stamp(found["chan-a"]!), 3000)
+    }
+
+    func testTheKeyframeAlreadyShownWritesNothing() throws {
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frame(let first, let pts)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no first frame") }
+        let shown = try XCTUnwrap(pts)
+        let done = XCTestExpectation(description: "second")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:], shownPts: shown) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 15)
+        guard case .unchanged? = outcome else { return XCTFail("the same keyframe is not written again") }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: first.deletingLastPathComponent().path), [first.lastPathComponent])
+        guard case .frame? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("a grab with nothing shown writes its frame") }
+    }
+
+    func testGrabsForDifferentChannelsRunSideBySide() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        let channels = (0 ..< LiveFrameQueue.defaultWidth).map { "chan-dead-\($0)" }
+        let done = channels.map { XCTestExpectation(description: $0) }
+
+        // Each dead origin holds its grab for the whole deadline; one at a time they would take width times as long.
+        let started = Date()
+        for (channel, expectation) in zip(channels, done) {
+            queue.request(channelId: channel, inputUrl: "http://10.255.255.1:9/live.m3u8", headers: [:], deadline: 2) { _ in expectation.fulfill() }
+        }
+        wait(for: done, timeout: 20)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2.0 * 2)
+    }
+
+    func testALiveGrabCountsTheSegmentsItRead() throws {
+        let playlist = Self.fixtureDir.appendingPathComponent("hls-live/index.m3u8")
+        if !FileManager.default.fileExists(atPath: playlist.path) {
+            try FileManager.default.createDirectory(at: playlist.deletingLastPathComponent(), withIntermediateDirectories: true)
+            _ = try fixture("hls-live/index.m3u8", [
+                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=8",
+                "-c:v", "libx264", "-g", "50", "-pix_fmt", "yuv420p", "-an", "-f", "hls", "-hls_time", "2", "-hls_list_size", "0",
+            ])
+        }
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let grabber = FrameGrabber(inputUrl: playlist.absoluteString, directory: root, live: true)
+        guard case .frame = grabber.liveFrame(named: "live-1.jpg") else { return XCTFail("no frame off the playlist") }
+        let firstSegment = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: playlist.deletingLastPathComponent().appendingPathComponent("index0.ts").path)[.size] as? Int64)
+        let playlistBytes = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: playlist.path)[.size] as? Int64)
+        XCTAssertGreaterThan(grabber.bytesRead, playlistBytes, "the segments the demuxer opened are in the count")
+        XCTAssertGreaterThanOrEqual(grabber.bytesRead, min(firstSegment, 32 * 1024))
     }
 
     func testADuplicateRequestForAChannelInFlightAnswersCancelled() throws {
@@ -142,7 +197,7 @@ final class LiveFrameQueueTests: XCTestCase {
         let stream = try midGopStream()
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let queue = LiveFrameQueue(root: root)
+        let queue = LiveFrameQueue(root: root, width: 1)
 
         let first = XCTestExpectation(description: "first")
         let second = XCTestExpectation(description: "second")

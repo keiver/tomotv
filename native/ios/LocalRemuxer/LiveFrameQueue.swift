@@ -3,30 +3,38 @@
 //  TomoTV
 //
 //  One frame per live channel on request, for the guide's cards: the channel's first keyframe
-//  now, kept in the chapter frame pool under a time-named file. Jobs run one at a time on a
-//  low-priority queue of their own, so a dead origin never stalls the library's posters, and a
-//  watchdog stops a grab at its deadline.
+//  now, kept in the chapter frame pool under a time-named file. Jobs run a few at a time on a
+//  low-priority queue of their own, so a dead origin never stalls the library's posters or the
+//  other channels, and a watchdog stops a grab at its deadline.
 //
 
 import Foundation
 
 final class LiveFrameQueue {
     static let defaultDeadline: TimeInterval = 8
+    /// Grabs overlap: each is network wait around a single keyframe decode.
+    static let defaultWidth = 4
     private static let filePrefix = "live-"
 
     private let root: URL
     let queue = DispatchQueue(label: "tv.tomo.liveframes", qos: .utility)
+    private let grabs = OperationQueue()
     private let lock = NSLock()
     private var cancelled = Set<String>()
     /// Channels with a request queued or running; a second request for one joins nothing and answers cancelled.
     private var pending = Set<String>()
 
-    init(root: URL = ChapterFramePool.root) {
+    init(root: URL = ChapterFramePool.root, width: Int = defaultWidth) {
         self.root = root
+        grabs.name = "tv.tomo.liveframes.grabs"
+        grabs.qualityOfService = .utility
+        grabs.maxConcurrentOperationCount = width
     }
 
     enum Outcome {
-        case frame(URL)
+        case frame(URL, pts: Int64?)
+        /// The keyframe at the live edge is still the one `shownPts` names; nothing was written.
+        case unchanged
         /// Nothing came: `opened` false when the source would not even open.
         case none(opened: Bool)
         case cancelled
@@ -34,7 +42,7 @@ final class LiveFrameQueue {
 
     /// The channel's frame now, decoded in turn. The completion runs on the queue's thread.
     func request(channelId: String, inputUrl: String, headers: [String: String], deadline: TimeInterval = defaultDeadline,
-                 completion: @escaping (Outcome) -> Void) {
+                 shownPts: Int64? = nil, completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: channelId, in: root) else {
             completion(.none(opened: true))
             return
@@ -48,7 +56,7 @@ final class LiveFrameQueue {
             return
         }
         let epoch = ChapterFramePool.epoch
-        queue.async { [self] in
+        grabs.addOperation { [self] in
             defer {
                 lock.lock()
                 pending.remove(channelId)
@@ -67,15 +75,19 @@ final class LiveFrameQueue {
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: watchdog)
             let started = Date()
             let name = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000)).jpg"
-            let result = grabber.liveFrame(named: name)
+            let result = grabber.liveFrame(named: name, unlessPts: shownPts)
             watchdog.cancel()
             grabber.stop()
             let elapsed = Date().timeIntervalSince(started)
-            if let result {
-                Self.removeOthers(in: location, keeping: result)
+            switch result {
+            case .frame(let file, let pts):
+                Self.removeOthers(in: location, keeping: file)
                 NSLog("[LiveFrame] %@", String(format: "%@ %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
-                completion(.frame(result))
-            } else {
+                completion(.frame(file, pts: pts))
+            case .unchanged:
+                NSLog("[LiveFrame] %@", String(format: "%@ unchanged %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
+                completion(.unchanged)
+            case .none:
                 NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@", channelId, elapsed, grabber.sourceOpened ? 1 : 0,
                                                  grabber.openFailure ?? "no keyframe", grabber.openedUrl ?? inputUrl))
                 completion(.none(opened: grabber.sourceOpened))

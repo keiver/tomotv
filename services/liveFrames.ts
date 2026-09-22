@@ -1,5 +1,5 @@
 /**
- * A fresh frame for every channel card in view, one grab at a time. A manifest channel is read at
+ * A fresh frame for every channel card in view, a few grabs at a time. A manifest channel is read at
  * its origin; a channel the server carries is sampled off a warm open held while its row is in
  * view. Stands down while the screen is away, the app is in the background or playback holds the link.
  */
@@ -11,10 +11,12 @@ import { AppState, NativeModules } from "react-native";
 
 const { LocalRemuxer } = NativeModules;
 
-/** A channel's frame is refreshed no sooner than this. */
-export const LIVE_FRAME_REFRESH_MS = 60_000;
-/** The link breathes between grabs. */
-export const LIVE_FRAME_SPACING_MS = 1_000;
+/** A channel is asked again this soon after its picture moved. */
+export const LIVE_FRAME_REFRESH_MS = 5_000;
+/** A channel whose live edge has not moved waits twice as long each time, up to this. */
+export const LIVE_FRAME_REFRESH_CAP_MS = 60_000;
+/** Grabs in flight at once, the engine's own width. */
+export const LIVE_FRAME_CONCURRENCY = 4;
 /** Wall clock per grab; the engine's watchdog stops the read at it. */
 export const LIVE_FRAME_DEADLINE_S = 8;
 /** A failed channel waits this long, doubling per failure, up to the cap. */
@@ -33,7 +35,11 @@ export interface LiveFrame {
 interface Entry {
   /** When the last grab started; 0 before any. */
   lastAt: number;
+  /** How long after `lastAt` the channel is due; the refresh floor until its picture stands still. */
+  intervalMs?: number;
   frame?: LiveFrame;
+  /** The shown frame's keyframe timestamp: the engine answers unchanged while the live edge is still on it. */
+  pts?: number;
   /** The frame pool was asked for this channel's last frame: a reload keeps the picture it had. */
   seeded?: boolean;
   lane?: "origin" | "server";
@@ -56,7 +62,9 @@ let activeSurface: LiveFrameSurface | null = null;
 /** When each server-lane hold's row left view; cleared when it returns. */
 const leftViewAt = new Map<string, number>();
 let appActive = AppState.currentState !== "background" && AppState.currentState !== "inactive";
-let grabbing = false;
+const inFlight = new Set<string>();
+/** Server opens started and not yet answered, so parallel grabs never pass the hold cap. */
+const warming = new Set<string>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let wired = false;
 /** Bumped by every clear, so a grab that outlived one writes nothing back. */
@@ -151,8 +159,9 @@ function recordFailure(item: Entry, now: number): void {
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
   let pick: { channelId: string; readyAt: number } | null = null;
   for (const channelId of viewable) {
+    if (inFlight.has(channelId)) continue;
     const item = entry(channelId);
-    const readyAt = Math.max(item.lastAt + LIVE_FRAME_REFRESH_MS, backoffUntil(item.failure));
+    const readyAt = Math.max(item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS), backoffUntil(item.failure));
     if (!pick || readyAt < pick.readyAt) pick = { channelId, readyAt };
   }
   return pick ? { channelId: pick.channelId, waitMs: Math.max(0, pick.readyAt - now) } : null;
@@ -176,24 +185,25 @@ function nextTrimWait(now: number): number {
 }
 
 async function pump(): Promise<void> {
-  if (!running() || grabbing) return;
+  if (!running()) return;
   if (!seeding) seeding = seedFromDisk().finally(() => (seeding = null));
   await seeding;
-  if (!running() || grabbing) return;
+  if (!running()) return;
   const now = Date.now();
   trimHolds(now);
-  const due = nextDue(now);
-  if (!due || due.waitMs > 0) {
-    const wait = Math.min(due?.waitMs ?? Infinity, nextTrimWait(now));
-    if (Number.isFinite(wait)) schedule(wait);
-    return;
-  }
-  grabbing = true;
-  try {
-    await grab(due.channelId);
-  } finally {
-    grabbing = false;
-    schedule(LIVE_FRAME_SPACING_MS);
+  while (inFlight.size < LIVE_FRAME_CONCURRENCY) {
+    const due = nextDue(now);
+    if (!due || due.waitMs > 0) {
+      const wait = Math.min(due?.waitMs ?? Infinity, nextTrimWait(now));
+      if (Number.isFinite(wait)) schedule(wait);
+      return;
+    }
+    const channelId = due.channelId;
+    inFlight.add(channelId);
+    void grab(channelId).finally(() => {
+      inFlight.delete(channelId);
+      schedule(0);
+    });
   }
 }
 
@@ -209,8 +219,14 @@ async function inputFor(channelId: string, item: Entry, now: number): Promise<{ 
   const held = warmedStreamUrl(channelId);
   if (held) return { url: held };
   if (openRecentlyFailed(channelId)) return null;
-  if (warmedChannelCount() >= LIVE_FRAME_HOLD_CAP) return "later";
-  await warmChannel(channelId);
+  const opening = [...warming].filter((id) => !warmedStreamUrl(id)).length;
+  if (warmedChannelCount() + opening >= LIVE_FRAME_HOLD_CAP) return "later";
+  warming.add(channelId);
+  try {
+    await warmChannel(channelId);
+  } finally {
+    warming.delete(channelId);
+  }
   const opened = warmedStreamUrl(channelId);
   if (opened) return { url: opened };
   // Warmed within the last two minutes elsewhere, or still opening: the next round asks again.
@@ -230,15 +246,21 @@ async function grab(channelId: string): Promise<void> {
       recordFailure(item, now);
       return;
     }
-    const result: { uri?: string | null; cancelled?: boolean; reason?: string } = await LocalRemuxer.liveFrame({
+    const result: { uri?: string | null; pts?: number | null; unchanged?: boolean; cancelled?: boolean; reason?: string } = await LocalRemuxer.liveFrame({
       channelId,
       inputUrl: input.url,
       httpHeaders: input.headers ?? {},
       deadline: LIVE_FRAME_DEADLINE_S,
+      shownPts: item.frame ? item.pts : undefined,
     });
     if (gen !== generation || result?.cancelled) return;
-    if (result?.uri) {
+    if (result?.unchanged) {
+      item.intervalMs = Math.min((item.intervalMs ?? LIVE_FRAME_REFRESH_MS) * 2, LIVE_FRAME_REFRESH_CAP_MS);
+      item.failure = undefined;
+    } else if (result?.uri) {
       item.frame = frameFor(channelId, result.uri);
+      item.pts = result.pts ?? undefined;
+      item.intervalMs = LIVE_FRAME_REFRESH_MS;
       item.failure = undefined;
       notify(channelId);
     } else {

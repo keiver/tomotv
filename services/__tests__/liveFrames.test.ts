@@ -1,5 +1,5 @@
 /**
- * The live frame sampler: one grab at a time, the refresh per channel, the oldest first, a manifest
+ * The live frame sampler: four grabs at a time, a refresh that backs off while a live edge stands still, the oldest first, a manifest
  * channel read at its origin and a tuner channel off a warm open, the hold cap, holds closing after
  * their rows leave, backoff on failure, and standing down for the screen, the app and playback.
  */
@@ -37,11 +37,12 @@ jest.mock("@/services/jellyfinApi", () => ({
 
 import {
   clearLiveFrames,
+  LIVE_FRAME_CONCURRENCY,
   LIVE_FRAME_HOLD_CAP,
   LIVE_FRAME_HOLD_GRACE_MS,
+  LIVE_FRAME_REFRESH_CAP_MS,
   LIVE_FRAME_REFRESH_MS,
   LIVE_FRAME_RETRY_MS,
-  LIVE_FRAME_SPACING_MS,
   liveFrameFor,
   setLiveFramesActive,
   setLiveFrameViewable,
@@ -63,7 +64,7 @@ describe("live frames", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(1_000_000);
-    mockLiveFrame.mockReset().mockImplementation(async ({ channelId }: { channelId: string }) => ({ uri: `file:///pool/${channelId}/live-${Date.now()}.jpg`, cancelled: false }));
+    mockLiveFrame.mockReset().mockImplementation(async ({ channelId }: { channelId: string }) => ({ uri: `file:///pool/${channelId}/live-${Date.now()}.jpg`, pts: Date.now(), cancelled: false }));
     mockOnDisk.mockReset().mockResolvedValue({});
     mockResolveOrigin.mockReset().mockImplementation(async (id: string) => (id.startsWith("m") ? { url: `https://origin/${id}.m3u8`, headers: { "User-Agent": "Tuner" } } : null));
     held.clear();
@@ -88,31 +89,67 @@ describe("live frames", () => {
     jest.useRealTimers();
   });
 
-  it("grabs the viewable channels one at a time, a manifest one at its origin with its headers", async () => {
+  it("grabs up to four viewable channels at once, a manifest one at its origin with its headers", async () => {
+    const answers: (() => void)[] = [];
+    mockLiveFrame.mockImplementation(
+      ({ channelId }: { channelId: string }) => new Promise((resolve) => answers.push(() => resolve({ uri: `file:///pool/${channelId}/live-${Date.now()}.jpg`, pts: 1, cancelled: false }))),
+    );
     setLiveFramesActive("guide", true);
-    setLiveFrameViewable("guide", ["m1", "m2"]);
+    setLiveFrameViewable("guide", ["m1", "m2", "m3", "m4", "m5"]);
     await advance(0);
-    expect(grabs()).toEqual(["m1"]);
+    expect(grabs()).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(LIVE_FRAME_CONCURRENCY).toBe(4);
     expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ channelId: "m1", inputUrl: "https://origin/m1.m3u8", httpHeaders: { "User-Agent": "Tuner" } });
+    expect(mockOnDisk).toHaveBeenCalledWith(["m1", "m2", "m3", "m4", "m5"]);
+    answers[0]();
+    await flush();
+    await advance(0);
     expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000.jpg", cacheKey: "live-m1-1000000" });
-    expect(mockOnDisk).toHaveBeenCalledWith(["m1", "m2"]);
-    await advance(LIVE_FRAME_SPACING_MS);
-    expect(grabs()).toEqual(["m1", "m2"]);
+    expect(grabs()).toEqual(["m1", "m2", "m3", "m4", "m5"]);
     expect(mockWarm).not.toHaveBeenCalled();
+    for (const answer of answers) answer();
+    await flush();
+    await advance(0);
   });
 
-  it("refreshes a channel no sooner than the refresh period, oldest first", async () => {
+  it("asks a channel again at the refresh floor, doubles the wait while its live edge stands still, and drops back once it moves", async () => {
+    let pts = 1;
+    let still = false;
+    mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) =>
+      still ? { uri: null, unchanged: true, cancelled: false } : { uri: `file:///pool/${channelId}/live-${Date.now()}.jpg`, pts, cancelled: false },
+    );
+    const listener = jest.fn();
+    subscribeLiveFrame("m1", listener);
     setLiveFramesActive("guide", true);
-    setLiveFrameViewable("guide", ["m1", "m2"]);
+    setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
-    await advance(LIVE_FRAME_SPACING_MS);
-    expect(grabs()).toEqual(["m1", "m2"]);
-    await advance(LIVE_FRAME_SPACING_MS * 5);
-    expect(grabs()).toEqual(["m1", "m2"]);
+    expect(grabs()).toEqual(["m1"]);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    still = true;
     await advance(LIVE_FRAME_REFRESH_MS);
-    expect(grabs().slice(2)).toEqual(["m1"]);
-    await advance(LIVE_FRAME_SPACING_MS);
-    expect(grabs().slice(2)).toEqual(["m1", "m2"]);
+    expect(grabs()).toHaveLength(2);
+    expect(mockLiveFrame.mock.calls[1][0]).toMatchObject({ shownPts: 1 });
+    expect(listener).toHaveBeenCalledTimes(1);
+    const shown = liveFrameFor("m1");
+    // Each unchanged answer doubles the wait: 10 s, 20 s, 40 s, then the 60 s cap.
+    for (const waitMs of [10_000, 20_000, 40_000, LIVE_FRAME_REFRESH_CAP_MS, LIVE_FRAME_REFRESH_CAP_MS]) {
+      const before = grabs().length;
+      await advance(waitMs - 1);
+      expect(grabs()).toHaveLength(before);
+      await advance(1);
+      expect(grabs()).toHaveLength(before + 1);
+    }
+    expect(liveFrameFor("m1")).toBe(shown);
+
+    still = false;
+    pts = 2;
+    await advance(LIVE_FRAME_REFRESH_CAP_MS);
+    expect(listener).toHaveBeenCalledTimes(2);
+    const moved = grabs().length;
+    await advance(LIVE_FRAME_REFRESH_MS);
+    expect(grabs()).toHaveLength(moved + 1);
+    expect(mockLiveFrame.mock.calls[moved][0]).toMatchObject({ shownPts: 2 });
   });
 
   it("samples a tuner channel off a warm open and reads the held stream", async () => {
@@ -121,7 +158,7 @@ describe("live frames", () => {
     await advance(0);
     expect(mockWarm).toHaveBeenCalledWith("t1");
     expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ channelId: "t1", inputUrl: "https://jf/LiveTv/LiveStreamFiles/t1/stream.ts", httpHeaders: {} });
-    await advance(LIVE_FRAME_REFRESH_MS + LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_REFRESH_MS);
     expect(grabs()).toEqual(["t1", "t1"]);
     expect(mockWarm).toHaveBeenCalledTimes(1);
   });
@@ -130,15 +167,31 @@ describe("live frames", () => {
     const many = Array.from({ length: LIVE_FRAME_HOLD_CAP + 2 }, (_, i) => `t${i}`);
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", many);
-    for (let i = 0; i < many.length; i += 1) await advance(LIVE_FRAME_SPACING_MS);
+    for (let i = 0; i < many.length; i += 1) await advance(0);
+    await advance(LIVE_FRAME_REFRESH_MS);
     expect(held.size).toBe(LIVE_FRAME_HOLD_CAP);
-    expect(grabs()).toHaveLength(LIVE_FRAME_HOLD_CAP);
+    expect(mockWarm).toHaveBeenCalledTimes(LIVE_FRAME_HOLD_CAP);
+    expect(new Set(grabs()).size).toBe(LIVE_FRAME_HOLD_CAP);
 
     setLiveFrameViewable("guide", many.slice(1));
-    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(0);
     expect(held.has("t0")).toBe(true);
     await advance(LIVE_FRAME_HOLD_GRACE_MS);
     expect(held.has("t0")).toBe(false);
+  });
+
+  it("counts opens still being made against the hold cap, so parallel grabs never pass it", async () => {
+    const already = Array.from({ length: LIVE_FRAME_HOLD_CAP - 1 }, (_, i) => `h${i}`);
+    for (const id of already) held.set(id, `https://jf/LiveTv/LiveStreamFiles/${id}/stream.ts`);
+    const opens: (() => void)[] = [];
+    mockWarm.mockImplementation((id: string) => new Promise<void>((resolve) => opens.push(() => (held.set(id, `https://jf/LiveTv/LiveStreamFiles/${id}/stream.ts`), resolve()))));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["t1", "t2", "t3", ...already]);
+    await advance(0);
+    expect(mockWarm.mock.calls.map(([id]) => id)).toEqual(["t1"]);
+    for (const open of opens) open();
+    await flush();
+    expect(held.size).toBe(LIVE_FRAME_HOLD_CAP);
   });
 
   it("backs off a channel that gives no frame", async () => {
@@ -147,7 +200,7 @@ describe("live frames", () => {
     setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
     expect(grabs()).toEqual(["m1"]);
-    await advance(LIVE_FRAME_REFRESH_MS + LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_REFRESH_MS * 2);
     expect(grabs()).toEqual(["m1"]);
     await advance(LIVE_FRAME_RETRY_MS);
     expect(grabs()).toEqual(["m1", "m1"]);
@@ -158,26 +211,29 @@ describe("live frames", () => {
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["t1", "m1"]);
     await advance(0);
-    expect(grabs()).toEqual(["t1"]);
+    await flush();
+    expect(grabs().sort()).toEqual(["m1", "t1"]);
 
     setPlaybackHold("video", true);
-    await advance(LIVE_FRAME_SPACING_MS * 3);
-    expect(grabs()).toEqual(["t1"]);
+    await advance(LIVE_FRAME_REFRESH_MS * 3);
+    expect(grabs()).toHaveLength(2);
     setPlaybackHold("video", false);
     await advance(0);
-    expect(grabs()).toEqual(["t1", "m1"]);
+    await flush();
+    expect(grabs().sort()).toEqual(["m1", "m1", "t1", "t1"]);
 
     appStateListener?.("background");
     await advance(LIVE_FRAME_REFRESH_MS * 2);
-    expect(grabs()).toHaveLength(2);
+    expect(grabs()).toHaveLength(4);
     appStateListener?.("active");
     await advance(0);
-    expect(grabs()).toHaveLength(3);
+    await flush();
+    expect(grabs()).toHaveLength(6);
 
     setLiveFramesActive("guide", false);
     expect(held.size).toBe(0);
     await advance(LIVE_FRAME_REFRESH_MS * 2);
-    expect(grabs()).toHaveLength(3);
+    expect(grabs()).toHaveLength(6);
   });
 
   it("samples the surface that took over, whichever order the two report in, and plays the guide's set back on return", async () => {
@@ -190,35 +246,36 @@ describe("live frames", () => {
     setLiveFramesActive("wall", true);
     setLiveFrameViewable("wall", ["m2"]);
     setLiveFramesActive("guide", false);
-    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(0);
     expect(grabs()).toEqual(["m1", "m2"]);
     // The guide's set changes under the wall and waits for its return.
     setLiveFrameViewable("guide", ["m3"]);
-    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(0);
     expect(grabs()).toEqual(["m1", "m2"]);
 
     // The wall pops: the guide reports active before the wall reports away.
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("wall", []);
     setLiveFramesActive("wall", false);
-    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(0);
     expect(grabs()).toEqual(["m1", "m2", "m3"]);
   });
 
   it("shows the newest frame on disk before any grab and counts the refresh from its time", async () => {
-    mockOnDisk.mockResolvedValue({ m1: `file:///pool/m1/live-${1_000_000 - 20_000}.jpg` });
+    mockOnDisk.mockResolvedValue({ m1: `file:///pool/m1/live-${1_000_000 - 2_000}.jpg` });
     const listener = jest.fn();
     subscribeLiveFrame("m1", listener);
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1", "m2"]);
     await advance(0);
-    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-980000.jpg", cacheKey: "live-m1-980000" });
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-998000.jpg", cacheKey: "live-m1-998000" });
     expect(listener).toHaveBeenCalledTimes(1);
     expect(grabs()).toEqual(["m2"]);
-    await advance(LIVE_FRAME_REFRESH_MS - 20_000 - LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_REFRESH_MS - 2_000 - 1);
     expect(grabs()).toEqual(["m2"]);
-    await advance(LIVE_FRAME_SPACING_MS * 2);
+    await advance(1);
     expect(grabs()).toEqual(["m2", "m1"]);
+    expect(mockLiveFrame.mock.calls[1][0].shownPts).toBeUndefined();
     expect(mockOnDisk).toHaveBeenCalledTimes(1);
   });
 

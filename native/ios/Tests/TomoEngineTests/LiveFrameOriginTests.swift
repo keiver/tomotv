@@ -26,7 +26,7 @@ final class LiveFrameOriginTests: XCTestCase {
             wait(for: [done], timeout: 30)
             let elapsed = Date().timeIntervalSince(started)
             switch outcome {
-            case .frame(let file)?:
+            case .frame(let file, _)?:
                 let size = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? Int ?? 0
                 print("[LiveFrameOrigin] run \(run): \(String(format: "%.2f", elapsed))s, jpeg \(size) bytes")
             case .none(let opened)?:
