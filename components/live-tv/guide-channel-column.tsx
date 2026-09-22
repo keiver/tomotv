@@ -2,16 +2,15 @@ import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
-import { setLiveFrameViewable } from "@/services/liveFrames";
+import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { GuideMetrics } from "@/utils/guide";
-import React, { useCallback, useEffect, useRef } from "react";
-import { Platform, StyleSheet, Text, View, type ViewToken } from "react-native";
+import React, { useCallback } from "react";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
-/** Any visible pixel counts, held a beat so a fling past a row never asks for its frame. */
-const VIEWABILITY = { viewAreaCoveragePercentThreshold: 0, minimumViewTime: 300 };
+const channelIds = (channel: JellyfinItem) => [channel.Id];
 
 interface GuideChannelColumnProps {
   channels: JellyfinItem[];
@@ -58,7 +57,7 @@ export function GuideChannelColumn({
     ({ item, index }: { item: JellyfinItem; index: number }) => (
       <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapAlign={IS_TV ? "start" : undefined}>
         {IS_TV ? (
-          <GuideChannelCard channel={item} index={index} width={metrics.channelColumnWidth} onPress={onChannelPress} onFocus={onChannelFocus} />
+          <GuideChannelCard channel={item} index={index} cardWidth={metrics.channelColumnWidth} hideAiring onPress={onChannelPress} onItemFocus={onChannelFocus} />
         ) : (
           <ChannelMorph channel={item} index={index} metrics={metrics} columnWidth={columnWidth} compact={compact} onPress={onChannelPress} />
         )}
@@ -66,20 +65,7 @@ export function GuideChannelColumn({
     ),
     [metrics, columnWidth, compact, onChannelPress, onChannelFocus],
   );
-  // The rows in view plus the one below feed the live frame sampler. The list keeps the first
-  // viewability callback it is given, so the channels reach it through a ref.
-  const channelsRef = useRef(channels);
-  useEffect(() => {
-    channelsRef.current = channels;
-  }, [channels]);
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken<JellyfinItem>[] }) => {
-    const ids = viewableItems.filter((token) => token.isViewable && token.index !== null).map((token) => token.item.Id);
-    const last = viewableItems.reduce((max, token) => Math.max(max, token.index ?? -1), -1);
-    const lookahead = channelsRef.current[last + 1];
-    if (lookahead) ids.push(lookahead.Id);
-    setLiveFrameViewable(ids);
-  }, []);
-  useEffect(() => () => setLiveFrameViewable([]), []);
+  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("guide", true, channels, channelIds);
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
     [metrics.rowHeight],
@@ -104,7 +90,7 @@ export function GuideChannelColumn({
         scrollEventThrottle={16}
         onEndReached={onEndReached}
         onEndReachedThreshold={1}
-        viewabilityConfig={VIEWABILITY}
+        viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}
         showsVerticalScrollIndicator={false}
         snapToAlignment={IS_TV ? "item" : undefined}
@@ -149,7 +135,7 @@ function ChannelMorph({
   return (
     <>
       <Animated.View style={[styles.cardLayer, cardStyle]} pointerEvents={compact ? "none" : "auto"}>
-        <GuideChannelCard channel={channel} index={index} width={metrics.channelColumnWidth} onPress={onPress} />
+        <GuideChannelCard channel={channel} index={index} cardWidth={metrics.channelColumnWidth} hideAiring onPress={onPress} />
       </Animated.View>
       <Animated.View style={[styles.tileLayer, { width: metrics.compactColumnWidth }, tileStyle]} pointerEvents={compact ? "auto" : "none"}>
         <GuideChannelTile channel={channel} metrics={metrics} onPress={onPress} />
@@ -179,9 +165,8 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
   },
   corner: {
-    justifyContent: "flex-end",
-    paddingBottom: IS_TV ? 10 : 6,
-    paddingLeft: IS_TV ? 8 : 6,
+    justifyContent: "center",
+    alignItems: "center",
     borderBottomWidth: 1,
     borderBottomColor: GRID_LINE,
   },
@@ -189,5 +174,6 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_PRIMARY,
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "700",
+    textTransform: "uppercase",
   },
 });

@@ -65,12 +65,13 @@ export default function LiveTvScreen() {
   const handleChannelPress = useCallback((channel: JellyfinItem) => tune(channel.Id, channel.Name), [tune]);
   const openRecordings = useCallback(() => router.push("/recordings"), [router]);
   const openSchedule = useCallback(() => router.push("/schedule"), [router]);
+  const openChannels = useCallback(() => router.push("/channels"), [router]);
 
   // TV frames the column half a grid edge in; phone runs it flush to the screen edge.
   const edgeLeft = IS_TV ? gridEdgePadding(insets.left, IS_TV) / 2 : insets.left;
   // Phone: the transparent native header floats over the content, so the body starts under it.
   const topClearance = IS_TV ? 10 + insets.top : headerHeight + 8;
-  // Phone: Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
+  // Phone: Recordings, Channels and Schedule are native bar items; TV draws them as labelled glass pills.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
       IS_TV
@@ -79,12 +80,13 @@ export default function LiveTvScreen() {
             title: params.name ?? t("liveTv.title"),
             unstable_headerRightItems: () => [
               { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
+              { type: "button", label: t("liveTv.channels"), icon: { type: "sfSymbol", name: "square.grid.2x2" }, tintColor: COLORS.ACCENT, onPress: openChannels },
               ...(canManage
                 ? [{ type: "button" as const, label: t("liveTv.scheduled"), icon: { type: "sfSymbol" as const, name: "calendar" as const }, tintColor: COLORS.ACCENT, onPress: openSchedule }]
                 : []),
             ],
           },
-    [params.name, openRecordings, openSchedule, canManage],
+    [params.name, openRecordings, openChannels, openSchedule, canManage],
   );
 
   return (
@@ -95,8 +97,15 @@ export default function LiveTvScreen() {
         <View style={[styles.header, { paddingTop: topClearance, paddingHorizontal: edgeLeft }]}>
           {IS_TV ? (
             <>
-              <GlassButton ref={handleFirstActionRef} title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
-              {canManage ? <GlassButton title={t("liveTv.scheduled")} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openSchedule} /> : null}
+              <View style={styles.headerSlot}>
+                <GlassButton ref={handleFirstActionRef} title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
+              </View>
+              <View style={[styles.headerSlot, styles.headerSlotCenter]}>
+                <GlassButton title={t("liveTv.channels")} icon={<Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openChannels} />
+              </View>
+              <View style={[styles.headerSlot, styles.headerSlotEnd]}>
+                {canManage ? <GlassButton title={t("liveTv.scheduled")} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openSchedule} /> : null}
+              </View>
             </>
           ) : null}
         </View>
@@ -112,11 +121,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  // TV: Recordings at the guide's left edge, Schedule at the right, each in its own capsule.
+  // TV: three equal slots, so Channels sits dead centre whatever the two outer pills weigh.
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     paddingBottom: IS_TV ? 28 : 0,
+  },
+  headerSlot: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  headerSlotCenter: {
+    justifyContent: "center",
+  },
+  headerSlotEnd: {
+    justifyContent: "flex-end",
   },
   body: {
     flex: 1,

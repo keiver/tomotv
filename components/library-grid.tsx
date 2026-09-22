@@ -7,8 +7,10 @@ import { LoadingRow } from "@/components/loading-row";
 // import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader } from "@/components/library-header";
+import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
+import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { COLORS } from "@/constants/colors";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
@@ -44,6 +46,7 @@ function getNativeHandle(node: View | null): number | undefined {
 // return has no recent loss, so deliberate tab browsing is never fought (see the reveal watch).
 let lastFocusLossAt = 0;
 const CARD_PADDING = slotCardPadding(IS_TV);
+const rowChannelIds = (row: PackedRow<JellyfinItem>) => row.cards.map((card) => card.item.Id);
 
 interface LibraryGridProps {
   items: JellyfinItem[];
@@ -77,6 +80,8 @@ interface LibraryGridProps {
   backdropSource?: FolderBackdropSource | null;
   /** The Live TV recordings list: every video card wears the camera mark. */
   recordings?: boolean;
+  /** The channel wall: landscape channel cards wearing their live frames, the rows in view sampled. */
+  liveChannels?: boolean;
 }
 
 /**
@@ -103,6 +108,7 @@ export function LibraryGrid({
   topClearance: topClearanceProp,
   backdropSource,
   recordings = false,
+  liveChannels = false,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -258,14 +264,17 @@ export function LibraryGrid({
         windowWidth - edgeLeft - edgeRight,
         // itemSlotShape is the same mapping the cards render with (see cardSlotRatio) — the
         // packer and the cards MUST agree or justified rows misalign around no-art items.
+        // A channel card is landscape whatever its logo's shape: its live frame is.
         (item) => {
+          if (liveChannels) return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
           const shape = itemSlotShape(item.PrimaryImageAspectRatio);
           return { ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[shape] };
         },
         CARD_PADDING,
       ),
-    [items, windowWidth, edgeLeft, edgeRight, rowHeights],
+    [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels],
   );
+  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("wall", liveChannels, packedRows, rowChannelIds);
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
   // Global item index of each row's first card (drives image-priority for the first cards).
   const rowStartIndices = useMemo(() => {
@@ -482,6 +491,26 @@ export function LibraryGrid({
                 />
               );
             }
+            if (liveChannels) {
+              return (
+                <GuideChannelCard
+                  key={item.Id}
+                  ref={cardRef}
+                  channel={item}
+                  onPress={onItemPress}
+                  onLongPress={onItemLongPress}
+                  index={rowStart + cardIndex}
+                  onItemFocus={handleItemFocus}
+                  onItemBlur={handleItemBlur}
+                  onFocusedGone={handleFocusedCardGone}
+                  hasTVPreferredFocus={claimsFocusOnMount}
+                  highlighted={isHighlighted}
+                  nextFocusUp={nextFocusUpForRow}
+                  nextFocusDown={nextFocusDown}
+                  cardHeight={card.cardHeight}
+                />
+              );
+            }
             return (
               <VideoGridItem
                 key={item.Id}
@@ -526,6 +555,7 @@ export function LibraryGrid({
       handleLastCellRef,
       handleFocusAndLastCellRef,
       recordings,
+      liveChannels,
     ],
   );
 
@@ -773,6 +803,8 @@ export function LibraryGrid({
       onScrollToIndexFailed={handleScrollToIndexFailed}
       onScrollBeginDrag={handleScrollBeginDrag}
       ListFooterComponent={renderFooter}
+      viewabilityConfig={liveChannels ? viewabilityConfig : undefined}
+      onViewableItemsChanged={liveChannels ? onViewableItemsChanged : undefined}
     />
   );
 

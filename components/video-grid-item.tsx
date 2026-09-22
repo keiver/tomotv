@@ -24,7 +24,8 @@ const IS_TV = Platform.isTV;
 const SCREEN = Dimensions.get("screen");
 const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
 const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
-const LOGO_DISC = IS_TV ? 64 : 36;
+/** The channel logo over a live frame: the badge's height, twice as wide. */
+const LOGO_MARK_HEIGHT = IS_TV ? 40 : 26;
 const CARD_PADDING = IS_TV ? 16 : 8;
 // The title bar's own padding, and how far past the card's bottom edge the bar hangs. The
 // overhang is clipped by the image container, and it is what puts the bar's fill UNDER the
@@ -197,6 +198,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // at 0 (a just-started video whose position hasn't synced yet). The fill is
   // floored at 5% below so "just starting" is always visible; grids that pass
   // no progressPercent are unaffected.
+  const renderTitleMark = (color: string) =>
+    titleIcon ? (
+      <View style={styles.titleMark} pointerEvents="none">
+        <Ionicons name={titleIcon} size={TITLE_SIZE} color={color} />
+      </View>
+    ) : null;
   const hasProgress = progressPercent != null;
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
 
@@ -249,13 +256,20 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 accessible={true}
                 accessibilityLabel={t("a11y.poster").replace("{name}", video.Name || t("a11y.video"))}
               />
-              {liveFrame && posterSource ? (
-                <View style={styles.logoDisc} pointerEvents="none">
-                  <Image source={posterSource} style={styles.logoMark} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={`${video.Id}-logo`} accessible={false} />
-                </View>
-              ) : null}
               <CardScrim />
               {focused && badgeSegments ? <CardCornerScrim /> : null}
+              {liveFrame && posterSource ? (
+                <Image
+                  source={posterSource}
+                  style={styles.logoMark}
+                  contentFit="contain"
+                  transition={0}
+                  cachePolicy="memory-disk"
+                  recyclingKey={`${video.Id}-logo`}
+                  accessible={false}
+                  pointerEvents="none"
+                />
+              ) : null}
             </>
           ) : (
             // No artwork: a glyph for the item's kind on the dark card fill. The title
@@ -285,11 +299,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
               <View style={[styles.infoTitleBlend, titleIcon && styles.titleLineInset]}>
-                {titleIcon ? (
-                  <View style={styles.titleMark} pointerEvents="none">
-                    <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} />
-                  </View>
-                ) : null}
+                {renderTitleMark(COLORS.ACCENT)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                   {video?.Name || t("common.unknown")}
                 </MarqueeText>
@@ -299,11 +309,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
               <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
-                {titleIcon ? (
-                  <View style={styles.titleMark} pointerEvents="none">
-                    <Ionicons name={titleIcon} size={TITLE_SIZE} color={CARD_FOCUS.TITLE_TEXT_FOCUSED} />
-                  </View>
-                ) : null}
+                {renderTitleMark(CARD_FOCUS.TITLE_TEXT_FOCUSED)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
                   {video?.Name || t("common.unknown")}
                 </MarqueeText>
@@ -312,11 +318,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
               <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
-                {titleIcon ? (
-                  <View style={styles.titleMark} pointerEvents="none">
-                    <Ionicons name={titleIcon} size={TITLE_SIZE} color={COLORS.ACCENT} />
-                  </View>
-                ) : null}
+                {renderTitleMark(COLORS.ACCENT)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                   {video?.Name || t("common.unknown")}
                 </MarqueeText>
@@ -456,21 +458,14 @@ const styles = StyleSheet.create({
     height: "50%",
     alignSelf: "center",
   },
-  // The channel's logo over its live frame, on a gold disc in the corner the LIVE badge leaves
-  // free: a dark logo vanishes on footage, and every logo reads on the brand colour.
-  logoDisc: {
+  // A channel's logo at the title's left end while its frame fills the card: flair, not identification.
+  // The channel's logo over its live frame, in the corner the LIVE badge leaves free: flair, not identification.
+  logoMark: {
     position: "absolute",
     top: CARD_BADGE_INSET,
     right: CARD_BADGE_INSET,
-    width: LOGO_DISC,
-    height: LOGO_DISC,
-    borderRadius: LOGO_DISC / 2,
-    padding: LOGO_DISC / 6,
-    backgroundColor: COLORS.ACCENT,
-  },
-  logoMark: {
-    width: "100%",
-    height: "100%",
+    width: LOGO_MARK_HEIGHT * 2,
+    height: LOGO_MARK_HEIGHT,
   },
   // Anchors the index pill to the top-left corner of the card.
   indexBadge: {

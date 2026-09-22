@@ -242,8 +242,8 @@ export default function RootLayout() {
                               : { headerShown: false, presentation: "modal" }
                         }
                       />
-                      {/* The guide's Recordings and Schedule: TV crossfades like program-info, phone pushes
-                      under a transparent native bar whose back chevron returns to the guide. */}
+                      {/* The guide's Recordings, Channels and Schedule: TV crossfades like program-info, phone
+                      pushes under a transparent native bar whose back chevron returns to the guide. */}
                       <Stack.Screen
                         name="recordings"
                         options={
@@ -254,6 +254,21 @@ export default function RootLayout() {
                                 headerTransparent: true,
                                 headerShadowVisible: false,
                                 headerTitle: t("liveTv.recordings"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.title"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="channels"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.channels"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
                                 headerBackTitle: t("liveTv.title"),
                               }

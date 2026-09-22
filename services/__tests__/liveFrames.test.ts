@@ -78,18 +78,19 @@ describe("live frames", () => {
     mockOpenRecentlyFailed.mockReset().mockReturnValue(false);
     setPlaybackHold("video", false);
     clearLiveFrames();
-    setLiveFrameViewable([]);
-    setLiveFramesActive(false);
+    setLiveFrameViewable("guide", []);
+    setLiveFramesActive("guide", false);
   });
 
   afterEach(() => {
-    setLiveFramesActive(false);
+    setLiveFramesActive("guide", false);
+    setLiveFramesActive("wall", false);
     jest.useRealTimers();
   });
 
   it("grabs the viewable channels one at a time, a manifest one at its origin with its headers", async () => {
-    setLiveFramesActive(true);
-    setLiveFrameViewable(["m1", "m2"]);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
     await advance(0);
     expect(grabs()).toEqual(["m1"]);
     expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ channelId: "m1", inputUrl: "https://origin/m1.m3u8", httpHeaders: { "User-Agent": "Tuner" } });
@@ -101,8 +102,8 @@ describe("live frames", () => {
   });
 
   it("refreshes a channel no sooner than the refresh period, oldest first", async () => {
-    setLiveFramesActive(true);
-    setLiveFrameViewable(["m1", "m2"]);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
     await advance(0);
     await advance(LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["m1", "m2"]);
@@ -115,8 +116,8 @@ describe("live frames", () => {
   });
 
   it("samples a tuner channel off a warm open and reads the held stream", async () => {
-    setLiveFramesActive(true);
-    setLiveFrameViewable(["t1"]);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["t1"]);
     await advance(0);
     expect(mockWarm).toHaveBeenCalledWith("t1");
     expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ channelId: "t1", inputUrl: "https://jf/LiveTv/LiveStreamFiles/t1/stream.ts", httpHeaders: {} });
@@ -127,13 +128,13 @@ describe("live frames", () => {
 
   it("holds no more tuner opens than the cap and closes a hold once its row has been out of view past the grace", async () => {
     const many = Array.from({ length: LIVE_FRAME_HOLD_CAP + 2 }, (_, i) => `t${i}`);
-    setLiveFramesActive(true);
-    setLiveFrameViewable(many);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", many);
     for (let i = 0; i < many.length; i += 1) await advance(LIVE_FRAME_SPACING_MS);
     expect(held.size).toBe(LIVE_FRAME_HOLD_CAP);
     expect(grabs()).toHaveLength(LIVE_FRAME_HOLD_CAP);
 
-    setLiveFrameViewable(many.slice(1));
+    setLiveFrameViewable("guide", many.slice(1));
     await advance(LIVE_FRAME_SPACING_MS);
     expect(held.has("t0")).toBe(true);
     await advance(LIVE_FRAME_HOLD_GRACE_MS);
@@ -142,8 +143,8 @@ describe("live frames", () => {
 
   it("backs off a channel that gives no frame", async () => {
     mockLiveFrame.mockResolvedValue({ uri: null, cancelled: false, reason: "open" });
-    setLiveFramesActive(true);
-    setLiveFrameViewable(["m1"]);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
     expect(grabs()).toEqual(["m1"]);
     await advance(LIVE_FRAME_REFRESH_MS + LIVE_FRAME_SPACING_MS);
@@ -154,8 +155,8 @@ describe("live frames", () => {
   });
 
   it("stands down while playback holds the link, the app is in the background or the guide is off screen, and closes its holds when the guide leaves", async () => {
-    setLiveFramesActive(true);
-    setLiveFrameViewable(["t1", "m1"]);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["t1", "m1"]);
     await advance(0);
     expect(grabs()).toEqual(["t1"]);
 
@@ -173,18 +174,43 @@ describe("live frames", () => {
     await advance(0);
     expect(grabs()).toHaveLength(3);
 
-    setLiveFramesActive(false);
+    setLiveFramesActive("guide", false);
     expect(held.size).toBe(0);
     await advance(LIVE_FRAME_REFRESH_MS * 2);
     expect(grabs()).toHaveLength(3);
+  });
+
+  it("samples the surface that took over, whichever order the two report in, and plays the guide's set back on return", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+
+    // The wall pushes: it reports active before the guide reports away.
+    setLiveFramesActive("wall", true);
+    setLiveFrameViewable("wall", ["m2"]);
+    setLiveFramesActive("guide", false);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2"]);
+    // The guide's set changes under the wall and waits for its return.
+    setLiveFrameViewable("guide", ["m3"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2"]);
+
+    // The wall pops: the guide reports active before the wall reports away.
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("wall", []);
+    setLiveFramesActive("wall", false);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2", "m3"]);
   });
 
   it("shows the newest frame on disk before any grab and counts the refresh from its time", async () => {
     mockOnDisk.mockResolvedValue({ m1: `file:///pool/m1/live-${1_000_000 - 20_000}.jpg` });
     const listener = jest.fn();
     subscribeLiveFrame("m1", listener);
-    setLiveFramesActive(true);
-    setLiveFrameViewable(["m1", "m2"]);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
     await advance(0);
     expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-980000.jpg", cacheKey: "live-m1-980000" });
     expect(listener).toHaveBeenCalledTimes(1);
@@ -199,8 +225,8 @@ describe("live frames", () => {
   it("tells a channel's subscribers about its frame and drops every frame on a clear", async () => {
     const listener = jest.fn();
     const unsubscribe = subscribeLiveFrame("m1", listener);
-    setLiveFramesActive(true);
-    setLiveFrameViewable(["m1"]);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
     expect(listener).toHaveBeenCalledTimes(1);
     clearLiveFrames();

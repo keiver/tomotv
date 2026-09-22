@@ -45,11 +45,16 @@ const entries = new Map<string, Entry>();
 const listeners = new Map<string, Set<() => void>>();
 /** A seed from disk in flight; a viewable set that changes while it runs waits for it. */
 let seeding: Promise<void> | null = null;
-/** Channels in view, in the column's order, plus the lookahead row. */
+/** The guide's channel column or the channel wall: whichever is the screen feeds the sampler. */
+export type LiveFrameSurface = "guide" | "wall";
+
+/** Channels in view on the active surface, in its order, plus the lookahead row. */
 let viewable: string[] = [];
+/** Each surface's last reported set; the one that turns active plays its set back. */
+const viewableBySurface = new Map<LiveFrameSurface, string[]>();
+let activeSurface: LiveFrameSurface | null = null;
 /** When each server-lane hold's row left view; cleared when it returns. */
 const leftViewAt = new Map<string, number>();
-let screenActive = false;
 let appActive = AppState.currentState !== "background" && AppState.currentState !== "inactive";
 let grabbing = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -69,7 +74,7 @@ function wire(): void {
 }
 
 function running(): boolean {
-  return screenActive && appActive && !isPlaybackHeld() && viewable.length > 0 && isLocalRemuxAvailable();
+  return activeSurface !== null && appActive && !isPlaybackHeld() && viewable.length > 0 && isLocalRemuxAvailable();
 }
 
 function stop(): void {
@@ -246,8 +251,7 @@ async function grab(channelId: string): Promise<void> {
   }
 }
 
-/** The rows in view, in order, from the channel column. An empty list stops the pump. */
-export function setLiveFrameViewable(channelIds: string[]): void {
+function applyViewable(channelIds: string[]): void {
   const now = Date.now();
   const next = new Set(channelIds);
   for (const channelId of viewable) if (!next.has(channelId) && entry(channelId).lane === "server") leftViewAt.set(channelId, now);
@@ -257,14 +261,22 @@ export function setLiveFrameViewable(channelIds: string[]): void {
   else stop();
 }
 
-/** Whether the guide is on screen. Off, every hold closes and no grab runs. */
-export function setLiveFramesActive(active: boolean): void {
+/** The rows in view on a surface, in order. Applied at once on the active surface, kept for the others. */
+export function setLiveFrameViewable(surface: LiveFrameSurface, channelIds: string[]): void {
+  viewableBySurface.set(surface, channelIds);
+  if (surface === activeSurface) applyViewable(channelIds);
+}
+
+/** The surface turning active takes over with its set; one leaving after another took over changes nothing. */
+export function setLiveFramesActive(surface: LiveFrameSurface, active: boolean): void {
   wire();
-  screenActive = active;
   if (active) {
-    schedule(0);
+    activeSurface = surface;
+    applyViewable(viewableBySurface.get(surface) ?? []);
     return;
   }
+  if (activeSurface !== surface) return;
+  activeSurface = null;
   stop();
   leftViewAt.clear();
   if (warmedChannelCount() > 0) void closeWarmedChannels();
