@@ -1349,28 +1349,32 @@ extension RemuxSession {
 
         // Annex-B H.264/HEVC from a TS demux arrives with no extradata (this build has no
         // extract_extradata bsf), and movenc reads codecpar once, when the muxer is built.
-        // The parameter sets ride the first keyframe: read up to it, lift them onto the input
-        // stream, and replay that keyframe as the loop's first packet.
+        // The parameter sets ride a keyframe: read up to the first that carries them, lift them
+        // onto the input stream, and replay that keyframe as the loop's first packet.
         var queuedPacket: UnsafeMutablePointer<AVPacket>? = nil
         if hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
            videoStream.pointee.codecpar.pointee.extradata_size == 0,
            videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264 || videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC,
            builtRenditions.contains(where: { $0.videoTranscoder == nil && $0.inputStreams.contains(videoIn) }) {
             let hevc = videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
+            var bareKeyframes = 0
             while av_read_frame(input, pkt) >= 0 {
-                let opensOnKeyframe = pkt.pointee.stream_index == videoIn && pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+                let isKeyframe = pkt.pointee.stream_index == videoIn && pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+                // An open-GOP recovery point is flagged a keyframe yet carries no parameter sets
+                // (only IDRs do), so the session opens on the first keyframe that has them.
+                let sets = isKeyframe ? TierRewrapper.annexBParameterSets(pkt, hevc: hevc) : nil
+                let opensOnKeyframe = sets != nil
+                if isKeyframe, !opensOnKeyframe { bareKeyframes += 1 }
                 if pkt.pointee.stream_index == videoIn, TierRewrapper.annexBHasA53Captions(pkt, hevc: hevc) {
                     stateLock.lock()
                     embeddedCaptions = true
                     stateLock.unlock()
                 }
-                if opensOnKeyframe,
-                   let sets = TierRewrapper.annexBParameterSets(pkt, hevc: hevc),
-                   let buf = av_mallocz(sets.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
+                if let sets, let buf = av_mallocz(sets.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
                     sets.withUnsafeBytes { raw in buf.copyMemory(from: raw.baseAddress!, byteCount: sets.count) }
                     videoStream.pointee.codecpar.pointee.extradata = buf.assumingMemoryBound(to: UInt8.self)
                     videoStream.pointee.codecpar.pointee.extradata_size = Int32(sets.count)
-                    NSLog("[LocalRemuxer] Parameter sets lifted from the opening keyframe (%d bytes)", sets.count)
+                    NSLog("[LocalRemuxer] Parameter sets lifted from the opening keyframe (%d bytes, %d keyframes without them skipped)", sets.count, bareKeyframes)
                 }
                 // Stream info that opened far from a keyframe holds no dimensions either, and the
                 // muxer refuses a video track without them; the parser reads them off the SPS.
