@@ -19,8 +19,14 @@ enum EngineLog {
     /// (same reason FrameGrabber declares SWIFT_AVSEEK_FLAG_BACKWARD), so the
     /// number is hand-carried and EngineLogTests pins it.
     static let errorLevel: Int32 = 16
+    /// AV_LOG_SKIP_REPEATED: a run of one line prints once, then "Last message repeated N times".
+    /// The H.264 parser logs every slice it meets before a live join's first PPS.
+    static let skipRepeated: Int32 = 1
 
-    private static let applied: Void = { av_log_set_level(errorLevel) }()
+    private static let applied: Void = {
+        av_log_set_level(errorLevel)
+        av_log_set_flags(skipRepeated)
+    }()
 
     /// Called at every entry point that opens a libav context; runs once.
     static func configure() { _ = applied }

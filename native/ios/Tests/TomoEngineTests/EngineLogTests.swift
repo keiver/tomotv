@@ -22,6 +22,14 @@ final class EngineLogTests: XCTestCase {
         XCTAssertEqual(av_log_get_level(), EngineLog.errorLevel)
     }
 
+    /// AV_LOG_SKIP_REPEATED is a #define too; 1 is the flag, and a live TS joined mid-GOP logs
+    /// one parser line per slice until the first PPS without it.
+    func testConfigureCollapsesRepeatedLines() {
+        EngineLog.configure()
+        XCTAssertEqual(EngineLog.skipRepeated, 1)
+        XCTAssertEqual(av_log_get_flags() & EngineLog.skipRepeated, EngineLog.skipRepeated)
+    }
+
     /// Each name is checked against the SDK constant rather than a copied number, so a
     /// mistyped code or a swapped pair fails here instead of mislabelling a probe result.
     func testStatusNamesMatchTheVideoToolboxConstants() {
