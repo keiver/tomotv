@@ -366,6 +366,96 @@ final class FrameGrabberTests: XCTestCase {
         XCTAssertEqual(color.b, 0x20, accuracy: 6)
     }
 
+    /// A 320x180 test pattern inside a 320x240 frame: 30 bar rows above and below.
+    private func letterboxed(_ name: String, bar: String = "black", extra: String = "") throws -> URL {
+        try fixture(name, [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
+            "-vf", "pad=320:240:0:30:color=\(bar)\(extra)", "-c:v", "libx264", "-g", "25", "-pix_fmt", "yuv420p", "-an",
+        ])
+    }
+
+    func testAPosterLosesItsLetterboxWhileAChapterFrameKeepsIt() throws {
+        let clip = try letterboxed("chapters-letterbox.mp4")
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        let poster = try XCTUnwrap(grabber.frame(atMilliseconds: 2000, named: "poster.jpg", nearestFromStart: true, batch: 10))
+        XCTAssertEqual(pixelSize(poster)?.width, 480)
+        XCTAssertEqual(try XCTUnwrap(pixelSize(poster)?.height), 270, accuracy: 1, "the 180 picture rows of 240 scale to 270 of 480, less the edge pixel each side")
+
+        let chapter = try XCTUnwrap(grabber.frame(atMilliseconds: 2000))
+        XCTAssertEqual(pixelSize(chapter)?.height, 360, "a chapter frame shows the whole frame")
+    }
+
+    func testAPosterLosesItsPillarbox() throws {
+        let clip = try fixture("chapters-pillarbox.mp4", [
+            "-f", "lavfi", "-i", "testsrc2=size=240x180:rate=25:duration=20",
+            "-vf", "pad=320:180:40:0", "-c:v", "libx264", "-g", "25", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        let poster = try XCTUnwrap(grabber.frame(atMilliseconds: 2000, named: "poster.jpg", nearestFromStart: true, batch: 10))
+        XCTAssertEqual(pixelSize(poster)?.width, 480, "the picture inside the bars fills the width")
+        XCTAssertEqual(try XCTUnwrap(pixelSize(poster)?.height), 360, accuracy: 1)
+    }
+
+    func testDarkGreyBarsAreStillBars() throws {
+        let clip = try letterboxed("chapters-letterbox-grey.mp4", bar: "0x141414")
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        let poster = try XCTUnwrap(grabber.frame(atMilliseconds: 2000, named: "poster.jpg", nearestFromStart: true, batch: 10))
+        XCTAssertEqual(try XCTUnwrap(pixelSize(poster)?.height), 270, accuracy: 1)
+    }
+
+    func testTheCropIsWhatEveryFrameOfTheBatchAgreesOn() throws {
+        // The top half of the picture is black for the first ten seconds: eight of the ten
+        // keyframes from 2 s report a deeper bar than the two that show the whole picture.
+        let clip = try letterboxed("chapters-letterbox-darktop.mp4",
+                                   extra: ",drawbox=x=0:y=30:w=320:h=90:c=black:t=fill:enable='lt(t,10)'")
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        let poster = try XCTUnwrap(grabber.frame(atMilliseconds: 2000, named: "poster.jpg", nearestFromStart: true, batch: 10))
+        XCTAssertEqual(try XCTUnwrap(pixelSize(poster)?.height), 270, accuracy: 1, "only the bars go, not the dark scene")
+    }
+
+    func testASmallPictureInTheDarkIsNotCropped() throws {
+        let clip = try fixture("chapters-dark-small.mp4", [
+            "-f", "lavfi", "-i", "color=c=0x101010:size=320x240:rate=25:duration=20",
+            "-vf", "drawbox=x=140:y=100:w=40:h=40:c=white:t=fill", "-c:v", "libx264", "-g", "25", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let dir = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let grabber = FrameGrabber(inputUrl: clip.absoluteString, directory: dir)
+        defer { grabber.stop() }
+
+        let poster = try XCTUnwrap(grabber.frame(atMilliseconds: 2000, named: "poster.jpg", nearestFromStart: true, batch: 10))
+        XCTAssertEqual(pixelSize(poster)?.height, 360, "a crop keeping under half the picture is refused")
+    }
+
+    func testContentBoxScansBarsOffEachEdge() {
+        let w = 16, h = 12
+        var barred = Data(count: w * h * 4)
+        for y in 2 ..< 10 { for x in 3 ..< 13 { let i = (y * w + x) * 4; barred[i] = 160; barred[i + 1] = 160; barred[i + 2] = 160 } }
+        XCTAssertEqual(FrameScore.contentBox(rgba: barred, width: w, height: h, stride: 1), ContentBox(x1: 3, y1: 2, x2: 12, y2: 9))
+
+        var full = Data(count: w * h * 4)
+        for i in stride(from: 0, to: full.count, by: 4) { full[i] = 160; full[i + 1] = 160; full[i + 2] = 160 }
+        XCTAssertEqual(FrameScore.contentBox(rgba: full, width: w, height: h, stride: 1), ContentBox(x1: 0, y1: 0, x2: w - 1, y2: h - 1))
+
+        XCTAssertNil(FrameScore.contentBox(rgba: Data(count: w * h * 4), width: w, height: h, stride: 1), "an all-black frame has no picture")
+    }
+
     func testFrameScoreReadsLumaAndContrast() {
         let w = 8, h = 8
         var flat = Data(count: w * h * 4)
