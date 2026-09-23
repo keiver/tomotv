@@ -80,6 +80,47 @@ describe("useChannels", () => {
     expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c500", "c501"]);
   });
 
+  it("holds a failed page for a backoff that doubles, so the wall cannot ask for it again at once", async () => {
+    jest.useFakeTimers();
+    try {
+      mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => {
+        if (startIndex === 0) return { items: channels(0, CHANNEL_WALL_PAGE), total: CHANNEL_WALL_PAGE * 2 };
+        throw new Error("down");
+      });
+      const ref = React.createRef<HookRef>();
+      await act(async () => {
+        TestRenderer.create(<Harness ref={ref} sort="number" />);
+      });
+      await settle();
+
+      act(() => ref.current?.get().loadMore());
+      await settle();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(ref.current?.get()).toMatchObject({ isLoadingMore: true, hasMore: true });
+      act(() => ref.current?.get().loadMore());
+      await settle();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      await act(async () => jest.advanceTimersByTime(1_000));
+      expect(ref.current?.get().isLoadingMore).toBe(false);
+      act(() => ref.current?.get().loadMore());
+      await settle();
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      await act(async () => jest.advanceTimersByTime(1_999));
+      expect(ref.current?.get().isLoadingMore).toBe(true);
+      await act(async () => jest.advanceTimersByTime(1));
+      expect(ref.current?.get().isLoadingMore).toBe(false);
+
+      mockFetch.mockResolvedValueOnce({ items: channels(CHANNEL_WALL_PAGE, CHANNEL_WALL_PAGE), total: CHANNEL_WALL_PAGE * 2 });
+      act(() => ref.current?.get().loadMore());
+      await settle();
+      expect(ref.current?.get()).toMatchObject({ isLoadingMore: false, hasMore: false });
+      expect(ref.current?.get().items).toHaveLength(CHANNEL_WALL_PAGE * 2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("reports a failed load and retries it", async () => {
     mockFetch.mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce({ items: channels(0, 2), total: 2 });
     const ref = React.createRef<HookRef>();

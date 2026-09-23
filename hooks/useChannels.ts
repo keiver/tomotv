@@ -29,6 +29,9 @@ export function useChannels(sort: ChannelSort): ChannelsState {
   const busyRef = useRef(false);
   // Bumped by every fresh load, so a page from the previous sort lands nowhere.
   const generationRef = useRef(0);
+  // A failed page holds isLoadingMore for a backoff, or the favorites pass asks for it again at once.
+  const pageFailuresRef = useRef(0);
+  const pageBackoffRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadPage = useCallback(
     async (startIndex: number) => {
@@ -43,6 +46,9 @@ export function useChannels(sort: ChannelSort): ChannelsState {
     let cancelled = false;
     const generation = ++generationRef.current;
     busyRef.current = true;
+    pageFailuresRef.current = 0;
+    if (pageBackoffRef.current) clearTimeout(pageBackoffRef.current);
+    pageBackoffRef.current = null;
     loadPage(0)
       .then(({ page, hasMore: more }) => {
         if (cancelled) return;
@@ -58,10 +64,14 @@ export function useChannels(sort: ChannelSort): ChannelsState {
       })
       .finally(() => {
         if (generationRef.current === generation) busyRef.current = false;
-        if (!cancelled) setIsLoading(false);
+        if (cancelled) return;
+        setIsLoading(false);
+        setIsLoadingMore(false);
       });
     return () => {
       cancelled = true;
+      if (pageBackoffRef.current) clearTimeout(pageBackoffRef.current);
+      pageBackoffRef.current = null;
     };
   }, [attempt, loadPage]);
 
@@ -73,15 +83,32 @@ export function useChannels(sort: ChannelSort): ChannelsState {
     loadPage(itemsRef.current.length)
       .then(({ page, hasMore: more }) => {
         if (generationRef.current !== generation) return;
+        pageFailuresRef.current = 0;
         setHasMore(more);
         if (page.length === 0) return;
         itemsRef.current = itemsRef.current.concat(page);
         setItems(itemsRef.current);
       })
-      .catch((err) => logger.warn("Channels page load failed", err, { hook: "useChannels" }))
+      .catch((err) => {
+        if (generationRef.current === generation) pageFailuresRef.current += 1;
+        logger.warn("Channels page load failed", err, { hook: "useChannels" });
+      })
       .finally(() => {
-        if (generationRef.current === generation) busyRef.current = false;
-        setIsLoadingMore(false);
+        if (generationRef.current !== generation) return;
+        const failures = pageFailuresRef.current;
+        if (failures === 0) {
+          busyRef.current = false;
+          setIsLoadingMore(false);
+          return;
+        }
+        pageBackoffRef.current = setTimeout(
+          () => {
+            pageBackoffRef.current = null;
+            busyRef.current = false;
+            setIsLoadingMore(false);
+          },
+          Math.min(30_000, 1_000 * 2 ** (failures - 1)),
+        );
       });
   }, [isLoading, hasMore, loadPage]);
 
