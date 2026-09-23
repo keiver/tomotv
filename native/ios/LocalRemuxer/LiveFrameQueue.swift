@@ -23,6 +23,8 @@ final class LiveFrameQueue {
     private var cancelled = Set<String>()
     /// Channels with a request queued or running; a second request for one joins nothing and answers cancelled.
     private var pending = Set<String>()
+    /// The grabber reading each channel now, so a cancel stops its read instead of waiting it out.
+    private var running: [String: FrameGrabber] = [:]
 
     init(root: URL = ChapterFramePool.root, width: Int = defaultWidth) {
         self.root = root
@@ -71,6 +73,14 @@ final class LiveFrameQueue {
                 return
             }
             let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: headers, live: true)
+            lock.lock()
+            let stopped = cancelled.contains(channelId)
+            if !stopped { running[channelId] = grabber }
+            lock.unlock()
+            if stopped {
+                completion(.cancelled)
+                return
+            }
             let watchdog = DispatchWorkItem { grabber.stop() }
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: watchdog)
             let started = Date()
@@ -79,6 +89,16 @@ final class LiveFrameQueue {
             watchdog.cancel()
             grabber.stop()
             let elapsed = Date().timeIntervalSince(started)
+            lock.lock()
+            running[channelId] = nil
+            let stoppedMidway = cancelled.contains(channelId)
+            lock.unlock()
+            if stoppedMidway {
+                if case .frame(let file, _) = result { try? FileManager.default.removeItem(at: file) }
+                NSLog("[LiveFrame] %@", String(format: "%@ cancelled %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
+                completion(.cancelled)
+                return
+            }
             switch result {
             case .frame(let file, let pts):
                 Self.removeOthers(in: location, keeping: file)
@@ -114,11 +134,13 @@ final class LiveFrameQueue {
     }
 
     /// A pending job for the channel completes cancelled without opening its source; one already
-    /// decoding is stopped.
+    /// reading is stopped, its read interrupted.
     func cancel(channelId: String) {
         lock.lock()
         cancelled.insert(channelId)
+        let reading = running[channelId]
         lock.unlock()
+        reading?.stop()
     }
 
     private func isCancelled(_ channelId: String) -> Bool {

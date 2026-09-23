@@ -213,6 +213,24 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("chan-b").path))
     }
 
+    func testACancelStopsAGrabAlreadyReading() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        let done = XCTestExpectation(description: "cancelled")
+        var outcome: LiveFrameQueue.Outcome?
+        let started = Date()
+        queue.request(channelId: "chan-dead", inputUrl: "http://10.255.255.1:9/live.m3u8", headers: [:], deadline: 8) {
+            outcome = $0
+            done.fulfill()
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+        queue.cancel(channelId: "chan-dead")
+        wait(for: [done], timeout: 12)
+        guard case .cancelled? = outcome else { return XCTFail("a cancelled grab answers cancelled") }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3, "the read is stopped, not left to its 8 s deadline")
+    }
+
     func testTheWatchdogStopsAGrabOnADeadOrigin() throws {
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }

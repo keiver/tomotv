@@ -5,6 +5,7 @@
  */
 const mockLiveFrame = jest.fn();
 const mockOnDisk = jest.fn();
+const mockCancel = jest.fn();
 const mockResolveOrigin = jest.fn();
 const mockWarm = jest.fn();
 const mockWarmedUrl = jest.fn();
@@ -22,7 +23,13 @@ jest.mock("react-native", () => ({
       return { remove: jest.fn() };
     },
   },
-  NativeModules: { LocalRemuxer: { liveFrame: (config: unknown) => mockLiveFrame(config), liveFramesOnDisk: (ids: string[]) => mockOnDisk(ids) } },
+  NativeModules: {
+    LocalRemuxer: {
+      liveFrame: (config: unknown) => mockLiveFrame(config),
+      liveFramesOnDisk: (ids: string[]) => mockOnDisk(ids),
+      cancelLiveFrame: (id: string) => mockCancel(id),
+    },
+  },
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true }));
@@ -66,6 +73,7 @@ describe("live frames", () => {
     jest.setSystemTime(1_000_000);
     mockLiveFrame.mockReset().mockImplementation(async ({ channelId }: { channelId: string }) => ({ uri: `file:///pool/${channelId}/live-${Date.now()}.jpg`, pts: Date.now(), cancelled: false }));
     mockOnDisk.mockReset().mockResolvedValue({});
+    mockCancel.mockReset().mockResolvedValue(undefined);
     mockResolveOrigin.mockReset().mockImplementation(async (id: string) => (id.startsWith("m") ? { url: `https://origin/${id}.m3u8`, headers: { "User-Agent": "Tuner" } } : null));
     held.clear();
     mockWarm.mockReset().mockImplementation(async (id: string) => {
@@ -234,6 +242,30 @@ describe("live frames", () => {
     expect(held.size).toBe(0);
     await advance(LIVE_FRAME_REFRESH_MS * 2);
     expect(grabs()).toHaveLength(6);
+  });
+
+  it("stops the grabs reading the moment playback takes the link, and starts none while it holds", async () => {
+    const answers: (() => void)[] = [];
+    mockLiveFrame.mockImplementation(() => new Promise((resolve) => answers.push(() => resolve({ uri: null, cancelled: true }))));
+    let opened: (() => void) | undefined;
+    mockWarm.mockImplementation((id: string) => new Promise<void>((resolve) => (opened = () => (held.set(id, `https://jf/${id}.ts`), resolve()))));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2", "t1"]);
+    await advance(0);
+    await flush();
+    expect(grabs()).toEqual(["m1", "m2"]);
+    expect(mockWarm).toHaveBeenCalledWith("t1");
+
+    setPlaybackHold("video", true);
+    expect(mockCancel.mock.calls.map(([id]) => id).sort()).toEqual(["m1", "m2", "t1"]);
+    opened?.();
+    await flush();
+    expect(grabs()).toEqual(["m1", "m2"]);
+    for (const answer of answers) answer();
+    await flush();
+    await advance(LIVE_FRAME_REFRESH_CAP_MS);
+    expect(grabs()).toEqual(["m1", "m2"]);
+    setPlaybackHold("video", false);
   });
 
   it("samples the surface that took over, whichever order the two report in, and plays the guide's set back on return", async () => {

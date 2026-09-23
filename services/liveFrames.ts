@@ -5,7 +5,7 @@
  */
 import { closeWarmedChannels, openRecentlyFailed, resolveChannelOrigin, warmChannel, warmedChannelCount, warmedStreamUrl, type ChannelOrigin } from "@/services/jellyfinApi";
 import { isLocalRemuxAvailable } from "@/services/localRemux";
-import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
+import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
 import { AppState, NativeModules } from "react-native";
 
@@ -79,6 +79,11 @@ function wire(): void {
     else stop();
   });
   onPlaybackHoldReleased(() => schedule(0));
+  // A channel opening needs the whole link: the grabs reading now are stopped, not waited out.
+  onPlaybackHoldTaken(() => {
+    stop();
+    for (const channelId of inFlight) void LocalRemuxer?.cancelLiveFrame?.(channelId)?.catch(() => {});
+  });
 }
 
 function running(): boolean {
@@ -240,7 +245,7 @@ async function grab(channelId: string): Promise<void> {
   const gen = generation;
   try {
     const input = await inputFor(channelId, item, now);
-    if (gen !== generation) return;
+    if (gen !== generation || isPlaybackHeld()) return;
     if (input === "later") return;
     if (!input) {
       recordFailure(item, now);

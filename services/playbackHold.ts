@@ -5,11 +5,14 @@
  */
 const owners = new Set<string>();
 const releaseListeners = new Set<() => void>();
+const takeListeners = new Set<() => void>();
 
 /** Held by whichever surface owns live playback ("video", "audio"), cleared when it ends. */
 export function setPlaybackHold(owner: string, active: boolean): void {
   if (active) {
+    const wasFree = owners.size === 0;
     owners.add(owner);
+    if (wasFree) for (const listener of [...takeListeners]) listener();
     return;
   }
   const wasHeld = owners.size > 0;
@@ -21,6 +24,12 @@ export function setPlaybackHold(owner: string, active: boolean): void {
 export function onPlaybackHoldReleased(listener: () => void): () => void {
   releaseListeners.add(listener);
   return () => releaseListeners.delete(listener);
+}
+
+/** Runs the moment the first owner takes the link, for work that must let go of it at once. */
+export function onPlaybackHoldTaken(listener: () => void): () => void {
+  takeListeners.add(listener);
+  return () => takeListeners.delete(listener);
 }
 
 /** True while playback owns the link: background work that downloads stands down. */
