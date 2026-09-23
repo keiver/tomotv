@@ -301,6 +301,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const stallFallbackRef = useRef(false);
   const retryAttemptRef = useRef(0);
   const retryProgressStartRef = useRef<number | null>(null);
+  // When the first automatic retry of this run fired; null once 30s of playback lands.
+  const retryWindowStartRef = useRef<number | null>(null);
+  const retryingForMs = useCallback(() => (retryWindowStartRef.current === null ? 0 : Date.now() - retryWindowStartRef.current), []);
   const resumePausedRef = useRef<boolean | null>(null);
   const gatewayRecoveryRef = useRef<{ token: string; attempt: number; position: number; timer: ReturnType<typeof setTimeout> } | null>(null);
   const playerErrorRef = useRef<((error: OnVideoErrorData) => void) | null>(null);
@@ -710,7 +713,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       // An attempt the viewer already left: its failure belongs to no channel on screen.
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
-      const autoRetry = shouldAutomaticallyRetry({ live: isLiveRef.current, heldOnDisk: playsFromDisk(videoId), errorType });
+      const autoRetry = shouldAutomaticallyRetry({ live: isLiveRef.current, heldOnDisk: playsFromDisk(videoId), errorType, ladderSpent: true, retryingForMs: retryingForMs() });
       probeEmit("error", { mode: "metadata", message: String(err), willRetry: autoRetry });
       dispatch({
         type: "PLAYER_ERROR",
@@ -726,7 +729,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     } catch (err) {
       failed(err);
     }
-  }, [videoId, startPositionTicks, playedAtStart, hasTriedTranscoding]);
+  }, [videoId, startPositionTicks, playedAtStart, hasTriedTranscoding, retryingForMs]);
 
   /**
    * Handle audio track switch by restarting video with new audioStreamIndex
@@ -1545,7 +1548,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           hasTriedTranscode: hasTriedTranscodingRef.current,
           ...(serverVideoDenied && mode === "localRemux" ? { retryGateway: true } : {}),
           ...(!isLiveRef.current && !playsFromDisk(videoId)
-            ? { autoRetry: !(serverVideoDenied && mode === "transcode") && shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: classifyPlaybackError(error) }) }
+            ? {
+                autoRetry:
+                  !(serverVideoDenied && mode === "transcode") &&
+                  shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: classifyPlaybackError(error), ladderSpent: hasTriedTranscodingRef.current, retryingForMs: retryingForMs() }),
+              }
             : {}),
         });
       };
@@ -1561,7 +1568,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // The flag is read from its ref, never taken as a dependency: the fallback path
     // above sets it mid-run and a dependency here re-entered this effect on top of
     // itself. `state` is what legitimately re-runs it, the retry dispatches RETRY.
-  }, [state, videoId, handOverToServer, restartAtPlayhead]);
+  }, [state, videoId, handOverToServer, restartAtPlayhead, retryingForMs]);
 
   /**
    * Step 3: Create video ref for Video component
@@ -1711,7 +1718,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                   },
                   mode: currentModeRef.current,
                   hasTriedTranscode: hasTriedTranscoding,
-                  ...(!isLiveRef.current && !playsFromDisk(videoId) ? { autoRetry: true } : {}),
+                  ...(!isLiveRef.current && !playsFromDisk(videoId)
+                    ? {
+                        autoRetry: shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: PlaybackErrorType.UNKNOWN, ladderSpent: hasTriedTranscoding, retryingForMs: retryingForMs() }),
+                      }
+                    : {}),
                 });
               });
             }
@@ -1721,7 +1732,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }, 100);
       }
     },
-    [hasTriedTranscoding, markStarted, videoId],
+    [hasTriedTranscoding, markStarted, videoId, retryingForMs],
   );
 
   const onProgress = useCallback(
@@ -1735,7 +1746,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       currentTimeRef.current = data.currentTime;
       if (retryProgressStartRef.current === null) retryProgressStartRef.current = data.currentTime;
-      if (data.currentTime - retryProgressStartRef.current >= 30) retryAttemptRef.current = 0;
+      if (data.currentTime - retryProgressStartRef.current >= 30) {
+        retryAttemptRef.current = 0;
+        retryWindowStartRef.current = null;
+      }
       const recovery = gatewayRecoveryRef.current;
       if (recovery && data.currentTime > recovery.position + PLAYHEAD_EPSILON_SEC) {
         clearTimeout(recovery.timer);
@@ -2098,11 +2112,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           mode: currentMode,
           hasTriedTranscode: hasTriedTranscodingRef.current,
           ...(decision.retryGateway ? { retryGateway: true } : {}),
-          ...(!playsFromDisk(videoId) ? { autoRetry: shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType }) } : {}),
+          ...(!playsFromDisk(videoId)
+            ? { autoRetry: shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType, ladderSpent: !willRetryWithTranscode, retryingForMs: retryingForMs() }) }
+            : {}),
         });
       });
     },
-    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead],
+    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead, retryingForMs],
   );
 
   const onError = useCallback(
@@ -2556,6 +2572,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     throughputRef.current.handedOver = false;
     stallFallbackRef.current = false;
     retryAttemptRef.current = 0;
+    retryWindowStartRef.current = null;
     retryProgressStartRef.current = null;
     resumePausedRef.current = null;
     linkCapRef.current = 0;
@@ -2744,6 +2761,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       },
       state.autoRetry ? automaticRetryDelay(retryAttemptRef.current++) : 500,
     );
+    if (state.autoRetry) retryWindowStartRef.current ??= Date.now();
 
     return () => clearTimeout(retryTimer);
   }, [skip, state]);
@@ -2848,6 +2866,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     resetPlaybackStages();
     stallFallbackRef.current = false;
     retryAttemptRef.current = 0;
+    retryWindowStartRef.current = null;
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;
     autoPlayTriggeredRef.current = false;

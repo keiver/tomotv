@@ -10,6 +10,7 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
 import { ENGINE_SEGMENT_DEADLINE_MS, LIVE_STALL_DEADLINE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
+import { AUTOMATIC_RETRY_BUDGET_MS } from "@/hooks/videoPlayback/errorRecovery";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import {
   closeLiveStream,
@@ -1816,6 +1817,45 @@ describe("useVideoPlayback (mounted)", () => {
       } finally {
         jest.useRealTimers();
       }
+    });
+
+    it("stops automatic retries at the budget and shows the error", async () => {
+      jest.useFakeTimers();
+      try {
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        const fail = async () => {
+          await act(async () => {
+            ref.current!.get().videoCallbacks.onError({ error: { errorString: "Connection reset" } } as never);
+            jest.advanceTimersByTime(1);
+          });
+        };
+        await fail();
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", autoRetry: true });
+        await act(async () => {
+          jest.advanceTimersByTime(AUTOMATIC_RETRY_BUDGET_MS);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        await fail();
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", autoRetry: false, canRetryWithTranscode: false });
+        const starts = mockTranscodeUrl.mock.calls.length;
+        await act(async () => {
+          jest.advanceTimersByTime(60_000);
+        });
+        expect(mockTranscodeUrl).toHaveBeenCalledTimes(starts);
+        await act(async () => renderer.unmount());
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("keeps a corrupt file off the retry loop once the server lane has failed too", async () => {
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onError({ error: { errorString: "The file appears to be corrupted" } } as never);
+        await new Promise((resolve) => setImmediate(resolve));
+      });
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", autoRetry: false, canRetryWithTranscode: false });
+      await act(async () => renderer.unmount());
     });
 
     it.each(["auto", "fixed"])("keeps the %s cap when a link report arrives during engine startup", async (mode) => {

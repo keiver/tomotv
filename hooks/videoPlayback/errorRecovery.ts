@@ -1,12 +1,27 @@
 import { PlaybackErrorType } from "@/utils/errorClassification";
 import type { PlaybackMode } from "./machine";
 
+/** Automatic retries stop after this long unless 30s of playback lands in between. */
+export const AUTOMATIC_RETRY_BUDGET_MS = 120_000;
+
 export function automaticRetryDelay(attempt: number): number {
   return Math.min(30_000, 500 * 2 ** Math.min(Math.max(0, attempt), 6));
 }
 
-export function shouldAutomaticallyRetry(input: { live: boolean; heldOnDisk: boolean; errorType: PlaybackErrorType }): boolean {
-  return !input.live && !input.heldOnDisk && input.errorType !== PlaybackErrorType.UNAUTHORIZED && input.errorType !== PlaybackErrorType.NOT_FOUND;
+export function shouldAutomaticallyRetry(input: { live: boolean; heldOnDisk: boolean; errorType: PlaybackErrorType; ladderSpent: boolean; retryingForMs: number }): boolean {
+  if (input.live || input.heldOnDisk || input.retryingForMs >= AUTOMATIC_RETRY_BUDGET_MS) return false;
+  switch (input.errorType) {
+    case PlaybackErrorType.UNAUTHORIZED:
+    case PlaybackErrorType.NOT_FOUND:
+    case PlaybackErrorType.PROTECTED:
+      return false;
+    // A corrupt-looking message can still be one lane's fault, until every lane has said it.
+    case PlaybackErrorType.CORRUPT:
+    case PlaybackErrorType.DECODE:
+      return !input.ladderSpent;
+    default:
+      return true;
+  }
 }
 
 export interface ErrorRecoveryInput {

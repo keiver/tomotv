@@ -10,28 +10,36 @@
  */
 
 import { PlaybackErrorType, planErrorRecovery, type ErrorRecoveryInput } from "../useVideoPlayback";
-import { automaticRetryDelay, planLiveErrorRecovery, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, planLiveErrorRecovery, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
 
 describe("automatic network recovery", () => {
   it("caps the delay without exhausting retries", () => {
     expect([0, 1, 2, 3, 4, 5, 6, 20, 1000].map(automaticRetryDelay)).toEqual([500, 1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
   });
 
-  it.each([PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT, PlaybackErrorType.STALLED, PlaybackErrorType.CORRUPT, PlaybackErrorType.DECODE, PlaybackErrorType.UNKNOWN])(
-    "keeps retrying %s rather than treating its message as proof of an unplayable file",
-    (errorType) => {
-      expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType })).toBe(true);
-    },
-  );
+  const vod = { live: false, heldOnDisk: false, ladderSpent: false, retryingForMs: 0 };
 
-  it("does not automatically retry a missing item", () => {
-    expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: PlaybackErrorType.NOT_FOUND })).toBe(false);
+  it.each([PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT, PlaybackErrorType.STALLED, PlaybackErrorType.UNKNOWN])("keeps retrying %s after every lane has failed", (errorType) => {
+    expect(shouldAutomaticallyRetry({ ...vod, errorType, ladderSpent: true })).toBe(true);
+  });
+
+  it.each([PlaybackErrorType.CORRUPT, PlaybackErrorType.DECODE])("retries %s only while a lane is left to try it", (errorType) => {
+    expect(shouldAutomaticallyRetry({ ...vod, errorType })).toBe(true);
+    expect(shouldAutomaticallyRetry({ ...vod, errorType, ladderSpent: true })).toBe(false);
+  });
+
+  it("stops once the retry budget is spent", () => {
+    expect(shouldAutomaticallyRetry({ ...vod, errorType: PlaybackErrorType.NETWORK, retryingForMs: AUTOMATIC_RETRY_BUDGET_MS - 1 })).toBe(true);
+    expect(shouldAutomaticallyRetry({ ...vod, errorType: PlaybackErrorType.NETWORK, retryingForMs: AUTOMATIC_RETRY_BUDGET_MS })).toBe(false);
+  });
+
+  it.each([PlaybackErrorType.NOT_FOUND, PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.PROTECTED])("never automatically retries %s", (errorType) => {
+    expect(shouldAutomaticallyRetry({ ...vod, errorType })).toBe(false);
   });
 
   it("leaves live and offline recovery to their existing policies", () => {
-    expect(shouldAutomaticallyRetry({ live: true, heldOnDisk: false, errorType: PlaybackErrorType.NETWORK })).toBe(false);
-    expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: true, errorType: PlaybackErrorType.NETWORK })).toBe(false);
-    expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: PlaybackErrorType.UNAUTHORIZED })).toBe(false);
+    expect(shouldAutomaticallyRetry({ ...vod, live: true, errorType: PlaybackErrorType.NETWORK })).toBe(false);
+    expect(shouldAutomaticallyRetry({ ...vod, heldOnDisk: true, errorType: PlaybackErrorType.NETWORK })).toBe(false);
   });
 });
 
