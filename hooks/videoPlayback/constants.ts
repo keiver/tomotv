@@ -26,5 +26,7 @@ export const LIVE_START_DEADLINE_MS = 45_000;
 export const VOD_OPEN_DEADLINE_MS = 25_000;
 /** A direct stream frozen this long after a buffer-empty edge is stalled, not filling. */
 export const DIRECT_STALL_DEADLINE_MS = 12_000;
+/** A live channel frozen this long after a buffer-empty edge has failed; left alone, its server transcode never ends. */
+export const LIVE_STALL_DEADLINE_MS = 60_000;
 /** Playhead movement that counts as progress rather than a frozen clock. */
 export const PLAYHEAD_EPSILON_SEC = 0.25;

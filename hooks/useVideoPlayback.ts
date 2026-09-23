@@ -107,6 +107,7 @@ import {
   ENGINE_PREFLIGHT_CAP_MS,
   ENGINE_SEGMENT_DEADLINE_MS,
   LIVE_START_DEADLINE_MS,
+  LIVE_STALL_DEADLINE_MS,
   PLAYHEAD_EPSILON_SEC,
   SLIPSTREAM_FORWARD_BUFFER_SECONDS,
   SUBTITLE_CAPTURE_SETTLE_MS,
@@ -211,6 +212,7 @@ export interface VideoPlaybackResult {
     onError: (error: OnVideoErrorData) => void;
     onEnd: () => void;
     onSeek: () => void;
+    onBuffer: (data: { isBuffering: boolean }) => void;
     onAudioTracks: (data: { audioTracks: AudioTrack[] }) => void;
     onTextTracks: (data: { textTracks: TextTrack[] }) => void;
     onPlaybackStateChanged: (event: OnPlaybackStateChangedData) => void;
@@ -373,6 +375,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const currentTimeRef = useRef(0);
   const durationRef = useRef(0);
   const isPlayingRef = useRef(false);
+  // What AVPlayer is doing, for the server reports: AVKit's own play and pause never reach `paused`.
+  const playerPlayingRef = useRef(false);
 
   // Ref mirror of `paused` for native callbacks that fire outside the render cycle
   const pausedRef = useRef(true);
@@ -550,7 +554,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // A channel the engine could not play opens on the server now, for its transcode.
       if (isLiveSource(details) && liveLaneRef.current === "server" && !details.liveTranscodeUrl) {
         setPlaybackStage("opening");
+        // Every open is one consumer the server counts; the engine's is released for the server's.
+        const engineOpen = details.LiveStreamId;
         details = await openChannel(videoId, details, { serverOnly: true });
+        if (engineOpen) void closeLiveStream(engineOpen);
         if (requestIdRef.current !== currentRequestId) {
           void closeLiveStream(details.LiveStreamId);
           return;
@@ -904,6 +911,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // Its own function for the same reason as the lanes below: no value block may sit in a try.
         const openChannelOnServer = async (): Promise<string | null> => {
           const opened = await openChannel(videoId, details, { serverOnly: true });
+          // The engine's open is one consumer the server counts; released for the server's.
+          if (liveStreamIdRef.current) void closeLiveStream(liveStreamIdRef.current);
+          liveStreamIdRef.current = null;
           if (requestIdRef.current !== currentRequestId) {
             void closeLiveStream(opened.LiveStreamId);
             return null;
@@ -1472,6 +1482,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         retryProgressStartRef.current = null;
         setSelectedSubtitleTrack(null);
         setPlaybackStage("player");
+        // A new stream remounts the player, which starts paused; a live reload keeps the one player.
+        if (!isLiveRef.current) playerPlayingRef.current = false;
         streamGenerationRef.current += 1;
         streamUrlRef.current = url;
         setStreamUrl(url);
@@ -1561,7 +1573,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     durationRef,
     mediaSourceIdRef,
     playSessionIdRef,
-    isPlayingRef,
+    isPlayingRef: playerPlayingRef,
     currentModeRef,
     audioStreamIndexRef: audioStreamIndexForReportingRef,
     wasPlayedAtStartRef,
@@ -1793,6 +1805,28 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       syncPlayManager.noteBuffering(data.isBuffering, currentTimeRef.current);
       // Diagnostics and the ABR drill score stalls from these edges; nothing else emitted them.
       probeEmit("buffering", { on: data.isBuffering, position: Math.round(currentTimeRef.current) });
+      // A frozen live channel raises no error and reports nothing, so the server's transcode for it
+      // never ends; past the deadline it fails into the live ladder like any other live error.
+      if (isLiveRef.current) {
+        if (data.isBuffering && stallWatchRef.current == null) {
+          const attempt = requestIdRef.current;
+          const pos = currentTimeRef.current;
+          stallWatchRef.current = {
+            pos,
+            timer: setTimeout(() => {
+              stallWatchRef.current = null;
+              if (!isMountedRef.current || requestIdRef.current !== attempt) return;
+              if (Math.abs(currentTimeRef.current - pos) > PLAYHEAD_EPSILON_SEC) return;
+              logger.warn("Live channel stalled", { service: "useVideoPlayback", lane: currentModeRef.current, seconds: LIVE_STALL_DEADLINE_MS / 1000 });
+              playerErrorRef.current?.({ error: { errorString: `live playback stalled for ${LIVE_STALL_DEADLINE_MS / 1000}s` } } as OnVideoErrorData);
+            }, LIVE_STALL_DEADLINE_MS),
+          };
+        } else if (!data.isBuffering && stallWatchRef.current != null) {
+          clearTimeout(stallWatchRef.current.timer);
+          stallWatchRef.current = null;
+        }
+        return;
+      }
       // Direct-lane stall watchdog. Buffer-empty is AVPlayer's own starvation
       // signal (isPlaybackBufferEmpty KVO, fires for progressive assets, and
       // a user pause cannot raise it: only handlePlaybackBufferKeyEmpty sets the
@@ -1888,6 +1922,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         dropThroughputWatch(throughputRef.current);
         void closeLiveStream(liveStreamIdRef.current);
         liveStreamIdRef.current = null;
+        // With no rung left the Stopped report is what ends the server's transcode for this play.
+        if (!retry) resetPlaybackSessionRef.current?.();
         const attempt = requestIdRef.current;
         setImmediate(() => {
           if (!isMountedRef.current || requestIdRef.current !== attempt) return;
@@ -2750,9 +2786,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   // A viewer touching AVKit's own transport surfaces here; the manager forwards it to
   // the group. Player changes the manager itself caused are marked and ignored.
-  const onPlaybackStateChanged = useCallback((event: OnPlaybackStateChangedData) => {
-    syncPlayManager.notePlaybackState(event);
-  }, []);
+  const onPlaybackStateChanged = useCallback(
+    (event: OnPlaybackStateChangedData) => {
+      syncPlayManager.notePlaybackState(event);
+      playerPlayingRef.current = event.isPlaying;
+      reportPauseChange(!event.isPlaying);
+    },
+    [reportPauseChange],
+  );
 
   const onBandwidthUpdate = useCallback((event: OnBandwidthUpdateData) => {
     if (!isMountedRef.current || Platform.OS !== "ios" || !Number.isFinite(event.bitrate) || event.bitrate <= 0) return;

@@ -9,7 +9,7 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
-import { ENGINE_SEGMENT_DEADLINE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
+import { ENGINE_SEGMENT_DEADLINE_MS, LIVE_STALL_DEADLINE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import {
   closeLiveStream,
@@ -49,8 +49,9 @@ import { observedFromReport } from "@/services/subtitlePreference";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { stop: jest.fn(() => Promise.resolve()) } }));
+const mockResetSession = jest.fn();
 jest.mock("@/hooks/usePlaybackReporter", () => ({
-  usePlaybackReporter: () => ({ markStarted: jest.fn(), markEnded: jest.fn(), reportPauseChange: jest.fn(), resetSession: jest.fn() }),
+  usePlaybackReporter: () => ({ markStarted: jest.fn(), markEnded: jest.fn(), reportPauseChange: jest.fn(), resetSession: mockResetSession }),
 }));
 
 jest.mock("@/services/jellyfinApi", () => ({
@@ -849,6 +850,72 @@ describe("useVideoPlayback (mounted)", () => {
       expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
       expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
       expect(closeLiveStream).not.toHaveBeenCalled();
+    });
+
+    it("releases the engine's open when the channel moves to the server, so the server counts one consumer", async () => {
+      mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
+      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined, LiveStreamId: "ls-2" }));
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(closeLiveStream).toHaveBeenCalledWith("ls-1");
+      expect(closeLiveStream).not.toHaveBeenCalledWith("ls-2");
+    });
+
+    it("fails a server-lane channel frozen past the stall deadline and closes its report session", async () => {
+      mockDetails.mockResolvedValue(originChannel());
+      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
+      const { ref } = await mount({ videoId: "video-1" });
+      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+
+      jest.useFakeTimers();
+      try {
+        mockResetSession.mockClear();
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onBuffer({ isBuffering: true });
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(LIVE_STALL_DEADLINE_MS - 1_000);
+        });
+        expect(ref.current!.get().state.type).not.toBe("ERROR");
+        expect(mockResetSession).not.toHaveBeenCalled();
+
+        await act(async () => {
+          jest.advanceTimersByTime(1_100);
+          for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+        });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+        expect(mockResetSession).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("keeps a live channel whose playhead moves again inside the stall deadline", async () => {
+      mockDetails.mockResolvedValue(originChannel());
+      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
+      const { ref } = await mount({ videoId: "video-1" });
+
+      jest.useFakeTimers();
+      try {
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onBuffer({ isBuffering: true });
+          jest.advanceTimersByTime(10_000);
+          ref.current!.get().videoCallbacks.onBuffer({ isBuffering: false });
+          jest.advanceTimersByTime(LIVE_STALL_DEADLINE_MS);
+          for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+        });
+        expect(ref.current!.get().state.type).not.toBe("ERROR");
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it("moves an origin channel to the server after its second drop, opening it only then", async () => {
