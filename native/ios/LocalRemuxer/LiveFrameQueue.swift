@@ -158,11 +158,14 @@ final class LiveFrameQueue {
         return cancelled.contains(channelId)
     }
 
-    /// The channel keeps one burst: the one just written.
+    /// The channel keeps the burst just written and the one before it: a card can still be loading
+    /// a frame of the last burst when the new one lands.
     private static func removeOthers(in directory: URL, keeping kept: [URL]) {
         guard let entries = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
-        let names = Set(kept.map(\.lastPathComponent))
-        for entry in entries where entry.lastPathComponent.hasPrefix(filePrefix) && !names.contains(entry.lastPathComponent) {
+        let frames = entries.filter { $0.lastPathComponent.hasPrefix(filePrefix) }
+        let keptStamp = kept.first.map(stamp) ?? 0
+        let previous = frames.map(stamp).filter { $0 < keptStamp }.max()
+        for entry in frames where stamp(entry) != keptStamp && stamp(entry) != previous {
             try? FileManager.default.removeItem(at: entry)
         }
     }

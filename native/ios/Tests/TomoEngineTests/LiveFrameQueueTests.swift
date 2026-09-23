@@ -107,7 +107,7 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(left, urls.map(\.lastPathComponent).sorted())
     }
 
-    func testEachGrabReplacesTheChannelsLastBurst() throws {
+    func testEachGrabKeepsTheChannelsLastTwoBursts() throws {
         let stream = try midGopStream()
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -117,8 +117,11 @@ final class LiveFrameQueueTests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.01)
         guard case .frames(let second, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no second burst") }
         XCTAssertNotEqual(first, second, "a live grab is never served from the directory")
-        let left = try FileManager.default.contentsOfDirectory(atPath: first[0].deletingLastPathComponent().path).sorted()
-        XCTAssertEqual(left, second.map(\.lastPathComponent).sorted())
+        let directory = first[0].deletingLastPathComponent().path
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory).sorted(), (first + second).map(\.lastPathComponent).sorted(), "the burst a card may still be loading stays")
+        Thread.sleep(forTimeInterval: 0.01)
+        guard case .frames(let third, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no third burst") }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory).sorted(), (second + third).map(\.lastPathComponent).sorted())
     }
 
     func testTheNewestBurstOnDiskAnswersForAChannelBeforeAnyGrab() throws {
