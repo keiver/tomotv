@@ -92,29 +92,25 @@
       }
     },
     {
-      "id": "04-grid",
-      "title": "MKV, 4K, HDR\nDOLBY VISION",
-      "spec": "minimal transcoding",
+      "id": "04-livetv",
+      "title": "LIVE TV FROM\nYOUR TUNER",
+      "spec": "guide · channels · favorites",
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
-        "path": "/{library:Films}",
-        "params": {
-          "name": "Films",
-          "type": "movies"
-        }
+        "path": "/live-tv"
       },
       "l10n": {
         "de": {
-          "title": "MKV, 4K, HDR\nDOLBY VISION",
-          "spec": "kaum transkodierung"
+          "title": "LIVE-TV VON\nDEINEM TUNER",
+          "spec": "programm · kanäle · favoriten"
         },
         "fr": {
-          "title": "MKV, 4K, HDR\nDOLBY VISION",
-          "spec": "transcodage minimal"
+          "title": "TV EN DIRECT\nET SON GUIDE",
+          "spec": "guide · chaînes · favoris"
         },
         "es": {
-          "title": "MKV, 4K, HDR\nDOLBY VISION",
-          "spec": "conversión mínima"
+          "title": "TV EN VIVO\nCON GUÍA",
+          "spec": "guía · canales · favoritos"
         }
       }
     },
