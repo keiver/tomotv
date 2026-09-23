@@ -158,6 +158,7 @@ export interface JellyfinVideoItem {
   Path: string;
   MediaStreams?: JellyfinMediaStream[];
   MediaSources?: JellyfinMediaSource[];
+  MediaSourceCount?: number; // Fields-gated (ItemFields.MediaSourceCount); omitted when 1
   Overview?: string;
   PremiereDate?: string;
   ProductionYear?: number;

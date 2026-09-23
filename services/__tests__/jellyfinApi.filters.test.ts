@@ -51,9 +51,10 @@ describe("library filters (issue #54)", () => {
 
   const emptyItemsResponse = { Items: [], TotalRecordCount: 0, StartIndex: 0 };
 
+  // An empty browse follows up with a lookup of the folder itself at /Items/{id} (numberlessSeasonFiles); skip it.
   function lastRequestUrl(): URL {
-    const calls = (global.fetch as jest.Mock).mock.calls;
-    return new URL(calls[calls.length - 1][0] as string);
+    const urls = (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string)).filter((url) => !/\/Items\/[^/]+$/.test(url.pathname));
+    return urls[urls.length - 1];
   }
 
   describe("fetchFolderContents with filters", () => {
