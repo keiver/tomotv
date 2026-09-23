@@ -231,15 +231,14 @@ export default function RootLayout() {
                               : { headerShown: false, presentation: "modal" }
                         }
                       />
-                      {/* The guide's program panel: the same presentation as video-info on every platform. */}
+                      {/* The guide's program panel: a card sized to its content over the screen's own backdrop
+                      (centred on iPad, on the bottom edge on iPhone), a floating card on TV. */}
                       <Stack.Screen
                         name="program-info"
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : Platform.OS === "ios" && Platform.isPad
-                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
-                              : { headerShown: false, presentation: "modal" }
+                            : { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
                         }
                       />
                       {/* The guide's Recordings, Channels and Schedule: TV crossfades like program-info, phone

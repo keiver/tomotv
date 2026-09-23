@@ -1,5 +1,4 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FocusableButton } from "@/components/FocusableButton";
 import { GlassSurface } from "@/components/glass-surface";
 import { LoadingRow } from "@/components/loading-row";
@@ -19,10 +18,9 @@ import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-// iPad presents the panel over the app, so the screen owns its own backdrop and close.
+// Off TV the panel is presented over the app, so the screen owns its own backdrop and close.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 
 type Busy = "record" | "series" | "cancel" | "cancelSeries" | null;
@@ -35,7 +33,6 @@ type Busy = "record" | "series" | "cancel" | "cancelSeries" | null;
 export default function ProgramInfoScreen() {
   const params = useLocalSearchParams<{ programId: string; channelId?: string; channelName?: string }>();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { showGlobalLoader } = useLoadingActions();
   const [program, setProgram] = useState<JellyfinProgram | null>(null);
   const [timer, setTimer] = useState<JellyfinTimer | null>(null);
@@ -213,18 +210,12 @@ export default function ProgramInfoScreen() {
       </View>
     );
   }
-  if (IS_PAD) {
-    return (
-      <PadSheet onClose={() => router.back()}>
-        <ScrollView contentContainerStyle={[styles.phoneContent, styles.padContent, { paddingBottom: 24 + insets.bottom }]}>{content}</ScrollView>
-      </PadSheet>
-    );
-  }
   return (
-    <View style={styles.phoneRoot}>
-      <ScrollView contentContainerStyle={[styles.phoneContent, { paddingBottom: 24 + insets.bottom }]}>{content}</ScrollView>
-      <CloseOverlayButton onPress={() => router.back()} style={{ position: "absolute", top: 12, right: 12 + insets.right }} accessibilityHint={t("info.closeHint")} />
-    </View>
+    <PadSheet onClose={() => router.back()} closeHint={t("info.closeHint")} fit={IS_PAD ? "center" : "bottom"}>
+      <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+        {content}
+      </ScrollView>
+    </PadSheet>
   );
 }
 
@@ -242,19 +233,13 @@ const styles = StyleSheet.create({
     padding: 56,
     gap: 14,
   },
-  phoneRoot: {
-    flex: 1,
-    backgroundColor: COLORS.BACKGROUND,
+  // flexGrow 0 lets the card shrink to its content, scrolling only past the sheet's max height.
+  sheetScroll: {
+    flexGrow: 0,
   },
-  // Top padding clears the floating close, which the headline would otherwise run under.
-  phoneContent: {
-    paddingHorizontal: 24,
-    paddingTop: 60,
+  sheetContent: {
+    padding: 24,
     gap: 10,
-  },
-  // Clear of the sheet's floating close, which the headline would otherwise run under.
-  padContent: {
-    paddingTop: 68,
   },
 
   status: {
@@ -273,9 +258,11 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: IS_TV ? 36 : 16,
   },
+  // Off TV the right margin clears the card's floating close (12 + 44 from the edge).
   headlineText: {
     flex: 1,
     gap: IS_TV ? 14 : 10,
+    marginRight: IS_TV ? 0 : 36,
   },
   poster: {
     width: IS_TV ? 260 : 110,
