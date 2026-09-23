@@ -46,6 +46,9 @@ All notable changes to Tomo TV are documented here.
 - A file the server no longer has shows its error at once instead of being retried through the server first
 - The loading stage line under the spinner shows in every build
 - On iPhone and iPad a folder stays put when the Show in Folder target already sits in view
+- A video that keeps failing stops retrying after two minutes and shows its error, and a file every lane reports as corrupt shows it at once instead of being retried through the server forever
+- With Favorites only on, a channel wall page that fails to load waits before it is asked for again instead of being requested back to back
+- Recordings filters search every recordings library on the server, not only the first
 
 ## [2.2.6]
 
