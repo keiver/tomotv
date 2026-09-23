@@ -100,6 +100,10 @@ describe("keptForReason", () => {
     expect(keptForReason({ ...base, live: true, liveHasServerRung: true })).toBeNull();
   });
 
+  it("keeps a live channel whose segment waited on the feed: a live input arrives at 1x", () => {
+    expect(keptForReason({ ...base, live: true, liveHasServerRung: true, readBound: true })).toBe("live");
+  });
+
   it("keeps a session carrying a declared tier: its primary is never the startup gate", () => {
     expect(keptForReason({ ...base, tierDeclared: true })).toBe("tier");
   });

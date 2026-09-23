@@ -1137,7 +1137,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               belowRealtime: under,
               live: isLiveRef.current,
               // The channel's own rung, opened only when one is needed to decide.
-              liveHasServerRung: under && isLiveRef.current ? (await openLiveServerRung()) !== null : false,
+              liveHasServerRung: under && isLiveRef.current && !readBound(sample) ? (await openLiveServerRung()) !== null : false,
               tierDeclared: tierDeclaredFor(token),
               readBound: sample !== null && readBound(sample),
               serverTranscodingAllowed: !serverVideoDenied,

@@ -126,7 +126,8 @@ export interface KeptForInput {
  */
 export function keptForReason(input: KeptForInput): "tier" | "live" | "link" | "noServer" | null {
   if (!input.belowRealtime) return null;
-  if (input.live) return input.liveHasServerRung ? null : "live";
+  // A live feed arrives at 1x, so a read-bound segment timed the broadcast, not the device.
+  if (input.live) return input.liveHasServerRung && !input.readBound ? null : "live";
   if (input.tierDeclared) return "tier";
   if (input.readBound) return "link";
   if (input.serverTranscodingAllowed === false) return "noServer";
