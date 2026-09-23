@@ -12,7 +12,7 @@ import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { t } from "@/services/i18n";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
+import { formatClock, formatDayLabel, isActiveTimer, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -46,7 +46,7 @@ export default function ProgramInfoScreen() {
 
   const loadTimer = useCallback(async () => {
     const timers = await fetchTimers();
-    setTimer(timers.find((candidate) => candidate.ProgramId === params.programId && candidate.Status !== "Cancelled") ?? null);
+    setTimer(timers.find((candidate) => candidate.ProgramId === params.programId && isActiveTimer(candidate)) ?? null);
   }, [params.programId]);
 
   useEffect(() => {
@@ -99,6 +99,7 @@ export default function ProgramInfoScreen() {
   const when = program ? `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)} to ${formatClock(endMs)}` : "";
   const category = program ? programCategory(program) : null;
   const inSeries = !!timer?.SeriesTimerId;
+  const recordingNow = timer?.Status === "InProgress";
 
   const content = failed ? (
     <View style={styles.status}>
@@ -133,7 +134,7 @@ export default function ProgramInfoScreen() {
               {timer ? (
                 <View style={styles.recordingTag}>
                   <View style={styles.recordingDot} />
-                  <Text style={styles.recordingTagText}>{timer.Status === "InProgress" ? t("liveTv.recordingNow") : inSeries ? t("liveTv.seriesRules") : t("liveTv.record")}</Text>
+                  <Text style={styles.recordingTagText}>{recordingNow ? t("liveTv.recordingNow") : inSeries ? t("liveTv.seriesRules") : t("liveTv.record")}</Text>
                 </View>
               ) : null}
             </View>
@@ -154,12 +155,12 @@ export default function ProgramInfoScreen() {
         ) : null}
         {!canManage ? null : timer ? (
           <FocusableButton
-            title={t("liveTv.cancelRecording")}
+            title={recordingNow ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
             variant="secondary"
             hasTVPreferredFocus={!airing}
             isLoading={busy === "cancel"}
             disabled={busy !== null}
-            icon={<Ionicons name="close-circle-outline" size={IS_TV ? 30 : 20} color={COLORS.ACCENT} />}
+            icon={<Ionicons name={recordingNow ? "stop-circle-outline" : "close-circle-outline"} size={IS_TV ? 30 : 20} color={COLORS.ACCENT} />}
             onPress={handleCancel}
             style={styles.button}
           />

@@ -1,4 +1,4 @@
-import { adjacentChannelId, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
+import { adjacentChannelId, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isActiveTimer, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
 
 const tv = guideMetrics(true);
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -67,6 +67,13 @@ describe("guide geometry", () => {
     expect(isAiring(program, T0 + MINUTE_MS)).toBe(true);
     expect(isAiring(program, T0 + 60 * MINUTE_MS)).toBe(false);
     expect(isAiring({}, T0)).toBe(false);
+  });
+
+  it("counts a timer as active until it is cancelled or completed", () => {
+    expect(isActiveTimer({ Status: "New" })).toBe(true);
+    expect(isActiveTimer({ Status: "InProgress" })).toBe(true);
+    expect(isActiveTimer({ Status: "Completed" })).toBe(false);
+    expect(isActiveTimer({ Status: "Cancelled" })).toBe(false);
   });
 
   it("lands a vertical move on the cell under the edge, else the first after it", () => {

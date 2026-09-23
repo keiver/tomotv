@@ -8,6 +8,7 @@ import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { fetchLiveTvManagement, fetchSeriesTimers, fetchTimers } from "@/services/jellyfinApi";
 import type { JellyfinSeriesTimer, JellyfinTimer } from "@/types/jellyfin";
+import { isActiveTimer } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
@@ -75,7 +76,7 @@ export default function ScheduleScreen() {
 
   const scheduled = useMemo<ScheduledEntry[]>(() => {
     const entries: ScheduledEntry[] = [];
-    const live = schedule.timers.filter((timer) => timer.Status !== "Cancelled");
+    const live = schedule.timers.filter(isActiveTimer);
     const running = live.filter((timer) => timer.Status === "InProgress");
     const upcoming = live.filter((timer) => timer.Status !== "InProgress").sort((a, b) => Date.parse(a.StartDate) - Date.parse(b.StartDate));
     if (running.length > 0) {

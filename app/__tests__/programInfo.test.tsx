@@ -127,4 +127,18 @@ describe("ProgramInfoScreen", () => {
     expect(cancelTimer).toHaveBeenCalledWith("t2");
     expect(buttons(tree)).toEqual(["Record", "Record Series"]);
   });
+
+  it("stops an in-progress recording, then records the program again as a fresh timer", async () => {
+    (fetchProgram as jest.Mock).mockResolvedValue(airing);
+    (fetchTimers as jest.Mock)
+      .mockResolvedValueOnce([{ Id: "t4", Name: "Football Live", ProgramId: "p1", StartDate: airing.StartDate, EndDate: airing.EndDate, Status: "InProgress" }])
+      .mockResolvedValueOnce([{ Id: "t4", Name: "Football Live", ProgramId: "p1", StartDate: airing.StartDate, EndDate: airing.EndDate, Status: "Completed" }]);
+    const tree = await mount();
+    expect(buttons(tree)).toEqual(["Watch", "Stop Recording", "Record Series"]);
+    await press(tree, "Stop Recording");
+    expect(cancelTimer).toHaveBeenCalledWith("t4");
+    expect(buttons(tree)).toEqual(["Watch", "Record", "Record Series"]);
+    await press(tree, "Record");
+    expect(createTimer).toHaveBeenCalledWith({ ProgramId: "p1", Name: "Football Live" });
+  });
 });

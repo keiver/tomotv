@@ -2,7 +2,7 @@ import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { fetchChannels, fetchGuidePrograms, fetchTimers } from "@/services/jellyfinApi";
 import { channelSortParam, favoriteChannels } from "@/services/liveTvPreferences";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS } from "@/utils/guide";
+import { GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, MINUTE_MS } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -228,7 +228,7 @@ export function useGuide(): GuideState {
   const timersByProgramId = useMemo(() => {
     const map = new Map<string, JellyfinTimer>();
     for (const timer of timers) {
-      if (!timer.ProgramId || timer.Status === "Cancelled") continue;
+      if (!timer.ProgramId || !isActiveTimer(timer)) continue;
       map.set(timer.ProgramId, timer);
     }
     return map;

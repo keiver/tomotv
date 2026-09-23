@@ -3,7 +3,7 @@
  * canvas and its tests share one source of truth.
  */
 import { GRID, slotCardPadding } from "@/constants/app";
-import type { JellyfinProgram } from "@/types/jellyfin";
+import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 
 export const MINUTE_MS = 60_000;
 export const TICK_MINUTES = 30;
@@ -101,6 +101,11 @@ export function cellAtEdge<T extends Pick<JellyfinProgram, "StartDate" | "EndDat
     if (startMs > edgeMs && (!next || startMs < programTimes(next).startMs)) next = program;
   }
   return next ?? programs[programs.length - 1];
+}
+
+/** A timer still scheduled or recording. */
+export function isActiveTimer(timer: Pick<JellyfinTimer, "Status">): boolean {
+  return timer.Status !== "Cancelled" && timer.Status !== "Completed";
 }
 
 export function isAiring(program: Pick<JellyfinProgram, "StartDate" | "EndDate">, nowMs: number): boolean {
