@@ -155,14 +155,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.SURFACE,
     borderRightWidth: 1,
     borderColor: GRID_LINE,
-    overflow: "hidden",
   },
-  // Drawn inside the cell, not as its border: a border would take a pixel off the content box and nudge the label.
+  // Its own view, not the cell's border (that would nudge the label), spanning both grid lines so it
+  // meets the ruler's marks; the cell leaves it unclipped for the previous cell's line.
   focusRing: {
     position: "absolute",
     top: 0,
-    left: 0,
-    right: 0,
+    left: -1,
+    right: -1,
     bottom: 0,
     borderWidth: IS_TV ? 2 : 1,
     borderColor: COLORS.ACCENT,

@@ -176,10 +176,8 @@ function ChannelMorph({
 }
 
 const styles = StyleSheet.create({
-  // Phone draws the seam in the resize divider so the grip sits on it; TV keeps its own border.
+  // The seam is drawn over the grid by the canvas (TV) or the resize divider (phone), since the grid reaches under it.
   column: {
-    borderRightWidth: IS_TV ? 1 : 0,
-    borderRightColor: GRID_LINE,
     overflow: "hidden",
   },
   // The card keeps its full width and is clipped by the column as it narrows; it shrinks from its left edge.

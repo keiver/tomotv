@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
 import { GuideColumnDivider } from "@/components/live-tv/guide-column-divider";
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
@@ -23,6 +24,8 @@ const METRICS = guideMetrics(IS_TV);
 const LIST_BOTTOM_PAD = IS_TV ? 0 : 200;
 /** The floating tab bar the phone list scrolls under; matches home-shelves. */
 const TAB_BAR_HEIGHT = 49;
+/** The grid reaches this far under the channel column, the width of the grid line on the seam. */
+const SEAM_REACH = 1;
 
 interface GuideCanvasProps {
   guide: GuideState;
@@ -223,9 +226,11 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
           showsHorizontalScrollIndicator={false}
           bounces={false}
           style={styles.scroll}
-          contentContainerStyle={{ width: spanPx }}>
-          <View style={{ width: spanPx, height: canvasHeight }}>
-            <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
+          contentContainerStyle={{ width: spanPx + SEAM_REACH }}>
+          <View style={{ width: spanPx + SEAM_REACH, height: canvasHeight }}>
+            <View style={{ marginLeft: SEAM_REACH }}>
+              <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
+            </View>
             <Animated.FlatList
               ref={rowsRef}
               data={rows}
@@ -245,12 +250,13 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
               maxToRenderPerBatch={4}
               updateCellsBatchingPeriod={16}
               windowSize={7}
-              style={{ height: listHeight, width: spanPx }}
-              contentContainerStyle={{ paddingBottom: LIST_BOTTOM_PAD }}
+              style={{ height: listHeight, width: spanPx + SEAM_REACH }}
+              contentContainerStyle={{ paddingBottom: LIST_BOTTOM_PAD, paddingLeft: SEAM_REACH }}
             />
           </View>
         </Animated.ScrollView>
       </View>
+      {IS_TV ? <View style={[styles.seam, { left: METRICS.channelColumnWidth - 1 }]} pointerEvents="none" /> : null}
       {IS_TV ? null : (
         <GuideColumnDivider
           columnW={columnW}
@@ -273,11 +279,20 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
   },
+  // Reaches back over the seam so a cell's focus ring can cover it; the content pads the same back.
   scrollHost: {
     flex: 1,
+    marginLeft: -SEAM_REACH,
   },
   scroll: {
     flex: 1,
+  },
+  seam: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: GRID_LINE,
   },
   center: {
     flex: 1,

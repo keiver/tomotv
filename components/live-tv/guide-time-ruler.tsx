@@ -6,7 +6,7 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 export const RULER_RED = COLORS.DESTRUCTIVE;
-export const MAJOR_MARK_WIDTH = 3;
+export const MAJOR_MARK_WIDTH = 1;
 export const MAJOR_MARK_HEIGHT = IS_TV ? 16 : 10;
 export const HOUR_MARK_HEIGHT = IS_TV ? 26 : 16;
 const NOW_EDGE = IS_TV ? 3 : 2;
@@ -23,7 +23,7 @@ interface GuideTimeRulerProps {
 
 /**
  * A red scale over the canvas, gold up to now; the only place "now" is drawn, never over a cell.
- * A cell's edge is the previous cell's 1px right border, one pixel left of its offset: marks centre on it.
+ * A cell's edge is the previous cell's 1px right border, one pixel left of its offset: marks sit on it, as wide as it.
  */
 export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, nowMs }: GuideTimeRulerProps) {
   const ticks = rulerTicks(windowStartMs, windowEndMs, metrics);
@@ -36,7 +36,7 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
         tick.isMinor ? (
           <View key={tick.atMs} style={[styles.minorMark, { left: Math.max(0, tick.left - 1) }]} />
         ) : (
-          <View key={tick.atMs} style={[styles.tick, { left: Math.max(0, tick.left - 2) }]}>
+          <View key={tick.atMs} style={[styles.tick, { left: Math.max(0, tick.left - 1) }]}>
             {/* The first mark is painted over the seam by GuideSeamMark; this one keeps the label's place. */}
             <View style={[styles.majorMark, tick.isHour && styles.hourMark, index === 0 && styles.hidden]} />
             <Text style={[styles.tickLabel, tick.isHour && styles.tickLabelHour]} numberOfLines={1}>
@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
     color: RED,
     fontSize: IS_TV ? 18 : 11,
     fontWeight: "600",
-    paddingBottom: IS_TV ? 6 : 3,
+    paddingBottom: IS_TV ? 10 : 8,
   },
   tickLabelHour: {
     fontSize: IS_TV ? 20 : 12,
