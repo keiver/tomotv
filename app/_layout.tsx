@@ -9,6 +9,7 @@ import { preloadAmbientBackgrounds } from "@/components/ambient-background";
 import { AudioMiniPlayer } from "@/components/audio-mini-player";
 import { downloadManager } from "@/services/downloads/manager";
 import { flushOfflinePositions } from "@/services/downloads/offlineProgress";
+import { closeLeftoverOpens } from "@/services/jellyfin/liveTv";
 import { resetPlaybackReportBackoff } from "@/services/jellyfin/playback";
 import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -84,6 +85,8 @@ export default function RootLayout() {
     // Reconciles the download manifest with the files on disk. Playback asks isReady()
     // synchronously, so it has to be true before any route can start something.
     void downloadManager.hydrate().then(() => flushOfflinePositions());
+    // Tuner streams a previous run opened and never closed: the server holds them until told.
+    void closeLeftoverOpens();
     // Background link measurement so playback routing reads warm memory
     // instead of ever probing on the session-start path.
     warmBitrateMemory();

@@ -50,8 +50,13 @@ import { observedFromReport } from "@/services/subtitlePreference";
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { stop: jest.fn(() => Promise.resolve()) } }));
 const mockResetSession = jest.fn();
+/** What the hook hands the reporter: the refs its reports read identity from. */
+const mockReporterArgs: { current: { liveStreamIdRef?: { current: string | null }; isLiveRef?: { current: boolean } } | null } = { current: null };
 jest.mock("@/hooks/usePlaybackReporter", () => ({
-  usePlaybackReporter: () => ({ markStarted: jest.fn(), markEnded: jest.fn(), reportPauseChange: jest.fn(), resetSession: mockResetSession }),
+  usePlaybackReporter: (args: { liveStreamIdRef?: { current: string | null }; isLiveRef?: { current: boolean } }) => {
+    mockReporterArgs.current = args;
+    return { markStarted: jest.fn(), markEnded: jest.fn(), reportPauseChange: jest.fn(), resetSession: mockResetSession };
+  },
 }));
 
 jest.mock("@/services/jellyfinApi", () => ({
@@ -865,6 +870,19 @@ describe("useVideoPlayback (mounted)", () => {
       expect(closeLiveStream).not.toHaveBeenCalledWith("ls-2");
     });
 
+    it("reports the server's open as the session's live stream once the channel is on the server lane", async () => {
+      mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
+      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined, LiveStreamId: "ls-2" }));
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(mockReporterArgs.current?.isLiveRef?.current).toBe(true);
+      expect(mockReporterArgs.current?.liveStreamIdRef?.current).toBe("ls-2");
+    });
+
     it("fails a server-lane channel frozen past the stall deadline and closes its report session", async () => {
       mockDetails.mockResolvedValue(originChannel());
       (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
@@ -940,6 +958,7 @@ describe("useVideoPlayback (mounted)", () => {
       await dropAndRetry();
       expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
       expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(mockReporterArgs.current?.liveStreamIdRef?.current).toBe("ls-1");
     });
 
     it("fails a warming ring session that already ended at once, instead of waiting out the pre-flight", async () => {

@@ -41,8 +41,8 @@ export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupp
 export {
   cancelSeriesTimer,
   cancelTimer,
+  closeLeftoverOpens,
   closeLiveStream,
-  closeWarmedChannels,
   createSeriesTimer,
   createTimer,
   fetchChannels,
@@ -54,15 +54,11 @@ export {
   fetchSeriesTimers,
   fetchTimerDefaults,
   fetchTimers,
-  isServerLaneChannel,
   noteOpenFailed,
   openChannel,
   openRecentlyFailed,
   resolveChannel,
   resolveChannelOrigin,
-  warmChannel,
-  warmedChannelCount,
-  warmedStreamUrl,
 } from "./jellyfin/liveTv";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
 export type { ChannelOrigin } from "./jellyfin/liveTv";

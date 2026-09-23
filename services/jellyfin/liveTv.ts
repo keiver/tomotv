@@ -9,6 +9,7 @@ import { setPlaybackStage } from "@/services/playbackStage";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
+import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
 import { getAuthHeader, getConfig, throwRequestError } from "./session";
 
 const LIVE_BITRATE_CAP = 200_000_000;
@@ -148,32 +149,9 @@ async function originVariantUrl(masterUrl: string, headers: Record<string, strin
   return variant ?? masterUrl;
 }
 
-/** Streams warmed for a flip: the server keeps an opened live stream and re-opens it instantly. */
-const warmedAt = new Map<string, number>();
-const warming = new Set<string>();
-const WARM_TTL_MS = 120_000;
-/** A warm open's stream and the server it was opened against; the close must reach that same server. */
-interface WarmStream {
-  liveStreamId: string;
-  /** The stream through the server, what a frame grab reads while the open is held. */
-  url: string;
-  server: string;
-  deviceId: string;
-  apiKey: string;
-}
-/** The warm opens by channel: each is one consumer the server counts until it is closed. */
-const warmedStreams = new Map<string, WarmStream>();
-/** Warms still opening when their owner left: closed the moment they land instead of kept. */
-const discardOnArrival = new Set<string>();
-/** A channel whose open failed or timed out is left out of warming for this long: a dead origin can hang the server's probe. */
+/** A channel whose open failed or timed out is left out of the ring and the sampler for this long: a dead origin can hang the server's probe. */
 const OPEN_FAILURE_TTL_MS = 10 * 60_000;
 const openFailedAt = new Map<string, number>();
-/** Channels this session opened on the server: the only ones a warm open speeds up. */
-const serverLaneChannels = new Set<string>();
-
-export function isServerLaneChannel(channelId: string): boolean {
-  return serverLaneChannels.has(channelId);
-}
 
 export function noteOpenFailed(channelId: string): void {
   openFailedAt.set(channelId, Date.now());
@@ -185,84 +163,6 @@ export function openRecentlyFailed(channelId: string): boolean {
   if (Date.now() - at < OPEN_FAILURE_TTL_MS) return true;
   openFailedAt.delete(channelId);
   return false;
-}
-
-/**
- * Open a channel's stream on the server ahead of a flip: a cold open costs the server an ffprobe
- * of the origin (measured 11.8s), a warm one 0.0s. The open is held until closeWarmedChannels.
- */
-export async function warmChannel(channelId: string): Promise<void> {
-  if (warming.has(channelId)) {
-    discardOnArrival.delete(channelId);
-    return;
-  }
-  if (openRecentlyFailed(channelId)) return;
-  const last = warmedAt.get(channelId);
-  if (warmedStreams.has(channelId) || (last !== undefined && Date.now() - last < WARM_TTL_MS)) return;
-  warming.add(channelId);
-  discardOnArrival.delete(channelId);
-  try {
-    const config = await getConfig();
-    if (!config.server || !config.apiKey || !config.userId) return;
-    const headers = { Accept: "application/json", "Content-Type": "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
-    const body = {
-      UserId: config.userId,
-      DeviceProfile: liveDeviceProfile(),
-      EnableDirectPlay: true,
-      EnableDirectStream: true,
-      EnableTranscoding: true,
-      AutoOpenLiveStream: true,
-      MaxStreamingBitrate: LIVE_BITRATE_CAP,
-    };
-    const response = await fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED);
-    if (!response.ok) {
-      noteOpenFailed(channelId);
-      return;
-    }
-    warmedAt.set(channelId, Date.now());
-    const info = await response.json();
-    const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
-    const liveStreamId = source?.LiveStreamId;
-    if (!liveStreamId) return;
-    const origin = { server: config.server, deviceId: config.deviceId, apiKey: config.apiKey };
-    if (discardOnArrival.delete(channelId)) {
-      warmedAt.delete(channelId);
-      await closeLiveStream(liveStreamId, origin);
-      return;
-    }
-    warmedStreams.set(channelId, { liveStreamId, url: source.Path ? liveStreamUrlFor(config.server, config.apiKey, source.Path) : "", ...origin });
-  } catch (error) {
-    noteOpenFailed(channelId);
-    logger.debug("Channel warm-up failed", { service: "LiveTv", channelId, error: String(error) });
-  } finally {
-    warming.delete(channelId);
-  }
-}
-
-/** The held stream's URL for a channel the server keeps open, or nothing while none is held. */
-export function warmedStreamUrl(channelId: string): string | undefined {
-  return warmedStreams.get(channelId)?.url || undefined;
-}
-
-/** How many opens the server holds for this device right now. */
-export function warmedChannelCount(): number {
-  return warmedStreams.size;
-}
-
-/** Close every warm open except the channels named; a closed channel warms again on the next ask. */
-export async function closeWarmedChannels(keep: Iterable<string> = []): Promise<void> {
-  const kept = new Set(keep);
-  for (const channelId of warming) if (!kept.has(channelId)) discardOnArrival.add(channelId);
-  // Claim the batch out of the shared map synchronously, before any await, so an overlapping
-  // cleanup never closes a stream this one already owns.
-  const closing: WarmStream[] = [];
-  for (const [channelId, stream] of [...warmedStreams]) {
-    if (kept.has(channelId)) continue;
-    warmedStreams.delete(channelId);
-    warmedAt.delete(channelId);
-    closing.push(stream);
-  }
-  for (const stream of closing) await closeLiveStream(stream.liveStreamId, stream);
 }
 
 /** One page of channels in the server's channel order; the whole list when no page is asked for. */
@@ -409,9 +309,8 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     void closeLiveStream(source.LiveStreamId);
     throw error;
   }
-  warmedAt.set(channelId, Date.now());
   openFailedAt.delete(channelId);
-  serverLaneChannels.add(channelId);
+  if (source.LiveStreamId) recordOpen(source.LiveStreamId, { server: config.server, deviceId: config.deviceId });
   logger.info("Live channel opened", {
     service: "LiveTv",
     channel: channel.Name,
@@ -436,8 +335,8 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
 }
 
 /**
- * Release the tuner; the server holds it for every open that never closes. A warm open passes the
- * server it was opened against, so its close reaches that server even after a switch or sign-out.
+ * Release the tuner; the server holds it for every open that never closes. An answer of any kind
+ * ends the record of the open; a close that never reached the server is retried on the next launch.
  */
 export async function closeLiveStream(liveStreamId: string | null | undefined, origin?: { server: string; deviceId: string; apiKey: string }): Promise<void> {
   if (!liveStreamId) return;
@@ -449,10 +348,24 @@ export async function closeLiveStream(liveStreamId: string | null | undefined, o
       { method: "POST", headers: { Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
       API_TIMEOUTS.SHORT,
     );
+    recordClose(liveStreamId);
     if (!response.ok) logger.warn("Live stream close refused", { service: "LiveTv", status: response.status, liveStreamId });
   } catch (error) {
     logger.warn("Live stream close failed", error, { service: "LiveTv", liveStreamId });
   }
+}
+
+/** Opens a previous run left on the signed-in server are closed; those on another server are forgotten. */
+export async function closeLeftoverOpens(): Promise<void> {
+  const held = recordedOpens();
+  const ids = Object.keys(held);
+  if (ids.length === 0) return;
+  const config = await getConfig();
+  for (const liveStreamId of ids) {
+    if (held[liveStreamId].server === config.server && config.apiKey) await closeLiveStream(liveStreamId, { ...held[liveStreamId], apiKey: config.apiKey });
+    else recordClose(liveStreamId);
+  }
+  logger.info("Live opens left by a previous run closed", { service: "LiveTv", count: ids.length });
 }
 
 async function liveTvRequest(path: string, init: RequestInit = {}, timeout: number = API_TIMEOUTS.NORMAL): Promise<Response> {

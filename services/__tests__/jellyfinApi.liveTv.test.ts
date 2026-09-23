@@ -2,20 +2,20 @@
  * Live TV client: the channel list, opening a channel as raw direct play on the address the
  * app signed into (never the server's own bind address), and releasing the tuner.
  */
-import {
-  closeLiveStream,
-  closeWarmedChannels,
-  fetchChannels,
-  isServerLaneChannel,
-  openChannel,
-  refreshConfig,
-  resolveChannel,
-  resolveChannelOrigin,
-  warmChannel,
-  warmedChannelCount,
-  warmedStreamUrl,
-} from "../jellyfinApi";
+import { closeLeftoverOpens, closeLiveStream, fetchChannels, openChannel, refreshConfig, resolveChannel, resolveChannelOrigin } from "../jellyfinApi";
 import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
+import { recordClose, recordedOpens, recordOpen } from "../jellyfin/liveOpens";
+
+jest.mock("../jellyfin/liveOpens", () => {
+  const opens = new Map<string, { server: string; deviceId: string }>();
+  return {
+    recordOpen: jest.fn((id: string, open: { server: string; deviceId: string }) => opens.set(id, open)),
+    recordClose: jest.fn((id: string) => opens.delete(id)),
+    recordedOpens: jest.fn(() => Object.fromEntries(opens)),
+    __reset: () => opens.clear(),
+  };
+});
+const resetLiveOpens = (jest.requireMock("../jellyfin/liveOpens") as { __reset: () => void }).__reset;
 
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
@@ -46,6 +46,7 @@ describe("live TV client", () => {
       return Promise.resolve(mockConfig[key] || null);
     });
     await refreshConfig();
+    resetLiveOpens();
   });
 
   afterEach(() => {
@@ -291,28 +292,6 @@ describe("live TV client", () => {
     expect(calls[3]).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-4`);
   });
 
-  it("warms a channel once, and not again inside the window", async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({}) });
-    await warmChannel("c9");
-    await warmChannel("c9");
-    const opens = (global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes("/Items/c9/PlaybackInfo"));
-    expect(opens).toHaveLength(1);
-    expect(JSON.parse(opens[0][1].body).EnableTranscoding).toBe(true);
-  });
-
-  it("keeps a warm open's stream URL on the configured server until the open closes", async () => {
-    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
-      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
-      return { ok: true, json: async () => (channel ? { MediaSources: [{ LiveStreamId: `ls-${channel}`, Path: "http://172.17.0.2:8096/LiveTv/LiveStreamFiles/ls-c30/stream.ts" }] } : {}) };
-    });
-    await warmChannel("c30");
-    expect(warmedStreamUrl("c30")).toBe(`${SERVER}/LiveTv/LiveStreamFiles/ls-c30/stream.ts?ApiKey=test-api-key`);
-    expect(warmedChannelCount()).toBe(1);
-    await closeWarmedChannels();
-    expect(warmedStreamUrl("c30")).toBeUndefined();
-    expect(warmedChannelCount()).toBe(0);
-  });
-
   it("resolves a manifest channel's origin for a frame grab without opening it, and no origin for a tuner channel", async () => {
     (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
       if (url.includes("/Items/c40/PlaybackInfo")) {
@@ -332,80 +311,6 @@ describe("live TV client", () => {
     expect(calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
     expect(calls.filter(([url]) => String(url).includes("/LiveStreams/"))).toHaveLength(0);
     expect(calls.filter(([url]) => String(url).includes("origin.example"))).toHaveLength(0);
-  });
-
-  it("closes every warm open it is not told to keep, and warms a closed channel again", async () => {
-    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
-      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
-      return { ok: true, json: async () => (channel ? { MediaSources: [{ LiveStreamId: `ls-${channel}` }] } : {}) };
-    });
-    await warmChannel("c20");
-    await warmChannel("c21");
-    await closeWarmedChannels(["c21"]);
-    let closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
-    expect(closes).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-c20`]);
-    await warmChannel("c20");
-    const opens = (global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes("/Items/c20/PlaybackInfo"));
-    expect(opens).toHaveLength(2);
-    await closeWarmedChannels();
-    closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
-    expect(closes).toHaveLength(3);
-  });
-
-  it("closes a warm open that lands after its owner left, and keeps one asked for again before it lands", async () => {
-    const pending = new Map<string, (value: unknown) => void>();
-    (global.fetch as jest.Mock).mockImplementation((url: string) => {
-      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
-      return channel ? new Promise((resolve) => pending.set(channel, resolve)) : Promise.resolve({ ok: true });
-    });
-    const landed = (channel: string) => pending.get(channel)!({ ok: true, json: async () => ({ MediaSources: [{ LiveStreamId: `ls-${channel}` }] }) });
-    const closes = () => (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
-
-    const late = warmChannel("c30");
-    const kept = warmChannel("c31");
-    await Promise.resolve();
-    await closeWarmedChannels();
-    await warmChannel("c31");
-    landed("c30");
-    landed("c31");
-    await Promise.all([late, kept]);
-    expect(closes()).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-c30`]);
-
-    await closeWarmedChannels();
-    expect(closes()).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-c30`, `${SERVER}/LiveStreams/Close?liveStreamId=ls-c31`]);
-  });
-
-  it("closes each warm stream once when two cleanups overlap", async () => {
-    (global.fetch as jest.Mock).mockImplementation((url: string) => {
-      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
-      return Promise.resolve(channel ? { ok: true, json: async () => ({ MediaSources: [{ LiveStreamId: `ls-${channel}` }] }) } : { ok: true });
-    });
-    await warmChannel("c40");
-    await warmChannel("c41");
-    // Overlapping, un-awaited cleanups: the second starts while the first is still awaiting a close.
-    const first = closeWarmedChannels();
-    const second = closeWarmedChannels();
-    await Promise.all([first, second]);
-    const closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
-    expect(closes.filter((url) => url.includes("ls-c41"))).toHaveLength(1);
-    expect(closes).toHaveLength(2);
-  });
-
-  it("closes a warm stream against the server it was opened on after a switch", async () => {
-    (global.fetch as jest.Mock).mockImplementation((url: string) => {
-      const channel = /\/Items\/(c\d+)\/PlaybackInfo/.exec(String(url))?.[1];
-      return Promise.resolve(channel ? { ok: true, json: async () => ({ MediaSources: [{ LiveStreamId: `ls-${channel}` }] }) } : { ok: true });
-    });
-    await warmChannel("c50");
-    const SERVER_B = "http://10.0.0.5:8096";
-    mockSecureStore.getItemAsync.mockImplementation((key: string) => {
-      const cfg: Record<string, string> = { jellyfin_server_url: SERVER_B, jellyfin_api_key: "b-key", jellyfin_user_id: "b-user", jellyfin_device_id: "b-device" };
-      return Promise.resolve(cfg[key] || null);
-    });
-    await refreshConfig();
-    await closeWarmedChannels();
-    const closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
-    expect(closes).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-c50`]);
   });
 
   it("opens a channel on the server's transcode alone when the engine gets nothing to read", async () => {
@@ -456,7 +361,6 @@ describe("live TV client", () => {
     const calls = (global.fetch as jest.Mock).mock.calls;
     expect(calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
     expect(calls[0][0]).toBe(`${SERVER}/Items/c7/PlaybackInfo?UserId=test-user-id`);
-    expect(isServerLaneChannel("c7")).toBe(false);
   });
 
   it("opens a channel whose source is not a manifest on the server", async () => {
@@ -485,7 +389,6 @@ describe("live TV client", () => {
     expect(url).toBe(`${SERVER}/Items/c8/PlaybackInfo?UserId=test-user-id`);
     expect(init.method).toBe("POST");
     expect(channel.LiveStreamId).toBe("ls-8");
-    expect(isServerLaneChannel("c8")).toBe(true);
   });
 
   it("opens a resolved channel for the server's transcode alone, dropping the origin it carried", async () => {
@@ -516,7 +419,6 @@ describe("live TV client", () => {
     expect(channel.liveHttpHeaders).toBeUndefined();
     expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/c9/master.m3u8?LiveStreamId=ls-9`);
     expect(channel.PlaySessionId).toBe("ps-9");
-    expect(isServerLaneChannel("c9")).toBe(true);
   });
 
   it("asks the server to transcode a direct-playable TS channel when it opens for the server lane", async () => {
@@ -559,7 +461,6 @@ describe("live TV client", () => {
       json: async () => ({ ErrorCode: "NoCompatibleStream", MediaSources: [{ Id: "ms-10", SupportsDirectPlay: false, SupportsTranscoding: false }] }),
     });
     await expect(openChannel("c10", { Id: "c10", Name: "Ten", Type: "TvChannel", Path: "" }, { serverOnly: true })).rejects.toThrow("did not open Ten");
-    expect(isServerLaneChannel("c10")).toBe(false);
   });
 
   it("caps the fallback's server open at the normal budget and leaves a first open the extended one", async () => {
@@ -591,6 +492,36 @@ describe("live TV client", () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it("records every open the server counts and forgets it when the close is answered", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        PlaySessionId: "ps-60",
+        MediaSources: [{ Id: "ms-60", Container: "ts", SupportsDirectPlay: true, LiveStreamId: "ls-60", Path: "http://172.17.0.2:8096/LiveTv/LiveStreamFiles/ls-60/stream.ts" }],
+      }),
+    });
+    await openChannel("c60", { Id: "c60", Name: "Sixty", Type: "TvChannel", Path: "" });
+    expect(recordOpen).toHaveBeenCalledWith("ls-60", { server: SERVER, deviceId: "test-device-id" });
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 404 });
+    await closeLiveStream("ls-60");
+    expect(recordClose).toHaveBeenCalledWith("ls-60");
+
+    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("offline"));
+    await closeLiveStream("ls-61");
+    expect(recordClose).not.toHaveBeenCalledWith("ls-61");
+  });
+
+  it("closes the opens a previous run left on the signed-in server and forgets the rest", async () => {
+    recordOpen("ls-70", { server: SERVER, deviceId: "test-device-id" });
+    recordOpen("ls-71", { server: "http://elsewhere:8096", deviceId: "other" });
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+    await closeLeftoverOpens();
+    const closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
+    expect(closes).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-70`]);
+    expect(recordedOpens()).toEqual({});
   });
 
   it("closes a live stream by query parameter and swallows failures", async () => {

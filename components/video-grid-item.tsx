@@ -9,6 +9,7 @@ import { useItemPoster } from "@/hooks/useItemPoster";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
 import { t } from "@/services/i18n";
 import { isAudioItem, isBook } from "@/services/jellyfinApi";
+import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
@@ -250,7 +251,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 source={liveFrame ?? posterSource}
                 style={[styles.poster, isChannel && !liveFrame && styles.posterLogo]}
                 contentFit={isChannel && !liveFrame ? "contain" : "cover"}
-                transition={0}
+                // A live burst walks its frames; the fade is the only motion a grid card makes.
+                transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
                 priority={index < 10 ? "high" : "normal"}
                 // A live frame is a local file replaced every minute; nothing to keep on disk.
                 cachePolicy={liveFrame ? "none" : "memory-disk"}

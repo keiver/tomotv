@@ -1,16 +1,15 @@
 /**
- * The live frame sampler: one grab at a time, a refresh that backs off while a live edge stands still, the oldest first, a manifest
- * channel read at its origin and a tuner channel off a warm open, the hold cap, holds closing after
- * their rows leave, backoff on failure, and standing down for the screen, the app and playback.
+ * The live frame sampler: one grab at a time, a burst per open walked across the refresh, a refresh that backs off
+ * while a live edge stands still, the oldest first, a manifest channel read at its origin and a tuner channel
+ * opened on the server for its burst and closed after, backoff on failure, and standing down for the screen, the
+ * app and playback.
  */
 const mockLiveFrame = jest.fn();
 const mockOnDisk = jest.fn();
 const mockCancel = jest.fn();
 const mockResolveOrigin = jest.fn();
-const mockWarm = jest.fn();
-const mockWarmedUrl = jest.fn();
-const mockWarmedCount = jest.fn(() => 0);
-const mockCloseWarmed = jest.fn();
+const mockOpenChannel = jest.fn();
+const mockCloseLiveStream = jest.fn();
 const mockOpenRecentlyFailed = jest.fn((_id: string) => false);
 let appStateListener: ((state: string) => void) | null = null;
 
@@ -35,17 +34,14 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true }));
 jest.mock("@/services/jellyfinApi", () => ({
   resolveChannelOrigin: (id: string) => mockResolveOrigin(id),
-  warmChannel: (id: string) => mockWarm(id),
-  warmedStreamUrl: (id: string) => mockWarmedUrl(id),
-  warmedChannelCount: () => mockWarmedCount(),
-  closeWarmedChannels: (keep?: Iterable<string>) => mockCloseWarmed(keep ? [...keep] : []),
+  openChannel: (id: string, item: unknown, options: unknown) => mockOpenChannel(id, item, options),
+  closeLiveStream: (id: string) => mockCloseLiveStream(id),
   openRecentlyFailed: (id: string) => mockOpenRecentlyFailed(id),
 }));
 
 import {
   clearLiveFrames,
-  LIVE_FRAME_HOLD_CAP,
-  LIVE_FRAME_HOLD_GRACE_MS,
+  LIVE_FRAME_BURST_COUNT,
   LIVE_FRAME_REFRESH_CAP_MS,
   LIVE_FRAME_REFRESH_MS,
   LIVE_FRAME_RETRY_MS,
@@ -65,25 +61,19 @@ const advance = async (ms: number) => {
   await flush();
 };
 const grabs = () => mockLiveFrame.mock.calls.map(([config]) => (config as { channelId: string }).channelId);
-const held = new Map<string, string>();
+/** A burst of `count` files under one stamp, the shape the engine answers with. */
+const burst = (channelId: string, stamp: number, count = LIVE_FRAME_BURST_COUNT) => Array.from({ length: count }, (_, i) => `file:///pool/${channelId}/live-${stamp}-${i}.jpg`);
 
 describe("live frames", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(1_000_000);
-    mockLiveFrame.mockReset().mockImplementation(async ({ channelId }: { channelId: string }) => ({ uri: `file:///pool/${channelId}/live-${Date.now()}.jpg`, pts: Date.now(), cancelled: false }));
+    mockLiveFrame.mockReset().mockImplementation(async ({ channelId }: { channelId: string }) => ({ uris: burst(channelId, Date.now()), pts: Date.now(), cancelled: false }));
     mockOnDisk.mockReset().mockResolvedValue({});
     mockCancel.mockReset().mockResolvedValue(undefined);
     mockResolveOrigin.mockReset().mockImplementation(async (id: string) => (id.startsWith("m") ? { url: `https://origin/${id}.m3u8`, headers: { "User-Agent": "Tuner" } } : null));
-    held.clear();
-    mockWarm.mockReset().mockImplementation(async (id: string) => {
-      held.set(id, `https://jf/LiveTv/LiveStreamFiles/${id}/stream.ts`);
-    });
-    mockWarmedUrl.mockReset().mockImplementation((id: string) => held.get(id));
-    mockWarmedCount.mockReset().mockImplementation(() => held.size);
-    mockCloseWarmed.mockReset().mockImplementation(async (keep: string[]) => {
-      for (const id of [...held.keys()]) if (!keep.includes(id)) held.delete(id);
-    });
+    mockOpenChannel.mockReset().mockImplementation(async (id: string) => ({ Id: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://jf/LiveTv/LiveStreamFiles/${id}/stream.ts` }));
+    mockCloseLiveStream.mockReset().mockResolvedValue(undefined);
     mockOpenRecentlyFailed.mockReset().mockReturnValue(false);
     setPlaybackHold("video", false);
     clearLiveFrames();
@@ -102,19 +92,38 @@ describe("live frames", () => {
     setLiveFrameViewable("guide", ["m1", "m2"]);
     await advance(0);
     expect(grabs()).toEqual(["m1"]);
-    expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ channelId: "m1", inputUrl: "https://origin/m1.m3u8", httpHeaders: { "User-Agent": "Tuner" } });
-    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000.jpg", cacheKey: "live-m1-1000000" });
+    expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ channelId: "m1", inputUrl: "https://origin/m1.m3u8", httpHeaders: { "User-Agent": "Tuner" }, count: LIVE_FRAME_BURST_COUNT });
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-0.jpg", cacheKey: "live-m1-1000000-0" });
     expect(mockOnDisk).toHaveBeenCalledWith(["m1", "m2"]);
     await advance(LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["m1", "m2"]);
-    expect(mockWarm).not.toHaveBeenCalled();
+    expect(mockOpenChannel).not.toHaveBeenCalled();
+  });
+
+  it("walks a burst across the refresh, one frame per slice, telling the card at each step", async () => {
+    const listener = jest.fn();
+    subscribeLiveFrame("m1", listener);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(listener).toHaveBeenCalledTimes(1);
+    const slice = LIVE_FRAME_REFRESH_MS / LIVE_FRAME_BURST_COUNT;
+    await advance(slice - 1_000);
+    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-0.jpg");
+    // The ticker walks once a second; the slice edge is noticed on the tick after it.
+    await advance(1_500);
+    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-1.jpg");
+    expect(listener).toHaveBeenCalledTimes(2);
+    await advance(slice * 6);
+    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-7.jpg");
+    expect(listener).toHaveBeenCalledTimes(8);
   });
 
   it("asks a channel again at the refresh floor, doubles the wait while its live edge stands still, and drops back once it moves", async () => {
     let pts = 1;
     let still = false;
     mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) =>
-      still ? { uri: null, unchanged: true, cancelled: false } : { uri: `file:///pool/${channelId}/live-${Date.now()}.jpg`, pts, cancelled: false },
+      still ? { uris: [], unchanged: true, cancelled: false } : { uris: burst(channelId, Date.now(), 1), pts, cancelled: false },
     );
     const listener = jest.fn();
     subscribeLiveFrame("m1", listener);
@@ -130,8 +139,8 @@ describe("live frames", () => {
     expect(mockLiveFrame.mock.calls[1][0]).toMatchObject({ shownPts: 1 });
     expect(listener).toHaveBeenCalledTimes(1);
     const shown = liveFrameFor("m1");
-    // Each unchanged answer doubles the wait: 10 s, 20 s, 40 s, then the 60 s cap.
-    for (const waitMs of [10_000, 20_000, 40_000, LIVE_FRAME_REFRESH_CAP_MS, LIVE_FRAME_REFRESH_CAP_MS]) {
+    // Each unchanged answer doubles the wait: 2 min, 4 min, then the 5 min cap.
+    for (const waitMs of [120_000, 240_000, LIVE_FRAME_REFRESH_CAP_MS, LIVE_FRAME_REFRESH_CAP_MS]) {
       const before = grabs().length;
       await advance(waitMs - 1);
       expect(grabs()).toHaveLength(before);
@@ -150,34 +159,48 @@ describe("live frames", () => {
     expect(mockLiveFrame.mock.calls[moved][0]).toMatchObject({ shownPts: 2 });
   });
 
-  it("samples a tuner channel off a warm open and reads the held stream", async () => {
+  it("opens a tuner channel on the server for its burst and closes it as soon as the burst is read", async () => {
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["t1"]);
     await advance(0);
-    expect(mockWarm).toHaveBeenCalledWith("t1");
+    expect(mockOpenChannel).toHaveBeenCalledWith("t1", undefined, { quiet: true });
     expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ channelId: "t1", inputUrl: "https://jf/LiveTv/LiveStreamFiles/t1/stream.ts", httpHeaders: {} });
+    expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t1");
+    expect(mockCloseLiveStream.mock.invocationCallOrder[0]).toBeGreaterThan(mockLiveFrame.mock.invocationCallOrder[0]);
     await advance(LIVE_FRAME_REFRESH_MS + LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["t1", "t1"]);
-    expect(mockWarm).toHaveBeenCalledTimes(1);
+    expect(mockOpenChannel).toHaveBeenCalledTimes(2);
+    expect(mockCloseLiveStream).toHaveBeenCalledTimes(2);
   });
 
-  it("holds no more tuner opens than the cap and closes a hold once its row has been out of view past the grace", async () => {
-    const many = Array.from({ length: LIVE_FRAME_HOLD_CAP + 2 }, (_, i) => `t${i}`);
+  it("closes a server open the burst could not read, and one whose grab threw", async () => {
+    mockOpenChannel.mockResolvedValueOnce({ Id: "t1", LiveStreamId: "ls-t1" });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["t1"]);
+    await advance(0);
+    expect(grabs()).toEqual([]);
+    expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t1");
+
+    mockLiveFrame.mockRejectedValueOnce(new Error("engine gone"));
+    setLiveFrameViewable("guide", ["t2"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["t2"]);
+    expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t2");
+  });
+
+  it("holds nothing open across channels: the next tuner channel opens only after the last closed", async () => {
+    const many = ["t0", "t1", "t2"];
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", many);
-    for (let i = 0; i < many.length; i += 1) await advance(LIVE_FRAME_SPACING_MS);
-    expect(held.size).toBe(LIVE_FRAME_HOLD_CAP);
-    expect(grabs()).toHaveLength(LIVE_FRAME_HOLD_CAP);
-
-    setLiveFrameViewable("guide", many.slice(1));
-    await advance(LIVE_FRAME_SPACING_MS);
-    expect(held.has("t0")).toBe(true);
-    await advance(LIVE_FRAME_HOLD_GRACE_MS);
-    expect(held.has("t0")).toBe(false);
+    for (let i = 0; i < many.length; i += 1) {
+      await advance(i === 0 ? 0 : LIVE_FRAME_SPACING_MS);
+      expect(mockOpenChannel).toHaveBeenCalledTimes(i + 1);
+      expect(mockCloseLiveStream).toHaveBeenCalledTimes(i + 1);
+    }
   });
 
   it("backs off a channel that gives no frame", async () => {
-    mockLiveFrame.mockResolvedValue({ uri: null, cancelled: false, reason: "open" });
+    mockLiveFrame.mockResolvedValue({ uris: [], cancelled: false, reason: "open" });
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
@@ -189,7 +212,7 @@ describe("live frames", () => {
     expect(liveFrameFor("m1")).toBeUndefined();
   });
 
-  it("stands down while playback holds the link, the app is in the background or the guide is off screen, and closes its holds when the guide leaves", async () => {
+  it("stands down while playback holds the link, the app is in the background or the guide is off screen", async () => {
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["t1", "m1"]);
     await advance(0);
@@ -210,9 +233,24 @@ describe("live frames", () => {
     expect(grabs()).toHaveLength(3);
 
     setLiveFramesActive("guide", false);
-    expect(held.size).toBe(0);
     await advance(LIVE_FRAME_REFRESH_MS * 2);
     expect(grabs()).toHaveLength(3);
+  });
+
+  it("stops the grab reading when the guide leaves, so its server open closes at once", async () => {
+    let answer: (() => void) | undefined;
+    mockLiveFrame.mockImplementation(() => new Promise((resolve) => (answer = () => resolve({ uris: [], cancelled: true }))));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["t1"]);
+    await advance(0);
+    expect(grabs()).toEqual(["t1"]);
+    expect(mockCloseLiveStream).not.toHaveBeenCalled();
+
+    setLiveFramesActive("guide", false);
+    expect(mockCancel.mock.calls).toEqual([["t1"]]);
+    answer?.();
+    await flush();
+    expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t1");
   });
 
   it("samples the surface that took over, whichever order the two report in, and plays the guide's set back on return", async () => {
@@ -240,14 +278,14 @@ describe("live frames", () => {
     expect(grabs()).toEqual(["m1", "m2", "m3"]);
   });
 
-  it("shows the newest frame on disk before any grab and counts the refresh from its time", async () => {
-    mockOnDisk.mockResolvedValue({ m1: `file:///pool/m1/live-${1_000_000 - 2_000}.jpg` });
+  it("shows the newest burst on disk before any grab and counts the refresh from its time", async () => {
+    mockOnDisk.mockResolvedValue({ m1: burst("m1", 1_000_000 - 2_000, 2) });
     const listener = jest.fn();
     subscribeLiveFrame("m1", listener);
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1", "m2"]);
     await advance(0);
-    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-998000.jpg", cacheKey: "live-m1-998000" });
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-998000-0.jpg", cacheKey: "live-m1-998000-0" });
     expect(listener).toHaveBeenCalledTimes(1);
     expect(grabs()).toEqual(["m2"]);
     await advance(LIVE_FRAME_REFRESH_MS - 2_000 - 1);
@@ -260,7 +298,7 @@ describe("live frames", () => {
 
   it("stops the grab reading the moment playback takes the link, and asks again only once it lets go", async () => {
     let answer: (() => void) | undefined;
-    mockLiveFrame.mockImplementation(() => new Promise((resolve) => (answer = () => resolve({ uri: null, cancelled: true }))));
+    mockLiveFrame.mockImplementation(() => new Promise((resolve) => (answer = () => resolve({ uris: [], cancelled: true }))));
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1", "m2"]);
     await advance(0);
@@ -279,19 +317,20 @@ describe("live frames", () => {
     await flush();
   });
 
-  it("starts no read for a grab whose server open lands after playback took the link", async () => {
+  it("starts no read for a grab whose server open lands after playback took the link, and closes that open", async () => {
     let opened: (() => void) | undefined;
-    mockWarm.mockImplementation((id: string) => new Promise<void>((resolve) => (opened = () => (held.set(id, `https://jf/${id}.ts`), resolve()))));
+    mockOpenChannel.mockImplementation((id: string) => new Promise((resolve) => (opened = () => resolve({ Id: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://jf/${id}.ts` }))));
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["t1"]);
     await advance(0);
-    expect(mockWarm).toHaveBeenCalledWith("t1");
+    expect(mockOpenChannel).toHaveBeenCalledWith("t1", undefined, { quiet: true });
 
     setPlaybackHold("video", true);
     expect(mockCancel.mock.calls).toEqual([["t1"]]);
     opened?.();
     await flush();
     expect(grabs()).toEqual([]);
+    expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t1");
     setPlaybackHold("video", false);
   });
 
