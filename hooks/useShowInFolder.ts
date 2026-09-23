@@ -1,13 +1,10 @@
-import { fetchItemFolderPath } from "@/services/jellyfinApi";
+import { fetchItemFolderPath, fetchRecordingFolderIds } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { useNavigationContainerRef, useRouter } from "expo-router";
 import { useCallback } from "react";
 import { Alert } from "react-native";
 
 type ContainerRef = ReturnType<typeof useNavigationContainerRef>;
-
-/** The recording libraries Jellyfin creates and names itself. */
-const RECORDING_LIBRARY_NAMES = new Set(["Recordings", "Recorded Movies", "Recorded Shows"]);
 
 /** Ceiling on the settle wait, so a press can never hang on a state event that never comes. */
 const DISMISS_SETTLE_TIMEOUT_MS = 400;
@@ -66,7 +63,9 @@ export function useShowInFolder() {
 
   return useCallback(
     async (item: JellyfinItem, options?: { dismissFirst?: boolean }) => {
-      const path = await fetchItemFolderPath(item.Id);
+      // The recordings libraries by id, since a user may name any library "Recordings"; a lookup that
+      // fails leaves the item to the folder grid.
+      const [path, recordingFolderIds] = await Promise.all([fetchItemFolderPath(item.Id), fetchRecordingFolderIds().catch(() => [] as string[])]);
       if (path.length === 0) {
         Alert.alert("Folder unavailable", "Couldn't find where this item lives on the server.");
         return;
@@ -78,9 +77,8 @@ export function useShowInFolder() {
         await whenRootStateSettles(navigationRef, before);
       }
 
-      // A recording lives in the library the server names itself (RecordingsManager.GetRecordingFolders);
-      // it opens in the Recordings screen, the same view Live TV reaches, not the generic folder grid.
-      if (RECORDING_LIBRARY_NAMES.has(path[0].name)) {
+      // A recording opens in the Recordings screen, the same view Live TV reaches, not the generic folder grid.
+      if (recordingFolderIds.includes(path[0].id)) {
         router.push({ pathname: "/recordings", params: { focusId: item.Id } });
         return;
       }

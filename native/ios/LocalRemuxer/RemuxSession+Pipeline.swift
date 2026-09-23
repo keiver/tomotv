@@ -804,10 +804,17 @@ extension RemuxSession {
         var canonicalRung = 0
         var adopted: [TierSegment]?
         var attempt = 0
+        var failedRungs = Set<Int>()
         while adopted == nil && !isCancelled && !hasFailed && deadline.timeIntervalSinceNow > 0.1 {
             canonicalRung = attempt % config.tiers.count
             adopted = fetchTierSegments(config.tiers[canonicalRung].playlistUrl, timeout: min(8, deadline.timeIntervalSinceNow))
-            if adopted == nil { recordSupplierFailure(.rung(canonicalRung), failure: .transport) }
+            if adopted == nil {
+                recordSupplierFailure(.rung(canonicalRung), failure: .transport)
+                failedRungs.insert(canonicalRung)
+            } else if failedRungs.contains(canonicalRung) {
+                // The rung answered on a later try: its opening segment must not wait out the backoff.
+                recordSupplierSuccess(.rung(canonicalRung))
+            }
             attempt += 1
             if adopted == nil { usleep(100_000) }
         }

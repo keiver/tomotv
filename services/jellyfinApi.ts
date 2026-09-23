@@ -50,6 +50,7 @@ export {
   fetchLiveTvManagement,
   fetchProgram,
   fetchRecordings,
+  fetchRecordingFolderIds,
   fetchRecordingsFolderId,
   fetchSeriesTimers,
   fetchTimerDefaults,

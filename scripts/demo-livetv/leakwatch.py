@@ -21,6 +21,7 @@ import urllib.request
 ROOT = "/opt/tomotv"
 TRANSCODES = f"{ROOT}/jellyfin/cache/transcodes"
 ENV = f"{ROOT}/livetv/.env"
+SEEN = "/tmp/leakwatch-seen.json"
 # A buffer growing this long with nobody watching its channel is a leak.
 LEAK_AFTER_S = 120
 LOW_GB = 5
@@ -85,11 +86,30 @@ def buffers():
     time.sleep(SAMPLE_S)
     after = scan()
     now = time.time()
+    # Linux moves ctime on every write, so a buffer's age is counted from the run that first saw it.
+    seen = first_seen(set(after), now)
     rows = []
     for name, (size, mtime) in after.items():
         grew = size - before.get(name, (size, 0))[0]
-        rows.append({"id": name[:8], "mb": size / 1e6, "mb_per_min": grew / 1e6 * 60 / SAMPLE_S, "growing": now - mtime < 60, "age_s": now - os.stat(f"{TRANSCODES}/{name}").st_ctime})
+        rows.append({"id": name[:8], "mb": size / 1e6, "mb_per_min": grew / 1e6 * 60 / SAMPLE_S, "growing": now - mtime < 60, "age_s": now - seen[name]})
     return sorted(rows, key=lambda r: -r["mb"])
+
+
+def first_seen(names, now):
+    """When each buffer was first seen, kept across runs; buffers that are gone drop out."""
+    try:
+        with open(SEEN) as f:
+            seen = {name: t for name, t in json.load(f).items() if name in names}
+    except (OSError, ValueError):
+        seen = {}
+    for name in names:
+        seen.setdefault(name, now)
+    try:
+        with open(SEEN, "w") as f:
+            json.dump(seen, f)
+    except OSError as error:
+        print(f"could not write {SEEN}: {error}")
+    return seen
 
 
 def watching(call):

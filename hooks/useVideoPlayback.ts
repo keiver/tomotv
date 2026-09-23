@@ -532,6 +532,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const ringSession = await takeRingSession(videoId);
       if (ringSession && requestIdRef.current !== currentRequestId) {
         void stopLocalRemux(ringSession.token);
+        void closeLiveStream(ringSession.details.LiveStreamId);
         return;
       }
       if (ringSession) adoptedLiveRef.current = { videoId, url: ringSession.url, token: ringSession.token, ready: ringSession.ready };
@@ -556,8 +557,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         setPlaybackStage("opening");
         // Every open is one consumer the server counts; the engine's is released for the server's.
         const engineOpen = details.LiveStreamId;
-        details = await openChannel(videoId, details, { serverOnly: true });
-        if (engineOpen) void closeLiveStream(engineOpen);
+        details = await openChannel(videoId, details, { serverOnly: true }).finally(() => {
+          if (engineOpen) void closeLiveStream(engineOpen);
+        });
         if (requestIdRef.current !== currentRequestId) {
           void closeLiveStream(details.LiveStreamId);
           return;
@@ -1922,6 +1924,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         dropThroughputWatch(throughputRef.current);
         void closeLiveStream(liveStreamIdRef.current);
         liveStreamIdRef.current = null;
+        // The freeze watch belonged to the stream that just died; the next stream arms its own.
+        if (stallWatchRef.current != null) {
+          clearTimeout(stallWatchRef.current.timer);
+          stallWatchRef.current = null;
+        }
         // With no rung left the Stopped report is what ends the server's transcode for this play.
         if (!retry) resetPlaybackSessionRef.current?.();
         const attempt = requestIdRef.current;
@@ -2495,6 +2502,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     };
   }, [chapterFrameBaseUrl, linkAffordsFrames, state.type, streamUrl, videoDetails, videoId]);
 
+  // A new stream on the engine lane is a new session directory; a provider's base outlives the stream.
+  useEffect(() => {
+    if (frameProviderTokenRef.current === null) setChapterFrameBaseUrl(null);
+  }, [streamUrl]);
+
   /**
    * Reset state when video ID changes
    */
@@ -2840,6 +2852,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     hasStablePlaybackRef.current = false;
     autoPlayTriggeredRef.current = false;
     isPlayingRef.current = false;
+    // A terminal error on the gateway lane leaves its session behind the error screen; the
+    // retry opens its own, so this one goes the way the auto-retry tears its stream down.
+    if (localRemuxTokenRef.current !== null && !isLiveRef.current) {
+      streamUrlRef.current = null;
+      stopLocalRemux(localRemuxTokenRef.current);
+      localRemuxTokenRef.current = null;
+      dropThroughputWatch(throughputRef.current);
+      setStreamUrl(null);
+    }
     dispatch({ type: "RETRY" });
   }, []);
 

@@ -27,11 +27,13 @@ jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ itemId: "book-1
 jest.mock("@/components/glass-surface", () => ({ GlassSurface: ({ children }: { children?: React.ReactNode }) => children ?? null }));
 
 let mockViewerProps: any = null;
+/** Every goTo, with the page count the viewer had rendered when it was asked. */
+const mockGoTo = jest.fn();
 jest.mock("@/components/page-viewer", () => {
   const ReactActual = require("react");
   const PageViewer = ReactActual.forwardRef((props: any, ref: any) => {
     mockViewerProps = props;
-    ReactActual.useImperativeHandle(ref, () => ({ index: () => props.initialIndex, step: jest.fn(), goTo: jest.fn(), zoomTo: jest.fn() }));
+    ReactActual.useImperativeHandle(ref, () => ({ index: () => props.initialIndex, step: jest.fn(), goTo: (...args: unknown[]) => mockGoTo(props.pages, ...args), zoomTo: jest.fn() }));
     return null;
   });
   return { PageViewer, pageViewerStyles: {}, INFO_PILL_RADIUS: 999, VIEWER_CHROME_TINT: "" };
@@ -55,6 +57,8 @@ describe("book reader", () => {
     mockRenderPage.mockReset().mockImplementation(async (_token: string, index: number, zoom: number) => ({ uri: `file:///cache/books/t1/${index}-${zoom}.jpg`, width: 1200, height: 1600 }));
     mockUpdateUserItemData.mockClear();
     mockCloseBook.mockClear();
+    mockGoTo.mockClear();
+    mockRelayout.mockReset();
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -101,6 +105,25 @@ describe("book reader", () => {
     tree.unmount();
     await settle();
     expect(mockCloseBook).toHaveBeenCalledWith("t1");
+  });
+
+  it("lands a relayout on its page only once the viewer has the new page count", async () => {
+    mockOpenBook.mockResolvedValue({ token: "t1", kind: "text", pages: 3, title: "Novel" });
+    mockRelayout.mockResolvedValue({ page: 5, pages: 8 });
+    await act(async () => {
+      TestRenderer.create(<BookReaderScreen />);
+    });
+    await settle();
+    expect(mockViewerProps.pages).toBe(3);
+
+    await act(async () => {
+      mockViewerProps.actions.find((action: { key: string }) => action.key === "bigger").onPress();
+    });
+    await settle();
+    expect(mockRelayout).toHaveBeenCalledWith("t1", expect.any(Number), expect.objectContaining({ fontSize: expect.any(Number) }));
+    expect(mockViewerProps.pages).toBe(8);
+    expect(mockGoTo).toHaveBeenCalledTimes(1);
+    expect(mockGoTo).toHaveBeenCalledWith(8, 5, 1, "fade");
   });
 
   it("swaps in the sharper render once a zoom settles", async () => {

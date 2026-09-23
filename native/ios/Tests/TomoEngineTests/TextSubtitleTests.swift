@@ -266,6 +266,8 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertEqual(webVTTTimestamp(61.25), "00:01:01.250")
         XCTAssertEqual(webVTTTimestamp(3661.007), "01:01:01.007")
         XCTAssertEqual(webVTTTimestamp(-2), "00:00:00.000")
+        XCTAssertEqual(webVTTTimestamp(59.9996), "00:01:00.000")
+        XCTAssertEqual(webVTTTimestamp(3599.9996), "01:00:00.000")
     }
 
     private func serverBackedSession() throws -> RemuxSession {

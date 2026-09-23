@@ -1254,6 +1254,31 @@ describe("useVideoPlayback (mounted)", () => {
       expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
     });
 
+    it("closes the open of a ring session that lands after a flip, along with its engine", async () => {
+      mockDetails.mockImplementation(async (id: string) => liveChannel({ Id: id, LiveStreamId: `ls-${id}`, liveTranscodeUrl: undefined }));
+      let handSession!: (session: unknown) => void;
+      mockTakeHot.mockImplementationOnce(() => new Promise((resolve) => (handSession = resolve)));
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+
+      await act(async () => {
+        renderer.update(<Harness ref={ref} videoId="video-2" />);
+      });
+      await act(async () => {
+        for (let hop = 0; hop < 20; hop++) await Promise.resolve();
+      });
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      (closeLiveStream as jest.Mock).mockClear();
+      mockStopLocalRemux.mockClear();
+
+      await act(async () => {
+        handSession({ channelId: "video-1", details: liveChannel({ LiveStreamId: "ls-ring" }), url: "http://127.0.0.1:9999/s/ring/master.m3u8", token: "token-ring", ready: true });
+        for (let hop = 0; hop < 20; hop++) await Promise.resolve();
+      });
+      expect(mockStopLocalRemux).toHaveBeenCalledWith("token-ring");
+      expect(closeLiveStream).toHaveBeenCalledWith("ls-ring");
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+    });
+
     it("ignores the previous channel's failed open after a flip", async () => {
       mockDetails.mockImplementation(async (id: string) => liveChannel({ Id: id, LiveStreamId: `ls-${id}`, liveTranscodeUrl: undefined }));
       let rejectFirst!: (error: Error) => void;
@@ -1898,6 +1923,73 @@ describe("useVideoPlayback (mounted)", () => {
       });
       expect(ref.current!.get().state).toMatchObject({ type: "PLAYING", mode: "transcode" });
       expect(ref.current!.get().currentTimeRef.current).toBe(3);
+    });
+
+    it("re-derives the chapter picture directory when the engine restarts its session", async () => {
+      Object.defineProperty(Platform, "isTV", { configurable: true, value: true });
+      try {
+        mockCanRemux.mockResolvedValue(true);
+        mockDetails.mockResolvedValue(
+          videoItem({
+            Chapters: [
+              { StartPositionTicks: 0, Name: "One" },
+              { StartPositionTicks: 600_000_000, Name: "Two" },
+            ],
+          } as never),
+        );
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        const hops = async () => {
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        };
+        const reachPlaying = async () => {
+          await act(async () => {
+            ref.current!.get().videoCallbacks.onLoad({ duration: 120, currentTime: 0, naturalSize: { width: 1920, height: 1080, orientation: "landscape" } } as never);
+            jest.advanceTimersByTime(1);
+            await hops();
+          });
+          await act(async () => {
+            ref.current!.get().play();
+          });
+          await act(async () => {
+            ref.current!.get().videoCallbacks.onProgress({ currentTime: 12, playableDuration: 30, seekableDuration: 120 } as never);
+            jest.advanceTimersByTime(1);
+            await hops();
+          });
+          expect(ref.current!.get().state.type).toBe("PLAYING");
+        };
+        await reachPlaying();
+        expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/s/abc/");
+
+        // A mid-play starvation retries the gateway at the playhead: a new session, a new directory.
+        // Fake timers from here, so the retry's 500ms is advanced; the mock hands the pre-flight its sample by queueMicrotask.
+        jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+        mockProgress = () => ({ alive: false, bytesRead: 0, readSeconds: 0, elapsedSeconds: 1 });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onError({ error: { code: -12889, domain: "CoreMediaErrorDomain" } } as never);
+          await hops();
+          jest.advanceTimersByTime(1);
+          await hops();
+        });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", retryGateway: true });
+        mockProgress = () => null;
+        await act(async () => {
+          jest.advanceTimersByTime(500);
+          for (let round = 0; round < 5; round++) {
+            await hops();
+            jest.advanceTimersByTime(1);
+          }
+        });
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+        expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+        expect(ref.current!.get().chapterFrameBaseUrl).toBeNull();
+
+        await reachPlaying();
+        expect(ref.current!.get().chapterFrameBaseUrl).toBe("http://127.0.0.1:9999/s/abc/");
+        await act(async () => renderer.unmount());
+      } finally {
+        Object.defineProperty(Platform, "isTV", { configurable: true, value: false });
+        jest.useRealTimers();
+      }
     });
 
     it("auto-plays once the player loads", async () => {

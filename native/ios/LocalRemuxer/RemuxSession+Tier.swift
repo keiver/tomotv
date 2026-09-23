@@ -99,7 +99,8 @@ extension RemuxSession {
     func recordSupplierFetchFailure(_ supplier: SlipstreamSupplier, status: Int, key: String? = nil, counted: Bool = false) {
         if counted, let key {
             fetchLock.lock()
-            let abandoned = fetchInterest[key] == nil
+            // A request for the same key can arrive between the cancel and this check.
+            let abandoned = fetchInterest[key] == nil || fetchAbandoned.remove(key) != nil
             fetchLock.unlock()
             if abandoned { return }
         }
@@ -156,7 +157,10 @@ extension RemuxSession {
             // One lock with the release that cancels: it either finds this task or has already run.
             fetchLock.lock()
             let unwanted = fetchInterest[key] == nil
-            if !unwanted { fetchTasks[key] = task }
+            if unwanted { fetchAbandoned.insert(key) } else {
+                fetchTasks[key] = task
+                fetchAbandoned.remove(key)
+            }
             fetchLock.unlock()
             if unwanted {
                 task.cancel()
@@ -242,6 +246,7 @@ extension RemuxSession {
             let left = (self.fetchInterest[key] ?? 1) - 1
             self.fetchInterest[key] = left > 0 ? left : nil
             let task = left > 0 ? nil : self.fetchTasks[key]
+            if task != nil { self.fetchAbandoned.insert(key) }
             self.fetchLock.unlock()
             task?.cancel()
         }

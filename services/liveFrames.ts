@@ -275,7 +275,8 @@ async function grab(channelId: string): Promise<void> {
   let input: GrabInput | null = null;
   try {
     input = await inputFor(channelId, item);
-    if (gen !== generation || isPlaybackHeld()) return;
+    // A surface left while the open ran: a cancel sent then met no read, so the open closes here.
+    if (gen !== generation || isPlaybackHeld() || activeSurface === null) return;
     if (!input) {
       recordFailure(item, now);
       return;

@@ -4,13 +4,15 @@
  * is the rung below the engine, opened when the engine cannot play the channel.
  */
 import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
+import { CACHE } from "@/constants/app";
 import { engineCodecAllowlists } from "@/services/localRemux";
 import { setPlaybackStage } from "@/services/playbackStage";
+import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
-import { getAuthHeader, getConfig, throwRequestError } from "./session";
+import { didConfigReadFail, getAuthHeader, getConfig, throwRequestError } from "./session";
 
 const LIVE_BITRATE_CAP = 200_000_000;
 
@@ -278,15 +280,25 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   // fallback's open is capped at the normal budget, above that.
   // A ring neighbour opens in the background and must not narrate over the channel on screen.
   if (!options.quiet) setPlaybackStage("opening");
-  const [itemResponse, infoResponse] = await Promise.all([
-    item ? null : fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL),
-    fetchWithTimeout(
-      `${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`,
-      { method: "POST", headers, body: JSON.stringify(body) },
-      options.serverOnly ? API_TIMEOUTS.NORMAL : API_TIMEOUTS.EXTENDED,
-    ),
-  ]);
-  if (itemResponse && !itemResponse.ok) throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
+  const infoRequest = fetchWithTimeout(
+    `${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`,
+    { method: "POST", headers, body: JSON.stringify(body) },
+    options.serverOnly ? API_TIMEOUTS.NORMAL : API_TIMEOUTS.EXTENDED,
+  );
+  // The item's failure surfaces at once; an open that still goes through beside it is released as it lands.
+  const releaseOpenWhenItLands = () => void infoRequest.then((response) => (response.ok ? closeOpenedStream(response) : undefined)).catch(() => {});
+  let itemResponse: Response | null = null;
+  try {
+    itemResponse = item ? null : await fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL);
+  } catch (error) {
+    releaseOpenWhenItLands();
+    throw error;
+  }
+  if (itemResponse && !itemResponse.ok) {
+    releaseOpenWhenItLands();
+    throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
+  }
+  const infoResponse = await infoRequest;
   if (!infoResponse.ok) throwRequestError(infoResponse, `Failed to open channel: ${infoResponse.status}`);
   const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
   const info = await infoResponse.json();
@@ -334,6 +346,16 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   };
 }
 
+/** The live stream an open's PlaybackInfo answer names, closed; nothing when it named none. */
+async function closeOpenedStream(infoResponse: Response): Promise<void> {
+  try {
+    const info = (await infoResponse.json()) as { MediaSources?: JellyfinMediaSource[] };
+    await closeLiveStream(info.MediaSources?.[0]?.LiveStreamId);
+  } catch (error) {
+    logger.warn("Live open could not be read back for its close", error, { service: "LiveTv" });
+  }
+}
+
 /**
  * Release the tuner; the server holds it for every open that never closes. An answer of any kind
  * ends the record of the open; a close that never reached the server is retried on the next launch.
@@ -361,6 +383,8 @@ export async function closeLeftoverOpens(): Promise<void> {
   const ids = Object.keys(held);
   if (ids.length === 0) return;
   const config = await getConfig();
+  // Credentials that could not be read are not credentials for another server: the records wait.
+  if (didConfigReadFail()) return;
   for (const liveStreamId of ids) {
     if (held[liveStreamId].server === config.server && config.apiKey) await closeLiveStream(liveStreamId, { ...held[liveStreamId], apiKey: config.apiKey });
     else recordClose(liveStreamId);
@@ -454,6 +478,20 @@ export async function fetchRecordingsFolderId(): Promise<string | null> {
   const response = await liveTvRequest(`/LiveTv/Recordings/Folders?${await userQuery()}`);
   const json = (await response.json()) as { Items?: { Id: string }[] };
   return json.Items?.[0]?.Id ?? null;
+}
+
+/** Every recordings library's folder id, the CollectionFolder an item's Ancestors name as its library. */
+export async function fetchRecordingFolderIds(): Promise<string[]> {
+  const config = await getConfig();
+  return cachedRequest(
+    `recordingFolders:${config.server}:${config.userId}`,
+    async () => {
+      const response = await liveTvRequest(`/LiveTv/Recordings/Folders?${await userQuery()}`, {}, API_TIMEOUTS.QUICK);
+      const json = (await response.json()) as { Items?: { Id: string }[] };
+      return (json.Items ?? []).map((folder) => folder.Id);
+    },
+    CACHE.DEFAULT_TTL_MS,
+  );
 }
 
 /** Finished recordings, ordinary playable items in the server's recordings library. */

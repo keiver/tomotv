@@ -10,7 +10,7 @@
  * hooks/__tests__/useFolderPlay.test.tsx.
  */
 import { useShowInFolder } from "@/hooks/useShowInFolder";
-import { fetchItemFolderPath } from "@/services/jellyfinApi";
+import { fetchItemFolderPath, fetchRecordingFolderIds } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import React, { forwardRef, useImperativeHandle } from "react";
 import { Alert } from "react-native";
@@ -42,9 +42,10 @@ jest.mock("expo-router", () => ({
   useNavigationContainerRef: () => containerRef,
 }));
 
-jest.mock("@/services/jellyfinApi", () => ({ fetchItemFolderPath: jest.fn() }));
+jest.mock("@/services/jellyfinApi", () => ({ fetchItemFolderPath: jest.fn(), fetchRecordingFolderIds: jest.fn() }));
 
 const mockFolderPath = fetchItemFolderPath as jest.Mock;
+const mockRecordingFolders = fetchRecordingFolderIds as jest.Mock;
 
 type ShowHandle = { show: (item: JellyfinItem, options?: { dismissFirst?: boolean }) => Promise<void> };
 
@@ -71,6 +72,7 @@ describe("useShowInFolder", () => {
     rootState = { generation: 1 };
     stateListeners.clear();
     mockFolderPath.mockResolvedValue([{ id: "library-1", name: "Home Videos and Photos", type: "folder" }]);
+    mockRecordingFolders.mockResolvedValue([]);
   });
 
   it("holds the push until the dismissal reaches the navigation state", async () => {
@@ -125,9 +127,10 @@ describe("useShowInFolder", () => {
 
   it("opens a recording in the Recordings screen instead of the folder levels", async () => {
     mockFolderPath.mockResolvedValue([
-      { id: "recordings-1", name: "Recordings", type: "folder" },
+      { id: "recordings-1", name: "Aufnahmen", type: "folder" },
       { id: "series-1", name: "Les Observateurs", type: "folder" },
     ]);
+    mockRecordingFolders.mockResolvedValue(["recordings-1", "recorded-shows-1"]);
     const harness = mountHarness();
     await act(async () => {
       void harness.show(photo, { dismissFirst: true });
@@ -138,6 +141,26 @@ describe("useShowInFolder", () => {
 
     expect(mockPush).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/recordings", params: { focusId: "photo-1" } });
+  });
+
+  it("walks the folder levels of a library the user named Recordings, and when the recording folders cannot be read", async () => {
+    mockFolderPath.mockResolvedValue([{ id: "library-2", name: "Recordings", type: "folder" }]);
+    mockRecordingFolders.mockResolvedValue(["recordings-1"]);
+    let harness = mountHarness();
+    await act(async () => {
+      await harness.show(photo);
+    });
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush.mock.calls[0][0].pathname).toBe("/[folderId]");
+
+    mockPush.mockClear();
+    mockRecordingFolders.mockRejectedValue(new Error("offline"));
+    harness = mountHarness();
+    await act(async () => {
+      await harness.show(photo);
+    });
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush.mock.calls[0][0].pathname).toBe("/[folderId]");
   });
 
   it("pushes straight away when the caller is not on a root route", async () => {

@@ -1405,6 +1405,28 @@ final class TierProbeTests: XCTestCase {
         XCTAssertFalse(session.awaitSupplierRetry(.rung(0), request: request))
     }
 
+    func testAbandonedFetchDoesNotChangeSupplierHealthWhenTheSegmentIsAskedForAgain() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        let first = SegmentRequest()
+        session.withFetchInterest("t0-1", first) {
+            // The transfer fetchTier registered, then the player dropped: the release cancels it.
+            session.fetchLock.lock()
+            session.fetchTasks["t0-1"] = URLSession.shared.dataTask(with: URL(string: "http://127.0.0.1:1/t0-1")!)
+            session.fetchLock.unlock()
+            first.abandon()
+            // A second request for the same segment lands before the cancelled fetch reports back.
+            session.fetchLock.lock()
+            session.fetchInterest["t0-1", default: 0] += 1
+            session.fetchLock.unlock()
+            session.recordSupplierFetchFailure(.rung(0), status: 0, key: "t0-1", counted: true)
+        }
+        XCTAssertNil(session.supplierRecovery[.rung(0)])
+        // The abandonment is spent: the next failure on the key is the supplier's own.
+        session.recordSupplierFetchFailure(.rung(0), status: 0, key: "t0-1", counted: true)
+        XCTAssertEqual(session.supplierRecovery[.rung(0)]?.failure, .transport)
+    }
+
     func testAudioBackoffDefersColdMediaButPreservesCachedMediaAndPlaylist() throws {
         let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))

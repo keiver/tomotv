@@ -235,6 +235,8 @@ final class RemuxSession {
     let fetchLock = NSLock()
     var fetchInterest: [String: Int] = [:]
     var fetchTasks: [String: URLSessionTask] = [:]
+    /// Keys whose transfer a release cancelled; the failure that follows is the player's, not the supplier's.
+    var fetchAbandoned: Set<String> = []
     /// A follow move failed to seek: the producer holds under a rung for the rest of the session.
     var followDisabled = false
     /// How long that took, for the report: a rung the server feeds slower than it plays is one

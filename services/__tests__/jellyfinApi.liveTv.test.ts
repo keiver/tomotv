@@ -514,6 +514,46 @@ describe("live TV client", () => {
     expect(recordClose).not.toHaveBeenCalledWith("ls-61");
   });
 
+  it("releases the open that went through beside a channel fetch that failed", async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          MediaSources: [{ Id: "ms-62", Container: "ts", SupportsDirectPlay: true, LiveStreamId: "ls-62", Path: "http://172.17.0.2:8096/LiveTv/LiveStreamFiles/ls-62/stream.ts" }],
+        }),
+      })
+      .mockRejectedValueOnce(new Error("Request timed out"))
+      .mockResolvedValueOnce({ ok: true });
+    await expect(openChannel("c62")).rejects.toThrow("Request timed out");
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    const closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
+    expect(closes).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-62`]);
+    expect(recordOpen).not.toHaveBeenCalledWith("ls-62", expect.anything());
+  });
+
+  it("throws the channel fetch's failure before the open answers, and releases the open when it lands", async () => {
+    let land!: (response: unknown) => void;
+    (global.fetch as jest.Mock)
+      .mockImplementationOnce(() => new Promise((resolve) => (land = resolve)))
+      .mockRejectedValueOnce(new Error("Request timed out"))
+      .mockResolvedValueOnce({ ok: true });
+    await expect(openChannel("c63")).rejects.toThrow("Request timed out");
+    expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"))).toEqual([]);
+    land({ ok: true, json: async () => ({ MediaSources: [{ Id: "ms-63", Container: "ts", SupportsDirectPlay: true, LiveStreamId: "ls-63", Path: "/LiveTv/LiveStreamFiles/ls-63/stream.ts" }] }) });
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"))).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-63`]);
+  });
+
+  it("keeps the records of a previous run when the credentials cannot be read", async () => {
+    recordOpen("ls-72", { server: SERVER, deviceId: "test-device-id" });
+    mockSecureStore.getItemAsync.mockRejectedValue(new Error("keychain locked"));
+    await refreshConfig();
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+    await closeLeftoverOpens();
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(recordedOpens()).toEqual({ "ls-72": { server: SERVER, deviceId: "test-device-id" } });
+  });
+
   it("closes the opens a previous run left on the signed-in server and forgets the rest", async () => {
     recordOpen("ls-70", { server: SERVER, deviceId: "test-device-id" });
     recordOpen("ls-71", { server: "http://elsewhere:8096", deviceId: "other" });

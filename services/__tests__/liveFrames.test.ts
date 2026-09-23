@@ -334,6 +334,22 @@ describe("live frames", () => {
     setPlaybackHold("video", false);
   });
 
+  it("starts no read for a grab whose server open lands after the guide left, and closes that open", async () => {
+    let opened: (() => void) | undefined;
+    mockOpenChannel.mockImplementation((id: string) => new Promise((resolve) => (opened = () => resolve({ Id: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://jf/${id}.ts` }))));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["t1"]);
+    await advance(0);
+    expect(mockOpenChannel).toHaveBeenCalledWith("t1", undefined, { quiet: true });
+
+    setLiveFramesActive("guide", false);
+    expect(mockCancel.mock.calls).toEqual([["t1"]]);
+    opened?.();
+    await flush();
+    expect(grabs()).toEqual([]);
+    expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t1");
+  });
+
   it("tells a channel's subscribers about its frame and drops every frame on a clear", async () => {
     const listener = jest.fn();
     const unsubscribe = subscribeLiveFrame("m1", listener);
