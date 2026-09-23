@@ -49,6 +49,8 @@ step "probe durations on the box"
 
 step "compose up"
 "${SSH[@]}" "cd /opt/tomotv && docker compose up -d 2>&1 | tail -12"
+# Both read lineup.json at start, and compose leaves an unchanged container running.
+"${SSH[@]}" "docker restart livetv-relay livetv-guide > /dev/null"
 for _ in $(seq 1 30); do
   if "${SSH[@]}" "docker exec jellyfin curl -sf http://127.0.0.1:9109/live.m3u > /dev/null"; then break; fi
   sleep 3

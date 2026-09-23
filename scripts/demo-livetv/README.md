@@ -38,7 +38,7 @@ Add a channel: append to `lineup.json` (unique `id`, `number`, `port` 91NN, code
 ## Check on the box
 
 ```
-docker logs --tail 5 livetv-guide livetv-relay livetv-blender
+for c in livetv-guide livetv-relay livetv-veguitas; do docker logs --tail 5 $c; done
 docker exec jellyfin curl -s http://127.0.0.1:9109/live.m3u
 cat /opt/tomotv/livetv/channels/veguitas.dur
 ```
