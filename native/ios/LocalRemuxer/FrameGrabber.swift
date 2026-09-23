@@ -71,12 +71,8 @@ final class FrameGrabber {
     private var openFailed = false
     /// The container and its streams were read, whether or not a video stream was in them.
     private(set) var sourceOpened = false
-    /// Bytes the last live grab pulled: the master, the container's own reads and every segment it opened.
+    /// Bytes the last live grab read through the container's own I/O: the whole pull for a raw stream, the playlist alone for HLS.
     private(set) var bytesRead: Int64 = 0
-    /// Bytes of the I/O contexts the demuxer opened itself (HLS playlists and segments), added as each closes.
-    private var nestedBytes: Int64 = 0
-    private var masterBytes: Int64 = 0
-    private var defaultIoClose: (@convention(c) (UnsafeMutablePointer<AVFormatContext>?, UnsafeMutablePointer<AVIOContext>?) -> Int32)?
     /// Why the source would not open, for the live grab's log line.
     private(set) var openFailure: String?
     /// What was opened: the variant picked off a multivariant playlist, else the input itself.
@@ -104,13 +100,6 @@ final class FrameGrabber {
     private static let interruptCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
         guard let opaque else { return 0 }
         return Unmanaged<FrameGrabber>.fromOpaque(opaque).takeUnretainedValue().isCancelled ? 1 : 0
-    }
-
-    private static let countingIoClose: @convention(c) (UnsafeMutablePointer<AVFormatContext>?, UnsafeMutablePointer<AVIOContext>?) -> Int32 = { s, pb in
-        guard let opaque = s?.pointee.opaque else { return 0 }
-        let grabber = Unmanaged<FrameGrabber>.fromOpaque(opaque).takeUnretainedValue()
-        if let pb { grabber.nestedBytes += pb.pointee.bytes_read }
-        return grabber.defaultIoClose?(s, pb) ?? 0
     }
 
     /// The JPEG for the keyframe at or before `ms`, written on the first request and served from the
@@ -168,10 +157,7 @@ final class FrameGrabber {
             guard !isCancelled, open() else { return .none }
             let started = Date()
             let picture = decode(target: .firstKeyframe, nearestFromStart: false, batch: 1, started: started).first
-            // Closed here so the segments the demuxer holds open are counted before the log reads the total.
-            let own = input?.pointee.pb?.pointee.bytes_read ?? 0
-            close()
-            bytesRead = masterBytes + own + nestedBytes
+            if let pb = input?.pointee.pb { bytesRead = pb.pointee.bytes_read }
             guard let picture else { return .none }
             let pts = picture.pts == SWIFT_AV_NOPTS_VALUE ? nil : picture.pts
             if let pts, pts == shown { return .unchanged }
@@ -211,11 +197,6 @@ final class FrameGrabber {
         guard ctx != nil else { return false }
         let interrupt = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
         ctx!.pointee.interrupt_callback = interrupt
-        if live {
-            ctx!.pointee.opaque = Unmanaged.passUnretained(self).toOpaque()
-            defaultIoClose = ctx!.pointee.io_close2
-            ctx!.pointee.io_close2 = Self.countingIoClose
-        }
 
         var opts = httpOptions()
         if live {
@@ -320,7 +301,6 @@ final class FrameGrabber {
             if let landed = String(validatingUTF8: UnsafeRawPointer(location).assumingMemoryBound(to: CChar.self)), !landed.isEmpty { base = landed }
             av_free(location)
         }
-        masterBytes = reader.pointee.bytes_read
         var closingPb = pb
         avio_closep(&closingPb)
         guard let master = String(data: text, encoding: .utf8) else { return inputUrl }

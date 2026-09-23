@@ -1,5 +1,5 @@
 /**
- * A fresh frame for every channel card in view, a few grabs at a time. A manifest channel is read at
+ * A fresh frame for every channel card in view, one grab at a time. A manifest channel is read at
  * its origin; a channel the server carries is sampled off a warm open held while its row is in
  * view. Stands down while the screen is away, the app is in the background or playback holds the link.
  */
@@ -15,8 +15,8 @@ const { LocalRemuxer } = NativeModules;
 export const LIVE_FRAME_REFRESH_MS = 5_000;
 /** A channel whose live edge has not moved waits twice as long each time, up to this. */
 export const LIVE_FRAME_REFRESH_CAP_MS = 60_000;
-/** Grabs in flight at once, the engine's own width. */
-export const LIVE_FRAME_CONCURRENCY = 4;
+/** The link breathes between grabs. */
+export const LIVE_FRAME_SPACING_MS = 1_000;
 /** Wall clock per grab; the engine's watchdog stops the read at it. */
 export const LIVE_FRAME_DEADLINE_S = 8;
 /** A failed channel waits this long, doubling per failure, up to the cap. */
@@ -62,9 +62,8 @@ let activeSurface: LiveFrameSurface | null = null;
 /** When each server-lane hold's row left view; cleared when it returns. */
 const leftViewAt = new Map<string, number>();
 let appActive = AppState.currentState !== "background" && AppState.currentState !== "inactive";
-const inFlight = new Set<string>();
-/** Server opens started and not yet answered, so parallel grabs never pass the hold cap. */
-const warming = new Set<string>();
+/** The channel a grab is reading now, so playback taking the link can stop it. */
+let grabbing: string | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let wired = false;
 /** Bumped by every clear, so a grab that outlived one writes nothing back. */
@@ -79,10 +78,10 @@ function wire(): void {
     else stop();
   });
   onPlaybackHoldReleased(() => schedule(0));
-  // A channel opening needs the whole link: the grabs reading now are stopped, not waited out.
+  // A channel opening needs the whole link: the grab reading now is stopped, not waited out.
   onPlaybackHoldTaken(() => {
     stop();
-    for (const channelId of inFlight) void LocalRemuxer?.cancelLiveFrame?.(channelId)?.catch(() => {});
+    if (grabbing) void LocalRemuxer?.cancelLiveFrame?.(grabbing)?.catch(() => {});
   });
 }
 
@@ -164,7 +163,6 @@ function recordFailure(item: Entry, now: number): void {
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
   let pick: { channelId: string; readyAt: number } | null = null;
   for (const channelId of viewable) {
-    if (inFlight.has(channelId)) continue;
     const item = entry(channelId);
     const readyAt = Math.max(item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS), backoffUntil(item.failure));
     if (!pick || readyAt < pick.readyAt) pick = { channelId, readyAt };
@@ -190,25 +188,24 @@ function nextTrimWait(now: number): number {
 }
 
 async function pump(): Promise<void> {
-  if (!running()) return;
+  if (!running() || grabbing) return;
   if (!seeding) seeding = seedFromDisk().finally(() => (seeding = null));
   await seeding;
-  if (!running()) return;
+  if (!running() || grabbing) return;
   const now = Date.now();
   trimHolds(now);
-  while (inFlight.size < LIVE_FRAME_CONCURRENCY) {
-    const due = nextDue(now);
-    if (!due || due.waitMs > 0) {
-      const wait = Math.min(due?.waitMs ?? Infinity, nextTrimWait(now));
-      if (Number.isFinite(wait)) schedule(wait);
-      return;
-    }
-    const channelId = due.channelId;
-    inFlight.add(channelId);
-    void grab(channelId).finally(() => {
-      inFlight.delete(channelId);
-      schedule(0);
-    });
+  const due = nextDue(now);
+  if (!due || due.waitMs > 0) {
+    const wait = Math.min(due?.waitMs ?? Infinity, nextTrimWait(now));
+    if (Number.isFinite(wait)) schedule(wait);
+    return;
+  }
+  grabbing = due.channelId;
+  try {
+    await grab(due.channelId);
+  } finally {
+    grabbing = null;
+    schedule(LIVE_FRAME_SPACING_MS);
   }
 }
 
@@ -224,14 +221,8 @@ async function inputFor(channelId: string, item: Entry, now: number): Promise<{ 
   const held = warmedStreamUrl(channelId);
   if (held) return { url: held };
   if (openRecentlyFailed(channelId)) return null;
-  const opening = [...warming].filter((id) => !warmedStreamUrl(id)).length;
-  if (warmedChannelCount() + opening >= LIVE_FRAME_HOLD_CAP) return "later";
-  warming.add(channelId);
-  try {
-    await warmChannel(channelId);
-  } finally {
-    warming.delete(channelId);
-  }
+  if (warmedChannelCount() >= LIVE_FRAME_HOLD_CAP) return "later";
+  await warmChannel(channelId);
   const opened = warmedStreamUrl(channelId);
   if (opened) return { url: opened };
   // Warmed within the last two minutes elsewhere, or still opening: the next round asks again.

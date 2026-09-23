@@ -3,22 +3,19 @@
 //  TomoTV
 //
 //  One frame per live channel on request, for the guide's cards: the channel's first keyframe
-//  now, kept in the chapter frame pool under a time-named file. Jobs run a few at a time on a
-//  low-priority queue of their own, so a dead origin never stalls the library's posters or the
-//  other channels, and a watchdog stops a grab at its deadline.
+//  now, kept in the chapter frame pool under a time-named file. Jobs run one at a time on a
+//  low-priority queue of their own, so a dead origin never stalls the library's posters, and a
+//  watchdog stops a grab at its deadline.
 //
 
 import Foundation
 
 final class LiveFrameQueue {
     static let defaultDeadline: TimeInterval = 8
-    /// Grabs overlap: each is network wait around a single keyframe decode.
-    static let defaultWidth = 4
     private static let filePrefix = "live-"
 
     private let root: URL
     let queue = DispatchQueue(label: "tv.tomo.liveframes", qos: .utility)
-    private let grabs = OperationQueue()
     private let lock = NSLock()
     private var cancelled = Set<String>()
     /// Channels with a request queued or running; a second request for one joins nothing and answers cancelled.
@@ -26,11 +23,8 @@ final class LiveFrameQueue {
     /// The grabber reading each channel now, so a cancel stops its read instead of waiting it out.
     private var running: [String: FrameGrabber] = [:]
 
-    init(root: URL = ChapterFramePool.root, width: Int = defaultWidth) {
+    init(root: URL = ChapterFramePool.root) {
         self.root = root
-        grabs.name = "tv.tomo.liveframes.grabs"
-        grabs.qualityOfService = .utility
-        grabs.maxConcurrentOperationCount = width
     }
 
     enum Outcome {
@@ -58,7 +52,7 @@ final class LiveFrameQueue {
             return
         }
         let epoch = ChapterFramePool.epoch
-        grabs.addOperation { [self] in
+        queue.async { [self] in
             defer {
                 lock.lock()
                 pending.remove(channelId)
