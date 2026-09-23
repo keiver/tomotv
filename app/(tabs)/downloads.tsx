@@ -1,3 +1,4 @@
+import { EmptyCard } from "@/components/empty-card";
 import { AmbientBackground } from "@/components/ambient-background";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { DownloadRow, REMOVE_ACTIONS } from "@/components/settings/DownloadRow";
@@ -16,7 +17,6 @@ import { groupDownloads, locateDownload, totalDownloadedBytes, type DownloadGrou
 import type { DownloadEntry } from "@/services/downloads/manifest";
 import { useDownloadPlayback } from "@/hooks/useDownloadPlayback";
 import { formatFileSize } from "@/utils/mediaInfo";
-import { Ionicons } from "@expo/vector-icons";
 import { Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -336,10 +336,7 @@ export default function DownloadsScreen() {
                   {t("downloads.onThisDevice")}
                 </Text>
               </View>
-              <View style={[styles.section, screenStyles.emptyCard]}>
-                <Ionicons name="arrow-down-circle-outline" size={56} color={COLORS.TEXT_QUATERNARY} />
-                <Text style={screenStyles.emptyText}>{t("downloads.emptyState")}</Text>
-              </View>
+              <EmptyCard icon="arrow-down-circle-outline" text={t("downloads.emptyState")} />
             </>
           ) : (
             <>
@@ -416,16 +413,6 @@ const screenStyles = StyleSheet.create({
     gap: 16,
     paddingHorizontal: 32,
     paddingTop: 120,
-  },
-  // The emptied section keeps a card's presence: tall enough not to read as a stray line of
-  // text where a list of rows was.
-  emptyCard: {
-    minHeight: 140,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 16,
-    paddingHorizontal: 24,
-    paddingVertical: 24,
   },
   // Pinned leading on both lines: the section's height cap is DOWNLOAD_ROW_HEIGHT times a row
   // count, and that arithmetic only holds if every row measures what it assumes.

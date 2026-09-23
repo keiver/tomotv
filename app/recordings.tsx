@@ -1,4 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { EmptyCard } from "@/components/empty-card";
+import { settingsStyles } from "@/components/settings/styles";
 import { FocusableButton } from "@/components/FocusableButton";
 import { LibraryGrid } from "@/components/library-grid";
 import { TVFocusHolder } from "@/components/tv-focus-holder";
@@ -14,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import type { NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
@@ -114,9 +116,10 @@ export default function RecordingsScreen() {
       <View style={styles.container}>
         <Stack.Screen options={screenOptions} />
         <AmbientBackground />
-        <View style={styles.center}>
-          <Ionicons name="recording-outline" size={64} color={COLORS.TEXT_SECONDARY} />
-          <Text style={styles.emptyText}>{t("liveTv.noRecordings")}</Text>
+        <View style={styles.emptyPage}>
+          <View style={settingsStyles.contentContainer}>
+            <EmptyCard icon="recording-outline" text={t("liveTv.noRecordings")} note={t("liveTv.noRecordingsHint")} noteIcon="lock-closed-outline" />
+          </View>
         </View>
         <TVFocusHolder preferred={isScreenFocused} />
       </View>
@@ -150,16 +153,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  center: {
+  // The card at the content width the Downloads section uses, centred in the page.
+  emptyPage: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 40,
-    gap: 18,
-  },
-  emptyText: {
-    color: COLORS.TEXT_SECONDARY,
-    fontSize: IS_TV ? 24 : 18,
-    textAlign: "center",
   },
 });
