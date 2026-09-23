@@ -142,7 +142,7 @@ export async function resolveItems(env, items) {
     const { Items = [] } = await (await jf(env, "/LiveTv/Channels?EnableTotalRecordCount=false")).json();
     for (const m of liveWanted) {
       const hit = Items.find((c) => c.Name === m.title);
-      if (!hit) fail(`Live channel "${m.title}" is not on the server (the Live TV rig in test/playback/README.md provides it)`);
+      if (!hit) fail(`Live channel "${m.title}" is not on the server (the local tuner, test/playback/live/real.m3u, provides it)`);
       liveResolved.set(m.title, { id: hit.Id, path: null });
     }
   }
