@@ -15,6 +15,8 @@ const BARE_E = /\bE(\d{2,4})\b/i;
 const ANIME_BARE = /\s[-–—]\s?(\d{2,4})(?:v\d+)?\b/;
 // An explicit marker corroborates server metadata against the year guard below.
 const EXPLICIT_MARKER = /\bS\d{1,2}[ ._-]?E\d{1,4}\b|\bSeason[ ._-]?\d{1,2}[ ._-]{1,3}Episode\b|\b\d{1,2}x\d{2,3}\b/i;
+// A season with no episode ("Show S05 Special"); the server files its digits as the episode.
+const SEASON_ONLY = /\bS(\d{1,2})\b/i;
 
 // Kinds Jellyfin fills from music tags: IndexNumber is the track, ParentIndexNumber
 // the disc (AudioFileProber). Never a season/episode pair, whatever the name says.
@@ -41,6 +43,9 @@ export function parseSeasonEpisode(item: SeasonEpisodeSource): SeasonEpisode | n
   if (!untagged) {
     if (item.ParentIndexNumber != null && item.IndexNumber != null) {
       if (isSplitYear(item.ParentIndexNumber, item.IndexNumber, texts)) return null;
+      const absolute = splitRunEpisode(item.ParentIndexNumber, item.IndexNumber, texts);
+      if (absolute !== null) return { season: null, episode: absolute };
+      if (isSeasonReadAsEpisode(item.IndexNumber, texts)) return null;
       return { season: item.ParentIndexNumber, episode: item.IndexNumber };
     }
     if (item.IndexNumber != null && item.Type === "Episode") {
@@ -145,6 +150,82 @@ function isSplitYear(season: number, episode: number, texts: (string | undefined
   if (!/^(?:19|20)\d{2}$/.test(joined)) return false;
   const year = new RegExp(`\\b${joined}\\b`);
   return texts.some((text) => !!text && year.test(text)) && !texts.some((text) => !!text && EXPLICIT_MARKER.test(text));
+}
+
+/**
+ * Jellyfin's optimistic episode pattern reads a bare digit run as season digit + two-digit
+ * episode (Emby.Naming NamingOptions), so "Show - 150" files as S01E50. With no explicit
+ * marker, a pair that reassembles into a run the text carries yields the anime number instead.
+ */
+function splitRunEpisode(season: number, episode: number, texts: (string | undefined)[]): number | null {
+  if (texts.some((text) => !!text && EXPLICIT_MARKER.test(text))) return null;
+  const run = new RegExp(`(?<!\\d)${season}${pad2(episode)}(?!\\d)`);
+  if (!texts.some((text) => !!text && run.test(text))) return null;
+  for (const text of texts) {
+    const match = text?.match(ANIME_BARE);
+    if (!match) continue;
+    const absolute = Number(match[1]);
+    if (absolute < 1900 || absolute > 2100) return absolute;
+  }
+  return null;
+}
+
+/** True when the only number the name states is a season the server took for the episode. */
+function isSeasonReadAsEpisode(episode: number, texts: (string | undefined)[]): boolean {
+  if (texts.some((text) => !!text && EXPLICIT_MARKER.test(text))) return false;
+  return texts.some((text) => Number(text?.match(SEASON_ONLY)?.[1] ?? NaN) === episode);
+}
+
+/** True when the item's file name states a season (S01E05, 1x05, "Season 1 Episode 5"). */
+export function hasSeasonMarker(item: Pick<JellyfinVideoItem, "Name" | "Path">): boolean {
+  const text = fileNameOf(item.Path) ?? item.Name;
+  return !!text && EXPLICIT_MARKER.test(text);
+}
+
+/** Episodes by parsed number (absolute numbers first, then season/episode), unparsed after, ties stable. */
+export function orderEpisodes<T extends SeasonEpisodeSource>(items: T[]): T[] {
+  const keyed = items.map((item, index) => ({ item, index, pair: parseSeasonEpisode(item) }));
+  keyed.sort((a, b) => {
+    if (a.pair === null || b.pair === null) {
+      if (a.pair === null && b.pair === null) return a.index - b.index;
+      return a.pair === null ? 1 : -1;
+    }
+    return (a.pair.season ?? -1) - (b.pair.season ?? -1) || a.pair.episode - b.pair.episode || a.index - b.index;
+  });
+  return keyed.map((entry) => entry.item);
+}
+
+/**
+ * Each series carrying split-run numbering put in episode order within the slots it already
+ * holds, since the server's SortName follows the split pairs. Returns the input array
+ * itself when no series qualifies.
+ */
+export function orderSplitRunSeries<T extends SeasonEpisodeSource & { SeriesId?: string }>(items: T[]): T[] {
+  const slots = new Map<string, number[]>();
+  const split = new Set<string>();
+  items.forEach((item, index) => {
+    if (!item.SeriesId) return;
+    const indices = slots.get(item.SeriesId);
+    if (indices) indices.push(index);
+    else slots.set(item.SeriesId, [index]);
+    if (!split.has(item.SeriesId) && isSplitRun(item)) split.add(item.SeriesId);
+  });
+  if (split.size === 0) return items;
+
+  const out = [...items];
+  for (const seriesId of split) {
+    const indices = slots.get(seriesId)!;
+    orderEpisodes(indices.map((index) => items[index])).forEach((item, position) => {
+      out[indices[position]] = item;
+    });
+  }
+  return out;
+}
+
+/** True when the server's pair is a split digit run the name reads as an absolute number. */
+function isSplitRun(item: SeasonEpisodeSource): boolean {
+  if (item.ParentIndexNumber == null || item.IndexNumber == null || TRACK_NUMBERED_TYPES.has(item.Type ?? "")) return false;
+  return splitRunEpisode(item.ParentIndexNumber, item.IndexNumber, [item.Name, fileNameOf(item.Path)]) !== null;
 }
 
 /** Basename of a server-side path, which may be Windows-style. Allocation-free. */
