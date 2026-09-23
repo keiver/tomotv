@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 8e124f230d13a9c1
+ * fingerprint: cdce41e9cac95b92
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -302,7 +302,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "detect-node-es", version: "1.1.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2017 Ilya Kantor"] },
   { name: "dnssd-advertise", version: "1.1.6", license: "MIT", body: "L1", copyright: ["Copyright (c) Phil Pluckthun,","Copyright (c) 650 Industries, Inc. (aka Expo),"] },
   { name: "ee-first", version: "1.1.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2014 Jonathan Ong me@jongleberry.com"] },
-  { name: "electron-to-chromium", version: "1.5.435", license: "ISC", body: "L17", copyright: ["Copyright 2018 Kilian Valkhof"] },
+  { name: "electron-to-chromium", version: "1.5.438", license: "ISC", body: "L17", copyright: ["Copyright 2018 Kilian Valkhof"] },
   { name: "emoji-regex", version: "8.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "encodeurl", version: "1.0.2", license: "MIT", body: "L8", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
   { name: "encodeurl", version: "2.0.0", license: "MIT", body: "L8", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
@@ -418,7 +418,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "negotiator", version: "1.1.0", license: "MIT", body: "L8", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
   { name: "node-forge", version: "1.4.0", license: "(BSD-3-Clause OR GPL-2.0)", body: "L36", copyright: ["Copyright (c) 2010, Digital Bazaar, Inc.","Copyright (C) 1989, 1991 Free Software Foundation, Inc."] },
   { name: "node-int64", version: "0.4.0", license: "MIT", body: "L2", copyright: ["Copyright (c) 2014 Robert Kieffer"] },
-  { name: "node-releases", version: "2.0.56", license: "MIT", body: "L37", copyright: ["Copyright (c) 2017 Sergey Rubanov (https://github.com/chicoxyzzy)"] },
+  { name: "node-releases", version: "2.0.57", license: "MIT", body: "L37", copyright: ["Copyright (c) 2017 Sergey Rubanov (https://github.com/chicoxyzzy)"] },
   { name: "npm-package-arg", version: "11.0.3", license: "ISC", body: "L4", copyright: ["Copyright (c) npm, Inc."] },
   { name: "nullthrows", version: "1.1.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2016 Andres Suarez"] },
   { name: "on-finished", version: "2.3.0", license: "MIT", body: "L8", copyright: ["Copyright (c) 2013 Jonathan Ong <me@jongleberry.com>","Copyright (c) 2014 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
