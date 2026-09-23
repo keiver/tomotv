@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: f0acf0625e1f2ac6
+ * fingerprint: 8e124f230d13a9c1
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -302,7 +302,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "detect-node-es", version: "1.1.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2017 Ilya Kantor"] },
   { name: "dnssd-advertise", version: "1.1.6", license: "MIT", body: "L1", copyright: ["Copyright (c) Phil Pluckthun,","Copyright (c) 650 Industries, Inc. (aka Expo),"] },
   { name: "ee-first", version: "1.1.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2014 Jonathan Ong me@jongleberry.com"] },
-  { name: "electron-to-chromium", version: "1.5.434", license: "ISC", body: "L17", copyright: ["Copyright 2018 Kilian Valkhof"] },
+  { name: "electron-to-chromium", version: "1.5.435", license: "ISC", body: "L17", copyright: ["Copyright 2018 Kilian Valkhof"] },
   { name: "emoji-regex", version: "8.0.0", license: "MIT", body: "L21", copyright: [] },
   { name: "encodeurl", version: "1.0.2", license: "MIT", body: "L8", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
   { name: "encodeurl", version: "2.0.0", license: "MIT", body: "L8", copyright: ["Copyright (c) 2016 Douglas Christopher Wilson"] },
