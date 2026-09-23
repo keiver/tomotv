@@ -22,12 +22,28 @@ final class EngineLogTests: XCTestCase {
         XCTAssertEqual(av_log_get_level(), EngineLog.errorLevel)
     }
 
-    /// AV_LOG_SKIP_REPEATED is a #define too; 1 is the flag, and a live TS joined mid-GOP logs
-    /// one parser line per slice until the first PPS without it.
-    func testConfigureCollapsesRepeatedLines() {
-        EngineLog.configure()
-        XCTAssertEqual(EngineLog.skipRepeated, 1)
-        XCTAssertEqual(av_log_get_flags() & EngineLog.skipRepeated, EngineLog.skipRepeated)
+    /// A live TS joined mid-GOP logs one parser line per slice until the first PPS: one line
+    /// out, then one count when the run ends.
+    func testRepeatFilterCollapsesARunIntoOneCount() {
+        var filter = EngineLog.RepeatFilter()
+        let pps = "[h264] non-existing PPS 0 referenced"
+        XCTAssertEqual(filter.admit(pps), [pps])
+        for _ in 0..<124 { XCTAssertEqual(filter.admit(pps), []) }
+        XCTAssertEqual(filter.admit("[mp4] dimensions not set"),
+                       ["\(pps) (repeated 124 more times)", "[mp4] dimensions not set"])
+    }
+
+    func testRepeatFilterPassesDistinctLinesWithoutACount() {
+        var filter = EngineLog.RepeatFilter()
+        XCTAssertEqual(filter.admit("a"), ["a"])
+        XCTAssertEqual(filter.admit("b"), ["b"])
+        XCTAssertEqual(filter.admit("a"), ["a"])
+    }
+
+    func testRepeatFilterDropsOnlyTheCleanTlsClose() {
+        var filter = EngineLog.RepeatFilter()
+        XCTAssertEqual(filter.admit("[tls] mbedtls_ssl_read returned -0x0"), [])
+        XCTAssertEqual(filter.admit("[tls] mbedtls_ssl_read returned -0x7880"), ["[tls] mbedtls_ssl_read returned -0x7880"])
     }
 
     /// Each name is checked against the SDK constant rather than a copied number, so a
