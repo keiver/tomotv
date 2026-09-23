@@ -51,7 +51,6 @@ export {
   fetchProgram,
   fetchRecordings,
   fetchRecordingFolderIds,
-  fetchRecordingsFolderId,
   fetchSeriesTimers,
   fetchTimerDefaults,
   fetchTimers,

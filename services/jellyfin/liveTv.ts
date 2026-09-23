@@ -473,13 +473,6 @@ export async function fetchLiveTvManagement(): Promise<boolean> {
   return user.Policy?.EnableLiveTvManagement === true;
 }
 
-/** The recordings library's folder id: the ParentId the Filters facets and filtered browse key on. */
-export async function fetchRecordingsFolderId(): Promise<string | null> {
-  const response = await liveTvRequest(`/LiveTv/Recordings/Folders?${await userQuery()}`);
-  const json = (await response.json()) as { Items?: { Id: string }[] };
-  return json.Items?.[0]?.Id ?? null;
-}
-
 /** Every recordings library's folder id, the CollectionFolder an item's Ancestors name as its library. */
 export async function fetchRecordingFolderIds(): Promise<string[]> {
   const config = await getConfig();

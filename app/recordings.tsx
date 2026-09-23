@@ -7,7 +7,7 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { t } from "@/services/i18n";
-import { fetchFilteredVideos, fetchRecordings, fetchRecordingsFolderId } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, fetchRecordingFolderIds, fetchRecordings } from "@/services/jellyfinApi";
 import { countActiveFilters, EMPTY_FILTERS, type FolderStackEntry, type JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,12 +30,13 @@ export default function RecordingsScreen() {
   const [reloadKey, setReloadKey] = useState(0);
   const loadedFilterKey = useRef("");
 
-  // Filters key on the recordings library folder, the ParentId the server filters and facets by.
-  const [folderId, setFolderId] = useState<string | null>(null);
+  // A server can hold several recordings libraries; a filter searches all of them and keys on the first.
+  const [folderIds, setFolderIds] = useState<string[]>([]);
+  const folderId = folderIds[0] ?? null;
   useEffect(() => {
     let cancelled = false;
-    fetchRecordingsFolderId()
-      .then((id) => !cancelled && setFolderId(id))
+    fetchRecordingFolderIds()
+      .then((ids) => !cancelled && setFolderIds(ids))
       .catch((err) => logger.warn("Recordings folder lookup failed", err, { screen: "Recordings" }));
     return () => {
       cancelled = true;
@@ -53,7 +54,10 @@ export default function RecordingsScreen() {
     // A changed selection shows the loading state; a plain return keeps the list up while it refetches.
     if (loadedFilterKey.current !== filterKey) setRecordings((current) => ({ ...current, isLoading: true }));
     loadedFilterKey.current = filterKey;
-    const load = filterKey && folderId ? fetchFilteredVideos(folderId, filters).then((items) => ({ items })) : fetchRecordings();
+    const load =
+      filterKey && folderId
+        ? Promise.all(folderIds.map((id) => fetchFilteredVideos(id, filters))).then((pages) => ({ items: pages.flat().sort((a, b) => a.Name.localeCompare(b.Name)) }))
+        : fetchRecordings();
     load
       .then(({ items }) => !cancelled && setRecordings({ items, isLoading: false, error: null }))
       .catch((err) => {
@@ -65,7 +69,7 @@ export default function RecordingsScreen() {
     };
     // filterKey stands in for the filters object, so a same-selection rerender does not refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isScreenFocused, reloadKey, filterKey, folderId]);
+  }, [isScreenFocused, reloadKey, filterKey, folderIds]);
   const reload = useCallback(() => setReloadKey((n) => n + 1), []);
 
   // A flat list of episodes from many series: the card names the series, its badge the episode.
