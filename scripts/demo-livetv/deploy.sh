@@ -32,10 +32,16 @@ step "sync to $DEMO_SSH:$REMOTE"
 "${SSH[@]}" "sudo mkdir -p $REMOTE && sudo chown \$(id -u):\$(id -g) $REMOTE"
 rsync -az --delete -e "ssh -i $KEY -o IdentitiesOnly=yes" "$BUILD/channels" "$BUILD/logos" "$DEMO_SSH:$REMOTE/"
 rsync -az -e "ssh -i $KEY -o IdentitiesOnly=yes" \
-  "$HERE/lineup.json" "$HERE/guide.py" "$HERE/relay.py" "$HERE/broadcast.sh" "$HERE/probe.sh" "$HERE/configure.py" \
+  "$HERE/lineup.json" "$HERE/guide.py" "$HERE/relay.py" "$HERE/broadcast.sh" "$HERE/probe.sh" "$HERE/configure.py" "$HERE/leakwatch.py" \
   "$BUILD/epoch.txt" "$DEMO_SSH:$REMOTE/"
 scp -q -i "$KEY" -o IdentitiesOnly=yes "$BUILD/docker-compose.override.yml" "$DEMO_SSH:/tmp/livetv-override.yml"
 "${SSH[@]}" "sudo mv /tmp/livetv-override.yml /opt/tomotv/docker-compose.override.yml"
+
+step "leak watch (cron every 30 min)"
+# The ntfy topic is the only credential: it lives in .env.demo here and in $REMOTE/.env on the box, never in the repo.
+"${SSH[@]}" "printf 'NTFY_TOPIC=%s\nNTFY_ALWAYS=%s\n' '${DEMO_NTFY_TOPIC:-}' '${DEMO_NTFY_ALWAYS:-0}' > $REMOTE/.env && chmod 600 $REMOTE/.env && \
+  printf '*/30 * * * * ubuntu /usr/bin/python3 $REMOTE/leakwatch.py watch >> $REMOTE/leakwatch.log 2>&1\n' | sudo tee /etc/cron.d/tomotv-leakwatch > /dev/null && \
+  sudo chmod 644 /etc/cron.d/tomotv-leakwatch && echo installed"
 
 step "probe durations on the box"
 "${SSH[@]}" "docker run --rm -v /opt/tomotv/media:/media:ro -v $REMOTE:/livetv --entrypoint sh jellyfin/jellyfin:latest /livetv/probe.sh /livetv"

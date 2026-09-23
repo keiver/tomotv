@@ -31,6 +31,12 @@ No API key: `configure.py` runs on the box and signs its calls with the admin's 
 
 `npm run demo:livetv` then: flattens the lineup and renders logos into `build/`, rsyncs to the box, probes durations, `docker compose up -d`, and runs `configure.py` there (items.json for titles, tuner and listing if missing, XMLTV cache cleared, Refresh Guide, what is on air).
 
+## Leak watch
+
+Jellyfin writes every open tuner stream to `/cache/transcodes/<id>.ts` for as long as it is open, and only a client's close ends it: an open the app never closed grows on the box's disk at the channel's bitrate until Jellyfin restarts. `leakwatch.py` (deployed beside the other scripts, run by `/etc/cron.d/tomotv-leakwatch` every 30 min) lists the buffers, their growth over a 10 s sample, who is watching and the disk. A buffer growing past 2 min with nobody watching is a leak; a leak or under 5 GB free is pushed to ntfy (`DEMO_NTFY_TOPIC` in `.env.demo`, copied to `$REMOTE/.env`; `DEMO_NTFY_ALWAYS=1` pushes every run). Under 3 GB free, or Jellyfin down, it restarts Jellyfin and the live TV containers and clears the buffers: Jellyfin refuses to start below its own free-space floor.
+
+From here: `npm run demo:livetv:audit` prints the same report (exit 2 on a leak); `npm run demo:livetv:audit -- --restart` runs the restart.
+
 Logos are hand-drawn SVGs in `logos/<id>.svg`, rendered to 512 px PNGs by `rsvg-convert`: a silhouette in the channel colour with white only inside it, since the app draws a white halo round the logo's alpha. A redrawn logo gets a new `?v=` hash in the M3U, and `configure.py` deletes every channel's held image before Refresh Guide so Jellyfin fetches it again.
 
 Sources are paths under `/opt/tomotv/media`. Files outside every library root (`Live TV/`: Veguitas' full story, since the library's Veguitas episodes are placeholder clips of a branded ad, and 480p H.264 encodes of Blender open movies and Sunny) have no Jellyfin item, so the guide titles them by file name; they are copied to the box by hand, e.g.
