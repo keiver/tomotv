@@ -81,9 +81,15 @@ async function uploadScreenshot(api, setId, file) {
   for (const operation of reservation.data.attributes.uploadOperations ?? []) {
     await api.put(operation, bytes.subarray(operation.offset, operation.offset + operation.length));
   }
-  await api.patch(`/v1/appScreenshots/${id}`, {
-    data: { type: "appScreenshots", id, attributes: { uploaded: true, sourceFileChecksum: md5(file) } },
-  });
+  try {
+    await api.patch(`/v1/appScreenshots/${id}`, {
+      data: { type: "appScreenshots", id, attributes: { uploaded: true, sourceFileChecksum: md5(file) } },
+    });
+  } catch (e) {
+    // A 5xx on commit can still commit, so the retry 409s; the asset state is the truth.
+    const state = (await api.get(`/v1/appScreenshots/${id}`)).data.attributes.assetDeliveryState?.state;
+    if (state !== "UPLOAD_COMPLETE" && state !== "COMPLETE") throw e;
+  }
   return id;
 }
 
