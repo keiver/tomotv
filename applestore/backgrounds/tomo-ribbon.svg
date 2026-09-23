@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="4000" viewBox="250 0 1400 816" preserveAspectRatio="none" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">Abstract charcoal and yellow ribbon</title>
+  <desc id="description">A flowing golden-yellow ribbon in the sampled card-title color #FFC312 between softly shaded charcoal and black layers. Fully vector artwork without lettering.</desc>
+  <defs>
+    <radialGradient id="background" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(899 423) rotate(1) scale(1284 1048)">
+      <stop stop-color="#2D2D30"/>
+      <stop offset=".28" stop-color="#292A2D"/>
+      <stop offset=".55" stop-color="#242527"/>
+      <stop offset=".8" stop-color="#1B1C1E"/>
+      <stop offset="1" stop-color="#111113"/>
+    </radialGradient>
+    <radialGradient id="middle-layer" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(628 402) rotate(90) scale(569 745)">
+      <stop stop-color="#343437"/>
+      <stop offset=".38" stop-color="#2C2C2F"/>
+      <stop offset=".74" stop-color="#232427"/>
+      <stop offset="1" stop-color="#17181A"/>
+    </radialGradient>
+    <radialGradient id="left-layer" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(459 410) rotate(98) scale(563 558)">
+      <stop stop-color="#2E2F32"/>
+      <stop offset=".32" stop-color="#28292C"/>
+      <stop offset=".66" stop-color="#222325"/>
+      <stop offset=".88" stop-color="#1A1B1D"/>
+      <stop offset="1" stop-color="#111214"/>
+    </radialGradient>
+    <linearGradient id="ribbon" x1="312" y1="0" x2="849" y2="803" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C7950D"/>
+      <stop offset=".2" stop-color="#F3BA10"/>
+      <stop offset=".46" stop-color="#FFC312"/>
+      <stop offset=".65" stop-color="#FFC312"/>
+      <stop offset=".83" stop-color="#F5BB10"/>
+      <stop offset="1" stop-color="#EAB00C"/>
+    </linearGradient>
+    <filter id="layer-shadow" x="-100" y="-120" width="1530" height="1100" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10" result="blur"/>
+      <feOffset in="blur" dx="9" dy="3" result="offset"/>
+      <feFlood flood-color="#080809" flood-opacity=".33"/>
+      <feComposite in2="offset" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="ribbon-shadow" x="170" y="-120" width="960" height="1100" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="7" result="blur"/>
+      <feOffset in="blur" dx="7" dy="4" result="offset"/>
+      <feFlood flood-color="#080809" flood-opacity=".32"/>
+      <feComposite in2="offset" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="edge-soften" x="170" y="-100" width="960" height="1016" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+    <path id="ribbon-shape" d="M 280 0 C 331 67 382 115 483 176 C 594 243 650 309 643 400 C 638 481 624 551 637 650 C 646 727 660 777 714 816 L 976 816 C 899 789 829 769 794 718 C 727 620 749 479 759 364 C 773 213 681 163 575 89 C 529 57 486 23 454 0 Z"/>
+    <clipPath id="ribbon-clip"><use href="#ribbon-shape"/></clipPath>
+    <clipPath id="canvas"><path d="M0 0H2048V816H0Z"/></clipPath>
+  </defs>
+  <g clip-path="url(#canvas)">
+    <path id="base" fill="url(#background)" d="M0 0H2048V816H0Z"/>
+    <path id="flowing-middle-layer" fill="url(#middle-layer)" filter="url(#layer-shadow)" d="M -60 -60 H 564 C 666 23 803 81 849 185 C 894 286 865 328 864 409 C 861 518 865 608 912 669 C 968 743 1100 744 1215 816 L 1260 876 H -60 Z"/>
+    <g id="yellow-ribbon" filter="url(#ribbon-shadow)">
+      <use href="#ribbon-shape" fill="url(#ribbon)"/>
+      <g clip-path="url(#ribbon-clip)">
+        <path d="M 280 0 C 331 67 382 115 483 176 C 594 243 650 309 643 400 C 638 481 624 551 637 650 C 646 727 660 777 714 816" stroke="#6A5108" stroke-opacity=".32" stroke-width="21" filter="url(#edge-soften)"/>
+      </g>
+    </g>
+    <path id="flowing-left-layer" fill="url(#left-layer)" filter="url(#layer-shadow)" d="M -60 -60 H 101 C 124 68 172 134 273 206 C 399 295 482 342 502 434 C 516 499 492 545 494 614 C 491 704 500 768 523 816 L 540 876 H -60 Z"/>
+  </g>
+</svg>

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="4000" viewBox="0 0 4000 4000">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B4A8C"/>
+      <stop offset="0.55" stop-color="#061A45"/>
+      <stop offset="1" stop-color="#050C22"/>
+    </linearGradient>
+    <radialGradient id="teal" gradientUnits="userSpaceOnUse" cx="800" cy="900" r="2100">
+      <stop offset="0" stop-color="#48E6B8" stop-opacity="0.8"/>
+      <stop offset="0.28" stop-color="#16B4DC" stop-opacity="0.55"/>
+      <stop offset="0.6" stop-color="#0A5FBE" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#0A5FBE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ember" gradientUnits="userSpaceOnUse" cx="3200" cy="3250" r="1900">
+      <stop offset="0" stop-color="#FFA640" stop-opacity="0.85"/>
+      <stop offset="0.3" stop-color="#FF6A10" stop-opacity="0.5"/>
+      <stop offset="0.62" stop-color="#B8380A" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#B8380A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7CF5E0" stop-opacity="0"/>
+      <stop offset="0.3" stop-color="#8FEFFF" stop-opacity="1"/>
+      <stop offset="0.62" stop-color="#FFD29A" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#FF8A1E" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="core" x="-10%" y="-400%" width="120%" height="900%"><feGaussianBlur stdDeviation="14"/></filter>
+    <filter id="glow" x="-10%" y="-400%" width="120%" height="900%"><feGaussianBlur stdDeviation="90"/></filter>
+    <filter id="haze" x="-10%" y="-300%" width="120%" height="700%"><feGaussianBlur stdDeviation="260"/></filter>
+    <radialGradient id="vignette" gradientUnits="userSpaceOnUse" cx="2000" cy="1900" r="3000">
+      <stop offset="0.55" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.5"/>
+    </radialGradient>
+  </defs>
+  <rect width="4000" height="4000" fill="url(#sky)"/>
+  <g style="mix-blend-mode:screen">
+    <rect width="4000" height="4000" fill="url(#teal)"/>
+    <rect width="4000" height="4000" fill="url(#ember)"/>
+  </g>
+  <g transform="rotate(26 2000 2000)" style="mix-blend-mode:screen">
+    <rect x="-300" y="2080" width="4600" height="300" fill="url(#beam)" opacity="0.28" filter="url(#haze)"/>
+    <rect x="-300" y="2190" width="4600" height="70" fill="url(#beam)" opacity="0.5" filter="url(#glow)"/>
+    <rect x="-300" y="2218" width="4600" height="10" fill="url(#beam)" opacity="0.75" filter="url(#core)"/>
+  </g>
+  <rect width="4000" height="4000" fill="url(#vignette)"/>
+</svg>

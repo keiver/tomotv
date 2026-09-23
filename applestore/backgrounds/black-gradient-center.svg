@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="4000" viewBox="0 0 4000 4000">
+  <defs>
+    <radialGradient id="lift" gradientUnits="userSpaceOnUse" cx="2000" cy="1720" r="2600">
+      <stop offset="0" stop-color="#3C3C40"/>
+      <stop offset="0.45" stop-color="#1B1B1E"/>
+      <stop offset="1" stop-color="#000"/>
+    </radialGradient>
+  </defs>
+  <rect width="4000" height="4000" fill="url(#lift)"/>
+</svg>

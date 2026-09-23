@@ -1,5 +1,6 @@
 {
   "output": "applestore/generated",
+  "background": "acid",
   "locales": {
     "en": {},
     "de": {},

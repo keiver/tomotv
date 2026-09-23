@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="4000" viewBox="0 0 4000 4000">
+  <defs>
+    <radialGradient id="acid" gradientUnits="userSpaceOnUse" cx="3300" cy="700" r="2600">
+      <stop offset="0" stop-color="#AAFC07" stop-opacity="0.34"/>
+      <stop offset="0.5" stop-color="#AAFC07" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#AAFC07" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="rust" gradientUnits="userSpaceOnUse" cx="700" cy="3300" r="2700">
+      <stop offset="0" stop-color="#C74F34" stop-opacity="0.5"/>
+      <stop offset="0.5" stop-color="#C74F34" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#C74F34" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="4000" height="4000" fill="#121214"/>
+  <rect width="4000" height="4000" fill="url(#acid)"/>
+  <rect width="4000" height="4000" fill="url(#rust)"/>
+</svg>

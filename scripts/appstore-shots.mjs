@@ -17,6 +17,9 @@
  *   npm run shots -- --capture       drive the simulators and shoot every slot
  *   npm run shots -- --capture-only  capture and stop
  *   npm run shots -- --render        re-render from what was already adopted
+ *   npm run shots -- --force         redraw even what the checksums call unchanged
+ *   npm run shots -- --background black --out applestore/generated/trial/black
+ *                                    try applestore/backgrounds/black.svg off the shipping set
  *   npm run shots -- --clean         drop captures for slots this import cannot fill
  *   npm run shots -- --verify        compliance gate only
  *   npm run shots -- --list          print the caption plan and exit
@@ -24,12 +27,19 @@
  *
  * A file whose name starts with a shot id claims that slot; the rest fill the
  * remaining slots in the order they were taken.
+ *
+ * The backdrop is one image, `background` in shots.config.json or --background,
+ * cover-cropped from its centre onto every canvas. Each output folder keeps
+ * .shots-manifest.json, the checksum of every input an image was drawn from, so
+ * only images whose inputs moved are redrawn.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { DEVICES, compose, setFonts, setMetrics, wrongOrientation } from "./appstore/compose.mjs";
+import { DEVICES, compose, layout, resetLayers, setFonts, setMetrics, wrongOrientation } from "./appstore/compose.mjs";
+import { fresh, hash, hashFile, loadManifest, saveManifest, toolchain } from "./appstore/cache.mjs";
 import { planImport, adopt, assign } from "./appstore/import.mjs";
 import { captureShots } from "./appstore/capture.mjs";
 import { ensurePlaceholders } from "./appstore/placeholder.mjs";
@@ -54,7 +64,7 @@ const opt = (name) => {
   return next && !next.startsWith("-") ? next : null;
 };
 /** The first bare argument is the directory to scan. */
-const VALUE_FLAGS = ["--device", "--only", "--out", "--locale"];
+const VALUE_FLAGS = ["--device", "--only", "--out", "--locale", "--background", "--env"];
 const scanDir = args.find((a, i) => !a.startsWith("-") && !VALUE_FLAGS.some((f) => args[i - 1]?.startsWith(f))) || null;
 
 const fail = (msg) => {
@@ -95,6 +105,7 @@ function loadConfig(localeOverride) {
     if (!DEVICES[key]) fail(`Unknown device "${key}" in config. Known: ${Object.keys(DEVICES).join(", ")}`);
   }
   config.shots = config.shots.filter((s) => !only || only.some((o) => s.id.startsWith(o)));
+  config.background = resolveBackground(opt("--background") ?? config.background);
   for (const shot of config.shots) {
     shot.devices = (shot.devices || Object.keys(config.devices)).filter((d) => !deviceFilter || deviceFilter.includes(d));
   }
@@ -103,6 +114,15 @@ function loadConfig(localeOverride) {
     if (n > MAX_SHOTS) fail(`${key} has ${n} shots configured; App Store Connect accepts at most ${MAX_SHOTS}`);
   }
   return config;
+}
+
+/** A path from the repo root, or a name in applestore/backgrounds with or without its extension. */
+function resolveBackground(value) {
+  if (!value) fail(`No background: set "background" in ${path.relative(ROOT, CONFIG_PATH)} or pass --background`);
+  const dir = path.join(path.dirname(CONFIG_PATH), "backgrounds");
+  const found = [path.resolve(ROOT, value), path.join(dir, value), path.join(dir, `${value}.svg`), path.join(dir, `${value}.png`)].find((f) => fs.existsSync(f) && fs.statSync(f).isFile());
+  if (!found) fail(`No background "${value}". Have: ${fs.existsSync(dir) ? fs.readdirSync(dir).join(", ") : "none"}`);
+  return found;
 }
 
 /**
@@ -198,7 +218,26 @@ async function importShots(config) {
 
 // ---------- compose ----------
 
-async function composeAll(config) {
+/** Renders in flight at once. PNG deflate is single-threaded, so a few overlap well. */
+const WORKERS = Math.min(4, os.availableParallelism());
+
+async function pool(tasks, size) {
+  const queue = [...tasks];
+  await Promise.all(
+    Array.from({ length: Math.min(size, queue.length) }, async () => {
+      while (queue.length) await queue.shift()();
+    }),
+  );
+}
+
+/** Redraws what moved and returns the device sets that changed. */
+async function composeAll(config, manifest) {
+  const tools = toolchain();
+  const force = flag("--force");
+  const changed = new Set();
+  const tasks = [];
+  let unchanged = 0;
+
   for (const { deviceKey, shots } of plan(config)) {
     if (!shots.length) continue;
     const device = DEVICES[deviceKey];
@@ -206,7 +245,7 @@ async function composeAll(config) {
     // One size for the whole device set, so the panel lands on the same pixel.
     const shared = setMetrics(device, shots);
 
-    for (const [index, shot] of shots.entries()) {
+    for (const shot of shots) {
       // The locale's own capture, or English when that language has not been
       // captured. The line below says which it used, so a run that fell back is
       // visible rather than silently English under a translated caption.
@@ -215,11 +254,27 @@ async function composeAll(config) {
       if (!fs.existsSync(src)) continue;
       const fellBack = src !== own;
       const out = outputPath(config, deviceKey, shot.id);
-      fs.mkdirSync(path.dirname(out), { recursive: true });
-      const info = await compose(device, shot, src, out, shared, { index, count: shots.length, field: opt("--field") });
-      console.log(`   ${deviceKey}/${shot.id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px${fellBack ? "  ! english capture" : ""}`);
+      const capture = hashFile(src);
+      const key = hash(tools, config.locales?.[config.locale]?.fonts ?? null, layout(device, shot, shared), hashFile(config.background), capture);
+      const id = `${deviceKey}/${shot.id}`;
+
+      if (!force && fresh(manifest[id], key, out)) {
+        unchanged++;
+        continue;
+      }
+      changed.add(deviceKey);
+      tasks.push(async () => {
+        fs.mkdirSync(path.dirname(out), { recursive: true });
+        const info = await compose(device, shot, src, out, shared, config.background);
+        manifest[id] = { key, sha: hashFile(out), background: path.relative(ROOT, config.background), capture: path.relative(ROOT, src), captureSha: capture };
+        console.log(`   ${id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px${fellBack ? "  ! english capture" : ""}`);
+      });
     }
   }
+  await pool(tasks, WORKERS);
+  resetLayers();
+  if (unchanged) console.log(`   · ${unchanged} unchanged, checksums match`);
+  return changed;
 }
 
 // ---------- compliance ----------
@@ -262,10 +317,20 @@ const TILE_RADIUS = {
 };
 
 /** One montage per platform, so the set can be judged as a row the way the store shows it. */
-async function contactSheet(config) {
+async function contactSheet(config, manifest) {
   for (const { deviceKey, shots } of plan(config)) {
     const files = shots.map((s) => outputPath(config, deviceKey, s.id)).filter((f) => fs.existsSync(f));
     if (!files.length) continue;
+    const out = path.join(outputRoot(config), `contact-sheet-${deviceKey}.png`);
+    const id = `contact-sheet-${deviceKey}`;
+    const key = hash(
+      hashFile(fileURLToPath(import.meta.url)),
+      files.map((f) => [path.basename(f), hashFile(f)]),
+    );
+    if (!flag("--force") && fresh(manifest[id], key, out)) {
+      console.log(`   · ${deviceKey} unchanged`);
+      continue;
+    }
 
     const [pw, ph] = DEVICES[deviceKey].canvas;
     const tileW = 420;
@@ -289,11 +354,11 @@ async function contactSheet(config) {
       left += tileW + gap;
       return at;
     });
-    const out = path.join(outputRoot(config), `contact-sheet-${deviceKey}.png`);
     await sharp({ create: { width: left, height: tileH + gap * 2, channels: 3, background: "#FFFFFF" } })
       .composite(placed)
       .png()
       .toFile(out);
+    manifest[id] = { key, sha: hashFile(out) };
     console.log(`   ${deviceKey} → ${path.relative(ROOT, out)}`);
   }
 }
@@ -399,11 +464,15 @@ async function main() {
     const c = targets.length > 1 ? loadConfig(locale) : config;
     if (targets.length > 1) console.log(`\n▸ ${locale}`);
 
-    console.log("\n▸ composing");
-    await composeAll(c);
-
-    console.log("\n▸ contact sheets");
-    await contactSheet(c);
+    const manifest = loadManifest(outputRoot(c));
+    console.log(`\n▸ composing on ${path.relative(ROOT, c.background)}`);
+    try {
+      await composeAll(c, manifest);
+      console.log("\n▸ contact sheets");
+      await contactSheet(c, manifest);
+    } finally {
+      saveManifest(outputRoot(c), manifest);
+    }
 
     console.log("\n▸ verifying");
     failures += await verify(c);
