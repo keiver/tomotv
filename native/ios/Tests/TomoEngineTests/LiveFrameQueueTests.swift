@@ -84,39 +84,57 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .frame(let url, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no frame") }
+        guard case .frames(let urls, _)? = settle(queue, "chan-a", stream.absoluteString), let url = urls.first else { return XCTFail("no frame") }
         XCTAssertTrue(url.lastPathComponent.hasPrefix("live-"))
+        XCTAssertTrue(url.lastPathComponent.hasSuffix("-0.jpg"))
         XCTAssertEqual(url.deletingLastPathComponent().lastPathComponent, "chan-a")
         XCTAssertEqual(pixelWidth(url), 480)
     }
 
-    func testEachGrabReplacesTheChannelsLastFrame() throws {
+    func testOneOpenYieldsABurstOfPicturesASecondApart() throws {
+        // 20 s at 25 fps: eight pictures a second apart fit inside the first GOP after the keyframe.
         let stream = try midGopStream()
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .frame(let first, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no first frame") }
-        Thread.sleep(forTimeInterval: 0.01)
-        guard case .frame(let second, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no second frame") }
-        XCTAssertNotEqual(first, second, "a live grab is never served from the directory")
-        let left = try FileManager.default.contentsOfDirectory(atPath: first.deletingLastPathComponent().path)
-        XCTAssertEqual(left, [second.lastPathComponent])
+        guard case .frames(let urls, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no burst") }
+        XCTAssertEqual(urls.count, LiveFrameQueue.defaultCount)
+        XCTAssertEqual(urls.map(LiveFrameQueue.index), Array(0 ..< LiveFrameQueue.defaultCount))
+        XCTAssertEqual(Set(urls.map(LiveFrameQueue.stamp)).count, 1, "one burst shares one stamp")
+        for url in urls { XCTAssertEqual(pixelWidth(url), 480) }
+        let left = try FileManager.default.contentsOfDirectory(atPath: urls[0].deletingLastPathComponent().path).sorted()
+        XCTAssertEqual(left, urls.map(\.lastPathComponent).sorted())
     }
 
-    func testTheNewestFrameOnDiskAnswersForAChannelBeforeAnyGrab() throws {
+    func testEachGrabReplacesTheChannelsLastBurst() throws {
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(let first, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no first burst") }
+        Thread.sleep(forTimeInterval: 0.01)
+        guard case .frames(let second, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no second burst") }
+        XCTAssertNotEqual(first, second, "a live grab is never served from the directory")
+        let left = try FileManager.default.contentsOfDirectory(atPath: first[0].deletingLastPathComponent().path).sorted()
+        XCTAssertEqual(left, second.map(\.lastPathComponent).sorted())
+    }
+
+    func testTheNewestBurstOnDiskAnswersForAChannelBeforeAnyGrab() throws {
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let dir = root.appendingPathComponent("chan-a", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        for name in ["live-1000.jpg", "live-3000.jpg", "live-2000.jpg", "poster.jpg"] {
+        for name in ["live-1000.jpg", "live-3000-1.jpg", "live-3000-0.jpg", "live-2000-0.jpg", "poster.jpg"] {
             try Data([0xFF, 0xD8]).write(to: dir.appendingPathComponent(name))
         }
         let queue = LiveFrameQueue(root: root)
         let found = queue.latest(channelIds: ["chan-a", "chan-none", "../escape"])
         XCTAssertEqual(found.keys.sorted(), ["chan-a"])
-        XCTAssertEqual(found["chan-a"]?.lastPathComponent, "live-3000.jpg")
-        XCTAssertEqual(LiveFrameQueue.stamp(found["chan-a"]!), 3000)
+        XCTAssertEqual(found["chan-a"]?.map(\.lastPathComponent), ["live-3000-0.jpg", "live-3000-1.jpg"])
+        XCTAssertEqual(LiveFrameQueue.stamp(found["chan-a"]![0]), 3000)
+        XCTAssertEqual(LiveFrameQueue.stamp(dir.appendingPathComponent("live-1000.jpg")), 1000)
     }
 
     func testTheKeyframeAlreadyShownWritesNothing() throws {
@@ -125,7 +143,7 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .frame(let first, let pts)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no first frame") }
+        guard case .frames(let burst, let pts)? = settle(queue, "chan-a", stream.absoluteString), let first = burst.first else { return XCTFail("no first frame") }
         let shown = try XCTUnwrap(pts)
         let done = XCTestExpectation(description: "second")
         var outcome: LiveFrameQueue.Outcome?
@@ -135,8 +153,8 @@ final class LiveFrameQueueTests: XCTestCase {
         }
         wait(for: [done], timeout: 15)
         guard case .unchanged? = outcome else { return XCTFail("the same keyframe is not written again") }
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: first.deletingLastPathComponent().path), [first.lastPathComponent])
-        guard case .frame? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("a grab with nothing shown writes its frame") }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: first.deletingLastPathComponent().path).sorted(), burst.map(\.lastPathComponent).sorted())
+        guard case .frames? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("a grab with nothing shown writes its burst") }
     }
 
     func testADuplicateRequestForAChannelInFlightAnswersCancelled() throws {
@@ -155,7 +173,7 @@ final class LiveFrameQueueTests: XCTestCase {
         queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:]) { duplicate = $0 }
         guard case .cancelled? = duplicate else { return XCTFail("the duplicate should answer cancelled at once") }
         wait(for: [first], timeout: 15)
-        guard case .frame? = firstOutcome else { return XCTFail("the first request still answers its frame") }
+        guard case .frames? = firstOutcome else { return XCTFail("the first request still answers its frame") }
     }
 
     func testACancelBeforeItsTurnOpensNothing() throws {

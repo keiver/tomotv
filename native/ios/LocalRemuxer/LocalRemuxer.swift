@@ -551,8 +551,8 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// A live channel's frame now. Config: channelId, inputUrl, httpHeaders, deadline (seconds), shownPts.
-    /// Resolves `{uri, pts}`, `{unchanged}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
+    /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval (seconds), count, shownPts.
+    /// Resolves `{uris, pts}`, `{unchanged}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
     @objc func liveFrame(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -565,15 +565,19 @@ class LocalRemuxer: RCTEventEmitter {
         }
         let headers = (config["httpHeaders"] as? [String: String]) ?? [:]
         let deadline = max(1, (config["deadline"] as? Double) ?? LiveFrameQueue.defaultDeadline)
+        let span = max(1, (config["span"] as? Double) ?? LiveFrameQueue.defaultSpan)
+        let interval = max(0.1, (config["interval"] as? Double) ?? LiveFrameQueue.defaultInterval)
+        let count = max(1, (config["count"] as? Int) ?? LiveFrameQueue.defaultCount)
         let shownPts = (config["shownPts"] as? NSNumber)?.int64Value
-        Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline, shownPts: shownPts) { outcome in
+        Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline,
+                                span: span, interval: interval, count: count, shownPts: shownPts) { outcome in
             switch outcome {
-            case .frame(let url, let pts):
+            case .frames(let urls, let pts):
                 let shown: Any = pts.map { NSNumber(value: $0) } ?? NSNull()
-                resolve(["uri": url.absoluteString, "cancelled": false, "pts": shown])
-            case .unchanged: resolve(["uri": NSNull(), "cancelled": false, "unchanged": true])
-            case .none(let opened): resolve(["uri": NSNull(), "cancelled": false, "reason": opened ? "frame" : "open"])
-            case .cancelled: resolve(["uri": NSNull(), "cancelled": true])
+                resolve(["uris": urls.map(\.absoluteString), "cancelled": false, "pts": shown])
+            case .unchanged: resolve(["uris": [], "cancelled": false, "unchanged": true])
+            case .none(let opened): resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open"])
+            case .cancelled: resolve(["uris": [], "cancelled": true])
             }
         }
     }
@@ -587,7 +591,7 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// The newest live frame on disk per channel: `{ channelId: fileUrl }` for those that have one.
+    /// The newest burst on disk per channel: `{ channelId: [fileUrl] }` in order, for those that have one.
     @objc func liveFramesOnDisk(
         _ channelIds: NSArray,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -596,7 +600,7 @@ class LocalRemuxer: RCTEventEmitter {
         let ids = (channelIds as? [String]) ?? []
         Self.liveFrames.queue.async {
             let found = Self.liveFrames.latest(channelIds: ids)
-            resolve(found.mapValues { $0.absoluteString })
+            resolve(found.mapValues { $0.map(\.absoluteString) })
         }
     }
 

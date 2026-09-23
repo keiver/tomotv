@@ -27,8 +27,14 @@ final class LiveFrameQueue {
         self.root = root
     }
 
+    /// One open yields a burst: a keyframe, then a picture per second for up to `defaultSpan`.
+    static let defaultSpan: TimeInterval = 8
+    static let defaultInterval: TimeInterval = 1
+    static let defaultCount = 8
+
     enum Outcome {
-        case frame(URL, pts: Int64?)
+        /// The burst in order, the first keyframe's pts with it.
+        case frames([URL], pts: Int64?)
         /// The keyframe at the live edge is still the one `shownPts` names; nothing was written.
         case unchanged
         /// Nothing came: `opened` false when the source would not even open.
@@ -36,8 +42,9 @@ final class LiveFrameQueue {
         case cancelled
     }
 
-    /// The channel's frame now, decoded in turn. The completion runs on the queue's thread.
+    /// The channel's burst now, decoded in turn. The completion runs on the queue's thread.
     func request(channelId: String, inputUrl: String, headers: [String: String], deadline: TimeInterval = defaultDeadline,
+                 span: TimeInterval = defaultSpan, interval: TimeInterval = defaultInterval, count: Int = defaultCount,
                  shownPts: Int64? = nil, completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: channelId, in: root) else {
             completion(.none(opened: true))
@@ -78,8 +85,8 @@ final class LiveFrameQueue {
             let watchdog = DispatchWorkItem { grabber.stop() }
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: watchdog)
             let started = Date()
-            let name = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000)).jpg"
-            let result = grabber.liveFrame(named: name, unlessPts: shownPts)
+            let base = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000))"
+            let result = grabber.liveBurst(named: base, span: min(span, deadline), interval: interval, count: max(1, count), unlessPts: shownPts)
             watchdog.cancel()
             grabber.stop()
             let elapsed = Date().timeIntervalSince(started)
@@ -88,16 +95,16 @@ final class LiveFrameQueue {
             let stoppedMidway = cancelled.contains(channelId)
             lock.unlock()
             if stoppedMidway {
-                if case .frame(let file, _) = result { try? FileManager.default.removeItem(at: file) }
+                if case .frames(let files, _) = result { for file in files { try? FileManager.default.removeItem(at: file) } }
                 NSLog("[LiveFrame] %@", String(format: "%@ cancelled %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
                 completion(.cancelled)
                 return
             }
             switch result {
-            case .frame(let file, let pts):
-                Self.removeOthers(in: location, keeping: file)
-                NSLog("[LiveFrame] %@", String(format: "%@ %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
-                completion(.frame(file, pts: pts))
+            case .frames(let files, let pts):
+                Self.removeOthers(in: location, keeping: files)
+                NSLog("[LiveFrame] %@", String(format: "%@ %d frames %.2fs %lld bytes", channelId, files.count, elapsed, grabber.bytesRead))
+                completion(.frames(files, pts: pts))
             case .unchanged:
                 NSLog("[LiveFrame] %@", String(format: "%@ unchanged %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
                 completion(.unchanged)
@@ -109,22 +116,30 @@ final class LiveFrameQueue {
         }
     }
 
-    /// The newest frame on disk for each channel that has one, by the time in its name. A reload
-    /// or a relaunch reads these before any grab, so a card never loses the picture it had.
-    func latest(channelIds: [String]) -> [String: URL] {
-        var found: [String: URL] = [:]
+    /// The newest burst on disk for each channel that has one, by the time in its names, in order.
+    /// A reload or a relaunch reads these before any grab, so a card never loses the picture it had.
+    func latest(channelIds: [String]) -> [String: [URL]] {
+        var found: [String: [URL]] = [:]
         for channelId in channelIds {
             guard let location = ChapterFramePool.location(for: channelId, in: root),
                   let entries = try? FileManager.default.contentsOfDirectory(at: location, includingPropertiesForKeys: nil) else { continue }
             let frames = entries.filter { $0.lastPathComponent.hasPrefix(Self.filePrefix) }
-            if let newest = frames.max(by: { Self.stamp($0) < Self.stamp($1) }) { found[channelId] = newest }
+            guard let newest = frames.map(Self.stamp).max() else { continue }
+            found[channelId] = frames.filter { Self.stamp($0) == newest }.sorted { Self.index($0) < Self.index($1) }
         }
         return found
     }
 
-    /// The grab time a frame's name carries, 0 for a name without one.
+    /// The grab time a frame's name carries (`live-<ms>-<i>.jpg`, or the older `live-<ms>.jpg`), 0 for a name without one.
     static func stamp(_ url: URL) -> Int64 {
-        Int64(url.deletingPathExtension().lastPathComponent.dropFirst(filePrefix.count)) ?? 0
+        let name = url.deletingPathExtension().lastPathComponent.dropFirst(filePrefix.count)
+        return Int64(name.split(separator: "-").first ?? "") ?? 0
+    }
+
+    /// The frame's place in its burst, 0 for a name without one.
+    static func index(_ url: URL) -> Int {
+        let parts = url.deletingPathExtension().lastPathComponent.dropFirst(filePrefix.count).split(separator: "-")
+        return parts.count > 1 ? Int(parts[1]) ?? 0 : 0
     }
 
     /// A pending job for the channel completes cancelled without opening its source; one already
@@ -143,10 +158,11 @@ final class LiveFrameQueue {
         return cancelled.contains(channelId)
     }
 
-    /// The channel keeps one live frame: the one just written.
-    private static func removeOthers(in directory: URL, keeping kept: URL) {
+    /// The channel keeps one burst: the one just written.
+    private static func removeOthers(in directory: URL, keeping kept: [URL]) {
         guard let entries = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
-        for entry in entries where entry.lastPathComponent.hasPrefix(filePrefix) && entry.lastPathComponent != kept.lastPathComponent {
+        let names = Set(kept.map(\.lastPathComponent))
+        for entry in entries where entry.lastPathComponent.hasPrefix(filePrefix) && !names.contains(entry.lastPathComponent) {
             try? FileManager.default.removeItem(at: entry)
         }
     }
