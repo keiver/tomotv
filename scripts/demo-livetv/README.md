@@ -31,9 +31,9 @@ No API key: `configure.py` runs on the box and signs its calls with the admin's 
 
 `npm run demo:livetv` then: flattens the lineup and renders logos into `build/`, rsyncs to the box, probes durations, `docker compose up -d`, and runs `configure.py` there (items.json for titles and posters, tuner and listing if missing, XMLTV cache cleared, Refresh Guide, what is on air).
 
-Logos are round initial badges in the channel colour; a redrawn logo gets a new `?v=` hash in the M3U, but Jellyfin keeps a channel image it already holds: `DELETE /Items/{channelId}/Images/Primary` then Refresh Guide.
+Logos are hand-drawn SVGs in `logos/<id>.svg`, rendered to 512 px PNGs by `rsvg-convert`: a silhouette in the channel colour with white only inside it, since the app draws a white halo round the logo's alpha. A redrawn logo gets a new `?v=` hash in the M3U, and `configure.py` deletes every channel's held image before Refresh Guide so Jellyfin fetches it again.
 
-Add a channel: append to `lineup.json` (unique `id`, `number`, `port` 91NN, codec-uniform sources, `category` Movie / Series / Kids / Sports / News for Jellyfin's genre rows), rerun.
+Add a channel: append to `lineup.json` (unique `id`, `number`, `port` 91NN, codec-uniform sources, `category` Movie / Series / Kids / Sports / News for Jellyfin's genre rows) and draw `logos/<id>.svg`, rerun.
 
 ## Check on the box
 

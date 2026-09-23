@@ -71,6 +71,10 @@ def main(directory, db, ip):
     cfg["GuideDays"] = 7
     jf("/System/Configuration/livetv", "POST", cfg)
 
+    # Jellyfin keeps a channel image it holds even when the tvg-logo URL changes; the refresh fetches it again.
+    for ch in jf("/LiveTv/Channels?Limit=50")["Items"]:
+        if ch.get("ImageTags", {}).get("Primary"):
+            jf(f"/Items/{ch['Id']}/Images/Primary", "DELETE")
     task = next(t["Id"] for t in jf("/ScheduledTasks") if t["Key"] == "RefreshGuide")
     jf("/ScheduledTasks/Running/" + task, "POST")
     print("guide refresh started")

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the demo Live TV lineup to the demo Jellyfin box, end to end and idempotent: lineup flattened and logos
+# Deploy the demo Live TV lineup to the demo Jellyfin box, end to end and idempotent: lineup flattened and logo SVGs
 # rendered here, synced over, durations probed, relay + broadcasters + guide up beside jellyfin, then configure.py
 # on the box adds the M3U tuner and XMLTV listing and refreshes the guide.
 #   npm run demo:livetv
@@ -23,17 +23,10 @@ step "flatten lineup + logos"
 rm -rf "$BUILD"
 mkdir -p "$BUILD/logos"
 python3 "$HERE/guide.py" flatten "$HERE" "$BUILD"
-python3 - "$HERE/lineup.json" "$BUILD/logos" <<'EOF'
-import json, os, subprocess, sys
-font = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
-for c in json.load(open(sys.argv[1]))["channels"]:
-    out = os.path.join(sys.argv[2], c["id"] + ".png")
-    initials = "".join(w[0] for w in c["name"].split()[:2]).upper()
-    subprocess.run(["magick", "-size", "512x512", "xc:none", "-fill", c["colour"], "-draw", "circle 256,256 256,16",
-                    "-font", font, "-pointsize", "200" if len(initials) == 1 else "150", "-fill", "white", "-gravity", "center",
-                    "-annotate", "+0+8", initials, out], check=True)
-    print("logo", out)
-EOF
+for id in $(python3 -c 'import json, sys; print(" ".join(c["id"] for c in json.load(open(sys.argv[1]))["channels"]))' "$HERE/lineup.json"); do
+  rsvg-convert -w 512 -h 512 "$HERE/logos/$id.svg" -o "$BUILD/logos/$id.png"
+  echo "logo $id"
+done
 
 step "sync to $DEMO_SSH:$REMOTE"
 "${SSH[@]}" "sudo mkdir -p $REMOTE && sudo chown \$(id -u):\$(id -g) $REMOTE"
