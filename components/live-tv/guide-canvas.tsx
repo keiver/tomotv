@@ -142,7 +142,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
   }, [rows, nowMs, focusLatched, isScreenFocused]);
 
   const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
-  const dayLabel = formatDayLabel(windowStartMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") });
+  const dayLabel = formatDayLabel(windowStartMs, nowMs, { today: t("liveTv.now"), tomorrow: t("liveTv.tomorrow") });
 
   const renderRow = useCallback(
     ({ item, index }: { item: GuideRowData; index: number }) => (
