@@ -84,6 +84,16 @@
       ],
       "category": "Movie",
       "slots": [30]
+    },
+    {
+      "number": 6,
+      "id": "utopia",
+      "name": "Utopia",
+      "colour": "#8C3B2E",
+      "port": 9106,
+      "sources": ["Films/Utopia (1951)/Utopia (1951).mp4"],
+      "category": "Movie",
+      "slots": [60, 30, 90, 30, 60, 30]
     }
   ]
 }
