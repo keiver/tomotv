@@ -11,12 +11,11 @@ import { cachedRequest, invalidateRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { downloadedItem } from "@/services/downloads/localSource";
 import { logger } from "@/utils/logger";
-import { orderSortNameTies, orderSplitRunSeries } from "@/utils/seasonEpisode";
+import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, READABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { resolveChannel } from "./liveTv";
-import { numberlessSeasonFiles, splitMergedEpisodes } from "./seasonFolders";
 import { didConfigReadFail, getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
 /**
@@ -675,7 +674,6 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
 async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, mediaTypes: string, extraFields = ""): Promise<JellyfinVideoItem[]> {
   const PAGE_SIZE = 500;
 
-  const fields = `Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio${extraFields}`;
   const fetchPages = async (recursive: boolean): Promise<JellyfinVideoItem[]> => {
     const allItems: JellyfinVideoItem[] = [];
     let startIndex = 0;
@@ -686,7 +684,7 @@ async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, me
         ParentId: parentId,
         Recursive: recursive ? "true" : "false",
         MediaTypes: mediaTypes,
-        Fields: `${fields},MediaSourceCount`,
+        Fields: `Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio${extraFields}`,
         EnableUserData: "true",
         StartIndex: String(startIndex),
         Limit: String(PAGE_SIZE),
@@ -739,11 +737,7 @@ async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, me
   if (recursiveWasEmpty) {
     allItems = await fetchPages(false);
   }
-  // A season folder the server could not number lists nothing under its id (numberlessSeasonFiles).
-  if (allItems.length === 0 && mediaTypes.includes("Video")) {
-    allItems = ((await numberlessSeasonFiles(config, parentId, fields).catch(() => null)) ?? []) as JellyfinVideoItem[];
-  }
-  allItems = orderSplitRunSeries(orderSortNameTies(await splitMergedEpisodes(config, allItems, fields)));
+  allItems = orderSortNameTies(allItems);
 
   logger.info("Fetched recursive leaves", {
     service: "JellyfinAPI",

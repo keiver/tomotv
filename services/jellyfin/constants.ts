@@ -147,8 +147,6 @@ export const VIEWABLE_ITEM_TYPES = ["Photo"] as const;
 export const READABLE_ITEM_TYPES = ["Book"] as const;
 
 export const BROWSE_ITEM_TYPES = [...FOLDER_ITEM_TYPES, ...PLAYABLE_ITEM_TYPES, ...VIEWABLE_ITEM_TYPES, ...READABLE_ITEM_TYPES].join(",");
-// Fields every folder grid card reads
-export const BROWSE_FIELDS = "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio";
 
 export const FOLDER_TYPE_SET = new Set<string>(FOLDER_ITEM_TYPES);
 

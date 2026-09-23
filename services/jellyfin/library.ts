@@ -15,13 +15,11 @@ import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
-import { API_TIMEOUTS, BROWSE_FIELDS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
+import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { filtersCacheKey } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
 import { fetchAllPlaylistItems } from "./items";
-import { fetchAllItemPages } from "./itemPages";
 import { isAudioItem } from "./media";
-import { numberlessSeasonFiles, seriesFileListing } from "./seasonFolders";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
 /**
@@ -435,6 +433,61 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
   );
 }
 
+/**
+ * Collect EVERY item of a paged /Items query (500 per page) — the shared loop behind
+ * the id-set and leaf-list fetchers. `buildQuery` returns the full parameter set for one page;
+ * this drives StartIndex/Limit, aborts each page at API_TIMEOUTS.EXTENDED, and THROWS on any
+ * failed page so a partial set is never mistaken for a complete one. `label` names the set in
+ * error messages ("Failed to fetch <label>: 500" / "Request timed out fetching <label>.").
+ */
+async function fetchAllItemPages(config: JellyfinConfig, buildQuery: (startIndex: number, limit: number) => URLSearchParams, label: string): Promise<JellyfinItem[]> {
+  const PAGE_SIZE = 500;
+  const all: JellyfinItem[] = [];
+  let startIndex = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    // Stamped here rather than in every caller's buildQuery: this loop is the only
+    // way any of them reach the server (INCLUDED_LOCATION_TYPES).
+    const query = buildQuery(startIndex, PAGE_SIZE);
+    query.set("LocationTypes", INCLUDED_LOCATION_TYPES);
+    const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
+
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: getAuthHeader(config.deviceId, config.apiKey),
+          },
+        },
+        API_TIMEOUTS.EXTENDED,
+      );
+
+      if (!response.ok) {
+        throwRequestError(response, `Failed to fetch ${label}: ${response.status}`);
+      }
+
+      const data: JellyfinFolderResponse = await response.json();
+      const items = data.Items || [];
+      all.push(...items);
+
+      const total = data.TotalRecordCount;
+      startIndex += items.length;
+      hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Request timed out fetching ${label}.`);
+      }
+      throw error;
+    }
+  }
+
+  return all;
+}
+
 /** The ids-only query shape shared by the favorite/played id-set fetchers. */
 function buildIdSetQuery(startIndex: number, limit: number): URLSearchParams {
   return new URLSearchParams({
@@ -727,24 +780,6 @@ export async function fetchFolderContents(
     return fetchViewRootFiltered(config, parentId, filters, startIndex, limit);
   }
 
-  const browsePage = (pageStart: number) => fetchBrowsePage(config, parentId, pageStart, limit, filters, hasContentFilters, shuffle);
-  if (hasContentFilters || shuffle) return browsePage(startIndex);
-
-  const listing = await fileListing(config, parentId, await browsePage(0));
-  if (listing) return { items: listing.slice(startIndex, startIndex + limit), total: listing.length };
-  return browsePage(startIndex);
-}
-
-/** One page of the server's own browse of a folder, request-cached per page. */
-function fetchBrowsePage(
-  config: JellyfinConfig,
-  parentId: string,
-  startIndex: number,
-  limit: number,
-  filters: LibraryFilters | undefined,
-  hasContentFilters: boolean,
-  shuffle: boolean,
-): Promise<{ items: JellyfinItem[]; total?: number }> {
   const cacheKey = `folder:${config.userId}:${parentId}:${startIndex}:${limit}:${filtersCacheKey(filters)}`;
   return cachedRequest(
     cacheKey,
@@ -753,7 +788,7 @@ function fetchBrowsePage(
         async () => {
           const query = new URLSearchParams({
             ParentId: parentId,
-            Fields: BROWSE_FIELDS,
+            Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
             EnableUserData: "true",
             StartIndex: String(startIndex),
             Limit: String(limit),
@@ -807,22 +842,6 @@ function fetchBrowsePage(
   );
 }
 
-/**
- * The folder's listing built from file paths where the server's season grouping hides files,
- * or null to keep the server's browse. A failed lookup keeps the server's browse too.
- */
-async function fileListing(config: JellyfinConfig, parentId: string, firstPage: { items: JellyfinItem[]; total?: number }): Promise<JellyfinItem[] | null> {
-  try {
-    const seasons = firstPage.items.filter((item) => item.Type === "Season");
-    if (seasons.length > 0 && firstPage.items.length === firstPage.total) return await seriesFileListing(config, parentId, seasons);
-    if (firstPage.total === 0) return await numberlessSeasonFiles(config, parentId);
-    return null;
-  } catch (error) {
-    logger.warn("File listing failed, keeping the server's browse", error, { service: "JellyfinAPI", parentId });
-    return null;
-  }
-}
-
 /** Page size for the folder-wide photo sweep, the same 500 the other whole-set sweeps use. */
 const PHOTO_SWEEP_PAGE = 500;
 
@@ -863,9 +882,7 @@ export async function fetchFolderPreviewItems(folderId: string): Promise<Jellyfi
         throwRequestError(response, `Failed to fetch folder preview: ${response.status}`);
       }
       const data: JellyfinVideosResponse = await response.json();
-      if (data.TotalRecordCount !== 0) return data.Items || [];
-      const files = await numberlessSeasonFiles(config, folderId, "Path,ImageTags,PrimaryImageAspectRatio").catch(() => null);
-      return (files ?? []).slice(0, FOLDER_PREVIEW_COUNT) as JellyfinVideoItem[];
+      return data.Items || [];
     },
     CACHE.DEFAULT_TTL_MS,
   );

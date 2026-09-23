@@ -18,9 +18,9 @@ const PHOTO = {
   Name: "01-home",
   Id: "photo-1",
   Type: "Photo",
-  Path: "/Users/k/Pictures/appstore-ipad/01-home.png",
+  Path: "/media/photos/Album/01-home.png",
   DateCreated: "2026-08-19T04:31:25.4932031Z",
-  Album: "appstore-ipad",
+  Album: "Album",
   Width: 2064,
   Height: 2752,
   RunTimeTicks: 0,
@@ -28,10 +28,10 @@ const PHOTO = {
 } as unknown as JellyfinItem;
 
 const SERIES = {
-  Name: "Caminandes",
+  Name: "Show",
   Id: "series-1",
   Type: "Series",
-  Path: "/Users/k/Movies/Shows/Caminandes",
+  Path: "/media/shows/Show",
   DateCreated: "2026-08-17T13:06:48.811098Z",
   DateLastMediaAdded: "2026-08-14T15:50:34.8099727Z",
   PremiereDate: "2013-11-13T00:00:00.0000000Z",
@@ -45,11 +45,11 @@ const SERIES = {
 // A tagged song: Jellyfin puts the track in IndexNumber and the disc in
 // ParentIndexNumber (AudioFileProber), the pair #68 was reading as S02E05.
 const SONG = {
-  Name: "Shine On You Crazy Diamond",
+  Name: "Track",
   Id: "audio-1",
   Type: "Audio",
-  Path: "/Users/k/Music/Wish You Were Here/1-05 Shine On.flac",
-  Album: "Wish You Were Here",
+  Path: "/media/music/Album/1-05 Track.flac",
+  Album: "Album",
   Artists: ["Pink Floyd"],
   IndexNumber: 5,
   ParentIndexNumber: 2,
@@ -63,7 +63,7 @@ describe("buildDetailRows", () => {
     const rows = buildDetailRows(PHOTO, { dimensionsShownElsewhere: false });
 
     expect(valueFor(rows, "Dimensions")).toBe("2064×2752 · 5.7 MP");
-    expect(valueFor(rows, "Album")).toBe("appstore-ipad");
+    expect(valueFor(rows, "Album")).toBe("Album");
     expect(valueFor(rows, "Added")).toBe("19 Aug 2026");
   });
 
@@ -110,7 +110,7 @@ describe("buildDetailRows", () => {
   it("gives a tagged song its disc and track alongside the album", () => {
     const rows = buildDetailRows(SONG, { dimensionsShownElsewhere: true });
 
-    expect(valueFor(rows, "Album")).toBe("Wish You Were Here");
+    expect(valueFor(rows, "Album")).toBe("Album");
     expect(valueFor(rows, "Artist")).toBe("Pink Floyd");
     expect(valueFor(rows, "Disc")).toBe("2");
     expect(valueFor(rows, "Track")).toBe("5");

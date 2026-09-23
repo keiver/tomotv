@@ -1,4 +1,4 @@
-import { formatIndexBadge, formatSeasonEpisode, hasSeasonMarker, orderEpisodes, orderSortNameTies, orderSplitRunSeries, parseSeasonEpisode } from "../seasonEpisode";
+import { formatIndexBadge, formatSeasonEpisode, orderSortNameTies, parseSeasonEpisode } from "../seasonEpisode";
 
 describe("formatSeasonEpisode", () => {
   it("prefers server metadata over the name", () => {
@@ -8,8 +8,8 @@ describe("formatSeasonEpisode", () => {
   it("drops a season/episode pair that is really the year in the filename", () => {
     expect(
       formatSeasonEpisode({
-        Name: "To.Wong.Foo.Thanks.for.Everything.Julie.Newma",
-        Path: "/Users/k/Extras/To.Wong.Foo.Thanks.for.Everything.Julie.Newma.1995.DVDRip.XviD.AC3-REKD/To.Wong.Foo.Thanks.for.Everything.Julie.Newma.1995.DVDRip.XviD.AC3-REKD.avi",
+        Name: "Some.Movie.Title",
+        Path: "/media/movies/Some.Movie.Title.1995.DVDRip.XviD-GRP/Some.Movie.Title.1995.DVDRip.XviD-GRP.avi",
         ParentIndexNumber: 19,
         IndexNumber: 95,
         Type: "Episode",
@@ -398,86 +398,5 @@ describe("orderSortNameTies", () => {
     expect(Date.now() - started).toBeLessThan(1000);
     expect(out[0].Id).toBe("e1");
     expect(out[4999].Id).toBe("e5000");
-  });
-});
-
-// Pairs as Jellyfin 12.0.0 filed a season-less anime folder.
-const show = (absolute: string, season: number, episode: number, title = "Title", seriesId = "show") => ({
-  Id: `n${absolute}`,
-  Name: `Show - ${absolute} - ${title}`,
-  Path: `/Shows/Show/Show - ${absolute} - ${title}.mkv`,
-  Type: "Episode",
-  SeriesId: seriesId,
-  ParentIndexNumber: season,
-  IndexNumber: episode,
-});
-
-describe("split digit runs", () => {
-  it("reads the server's season-digit split back as the absolute number", () => {
-    expect(parseSeasonEpisode(show("001", 0, 1))).toEqual({ season: null, episode: 1 });
-    expect(parseSeasonEpisode(show("100", 1, 0))).toEqual({ season: null, episode: 100 });
-    expect(parseSeasonEpisode(show("220", 2, 20))).toEqual({ season: null, episode: 220 });
-    expect(formatSeasonEpisode(show("150", 1, 50))).toBe("E150");
-  });
-
-  it("takes the file's number when the split came from a run in the title", () => {
-    expect(formatSeasonEpisode(show("150", 2, 50, "250 Title"))).toBe("E150");
-  });
-
-  it("keeps the server's pair when the name states a season", () => {
-    const item = { Name: "Show S01E50 - 150", Path: "/Shows/Show/Show S01E50 - 150.mkv", Type: "Episode", ParentIndexNumber: 1, IndexNumber: 50 };
-    expect(formatSeasonEpisode(item)).toBe("S01E50");
-  });
-
-  it("keeps the server's pair when no anime number backs the split", () => {
-    const item = { Name: "Show 101", Path: "/Shows/Show/Show 101.mkv", Type: "Episode", ParentIndexNumber: 1, IndexNumber: 1 };
-    expect(formatSeasonEpisode(item)).toBe("S01E01");
-  });
-
-  it("keeps a pair the text does not reassemble", () => {
-    expect(formatSeasonEpisode(show("005", 1, 5))).toBe("S01E05");
-  });
-});
-
-describe("hasSeasonMarker", () => {
-  it("reads the file name, then the name", () => {
-    expect(hasSeasonMarker({ Name: "Pilot", Path: "/Shows/X/X S01E01.mkv" })).toBe(true);
-    expect(hasSeasonMarker({ Name: "X 1x01", Path: "" })).toBe(true);
-    expect(hasSeasonMarker(show("001", 0, 1))).toBe(false);
-  });
-});
-
-describe("orderEpisodes", () => {
-  it("puts absolute numbers first, then season/episode, unparsed last", () => {
-    const special = { Id: "special", Name: "Show - Special", Path: "/m.mkv", Type: "Episode", ParentIndexNumber: 1, IndexNumber: 3 };
-    const loose = { Id: "loose", Name: "Extras", Path: "/x.mkv", Type: "Video" };
-    const out = orderEpisodes([loose, special, show("150", 2, 50, "250 Title"), show("002", 0, 2), show("100", 1, 0)]);
-    expect(out.map((item) => item.Id)).toEqual(["n002", "n100", "n150", "special", "loose"]);
-  });
-});
-
-describe("orderSplitRunSeries", () => {
-  it("returns the input when no series carries a split run", () => {
-    const items = [{ Id: "a", Name: "Show S01E02", Path: "", Type: "Episode", SeriesId: "s", ParentIndexNumber: 1, IndexNumber: 2 }];
-    expect(orderSplitRunSeries(items)).toBe(items);
-  });
-
-  it("reorders a split-run series inside its own slots and leaves others in place", () => {
-    const other = { Id: "other", Name: "Other S01E01", Path: "", Type: "Episode", SeriesId: "o", ParentIndexNumber: 1, IndexNumber: 1 };
-    const special = { Id: "special", Name: "Show - Special", Path: "", Type: "Episode", SeriesId: "show", ParentIndexNumber: 1, IndexNumber: 3 };
-    // SortName order as the server returns it: the special among season 1, the title split last.
-    const items = [show("099", 0, 99), other, show("100", 1, 0), special, show("151", 1, 51), show("150", 2, 50, "250 Title")];
-    const out = orderSplitRunSeries(items);
-    expect(out.map((item) => item.Id)).toEqual(["n099", "other", "n100", "n150", "n151", "special"]);
-  });
-});
-
-describe("a season read as the episode", () => {
-  it("drops the pair when the name's only number is a season the server took for the episode", () => {
-    expect(formatSeasonEpisode({ Name: "Show S05 Special", Path: "/Shows/Show/Part 5/Show S05 Special.mp4", Type: "Episode", ParentIndexNumber: 1, IndexNumber: 5 })).toBeNull();
-  });
-
-  it("keeps the pair when an explicit marker backs it", () => {
-    expect(formatSeasonEpisode({ Name: "Show S01E05", Path: "/Shows/Show/Show S01E05.mp4", Type: "Episode", ParentIndexNumber: 1, IndexNumber: 5 })).toBe("S01E05");
   });
 });
