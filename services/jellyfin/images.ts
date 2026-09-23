@@ -45,11 +45,22 @@ export function getChapterImageUrl(itemId: string, chapterIndex: number, imageTa
  * Width is capped at 4K so multi-megapixel originals don't stall the Apple TV
  * Returns empty string if config not yet loaded (prevents broken image requests)
  */
-export function getPhotoUrl(itemId: string, maxWidth: number = 3840): string {
+export function getPhotoUrl(itemId: string, maxWidth: number = 3840, format?: "Jpg"): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
-  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxWidth=${maxWidth}&quality=90`;
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxWidth=${maxWidth}&quality=90${format ? `&format=${format}` : ""}`;
+}
+
+/**
+ * A small JPEG of a Photo item, drawn while the full image loads. The format is named because
+ * the server otherwise answers a PNG source with PNG, which ignores quality: 2.5 MB against 157 KB.
+ */
+export function getPhotoPreviewUrl(itemId: string): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxWidth=960&quality=60&format=Jpg`;
 }
 
 /**

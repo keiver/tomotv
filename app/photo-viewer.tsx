@@ -4,7 +4,7 @@ import { INFO_PILL_RADIUS, PageViewer, VIEWER_CHROME_TINT, pageViewerStyles, typ
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
-import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
+import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoPreviewUrl, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -12,7 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, BackHandler, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { t } from "@/services/i18n";
 
@@ -20,6 +20,9 @@ const SLIDESHOW_INTERVAL_MS = 5000;
 const COUNTDOWN_WIDTH = 240;
 const COUNTDOWN_HEIGHT = 8;
 const COUNTDOWN_FILL_INSET = 2;
+
+/** JPEG unless the file may animate: a PNG source otherwise comes back as PNG, 4.1 MB against 0.84 MB. */
+const fullPhotoUrl = (photo: JellyfinItem) => getPhotoUrl(photo.Id, undefined, photo.Path && !/\.gif$/i.test(photo.Path) ? "Jpg" : undefined);
 
 /**
  * Full-screen photo viewer for Jellyfin Photo items. Fed from the folder cache the user just
@@ -256,13 +259,11 @@ export default function PhotoViewerScreen() {
     };
   }, [countdown]);
 
-  // Warm the neighbors so stepping feels instant
+  // Warm the neighbors, previews first, so stepping lands on a picture
   useEffect(() => {
-    [photos[index - 1], photos[index + 1]].forEach((photo) => {
-      if (!photo) return;
-      const url = getPhotoUrl(photo.Id);
-      if (url) Image.prefetch(url);
-    });
+    const neighbors = [photos[index - 1], photos[index + 1]].filter((photo): photo is JellyfinItem => !!photo);
+    const urls = [...neighbors.map((photo) => getPhotoPreviewUrl(photo.Id)), ...neighbors.map(fullPhotoUrl)].filter(Boolean);
+    if (urls.length) Image.prefetch(urls);
   }, [index, photos]);
 
   const countdownStyle = useAnimatedStyle(() => ({
@@ -271,7 +272,8 @@ export default function PhotoViewerScreen() {
   }));
 
   // getPhotoUrl returns "" until config is loaded; the viewer shows its spinner for "".
-  const uriAt = useCallback((at: number) => (photos[at] ? getPhotoUrl(photos[at].Id) : ""), [photos]);
+  const uriAt = useCallback((at: number) => (photos[at] ? fullPhotoUrl(photos[at]) : ""), [photos]);
+  const previewAt = useCallback((at: number) => (photos[at] ? getPhotoPreviewUrl(photos[at].Id) : ""), [photos]);
 
   if (error) {
     return (
@@ -312,7 +314,11 @@ export default function PhotoViewerScreen() {
 
   // The viewer mounts once the set is known: its initial index is fixed at mount.
   if (startIndex === null) {
-    return <View style={styles.container} />;
+    return (
+      <View style={[styles.container, styles.loading]}>
+        <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} />
+      </View>
+    );
   }
 
   return (
@@ -320,6 +326,7 @@ export default function PhotoViewerScreen() {
       ref={viewerRef}
       pages={photos.length}
       uriAt={uriAt}
+      previewAt={previewAt}
       initialIndex={startIndex}
       onIndexChange={handleIndexChange}
       onLeave={leaveViewer}
@@ -342,6 +349,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.MEDIA_BACKGROUND,
+  },
+  loading: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   countdownTrack: {
     position: "absolute",

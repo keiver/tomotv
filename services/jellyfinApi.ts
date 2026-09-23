@@ -174,6 +174,7 @@ export {
   getBookFileUrl,
   getPhotoFileUrl,
   getPhotoUrl,
+  getPhotoPreviewUrl,
   getPosterUrl,
   getTintUrl,
   getUserImageUrl,
