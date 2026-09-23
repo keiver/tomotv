@@ -399,9 +399,9 @@ export function PlayerHost() {
   // Deliberate cascades: the held source and the flip flag follow the stream and the session.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (streamSource !== null) setHeldLiveSource(streamSource);
+    if (streamSource !== null && !showLoadingOverlay) setHeldLiveSource(streamSource);
     else if (session === null) setHeldLiveSource(null);
-  }, [streamSource, session]);
+  }, [streamSource, session, showLoadingOverlay]);
   // The flip ends when the new channel plays, fails with no rung left, or the session goes.
   const failedForGood = state.type === "ERROR" && !state.canRetryWithTranscode;
   useEffect(() => {
