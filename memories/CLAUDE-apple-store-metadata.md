@@ -100,28 +100,32 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.7), iOS (876 / 4000)
+### What's New (2.2.7), iOS (961 / 4000)
 
 ```text
 - Playback follows your connection: original quality when it is fast, smaller streams when it is slow, and back up as it recovers
 - Live TV guide: resize the channel column or snap it to logos, and empty slots say when a channel has no listings
-- Live TV: a Channels view of every channel, live previews on the channel cards, favorites you press and hold to set, and settings to show only favorites, sort by number or name, and pause the previews
+- Live TV Channels: every channel on one wall, each card showing a live preview
+- Live TV favorites: press and hold a channel to favorite it, then show only favorites, sort by number or name, or pause the previews
 - Recordings gets Filters, and Show in Folder opens a recording there
 - Bigger home cards with cleaner 3:2 artwork, and posters made from the video lose their black bars
 - 8K videos your device cannot play directly stream from the server without stalling
 - The playing track's card shows the level bars
+- A video that keeps failing shows its error instead of retrying forever
 - Fixed audio-track selection for videos with separate subtitle files, and a book that won't render no longer hangs the reader
 ```
 
-### What's New (2.2.7), tvOS (883 / 4000)
+### What's New (2.2.7), tvOS (968 / 4000)
 
 ```text
 - Playback follows your connection: original quality when it is fast, smaller streams when it is slow, and back up as it recovers
-- Live TV: a Channels view of every channel, live previews on the channel cards, favorites you press and hold to set, and settings to show only favorites, sort by number or name, and pause the previews
+- Live TV Channels: every channel on one wall, each card showing a live preview
+- Live TV favorites: press and hold a channel to favorite it, then show only favorites, sort by number or name, or pause the previews
 - Recordings gets Filters, and Show in Folder opens a recording there
 - Folder browsing covers the tab bar, with a Home button that returns in one press, and a folder's background takes its colour from its artwork
 - Bigger home cards with cleaner 3:2 artwork and a third row in view, and posters made from the video lose their black bars
 - 8K videos your Apple TV cannot play directly stream from the server without stalling
+- A video that keeps failing shows its error instead of retrying forever
 - Fixed audio-track selection for videos with separate subtitle files, and a book that won't render no longer hangs the reader
 ```
 
@@ -323,28 +327,32 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.7), iOS (1007 / 4000 chars)
+#### What's New (2.2.7), iOS (1155 / 4000 chars)
 
 ```text
-- Die Wiedergabe folgt der Verbindung: Originalqualität bei schneller Verbindung, kleinere Streams bei langsamer, und wieder hinauf, sobald sie sich erholt
-- Live-TV-Guide: Senderspalte anpassen oder auf Logos einklappen, und leere Felder zeigen an, wenn ein Sender keine Programmdaten hat
-- Live-TV: eine Senderansicht mit allen Sendern, Live-Vorschauen auf den Senderkarten, Favoriten per Gedrückthalten, und Einstellungen für nur Favoriten, Sortierung nach Nummer oder Name und das Pausieren der Vorschauen
-- Aufnahmen bekommen Filter, und „Im Ordner zeigen“ öffnet eine Aufnahme dort
+- Die Wiedergabe folgt deiner Verbindung: Originalqualität bei schneller Verbindung, kleinere Streams bei langsamer, und wieder Originalqualität, sobald sie sich erholt
+- Fernsehprogramm im Live-TV: Senderspalte anpassen oder auf Logos einklappen, und leere Felder zeigen an, wenn ein Sender keine Programmdaten hat
+- Live-TV-Kanäle: alle Kanäle auf einer Seite, jede Karte mit einer Live-Vorschau
+- Live-TV-Favoriten: einen Kanal gedrückt halten, um ihn zu favorisieren, dann nur Favoriten anzeigen, nach Nummer oder Name sortieren oder die Vorschauen pausieren
+- Aufnahmen bekommen Filter, und „Im Verzeichnis zeigen“ öffnet eine Aufnahme dort
 - Größere Startseiten-Karten mit sauberem 3:2-Bild, und aus dem Video erzeugte Poster verlieren ihre schwarzen Balken
 - 8K-Videos, die das Gerät nicht direkt abspielt, laufen ohne Stocken über den Server
 - Die Karte des laufenden Titels zeigt die Pegelbalken
+- Ein Video, das ständig fehlschlägt, zeigt seinen Fehler, statt es ewig neu zu versuchen
 - Die Tonspurauswahl bei Videos mit separaten Untertiteldateien wurde korrigiert, und ein Buch, das sich nicht darstellen lässt, blockiert den Reader nicht mehr
 ```
 
-#### What's New (2.2.7), tvOS (1006 / 4000 chars)
+#### What's New (2.2.7), tvOS (1153 / 4000 chars)
 
 ```text
-- Die Wiedergabe folgt der Verbindung: Originalqualität bei schneller Verbindung, kleinere Streams bei langsamer, und wieder hinauf, sobald sie sich erholt
-- Live-TV: eine Senderansicht mit allen Sendern, Live-Vorschauen auf den Senderkarten, Favoriten per Gedrückthalten, und Einstellungen für nur Favoriten, Sortierung nach Nummer oder Name und das Pausieren der Vorschauen
-- Aufnahmen bekommen Filter, und „Im Ordner zeigen“ öffnet eine Aufnahme dort
-- Ordner werden ohne Tableiste durchsucht, mit einer Home-Taste zurück in einem Schritt, und der Ordnerhintergrund nimmt die Farbe seines Artworks an
+- Die Wiedergabe folgt deiner Verbindung: Originalqualität bei schneller Verbindung, kleinere Streams bei langsamer, und wieder Originalqualität, sobald sie sich erholt
+- Live-TV-Kanäle: alle Kanäle auf einer Seite, jede Karte mit einer Live-Vorschau
+- Live-TV-Favoriten: einen Kanal gedrückt halten, um ihn zu favorisieren, dann nur Favoriten anzeigen, nach Nummer oder Name sortieren oder die Vorschauen pausieren
+- Aufnahmen bekommen Filter, und „Im Verzeichnis zeigen“ öffnet eine Aufnahme dort
+- Verzeichnisse werden ohne Tableiste durchsucht, mit einer Start-Taste zurück in einem Schritt, und der Verzeichnishintergrund nimmt die Farbe seines Artworks an
 - Größere Startseiten-Karten mit sauberem 3:2-Bild und einer dritten sichtbaren Reihe, und aus dem Video erzeugte Poster verlieren ihre schwarzen Balken
 - 8K-Videos, die das Apple TV nicht direkt abspielt, laufen ohne Stocken über den Server
+- Ein Video, das ständig fehlschlägt, zeigt seinen Fehler, statt es ewig neu zu versuchen
 - Die Tonspurauswahl bei Videos mit separaten Untertiteldateien wurde korrigiert, und ein Buch, das sich nicht darstellen lässt, blockiert den Reader nicht mehr
 ```
 
@@ -474,28 +482,32 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.7), iOS (1100 / 4000 chars)
+#### What's New (2.2.7), iOS (1213 / 4000 chars)
 
 ```text
-- La lecture suit votre connexion : qualité d'origine quand elle est rapide, flux plus légers quand elle est lente, et retour vers le haut dès qu'elle se rétablit
+- La lecture suit votre connexion : qualité d'origine quand elle est rapide, flux plus légers quand elle est lente, et retour à la qualité d'origine dès qu'elle se rétablit
 - Guide TV en direct : redimensionnez la colonne des chaînes ou réduisez-la aux logos, et les cases vides indiquent qu'une chaîne n'a pas de programme
-- TV en direct : une vue Chaînes avec toutes les chaînes, des aperçus en direct sur les cartes, des favoris à définir en maintenant une chaîne, et des réglages pour n'afficher que les favoris, trier par numéro ou par nom et suspendre les aperçus
-- Les enregistrements gagnent des filtres, et « Afficher dans le dossier » ouvre un enregistrement à cet endroit
+- Chaînes TV en direct : toutes les chaînes sur une seule page, chaque carte avec un aperçu en direct
+- Favoris TV en direct : maintenez une chaîne pour la mettre en favori, puis affichez uniquement les favoris, triez par numéro ou par nom, ou suspendez les aperçus
+- Les enregistrements ont des filtres, et « Afficher dans le dossier » ouvre un enregistrement à cet endroit
 - Cartes d'accueil plus grandes avec un visuel 3:2 plus net, et les affiches tirées de la vidéo perdent leurs bandes noires
 - Les vidéos 8K que l'appareil ne lit pas directement sont diffusées depuis le serveur sans saccades
 - La carte du morceau en cours affiche les barres de niveau
+- Une vidéo qui échoue sans cesse affiche son erreur au lieu de réessayer indéfiniment
 - Correction du choix de piste audio pour les vidéos avec des sous-titres séparés, et un livre impossible à afficher ne bloque plus le lecteur
 ```
 
-#### What's New (2.2.7), tvOS (1077 / 4000 chars)
+#### What's New (2.2.7), tvOS (1190 / 4000 chars)
 
 ```text
-- La lecture suit votre connexion : qualité d'origine quand elle est rapide, flux plus légers quand elle est lente, et retour vers le haut dès qu'elle se rétablit
-- TV en direct : une vue Chaînes avec toutes les chaînes, des aperçus en direct sur les cartes, des favoris à définir en maintenant une chaîne, et des réglages pour n'afficher que les favoris, trier par numéro ou par nom et suspendre les aperçus
-- Les enregistrements gagnent des filtres, et « Afficher dans le dossier » ouvre un enregistrement à cet endroit
+- La lecture suit votre connexion : qualité d'origine quand elle est rapide, flux plus légers quand elle est lente, et retour à la qualité d'origine dès qu'elle se rétablit
+- Chaînes TV en direct : toutes les chaînes sur une seule page, chaque carte avec un aperçu en direct
+- Favoris TV en direct : maintenez une chaîne pour la mettre en favori, puis affichez uniquement les favoris, triez par numéro ou par nom, ou suspendez les aperçus
+- Les enregistrements ont des filtres, et « Afficher dans le dossier » ouvre un enregistrement à cet endroit
 - La navigation dans les dossiers masque la barre d'onglets, un bouton Accueil ramène en une pression, et le fond du dossier prend la couleur de son visuel
 - Cartes d'accueil plus grandes avec un visuel 3:2 plus net et une troisième rangée visible, et les affiches tirées de la vidéo perdent leurs bandes noires
 - Les vidéos 8K que l'Apple TV ne lit pas directement sont diffusées depuis le serveur sans saccades
+- Une vidéo qui échoue sans cesse affiche son erreur au lieu de réessayer indéfiniment
 - Correction du choix de piste audio pour les vidéos avec des sous-titres séparés, et un livre impossible à afficher ne bloque plus le lecteur
 ```
 
@@ -625,28 +637,32 @@ Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenci
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.7), iOS (1073 / 4000 chars)
+#### What's New (2.2.7), iOS (1207 / 4000 chars)
 
 ```text
-- La reproducción sigue tu conexión: calidad original cuando es rápida, transmisiones más pequeñas cuando es lenta, y de vuelta arriba en cuanto se recupera
-- Guía de TV en vivo: cambia el ancho de la columna de canales o contráela a los logotipos, y las celdas vacías indican cuándo un canal no tiene programación
-- TV en vivo: una vista de Canales con todos los canales, vistas previas en vivo en las tarjetas, favoritos que fijas manteniendo pulsado un canal, y ajustes para mostrar solo favoritos, ordenar por número o nombre y pausar las vistas previas
-- Grabaciones recibe filtros, y «Mostrar en carpeta» abre una grabación allí
+- La reproducción sigue tu conexión: calidad original cuando es rápida, transmisiones más ligeras cuando es lenta, y de vuelta a la calidad original en cuanto se recupera
+- Guía de TV en vivo: cambia el ancho de la columna de canales o contráela a los logotipos, y las celdas vacías indican cuando un canal no tiene programación
+- Canales de TV en vivo: todos los canales en una sola pantalla, cada tarjeta con una vista previa en vivo
+- Favoritos de TV en vivo: mantén pulsado un canal para marcarlo como favorito, luego muestra solo favoritos, ordena por número o nombre, o pausa las vistas previas
+- Grabaciones tiene Filtros, y «Mostrar en la carpeta» abre una grabación allí
 - Tarjetas de inicio más grandes con imagen 3:2 más limpia, y los pósteres creados a partir del video pierden sus franjas negras
 - Los videos 8K que el dispositivo no reproduce directamente se transmiten desde el servidor sin interrupciones
 - La tarjeta de la pista en reproducción muestra las barras de nivel
+- Un video que falla una y otra vez muestra su error en lugar de reintentar para siempre
 - Corregida la selección de audio en videos con subtítulos separados, y un libro que no se puede mostrar ya no bloquea el lector
 ```
 
-#### What's New (2.2.7), tvOS (1038 / 4000 chars)
+#### What's New (2.2.7), tvOS (1172 / 4000 chars)
 
 ```text
-- La reproducción sigue tu conexión: calidad original cuando es rápida, transmisiones más pequeñas cuando es lenta, y de vuelta arriba en cuanto se recupera
-- TV en vivo: una vista de Canales con todos los canales, vistas previas en vivo en las tarjetas, favoritos que fijas manteniendo pulsado un canal, y ajustes para mostrar solo favoritos, ordenar por número o nombre y pausar las vistas previas
-- Grabaciones recibe filtros, y «Mostrar en carpeta» abre una grabación allí
+- La reproducción sigue tu conexión: calidad original cuando es rápida, transmisiones más ligeras cuando es lenta, y de vuelta a la calidad original en cuanto se recupera
+- Canales de TV en vivo: todos los canales en una sola pantalla, cada tarjeta con una vista previa en vivo
+- Favoritos de TV en vivo: mantén pulsado un canal para marcarlo como favorito, luego muestra solo favoritos, ordena por número o nombre, o pausa las vistas previas
+- Grabaciones tiene Filtros, y «Mostrar en la carpeta» abre una grabación allí
 - La navegación por carpetas oculta la barra de pestañas, con un botón Inicio que vuelve con una sola pulsación, y el fondo de la carpeta toma el color de su imagen
 - Tarjetas de inicio más grandes con imagen 3:2 más limpia y una tercera fila a la vista, y los pósteres creados a partir del video pierden sus franjas negras
-- Los videos 8K que el Apple TV no reproduce directamente se transmiten desde el servidor sin interrupciones
+- Los videos 8K que tu Apple TV no reproduce directamente se transmiten desde el servidor sin interrupciones
+- Un video que falla una y otra vez muestra su error en lugar de reintentar para siempre
 - Corregida la selección de audio en videos con subtítulos separados, y un libro que no se puede mostrar ya no bloquea el lector
 ```
 
