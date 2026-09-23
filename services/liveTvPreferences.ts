@@ -99,7 +99,7 @@ export function toggleFavoriteChannel(channel: ChannelIdentity): void {
 }
 
 /** The channels the favorites name, in the order given. */
-export function favoriteChannels<T extends ChannelIdentity>(preferences: LiveTvPreferences, channels: readonly T[]): T[] {
+export function favoriteChannels<T extends ChannelIdentity>(preferences: Pick<LiveTvPreferences, "favorites">, channels: readonly T[]): T[] {
   const keys = new Set(preferences.favorites.map(favoriteKey));
   return channels.filter((channel) => keys.has(favoriteKey(channelFavorite(channel))));
 }
