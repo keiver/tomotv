@@ -5,7 +5,13 @@ import React from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
+export const RULER_RED = COLORS.DESTRUCTIVE;
+export const MAJOR_MARK_WIDTH = 3;
+export const MAJOR_MARK_HEIGHT = IS_TV ? 16 : 10;
+export const HOUR_MARK_HEIGHT = IS_TV ? 26 : 16;
 const NOW_EDGE = IS_TV ? 3 : 2;
+/** The gold band and its now edge stand as tall as a minor mark. */
+const NOW_HEIGHT = IS_TV ? 8 : 5;
 
 interface GuideTimeRulerProps {
   windowStartMs: number;
@@ -26,12 +32,13 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
   return (
     <View style={[styles.ruler, { height: metrics.rulerHeight, width: spanPx }]} pointerEvents="none">
       {showNow ? <View style={[styles.elapsed, { width: nowLeft }]} /> : null}
-      {ticks.map((tick) =>
+      {ticks.map((tick, index) =>
         tick.isMinor ? (
           <View key={tick.atMs} style={[styles.minorMark, { left: Math.max(0, tick.left - 1) }]} />
         ) : (
           <View key={tick.atMs} style={[styles.tick, { left: Math.max(0, tick.left - 2) }]}>
-            <View style={[styles.majorMark, tick.isHour && styles.hourMark]} />
+            {/* The first mark is painted over the seam by GuideSeamMark; this one keeps the label's place. */}
+            <View style={[styles.majorMark, tick.isHour && styles.hourMark, index === 0 && styles.hidden]} />
             <Text style={[styles.tickLabel, tick.isHour && styles.tickLabelHour]} numberOfLines={1}>
               {formatClock(tick.atMs)}
             </Text>
@@ -43,7 +50,7 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
   );
 }
 
-const RED = COLORS.DESTRUCTIVE;
+const RED = RULER_RED;
 
 const styles = StyleSheet.create({
   ruler: {
@@ -54,8 +61,8 @@ const styles = StyleSheet.create({
   elapsed: {
     position: "absolute",
     left: 0,
-    top: 0,
     bottom: 0,
+    height: NOW_HEIGHT,
     backgroundColor: COLORS.ACCENT,
     opacity: 0.16,
   },
@@ -63,7 +70,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 0,
     width: 1,
-    height: IS_TV ? 8 : 5,
+    height: NOW_HEIGHT,
     backgroundColor: RED,
   },
   tick: {
@@ -75,12 +82,15 @@ const styles = StyleSheet.create({
     gap: IS_TV ? 8 : 5,
   },
   majorMark: {
-    width: 3,
-    height: IS_TV ? 16 : 10,
+    width: MAJOR_MARK_WIDTH,
+    height: MAJOR_MARK_HEIGHT,
     backgroundColor: RED,
   },
   hourMark: {
-    height: IS_TV ? 26 : 16,
+    height: HOUR_MARK_HEIGHT,
+  },
+  hidden: {
+    opacity: 0,
   },
   tickLabel: {
     color: RED,
@@ -94,9 +104,9 @@ const styles = StyleSheet.create({
   },
   nowEdge: {
     position: "absolute",
-    top: 0,
     bottom: 0,
     width: NOW_EDGE,
+    height: NOW_HEIGHT,
     backgroundColor: COLORS.ACCENT,
   },
 });

@@ -2,6 +2,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
 import { GuideColumnDivider } from "@/components/live-tv/guide-column-divider";
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
+import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler } from "@/components/live-tv/guide-time-ruler";
 import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
@@ -261,6 +262,8 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
           onCompactChange={setCompact}
         />
       )}
+      {/* After the divider: the red mark sits on top of the seam line. */}
+      <GuideSeamMark columnW={columnW} scrollX={scrollX} isHour={new Date(windowStartMs).getMinutes() === 0} height={METRICS.rulerHeight - 1} />
     </View>
   );
 }
