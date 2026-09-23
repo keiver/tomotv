@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <g fill="#C2552B">
+    <path d="M150,470 C120,400 150,330 214,316 C230,250 236,190 250,150 L322,160 C312,220 300,290 300,330 C372,346 398,420 370,470 Z"/>
+    <ellipse cx="262" cy="150" rx="120" ry="70"/>
+    <circle cx="190" cy="98" r="64"/>
+    <circle cx="324" cy="92" r="64"/>
+    <circle cx="116" cy="400" r="40"/>
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="190" cy="98" r="44"/>
+    <circle cx="324" cy="92" r="44"/>
+    <path d="M212,184 C236,206 290,206 318,182 L318,196 C290,226 236,226 212,198 Z"/>
+    <text x="258" y="448" font-family="Futura" font-weight="bold" font-size="150" text-anchor="middle">D</text>
+  </g>
+  <g fill="#C2552B">
+    <circle cx="204" cy="86" r="16"/>
+    <circle cx="312" cy="80" r="16"/>
+  </g>
+</svg>

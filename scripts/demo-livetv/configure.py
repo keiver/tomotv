@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jellyfin side of the demo Live TV, run on the box: items.json for guide titles and posters, the M3U tuner and
+"""Jellyfin side of the demo Live TV, run on the box: items.json for guide titles, the M3U tuner and
 XMLTV listing (added once), GuideDays, a guide refresh, then what is on air. Auth is the admin's newest session
 token read from a copy of jellyfin.db (the box has no API keys); it stays in memory.
 
@@ -51,10 +51,9 @@ def main(directory, db, ip):
     with open(os.path.join(directory, "lineup.json")) as f:
         lineup = json.load(f)
     paths = {i["Path"] for i in items}
-    missing = [s for ch in lineup["channels"] for s in ch["sources"] if "/media/" + s not in paths]
-    if missing:
-        sys.exit("lineup sources with no Jellyfin item:\n  " + "\n  ".join(missing))
-    print(f"items.json: {len(items)} items, every lineup source resolved")
+    # A source outside the libraries has no item; the guide titles it by its file name.
+    loose = [s for ch in lineup["channels"] for s in ch["sources"] if "/media/" + s not in paths]
+    print(f"items.json: {len(items)} items" + "".join(f"\n  no item, titled by file name: {s}" for s in loose))
 
     cfg = jf("/System/Configuration/livetv")
     if any(t.get("Url") == GUIDE + "/live.m3u" for t in cfg["TunerHosts"]):

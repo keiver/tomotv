@@ -38,32 +38,7 @@
       "name": "Veguitas",
       "colour": "#1B5E9E",
       "port": 9104,
-      "sources": [
-        "Shows/Veguitas/Season 1/Veguitas S01E01.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E02.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E03.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E04.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E05.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E06.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E07.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E08.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E09.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E10.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E11.mp4",
-        "Shows/Veguitas/Season 1/Veguitas S01E12.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E01.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E02.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E03.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E04.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E05.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E06.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E07.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E08.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E09.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E10.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E11.mp4",
-        "Shows/Veguitas/Season 2/Veguitas S02E12.mp4"
-      ],
+      "sources": ["Live TV/Welcome to Veguitas.mp4"],
       "category": "Series",
       "slots": [60, 60, 30, 90, 60, 30, 30]
     },
@@ -94,6 +69,46 @@
       "sources": ["Films/Utopia (1951)/Utopia (1951).mp4"],
       "category": "Movie",
       "slots": [60, 30, 90, 30, 60, 30]
+    },
+    {
+      "number": 7,
+      "id": "dweebs",
+      "name": "The Daily Dweebs",
+      "colour": "#C2552B",
+      "port": 9107,
+      "sources": ["Live TV/The Daily Dweebs.mp4"],
+      "category": "Kids",
+      "slots": [30, 30, 60, 30]
+    },
+    {
+      "number": 8,
+      "id": "spring",
+      "name": "Spring",
+      "colour": "#2F7F86",
+      "port": 9108,
+      "sources": ["Live TV/Spring.mp4"],
+      "category": "Movie",
+      "slots": [30, 60, 30, 30, 90]
+    },
+    {
+      "number": 9,
+      "id": "cosmos",
+      "name": "Cosmos Laundromat",
+      "colour": "#2B3A67",
+      "port": 9110,
+      "sources": ["Live TV/Cosmos Laundromat.mp4"],
+      "category": "Movie",
+      "slots": [60, 30, 30, 60]
+    },
+    {
+      "number": 10,
+      "id": "sunny",
+      "name": "Sunny",
+      "colour": "#D99100",
+      "port": 9111,
+      "sources": ["Live TV/Sunny.mp4"],
+      "category": "Kids",
+      "slots": [30, 90, 30, 60]
     }
   ]
 }
