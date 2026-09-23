@@ -5,7 +5,7 @@ import { GuideCell } from "@/components/live-tv/guide-cell";
 import { guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
-jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `poster:${id}` }));
+jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `poster:${id}`, getCachedConfig: () => ({ server: "http://jf" }) }));
 jest.mock("expo-image", () => ({ Image: (props: { testID?: string }) => require("react").createElement("Image", props) }));
 
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -42,6 +42,11 @@ describe("GuideCell", () => {
     const halfHour = guideMetrics(false).pxPerMinute * TICK_MINUTES;
     expect(testIds(render({ program: withArt, width: halfHour }))).not.toContain("guide-cell-art");
     expect(testIds(render({ program: withArt, width: halfHour + 1 }))).toContain("guide-cell-art");
+  });
+
+  it("keys the art by its image tag, so a refreshed guide image replaces the cached one", () => {
+    const artKey = (tag: string) => render({ program: { ...program, Id: "p4", ImageTags: { Primary: tag } } }).root.findByType("Image" as never).props.source.cacheKey;
+    expect(artKey("old")).not.toEqual(artKey("new"));
   });
 
   it("marks a recording with the dot and a series rule with the repeat glyph", () => {

@@ -2,7 +2,7 @@ import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { formatClock, guideMetrics, labelPin, programCategory, programTimes, TICK_MINUTES } from "@/utils/guide";
-import { getPosterUrl } from "@/services/jellyfinApi";
+import { serverPoster } from "@/services/itemArtwork";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useState } from "react";
@@ -67,7 +67,7 @@ function GuideCellComponent({
   const { startMs, endMs } = programTimes(program);
   // One line under the titles: the slot, then whatever the guide source filled in.
   const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter(Boolean).join("  ·  ");
-  const art = program.Id && program.ImageTags?.Primary ? getPosterUrl(program.Id, height * 2) : null;
+  const art = program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
   // The art box is the picture's own shape at the cell's height, cut down to what fits past the
   // text; the picture keeps its right end, and the fade spans the box so the bleed starts at its edge.
   const artWidth = Math.min(Math.round(height * (program.PrimaryImageAspectRatio || 16 / 9)), Math.max(0, width - ART_START));
@@ -101,7 +101,7 @@ function GuideCellComponent({
       {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
       {art && artWidth > 0 ? (
         <View style={[styles.art, { width: artWidth }]} pointerEvents="none" testID="guide-cell-art">
-          <Image source={{ uri: art }} style={styles.artImage} contentFit="cover" contentPosition="right" transition={150} />
+          <Image source={art} style={styles.artImage} contentFit="cover" contentPosition="right" transition={150} />
           <View style={styles.artFade} />
         </View>
       ) : null}

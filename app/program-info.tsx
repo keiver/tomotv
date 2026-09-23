@@ -9,7 +9,8 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { t } from "@/services/i18n";
-import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers, hasPoster } from "@/services/jellyfinApi";
+import { serverPoster } from "@/services/itemArtwork";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { formatClock, formatDayLabel, isActiveTimer, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
@@ -113,7 +114,7 @@ export default function ProgramInfoScreen() {
       <View style={styles.headline}>
         {program.Id && hasPoster(program) ? (
           <Image
-            source={{ uri: getPosterUrl(program.Id, IS_TV ? 600 : 300) }}
+            source={serverPoster(program.Id, program.ImageTags?.Primary, IS_TV ? 600 : 300)}
             style={[styles.poster, { aspectRatio: program.PrimaryImageAspectRatio || 2 / 3 }]}
             contentFit="cover"
             transition={200}
