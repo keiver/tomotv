@@ -85,6 +85,8 @@ export interface PageViewerProps {
   uriAt: (index: number) => string;
   /** A smaller copy drawn while the page's image loads. */
   previewAt?: (index: number) => string;
+  /** Request headers for a page's image and its preview. */
+  headersAt?: (index: number) => Record<string, string> | undefined;
   initialIndex?: number;
   onIndexChange?: (index: number) => void;
   onLeave: () => void;
@@ -130,6 +132,7 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     pages,
     uriAt,
     previewAt,
+    headersAt,
     initialIndex = 0,
     onIndexChange,
     onLeave,
@@ -641,13 +644,14 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
 
   const page = (buffer: "a" | "b", pageIndex: number | null, uri: string, preview: string) => {
     if (pageIndex == null) return null;
+    const headers = headersAt?.(pageIndex);
     return (
       <>
         {(!uri || loaded[buffer] !== uri) && <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} style={styles.loader} />}
         {uri ? (
           <Image
-            source={{ uri }}
-            placeholder={preview ? { uri: preview } : undefined}
+            source={{ uri, headers }}
+            placeholder={preview ? { uri: preview, headers } : undefined}
             placeholderContentFit="contain"
             style={styles.page}
             contentFit="contain"

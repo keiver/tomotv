@@ -4,7 +4,7 @@ import { INFO_PILL_RADIUS, PageViewer, VIEWER_CHROME_TINT, pageViewerStyles, typ
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
-import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoPreviewUrl, getPhotoUrl, isPhoto } from "@/services/jellyfinApi";
+import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoPreviewUrl, getPhotoUrl, isPhoto, WEBP_ACCEPT } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -21,8 +21,8 @@ const COUNTDOWN_WIDTH = 240;
 const COUNTDOWN_HEIGHT = 8;
 const COUNTDOWN_FILL_INSET = 2;
 
-/** JPEG unless the file may animate: a PNG source otherwise comes back as PNG, 4.1 MB against 0.84 MB. */
-const fullPhotoUrl = (photo: JellyfinItem) => getPhotoUrl(photo.Id, undefined, photo.Path && !/\.gif$/i.test(photo.Path) ? "Jpg" : undefined);
+/** WebP where the server may choose it; a GIF, or a file of unknown type, keeps the request it had. */
+const photoHeaders = (photo: JellyfinItem) => (photo.Path && !/\.gif$/i.test(photo.Path) ? WEBP_ACCEPT : undefined);
 
 /**
  * Full-screen photo viewer for Jellyfin Photo items. Fed from the folder cache the user just
@@ -261,9 +261,11 @@ export default function PhotoViewerScreen() {
 
   // Warm the neighbors, previews first, so stepping lands on a picture
   useEffect(() => {
-    const neighbors = [photos[index - 1], photos[index + 1]].filter((photo): photo is JellyfinItem => !!photo);
-    const urls = [...neighbors.map((photo) => getPhotoPreviewUrl(photo.Id)), ...neighbors.map(fullPhotoUrl)].filter(Boolean);
-    if (urls.length) Image.prefetch(urls);
+    for (const photo of [photos[index - 1], photos[index + 1]]) {
+      if (!photo) continue;
+      const urls = [getPhotoPreviewUrl(photo.Id), getPhotoUrl(photo.Id)].filter(Boolean);
+      if (urls.length) Image.prefetch(urls, { headers: photoHeaders(photo) });
+    }
   }, [index, photos]);
 
   const countdownStyle = useAnimatedStyle(() => ({
@@ -272,8 +274,9 @@ export default function PhotoViewerScreen() {
   }));
 
   // getPhotoUrl returns "" until config is loaded; the viewer shows its spinner for "".
-  const uriAt = useCallback((at: number) => (photos[at] ? fullPhotoUrl(photos[at]) : ""), [photos]);
+  const uriAt = useCallback((at: number) => (photos[at] ? getPhotoUrl(photos[at].Id) : ""), [photos]);
   const previewAt = useCallback((at: number) => (photos[at] ? getPhotoPreviewUrl(photos[at].Id) : ""), [photos]);
+  const headersAt = useCallback((at: number) => (photos[at] ? photoHeaders(photos[at]) : undefined), [photos]);
 
   if (error) {
     return (
@@ -327,6 +330,7 @@ export default function PhotoViewerScreen() {
       pages={photos.length}
       uriAt={uriAt}
       previewAt={previewAt}
+      headersAt={headersAt}
       initialIndex={startIndex}
       onIndexChange={handleIndexChange}
       onLeave={leaveViewer}

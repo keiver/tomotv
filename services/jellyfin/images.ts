@@ -45,22 +45,25 @@ export function getChapterImageUrl(itemId: string, chapterIndex: number, imageTa
  * Width is capped at 4K so multi-megapixel originals don't stall the Apple TV
  * Returns empty string if config not yet loaded (prevents broken image requests)
  */
-export function getPhotoUrl(itemId: string, maxWidth: number = 3840, format?: "Jpg"): string {
+export function getPhotoUrl(itemId: string, maxWidth: number = 3840): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
-  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxWidth=${maxWidth}&quality=90${format ? `&format=${format}` : ""}`;
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxWidth=${maxWidth}&quality=90`;
 }
 
 /**
- * A small JPEG of a Photo item, drawn while the full image loads. The format is named because
- * the server otherwise answers a PNG source with PNG, which ignores quality: 2.5 MB against 157 KB.
+ * Jellyfin picks an image's format from the Accept header, and answers WebP only to a client that
+ * lists it; otherwise a PNG source comes back lossless. Measured: 0.77 MB WebP against 4.07 MB PNG.
  */
+export const WEBP_ACCEPT = { Accept: "image/webp,image/*;q=0.8" };
+
+/** A small copy of a Photo item, drawn while the full image loads. */
 export function getPhotoPreviewUrl(itemId: string): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
-  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxWidth=960&quality=60&format=Jpg`;
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxWidth=960&quality=60`;
 }
 
 /**

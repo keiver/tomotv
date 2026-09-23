@@ -179,5 +179,6 @@ export {
   getTintUrl,
   getUserImageUrl,
   hasPoster,
+  WEBP_ACCEPT,
 } from "./jellyfin/images";
 export { getBurnInSubtitleStream, getSubtitleUrl, getTextSubtitleStreams, isImageBasedSubtitleCodec } from "./jellyfin/subtitles";

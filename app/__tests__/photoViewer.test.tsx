@@ -34,7 +34,8 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchFilteredVideos: jest.fn(async () => mockPhotos),
   fetchItemDetails: jest.fn(async () => mockPhotos[0]),
   fetchRecursivePhotos: jest.fn(async () => mockPhotos),
-  getPhotoUrl: (id: string, _width?: number, format?: string) => `http://server/${id}${format ? `?format=${format}` : ""}`,
+  getPhotoUrl: (id: string) => `http://server/${id}`,
+  WEBP_ACCEPT: { Accept: "image/webp" },
   getPhotoPreviewUrl: (id: string) => `http://server/${id}?preview`,
   isPhoto: (item: { Type: string }) => item.Type === "Photo",
 }));
@@ -107,8 +108,8 @@ test("the preview draws while the photo loads, and the spinner under it goes onc
     await Promise.resolve();
   });
   const page = tree.root.findByType(Image);
-  expect(page.props.source).toEqual({ uri: "http://server/p1?format=Jpg" });
-  expect(page.props.placeholder).toEqual({ uri: "http://server/p1?preview" });
+  expect(page.props.source).toEqual({ uri: "http://server/p1", headers: { Accept: "image/webp" } });
+  expect(page.props.placeholder).toEqual({ uri: "http://server/p1?preview", headers: { Accept: "image/webp" } });
   expect(tree.root.findAllByType(ActivityIndicator)).toHaveLength(1);
 
   await act(async () => {
@@ -118,7 +119,7 @@ test("the preview draws while the photo loads, and the spinner under it goes onc
   tree.unmount();
 });
 
-test("a GIF keeps its own format, so it can still animate", async () => {
+test("a GIF asks without WebP, so it keeps the request it had", async () => {
   let tree!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     tree = TestRenderer.create(<PhotoViewerScreen />);
@@ -129,7 +130,7 @@ test("a GIF keeps its own format, so it can still animate", async () => {
   await act(async () => {
     mockTvHandler?.({ eventType: "right" });
   });
-  const uris = tree.root.findAllByType(Image).map((node) => node.props.source.uri);
-  expect(uris).toContain("http://server/p2");
+  const gif = tree.root.findAllByType(Image).find((node) => node.props.source.uri === "http://server/p2");
+  expect(gif?.props.source.headers).toBeUndefined();
   tree.unmount();
 });
