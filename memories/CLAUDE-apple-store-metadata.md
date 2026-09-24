@@ -110,11 +110,10 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - The Live TV guide's now line matches the hour marks
 ```
 
-### What's New (2.2.8), tvOS (341 / 4000)
+### What's New (2.2.8), tvOS (289 / 4000None)
 
 ```text
 - Audio and subtitle choices are saved to your Jellyfin account, so every device uses them
-- Cleaner server list, SyncPlay and sign-in screens
 - Audio and subtitle picks no longer reset when you return to the app
 - Subtitles no longer turn off when a file labels its language differently
 - The Live TV guide's now line matches the hour marks
@@ -351,11 +350,10 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Die Jetzt-Linie im Fernsehprogramm passt zu den Stundenmarken
 ```
 
-#### What's New (2.2.8), tvOS (397 / 4000 chars)
+#### What's New (2.2.8), tvOS (331 / 4000 chars)
 
 ```text
 - Audio- und Untertitelwahl werden in deinem Jellyfin-Konto gespeichert und gelten auf jedem Gerät
-- Aufgeräumte Bildschirme für Serverliste, SyncPlay und Anmeldung
 - Gewählte Tonspur und Untertitel bleiben erhalten, wenn du zur App zurückkehrst
 - Untertitel schalten sich nicht mehr ab, wenn eine Datei die Sprache anders bezeichnet
 - Die Jetzt-Linie im Fernsehprogramm passt zu den Stundenmarken
@@ -526,11 +524,10 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - La ligne « maintenant » du guide TV en direct s'aligne sur les repères horaires
 ```
 
-#### What's New (2.2.8), tvOS (434 / 4000 chars)
+#### What's New (2.2.8), tvOS (377 / 4000 chars)
 
 ```text
 - Vos choix d'audio et de sous-titres sont enregistrés dans votre compte Jellyfin et s'appliquent sur tous vos appareils
-- Liste des serveurs, SyncPlay et connexion plus soignés
 - La piste audio et les sous-titres choisis ne changent plus quand vous revenez dans l'app
 - Les sous-titres ne se désactivent plus quand un fichier nomme la langue autrement
 - La ligne « maintenant » du guide TV en direct s'aligne sur les repères horaires
@@ -701,11 +698,10 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - La línea de «ahora» de la guía de TV en vivo coincide con las marcas de hora
 ```
 
-#### What's New (2.2.8), tvOS (436 / 4000 chars)
+#### What's New (2.2.8), tvOS (352 / 4000 chars)
 
 ```text
 - Tus opciones de audio y subtítulos se guardan en tu cuenta de Jellyfin y se usan en todos tus dispositivos
-- Pantallas más limpias para la lista de servidores, SyncPlay y el inicio de sesión
 - La pista de audio y los subtítulos elegidos ya no cambian al volver a la app
 - Los subtítulos ya no se desactivan cuando un archivo nombra el idioma de otra forma
 - La línea de «ahora» de la guía de TV en vivo coincide con las marcas de hora
