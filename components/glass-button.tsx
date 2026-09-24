@@ -7,7 +7,7 @@ const PILL_HEIGHT = 52;
 const CAPSULE_PADDING = 6;
 
 // Yellow material: ACCENT (#FFC312) at a low alpha so the glass still refracts; focus deepens it.
-const TINT_REST = "rgba(255, 195, 18, 0.067)";
+export const TINT_REST = "rgba(255, 195, 18, 0.067)";
 const TINT_FOCUSED = "rgba(255, 195, 18, 0.4)";
 
 /** No focus lift inside glass: a scaled pill grows with its width, so the rim stops being concentric. */

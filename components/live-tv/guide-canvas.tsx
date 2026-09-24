@@ -1,7 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
-import { GuideColumnDivider } from "@/components/live-tv/guide-column-divider";
+import { GuideColumnDivider, useColumnResize } from "@/components/live-tv/guide-column-divider";
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
 import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler } from "@/components/live-tv/guide-time-ruler";
@@ -57,6 +57,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
   // so the resize drag never re-renders the two lists.
   const columnW = useSharedValue(METRICS.channelColumnWidth);
   const canvasW = useSharedValue(0);
+  const resize = useColumnResize({ columnW, canvasW, minWidth: METRICS.compactColumnWidth, maxWidth: METRICS.channelColumnWidth, onCompactChange: setCompact });
   const [viewportWidth, setViewportWidth] = useState(0);
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
@@ -217,6 +218,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
         onChannelLongPress={onChannelLongPress}
         onChannelFocus={handleChannelFocus}
         onEndReached={loadMoreRows}
+        cornerGesture={IS_TV ? undefined : resize.corner}
       />
       <View style={styles.scrollHost} onLayout={handleCanvasLayout}>
         <Animated.ScrollView
@@ -258,15 +260,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
       </View>
       {IS_TV ? <View style={[styles.seam, { left: METRICS.channelColumnWidth - 1 }]} pointerEvents="none" /> : null}
       {IS_TV ? null : (
-        <GuideColumnDivider
-          columnW={columnW}
-          canvasW={canvasW}
-          minWidth={METRICS.compactColumnWidth}
-          maxWidth={METRICS.channelColumnWidth}
-          topInset={METRICS.rulerHeight}
-          bottomInset={TAB_BAR_HEIGHT + insets.bottom}
-          onCompactChange={setCompact}
-        />
+        <GuideColumnDivider columnW={columnW} topInset={METRICS.rulerHeight} bottomInset={TAB_BAR_HEIGHT + insets.bottom} gesture={resize.seam} gripY={resize.gripY} bandH={resize.bandH} />
       )}
       {/* After the divider: the red mark sits on top of the seam line. */}
       <GuideSeamMark columnW={columnW} scrollX={scrollX} isHour={new Date(windowStartMs).getMinutes() === 0} height={METRICS.rulerHeight - 1} />

@@ -9,6 +9,7 @@ import type { JellyfinItem } from "@/types/jellyfin";
 import type { GuideMetrics } from "@/utils/guide";
 import React, { useCallback } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
+import { type Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
@@ -36,6 +37,8 @@ interface GuideChannelColumnProps {
   onChannelLongPress: (channel: JellyfinItem) => void;
   onChannelFocus?: () => void;
   onEndReached?: () => void;
+  /** Phone: the corner is a second resize handle, the seam grip's pan from useColumnResize. */
+  cornerGesture?: ReturnType<typeof Gesture.Pan>;
 }
 
 /**
@@ -56,6 +59,7 @@ export function GuideChannelColumn({
   onChannelLongPress,
   onChannelFocus,
   onEndReached,
+  cornerGesture,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows,
@@ -100,11 +104,23 @@ export function GuideChannelColumn({
 
   return (
     <Animated.View style={[styles.column, widthStyle]}>
-      <View style={[styles.corner, { height: metrics.rulerHeight }]}>
-        <Text style={styles.cornerLabel} numberOfLines={1}>
-          {dayLabel}
-        </Text>
-      </View>
+      {cornerGesture ? (
+        <GestureHandlerRootView style={[styles.corner, { height: metrics.rulerHeight }]}>
+          <GestureDetector gesture={cornerGesture}>
+            <View style={styles.cornerHit}>
+              <Text style={styles.cornerLabel} numberOfLines={1}>
+                {dayLabel}
+              </Text>
+            </View>
+          </GestureDetector>
+        </GestureHandlerRootView>
+      ) : (
+        <View style={[styles.corner, { height: metrics.rulerHeight }]}>
+          <Text style={styles.cornerLabel} numberOfLines={1}>
+            {dayLabel}
+          </Text>
+        </View>
+      )}
       <Animated.FlatList
         ref={listRef}
         data={channels}
@@ -204,5 +220,11 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 22 : 13,
     fontWeight: "700",
     textTransform: "uppercase",
+  },
+  cornerHit: {
+    alignSelf: "stretch",
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
