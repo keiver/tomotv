@@ -55,7 +55,8 @@ export const DEVICES = {
   tv: {
     simulator: "Apple TV 4K (3rd generation)",
     canvas: [3840, 2160],
-    frame: "tv",
+    // Full bleed: the listing is read from across a room, so the capture gets the whole canvas.
+    bleed: true,
     tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.86, clearance: 0.04 },
   },
 };
@@ -89,6 +90,24 @@ const BAR_PAD = 2.6;
 /** Panel corner and hairline, as fractions of the canvas width. */
 const PANEL_RADIUS = 0.009;
 const PANEL_STROKE = 0.0013;
+
+/**
+ * components/card-scrim.tsx's ramps, [offset, black opacity], held denser at the dark end: the
+ * app's tab bar sits under the headline and cut rows under the band. The foot is a canvas fraction.
+ */
+const CORNER_STOPS = [
+  [0, 0.97],
+  [0.4, 0.92],
+  [0.6, 0.62],
+  [0.82, 0.2],
+  [1, 0],
+];
+const BOTTOM_STOPS = [
+  [0, 0],
+  [0.55, 0.45],
+  [1, 0.92],
+];
+const FOOT_WASH = 0.22;
 
 /**
  * One vertical rhythm for the whole set.
@@ -142,6 +161,7 @@ export function setMetrics(device, shots) {
 function panelRect(device, top, reserved = 0) {
   const [W, H] = device.canvas;
   const t = device.tune;
+  if (device.bleed) return { shell: null, screen: { x: 0, y: 0, width: W, height: H, radius: 0 } };
   const room = H - top - H * t.clearance - reserved;
   const place = (ratio) => {
     const width = Math.min(W * t.panelWidth, room / ratio);
@@ -186,6 +206,7 @@ function layout(device, shot, shared) {
     // every caption written so far. `accent: -1` in the config opts a shot out.
     accent: shot.accent ?? head.length - 1,
     captionSize: m.headSize,
+    bleed: Boolean(device.bleed),
     shell,
     screen,
   };
@@ -267,9 +288,11 @@ async function screen(capture, s, W, H) {
 /** Panel hairline or device shell. */
 function frame(device, L) {
   const s = L.screen;
-  const body = device.frame
-    ? `<g transform="${L.shell.transform}">${frameBody(device.frame)}</g>`
-    : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="${round(L.W * PANEL_STROKE)}"/>`;
+  const body = device.bleed
+    ? ""
+    : device.frame
+      ? `<g transform="${L.shell.transform}">${frameBody(device.frame)}</g>`
+      : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="${round(L.W * PANEL_STROKE)}"/>`;
   return raw(sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}" fill="none">${body}</svg>`)));
 }
 
@@ -291,12 +314,29 @@ function overlay(L) {
     m.ebTop,
   );
 
+  // The app's card scrims (components/card-scrim.tsx): a radial wash whose radii put the type at
+  // 60% of the reach, and the bottom wash that eases the art into the gold bar.
+  const stops = (list) => list.map(([at, a]) => `<stop offset="${at}" stop-color="#000" stop-opacity="${a}"/>`).join("");
+  let washDefs = "";
+  let wash = "";
+  if (L.bleed) {
+    const rx = L.W / 2 / 0.6;
+    const ry = (L.headY + m.headHeight) / 0.6;
+    const footTop = m.barTop - L.H * FOOT_WASH;
+    washDefs = `<radialGradient id="head" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${round(L.W / 2)} 0) scale(${round(rx)} ${round(ry)})">${stops(CORNER_STOPS)}</radialGradient>
+    <linearGradient id="foot" x1="0" y1="0" x2="0" y2="1">${stops(BOTTOM_STOPS)}</linearGradient>`;
+    wash = `<rect width="${L.W}" height="${round(ry)}" fill="url(#head)"/>
+  ${subhead ? `<rect y="${round(footTop)}" width="${L.W}" height="${round(m.barTop - footTop)}" fill="url(#foot)"/>` : ""}`;
+  }
+
   return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}" fill="none">
   <defs>
+    ${washDefs}
     <filter id="lift" x="-25%" y="-25%" width="150%" height="150%">
       <feDropShadow dx="0" dy="${round(L.H * 0.0025)}" stdDeviation="${round(L.W * 0.005)}" flood-color="${ink.shadow}" flood-opacity="0.55"/>
     </filter>
   </defs>
+  ${wash}
   ${eb ? `<path d="${eb.d}" fill="${ink.rule}"/>` : ""}
   ${caption ? `<g filter="url(#lift)">${caption.lineData.map((d, i) => `<path d="${d}" fill="${i === L.accent ? ink.rule : ink.head}"/>`).join("")}</g>` : ""}
   ${subhead ? `<rect x="0" y="${round(m.barTop)}" width="${L.W}" height="${round(m.barHeight)}" fill="${COLORS.ACCENT}"/>` : ""}
