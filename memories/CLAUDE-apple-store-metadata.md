@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 21, 2026
+**Last Updated:** September 24, 2026
 
 ## Quick Reference
 
@@ -36,10 +36,10 @@ Tomo TV, a Jellyfin Client
 Movies, Live TV, Music, Books
 ```
 
-### Promotional Text (138 / 170)
+### Promotional Text (156 / 170)
 
 ```text
-Finds your Jellyfin server on the network, nothing to type. Stream at the right quality straight away. Plays it all in Apple's own player.
+Free and open source, no ads, no account. Plays 4K, Dolby Vision and Dolby Atmos in Apple's own player, and finds your Jellyfin server with nothing to type.
 ```
 
 ### Keywords (99 / 100)
@@ -48,12 +48,10 @@ Finds your Jellyfin server on the network, nothing to type. Stream at the right 
 player,downloads,server,nas,atmos,dolby,surround,hevc,mkv,subtitle,selfhosted,audiobook,comics,epub
 ```
 
-### Description (3,559 / 4000)
+### Description (3,476 / 4000)
 
 ```text
-Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, and almost nothing has to go through your server's transcoder.
-
-Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC films and shows play straight from the file in any container. That includes 4K, HDR10, HLG and Dolby Vision. Older and stranger formats are converted on the device itself. We only use server conversion when a slow connection needs a smaller stream or your device cannot play the file.
+Your Apple TV, iPhone and iPad do the work a server usually does, so almost nothing has to go through your server's transcoder. H.264 and HEVC films and shows play straight from the file in any container, 4K, HDR10, HLG and Dolby Vision included. Older and stranger formats are converted on the device itself. Server conversion steps in only when a slow connection needs a smaller stream or your device cannot play the file.
 
 WHAT MAKES IT DIFFERENT
 
@@ -229,14 +227,8 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 
 ## The listing as it stands
 
-- Live version: 2.2.6, released 2026-09-15.
-- In preparation: 2.2.7.
-- The revised descriptions and release notes have not been uploaded.
-- The unchanged promotional text also needs to be copied into the new drafts.
-
 **Promotional text is hand-written in English and does not change per release.**
-The same 138 characters went out on 2.2.2, 2.2.3, 2.2.5 and 2.2.6. Apple opens every
-new version with the field empty; `npm run meta:upload` re-sends it.
+Apple opens every new version with the field empty; `npm run meta:upload` re-sends it.
 
 The three translations come from the local model like the release notes do, but
 only on request: `npm run notes -- --redo promo --write` after the English block
@@ -263,10 +255,10 @@ Tomo TV, Jellyfin-Client
 Filme, Live-TV, Musik, Bücher
 ```
 
-#### Promotional Text (143 / 170 chars)
+#### Promotional Text (166 / 170 chars)
 
 ```text
-Findet deinen Jellyfin-Server im Netzwerk, nichts einzutippen. Startet sofort in der richtigen Qualität. Spielt alles in Apples eigenem Player.
+Kostenlos, quelloffen, ohne Werbung und ohne Konto. Spielt 4K, Dolby Vision und Dolby Atmos in Apples eigenem Player und findet deinen Jellyfin-Server ohne Eintippen.
 ```
 
 #### Keywords (97 / 100 bytes)
@@ -275,12 +267,10 @@ Findet deinen Jellyfin-Server im Netzwerk, nichts einzutippen. Startet sofort in
 player,download,server,nas,atmos,dolby,surround,hevc,mkv,untertitel,heimkino,hörbuch,comics,epub
 ```
 
-#### Description (3900 / 4000 chars)
+#### Description (3804 / 4000 chars)
 
 ```text
-Tomo TV spielt deine Jellyfin-Bibliothek in Apples eigenem Player. Kostenlos, quelloffen, und fast nichts muss durch den Transkoder deines Servers.
-
-Apple TV, iPhone und iPad übernehmen die Arbeit, die sonst der Server macht. Filme und Serien in H.264 und HEVC laufen direkt aus der Datei, in jedem Container. Das gilt auch für 4K, HDR10, HLG und Dolby Vision. Ältere und seltenere Formate werden auf dem Gerät selbst umgewandelt. Wir nutzen die Umwandlung auf dem Server nur, wenn eine langsame Verbindung einen kleineren Stream braucht oder dein Gerät die Datei nicht abspielen kann.
+Apple TV, iPhone und iPad übernehmen die Arbeit, die sonst der Server macht, deshalb muss fast nichts durch den Transkoder deines Servers. Filme und Serien in H.264 und HEVC laufen direkt aus der Datei, in jedem Container, auch in 4K, HDR10, HLG und Dolby Vision. Ältere und seltenere Formate werden auf dem Gerät selbst umgewandelt. Die Umwandlung auf dem Server springt nur ein, wenn eine langsame Verbindung einen kleineren Stream braucht oder dein Gerät die Datei nicht abspielen kann.
 
 WAS ANDERS IST
 
@@ -418,10 +408,10 @@ Tomo TV, client Jellyfin
 Ciné, TV live, musique, livres
 ```
 
-#### Promotional Text (135 / 170 chars)
+#### Promotional Text (167 / 170 chars)
 
 ```text
-Trouve votre serveur Jellyfin sur le réseau, rien à saisir. Démarre tout de suite à la bonne qualité. Lit tout dans le lecteur d'Apple.
+Gratuit et open source, sans pub, sans compte. Lit la 4K, le Dolby Vision et le Dolby Atmos dans le lecteur d'Apple, et trouve votre serveur Jellyfin sans rien saisir.
 ```
 
 #### Keywords (85 / 100 bytes)
@@ -430,12 +420,10 @@ Trouve votre serveur Jellyfin sur le réseau, rien à saisir. Démarre tout de s
 lecteur,téléchargement,serveur,nas,atmos,dolby,hevc,mkv,sous-titres,cinéma,bd,epub
 ```
 
-#### Description (3964 / 4000 chars)
+#### Description (3877 / 4000 chars)
 
 ```text
-Tomo TV lit votre médiathèque Jellyfin dans le lecteur d'Apple. Gratuit, open source, et presque rien ne passe par le transcodeur de votre serveur.
-
-Apple TV, iPhone et iPad font le travail que fait d'habitude un serveur. Films et séries en H.264 et HEVC sont lus directement depuis le fichier, dans n'importe quel conteneur. 4K, HDR10, HLG et Dolby Vision compris. Les formats plus anciens ou plus rares sont convertis sur l'appareil lui-même. Nous utilisons la conversion sur le serveur uniquement lorsqu'une connexion lente exige une version plus légère ou que votre appareil ne peut pas lire le fichier.
+Apple TV, iPhone et iPad font le travail que fait d'habitude un serveur, si bien que presque rien ne passe par le transcodeur de votre serveur. Films et séries en H.264 et HEVC sont lus directement depuis le fichier, dans n'importe quel conteneur, 4K, HDR10, HLG et Dolby Vision compris. Les formats plus anciens ou plus rares sont convertis sur l'appareil lui-même. La conversion sur le serveur n'intervient que lorsqu'une connexion lente exige une version plus légère ou que votre appareil ne peut pas lire le fichier.
 
 CE QUI CHANGE
 
@@ -573,10 +561,10 @@ Tomo TV, cliente Jellyfin
 Cine, en vivo, música, libros
 ```
 
-#### Promotional Text (139 / 170 chars)
+#### Promotional Text (170 / 170 chars)
 
 ```text
-Encuentra tu servidor Jellyfin en la red, sin escribir nada. Empieza ya con la calidad justa. Lo reproduce todo en el reproductor de Apple.
+Gratis, de código abierto, sin anuncios ni registro. Reproduce 4K, Dolby Vision y Dolby Atmos en el reproductor de Apple y detecta tu servidor Jellyfin sin escribir nada.
 ```
 
 #### Keywords (94 / 100 bytes)
@@ -585,12 +573,10 @@ Encuentra tu servidor Jellyfin en la red, sin escribir nada. Empieza ya con la c
 reproductor,descargas,servidor,nas,atmos,dolby,hevc,mkv,subtitulos,audiolibro,cine,comics,epub
 ```
 
-#### Description (3911 / 4000 chars)
+#### Description (3827 / 4000 chars)
 
 ```text
-Tomo TV reproduce tu biblioteca de Jellyfin en el reproductor de Apple. Gratis, de código abierto, y casi nada tiene que pasar por el conversor de tu servidor.
-
-Tu Apple TV, tu iPhone y tu iPad hacen el trabajo que suele hacer un servidor. Películas y series en H.264 y HEVC se reproducen directamente desde el archivo, en cualquier contenedor. Eso incluye 4K, HDR10, HLG y Dolby Vision. Los formatos más antiguos o menos comunes se convierten en el propio dispositivo. Solo usamos la conversión en el servidor cuando una conexión lenta necesita una versión más ligera o tu dispositivo no puede reproducir el archivo.
+Tu Apple TV, tu iPhone y tu iPad hacen el trabajo que suele hacer un servidor, así que casi nada tiene que pasar por el conversor de tu servidor. Películas y series en H.264 y HEVC se reproducen directamente desde el archivo, en cualquier contenedor, con 4K, HDR10, HLG y Dolby Vision incluidos. Los formatos más antiguos o menos comunes se convierten en el propio dispositivo. La conversión en el servidor solo entra en juego cuando una conexión lenta necesita una versión más ligera o tu dispositivo no puede reproducir el archivo.
 
 QUÉ LO HACE DISTINTO
 
@@ -738,8 +724,8 @@ AVPlayer client claims it, and through 2.2.6 it read as "Music in 4K HDR".
 
 ## Promotional Text (170 characters max)
 
-**Finds your Jellyfin server on the network, nothing to type. Stream at the right quality straight away. Plays it all in Apple's own player.**
-(138 characters)
+**Free and open source, no ads, no account. Plays 4K, Dolby Vision and Dolby Atmos in Apple's own player, and finds your Jellyfin server with nothing to type.**
+(156 characters)
 
 Was, through 2.1.0: "Play your Jellyfin library on Apple TV without a server
 transcode. Dolby Atmos passes through untouched, surround stays surround. Just hit
@@ -762,9 +748,7 @@ follows Apple's stated ideal, "a concise, informative paragraph followed by a
 short list of main features", and the first sentence carries the pitch because
 that is all most people read before tapping more.
 
-Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, and almost nothing has to go through your server's transcoder.
-
-Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC play straight from the file in any container. Older and stranger formats are converted on the device itself. We only use server conversion when a slow connection needs a smaller stream or your device cannot play the file.
+Your Apple TV, iPhone and iPad do the work a server usually does, so almost nothing has to go through your server's transcoder. H.264 and HEVC films and shows play straight from the file in any container, 4K, HDR10, HLG and Dolby Vision included. Older and stranger formats are converted on the device itself. Server conversion steps in only when a slow connection needs a smaller stream or your device cannot play the file.
 
 WHAT MAKES IT DIFFERENT
 
@@ -1375,8 +1359,8 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 | ---------------- | ----- | --------- | ------ |
 | App Name         | 30    | 26        | ✅     |
 | Subtitle         | 30    | 29        | ✅     |
-| Promotional Text | 170   | 138       | ✅     |
-| Description      | 4,000 | 3,573     | ✅     |
+| Promotional Text | 170   | 156       | ✅     |
+| Description      | 4,000 | 3,476     | ✅     |
 | Keywords         | 100   | 99        | ✅     |
 | What's New 2.2.7 | 4,000 | 540 / 495 | ✅     |
 
