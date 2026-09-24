@@ -15,8 +15,9 @@
 #                                               #  the lockfile is never deleted)
 #
 # Per platform: expo prebuild -> xcodebuild archive (lands in Xcode Organizer)
-# -> export signed .ipa -> local verification -> App Store validation
-# -> optional upload. iOS runs first; tvOS runs last so the working tree is
+# -> export signed .ipa -> local verification -> App Store validation, or with
+# --upload a single upload (Apple validates it) confirmed by its delivery id.
+# iOS runs first; tvOS runs last so the working tree is
 # left in tvOS state for normal development.
 #
 # Validation and upload authenticate with an App Store Connect API key,
@@ -187,6 +188,16 @@ if [[ $UPLOAD -eq 1 && $HAVE_CREDS -eq 0 ]]; then
   exit 1
 fi
 
+# The listing text is checked before the build, not after the uploads it would follow.
+# --notes translates the other languages later, so only the English has to exist yet.
+if [[ $UPLOAD -eq 1 ]]; then
+  if [[ $NOTES -eq 1 ]]; then
+    node scripts/appstore-upload-meta.mjs --check --locale en-US
+  else
+    node scripts/appstore-upload-meta.mjs --check
+  fi
+fi
+
 VERSION=$(node -p "require('./app.json').expo.version")
 TS=$(date +%Y%m%d-%H%M%S)
 ORGANIZER_DIR="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)"
@@ -237,6 +248,15 @@ run_retried() {
   done
   echo "=== attempt 3/3 ===" >>"$log"
   run_logged "$@"
+}
+
+# altool has been reported exiting 0 on a rejected upload, so App Store Connect has the last word.
+delivered() {
+  local json
+  json=$(xcrun altool --build-status --delivery-id "$1" --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID" \
+    --output-format json) || { printf '%s\n' "$json"; return 1; }
+  printf '%s\n' "$json"
+  [[ $(plutil -extract is-on-app-store-connect raw -o - - <<<"$json" 2>/dev/null) == true ]]
 }
 
 # verify_ipa <ipa> <expected DTPlatformName>
@@ -291,15 +311,20 @@ build_platform() {
   echo "  -> verifying signature, platform, build number"
   verify_ipa "$ipa" "$dt_platform"
 
-  if [[ $HAVE_CREDS -eq 1 ]]; then
+  # The upload runs Apple's validation itself, so validating first would send the .ipa twice.
+  if [[ $HAVE_CREDS -eq 1 && $UPLOAD -eq 1 ]]; then
+    run_retried "$label-upload.log" xcrun altool --upload-app -f "$ipa" -t "$alt_type" \
+      --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
+    local delivery
+    delivery=$(grep -oE 'Delivery UUID: [0-9a-f-]{36}' "$LOG_DIR/$label-upload.log" | tail -1 | cut -d' ' -f3 || true)
+    [[ -n "$delivery" ]] || run_logged "$label-upload.log" false "no Delivery UUID in the upload output"
+    run_retried "$label-delivery.log" delivered "$delivery"
+    validated="passed (on upload)"
+    uploaded="uploaded"
+  elif [[ $HAVE_CREDS -eq 1 ]]; then
     run_retried "$label-validate.log" xcrun altool --validate-app -f "$ipa" -t "$alt_type" \
       --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
     validated="passed"
-    if [[ $UPLOAD -eq 1 ]]; then
-      run_retried "$label-upload.log" xcrun altool --upload-app -f "$ipa" -t "$alt_type" \
-        --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
-      uploaded="uploaded"
-    fi
   fi
 
   RESULTS+=("$label | $archive | $ipa | validation: $validated | upload: $uploaded")

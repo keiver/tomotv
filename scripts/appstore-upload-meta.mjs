@@ -9,6 +9,7 @@
  *   npm run meta:upload -- --dry-run        print the plan, write nothing
  *   npm run meta:upload -- --locale de-DE,fr-FR   one language or a few
  *   npm run meta:upload -- --platform IOS   one platform
+ *   npm run meta:upload -- --check          check the document offline, then stop
  *
  * The copy comes from the paste blocks in memories/CLAUDE-apple-store-metadata.md,
  * which that file declares canonical. What's New is taken for the version in
@@ -40,6 +41,7 @@ const opt = (n) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : null;
 };
 const DRY = flag("--dry-run");
+const CHECK = flag("--check");
 
 function fail(msg) {
   console.error(`\n✗ ${msg}`);
@@ -100,6 +102,10 @@ async function main() {
     );
   }
   if (problems.length) fail(`${DOC}\n  ${problems.join("\n  ")}`);
+  if (CHECK) {
+    console.log(`Listing text for ${version} is complete: ${locales.join(", ")}`);
+    return;
+  }
 
   const api = client(ascEnv(ROOT));
   const apps = await api.get(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`);
