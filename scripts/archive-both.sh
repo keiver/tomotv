@@ -22,6 +22,7 @@
 #   ASC_KEY_ID=XXXXXXXXXX
 #   ASC_ISSUER_ID=<uuid from ASC > Users and Access > Integrations>
 #   API_PRIVATE_KEYS_DIR=/absolute/path/to/dir/containing/AuthKey_XXXXXXXXXX.p8
+#   NTFY_TOPIC=<optional ntfy.sh topic, pinged when a run fails>
 #
 # Without credentials the script still produces signed, locally verified
 # .ipas and skips ASC validation with a notice. --upload requires them.
@@ -127,6 +128,18 @@ API_PRIVATE_KEYS_DIR="${API_PRIVATE_KEYS_DIR:-}"
 HAVE_CREDS=0
 [[ -n "$ASC_KEY_ID" && -n "$ASC_ISSUER_ID" ]] && HAVE_CREDS=1
 
+# Any failed exit pings NTFY_TOPIC (ntfy.sh), when .env.archive sets one.
+FAILED_STEP=""
+FAILED_LOG=""
+notify_failure() {
+  local rc=$?
+  [[ $rc -eq 0 || -z "${NTFY_TOPIC:-}" ]] && return
+  curl -s --max-time 10 -H "Title: TomoTV archive failed" -H "Priority: high" -H "Tags: rotating_light" \
+    -d "${VERSION:-?} (${BUILD_NUMBER}): ${FAILED_STEP:-exit $rc}${FAILED_LOG:+
+Log: $FAILED_LOG}" "https://ntfy.sh/$NTFY_TOPIC" >/dev/null || true
+}
+trap notify_failure EXIT
+
 # Sign archive+export with the App Store Connect API key, not the Xcode account.
 # The account's session token (Xcode-Token, in the data-protection keychain) has
 # proven unreliable since the 2026-08 clean install: it loaded for one export and
@@ -196,6 +209,8 @@ run_logged() {
   shift
   echo "  -> $* "
   if ! "$@" >>"$log" 2>&1; then
+    FAILED_STEP="$*"
+    FAILED_LOG="$log"
     echo "" >&2
     echo "FAILED: $*" >&2
     echo "Last 40 log lines:" >&2
@@ -203,6 +218,20 @@ run_logged() {
     echo "Full log: $log" >&2
     exit 1
   fi
+}
+
+# altool drops Apple's connection on flaky networks; a fresh session usually gets through.
+run_retried() {
+  local log="$LOG_DIR/$1" attempt
+  for attempt in 1 2; do
+    echo "  -> [attempt $attempt/3] ${*:2}"
+    echo "=== attempt $attempt/3 ===" >>"$log"
+    "${@:2}" >>"$log" 2>&1 && return 0
+    echo "     failed, retrying in 60s" >&2
+    sleep 60
+  done
+  echo "=== attempt 3/3 ===" >>"$log"
+  run_logged "$@"
 }
 
 # verify_ipa <ipa> <expected DTPlatformName>
@@ -258,11 +287,11 @@ build_platform() {
   verify_ipa "$ipa" "$dt_platform"
 
   if [[ $HAVE_CREDS -eq 1 ]]; then
-    run_logged "$label-validate.log" xcrun altool --validate-app -f "$ipa" -t "$alt_type" \
+    run_retried "$label-validate.log" xcrun altool --validate-app -f "$ipa" -t "$alt_type" \
       --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
     validated="passed"
     if [[ $UPLOAD -eq 1 ]]; then
-      run_logged "$label-upload.log" xcrun altool --upload-app -f "$ipa" -t "$alt_type" \
+      run_retried "$label-upload.log" xcrun altool --upload-app -f "$ipa" -t "$alt_type" \
         --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
       uploaded="uploaded"
     fi
