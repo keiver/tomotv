@@ -59,7 +59,8 @@ export default function LoginScreen() {
       header={t("connect.signInTo")
         .replace("{server}", serverName || "Jellyfin server")
         .toUpperCase()}
-      centered>
+      centered
+      narrow>
       <UsernamePasswordSection
         username={username}
         setUsername={setUsername}

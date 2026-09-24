@@ -83,9 +83,12 @@ export function UsernamePasswordSection({ username, setUsername, password, setPa
           button (app/_layout.tsx), so nothing is left under the card. */}
       {Platform.isTV && (
         <View style={settingsStyles.secondaryActions}>
-          <GlassButton title={t("common.back")} onPress={onBack} disabled={isSigningIn} />
+          <GlassButton title={t("common.back")} onPress={onBack} disabled={isSigningIn} style={backPill} />
         </View>
       )}
     </>
   );
 }
+
+// Sign In's 360pt width, less the glass capsule's 6pt padding a side: one width for the stack.
+const backPill = { width: 348 };

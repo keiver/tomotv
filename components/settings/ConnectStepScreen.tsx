@@ -23,6 +23,10 @@ interface ConnectStepScreenProps {
   centered?: boolean;
   /** Action pinned to the right of the header line, the way Diagnostics carries Send. */
   headerRight?: React.ReactNode;
+  /** A pushed route that covers the tab bar; on TV the header keeps the tab screens' offset. */
+  pushed?: boolean;
+  /** TV: a form's width rather than a list's. */
+  narrow?: boolean;
   children: React.ReactNode;
 }
 
@@ -32,7 +36,7 @@ interface ConnectStepScreenProps {
  * in one place is what keeps a pushed login step looking like the server list it
  * came from, rather than like a different screen.
  */
-export function ConnectStepScreen({ title, header, centered = false, headerRight, children }: ConnectStepScreenProps) {
+export function ConnectStepScreen({ title, header, centered = false, headerRight, pushed = false, narrow = false, children }: ConnectStepScreenProps) {
   const showTitle = !Platform.isTV && !!title;
   // See the `centered` prop: the request only applies on TV.
   const centerContent = centered && Platform.isTV;
@@ -50,7 +54,7 @@ export function ConnectStepScreen({ title, header, centered = false, headerRight
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
         focusable={false}>
-        <View style={styles.contentContainer}>
+        <View style={[styles.contentContainer, narrow && Platform.isTV && styles.connectNarrow]}>
           {showTitle && <Text style={styles.screenTitle}>{title}</Text>}
 
           {/* Keyed to what the layout actually does, not to what the caller asked for. A centred
@@ -58,7 +62,13 @@ export function ConnectStepScreen({ title, header, centered = false, headerRight
               shift the block up by half of itself. Anything top-aligned gets the air, which is
               how a phone's pushed step ends up sitting exactly where the server list it came
               from sits — the point of this component. */}
-          <View style={[styles.sectionHeader, showTitle && styles.sectionHeaderFirst, !centerContent && styles.connectHeaderSpacing, headerRight ? headerRowStyle : undefined]}>
+          <View
+            style={[
+              styles.sectionHeader,
+              showTitle && styles.sectionHeaderFirst,
+              !centerContent && (pushed && Platform.isTV ? styles.connectPushedHeaderSpacing : styles.connectHeaderSpacing),
+              headerRight ? headerRowStyle : undefined,
+            ]}>
             {/* One line, truncated: the login steps put the server's own name in here,
                 and a long one would otherwise wrap the header into a paragraph. */}
             <Text style={[styles.sectionHeaderText, headerRight ? shrinkStyle : undefined]} numberOfLines={1}>

@@ -3,7 +3,7 @@ import { GlassButton } from "@/components/glass-button";
 import { JoinQr } from "@/components/join-qr";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { IS_PAD, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, settingsStyles, TV_PUSHED_HEADER_TOP } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { checkServerInfo, getConfig, getStoredServerId } from "@/services/jellyfinApi";
 import { createGroup, leaveGroup, refreshAccess, refreshGroups, resumeGroupPlayback, subscribe, switchGroup, SyncPlaySnapshot } from "@/services/syncPlayManager";
@@ -242,7 +242,7 @@ export default function WatchTogetherScreen() {
     <View style={settingsStyles.screenContainer}>
       {!IS_TV && <Stack.Screen options={screenOptions} />}
       <AmbientBackground />
-      <View style={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
+      <View style={[styles.page, { paddingTop: IS_TV ? TV_PUSHED_HEADER_TOP + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
         <View style={[settingsStyles.contentContainer, styles.column]} collapsable={false}>
           {/* Header line carries the way out, where Diagnostics carries Send. */}
           <View style={styles.titleRow} collapsable={false}>
