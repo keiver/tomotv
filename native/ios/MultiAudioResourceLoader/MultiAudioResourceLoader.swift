@@ -50,6 +50,7 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
     /// request — and JS awaits that promise before it can start playback at all.
     /// That would trade a race for a visible startup stall.
     private let configLock = NSLock()
+    private var configId: String = ""
     private var jellyfinBaseUrl: String = ""
     private var itemId: String = ""
     private var audioTrackInfo: [[String: Any]] = []
@@ -74,6 +75,7 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
         private let lock = NSLock()
         private var tasks: [URLSessionTask] = []
         private var cancelled = false
+        private var abandoned = false
         /// Set only when WE gave up on the fetches. AVFoundation cancelling its own
         /// request is a different thing entirely: there the request is already dead
         /// and answering it is wasted work, while here it is still waiting on us.
@@ -91,7 +93,11 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
         func cancel(timedOut: Bool = false) {
             lock.lock()
             cancelled = true
-            if timedOut { self.timedOut = true }
+            if timedOut {
+                self.timedOut = true
+            } else {
+                abandoned = true
+            }
             let running = tasks
             tasks.removeAll()
             lock.unlock()
@@ -107,7 +113,7 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
         var didTimeOut: Bool {
             lock.lock()
             defer { lock.unlock() }
-            return timedOut
+            return timedOut && !abandoned
         }
     }
 
@@ -118,22 +124,35 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
     /// `apiKey` is accepted and ignored: it is already carried in `baseUrl`'s
     /// query, which is where buildManifestUrl reads it from. The parameter stays
     /// so the bridge signature and its JS call site do not have to change.
-    func configure(baseUrl: String, apiKey: String, itemId: String, audioTracks: [[String: Any]]) {
+    func configure(baseUrl: String, apiKey: String, itemId: String, audioTracks: [[String: Any]]) -> String {
+        let configId = UUID().uuidString
         configLock.lock()
+        self.configId = configId
         self.jellyfinBaseUrl = baseUrl
         self.itemId = itemId
         self.audioTrackInfo = audioTracks
         configLock.unlock()
 
         NSLog("[MultiAudioResourceLoader] Configured for item: \(itemId) with \(audioTracks.count) audio tracks")
+        return Self.customUrl(itemId: itemId, configId: configId)
+    }
+
+    func configuredUrl(for itemId: String) -> String? {
+        let config = configSnapshot()
+        guard config.itemId == itemId, !config.configId.isEmpty else { return nil }
+        return Self.customUrl(itemId: itemId, configId: config.configId)
+    }
+
+    private static func customUrl(itemId: String, configId: String) -> String {
+        return "jellyfin-multi://server/Videos/\(itemId)/master.m3u8?configId=\(configId)"
     }
 
     /// One coherent read of everything a request needs, taken once so a
     /// configure() midway through cannot split a request across two items.
-    private func configSnapshot() -> (baseUrl: String, itemId: String, tracks: [[String: Any]]) {
+    private func configSnapshot() -> (configId: String, baseUrl: String, itemId: String, tracks: [[String: Any]]) {
         configLock.lock()
         defer { configLock.unlock() }
-        return (jellyfinBaseUrl, itemId, audioTrackInfo)
+        return (configId, jellyfinBaseUrl, itemId, audioTrackInfo)
     }
 
     // MARK: - AVAssetResourceLoaderDelegate
@@ -168,6 +187,15 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
                 NSLog("[MultiAudioResourceLoader] Master manifest request")
 
                 let config = self.configSnapshot()
+                let requestConfigIds = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.filter {
+                    $0.name.lowercased() == "configid"
+                } ?? []
+                guard !config.configId.isEmpty,
+                      url.path == "/Videos/\(config.itemId)/master.m3u8",
+                      requestConfigIds.count == 1,
+                      requestConfigIds[0].value == config.configId else {
+                    throw NSError(domain: "MultiAudioResourceLoader", code: 9, userInfo: [NSLocalizedDescriptionKey: "Audio configuration does not match this playback request"])
+                }
                 let (manifests, manifestUrls) = try self.fetchAllManifests(
                     baseUrl: config.baseUrl,
                     itemId: config.itemId,
@@ -179,21 +207,7 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
                 // finishLoading on it is wasted work, but OUR deadline firing leaves
                 // AVFoundation waiting on a request nobody will ever answer — it then
                 // hangs on its own opaque timeout instead of failing the load.
-                guard !job.isCancelled else {
-                    if job.didTimeOut {
-                        NSLog("[MultiAudioResourceLoader] Manifest fetches timed out; failing the request")
-                        loadingRequest.finishLoading(
-                            with: NSError(
-                                domain: "MultiAudioResourceLoader",
-                                code: 8,
-                                userInfo: [NSLocalizedDescriptionKey: "Timed out fetching audio manifests after \(Self.manifestDeadline)s"]
-                            )
-                        )
-                        return
-                    }
-                    NSLog("[MultiAudioResourceLoader] Request cancelled; dropping")
-                    return
-                }
+                guard !self.finishCancelledRequest(loadingRequest, job: job) else { return }
                 let combinedManifestString = try self.generateMultivariantManifest(
                     from: manifests,
                     audioTrackInfo: config.tracks,
@@ -211,6 +225,7 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
 
                 NSLog("[MultiAudioResourceLoader] Generated combined manifest (\(combinedManifest.count) bytes)")
 
+                guard !self.finishCancelledRequest(loadingRequest, job: job) else { return }
                 // Provide manifest data to AVPlayer
                 if let dataRequest = loadingRequest.dataRequest {
                     dataRequest.respond(with: combinedManifest)
@@ -224,11 +239,13 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
                 }
 
                 // Mark request as finished
+                guard !self.finishCancelledRequest(loadingRequest, job: job) else { return }
                 loadingRequest.finishLoading()
 
                 NSLog("[MultiAudioResourceLoader] Request completed successfully")
 
             } catch {
+                guard !self.finishCancelledRequest(loadingRequest, job: job) else { return }
                 NSLog("[MultiAudioResourceLoader] Error serving manifest: \(error.localizedDescription)")
                 loadingRequest.finishLoading(with: error)
             }
@@ -245,6 +262,23 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
     }
 
     // MARK: - Private Methods
+
+    private func finishCancelledRequest(_ loadingRequest: AVAssetResourceLoadingRequest, job: RequestJob) -> Bool {
+        guard job.isCancelled else { return false }
+        if job.didTimeOut {
+            NSLog("[MultiAudioResourceLoader] Manifest fetches timed out; failing the request")
+            loadingRequest.finishLoading(
+                with: NSError(
+                    domain: "MultiAudioResourceLoader",
+                    code: 8,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out fetching audio manifests after \(Self.manifestDeadline)s"]
+                )
+            )
+        } else {
+            NSLog("[MultiAudioResourceLoader] Request cancelled; dropping")
+        }
+        return true
+    }
 
     /// Fetch every track's manifest, returning ONE SLOT PER TRACK — nil where the
     /// track had no stream index or its fetch failed or was cancelled.
@@ -267,6 +301,10 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
         var manifestUrls = [String?](repeating: nil, count: tracks.count)
         let slotsLock = NSLock()
         let group = DispatchGroup()
+        let streamIndexes = tracks.compactMap { $0["Index"] as? Int }
+        guard streamIndexes.count == tracks.count, streamIndexes.allSatisfy({ $0 >= 0 }), Set(streamIndexes).count == tracks.count else {
+            throw NSError(domain: "MultiAudioResourceLoader", code: 10, userInfo: [NSLocalizedDescriptionKey: "Audio tracks require distinct stream indexes"])
+        }
 
         for (position, trackInfo) in tracks.enumerated() {
             // Get actual Jellyfin stream index from track metadata
@@ -287,9 +325,10 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
             #endif
 
             group.enter()
-            let task = session.dataTask(with: url) { data, _, error in
+            let task = session.dataTask(with: url) { data, response, error in
                 defer { group.leave() }
-                guard let data, error == nil, let text = String(data: data, encoding: .utf8) else {
+                guard let data, error == nil, let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode), let text = String(data: data, encoding: .utf8) else {
                     NSLog("[MultiAudioResourceLoader] Manifest fetch failed for stream \(streamIndex): \(error?.localizedDescription ?? "no data")")
                     return
                 }
@@ -326,6 +365,7 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
         }
 
         var queryItems = components.queryItems ?? []
+        queryItems.removeAll { ["audiostreamindex", "playsessionid"].contains($0.name.lowercased()) }
 
         // Add audioStreamIndex to select which audio track to encode
         queryItems.append(URLQueryItem(name: "audioStreamIndex", value: "\(audioStreamIndex)"))
@@ -413,13 +453,13 @@ class MultiAudioResourceLoader: NSObject {
         // ordering harder to read. The promise resolves after the assignment,
         // which is the guarantee the JS caller depends on before it asks for a
         // URL and starts playback.
-        MultiAudioResourceLoaderDelegate.shared.configure(
+        let customUrl = MultiAudioResourceLoaderDelegate.shared.configure(
             baseUrl: baseUrl,
             apiKey: key,
             itemId: id,
             audioTracks: tracks
         )
-        resolve(true)
+        resolve(customUrl)
     }
 
     @objc
@@ -433,7 +473,10 @@ class MultiAudioResourceLoader: NSObject {
         // Return custom protocol URL immediately
         // The react-native-video patch recognizes this as a network URL
         // The resource loader will fetch manifests lazily when AVPlayer requests them
-        let customUrl = "jellyfin-multi://server/Videos/\(itemId)/master.m3u8"
+        guard let customUrl = MultiAudioResourceLoaderDelegate.shared.configuredUrl(for: itemId) else {
+            reject("E_NOT_CONFIGURED", "No audio configuration is bound to this item", nil)
+            return
+        }
 
         NSLog("[MultiAudioResourceLoader] ✅ Generated custom URL: \(customUrl)")
 

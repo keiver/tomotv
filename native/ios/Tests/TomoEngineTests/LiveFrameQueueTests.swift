@@ -1,0 +1,240 @@
+import Foundation
+import ImageIO
+import XCTest
+@testable import TomoEngine
+
+/// The live frame path: the first keyframe with no seek, a time-named file replacing the last, a keyframe
+/// already shown left alone, a duplicate refused, a cancel before its turn or mid-read, and the watchdog.
+final class LiveFrameQueueTests: XCTestCase {
+    private static let ffmpeg: String = {
+        let jellyfin = "/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
+        return FileManager.default.isExecutableFile(atPath: jellyfin) ? jellyfin : "/opt/homebrew/bin/ffmpeg"
+    }()
+
+    private static let fixtureDir: URL = {
+        let dir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(".build/frame-fixtures", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private func fixture(_ name: String, _ args: [String]) throws -> URL {
+        guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else {
+            throw XCTSkip("no ffmpeg at \(Self.ffmpeg); fixtures cannot be generated")
+        }
+        let out = Self.fixtureDir.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: out.path) { return out }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: Self.ffmpeg)
+        p.arguments = ["-hide_banner", "-loglevel", "error", "-y"] + args + [out.path]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try p.run()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: out.path) else {
+            try? FileManager.default.removeItem(at: out)
+            throw XCTSkip("ffmpeg could not generate \(name)")
+        }
+        return out
+    }
+
+    /// A long-GOP transport stream cut mid-GOP, the shape of a tuner joined between keyframes.
+    private func midGopStream() throws -> URL {
+        let whole = try fixture("longgop.ts", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
+            "-c:v", "libx264", "-g", "250", "-keyint_min", "250", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let out = Self.fixtureDir.appendingPathComponent("longgop-midgop.ts")
+        if !FileManager.default.fileExists(atPath: out.path) {
+            let data = try Data(contentsOf: whole)
+            let cut = data.count * 3 / 20 / 188 * 188
+            try data.subdata(in: cut ..< data.count).write(to: out)
+        }
+        return out
+    }
+
+    private func scratchRoot() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("liveframes-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func pixelWidth(_ url: URL) -> Int? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
+        return properties[kCGImagePropertyPixelWidth] as? Int
+    }
+
+    private func settle(_ queue: LiveFrameQueue, _ channelId: String, _ url: String, deadline: TimeInterval = 8, timeout: TimeInterval = 15) -> LiveFrameQueue.Outcome? {
+        let done = XCTestExpectation(description: "frame \(channelId)")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: channelId, inputUrl: url, headers: [:], deadline: deadline) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: timeout)
+        return outcome
+    }
+
+    func testTheFirstKeyframeOfAStreamJoinedMidGopIsTheFrame() throws {
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(let urls, _)? = settle(queue, "chan-a", stream.absoluteString), let url = urls.first else { return XCTFail("no frame") }
+        XCTAssertTrue(url.lastPathComponent.hasPrefix("live-"))
+        XCTAssertTrue(url.lastPathComponent.hasSuffix("-0.jpg"))
+        XCTAssertEqual(url.deletingLastPathComponent().lastPathComponent, "chan-a")
+        XCTAssertEqual(pixelWidth(url), 480)
+    }
+
+    func testOneOpenYieldsABurstOfPicturesASecondApart() throws {
+        // 20 s at 25 fps: eight pictures a second apart fit inside the first GOP after the keyframe.
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(let urls, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no burst") }
+        XCTAssertEqual(urls.count, LiveFrameQueue.defaultCount)
+        XCTAssertEqual(urls.map(LiveFrameQueue.index), Array(0 ..< LiveFrameQueue.defaultCount))
+        XCTAssertEqual(Set(urls.map(LiveFrameQueue.stamp)).count, 1, "one burst shares one stamp")
+        for url in urls { XCTAssertEqual(pixelWidth(url), 480) }
+        let left = try FileManager.default.contentsOfDirectory(atPath: urls[0].deletingLastPathComponent().path).sorted()
+        XCTAssertEqual(left, urls.map(\.lastPathComponent).sorted())
+    }
+
+    func testEachGrabKeepsTheChannelsLastTwoBursts() throws {
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(let first, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no first burst") }
+        Thread.sleep(forTimeInterval: 0.01)
+        guard case .frames(let second, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no second burst") }
+        XCTAssertNotEqual(first, second, "a live grab is never served from the directory")
+        let directory = first[0].deletingLastPathComponent().path
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory).sorted(), (first + second).map(\.lastPathComponent).sorted(), "the burst a card may still be loading stays")
+        Thread.sleep(forTimeInterval: 0.01)
+        guard case .frames(let third, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no third burst") }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory).sorted(), (second + third).map(\.lastPathComponent).sorted())
+    }
+
+    func testTheNewestBurstOnDiskAnswersForAChannelBeforeAnyGrab() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = root.appendingPathComponent("chan-a", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for name in ["live-1000.jpg", "live-3000-1.jpg", "live-3000-0.jpg", "live-2000-0.jpg", "poster.jpg"] {
+            try Data([0xFF, 0xD8]).write(to: dir.appendingPathComponent(name))
+        }
+        let queue = LiveFrameQueue(root: root)
+        let found = queue.latest(channelIds: ["chan-a", "chan-none", "../escape"])
+        XCTAssertEqual(found.keys.sorted(), ["chan-a"])
+        XCTAssertEqual(found["chan-a"]?.map(\.lastPathComponent), ["live-3000-0.jpg", "live-3000-1.jpg"])
+        XCTAssertEqual(LiveFrameQueue.stamp(found["chan-a"]![0]), 3000)
+        XCTAssertEqual(LiveFrameQueue.stamp(dir.appendingPathComponent("live-1000.jpg")), 1000)
+    }
+
+    func testTheKeyframeAlreadyShownWritesNothing() throws {
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(let burst, let pts)? = settle(queue, "chan-a", stream.absoluteString), let first = burst.first else { return XCTFail("no first frame") }
+        let shown = try XCTUnwrap(pts)
+        let done = XCTestExpectation(description: "second")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:], shownPts: shown) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 15)
+        guard case .unchanged? = outcome else { return XCTFail("the same keyframe is not written again") }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: first.deletingLastPathComponent().path).sorted(), burst.map(\.lastPathComponent).sorted())
+        guard case .frames? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("a grab with nothing shown writes its burst") }
+    }
+
+    func testADuplicateRequestForAChannelInFlightAnswersCancelled() throws {
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        let first = XCTestExpectation(description: "first")
+        var firstOutcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:]) {
+            firstOutcome = $0
+            first.fulfill()
+        }
+        var duplicate: LiveFrameQueue.Outcome?
+        queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:]) { duplicate = $0 }
+        guard case .cancelled? = duplicate else { return XCTFail("the duplicate should answer cancelled at once") }
+        wait(for: [first], timeout: 15)
+        guard case .frames? = firstOutcome else { return XCTFail("the first request still answers its frame") }
+    }
+
+    func testACancelBeforeItsTurnOpensNothing() throws {
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        let first = XCTestExpectation(description: "first")
+        let second = XCTestExpectation(description: "second")
+        var secondOutcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:]) { _ in first.fulfill() }
+        queue.request(channelId: "chan-b", inputUrl: stream.absoluteString, headers: [:]) {
+            secondOutcome = $0
+            second.fulfill()
+        }
+        queue.cancel(channelId: "chan-b")
+        wait(for: [first, second], timeout: 15)
+        guard case .cancelled? = secondOutcome else { return XCTFail("the cancelled job should not run") }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("chan-b").path))
+    }
+
+    func testACancelStopsAGrabAlreadyReading() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        let done = XCTestExpectation(description: "cancelled")
+        var outcome: LiveFrameQueue.Outcome?
+        let started = Date()
+        queue.request(channelId: "chan-dead", inputUrl: "http://10.255.255.1:9/live.m3u8", headers: [:], deadline: 8) {
+            outcome = $0
+            done.fulfill()
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+        queue.cancel(channelId: "chan-dead")
+        wait(for: [done], timeout: 12)
+        guard case .cancelled? = outcome else { return XCTFail("a cancelled grab answers cancelled") }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3, "the read is stopped, not left to its 8 s deadline")
+    }
+
+    func testTheWatchdogStopsAGrabOnADeadOrigin() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        // A non-routable address: the connect hangs until the watchdog's stop interrupts it.
+        let started = Date()
+        let outcome = settle(queue, "chan-dead", "http://10.255.255.1:9/live.m3u8", deadline: 1, timeout: 12)
+        guard case .none(let opened)? = outcome else { return XCTFail("a dead origin gives no frame") }
+        XCTAssertFalse(opened)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 6, "the deadline bounds the grab, not rw_timeout")
+    }
+
+    func testRefusesAChannelIdThatIsNotAPlainToken() {
+        let queue = LiveFrameQueue()
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "../escape", inputUrl: "file:///nowhere", headers: [:]) { outcome = $0 }
+        guard case .none(let opened)? = outcome else { return XCTFail("refused before any open") }
+        XCTAssertTrue(opened)
+    }
+}

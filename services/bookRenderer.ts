@@ -38,7 +38,7 @@ export function isBookRendererAvailable(): boolean {
 
 export async function openBook(path: string, layout: BookLayout): Promise<OpenedBook> {
   const result = (await BookRenderer.openBook({ path, ...layout })) as Partial<OpenedBook> | null;
-  if (!result || typeof result.token !== "string" || typeof result.pages !== "number" || (result.kind !== "fixed" && result.kind !== "text")) {
+  if (!result || typeof result.token !== "string" || typeof result.pages !== "number" || result.pages < 1 || (result.kind !== "fixed" && result.kind !== "text")) {
     throw new Error("The book renderer returned no book.");
   }
   return { token: result.token, kind: result.kind, pages: result.pages, title: typeof result.title === "string" ? result.title : null };

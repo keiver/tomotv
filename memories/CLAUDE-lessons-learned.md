@@ -28,6 +28,8 @@ This document captures important lessons from debugging sessions, bugs, and issu
 
 Two mechanisms failed in turn. Fetching every chapter `uri` synchronously inside `preparePlayerItem` held `setupPlayer`, so a chaptered file with images could not start until the last image was down (#75). Replacing the value with `AVMetadataItem(propertiesOf:valueLoadingHandler:)` freed the start and drew nothing on a cold pool: the same 19 frame requests, served in 100 to 500 ms with a decode each, left every cell on AVKit's placeholder, while the replay, served in milliseconds off the pool files, drew all of them. Same bytes, same URLs, same route (curl and ImageIO both accepted a cold frame), so the only variable was latency: AVKit reads the artwork value right after it triggers the load and never repaints a cell whose value lands later. The pool purge on a server switch turned every once-warm item cold again, which is what made it show. The shape that holds: `preparePlayerItem` assigns marker groups with titles only, a detached task fetches the pictures, and `navigationMarkerGroups` is assigned again with `createMetadataItem(for: .commonIdentifierArtwork, value:)` data. Rule: a lazily loaded value the consumer reads synchronously is a race, not an optimisation; before trusting an async affordance, measure a cold path and a warm path against the same consumer.
 
+Superseded on tvOS 27 (2026-09-18; 20973df0, 11883e86, 78a759f9): the lazy value path is what ships. Titles go on the item when it is built, and one assignment of lazily loaded artwork follows on the player's PLAYING edge, its values fetched one at a time, so nothing is fetched while the stream opens. Confirmed on the Apple TV with T103 (the server's images) and an untagged file (frames made on the device). Making that assignment when the info panel opens drew no picture at all.
+
 ## Note: The Recovery Ladder Only Ran From Library Fetch Failures, Never From a Saved-Server Tap (September 2026)
 
 The Mac's DHCP lease changed (.19 to .89) and the iPad sim's saved card still pointed at .19. `connectionRecovery`'s LAN sweep matched by server Id existed since August, but its only callers were `libraryManager` and `useFolderContents`, so it needed a configured session that failed a fetch. The logged-out path (`useSelectSavedServer`: `activateAccount`, then `resolveServerConnection`) probed the dead host on other ports and alerted "Server Unreachable". Fix: `networkDiscovery.findServerById` (sweep by Id, aborts at the match) runs from both hook paths before any alert, the card is upserted by Id on detection, and recovery also rewrites the saved accounts' `serverUrl` (`relocateAccounts`) so the next Continue-as does not burn a 10s dead probe first. Rule: a recovery mechanism is only as robust as its call sites; list every "the server didn't answer" branch and make each one reach the sweep.
@@ -3208,3 +3210,17 @@ Every intentionally non-recursive `/Items` request states `Recursive=false` (`fe
 
 - native/ios/LocalRemuxer: DeviceDecode.swift, Remuxer.swift, LocalRemuxer.swift, LocalRemuxer.m, PlaylistShim.swift, InitSegmentSdr.swift (new), Package.swift; plugins/withMultiAudioResourceLoader.js (source list)
 - services/localRemux.ts, services/jellyfin/streamUrls.ts (`serverVideoCodecs`, `sourceIsHdr`), services/jellyfin/media.ts (`sourceVideoRange`), hooks/useVideoPlayback.ts (`viaShim`, pre-flight loop)
+
+## Note: Jellyfin Lists a Live Channel's Streams With Index -1 (September 2026)
+
+Every live channel failed on release/2.2.7 with "live channel cannot reach the engine and the
+server offers no transcode" (L01-L05 on the Docker rig, 2026-09-21). Measured on
+jellyfin/jellyfin:12.0: `POST /Items/{channel}/PlaybackInfo` returns the probed streams with
+`Index: -1` (`Video mpeg2video`, `Audio mp2`), after the live stream has opened. 753ac3a5 added
+`audioCatalogue` (services/jellyfin/audioTracks.ts), which threw on any index below 0, and a
+bridge guard in LocalRemuxer.swift that dropped negative indexes and then rejected the config;
+`canRemuxLocally` reported the throw as "invalid audio catalogue". main shipped -1 through and
+the engine's live path never reads it: a `sourceStream` miss is skipped on live and every audio
+stream is discovered off the container. The catalogue keeps -1 on a live source, identifies the
+track by ordinal (`c1:live0`), and the bridge admits negative and repeated indexes only when
+`isLive`; a file with no index still throws. Every live test fixture had used `Index: 1`.

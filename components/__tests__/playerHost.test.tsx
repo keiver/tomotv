@@ -62,6 +62,8 @@ const videoCallbacks = {
   onAudioTracks: jest.fn(),
   onTextTracks: jest.fn(),
   onPlaybackStateChanged: jest.fn(),
+  onBandwidthUpdate: jest.fn(),
+  onReadyForDisplay: jest.fn(),
 };
 
 function hookResult() {
@@ -160,12 +162,20 @@ describe("PlayerHost", () => {
     });
     expect(renderer.root.findAllByType(Video)).toHaveLength(1);
     expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/ch1");
+    renderer.root.findByType(Video).props.onBandwidthUpdate({ bitrate: 260_000 });
+    expect(videoCallbacks.onBandwidthUpdate).not.toHaveBeenCalled();
+    renderer.root.findByType(Video).props.onReadyForDisplay();
+    expect(videoCallbacks.onReadyForDisplay).not.toHaveBeenCalled();
     sourceUri = "http://stream/ch2";
     stateType = "PLAYING";
     await act(async () => {
       renderer.update(<PlayerHost />);
     });
     expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/ch2");
+    renderer.root.findByType(Video).props.onBandwidthUpdate({ bitrate: 6_256_603 });
+    expect(videoCallbacks.onBandwidthUpdate).toHaveBeenCalledWith({ bitrate: 6_256_603 });
+    renderer.root.findByType(Video).props.onReadyForDisplay();
+    expect(videoCallbacks.onReadyForDisplay).toHaveBeenCalledTimes(1);
   });
 
   it("opens only the channel a burst of swipes settles on", async () => {

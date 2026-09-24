@@ -53,6 +53,20 @@ export function getPhotoUrl(itemId: string, maxWidth: number = 3840): string {
 }
 
 /**
+ * Jellyfin picks an image's format from the Accept header, and answers WebP only to a client that
+ * lists it; otherwise a PNG source comes back lossless. Measured: 0.77 MB WebP against 4.07 MB PNG.
+ */
+export const WEBP_ACCEPT = { Accept: "image/webp,image/*;q=0.8" };
+
+/** A small copy of a Photo item, drawn while the full image loads. */
+export function getPhotoPreviewUrl(itemId: string): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  return `${getCachedConfig().server}/Items/${itemId}/Images/Primary?ApiKey=${getCachedConfig().apiKey}&maxWidth=960&quality=60`;
+}
+
+/**
  * Get a tiny, server-blurred poster URL for use as an ambient background wash.
  * The image is requested small (48px tall) and upscaled full-screen by the renderer,
  * which is what produces the soft blur, so no client-side blur pass is needed. The optional
@@ -103,6 +117,20 @@ export function getBackdropUrl(itemId: string, maxWidth: number = 1920): string 
     return "";
   }
   return `${getCachedConfig().server}/Items/${itemId}/Images/Backdrop/0?ApiKey=${getCachedConfig().apiKey}&maxWidth=${maxWidth}&quality=90`;
+}
+
+/**
+ * A tiny, server-blurred image that reads as the item's dominant colours — the folder-background
+ * tint. Downscaled to a handful of pixels (the main colours) then blurred server-side, so it melts
+ * into a smooth field with no pixel blocks and no colour-extraction library. Backdrop fanart or
+ * Primary poster.
+ */
+export function getTintUrl(itemId: string, image: "Backdrop" | "Primary"): string {
+  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+    return "";
+  }
+  const path = image === "Backdrop" ? "Images/Backdrop/0" : "Images/Primary";
+  return `${getCachedConfig().server}/Items/${itemId}/${path}?ApiKey=${getCachedConfig().apiKey}&maxWidth=16&quality=90&blur=25`;
 }
 
 /**

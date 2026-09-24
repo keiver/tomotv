@@ -9,7 +9,9 @@ const BOTTOM_WASH = "linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 
 
 // Radii are the box's own, so the wash reaches zero exactly at its edges instead of cutting a
 // line across the poster. Dense to 0.6 because the pill reaches 0.63 of the radius on a portrait card.
-const CORNER_WASH = "radial-gradient(ellipse 100% 100% at 0% 0%, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.84) 30%, rgba(0, 0, 0, 0.62) 60%, rgba(0, 0, 0, 0.2) 82%, rgba(0, 0, 0, 0) 100%)";
+const CORNER_STOPS = "rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.84) 30%, rgba(0, 0, 0, 0.62) 60%, rgba(0, 0, 0, 0.2) 82%, rgba(0, 0, 0, 0) 100%";
+const CORNER_WASH = `radial-gradient(ellipse 100% 100% at 0% 0%, ${CORNER_STOPS})`;
+const CORNER_WASH_RIGHT = `radial-gradient(ellipse 100% 100% at 100% 0%, ${CORNER_STOPS})`;
 
 /**
  * Bottom-of-artwork scrim, under the title bar.
@@ -24,9 +26,10 @@ export function CardScrim() {
 /**
  * Top-left wash under the index pill, on a FOCUSED artwork card. Focus decoration: at rest the
  * pill's own fill is what separates it from the poster, and this would just darken every corner.
+ * The right corner is the same wash mirrored, under a channel logo that has no fill of its own.
  */
-export function CardCornerScrim() {
-  return <View style={styles.cornerScrim} pointerEvents="none" />;
+export function CardCornerScrim({ corner = "left" }: { corner?: "left" | "right" }) {
+  return <View style={[styles.cornerScrim, corner === "right" && styles.cornerScrimRight]} pointerEvents="none" />;
 }
 
 const styles = StyleSheet.create({
@@ -49,5 +52,10 @@ const styles = StyleSheet.create({
     height: "58%",
     maxHeight: IS_TV ? 190 : 115,
     experimental_backgroundImage: CORNER_WASH,
+  },
+  cornerScrimRight: {
+    left: undefined,
+    right: 0,
+    experimental_backgroundImage: CORNER_WASH_RIGHT,
   },
 });

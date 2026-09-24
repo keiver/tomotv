@@ -10,6 +10,38 @@
  */
 
 import { PlaybackErrorType, planErrorRecovery, type ErrorRecoveryInput } from "../useVideoPlayback";
+import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, planLiveErrorRecovery, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+
+describe("automatic network recovery", () => {
+  it("caps the delay without exhausting retries", () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 20, 1000].map(automaticRetryDelay)).toEqual([500, 1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
+  });
+
+  const vod = { live: false, heldOnDisk: false, ladderSpent: false, retryingForMs: 0 };
+
+  it.each([PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT, PlaybackErrorType.STALLED, PlaybackErrorType.UNKNOWN])("keeps retrying %s after every lane has failed", (errorType) => {
+    expect(shouldAutomaticallyRetry({ ...vod, errorType, ladderSpent: true })).toBe(true);
+  });
+
+  it.each([PlaybackErrorType.CORRUPT, PlaybackErrorType.DECODE])("retries %s only while a lane is left to try it", (errorType) => {
+    expect(shouldAutomaticallyRetry({ ...vod, errorType })).toBe(true);
+    expect(shouldAutomaticallyRetry({ ...vod, errorType, ladderSpent: true })).toBe(false);
+  });
+
+  it("stops once the retry budget is spent", () => {
+    expect(shouldAutomaticallyRetry({ ...vod, errorType: PlaybackErrorType.NETWORK, retryingForMs: AUTOMATIC_RETRY_BUDGET_MS - 1 })).toBe(true);
+    expect(shouldAutomaticallyRetry({ ...vod, errorType: PlaybackErrorType.NETWORK, retryingForMs: AUTOMATIC_RETRY_BUDGET_MS })).toBe(false);
+  });
+
+  it.each([PlaybackErrorType.NOT_FOUND, PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.PROTECTED])("never automatically retries %s", (errorType) => {
+    expect(shouldAutomaticallyRetry({ ...vod, errorType })).toBe(false);
+  });
+
+  it("leaves live and offline recovery to their existing policies", () => {
+    expect(shouldAutomaticallyRetry({ ...vod, live: true, errorType: PlaybackErrorType.NETWORK })).toBe(false);
+    expect(shouldAutomaticallyRetry({ ...vod, heldOnDisk: true, errorType: PlaybackErrorType.NETWORK })).toBe(false);
+  });
+});
 
 // A mid-playback baseline; individual tests override what they probe.
 const base: ErrorRecoveryInput = {
@@ -23,6 +55,38 @@ const base: ErrorRecoveryInput = {
   heldOnDisk: false,
   hasDroppedSubtitles: false,
 };
+
+describe("network gateway item recovery", () => {
+  it.each([PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT, PlaybackErrorType.DECODE, PlaybackErrorType.CORRUPT, PlaybackErrorType.UNKNOWN])(
+    "retries the local gateway instead of forbidden server video after %s",
+    (errorType) => {
+      expect(planErrorRecovery({ ...base, networkGateway: true, serverTranscodingAllowed: false, errorType, hasTriedRemuxRestart: true })).toMatchObject({
+        retryGateway: true,
+        latchTranscodeUpFront: false,
+        stallFallback: false,
+        carryPositionSec: 120,
+        action: { kind: "reportError" },
+      });
+    },
+  );
+
+  it("preserves credential refresh when server video is forbidden", () => {
+    expect(planErrorRecovery({ ...base, networkGateway: true, serverTranscodingAllowed: false, errorType: PlaybackErrorType.UNAUTHORIZED }).action).toEqual({ kind: "refreshCredentials" });
+  });
+
+  it.each([PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT])("preserves the original supplier after repeated %s failures", (errorType) => {
+    const decision = planErrorRecovery({ ...base, networkGateway: true, errorType, hasTriedRemuxRestart: true });
+    expect(decision).toMatchObject({ retryGateway: true, latchTranscodeUpFront: false, stallFallback: false, stopRemuxSession: true, carryPositionSec: 120, action: { kind: "reportError" } });
+  });
+
+  it.each([PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT])("does not revive a confirmed unavailable producer after %s", (errorType) => {
+    expect(planErrorRecovery({ ...base, networkGateway: true, hasTriedTranscoding: true, errorType }).retryGateway).toBe(false);
+  });
+
+  it.each([PlaybackErrorType.DECODE, PlaybackErrorType.CORRUPT, PlaybackErrorType.UNKNOWN])("retains server-only fallback for structural %s failures", (errorType) => {
+    expect(planErrorRecovery({ ...base, networkGateway: true, errorType })).toMatchObject({ retryGateway: false, latchTranscodeUpFront: true });
+  });
+});
 
 describe("planErrorRecovery — engine restart rung", () => {
   it("restarts the engine once for a mid-playback starvation", () => {
@@ -202,5 +266,29 @@ describe("planErrorRecovery — a held file degrades instead of reaching a serve
     const d = planErrorRecovery({ ...base, heldOnDisk: true, errorType: PlaybackErrorType.STALLED });
     expect(d.action).toEqual({ kind: "restartRemux" });
     expect(d.dropSubtitles).toBe(false);
+  });
+});
+
+describe("planLiveErrorRecovery", () => {
+  const base = { mode: "localRemux" as const, errorType: PlaybackErrorType.STALLED, hasReopened: false, lane: "engine" as const };
+
+  it("opens the channel afresh on its first drop: a dropped tuner only comes back that way", () => {
+    expect(planLiveErrorRecovery(base)).toEqual({ reopen: true, toServer: false, retry: true });
+  });
+
+  it("takes the server's transcode on the second drop", () => {
+    expect(planLiveErrorRecovery({ ...base, hasReopened: true })).toEqual({ reopen: false, toServer: true, retry: true });
+  });
+
+  it("ends at the error once the channel is already on the server", () => {
+    expect(planLiveErrorRecovery({ ...base, mode: "transcode", hasReopened: true, lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
+  });
+
+  it("spends no cold opens on a 401, which fails every rung the same way", () => {
+    expect(planLiveErrorRecovery({ ...base, errorType: PlaybackErrorType.UNAUTHORIZED })).toEqual({ reopen: false, toServer: false, retry: false });
+  });
+
+  it("does not reopen from the server lane, which is the last rung", () => {
+    expect(planLiveErrorRecovery({ ...base, mode: "transcode", lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
   });
 });

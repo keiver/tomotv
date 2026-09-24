@@ -16,11 +16,17 @@ const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
 const START = 0.08;
 const TRICKLE_TARGET = 0.9;
 
+/** Where the sweep opens: a resume card's watched fraction, floored to START so
+ *  the fill is visible and capped at a full bar. */
+export function sweepStart(startFraction?: number): number {
+  return Math.max(START, Math.min(startFraction ?? 0, 1));
+}
+
 interface CardNavProgressProps {
   active: boolean;
   /** Card title, shown difference-blended over the sweeping fill. */
   title: string;
-  /** Where the sweep starts (0–1) — a resume card starts at its watched fraction. */
+  /** Where the sweep starts (0 to 1): a resume card starts at its watched fraction. */
   startFraction?: number;
 }
 
@@ -37,7 +43,7 @@ interface CardNavProgressProps {
  *
  * Honors Reduce Motion (static fill, no trickle). Purely presentational: the
  * owning card drives `active` via useCardNavProgress (start on press, clear on
- * blur), and already announces its own state to assistive tech — this overlay
+ * blur), and already announces its own state to assistive tech; this overlay
  * is hidden from it.
  */
 export function CardNavProgress({ active, title, startFraction }: CardNavProgressProps) {
@@ -47,7 +53,7 @@ export function CardNavProgress({ active, title, startFraction }: CardNavProgres
 
   useEffect(() => {
     if (active) {
-      const from = Math.max(START, Math.min(startFraction ?? 0, 1));
+      const from = sweepStart(startFraction);
       opacity.value = 1;
       if (reducedMotion) {
         progress.value = TRICKLE_TARGET;
@@ -113,7 +119,7 @@ const styles = StyleSheet.create({
     mixBlendMode: "difference",
   },
   // Gold through the difference blend: black over the fill, gold over the dark
-  // remainder — identical treatment to the Continue Watching title bar.
+  // remainder, identical treatment to the Continue Watching title bar.
   title: {
     color: COLORS.ACCENT,
     fontSize: TITLE_SIZE,

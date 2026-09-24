@@ -19,7 +19,7 @@ import { isImageBasedSubtitleCodec } from "./subtitles";
  * its segment list as the session grid and uses its segment URLs verbatim.
  * TS container + h264/aac at the tier bitrate; the engine rewraps to fMP4.
  */
-export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem | null | undefined, preset: QualityPreset, playSessionId: string): string {
+export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem | null | undefined, preset: { bitrate: number; width: number }, playSessionId: string): string {
   const config = getCachedConfig();
   if (!config.server || !config.apiKey) return "";
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
@@ -27,7 +27,9 @@ export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem 
     `${config.server}/Videos/${itemId}/main.m3u8?` +
     `ApiKey=${config.apiKey}&MediaSourceId=${mediaSourceId}` +
     `&VideoCodec=h264&AudioCodec=aac` +
-    `&VideoBitrate=${preset.bitrate}&AudioBitrate=128000` +
+    // The rung's own audio is discarded in the rewrap (the audio-lo group feeds the variant), so it
+    // is requested at the floor: on a 0.6 Mb/s link 128k of it was a fifth of the whole budget.
+    `&VideoBitrate=${preset.bitrate}&AudioBitrate=32000` +
     (preset.width ? `&MaxWidth=${preset.width}` : "") +
     `&SegmentContainer=ts&SegmentLength=6&MinSegments=1` +
     `&BreakOnNonKeyFrames=false&TranscodingMaxAudioChannels=2` +
@@ -36,32 +38,23 @@ export function getTierPlaylistUrl(itemId: string, videoItem: JellyfinVideoItem 
 }
 
 /**
- * Slipstream audio-lo: Jellyfin's audio-only HLS of ONE track of a video item
- * (route verified against server source: no item-type guard, `-vn -acodec …`).
- * main.m3u8, NEVER master.m3u8 — the master route NREs server-side for video
- * items with text subtitles (DynamicHlsHelper, null VideoRequest).
- * `copy` ships the original bits for codecs AVPlayer decodes; everything else
- * becomes server FLAC at the source channel count — the rung mirrors the
- * engine group's codec family so a variant switch stays inside AVPlayer's
- * sanctioned switching envelope (WWDC20 10158).
+ * One audio track of a video item as stereo AAC in fMP4, for the rungs' server audio group. The video
+ * route, because /Audio/{id}/main.m3u8 ignores AudioStreamIndex (no -map: every track came back
+ * as the same stream); the 64px picture beside it costs 16 KB a segment and the engine drops it.
  */
-export function getAudioRenditionUrl(
-  itemId: string,
-  videoItem: JellyfinVideoItem | null | undefined,
-  audioStreamIndex: number,
-  audioCodec: "copy" | "flac",
-  channels: number,
-  playSessionId: string,
-): string {
+export function getAudioRenditionUrl(itemId: string, videoItem: JellyfinVideoItem | null | undefined, audioStreamIndex: number, playSessionId: string, bitrate: number): string {
   const config = getCachedConfig();
   if (!config.server || !config.apiKey) return "";
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
   return (
-    `${config.server}/Audio/${itemId}/main.m3u8?` +
+    `${config.server}/Videos/${itemId}/main.m3u8?` +
     `ApiKey=${config.apiKey}&MediaSourceId=${mediaSourceId}` +
-    `&AudioCodec=${audioCodec}&AudioStreamIndex=${audioStreamIndex}` +
-    (audioCodec === "flac" ? `&TranscodingMaxAudioChannels=${channels}` : "") +
-    `&SegmentContainer=mp4&SegmentLength=6&PlaySessionId=${playSessionId}`
+    `&VideoCodec=h264&AudioCodec=aac&AudioStreamIndex=${audioStreamIndex}` +
+    `&AllowAudioStreamCopy=false` +
+    `&VideoBitrate=20000&AudioBitrate=${bitrate}&MaxWidth=64` +
+    `&SegmentContainer=mp4&SegmentLength=6&MinSegments=1` +
+    `&BreakOnNonKeyFrames=false&TranscodingMaxAudioChannels=2` +
+    `&PlaySessionId=${playSessionId}`
   );
 }
 

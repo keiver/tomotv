@@ -1,12 +1,16 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { FolderBackdrop } from "@/components/folder-backdrop";
+import type { FolderBackdropSource } from "@/hooks/useFolderBackdrop";
 import { FocusableButton } from "@/components/FocusableButton";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { LoadingRow } from "@/components/loading-row";
 // import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
-import { LibraryHeader } from "@/components/library-header";
+import { LibraryHeader, type HeaderAction } from "@/components/library-header";
+import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
+import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { COLORS } from "@/constants/colors";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
@@ -42,6 +46,7 @@ function getNativeHandle(node: View | null): number | undefined {
 // return has no recent loss, so deliberate tab browsing is never fought (see the reveal watch).
 let lastFocusLossAt = 0;
 const CARD_PADDING = slotCardPadding(IS_TV);
+const rowChannelIds = (row: PackedRow<JellyfinItem>) => row.cards.map((card) => card.item.Id);
 
 interface LibraryGridProps {
   items: JellyfinItem[];
@@ -53,6 +58,8 @@ interface LibraryGridProps {
   onLoadMore: () => void;
   /** Folder path for the header, innermost last. */
   crumbs?: FolderStackEntry[];
+  /** The header's leading button wears a back chevron instead of the home mark. */
+  homeAsBack?: boolean;
   /** Opens the Filters panel. Renders the header Filters button only when provided ("folder" variant). */
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
@@ -69,6 +76,20 @@ interface LibraryGridProps {
   focusItemId?: string;
   /** Space above the first row. Defaults to clearing the tvOS tab bar; a host whose own header already sits below it passes 0. */
   topClearance?: number;
+  /** The folder's ambient wash (resolved once on open); layered over the baked ambient background. */
+  backdropSource?: FolderBackdropSource | null;
+  /** The Live TV recordings list: every video card wears the camera mark. */
+  recordings?: boolean;
+  /** The channel wall: landscape channel cards wearing their live frames, the rows in view sampled. */
+  liveChannels?: boolean;
+  /** Channel wall: the sampler runs while true; off, the cards keep the frames they have. */
+  liveFramesEnabled?: boolean;
+  /** Channel wall: the mark a card wears at its title's left end (a favorite's heart). */
+  titleIconFor?: (item: JellyfinItem) => keyof typeof Ionicons.glyphMap | undefined;
+  /** TV: the header's trailing capsule when the grid has no Filters (the wall's Settings). */
+  headerAction?: HeaderAction;
+  /** TV: a capsule left of headerAction (the wall's favorites filter toggle). */
+  headerSecondaryAction?: HeaderAction;
 }
 
 /**
@@ -86,12 +107,20 @@ export function LibraryGrid({
   onItemPress,
   onLoadMore,
   crumbs,
+  homeAsBack,
   onOpenFilters,
   activeFilterCount = 0,
   onItemLongPress,
   onRetry,
   focusItemId,
   topClearance: topClearanceProp,
+  backdropSource,
+  recordings = false,
+  liveChannels = false,
+  liveFramesEnabled = true,
+  titleIconFor,
+  headerAction,
+  headerSecondaryAction,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -138,6 +167,13 @@ export function LibraryGrid({
   const handleSwitchServer = useCallback(async () => {
     await signOut();
     router.dismissTo("/");
+  }, [router]);
+
+  // Home jump for viewers who don't reach for the Menu key. Folder routes are root-level and cover
+  // the tabs, so dismissing the whole folder stack reveals the home shelves underneath — one press,
+  // no per-level refocus a back button would force.
+  const handleGoHome = useCallback(() => {
+    router.dismissAll();
   }, [router]);
 
   // Handle of the header's Filters button, so pressing Up from a top-row card jumps straight to it
@@ -240,14 +276,17 @@ export function LibraryGrid({
         windowWidth - edgeLeft - edgeRight,
         // itemSlotShape is the same mapping the cards render with (see cardSlotRatio) — the
         // packer and the cards MUST agree or justified rows misalign around no-art items.
+        // A channel card is landscape whatever its logo's shape: its live frame is.
         (item) => {
+          if (liveChannels) return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
           const shape = itemSlotShape(item.PrimaryImageAspectRatio);
           return { ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[shape] };
         },
         CARD_PADDING,
       ),
-    [items, windowWidth, edgeLeft, edgeRight, rowHeights],
+    [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels],
   );
+  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
   // Global item index of each row's first card (drives image-priority for the first cards).
   const rowStartIndices = useMemo(() => {
@@ -296,6 +335,7 @@ export function LibraryGrid({
     }
     return { lengths, offsets };
   }, [packedRows, topClearance, headerLength]);
+  const contentLength = (rowLayout.offsets[rowLayout.offsets.length - 1] ?? 0) + (rowLayout.lengths[rowLayout.lengths.length - 1] ?? 0) + bottomClearance;
 
   const getItemLayout = useCallback(
     (_data: ArrayLike<PackedRow<JellyfinItem>> | null | undefined, index: number) => ({
@@ -463,6 +503,27 @@ export function LibraryGrid({
                 />
               );
             }
+            if (liveChannels) {
+              return (
+                <GuideChannelCard
+                  key={item.Id}
+                  ref={cardRef}
+                  channel={item}
+                  onPress={onItemPress}
+                  onLongPress={onItemLongPress}
+                  index={rowStart + cardIndex}
+                  onItemFocus={handleItemFocus}
+                  onItemBlur={handleItemBlur}
+                  onFocusedGone={handleFocusedCardGone}
+                  hasTVPreferredFocus={claimsFocusOnMount}
+                  highlighted={isHighlighted}
+                  nextFocusUp={nextFocusUpForRow}
+                  nextFocusDown={nextFocusDown}
+                  cardHeight={card.cardHeight}
+                  titleIcon={titleIconFor?.(item)}
+                />
+              );
+            }
             return (
               <VideoGridItem
                 key={item.Id}
@@ -481,6 +542,7 @@ export function LibraryGrid({
                 cardHeight={card.cardHeight}
                 fitArtwork
                 progressPercent={cardResumeProgress(item)}
+                titleIcon={recordings ? "videocam-outline" : undefined}
               />
             );
           })}
@@ -505,6 +567,9 @@ export function LibraryGrid({
       handleFocusCellRef,
       handleLastCellRef,
       handleFocusAndLastCellRef,
+      recordings,
+      liveChannels,
+      titleIconFor,
     ],
   );
 
@@ -559,7 +624,13 @@ export function LibraryGrid({
     if (hasFolderHeader && headerHeight === null) return;
     focusedTargetRef.current = focusItemId;
     scrollFailuresRef.current = 0;
-    if (!userScrolledRef.current) listRef.current?.scrollToIndex({ index: targetRowIndex, animated: false, viewPosition: 0.5 });
+    // Phone: the list rests under the transparent bar at a negative offset, and scrollToIndex floors
+    // at 0. A folder that fits the screen, or a row that centres at or above the top, keeps the
+    // resting offset: scrolled to 0 the first row sits under the bar with no way back.
+    const rowOffset = rowLayout.offsets[targetRowIndex] ?? 0;
+    const rowLength = rowLayout.lengths[targetRowIndex] ?? 0;
+    const restsAtTop = !IS_TV && (contentLength <= windowHeight || rowOffset - 0.5 * (windowHeight - rowLength) <= 0);
+    if (!userScrolledRef.current && !restsAtTop) listRef.current?.scrollToIndex({ index: targetRowIndex, animated: false, viewPosition: 0.5 });
     if (!IS_TV) {
       // Phone has no focus engine to land on the card, so the scroll carries a highlight instead.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -578,7 +649,7 @@ export function LibraryGrid({
       schedule(tryFocus, 100);
     };
     schedule(tryFocus, 60);
-  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule, hasFolderHeader, headerHeight]);
+  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule, hasFolderHeader, headerHeight, rowLayout, contentLength, windowHeight]);
 
   // Two-phase focus handoff. Removing the FOCUSED holder in the SAME commit that first mounts the
   // grid made the focus engine race the native layout of 15 fresh cells; when it lost, focus sat
@@ -606,14 +677,14 @@ export function LibraryGrid({
       // drops the first card's mount-time claim.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setHandoffDone(true);
-    } else if (onOpenFilters || error) {
+    } else if (onOpenFilters || headerAction || error) {
       // Loaded-empty with a Filters button, or error state with the Configure button: removing
       // the FOCUSED holder triggers UIKit's automatic focus update, which resolves to that
       // button's mount-time hasTVPreferredFocus.
       setHandoffDone(true);
     }
     // else: loaded-empty with no Filters button — the holder stays as the permanent anchor.
-  }, [isLoading, items.length, onOpenFilters, error, isScreenFocused, handoffDone, focusTargetCard]);
+  }, [isLoading, items.length, onOpenFilters, headerAction, error, isScreenFocused, handoffDone, focusTargetCard]);
 
   // On tvOS the focus engine must always have a target, and the outer trapFocusUp keeps it on the
   // screen. During the initial folder load nothing focusable is rendered — the header (and its
@@ -639,11 +710,10 @@ export function LibraryGrid({
   const renderEmpty = useCallback(() => {
     if (isLoading) {
       // No spinner — the FolderLoadingBar at the bottom is the progress indicator; a faded
-      // folder glyph (the empty state's icon at low opacity) anchors the center of the screen
-      // so eyes landing there see the state, not a void.
+      // hourglass anchors the center of the screen so eyes landing there see a wait, not a void.
       return (
         <View style={styles.centerContainer} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} style={styles.loadingGlyph} />
+          <Ionicons name="hourglass-outline" size={64} color={COLORS.TEXT_SECONDARY} style={styles.loadingGlyph} />
         </View>
       );
     }
@@ -702,7 +772,11 @@ export function LibraryGrid({
     <View onLayout={handleHeaderLayout}>
       <LibraryHeader
         stack={crumbs ?? []}
+        onGoHome={handleGoHome}
+        homeAsBack={homeAsBack}
         onOpenFilters={onOpenFilters}
+        action={headerAction}
+        secondaryAction={headerSecondaryAction}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}
         onFiltersFocusChange={handleFiltersFocusChange}
@@ -745,6 +819,8 @@ export function LibraryGrid({
       onScrollToIndexFailed={handleScrollToIndexFailed}
       onScrollBeginDrag={handleScrollBeginDrag}
       ListFooterComponent={renderFooter}
+      viewabilityConfig={liveChannels ? viewabilityConfig : undefined}
+      onViewableItemsChanged={liveChannels ? onViewableItemsChanged : undefined}
     />
   );
 
@@ -764,6 +840,7 @@ export function LibraryGrid({
   return (
     <View style={styles.container}>
       <AmbientBackground />
+      {backdropSource !== undefined ? <FolderBackdrop source={backdropSource} /> : null}
       {/* The brand mark, in the bottom-right corner on every platform and orientation. Screen-level
           and out of flow, so it holds that corner while the grid scrolls under it. Before the
           list, like every other ghost — on tvOS a view above a focusable occludes it, and this

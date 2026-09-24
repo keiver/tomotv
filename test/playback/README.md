@@ -16,8 +16,75 @@ npm run test:playback -- --list              # print the manifest and exit
 
 ## First-time setup
 
+### Host manifest acceptance
+
+Unit tests cannot establish which HLS variant AVPlayer actually selects. The host
+drill captures the app's bridge configuration and plays the native engine's
+loopback HLS through macOS AVPlayer. It does not launch or control the Apple TV.
+
+For a captured config on an unthrottled link, run:
+
+```sh
+TOMO_DRILL_CONFIG=/private/tmp/item-config.json \
+TOMO_DRILL_OUT=/private/tmp/item-timeline.jsonl \
+TOMO_DRILL_SECONDS=60 TOMO_DRILL_WINDOW=1 TOMO_DRILL_CAP=1 \
+TOMO_DRILL_EXPECT_ORIGINAL=1 \
+swift test --package-path native/ios --filter SlipstreamDrillTests
+```
+
+The strict mode requires playback progress, source presentation dimensions,
+original-video access-log entries, no server-rendition requests (audio included),
+and no AVPlayer error-log events. Check Jellyfin's FFmpeg-start log entries for
+the same source and time window too: an engine `copy` plan alone does not prove
+the player consumed that stream or that no server encoder ran.
+
+Keep slow-link coverage separate:
+
+```sh
+node scripts/abr-drill.mjs --host --items T101 --scenarios S2,S4 \
+  --results /private/tmp/tomo-manifest-matrix/results.md
+```
+
+S2 holds 1.5 Mbps; S4 changes from 1.5 to 30 Mbps. Do not enable the strict
+original-only assertion for scenarios that intentionally require fallback.
+Host results are not physical-tvOS certification or validation of Apple's private
+yellow HUD fields. Configs contain literal `${JELLYFIN_URL}` and
+`${JELLYFIN_API_KEY}` references, never credentials. Native tests resolve them
+from environment variables in memory. Configs and tests are versionable files;
+there are no playback-artifact ignore rules or private test-file requirements.
+The host matrix enables strict original-only assertions automatically for S1.
+
+The native master resolves video codec identifiers from the muxed initialization
+segment and audio codecs/channels from the selected output parameters before
+publishing a ready local source. Metadata estimates remain necessary when a slow
+link leaves the original unopened. `SCORE` ranks eligible variants; it cannot
+make a wrongly declared codec or audio channel configuration eligible.
+
+### Fast-link transport tests
+
+Requires macOS and Xcode. Run from the repository root:
+
+```sh
+swift test --package-path native/ios --filter FastLinkPlaybackTests
+```
+
+Optional source-file check (requires ffprobe):
+
+```sh
+TOMO_FAST_LINK_SOURCE=/path/to/video.mkv TOMO_FAST_LINK_START=16 \
+FFPROBE=/path/to/ffprobe swift test --package-path native/ios \
+  --filter FastLinkPlaybackTests/testActualSourceDoesNotRequestServerTranscoding
+```
+
+- Asserts playback progress, original dimensions, and zero server-transcode requests.
+- Uses local HTTP and macOS AVPlayer; does not validate Jellyfin or tvOS.
+- Fails on any AVPlayer error-log entry, including bandwidth declaration errors.
+
+### Environment
+
 ```bash
-cp /dev/null .env.playback-test   # then fill in JELLYFIN_URL and JELLYFIN_API_KEY (below)
+export JELLYFIN_URL=http://localhost:8096
+export JELLYFIN_API_KEY='<your API key>'
 npm run make:test-media -- --with-library   # builds the media set, registers the libraries
 npm run test:playback
 ```
@@ -26,7 +93,7 @@ npm run test:playback
 nothing: it generates the synthetic matrix with Jellyfin's bundled ffmpeg, downloads
 the real-encoder samples it cannot synthesise and, only under `--with-library`,
 registers the three Jellyfin libraries and attaches posters over the API. That step
-is opt-in because it mutates whatever server `.env.playback-test` points at, which is
+is opt-in because it mutates whatever server `JELLYFIN_URL` points at, which is
 somebody's personal one. It is idempotent, so re-running it only fills gaps.
 Source URLs and checksums for every downloaded file are recorded in
 `test/playback/media-sources.json`.
@@ -38,7 +105,7 @@ three folders. These three paths are the fixture roots the driver anchors on:
 
 | Folder                          | Contents                                      |
 | ------------------------------- | --------------------------------------------- |
-| `~/Movies/development-videos/`  | every video fixture, T01-T45 and T60-T100     |
+| `~/Movies/development-videos/`  | every video fixture, T01-T45, T60-T102        |
 | `~/Music/Development Audio/`    | the stereo audio-only items T50-T55           |
 | `~/Music/Development Surround/` | the surround audio-only items T56 and T70-T73 |
 
@@ -57,7 +124,7 @@ is, via `npm run make:test-media`. Per-fixture origin is recorded in
 **A Jellyfin server must be running and indexing those folders.** Which library
 holds them does not matter, and neither do their names. The driver resolves a
 manifest title only against items whose own directory is one of the three roots
-above, overridable with `JELLYFIN_FIXTURE_ROOTS` in `.env.playback-test`.
+above, overridable with the `JELLYFIN_FIXTURE_ROOTS` environment variable.
 
 Anchoring on the path is what survives a misconfigured server. Jellyfin attributes
 a file to the top-level physical folder that owns it, so a library nested inside
@@ -79,7 +146,8 @@ also lands as its own item in a library that accepts photos. The older items sti
 it the file way and carry that clutter; the generator uploads to
 `/Items/{id}/Images/Primary` instead.
 
-**`.env.playback-test`** (repo root, gitignored, never commit) must exist:
+**Environment variables** are the only credential source. The runners do not read
+credential files or extract credentials from the server database:
 
 ```
 JELLYFIN_URL=http://localhost:8096
@@ -87,6 +155,9 @@ JELLYFIN_API_KEY=<Dashboard -> Advanced -> API Keys>
 # optional: BUNDLE_ID=dev.keiver.tomotv
 # optional: JELLYFIN_USER=<name> and JELLYFIN_PASSWORD=<pw>, the run signs the app in itself (dev builds)
 ```
+
+Device ABR drills additionally require `JELLYFIN_ACCESS_TOKEN` and
+`JELLYFIN_USER_ID`, with optional `JELLYFIN_DEVICE_ID`, in the environment.
 
 The key is also used to reset each item's resume position before launch, for every user on the server, so every run starts at 0; without that, resume carries across runs and the hash window starts past seg0.
 
@@ -110,8 +181,9 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 
 - `title`: Jellyfin item name = filename without extension. The contract between repo and media folder; rename a file and this must follow (the item also gets a new id, which is fine).
 - `mode`: expected playback mode. `allowRetry` + `finalMode`: for items whose real-world behavior is a legitimate auto-retry (T54: AVPlayer has no Ogg demuxer, direct fails, app retries with transcode).
-- `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `subsync` (server-HLS subtitle-sync invariant, see below), `live` (the engine's live window, see the Live TV rig below), `none` (mode + progress only).
+- `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `subsync` (server-HLS subtitle-sync invariant, see below), `live` (the engine's live window, see Live TV below), `none` (mode + progress only).
 - `expect`: post-remux stream layout (codecs, subtitle rendition count, audio rendition count, VIDEO-RANGE). Live items: `audioTracks` (renditions the master must offer) and `discontinuity` (an `EXT-X-DISCONTINUITY` must be in the window after the play).
+- `expect.tierVariant`: whether the master offers Slipstream rungs (`t0.m3u8` and up). True for a file with video and audio played from the server, HDR included, false for an item the ladder excludes (live, audio-only, held on disk). When true the driver also checks the shape a switch depends on: the copy listed beside the rungs on this fast LAN, one subtitle group across every variant, `audio-lo` on the rungs, and ascending BANDWIDTHs that count their audio group.
 - `live`: a Live TV channel, resolved by name from `/LiveTv/Channels` instead of from the fixture roots.
 - `skip`: known limitation; skipped unless named in `--only`. Currently T10 (simulator rejects HDR PQ) and T32, T36, T41 (the simulator has no HEVC encoder); verify them on a device.
 - `playSeconds` / `progressMin`: play window and minimum position, lowered for short files.
@@ -175,15 +247,14 @@ FF="/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
 
 The current file was made from the previous DivX3 fixture the same way T44 was: `-map 0 -vf scale=1280:960 -c:v asv1 -q:v 10 -c:a copy -c:s copy`.
 
-## The engine decides by doing (T40, and the verdict file)
+## The engine decides by doing (the verdict file)
 
-There is no size gate on the engine lane. The engine times segment 0 before the player is bound
+The engine lane has one size gate: 8K video the device does not copy (`needsSingleServerTranscode`,
+7680 wide or 4320 tall) plays as one server transcode, which is T40 (`mode: transcode`). Below
+that the engine times segment 0 before the player is bound
 and the player takes the server lane when that segment ran below realtime (`fallback` event,
 reason `engine below realtime`, no `error`, no restart), then remembers the file in
-`engine-verdicts.json` (`services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS). T40, the 8K VP9, is the item
-that exercises it: `mode: localRemux`, `allowRetry: true`, `finalMode: transcode`. On the
-simulator the software encoder opens and the pre-flight moves it; on a device the encoder
-refuses 8K and the start-time fallback lands in the same place.
+`engine-verdicts.json` (`services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS).
 
 The driver deletes the verdict file from the app container before every item, the way it deletes
 the probe file, so a verdict from an earlier run cannot change the first mode the manifest
@@ -218,60 +289,68 @@ A device keeps its own account and must be signed in to the server `JELLYFIN_URL
 the driver resolves the rung ids there. `devicectl` is called at its Xcode path because
 `xcode-select` on the dev Mac points at CommandLineTools.
 
-## Live TV rig (`L` items, `validate: "live"`)
+## Slipstream drill (`scripts/abr-drill.mjs`, T101 and T102)
 
-A channel is not a file, so the `L` items run against a throwaway Jellyfin 12 in Docker with an
-M3U tuner (`live/live.m3u`) whose channels are looped MPEG-TS sources served inside the container.
-The spliced channel needs `live/rawstream.py`, a raw paced streamer: `ffmpeg -c copy` rewrites
-non-monotonic DTS and erases the PTS splice the item exists to exercise. Point `JELLYFIN_URL` at
-the rig (port 8098) and sign the app into it.
+The suite plays on a LAN that carries everything, so it proves the master's
+SHAPE but never the switching. The drill does the switching: `scripts/netsim-proxy.mjs`
+puts one shaped token bucket in front of Jellyfin (no sudo, both directions,
+timed profiles over `POST /__netsim`), and the drill plays a 12 minute fixture
+through it, then scores the timeline with `scripts/lib/abr-score.mjs`.
+
+```bash
+node scripts/abr-drill.mjs --host                  # macOS AVPlayer against the real engine
+node scripts/abr-drill.mjs --device "Main Bedroom" --lan-host "$(ipconfig getifaddr en0)"
+node scripts/abr-drill.mjs --udid <simulator-UDID> # the real app, not a hardware acceptance gate
+#  --items T101,T102  --scenarios S1,S4  --link 1500000  --buffer 12  --start 0  --no-window
+```
+
+The scenarios in `scripts/lib/abr-score.mjs` cover steady links, network steps,
+latency, and refused routes. No scenario allows a player replacement, including
+recovery and fallback. The app reports display readiness separately from progress
+and records audio/subtitle catalogues through transitions. Request logs describe
+transfers, not displayed frames; quality assertions still need presentation-level
+evidence before these results can be a release gate. Simulator results never
+replace the physical Apple TV matrix. Results append to `$TMPDIR/tomotv-drill/drill-results.md`
+with each run's timeline, proxy log and engine log beside them.
+
+The host path captures the app's real bridge config through
+`test/playback/drill/engineConfig.drill.test.ts` and plays it in
+`SlipstreamDrillTests`; the device path signs the TV into the proxy with
+`tomotv://dev-session`, plays through the app itself, and restores the TV to
+the LAN address afterwards. It clears the fixture's resume point per run, and
+refuses to start if a proxy from an earlier run still holds the port.
+
+## Live TV (`L` items, `validate: "live"`)
+
+The `L` items play channels of the local Jellyfin's M3U tuner, `live/real.m3u` with the XMLTV
+guide `live/real-guide.xml`, resolved by channel name from `/LiveTv/Channels`. Every channel is a
+public HLS origin, so the same server and sign-in as the file items serve them on a simulator and
+on a device. A channel whose origin dies fails its item at the engine's `open_input`; swap the
+title for a live one in `real.m3u`.
+
+| Item | Channel                         | Shape                                      |
+| ---- | ------------------------------- | ------------------------------------------ |
+| L01  | Bloomberg TV+ 4K HEVC (partner) | 4K HEVC and AAC                            |
+| L02  | Africanews English              | H.264 and AAC in MPEG-TS segments          |
+| L03  | Unified live                    | audio as a separate rendition group        |
+| L04  | Unified SCTE-35 live            | SCTE-35 ad cues (EXT-X-CUE-OUT, DATERANGE) |
+| L05  | DW English                      | multi-variant news channel                 |
+
+The engine package's `LivePipelineTests` read raw MPEG-TS sources without Jellyfin, paced on the
+Mac loopback by `live/rawstream.py`. The spliced source is T24 at 40-70s then 0-30s, same PIDs,
+one backward PTS step per pass:
 
 ```
-# the server, with the fixtures and the tuner files mounted
-docker run -d --name tomo-livetv-probe -p 8098:8096 -v "$PWD/test/playback/live:/tuner:ro" \
-  -v "$HOME/Movies/development-videos:/fixtures:ro" -v tomo-livetv-config:/config jellyfin/jellyfin:12.0
-# finish the wizard, add an M3U tuner with Url /tuner/live.m3u and an XMLTV listing at /tuner/guide.xml,
-# then refresh the guide. Channel logos (tvg-logo) and programme posters (XMLTV icons) come from
-# the HLS web server below; the server fetches them on its own loopback and serves them to the app
-python3 test/playback/live/make-guide.py --tuner test/playback/live --art test/playback/live/hls
-
-# three looped channels, each a single-client ffmpeg server inside the container
-docker exec -d tomo-livetv-probe sh -c 'while true; do /usr/lib/jellyfin-ffmpeg/ffmpeg -nostdin -loglevel error -re -stream_loop -1 \
-  -i "/fixtures/T24 DEVTC MPEG2 MP2 TS.ts" -map 0:v:0 -map 0:a:0 -c copy -f mpegts -listen 1 http://127.0.0.1:9101/live.ts; sleep 1; done'
-docker exec -d tomo-livetv-probe sh -c 'while true; do /usr/lib/jellyfin-ffmpeg/ffmpeg -nostdin -loglevel error -re -stream_loop -1 \
-  -i "/fixtures/T07 REMUX H264 AC3 embedded-subs.mkv" -map 0:v:0 -map 0:a:0 -c copy -f mpegts -listen 1 http://127.0.0.1:9102/live.ts; sleep 1; done'
-docker exec -d tomo-livetv-probe sh -c 'while true; do /usr/lib/jellyfin-ffmpeg/ffmpeg -nostdin -loglevel error -re -stream_loop -1 \
-  -i "/fixtures/T09 REMUX multi-audio.mkv" -map 0:v:0 -map 0:a -c copy -f mpegts -listen 1 http://127.0.0.1:9103/live.ts; sleep 1; done'
-
-# the spliced source: T24 at 40-70s, then 0-30s, same PIDs, one backward PTS step per pass
 F="$HOME/Movies/development-videos/T24 DEVTC MPEG2 MP2 TS.ts"
 ffmpeg -y -i "$F" -t 30 -map 0:v:0 -map 0:a:0 -c copy -output_ts_offset 40 -f mpegts test/playback/live/a.ts
 ffmpeg -y -i "$F" -t 30 -map 0:v:0 -map 0:a:0 -c copy -copyts -mpegts_copyts 1 -f mpegts test/playback/live/b.ts
 cat test/playback/live/a.ts test/playback/live/b.ts > test/playback/live/splice.ts
-# paced at the source's own rate (ffprobe bit_rate of the halves, ~4.0 Mbps); slower starves the engine
-docker run -d --name tomo-rawstream --network container:tomo-livetv-probe -v "$PWD/test/playback/live:/tuner:ro" \
-  python:3-alpine python3 /tuner/rawstream.py /tuner/splice.ts 9105 4200000
-
-# the HLS channel (L05): T07 looped into a live HLS playlist, served on the server's loopback and on the
-# Mac's, same directory, so the tuner entry http://127.0.0.1:9109/live.m3u8 resolves for both. The
-# server never marks a manifest direct play and the engine reads the origin itself, which is why the
-# simulator must reach the origin too (a device cannot; L05 is simulator only)
-mkdir -p test/playback/live/hls
-docker run -d --name tomo-hls-enc -v "$HOME/Movies/development-videos:/fixtures:ro" -v "$PWD/test/playback/live/hls:/hls" \
-  --entrypoint /usr/lib/jellyfin-ffmpeg/ffmpeg jellyfin/jellyfin:12.0 -hide_banner -loglevel warning -re -stream_loop -1 \
-  -i "/fixtures/T07 REMUX H264 AC3 embedded-subs.mkv" -map 0:v:0 -map 0:a:0 -c copy -f hls -hls_time 4 -hls_list_size 8 \
-  -hls_flags delete_segments -hls_segment_filename /hls/seg%05d.ts /hls/live.m3u8
-docker run -d --name tomo-hls-web --network container:tomo-livetv-probe -v "$PWD/test/playback/live/hls:/hls:ro" \
-  python:3-alpine python3 -m http.server 9109 --directory /hls
-docker run -d --name tomo-hls-web-host -p 127.0.0.1:9109:9109 -v "$PWD/test/playback/live/hls:/hls:ro" \
-  python:3-alpine python3 -m http.server 9109 --directory /hls
+python3 test/playback/live/rawstream.py test/playback/live/splice.ts 9106 4200000 127.0.0.1
 ```
 
-The engine package's `LivePipelineTests` read the same sources without Jellyfin: publish them on
-the Mac loopback (`-p 127.0.0.1:9106:9106 ... 9106 4200000 0.0.0.0`, and cuts of T07 and T09 to
-MPEG-TS on 9107 and 9108 the same way) and run
+Cut T07 and T09 to MPEG-TS and serve them on 9107 and 9108 the same way, then run
 `TOMO_LIVE_SOURCE=http://127.0.0.1:9106/live.ts TOMO_LIVE_SOURCE_H264=http://127.0.0.1:9107/live.ts TOMO_LIVE_SOURCE_MULTI=http://127.0.0.1:9108/live.ts npm run test:engine`.
-`TOMO_LIVE_SOURCE_H264` also takes the HLS origin (`http://127.0.0.1:9109/live.m3u8`) or any live HLS URL.
+`TOMO_LIVE_SOURCE_H264` also takes any live HLS URL.
 
 `TOMO_LIVE_SOURCE_LONGGOP` runs `testALongGopCopySourceCutsOnKeyframesNotAtTheTarget`: a copy
 source whose keyframe interval is far longer than the segment target, proving each live segment

@@ -487,8 +487,8 @@
           },
           "to": {
             "type": "string",
-            "enum": ["direct", "transcode", "remux-or-transcode"],
-            "description": "`remux-or-transcode` means the lane is re-picked; the mode event that follows says which."
+            "enum": ["direct", "transcode", "remux-or-transcode", "localRemux"],
+            "description": "`remux-or-transcode` means the lane is re-picked; the mode event that follows says which. Ordinary gateway quality changes do not replace the session."
           },
           "reason": {
             "type": "string"
@@ -642,7 +642,7 @@
         }
       },
       "qualitySwitch": {
-        "description": "The viewer or the adaptive ladder moved to another quality preset.",
+        "description": "Legacy quality-preset switch event. Gateway adaptation changes the cap without rebuilding the player.",
         "properties": {
           "event": {
             "const": "qualitySwitch"
@@ -653,13 +653,77 @@
           }
         }
       },
+      "link": {
+        "description": "The link rate the engine measured behind the loopback (RemuxSession+LinkProbe.swift), which is what caps the player's variant choice.",
+        "properties": {
+          "event": {
+            "const": "link"
+          },
+          "bps": {
+            "type": "integer",
+            "description": "Measured wire capacity, using server transfers when the source cannot supply a measurement."
+          },
+          "copyListed": {
+            "type": ["boolean", "null"],
+            "description": "Whether this session's master lists the on-device copy; this is not a request to rebuild the player."
+          }
+        }
+      },
+      "tracks": {
+        "description": "The audio tracks AVPlayer offers, so a variant switch that drops one is visible.",
+        "properties": {
+          "event": {
+            "const": "tracks"
+          },
+          "audio": {
+            "type": "integer"
+          },
+          "selected": {
+            "type": "integer",
+            "description": "Positional index of the playing track, -1 when none is marked."
+          }
+        }
+      },
+      "buffering": {
+        "description": "The player ran dry or refilled.",
+        "properties": {
+          "event": {
+            "const": "buffering"
+          },
+          "on": {
+            "type": "boolean"
+          },
+          "position": {
+            "type": "number"
+          }
+        }
+      },
       "other": {
         "description": "Any event name this schema does not list. The screen prints its payload the same way, so a new emit site needs no schema change to be shown, only to be documented.",
         "properties": {
           "event": {
             "type": "string",
             "not": {
-              "enum": ["start", "mode", "source", "stream", "playing", "ended", "error", "fallback", "decline", "enginePlan", "preflight", "tier", "variant", "engineRestart", "qualitySwitch"]
+              "enum": [
+                "start",
+                "mode",
+                "source",
+                "stream",
+                "playing",
+                "ended",
+                "error",
+                "fallback",
+                "decline",
+                "enginePlan",
+                "preflight",
+                "tier",
+                "variant",
+                "engineRestart",
+                "qualitySwitch",
+                "link",
+                "tracks",
+                "buffering"
+              ]
             }
           }
         }

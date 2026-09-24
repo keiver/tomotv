@@ -1,19 +1,24 @@
-import { LevelBars } from "@/components/level-bars";
+import { LEVEL_BARS_WIDTH, LevelBars } from "@/components/level-bars";
 import { MarqueeText } from "@/components/MarqueeText";
-import { DESIGN } from "@/constants/app";
+import { DESIGN, GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
 import { t } from "@/services/i18n";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { queueTrackProgress } from "@/utils/resumeProgress";
 import React, { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Dimensions, Platform, StyleSheet, View } from "react-native";
 
-// Apple TV only: the card that hosts this is the TV card, so every size is the TV one.
-const TITLE_SIZE = 22;
-const BAR_PADDING_V = 10;
+// The grid card's own title sizes (components/video-grid-item.tsx), so the bar swaps in at the same height.
+const IS_TV = Platform.isTV;
+const SCREEN = Dimensions.get("screen");
+const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
+const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
+const BAR_PADDING_V = IS_TV ? 10 : 8;
 const BAR_DROP = 2;
-const BARS = 20;
+const BARS = IS_TV ? 20 : 12;
+const BARS_WIDTH = LEVEL_BARS_WIDTH;
+const MARK_LEFT = IS_TV ? 20 : 10;
 
 interface NowPlayingTitleBarProps {
   video: JellyfinVideoItem;
@@ -45,7 +50,9 @@ export function NowPlayingTitleBar({ video, focused, kind, progressPercent = 0, 
       {hasFill && <View style={[styles.infoProgressFill, { width: `${fillPercent}%` }]} pointerEvents="none" testID="now-playing-progress" />}
       {/* Bars and title share the difference blend, so both invert to black over the fill. */}
       <View style={styles.infoTitleBlend}>
-        <LevelBars size={BARS} playing={isPlaying} />
+        <View style={styles.mark} pointerEvents="none">
+          <LevelBars size={BARS} playing={isPlaying} />
+        </View>
         <MarqueeText active={focused} style={styles.infoTitle}>
           {video.Name || t("common.unknown")}
         </MarqueeText>
@@ -74,25 +81,31 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     left: 0,
-    minWidth: DESIGN.BORDER_RADIUS_CARD + 20,
+    minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
     backgroundColor: COLORS.ACCENT,
   },
   // Holds the side inset, not the bar: the fill measures this parent's content box, so padding
-  // up there stops it short of the card's right edge at 100%.
+  // up there stops it short of the card's right edge at 100%. Both sides clear the mark, so the
+  // TV title stays centred.
   infoTitleBlend: {
     width: "100%",
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+    paddingHorizontal: MARK_LEFT + BARS_WIDTH + (IS_TV ? 12 : 6),
     mixBlendMode: "difference",
   },
+  // Out of flow at the line's left end, where the grid card's title mark sits.
+  mark: {
+    position: "absolute",
+    left: MARK_LEFT,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+  },
   infoTitle: {
-    flex: 1,
+    width: "100%",
     color: COLORS.ACCENT,
     fontSize: TITLE_SIZE,
     fontWeight: "700",
-    textAlign: "center",
+    textAlign: IS_TV ? "center" : "left",
   },
 });
 

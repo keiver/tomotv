@@ -65,9 +65,13 @@ subtitles rather than not playing: the film outranks the sidecar.
 
 ### The engine decides by doing
 
-There is no size gate. `canRemuxLocally` admits every codec in
-`TRANSCODABLE_VIDEO_CODECS` at any resolution, depth or field order; whether
-this device keeps up is measured by the session itself.
+One size gate: 8K video (7680 wide or 4320 tall) the device does not copy is declined by
+`canRemuxLocally` and plays as one server transcode at the preset the measured link carries
+(`needsSingleServerTranscode`; `openServerLane` skips the gateway and the multi-audio loader for
+it). Measured on T40: the gateway's rung and audio carrier each decode the source, one 8K decode
+ran at 1.17x to 1.49x on the server, two at 0.83x. Below 8K `canRemuxLocally` admits every codec in
+`TRANSCODABLE_VIDEO_CODECS` at any depth or field order; whether this device keeps up is measured
+by the session itself.
 
 - **Pre-flight.** The producer times every segment it closes
   (`Remuxer.reportThroughput`: wall seconds against the segment's media
@@ -79,6 +83,10 @@ this device keeps up is measured by the session itself.
   on screen to restart: the fallback reason is `engine below realtime`. No
   sample within the engine's own 20 s segment deadline fails the session the
   way it always did.
+  **A session that offers Slipstream rungs skips this timing entirely**
+  (`preflight.keptForTier`): the master opens on a rung, so the engine's own
+  segment 0 is not the startup gate and a slow link is not a verdict against
+  the device. See `memories/CLAUDE-slipstream.md`.
 - **Remembered per file.** `services/engineVerdicts.ts` keeps
   `Documents/engine-verdicts.json`, keyed by server, item and media source. A
   verdict is written only from a clean sample (thermal nominal or fair, no
@@ -93,7 +101,8 @@ this device keeps up is measured by the session itself.
   `localRemux.ts`) is true when the last two timed, unthrottled segments of the
   current generation ran below realtime and at most one segment is ahead of the
   player; the hook then moves to the server at the playhead once, directly,
-  and records the verdict. No record to date shows a session that passed
+  and records the verdict. A session riding a rung is exempt: its primary is
+  unproducible by design, and starving it is the point of the rung. No record to date shows a session that passed
   pre-flight falling below realtime later; this is the backstop, in place of
   the STALLED ladder's restart-then-server.
 - **8K** needs no rule: the H.264 encoder refuses to open at 7680x4320 and the
@@ -261,6 +270,11 @@ inside it.
 
 Three rungs, in order: **direct, engine, server.**
 
+Inside the engine lane sits a ladder of its own: the master carries the device's
+stream copy and the server-fed rungs together, and AVPlayer moves between them
+without a reload (`memories/CLAUDE-slipstream.md`). The server lane below is
+reached only when the engine lane as a whole cannot hold the item.
+
 A failed direct play tries the engine before the server. AVPlayer refusing a
 file whose codec and container both passed inspection usually means a container
 fault, and rewrapping is exactly what fixes that; going straight to the server
@@ -279,3 +293,7 @@ to direct play and fails identically forever.
 3. Every coverage change gets a fixture whose manifest entry flips from
    `transcode` to `localRemux`. That diff is the proof, and it is the only proof
    that distinguishes "the lane works" from "the lane compiles".
+4. Jellyfin's stream `Index` is an identity (URLs, `sub<N>`/`pgs<N>` routes, reports), never a
+   file position: 12.0 lists sidecars first and renumbers (jellyfin 19b756a507). The engine finds a
+   track by `source` (nth of its type, count, FFmpeg codec name; `sourcePosition` in
+   `services/jellyfin/audioTracks.ts`) and refuses a mismatch. Fixture: T104.

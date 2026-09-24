@@ -2,9 +2,11 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
-import { MINUTE_MS, NO_GUIDE_PREFIX } from "@/utils/guide";
+import { guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
+jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `poster:${id}`, getCachedConfig: () => ({ server: "http://jf" }) }));
+jest.mock("expo-image", () => ({ Image: (props: { testID?: string }) => require("react").createElement("Image", props) }));
 
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
 const program = { Id: "p1", Name: "Evening News", EpisodeTitle: "Episode 9", StartDate: new Date(T0).toISOString(), EndDate: new Date(T0 + 60 * MINUTE_MS).toISOString(), IsNews: true };
@@ -24,15 +26,27 @@ const texts = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByType(
 const testIds = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => typeof node.props.testID === "string").map((node) => node.props.testID as string);
 
 describe("GuideCell", () => {
-  it("shows the title and episode and a progress bar while airing", () => {
-    const tree = render();
-    expect(texts(tree)).toEqual(expect.arrayContaining(["Evening News", "Episode 9"]));
-    expect(testIds(tree)).toContain("guide-cell-progress");
+  it("shows the title, episode and the slot line", () => {
+    const shown = texts(render());
+    expect(shown).toEqual(expect.arrayContaining(["Evening News", "Episode 9"]));
+    expect(shown.some((text) => text.includes(" – ") && text.includes("news"))).toBe(true);
   });
 
-  it("draws no progress bar before or after the airing", () => {
-    expect(testIds(render({ nowMs: T0 - MINUTE_MS }))).not.toContain("guide-cell-progress");
-    expect(testIds(render({ nowMs: T0 + 61 * MINUTE_MS }))).not.toContain("guide-cell-progress");
+  it("bleeds the programme's art in from the right only when it has one", () => {
+    expect(testIds(render())).not.toContain("guide-cell-art");
+    expect(testIds(render({ program: { ...program, Id: "p2", ImageTags: { Primary: "tag" } } }))).toContain("guide-cell-art");
+  });
+
+  it("draws no art in a cell that ends inside its first half hour", () => {
+    const withArt = { ...program, Id: "p3", ImageTags: { Primary: "tag" } };
+    const halfHour = guideMetrics(false).pxPerMinute * TICK_MINUTES;
+    expect(testIds(render({ program: withArt, width: halfHour }))).not.toContain("guide-cell-art");
+    expect(testIds(render({ program: withArt, width: halfHour + 1 }))).toContain("guide-cell-art");
+  });
+
+  it("keys the art by its image tag, so a refreshed guide image replaces the cached one", () => {
+    const artKey = (tag: string) => render({ program: { ...program, Id: "p4", ImageTags: { Primary: tag } } }).root.findByType("Image" as never).props.source.cacheKey;
+    expect(artKey("old")).not.toEqual(artKey("new"));
   });
 
   it("marks a recording with the dot and a series rule with the repeat glyph", () => {

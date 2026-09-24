@@ -41,8 +41,8 @@ export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupp
 export {
   cancelSeriesTimer,
   cancelTimer,
+  closeLeftoverOpens,
   closeLiveStream,
-  closeWarmedChannels,
   createSeriesTimer,
   createTimer,
   fetchChannels,
@@ -50,17 +50,18 @@ export {
   fetchLiveTvManagement,
   fetchProgram,
   fetchRecordings,
+  fetchRecordingFolderIds,
   fetchSeriesTimers,
   fetchTimerDefaults,
   fetchTimers,
-  isServerLaneChannel,
   noteOpenFailed,
   openChannel,
   openRecentlyFailed,
   resolveChannel,
-  warmChannel,
+  resolveChannelOrigin,
 } from "./jellyfin/liveTv";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
+export type { ChannelOrigin } from "./jellyfin/liveTv";
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
@@ -173,8 +174,11 @@ export {
   getBookFileUrl,
   getPhotoFileUrl,
   getPhotoUrl,
+  getPhotoPreviewUrl,
   getPosterUrl,
+  getTintUrl,
   getUserImageUrl,
   hasPoster,
+  WEBP_ACCEPT,
 } from "./jellyfin/images";
 export { getBurnInSubtitleStream, getSubtitleUrl, getTextSubtitleStreams, isImageBasedSubtitleCodec } from "./jellyfin/subtitles";

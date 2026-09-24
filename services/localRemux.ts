@@ -25,9 +25,10 @@ import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 // Submodules, not the barrel: the barrel re-exports liveTv, which imports this module.
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
-import { generatePlaySessionId } from "@/services/jellyfin/session";
-import { getSubtitleUrl, isImageBasedSubtitleCodec } from "@/services/jellyfin/subtitles";
-import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
+import { audioCatalogue, playbackMediaStreams, sourcePosition, type AudioCatalogueTrack, type SourcePosition } from "@/services/jellyfin/audioTracks";
+import { generatePlaySessionId, getCachedConfig } from "@/services/jellyfin/session";
+import { getSubtitleUrl, isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
+import { deviceDecodes, isLiveSource, serverVideoTranscodingAllowed, sourceVideoRange } from "@/services/jellyfin/media";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
@@ -165,72 +166,145 @@ const TRANSCODABLE_VIDEO_CODECS = [
  */
 const REMUX_READ_AHEAD_SEGMENTS = 20;
 
-// Slipstream (memories/CLAUDE-slipstream.md): multi-variant loopback master
-// with a server-assisted tier, AVPlayer switching natively. The gate is the
-// MEASUREMENT — the tier declares only on a measured-slow link.
-// Video-only variant: audio rides the shared group, so CODECS carries avc1 alone.
-const SLIPSTREAM_TIER = { label: "480p", bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" };
+// Slipstream (memories/CLAUDE-slipstream.md): one loopback master carrying the
+// device's stream copy and this server-fed ladder, AVPlayer switching natively
+// between them. Every eligible item declares the ladder; the engine's measured
+// link decides which rungs the master lists and which one leads.
+// Apple-shaped H.264 SDR rungs, ascending; each rides the audio-lo group, so a
+// rung's CODECS names its video and that group's AAC.
+interface TierRung {
+  bitrate: number;
+  width: number;
+  height: number;
+  codecs: string;
+}
+export type SlipstreamOptions = { serverVideoOnly?: boolean };
+/** Stereo AAC bitrate for the audio-lo group when the link is below the smallest copy-audio rung. */
+export const SURVIVAL_AUDIO_BITRATE = 96_000;
+/** The 64px picture a server audio rendition arrives beside (measured: 16 to 18 KB of a 6s segment). */
+export const AUDIO_CARRIER_BITRATE = 24_000;
+/** Every rung rides the stereo audio-lo group; surround comes from the copy. */
+const RUNG_AUDIO_BANDWIDTH = SURVIVAL_AUDIO_BITRATE + AUDIO_CARRIER_BITRATE;
 
-/**
- * Whether startLocalRemux will configure a Slipstream tier for this item:
- * SDR video with at least one audio stream (the tier variant is video-only
- * and needs the audio group; mixing VIDEO-RANGE across switchable variants
- * breaks the authoring spec).
- */
+const SLIPSTREAM_LADDER: TierRung[] = [
+  // The bottom rung is sized for the START, not the steady state: AVPlayer buffers around 24s of
+  // media before the first frame, so a 0.6 Mb/s link spends 14s on a 336 kb/s rung's worth of it
+  // (measured: 38s to first frame). At 140 kb/s that buffer is a third of the bytes.
+  { bitrate: 140_000, width: 256, height: 144, codecs: "avc1.64000C" },
+  // 144p exists for links under ~0.7 Mb/s, where 240p plus its audio does not fit the wire.
+  { bitrate: 240_000, width: 256, height: 144, codecs: "avc1.64000C" },
+  { bitrate: 400_000, width: 426, height: 240, codecs: "avc1.640015" },
+  { bitrate: 800_000, width: 640, height: 360, codecs: "avc1.64001E" },
+  { bitrate: 1_500_000, width: 854, height: 480, codecs: "avc1.64001F" },
+  { bitrate: 4_000_000, width: 1280, height: 720, codecs: "avc1.640020" },
+  { bitrate: 6_000_000, width: 1920, height: 1080, codecs: "avc1.640028" },
+];
+
 export function slipstreamEligible(videoItem: JellyfinVideoItem): boolean {
-  const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
-  if (!videoStreamMeta) return false;
-  const rangeType = (videoStreamMeta.VideoRangeType || videoStreamMeta.VideoRange || "SDR").toUpperCase();
-  const isSdr = !(rangeType.includes("HLG") || rangeType.includes("HDR") || rangeType.includes("DOVI") || rangeType.includes("PQ"));
-  return isSdr && (videoItem.MediaStreams ?? []).some((stream) => stream.Type === "Audio");
+  const streams = playbackMediaStreams(videoItem);
+  return streams.some((stream) => stream.Type === "Video") && streams.some((stream) => stream.Type === "Audio");
+}
+
+function positiveBandwidth(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? Math.ceil(value) : 0;
+}
+
+export function sourceBandwidthForItem(videoItem: JellyfinVideoItem): number {
+  const source = videoItem.MediaSources?.[0];
+  const declared = positiveBandwidth(source?.Bitrate);
+  if (declared > 0) return declared;
+  const duration = (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
+  const size = source?.Size ?? 0;
+  if (Number.isFinite(duration) && duration > 0 && Number.isFinite(size) && size > 0) {
+    const calculated = positiveBandwidth((size * 8) / duration);
+    if (calculated > 0) return calculated;
+  }
+  const streams = playbackMediaStreams(videoItem).filter((stream) => stream.IsExternal !== true);
+  const audiovisual = streams.filter((stream) => stream.Type === "Video" || stream.Type === "Audio");
+  if (audiovisual.length === 0 || audiovisual.some((stream) => positiveBandwidth(stream.BitRate) === 0)) return 0;
+  return positiveBandwidth(streams.reduce((total, stream) => total + positiveBandwidth(stream.BitRate), 0));
+}
+
+function primaryBandwidths(videoItem: JellyfinVideoItem, audioBandwidth: number): { sourceBandwidth: number; primaryVideoBandwidth: number; bandwidth: number } {
+  const streams = playbackMediaStreams(videoItem);
+  const video = streams.find((stream) => stream.Type === "Video");
+  const sourceBandwidth = sourceBandwidthForItem(videoItem);
+  let primaryVideoBandwidth = positiveBandwidth(video?.BitRate);
+  if (video && primaryVideoBandwidth === 0 && sourceBandwidth > 0) {
+    const otherStreams = streams.filter((stream) => stream !== video && stream.IsExternal !== true);
+    const otherBandwidth = otherStreams.reduce((total, stream) => total + positiveBandwidth(stream.BitRate), 0);
+    primaryVideoBandwidth = otherBandwidth < sourceBandwidth ? sourceBandwidth - otherBandwidth : sourceBandwidth;
+  }
+  const bandwidth = video && primaryVideoBandwidth === 0 ? 0 : primaryVideoBandwidth + audioBandwidth;
+  return { sourceBandwidth, primaryVideoBandwidth, bandwidth };
+}
+
+function audioOutput(stream: JellyfinMediaStream): { usesServerAudio: boolean; codecs: string; bandwidth: number } {
+  // A sidecar audio file is not in the container the engine reads.
+  if (stream.IsExternal === true || !isAudioTrackCarriable(stream.Codec)) return { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH };
+  const codec = (stream.Codec ?? "").toLowerCase();
+  const lossless = Math.round((stream.Channels ?? 2) * (stream.SampleRate ?? 48000) * (stream.BitDepth ?? 16) * 0.6);
+  const encodedBandwidth = Math.max(lossless, 192_000, (stream.Channels ?? 2) * 64_000);
+  const sourceBandwidth = stream.BitRate && stream.BitRate > 0 ? stream.BitRate : undefined;
+  if (codec.startsWith("aac") || codec.startsWith("mp4a")) {
+    const profile = stream.Profile?.toUpperCase();
+    const codecs = codec.startsWith("mp4a.") ? codec : profile === "HE-AACV2" || profile === "HE-AAC V2" ? "mp4a.40.29" : profile === "HE-AAC" ? "mp4a.40.5" : "mp4a.40.2";
+    return { usesServerAudio: false, codecs, bandwidth: sourceBandwidth ?? 256_000 };
+  }
+  if (codec.startsWith("eac3") || codec.startsWith("ec-3")) return { usesServerAudio: false, codecs: "ec-3", bandwidth: sourceBandwidth ?? 768_000 };
+  if (codec.startsWith("ac3") || codec.startsWith("ac-3")) return { usesServerAudio: false, codecs: "ac-3", bandwidth: sourceBandwidth ?? 640_000 };
+  if (codec.startsWith("alac")) return { usesServerAudio: false, codecs: "alac", bandwidth: sourceBandwidth ?? lossless };
+  if (codec.startsWith("flac")) return { usesServerAudio: false, codecs: "fLaC,mp4a.40.2", bandwidth: Math.max(sourceBandwidth ?? 0, encodedBandwidth) };
+  return { usesServerAudio: false, codecs: codec ? "fLaC,mp4a.40.2" : "", bandwidth: encodedBandwidth };
+}
+
+export function slipstreamInputBandwidth(videoItem: JellyfinVideoItem): number {
+  const sourceBandwidth = sourceBandwidthForItem(videoItem);
+  if (sourceBandwidth > 0) return sourceBandwidth;
+  const tracks = audioCatalogue(videoItem);
+  return primaryBandwidths(videoItem, Math.max(0, ...tracks.map((track) => audioOutput(track.stream).bandwidth))).bandwidth;
 }
 
 /**
- * The tier's server-fed audio rendition, mirroring the ENGINE group's codec
- * family so a variant switch stays inside AVPlayer's switching envelope
- * (WWDC20 10158: AAC-family and lossless<->AAC only, channel count held).
- * Codecs AVPlayer decodes natively are stream-COPIED by the server — original
- * bits, zero loss on the survival rung; everything else (DTS, TrueHD...)
- * becomes server FLAC, lossless, same family as the engine's FLAC encode.
+ * The ladder rungs offered for this item: every rung whose total (video + the
+ * audio group) meaningfully undercuts the primary (the 0.85 rule).
+ * Ascending. Empty when the file is not gateway-eligible or nothing undercuts
+ * (audio-heavy tiny files), where AVPlayer would rightly refuse the rung.
  */
-function serverAudioPlan(stream: JellyfinMediaStream | undefined): { codec: "copy" | "flac"; bandwidth: number; tag: string } {
-  const codec = (stream?.Codec ?? "").toLowerCase();
-  const channels = stream?.Channels ?? 6;
-  const flacEstimate = Math.round(channels * (stream?.SampleRate ?? 48000) * (stream?.BitDepth ?? 16) * 0.6);
-  if (codec.startsWith("aac") || codec.startsWith("mp4a")) return { codec: "copy", bandwidth: stream?.BitRate ?? 256_000, tag: "mp4a.40.2" };
-  if (codec.startsWith("alac")) return { codec: "copy", bandwidth: stream?.BitRate ?? flacEstimate, tag: "alac" };
-  if (codec.startsWith("eac3") || codec.startsWith("ec-3")) return { codec: "copy", bandwidth: stream?.BitRate ?? 768_000, tag: "ec-3" };
-  if (codec.startsWith("ac3") || codec.startsWith("ac-3")) return { codec: "copy", bandwidth: stream?.BitRate ?? 640_000, tag: "ac-3" };
-  return { codec: "flac", bandwidth: flacEstimate, tag: "fLaC" };
+export function offeredTierRungs(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number, options: SlipstreamOptions = {}): TierRung[] {
+  if (!serverVideoTranscodingAllowed(videoItem)) return [];
+  const serverVideoOnly = options.serverVideoOnly === true && !isLiveSource(videoItem) && !playsFromDisk(videoItem.Id) && playbackMediaStreams(videoItem).some((stream) => stream.Type === "Video");
+  if (!slipstreamEligible(videoItem)) return serverVideoOnly ? [...SLIPSTREAM_LADDER] : [];
+  const tracks = audioCatalogue(videoItem, preferredAudioStreamIndex);
+  const audioBandwidth = Math.max(0, ...tracks.map((track) => audioOutput(track.stream).bandwidth));
+  const { bandwidth: primaryBandwidth } = primaryBandwidths(videoItem, audioBandwidth);
+  const rungs = SLIPSTREAM_LADDER.filter((rung) => primaryBandwidth <= 0 || rung.bitrate + RUNG_AUDIO_BANDWIDTH < primaryBandwidth * 0.85);
+  return serverVideoOnly && rungs.length === 0 ? [...SLIPSTREAM_LADDER] : rungs;
 }
 
 /**
- * Carriable audio streams in master-playlist order: the preferred index first,
- * then the file's default flag. [0] is the track marked DEFAULT=YES.
+ * The survival cap for a gateway session: the TOP offered rung's declared
+ * bandwidth. Capping there lets AVPlayer's ABR use every server rung but not
+ * the source-rate primary, which a below-source link cannot produce; the
+ * gateway controller raises the cap when the link recovers. null = no rung
+ * offered. Also the pin-cap reference for the fixed-quality path.
  */
-function orderedCarriableAudio(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): JellyfinMediaStream[] {
-  return (videoItem.MediaStreams ?? [])
-    .filter((stream) => stream.Type === "Audio" && stream.Index !== undefined && isAudioTrackCarriable(stream.Codec))
-    .sort((a, b) => Number(b.Index === preferredAudioStreamIndex) - Number(a.Index === preferredAudioStreamIndex) || Number(b.IsDefault === true) - Number(a.IsDefault === true));
+export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number, options: SlipstreamOptions = {}): number | null {
+  const rungs = offeredTierRungs(videoItem, preferredAudioStreamIndex, options);
+  if (rungs.length === 0) return null;
+  // The cap is the top rung's video plus the audio group it rides.
+  const top = rungs[rungs.length - 1];
+  return top.bitrate + (audioCatalogue(videoItem).length > 0 ? RUNG_AUDIO_BANDWIDTH : 0);
 }
 
 /**
- * Declared BANDWIDTH of the tier variant (video + its audio-lo rendition), or
- * null when the tier is not worth declaring: an audio-heavy small file can
- * push the rung above the primary, where AVPlayer rightly refuses it. The
- * rung must undercut the primary meaningfully to be a refuge. Also the pin
- * cap for gateway sessions: a fixed preset caps preferredPeakBitRate at
- * exactly this value, so the tier fits and the primary does not.
+ * The declared BANDWIDTH of each offered rung, ascending: the preferredPeakBitRate steps the
+ * buffer-driven ladder climbs through. Capping at caps[k] holds AVPlayer on rung k; an empty result
+ * means no ladder (uncapped, the engine primary). Each cap matches the master's rung BANDWIDTH.
  */
-export function slipstreamTierBandwidth(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number): number | null {
-  if (!slipstreamEligible(videoItem)) return null;
-  const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
-  // The DEFAULT=YES rendition's cost — the same track the tier's CODECS names.
-  const plan = serverAudioPlan(orderedCarriableAudio(videoItem, preferredAudioStreamIndex)[0]);
-  const tierBandwidth = SLIPSTREAM_TIER.bitrate + plan.bandwidth;
-  const primaryBandwidth = (videoStreamMeta?.BitRate ?? 0) + plan.bandwidth;
-  if (primaryBandwidth > 0 && tierBandwidth >= primaryBandwidth * 0.85) return null;
-  return tierBandwidth;
+export function offeredTierBandwidths(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number, options: SlipstreamOptions = {}): number[] {
+  const audioBandwidth = audioCatalogue(videoItem).length > 0 ? RUNG_AUDIO_BANDWIDTH : 0;
+  return offeredTierRungs(videoItem, preferredAudioStreamIndex, options).map((rung) => rung.bitrate + audioBandwidth);
 }
 
 /**
@@ -365,6 +439,7 @@ export interface EngineTrackPlan {
   encoder?: string;
   source: EngineStreamPlan;
   output?: EngineStreamPlan;
+  identity?: string;
 }
 
 /**
@@ -448,6 +523,9 @@ export interface EngineTierReport {
 
 let tierSubscription: { remove: () => void } | null = null;
 
+type TierListener = (report: EngineTierReport) => void;
+const tierListeners = new Map<string, Set<TierListener>>();
+
 /** Whether the running binary declares an event. A Metro reload can carry JS that knows one the
  *  installed native build does not, and subscribing to it there breaks the module outright. */
 function nativeEmits(event: string): boolean {
@@ -463,12 +541,71 @@ function watchEngineTier(): void {
   }
   const emitter = new NativeEventEmitter(LocalRemuxer);
   tierSubscription = emitter.addListener("onEngineTier", (report: EngineTierReport) => {
+    tierListeners.get(report.token)?.forEach((listener) => listener(report));
     // Every report follows the master, which follows this session's start, so a foreign token
     // is a superseded session still winding down.
     if (report.token !== activePlanToken) return;
     logger.info("Slipstream tier", { service: "LocalRemux", state: report.state, reason: report.reason, probeSeconds: report.probeSeconds });
     probeEmit("tier", { state: report.state, ...(report.reason ? { reason: report.reason } : {}), ...(report.probeSeconds != null ? { probeSeconds: report.probeSeconds } : {}) });
   });
+}
+
+/** One session's tier verdict, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeEngineTier(token: string, listener: TierListener): () => void {
+  watchEngineTier();
+  const listeners = tierListeners.get(token) ?? new Set<TierListener>();
+  listeners.add(listener);
+  tierListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) tierListeners.delete(token);
+  };
+}
+
+/** The link rate the engine measured behind the loopback, in bits per second. */
+export type EngineLinkReport = { token: string; bps: number; copyListed?: boolean };
+
+type LinkListener = (report: EngineLinkReport) => void;
+const linkListeners = new Map<string, Set<LinkListener>>();
+const linkReports = new Map<string, EngineLinkReport | null>();
+let linkSubscription: { remove: () => void } | null = null;
+
+function rememberLink(token: string, report: EngineLinkReport | null): void {
+  linkReports.delete(token);
+  linkReports.set(token, report);
+  if (linkReports.size > 32) linkReports.delete(linkReports.keys().next().value!);
+}
+
+function watchEngineLink(): void {
+  if (linkSubscription || !isLocalRemuxAvailable()) return;
+  if (!nativeEmits("onEngineLink")) {
+    logger.info("Engine build predates the link report; the session plays uncapped", { service: "LocalRemux" });
+    return;
+  }
+  const emitter = new NativeEventEmitter(LocalRemuxer);
+  linkSubscription = emitter.addListener("onEngineLink", (report: EngineLinkReport) => {
+    if (!report.token || !Number.isFinite(report.bps) || report.bps <= 0 || linkReports.get(report.token) === null) return;
+    rememberLink(report.token, report);
+    linkListeners.get(report.token)?.forEach((listener) => listener(report));
+  });
+}
+
+/**
+ * The engine's measured link rate for one session, until the returned function runs. AVPlayer
+ * measures the loopback, which says nothing about the link behind the engine, so this is what the
+ * variant cap is built from. Never fires on a native build without the event.
+ */
+export function subscribeEngineLink(token: string, listener: LinkListener): () => void {
+  watchEngineLink();
+  const listeners = linkListeners.get(token) ?? new Set<LinkListener>();
+  listeners.add(listener);
+  linkListeners.set(token, listeners);
+  const latest = linkReports.get(token);
+  if (latest) listener(latest);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) linkListeners.delete(token);
+  };
 }
 
 /** One completed segment as the engine timed it (Remuxer.reportThroughput). */
@@ -497,14 +634,34 @@ export function readBound(sample: Pick<ThroughputSample, "produceSeconds" | "rea
 }
 
 /** What a session has read so far (Remuxer.progress), or null without the session or the native method. */
-export type EngineProgress = { alive: boolean; bytesRead: number; readSeconds: number; elapsedSeconds: number };
+export type EngineProgress = {
+  alive: boolean;
+  bytesRead: number;
+  readSeconds: number;
+  elapsedSeconds: number;
+  sourceState?: string;
+  recovering?: boolean;
+  hasPlayableSupplier?: boolean;
+  sourceRetryAfterSeconds?: number;
+};
 
 export async function engineProgress(token: string): Promise<EngineProgress | null> {
   if (!isLocalRemuxAvailable() || typeof LocalRemuxer.engineProgress !== "function") return null;
   try {
     const progress = (await LocalRemuxer.engineProgress(token)) as Partial<EngineProgress> | null;
     if (!progress || typeof progress.bytesRead !== "number" || typeof progress.readSeconds !== "number" || typeof progress.elapsedSeconds !== "number") return null;
-    return { alive: progress.alive === true, bytesRead: progress.bytesRead, readSeconds: progress.readSeconds, elapsedSeconds: progress.elapsedSeconds };
+    return {
+      alive: progress.alive === true,
+      bytesRead: progress.bytesRead,
+      readSeconds: progress.readSeconds,
+      elapsedSeconds: progress.elapsedSeconds,
+      ...(typeof progress.sourceState === "string" ? { sourceState: progress.sourceState } : {}),
+      ...(typeof progress.recovering === "boolean" ? { recovering: progress.recovering } : {}),
+      ...(typeof progress.hasPlayableSupplier === "boolean" ? { hasPlayableSupplier: progress.hasPlayableSupplier } : {}),
+      ...(typeof progress.sourceRetryAfterSeconds === "number" && Number.isFinite(progress.sourceRetryAfterSeconds) && progress.sourceRetryAfterSeconds >= 0
+        ? { sourceRetryAfterSeconds: progress.sourceRetryAfterSeconds }
+        : {}),
+    };
   } catch (error) {
     logger.warn("Engine progress read failed", error, { service: "LocalRemux", token });
     return null;
@@ -590,7 +747,10 @@ export function subscribeEngineFailure(token: string, listener: FailureListener)
   };
 }
 
-/** A startup step the session finished (Remuxer.mark): open_input, find_stream_info, vt_decode_probe, image_subtitle_decoders, renditions_built. */
+/**
+ * A startup step the session finished (Remuxer.mark): open_input, find_stream_info, vt_decode_probe,
+ * image_subtitle_decoders, renditions_built; or source_released, when the rungs carry the session alone.
+ */
 export type EngineStage = { token: string; stage: string; elapsed: number };
 
 type StageListener = (stage: EngineStage) => void;
@@ -709,6 +869,18 @@ async function copiesVideo(videoStream: JellyfinMediaStream | undefined): Promis
   return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport(), videoStream?.Height);
 }
 
+/** 8K UHD. A cropped 8K picture keeps the width, so either side marks it. */
+const EIGHT_K = { width: 7680, height: 4320 };
+
+/** 8K video this device does not copy plays as one server transcode: each gateway supplier decodes the source again. */
+export async function needsSingleServerTranscode(videoItem: JellyfinVideoItem | null | undefined): Promise<boolean> {
+  if (!videoItem || isLiveSource(videoItem) || playsFromDisk(videoItem.Id)) return false;
+  const videoStream = playbackMediaStreams(videoItem).find((stream) => stream.Type === "Video");
+  if (!videoStream) return false;
+  const eightK = (videoStream.Width ?? 0) >= EIGHT_K.width || (videoStream.Height ?? 0) >= EIGHT_K.height;
+  return eightK && !(await copiesVideo(videoStream));
+}
+
 /** One measured pass of VideoTranscoder.benchmark, as the native side records it. */
 export type TranscodeBenchmark = {
   encode: boolean;
@@ -776,46 +948,35 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
   }
   // A channel read from its origin carries no server probe; the engine's own open decides what it plays.
   if (isLiveSource(videoItem) && videoItem?.liveStreamUrl && !videoItem.LiveStreamId) return true;
-  if (!videoItem?.MediaStreams) return declineRemux("no media streams");
+  if (!videoItem) return declineRemux("no media streams");
+  const mediaStreams = playbackMediaStreams(videoItem);
+  if (mediaStreams.length === 0) return declineRemux("no media streams");
 
   // An audio-only item has no video stream to judge, and the engine runs a
   // video-less session for it (Remuxer.runPipeline, `hasVideo`). Its audio
   // still has to be carriable, so the checks below this point all apply.
-  const videoStream = videoItem.MediaStreams.find((stream) => stream.Type === "Video");
-  const audioOnly = !videoStream && videoItem.MediaStreams.some((stream) => stream.Type === "Audio");
+  const videoStream = mediaStreams.find((stream) => stream.Type === "Video");
+  const audioOnly = !videoStream && mediaStreams.some((stream) => stream.Type === "Audio");
   if (!audioOnly && !videoStream?.Codec) return declineRemux("no video codec in metadata");
   const codec = videoStream?.Codec?.toLowerCase() ?? "";
 
-  // Audio is either copied or re-encoded on device; only codecs the linked
-  // FFmpeg has no decoder for stay on the server path. Multi-track files are
-  // fine: each carriable track becomes its own HLS audio rendition, so
-  // switching still works and still costs the server nothing.
-  //
-  // One uncarriable track used to condemn the whole file. A disc rip with eight
-  // soundtracks, seven of them AC-3 and one RealAudio, went to the server
-  // entirely — video re-encoded, every lossless track destroyed — over a track
-  // nobody selected. Now the uncarriable ones are dropped and the rest play;
-  // only a file with no carriable track at all still declines. A file with no
-  // audio whatsoever was always fine and stays fine.
-  const audioTracks = videoItem.MediaStreams.filter((stream) => stream.Type === "Audio");
-  const carriable = audioTracks.filter((track) => isAudioTrackCarriable(track.Codec));
-  if (audioTracks.length > 0 && carriable.length === 0) {
-    return declineRemux("no carriable audio track", { codecs: audioTracks.map((track) => track.Codec ?? "unknown").join(", ") });
+  let audioTracks: AudioCatalogueTrack[];
+  try {
+    audioTracks = audioCatalogue(videoItem);
+  } catch (error) {
+    return declineRemux("invalid audio catalogue", { error: String(error) });
   }
-  if (carriable.length < audioTracks.length) {
-    logger.info("Dropping audio tracks the engine cannot carry", {
-      service: "LocalRemux",
-      dropped: audioTracks.filter((track) => !isAudioTrackCarriable(track.Codec)).map((track) => track.Codec ?? "unknown"),
-      kept: carriable.length,
-    });
+  const needsServerAudio = audioTracks.some((track) => !isAudioTrackCarriable(track.stream.Codec));
+  if (needsServerAudio && (audioOnly || isLiveSource(videoItem) || playsFromDisk(videoItem.Id))) {
+    return declineRemux("audio track requires an unavailable server supplier");
   }
 
   // A live stream has no runtime; the engine's live mode needs none.
   if (!isLiveSource(videoItem) && (!videoItem.RunTimeTicks || videoItem.RunTimeTicks <= 0)) return declineRemux("no runtime in metadata");
 
-  // Audio-only: the carriable check above is the whole test. There is no video
-  // codec, resolution or pixel format left to judge.
   if (audioOnly) return true;
+
+  if (await needsSingleServerTranscode(videoItem)) return declineRemux("8K video this device does not copy", { width: videoStream?.Width, height: videoStream?.Height });
 
   // Prefix match everywhere, same reason as the audio list: family variants
   // match ("hvc1", "wmv3", "vp6f"), codecs that merely CONTAIN an entry do not
@@ -826,7 +987,7 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
   if (REMUXABLE_CODECS.some((known) => codec.startsWith(known))) return true;
   if (AV1_CODECS.some((known) => codec.startsWith(known))) return true;
 
-  // Exotic codecs, decoded and re-encoded on device at any size, depth or field
+  // Exotic codecs, decoded and re-encoded on device below 8K at any depth or field
   // order. Whether this device keeps up is measured by the session itself
   // (reportThroughput), never guessed from the metadata.
   if (TRANSCODABLE_VIDEO_CODECS.some((known) => codec.startsWith(known))) return true;
@@ -851,14 +1012,17 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
     // server lane is exactly what a download exists to do without.
     if (videoItem && !playsFromDisk(videoItem.Id) && !isLiveSource(videoItem) && (await rememberedVerdict(videoItem))) return "server";
     if (!(await canRemuxLocally(videoItem, { record: false }))) return "server";
-    const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
+    const videoStream = videoItem ? playbackMediaStreams(videoItem).find((stream) => stream.Type === "Video") : undefined;
     if (!videoStream) return "copy";
     return (await copiesVideo(videoStream)) ? "copy" : "deviceTranscode";
   })();
   if (lane === "server" || videoItem == null) return { lane, smallFeedFirst: false };
-  const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
+  // Item-page hint only: whether the stored link reading suggests this play opens on the smaller
+  // server feed. Best-effort from the remembered bitrate; the runtime always offers the ladder and
+  // lets AVPlayer decide. A held file reads off disk; a live channel has no server tier.
+  const sourceBps = sourceBandwidthForItem(videoItem);
   const measuredBps = sourceBps > 0 && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
-  return { lane, smallFeedFirst: measuredBps != null && measuredBps < sourceBps && slipstreamTierBandwidth(videoItem) != null };
+  return { lane, smallFeedFirst: !isLiveSource(videoItem) && measuredBps != null && measuredBps < sourceBps && slipstreamTierBandwidth(videoItem) != null };
 }
 
 /**
@@ -870,7 +1034,8 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
  * for the same file, on files it stream-copies so both describe one bitstream:
  *
  *   High/31 avc1.64001F   High/41 avc1.640029   Main/30 avc1.4D401E
- *   Main/31 avc1.4D401F   Main/51 avc1.4D4033   HEVC Main 10/120 hvc1.2.4.L120.B0
+ *   Main/31 avc1.4D401F   Main/51 avc1.4D4033
+ *   HEVC Main/93 hvc1.1.4.L93.B0   HEVC Main 10/120 hvc1.2.4.L120.B0
  *
  * Baseline and the High 4:2:x profiles are deliberately absent. A CODECS string
  * AVPlayer disagrees with is a hard rejection of the whole variant, and nothing
@@ -901,8 +1066,7 @@ export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, will
     const tag = H264_PROFILE_TAG[profile];
     return tag ? `avc1.${tag}${level.toString(16).toUpperCase().padStart(2, "0")}` : "";
   }
-  // HDR10 and HLG are Main 10 by definition, which is the one HEVC profile the
-  // library can prove. Other HEVC profiles fall through to no attribute.
+  if (codec === "hevc" && profile === "main") return `hvc1.1.4.L${level}.B0`;
   if (codec === "hevc" && profile === "main 10") return `hvc1.2.4.L${level}.B0`;
   // Copied AV1. Jellyfin's Level is the sequence header's seq_level_idx
   // verbatim; the bitstream spec forces Main tier ("M") for levels <= 7, and
@@ -960,8 +1124,15 @@ export type SubtitleRendition = {
   isDefault: boolean;
   isForced: boolean;
   isImage: boolean;
+  isExternal?: boolean;
   /** An embedded text track the engine decodes and publishes as WebVTT segments. */
   isEngineText: boolean;
+  /** The server's WebVTT of an engine text track, for windows the engine cannot read in time (rung sessions). */
+  serverVttUrl?: string;
+  /** The server's raw copy of a PGS or DVD track, decoded on device when the source is not being read (rung sessions). */
+  serverSupUrl?: string;
+  /** Where an embedded track sits in the container; absent for a sidecar and on a live source. */
+  source?: SourcePosition;
 };
 
 /**
@@ -983,14 +1154,19 @@ function subtitleLabels(streams: JellyfinMediaStream[]): string[] {
     const language = stream.Language?.trim() ?? "";
     const named = Boolean(stream.Title?.trim()) || (language !== "" && language !== "und");
     if (!named) return `Track ${position + 1}`;
-    return stream.DisplayTitle?.trim() || stream.Title?.trim() || language;
+    return manifestName(stream.DisplayTitle?.trim() || stream.Title?.trim() || language) || `Track ${position + 1}`;
   });
 
   // Anything still repeated after that — two tracks genuinely both called
   // "English", which real discs do ship — is disambiguated by position.
   const occurrences = new Map<string, number>();
   for (const label of labels) occurrences.set(label, (occurrences.get(label) ?? 0) + 1);
-  return labels.map((label, position) => ((occurrences.get(label) ?? 0) > 1 ? `${label} (${position + 1})` : label));
+  return publishedRenditionNames(
+    labels.map((label, position) => ({
+      name: (occurrences.get(label) ?? 0) > 1 ? `${label} (${position + 1})` : label,
+      index: streams[position].Index as number,
+    })),
+  );
 }
 
 /**
@@ -1017,29 +1193,77 @@ function subtitleLabels(streams: JellyfinMediaStream[]): string[] {
  */
 /** The renditions a session ships: every track for a file, the image tracks alone for a live channel. */
 export function sessionSubtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendition[] {
-  const renditions = subtitleRenditions(videoItem);
-  return isLiveSource(videoItem) ? renditions.filter((rendition) => rendition.isImage) : renditions;
+  return buildSubtitleRenditions(videoItem, isLiveSource(videoItem));
+}
+
+function externalImageSubtitleUrl(videoItem: JellyfinVideoItem, stream: JellyfinMediaStream): string {
+  if (stream.IsExternal !== true || !isImageBasedSubtitleCodec(stream.Codec) || playsFromDisk(videoItem.Id)) return "";
+  const deliveryUrl = (stream as JellyfinMediaStream & { DeliveryUrl?: string }).DeliveryUrl;
+  if (!deliveryUrl) return "";
+  const config = getCachedConfig();
+  try {
+    const url = new URL(deliveryUrl, config.server || undefined);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    const authenticatedOrigin = config.server ? new URL(config.server).origin : null;
+    const hasApiKey = [...url.searchParams.keys()].some((key) => key.toLowerCase() === "apikey" || key.toLowerCase() === "api_key");
+    if (url.origin === authenticatedOrigin && config.apiKey && !hasApiKey) url.searchParams.set("ApiKey", config.apiKey);
+    return url.toString();
+  } catch {
+    return "";
+  }
 }
 
 export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendition[] {
-  const shipped = (videoItem.MediaStreams ?? [])
-    .filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined)
-    .map((stream) => {
+  return buildSubtitleRenditions(videoItem, false);
+}
+
+function isRemoteSubtitleUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolean): SubtitleRendition[] {
+  const streamIndexes = new Set<number>();
+  const mediaStreams = playbackMediaStreams(videoItem);
+  // A track that cannot be served is left out: the film plays without it.
+  const dropped = (reason: string, index: number | undefined) => {
+    logger.warn("Subtitle track left out of the session", { service: "LocalRemux", itemId: videoItem.Id, streamIndex: index, reason });
+    return [];
+  };
+  const shipped = mediaStreams
+    .filter((stream) => stream.Type === "Subtitle" && (!imageOnly || isImageBasedSubtitleCodec(stream.Codec)))
+    .flatMap((stream) => {
+      const index = stream.Index;
+      if (index === undefined || !Number.isInteger(index) || index < 0 || index > 2_147_483_647) return dropped("no valid stream index", index);
+      if (streamIndexes.has(index)) return dropped("duplicate stream index", index);
+      streamIndexes.add(index);
       const isImage = isImageBasedSubtitleCodec(stream.Codec);
       // A track saved with the download is a PATH, not a URL: the engine serves its bytes over
       // the loopback. A file:// URI inside an http playlist is a scheme AVFoundation will not
       // follow, and handing it one loses the whole asset, not just the subtitle.
-      const localVtt = isImage ? "" : (localSubtitleUri(videoItem.Id, stream.Index as number) ?? "");
+      const localVtt = isImage ? "" : (localSubtitleUri(videoItem.Id, index) ?? "");
       const isEngineText = !isImage && !localVtt && stream.IsExternal !== true;
-      return {
-        stream,
-        isImage,
-        isEngineText,
-        localVtt,
-        vttUrl: isImage || isEngineText || localVtt ? "" : getSubtitleUrl(videoItem.Id, stream.Index as number, "vtt"),
-      };
-    })
-    .filter((entry) => entry.isImage || entry.isEngineText || entry.localVtt.length > 0 || entry.vttUrl.length > 0);
+      const vttUrl = isImage || isEngineText || localVtt ? "" : getSubtitleUrl(videoItem.Id, index, "vtt");
+      const serverSupUrl = isImage && stream.IsExternal === true ? externalImageSubtitleUrl(videoItem, stream) : "";
+      if (isImage && stream.IsExternal === true && !serverSupUrl) return dropped("no bitmap subtitle supplier", index);
+      if (!isImage && !isEngineText && !localVtt && !isRemoteSubtitleUrl(vttUrl)) return dropped("no text subtitle supplier", index);
+      return [
+        {
+          stream,
+          index,
+          isImage,
+          isEngineText,
+          localVtt,
+          vttUrl,
+          serverSupUrl,
+          source: imageOnly ? null : sourcePosition(mediaStreams, stream),
+        },
+      ];
+    });
 
   const labels = subtitleLabels(shipped.map((entry) => entry.stream));
 
@@ -1052,7 +1276,7 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
   const firstDefault = shipped.findIndex((entry) => entry.stream.IsDefault === true);
 
   return shipped.map((entry, position) => ({
-    index: entry.stream.Index as number,
+    index: entry.index,
     name: labels[position],
     language: entry.stream.Language || "und",
     vttUrl: entry.vttUrl,
@@ -1064,7 +1288,10 @@ export function subtitleRenditions(videoItem: JellyfinVideoItem): SubtitleRendit
     // withholds one of those from the picker and does not apply it either.
     isForced: entry.stream.IsForced === true,
     isImage: entry.isImage,
+    isExternal: entry.stream.IsExternal === true,
     isEngineText: entry.isEngineText,
+    ...(entry.isImage && entry.stream.IsExternal === true ? { serverSupUrl: entry.serverSupUrl } : {}),
+    ...(entry.source ? { source: entry.source } : {}),
   }));
 }
 
@@ -1087,9 +1314,26 @@ export type SubtitlePick = {
   reason?: string;
 };
 
-/** What the master playlist actually carries: Remuxer.masterPlaylist() strips quotes from NAME. */
 function manifestName(name: string): string {
-  return name.replace(/"/g, "");
+  return name
+    .replace(/"/g, "'")
+    .replace(/\r\n|[\p{Cc}\p{Cf}]/gu, " ")
+    .trim();
+}
+
+function publishedRenditionNames(tracks: { name: string; index: number }[]): string[] {
+  const used = new Set<string>();
+  return tracks.map((track) => {
+    const base = manifestName(track.name) || `Track ${track.index}`;
+    let name = base;
+    let suffix = 1;
+    while (used.has(name)) {
+      name = `${base} (${track.index}${suffix === 1 ? "" : `-${suffix}`})`;
+      suffix += 1;
+    }
+    used.add(name);
+    return name;
+  });
 }
 
 /**
@@ -1140,7 +1384,8 @@ export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks:
 
   const ordinal = selected[0].index;
   const title = selected[0].title?.trim() ?? "";
-  const named = title ? renditions.find((rendition) => manifestName(rendition.name) === title) : undefined;
+  const names = publishedRenditionNames(renditions);
+  const named = title ? renditions.find((_rendition, position) => names[position] === title) : undefined;
   // A text track resolves fine; it just has no bitmaps, because AVKit draws it.
   if (named) return { imageStreamIndex: named.isImage ? named.index : null, rendition: named, ordinal };
 
@@ -1166,7 +1411,7 @@ export async function startLocalRemux(
   preferredAudioStreamIndex?: number,
   startOffsetSeconds?: number,
   // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
-  options: { prewarm?: boolean; liveWindowSeconds?: number } = {},
+  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean } = {},
 ): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
@@ -1178,25 +1423,30 @@ export async function startLocalRemux(
   // being written is live too, read from the static stream the server keeps
   // growing (ProgressiveFileStream).
   const live = isLiveSource(videoItem);
+  const mediaStreams = playbackMediaStreams(videoItem);
+  const serverVideoOnly = options.serverVideoOnly === true;
+  if (serverVideoOnly && (live || playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
+    throw new Error("Server-video gateway requires network VOD video");
+  }
+  if (serverVideoOnly && !serverVideoTranscodingAllowed(videoItem)) {
+    throw new Error("Server video transcoding is not permitted for this source");
+  }
   const inputUrl = videoItem.liveStreamUrl ?? getVideoStreamUrl(videoItem.Id, videoItem);
   const durationSeconds = live ? 0 : (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
 
-  // Ordering is the only channel to the native side: position 0 is marked
-  // DEFAULT=YES in the master playlist, so putting a track first IS the
-  // selection, and a user-selected track (audio switch restart) outranks
-  // Jellyfin's default. How position 0 is served is the native side's call:
-  // a lone track is muxed with the video; several tracks each get their own
-  // audio-only rendition (stable picker labels — see Remuxer.masterPlaylist()).
-  // Uncarriable tracks are filtered out rather than handed over: the engine
-  // fails a session it cannot build a rendition for, and canRemuxLocally now
-  // admits files that carry one (see isAudioTrackCarriable).
-  const orderedAudio = orderedCarriableAudio(videoItem, preferredAudioStreamIndex);
-  const audioTracks = orderedAudio.map((stream) => ({
-    index: stream.Index as number,
-    name: stream.DisplayTitle || stream.Language || `Audio ${stream.Index}`,
-    language: stream.Language || "und",
-    isDefault: stream.IsDefault === true,
+  const orderedAudio = audioCatalogue(videoItem, preferredAudioStreamIndex);
+  const audioTracks = orderedAudio.map((track) => ({
+    index: track.index,
+    identity: track.identity,
+    name: track.name,
+    language: track.stream.Language || "und",
+    isDefault: track.stream.IsDefault === true,
+    ...(!live && track.source ? { source: track.source } : {}),
+    ...(serverVideoOnly ? { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH } : audioOutput(track.stream)),
   }));
+  if (audioTracks.some((track) => track.usesServerAudio) && (live || playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
+    throw new Error("Audio track requires an unavailable server supplier");
+  }
   // Built by the shared helper so the app's ordinal lookup sees exactly this
   // list, in exactly this order. Live carries its image tracks, drawn by the app.
   const subtitles = sessionSubtitleRenditions(videoItem);
@@ -1207,46 +1457,16 @@ export async function startLocalRemux(
   // HDR10/HDR10+/DOVI are PQ-transfer, HLG is HLG, everything else SDR.
   // Empty on an audio-only session, where VIDEO-RANGE has nothing to describe
   // and the engine leaves the attribute off entirely (Remuxer.masterPlaylist).
-  const videoStreamMeta = (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Video");
-  const videoRange = sourceVideoRange(videoItem);
+  const videoStreamMeta = mediaStreams.find((stream) => stream.Type === "Video");
+  const videoRange = sourceVideoRange({ ...videoItem, MediaStreams: mediaStreams });
 
-  // CODECS accompanies a non-SDR VIDEO-RANGE only: AVFoundation refuses to
-  // select an HDR variant whose codec support it cannot verify, while SDR
-  // variants have provably never needed the attribute here. Only HEVC carries
-  // HDR through the remux path (Main 10 = profile_idc 2), so the string is the
-  // Apple-documented hvc1 form with the stream's level.
-  //
-  // The audio token has to match what AudioTranscoder actually emits, and a
-  // mismatched CODECS is exactly what AVPlayer refuses. This mirrors the rule in
-  // AudioTranscoder.needsTranscode: AAC, ALAC, AC-3 and E-AC-3 copy, well-formed
-  // FLAC copies, everything else is re-encoded to FLAC. Keep the two in step: the
-  // master playlist is served before FFmpeg has opened the input, so the engine
-  // cannot report the real answer back in time.
-  //
-  // RFC 6381 names for the Dolby codecs are "ac-3" and "ec-3". Atmos is NOT a
-  // separate token: E-AC-3 with JOC is still ec-3, and Apple signals the object
-  // audio in CHANNELS ("16/JOC") rather than in CODECS, which is what their own
-  // example stream does.
-  // The track the master playlist marks DEFAULT=YES — not the first Audio
-  // stream in source order, which can be a different track entirely.
-  const primaryAudio = orderedAudio[0] ?? (videoItem.MediaStreams ?? []).find((stream) => stream.Type === "Audio");
-  const primaryAudioCodec = primaryAudio?.Codec?.toLowerCase() ?? "";
-  const audioCodecTag =
-    primaryAudioCodec.startsWith("aac") || primaryAudioCodec.startsWith("mp4a")
-      ? "mp4a.40.2"
-      : primaryAudioCodec.startsWith("alac")
-        ? "alac"
-        : primaryAudioCodec.startsWith("eac3") || primaryAudioCodec.startsWith("ec-3")
-          ? "ec-3"
-          : primaryAudioCodec.startsWith("ac3") || primaryAudioCodec.startsWith("ac-3")
-            ? "ac-3"
-            : "fLaC";
+  const audioCodecTags = [...new Set(audioTracks.flatMap((track) => track.codecs.split(",")).filter(Boolean))];
   // The engine copies the video this device decodes and re-encodes everything else, which
   // is exactly the line between a CODECS tag we can state and one we would be inventing.
-  const willCopyVideo = await copiesVideo(videoStreamMeta);
+  const willCopyVideo = !serverVideoOnly && (await copiesVideo(videoStreamMeta));
   // A device that cannot decode Main 10 gets 8-bit H.264 from the encoder (VideoTranscoder
   // picks hevc_videotoolbox only where it can), so the variant declares SDR and no HDR tag.
-  const flattensToSdr = !willCopyVideo && !(await videoDecodeSupport()).hevcMain10;
+  const flattensToSdr = !serverVideoOnly && !willCopyVideo && !(await videoDecodeSupport()).hevcMain10;
   const declaredRange = flattensToSdr ? (videoRange ? "SDR" : "") : videoRange;
 
   // A non-SDR variant MUST carry CODECS whatever else happens: AVFoundation
@@ -1255,15 +1475,8 @@ export async function startLocalRemux(
   // keeps its long-standing fallback even for a profile we have not measured.
   const measuredVideoTag = videoCodecTag(videoStreamMeta, willCopyVideo);
   const hdrFallbackTag = `hvc1.2.4.L${videoStreamMeta?.Level && videoStreamMeta.Level > 0 ? videoStreamMeta.Level : 123}.B0`;
-  const videoTag = measuredVideoTag || (declaredRange === "SDR" || declaredRange === "" ? "" : hdrFallbackTag);
-  // An audio-only variant carries the audio token by itself. There is no video
-  // tag to pair it with and no reason to withhold it: the caveat that keeps
-  // CODECS off a transcoded video variant is about a token we would be
-  // inventing, and the audio one is measured from the source.
-  // CODECS names what the rendition CONTAINS (Apple HLS authoring 8.3): a video-only source
-  // gets the video token alone, or AVFoundation validates the master against audio that is
-  // not there.
-  const codecs = videoTag ? (primaryAudio ? `${videoTag},${audioCodecTag}` : videoTag) : videoStreamMeta ? "" : audioCodecTag;
+  const videoTag = serverVideoOnly ? "" : measuredVideoTag || (declaredRange === "SDR" || declaredRange === "" ? "" : hdrFallbackTag);
+  const codecs = videoTag ? [videoTag, ...audioCodecTags].join(",") : videoStreamMeta ? "" : audioCodecTags.join(",");
   // Additive by construction: CODECS is untouched, so a player that does not
   // read this attribute gets the HDR10 base layer it already plays.
   const supplementalCodecs = videoTag ? dolbyVisionSupplementalCodecs(videoStreamMeta, willCopyVideo) : "";
@@ -1286,19 +1499,7 @@ export async function startLocalRemux(
   const height = videoStreamMeta?.Height ?? 0;
   const frameRate = videoStreamMeta?.RealFrameRate ?? videoStreamMeta?.AverageFrameRate ?? 0;
 
-  // Peak bit rate is the video plus the audio we will really serve. Jellyfin
-  // computes it the same way and its arithmetic was confirmed exactly on two
-  // files it stream-copies: T11 declared 5858053 for a 5666053 video and
-  // 192000 of audio, T09 declared 5637236 for 5445236 and the same audio.
-  //
-  // FLAC is the one case where our output is BIGGER than the source, since the
-  // engine decodes lossy surround into it. Estimated from the source's own
-  // shape rather than measured, because the playlist is written before FFmpeg
-  // opens the input; roughly 60% of PCM is the usual FLAC ratio.
-  // Same track the CODECS tag describes, for the same reason.
-  const audioBitRate =
-    audioCodecTag === "fLaC" ? Math.round((primaryAudio?.Channels ?? 2) * (primaryAudio?.SampleRate ?? 48000) * (primaryAudio?.BitDepth ?? 16) * 0.6) : (primaryAudio?.BitRate ?? 192_000);
-  const bandwidth = (videoStreamMeta?.BitRate ?? 0) + audioBitRate;
+  const { primaryVideoBandwidth, bandwidth, sourceBandwidth } = primaryBandwidths(videoItem, Math.max(0, ...audioTracks.map((track) => track.bandwidth)));
 
   // Before the call: the engine reports its plan from the pipeline thread,
   // which can beat this promise's resolution.
@@ -1307,57 +1508,64 @@ export async function startLocalRemux(
     watchEngineTier();
   }
 
-  // Slipstream tier config. The undercut rule lives in slipstreamTierBandwidth:
-  // null means the rung would not meaningfully undercut the primary (audio-
-  // heavy small files) and no tier is declared. When declared, every audio
-  // track gets a server audio-only rendition URL — the tier's "audio-lo"
-  // group, so the survival rung never depends on the engine's source pull.
-  // BANDWIDTH covers the variant PLUS its renditions (RFC 8216 §4.3.4.2)
-  // and CODECS names the group's audio codec.
-  // A link measured below the source opens on the smallest feed: the tier is
-  // declared and listed FIRST, and AVPlayer climbs to the primary from its
-  // own delivery measurements. Healthy or unmeasured sessions declare NO
-  // tier — AVPlayer's per-host loopback history otherwise steers it there
-  // anyway (device-logged), moving audio to the server-fed group for nothing.
-  // A held file is read off the disk, so the link to the server describes nothing about this
-  // session and the tier would put a server URL first in a playlist that must carry none.
-  // A live channel has no server tier: the server never transcodes it.
-  const sourceBps = videoItem.MediaSources?.[0]?.Bitrate ?? 0;
-  const measuredBps = sourceBps > 0 && !live && !playsFromDisk(videoItem.Id) ? await rememberedBitrate() : null;
-  const linkBelowSource = measuredBps != null && measuredBps < sourceBps;
-  const tierBandwidth = linkBelowSource && audioTracks.length > 0 ? slipstreamTierBandwidth(videoItem, preferredAudioStreamIndex) : null;
-  const streamsByIndex = new Map((videoItem.MediaStreams ?? []).map((stream) => [stream.Index, stream]));
-  const tierAudioPlan = serverAudioPlan(primaryAudio);
-  const tierConfig =
-    tierBandwidth != null
-      ? {
-          tierPlaylistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, SLIPSTREAM_TIER, generatePlaySessionId()),
-          tierBandwidth,
-          tierCodecs: `${SLIPSTREAM_TIER.codecs},${tierAudioPlan.tag}`,
-          tierWidth: SLIPSTREAM_TIER.width,
-          tierHeight: SLIPSTREAM_TIER.height,
-        }
-      : {};
-  const audioTracksConfig =
-    tierBandwidth != null
-      ? audioTracks.map((track) => {
-          const stream = streamsByIndex.get(track.index);
-          const plan = serverAudioPlan(stream);
-          return { ...track, serverAudioUrl: getAudioRenditionUrl(videoItem.Id, videoItem, track.index, plan.codec, stream?.Channels ?? 6, generatePlaySessionId()) };
+  // Slipstream ladder: always offered for a streamable source with audio. The engine orders the
+  // master by the link it measures and AVPlayer's own ABR moves between the variants. A held
+  // file reads off disk (no server URL belongs in its playlist); a live channel has no server tier.
+  // BANDWIDTH covers the variant plus its audio rendition (RFC 8216 4.3.4.2); CODECS names the group.
+  const rungs = !live && !playsFromDisk(videoItem.Id) && (audioTracks.length > 0 || serverVideoOnly) ? offeredTierRungs(videoItem, preferredAudioStreamIndex, { serverVideoOnly }) : [];
+  const streamsByIndex = new Map(mediaStreams.map((stream) => [stream.Index, stream]));
+  // One server audio group: audio-lo, 96 kb/s stereo AAC, on every rung.
+  const tierAudioPlan = { bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" };
+  // One TierConfig per offered rung, ascending.
+  const tiersConfig = rungs.map((rung) => ({
+    playlistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, rung, generatePlaySessionId()),
+    bandwidth: rung.bitrate + (audioTracks.length > 0 ? RUNG_AUDIO_BANDWIDTH : 0),
+    codecs: audioTracks.length > 0 ? `${rung.codecs},${tierAudioPlan.tag}` : rung.codecs,
+    width: rung.width,
+    height: rung.height,
+  }));
+  const audioTracksConfig = audioTracks.map((track) => {
+    if (rungs.length === 0 && !track.usesServerAudio) return track;
+    const serverAudioUrl = getAudioRenditionUrl(videoItem.Id, videoItem, track.index, generatePlaySessionId(), SURVIVAL_AUDIO_BITRATE);
+    if (track.usesServerAudio && !serverAudioUrl) throw new Error(`No server audio URL for ${track.identity}`);
+    return {
+      ...track,
+      serverAudioUrl,
+      serverAudioChannels: Math.max(1, Math.min(streamsByIndex.get(track.index)?.Channels || 2, 2)),
+    };
+  });
+
+  // A link that needs the rungs cannot carry the source read the engine decodes text cues from,
+  // so each engine text track also names the server's WebVTT.
+  // An image track has the same problem and the same answer: the server hands PGS and DVD tracks
+  // over raw (Stream.pgssub, Stream.mks) and the device still decodes and draws them. DVB and XSUB
+  // have no measured raw route, and neither does a sidecar file, which the container never held.
+  const rawImageFormat = (stream: JellyfinMediaStream | undefined) => (!stream || stream.IsExternal === true ? null : isPgsCodec(stream.Codec) ? "pgssub" : isDvdSubCodec(stream.Codec) ? "mks" : null);
+  const subtitlesConfig =
+    rungs.length > 0
+      ? subtitles.map((sub) => {
+          if (sub.isEngineText) return { ...sub, serverVttUrl: getSubtitleUrl(videoItem.Id, sub.index, "vtt") };
+          const format = sub.isImage ? rawImageFormat(streamsByIndex.get(sub.index)) : null;
+          return format ? { ...sub, serverSupUrl: getSubtitleUrl(videoItem.Id, sub.index, format) } : sub;
         })
-      : audioTracks;
+      : subtitles;
 
-  const tierFirst = tierBandwidth != null;
-  if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierFirst });
+  const tierOffered = tiersConfig.length > 0;
+  if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierOffered });
 
+  watchEngineLink();
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
     itemId: videoItem.Id,
     audioTracks: audioTracksConfig,
     durationSeconds,
-    subtitles,
+    subtitles: subtitlesConfig,
     videoRange: declaredRange,
     codecs,
+    primaryVideoCodecs: videoTag,
+    primaryVideoBandwidth,
+    sourceBandwidth,
+    serverVideoOnly,
     supplementalCodecs,
     width,
     height,
@@ -1368,8 +1576,7 @@ export async function startLocalRemux(
     // request drives the producer's seek-restart there (no position-zero
     // production, no post-load auto-seek).
     startOffsetSeconds: !live && startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
-    tierFirst,
-    ...tierConfig,
+    tiers: tiersConfig,
     isLive: live,
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
     ...(live && options.liveWindowSeconds ? { liveWindowSeconds: options.liveWindowSeconds } : {}),
@@ -1387,7 +1594,7 @@ export async function startLocalRemux(
   // before this promise resolved.
   if (!options.prewarm) {
     activePlanToken = localRemuxToken(url);
-    activeTierDeclared = tierFirst;
+    activeTierDeclared = tierOffered;
     if (pendingPlan) {
       // A parked plan either belongs to this session or to a superseded one;
       // both ways the slot is done with it.
@@ -1412,16 +1619,6 @@ export async function startLocalRemux(
 /** Session token from the master URL startLocalRemux resolved, or null. */
 export function localRemuxToken(masterUrl: string | null | undefined): string | null {
   return masterUrl?.split("/").at(-2) ?? null;
-}
-
-/**
- * Whether the measured link's total buffer debt for this file outruns the
- * engine cushion: duration x (source/measured - 1) > cushion seconds. Below
- * it, the cushion carries the whole deficit at original quality.
- */
-export function deficitExceedsCushion(measuredBps: number | null, sourceBps: number, durationSeconds: number): boolean {
-  if (measuredBps == null || sourceBps <= 0 || measuredBps >= sourceBps) return false;
-  return durationSeconds * (sourceBps / measuredBps - 1) > REMUX_READ_AHEAD_SEGMENTS * 6;
 }
 
 /**
@@ -1569,6 +1766,8 @@ export function imagesAt(events: ImageSubtitleEvent[], time: number): ImageSubti
  */
 export async function stopLocalRemux(token: string | null): Promise<void> {
   if (!isLocalRemuxAvailable() || !token) return;
+  rememberLink(token, null);
+  linkListeners.delete(token);
   try {
     await LocalRemuxer.stopRemux(token);
   } catch (error) {

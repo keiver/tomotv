@@ -1,4 +1,4 @@
-import { closeLiveStream, closeWarmedChannels, isServerLaneChannel, noteOpenFailed, openRecentlyFailed, resolveChannel, warmChannel } from "@/services/jellyfinApi";
+import { closeLiveStream, noteOpenFailed, openRecentlyFailed, resolveChannel } from "@/services/jellyfinApi";
 import { canRemuxLocally, localRemuxToken, setLiveWindow, startLocalRemux, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { adjacentChannelId } from "@/utils/guide";
@@ -7,13 +7,12 @@ import { logger } from "@/utils/logger";
 /**
  * The channels around the one on screen, and the one owner of their sessions. Neighbours run in
  * the engine with segments already cut, so a flip binds a ready session (measured 0.05-0.10s to
- * ready against 0.6-2.8s cold); the wider ring's server-lane channels are held open on the server.
+ * ready against 0.6-2.8s cold). Nothing is held open on the server: an open the server counts
+ * outlives any app that dies, and it writes the channel to the server's disk the whole time.
  */
 
 /** Channels on each side kept cutting segments in the engine. */
 const HOT_RADIUS = 1;
-/** Channels on each side the server holds open, when the server is their lane. */
-const WARM_RADIUS = 10;
 /** Hot sessions at once: both neighbours and the channel just left, until a recenter trims it. */
 const MAX_HOT = 3;
 /** A hot session's window until a player adopts it: disk, not playback, is what it bounds. */
@@ -131,7 +130,7 @@ async function heat(channelId: string): Promise<void> {
       return;
     }
     if (!details.liveStreamUrl || !(await canRemuxLocally(details, { record: false }))) {
-      // Nothing for the engine to hold. The warm ring opens it when the server is its lane.
+      // Nothing for the engine to hold: the server is its lane, opened when it plays.
       coldUntil.set(channelId, Date.now() + COLD_ONLY_MS);
       void closeLiveStream(details.LiveStreamId);
       return;
@@ -172,8 +171,8 @@ async function heat(channelId: string): Promise<void> {
 }
 
 /**
- * Move the ring onto `centerId`. Server-lane channels open at once; the engine neighbours start only
- * while the center plays, so a burst of swipes does not start a session per channel passed.
+ * Move the ring onto `centerId`. The engine neighbours start only while the center plays, so a
+ * burst of swipes does not start a session per channel passed.
  */
 export function recenterLiveRing(ring: { Id: string }[], centerId: string, playing: boolean): void {
   active = true;
@@ -185,9 +184,6 @@ export function recenterLiveRing(ring: { Id: string }[], centerId: string, playi
       if (!hot.has(id) && !starting.has(id) && !openRecentlyFailed(id)) void heat(id);
     }
   }
-  const warm = ringAround(ring, centerId, WARM_RADIUS).filter((id) => isServerLaneChannel(id) && !hot.has(id) && !(playing && wanted.has(id)) && !openRecentlyFailed(id));
-  for (const id of warm) void warmChannel(id);
-  void closeWarmedChannels(warm);
 }
 
 /** Whether a flip to this channel binds a session that has already cut a segment. */
@@ -228,7 +224,7 @@ export function retainLiveSession(channel: HotChannel): boolean {
   return true;
 }
 
-/** The player is gone: every session and every server open the ring holds is closed. */
+/** The player is gone: every session the ring holds is closed. */
 export async function releaseLiveRing(): Promise<void> {
   active = false;
   center = null;
@@ -240,5 +236,4 @@ export async function releaseLiveRing(): Promise<void> {
   const entries = [...hot.values()];
   hot.clear();
   for (const entry of entries) release(entry);
-  await closeWarmedChannels();
 }

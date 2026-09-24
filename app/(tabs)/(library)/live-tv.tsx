@@ -1,11 +1,13 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GlassButton } from "@/components/glass-button";
+import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
 import { gridEdgePadding } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
+import { useChannelFavoriteMenu } from "@/hooks/useChannelFavoriteMenu";
 import { useGuide } from "@/hooks/useGuide";
-import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { NO_GUIDE_PREFIX } from "@/utils/guide";
@@ -17,7 +19,7 @@ import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-const CIRCLE = 62;
+const ICON = 26;
 
 /**
  * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
@@ -37,7 +39,9 @@ export default function LiveTvScreen() {
   }, []);
 
   const guide = useGuide();
-  const canManage = useLiveTvManagement();
+  const openFavoriteMenu = useChannelFavoriteMenu();
+  // The Channels pill wears the filled filter symbol while the channels are held to the favorites.
+  const { favoritesOnly } = useLiveTvPreferences();
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
@@ -65,12 +69,13 @@ export default function LiveTvScreen() {
   const handleChannelPress = useCallback((channel: JellyfinItem) => tune(channel.Id, channel.Name), [tune]);
   const openRecordings = useCallback(() => router.push("/recordings"), [router]);
   const openSchedule = useCallback(() => router.push("/schedule"), [router]);
+  const openChannels = useCallback(() => router.push("/channels"), [router]);
 
-  // Half the grid edge: the guide's channel column is the screen's left frame, not a card.
-  const edgeLeft = gridEdgePadding(insets.left, IS_TV) / 2;
+  // TV frames the column half a grid edge in; phone runs it flush to the screen edge.
+  const edgeLeft = IS_TV ? gridEdgePadding(insets.left, IS_TV) / 2 : insets.left;
   // Phone: the transparent native header floats over the content, so the body starts under it.
   const topClearance = IS_TV ? 10 + insets.top : headerHeight + 8;
-  // Phone: Recordings and Schedule are native bar items; TV draws them as glass circles.
+  // Phone: Channels, Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
       IS_TV
@@ -78,13 +83,18 @@ export default function LiveTvScreen() {
         : {
             title: params.name ?? t("liveTv.title"),
             unstable_headerRightItems: () => [
+              {
+                type: "button",
+                label: t("liveTv.channels"),
+                icon: { type: "sfSymbol", name: favoritesOnly ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2" },
+                tintColor: COLORS.ACCENT,
+                onPress: openChannels,
+              },
               { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
-              ...(canManage
-                ? [{ type: "button" as const, label: t("liveTv.scheduled"), icon: { type: "sfSymbol" as const, name: "calendar" as const }, tintColor: COLORS.ACCENT, onPress: openSchedule }]
-                : []),
+              { type: "button", label: t("liveTv.scheduled"), icon: { type: "sfSymbol", name: "calendar" }, tintColor: COLORS.ACCENT, onPress: openSchedule },
             ],
           },
-    [params.name, openRecordings, openSchedule, canManage],
+    [params.name, openRecordings, openChannels, openSchedule, favoritesOnly],
   );
 
   return (
@@ -92,24 +102,31 @@ export default function LiveTvScreen() {
       <Stack.Screen options={screenOptions} />
       <View style={styles.container}>
         <AmbientBackground />
-        <View style={[styles.header, { paddingTop: topClearance, paddingLeft: edgeLeft }]}>
+        <View style={[styles.header, { paddingTop: topClearance, paddingHorizontal: edgeLeft }]}>
           {IS_TV ? (
-            <>
+            <View style={styles.headerBar}>
               <GlassButton
                 ref={handleFirstActionRef}
-                style={styles.circle}
-                icon={<Ionicons name="recording-outline" size={30} color={COLORS.ACCENT} />}
-                accessibilityLabel={t("liveTv.recordings")}
-                onPress={openRecordings}
+                title={t("liveTv.channels")}
+                icon={
+                  favoritesOnly ? <SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={ICON} color={COLORS.ACCENT} /> : <Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />
+                }
+                onPress={openChannels}
               />
-              {canManage ? (
-                <GlassButton style={styles.circle} icon={<Ionicons name="calendar-outline" size={30} color={COLORS.ACCENT} />} accessibilityLabel={t("liveTv.scheduled")} onPress={openSchedule} />
-              ) : null}
-            </>
+              <GlassButton title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
+              <GlassButton title={t("liveTv.scheduled")} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openSchedule} />
+            </View>
           ) : null}
         </View>
         <View style={[styles.body, { paddingLeft: edgeLeft }]}>
-          <GuideCanvas guide={guide} topFocusHandle={topFocusHandle} onProgramPress={handleProgramPress} onProgramLongPress={openProgram} onChannelPress={handleChannelPress} />
+          <GuideCanvas
+            guide={guide}
+            topFocusHandle={topFocusHandle}
+            onProgramPress={handleProgramPress}
+            onProgramLongPress={openProgram}
+            onChannelPress={handleChannelPress}
+            onChannelLongPress={openFavoriteMenu}
+          />
         </View>
       </View>
     </>
@@ -120,22 +137,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  // TV: the circles sit over the channel column, so Up from a channel and Down from a circle are plain geometry.
   header: {
     flexDirection: "row",
-    gap: IS_TV ? 24 : 0,
     paddingBottom: IS_TV ? 28 : 0,
+  },
+  // TV: the pills sit as one centred group.
+  headerBar: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 16,
   },
   body: {
     flex: 1,
-  },
-  // Square, which the base radius rounds to a circle; minHeight restated or the control floor wins.
-  circle: {
-    width: CIRCLE,
-    height: CIRCLE,
-    minWidth: 0,
-    minHeight: CIRCLE,
-    paddingVertical: 0,
-    paddingHorizontal: 0,
   },
 });

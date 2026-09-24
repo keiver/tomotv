@@ -17,7 +17,8 @@
  */
 
 import { NativeModules, Platform } from "react-native";
-import type { JellyfinVideoItem, JellyfinMediaStream } from "@/types/jellyfin";
+import type { JellyfinVideoItem } from "@/types/jellyfin";
+import { audioCatalogue } from "@/services/jellyfin/audioTracks";
 import { logger } from "@/utils/logger";
 
 const { MultiAudioResourceLoader } = NativeModules;
@@ -27,6 +28,8 @@ const { MultiAudioResourceLoader } = NativeModules;
  */
 export interface AudioTrackInfo {
   Index: number;
+  Identity: string;
+  MediaSourceId: string;
   Language: string;
   Codec: string;
   Channels: number;
@@ -121,47 +124,16 @@ export function isMultiAudioAvailable(): boolean {
  * Extract audio track information from video metadata
  */
 export function getAudioTracks(videoItem: JellyfinVideoItem): AudioTrackInfo[] {
-  // MediaStreams can be at the top level OR in MediaSources[0].MediaStreams
-  let mediaStreams = videoItem.MediaStreams;
-
-  // Fallback to MediaSources if top-level MediaStreams is empty
-  if ((!mediaStreams || mediaStreams.length === 0) && videoItem.MediaSources && videoItem.MediaSources.length > 0) {
-    mediaStreams = videoItem.MediaSources[0].MediaStreams;
-    logger.debug("Top-level MediaStreams was empty, reading MediaSources[0]", {
-      service: "MultiAudioLoader",
-      streamCount: mediaStreams?.length || 0,
-    });
-  }
-
-  if (!mediaStreams || mediaStreams.length === 0) {
-    logger.warn("No MediaStreams found in video metadata", {
-      service: "MultiAudioLoader",
-      videoId: videoItem.Id,
-      hasTopLevelStreams: !!videoItem.MediaStreams,
-      topLevelCount: videoItem.MediaStreams?.length || 0,
-      hasMediaSources: !!videoItem.MediaSources,
-      mediaSourceCount: videoItem.MediaSources?.length || 0,
-    });
-    return [];
-  }
-
-  const audioStreams = mediaStreams.filter((stream: JellyfinMediaStream) => stream.Type === "Audio");
-
-  const tracks = audioStreams.map((stream: JellyfinMediaStream) => ({
-    Index: stream.Index ?? 0,
-    Language: stream.Language || "und",
-    Codec: stream.Codec || "unknown",
-    Channels: stream.Channels || 2,
-    DisplayTitle: stream.DisplayTitle || `${stream.Language || "Unknown"} (${stream.Codec || "Unknown"})`,
-    IsDefault: stream.IsDefault ?? false,
+  return audioCatalogue(videoItem).map((track) => ({
+    Index: track.index,
+    Identity: track.identity,
+    MediaSourceId: track.mediaSourceId,
+    Language: track.stream.Language || "und",
+    Codec: track.stream.Codec || "unknown",
+    Channels: track.stream.Channels || 2,
+    DisplayTitle: track.name,
+    IsDefault: track.stream.IsDefault ?? false,
   }));
-
-  // Jellyfin's IsDefault flag is the server's own choice of track; keep it first.
-  return tracks.sort((a, b) => {
-    if (a.IsDefault && !b.IsDefault) return -1;
-    if (!a.IsDefault && b.IsDefault) return 1;
-    return 0;
-  });
 }
 
 /**
@@ -186,6 +158,10 @@ export async function prepareMultiAudioPlayback(videoId: string, videoItem: Jell
   if (audioTracks.length === 0) {
     throw new Error("No audio tracks found in video metadata");
   }
+  const sourceParameter = [...new URL(baseUrl).searchParams.entries()].find(([name]) => name.toLowerCase() === "mediasourceid")?.[1];
+  if (sourceParameter && audioTracks.some((track) => track.MediaSourceId !== sourceParameter)) {
+    throw new Error("Audio catalogue does not match the playback URL's media source");
+  }
 
   logger.info("Preparing multi-audio playback", {
     service: "MultiAudioLoader",
@@ -200,10 +176,10 @@ export async function prepareMultiAudioPlayback(videoId: string, videoItem: Jell
 
   try {
     // Configure resource loader with track info
-    await MultiAudioResourceLoader.configureResourceLoader(baseUrl, apiKey, videoId, audioTracks);
+    const configuredUrl = await MultiAudioResourceLoader.configureResourceLoader(baseUrl, apiKey, videoId, audioTracks);
 
     // Generate custom URL
-    const customUrl = await MultiAudioResourceLoader.generateCustomUrl(videoId);
+    const customUrl = typeof configuredUrl === "string" ? configuredUrl : await MultiAudioResourceLoader.generateCustomUrl(videoId);
 
     logger.info("Multi-audio manifest file URL generated", {
       service: "MultiAudioLoader",

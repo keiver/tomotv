@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="4000" viewBox="0 0 4000 4000">
+  <defs>
+    <radialGradient id="veil" gradientUnits="userSpaceOnUse" cx="2000" cy="-300" r="1900">
+      <stop offset="0" stop-color="#DEE4F0" stop-opacity="0.035"/>
+      <stop offset="0.35" stop-color="#DEE4F0" stop-opacity="0.035"/>
+      <stop offset="1" stop-color="#DEE4F0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="2000" cy="1720" r="2900">
+      <stop offset="0" stop-color="#A3CB38" stop-opacity="0.27"/>
+      <stop offset="1" stop-color="#A3CB38" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vignette" gradientUnits="userSpaceOnUse" cx="2000" cy="1880" r="2700">
+      <stop offset="0.38" stop-color="#000104" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000104" stop-opacity="0.78"/>
+    </radialGradient>
+  </defs>
+  <rect width="4000" height="4000" fill="#141416"/>
+  <rect width="4000" height="4000" fill="url(#veil)"/>
+  <rect width="4000" height="4000" fill="url(#glow)"/>
+  <rect width="4000" height="4000" fill="url(#vignette)"/>
+</svg>

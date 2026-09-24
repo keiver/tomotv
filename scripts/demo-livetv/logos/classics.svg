@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <g fill="#4A2B5C">
+    <path d="M40,300 A216,216 0 0 1 472,300 Z"/>
+    <rect x="80" y="300" width="352" height="44"/>
+    <rect x="28" y="344" width="456" height="136" rx="8"/>
+  </g>
+  <g stroke="#FFFFFF" stroke-width="7" stroke-linecap="round">
+    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(20 256 300)"/>
+    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(40 256 300)"/>
+    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(60 256 300)"/>
+    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(80 256 300)"/>
+    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(100 256 300)"/>
+    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(120 256 300)"/>
+    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(140 256 300)"/>
+    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(160 256 300)"/>
+  </g>
+  <path d="M200,300 A56,56 0 0 1 312,300 Z" fill="#FFFFFF"/>
+  <rect x="80" y="318" width="352" height="6" fill="#FFFFFF"/>
+  <text x="256" y="454" font-family="Bodoni 72" font-weight="bold" font-size="132" letter-spacing="4" text-anchor="middle" fill="#FFFFFF">CM</text>
+</svg>

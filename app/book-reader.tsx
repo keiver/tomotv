@@ -191,6 +191,11 @@ export default function BookReaderScreen() {
   const relayoutQueueRef = useRef<Promise<void>>(Promise.resolve());
   const queuedRelayoutsRef = useRef(0);
   const landedPageRef = useRef<number | null>(null);
+  const [landing, setLanding] = useState<{ page: number; id: number } | null>(null);
+  const landingIdRef = useRef(0);
+  useEffect(() => {
+    if (landing) viewerRef.current?.goTo(landing.page, 1, "fade");
+  }, [landing]);
   const relayout = useCallback(
     (next: BookLayout) => {
       queuedRelayoutsRef.current += 1;
@@ -207,7 +212,8 @@ export default function BookReaderScreen() {
           setUris({});
           setPages(result.pages);
           setIndex(result.page);
-          viewerRef.current?.goTo(result.page, 1, "fade");
+          // The viewer bounds a step by the page count it last rendered: the landing waits for that render.
+          setLanding({ page: result.page, id: landingIdRef.current++ });
           progressRef.current?.start(result.page, result.pages);
           prerender(result.page, result.pages);
         } catch (err) {

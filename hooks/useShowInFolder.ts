@@ -1,4 +1,4 @@
-import { fetchItemFolderPath } from "@/services/jellyfinApi";
+import { fetchItemFolderPath, fetchRecordingFolderIds } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
 import { useNavigationContainerRef, useRouter } from "expo-router";
 import { useCallback } from "react";
@@ -63,7 +63,9 @@ export function useShowInFolder() {
 
   return useCallback(
     async (item: JellyfinItem, options?: { dismissFirst?: boolean }) => {
-      const path = await fetchItemFolderPath(item.Id);
+      // The recordings libraries by id, since a user may name any library "Recordings"; a lookup that
+      // fails leaves the item to the folder grid.
+      const [path, recordingFolderIds] = await Promise.all([fetchItemFolderPath(item.Id), fetchRecordingFolderIds().catch(() => [] as string[])]);
       if (path.length === 0) {
         Alert.alert("Folder unavailable", "Couldn't find where this item lives on the server.");
         return;
@@ -73,6 +75,12 @@ export function useShowInFolder() {
         const before = navigationRef.isReady() ? navigationRef.getRootState() : undefined;
         router.back();
         await whenRootStateSettles(navigationRef, before);
+      }
+
+      // A recording opens in the Recordings screen, the same view Live TV reaches, not the generic folder grid.
+      if (recordingFolderIds.includes(path[0].id)) {
+        router.push({ pathname: "/recordings", params: { focusId: item.Id } });
+        return;
       }
 
       path.forEach((level, index) => {

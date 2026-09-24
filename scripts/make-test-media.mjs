@@ -600,6 +600,235 @@ async function buildBench() {
   return built;
 }
 
+/**
+ * Slipstream drill items: 12 minutes of real motion (the bench source looped) at a steady
+ * ~6 Mbps H.264, long enough to hold a rung and climb back. T102 carries two audio tracks.
+ */
+const SLIPSTREAM_SECONDS = 720;
+const SLIPSTREAM = [
+  { id: "T101", title: "T101 REMUX H264 AC3 12min slipstream", tracks: [{ layout: "5.1", codec: ["-c:a:0", "ac3", "-b:a:0", "640k"], lang: "eng" }] },
+  {
+    id: "T102",
+    title: "T102 REMUX H264 AC3 AAC 12min slipstream",
+    tracks: [
+      { layout: "5.1", codec: ["-c:a:0", "ac3", "-b:a:0", "640k"], lang: "eng" },
+      { layout: "stereo", codec: ["-c:a:1", "aac", "-b:a:1", "192k"], lang: "spa" },
+    ],
+  },
+];
+const SLIPSTREAM_SUBS = ["eng", "spa", "fra"];
+
+function srtScript(seconds, lang) {
+  const stamp = (s) => `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")},000`;
+  const cues = [];
+  for (let s = 0, n = 1; s < seconds; s += 6, n++) cues.push(`${n}\n${stamp(s)} --> ${stamp(s + 5)}\n${lang} cue at ${s}s\n`);
+  return cues.join("\n");
+}
+
+/**
+ * A chaptered item, for the rule that the device makes a chapter picture only where the server
+ * has none. Six chapters written into the container; give the server's extraction one pass over
+ * it and the same file covers the other side of that rule.
+ */
+const CHAPTERS = { id: "T103", title: "T103 REMUX H264 AAC chapters", seconds: 180, count: 6 };
+
+function chapterMetadata(seconds, count) {
+  const step = Math.floor(seconds / count);
+  const blocks = [";FFMETADATA1"];
+  for (let i = 0; i < count; i++) {
+    blocks.push(`[CHAPTER]\nTIMEBASE=1/1000\nSTART=${i * step * 1000}\nEND=${(i + 1) * step * 1000 - 1}\ntitle=Chapter ${i + 1}`);
+  }
+  return `${blocks.join("\n")}\n`;
+}
+
+async function buildChapters() {
+  if (!wanted(CHAPTERS.id)) return [];
+  const out = path.join(VIDEO_DIR, `${CHAPTERS.title}.mkv`);
+  if (exists(out) && !FORCE) {
+    log(`  = ${CHAPTERS.title}`);
+    return [{ ...CHAPTERS, out }];
+  }
+  log(`  + ${CHAPTERS.title}`);
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const meta = path.join(CACHE_DIR, "chapters.ffmetadata");
+  fs.writeFileSync(meta, chapterMetadata(CHAPTERS.seconds, CHAPTERS.count));
+  // testsrc2 moves enough that each chapter's keyframe is a different picture.
+  const argv = [
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `testsrc2=size=1920x1080:rate=24:duration=${CHAPTERS.seconds}`,
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=440:duration=${CHAPTERS.seconds}:sample_rate=${RATE}`,
+    "-i",
+    meta,
+    "-map_metadata",
+    "2",
+    "-map",
+    "0:v",
+    "-map",
+    "1:a",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "20",
+    "-g",
+    "48",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "128k",
+    "-metadata:s:a:0",
+    "language=eng",
+    out,
+  ];
+  if (!(await ff(argv, CHAPTERS.title))) {
+    failures.push(`${CHAPTERS.id} encode failed`);
+    return [];
+  }
+  return [{ ...CHAPTERS, out }];
+}
+
+/**
+ * Issue 84's file: two audio codecs, two embedded text tracks and a sidecar. Jellyfin 12 lists the
+ * sidecar first and renumbers, so no embedded Index is a file position. Each track names itself.
+ */
+const SIDECAR_SHIFT = { id: "T104", title: "T104 REMUX H264 multi-audio sidecar", seconds: 120 };
+
+async function buildSidecarShift() {
+  if (!wanted(SIDECAR_SHIFT.id)) return [];
+  const out = path.join(VIDEO_DIR, `${SIDECAR_SHIFT.title}.mkv`);
+  if (exists(out) && !FORCE) {
+    log(`  = ${SIDECAR_SHIFT.title}`);
+    return [{ ...SIDECAR_SHIFT, out }];
+  }
+  log(`  + ${SIDECAR_SHIFT.title}`);
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const seconds = SIDECAR_SHIFT.seconds;
+  const script = (name, label) => {
+    const file = path.join(CACHE_DIR, `sidecar-shift-${name}.srt`);
+    fs.writeFileSync(file, srtScript(seconds, label));
+    return file;
+  };
+  const everyChannel = "pan=5.1(side)|FL=c0|FR=c0|FC=c0|LFE=c0|SL=c0|SR=c0";
+  const argv = [
+    "-y",
+    ...["-f", "lavfi", "-i", `testsrc2=size=1920x1080:rate=24:duration=${seconds}`],
+    ...["-f", "lavfi", "-i", `sine=frequency=330:duration=${seconds}:sample_rate=${RATE}`],
+    ...["-f", "lavfi", "-i", `sine=frequency=880:duration=${seconds}:sample_rate=${RATE}`],
+    ...["-i", script("rus", "EMBEDDED RUS"), "-i", script("eng", "EMBEDDED ENG")],
+    ...["-filter_complex", `[0:v]${legend("T104 issue 84", "rus 330Hz AC3   dan 880Hz DTS")}[v];[1:a]${everyChannel}[a0];[2:a]${everyChannel}[a1]`],
+    ...["-map", "[v]", "-map", "[a0]", "-map", "[a1]", "-map", "3:s", "-map", "4:s"],
+    ...["-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-b:v", "3M", "-maxrate", "4M", "-bufsize", "8M", "-g", "48"],
+    ...["-c:a:0", "ac3", "-b:a:0", "640k", "-c:a:1", "dca", "-strict", "-2", "-b:a:1", "1509k", "-c:s", "subrip"],
+    ...["-metadata:s:a:0", "language=rus", "-disposition:a:0", "default", "-metadata:s:a:1", "language=dan", "-disposition:a:1", "0"],
+    ...["-metadata:s:s:0", "language=rus", "-disposition:s:0", "0", "-metadata:s:s:1", "language=eng", "-disposition:s:1", "0"],
+    out,
+  ];
+  if (!(await ff(argv, SIDECAR_SHIFT.title))) {
+    failures.push(`${SIDECAR_SHIFT.id} encode failed`);
+    return [];
+  }
+  fs.writeFileSync(path.join(VIDEO_DIR, `${SIDECAR_SHIFT.title}.da.srt`), srtScript(seconds, "SIDECAR DAN"));
+  return [{ ...SIDECAR_SHIFT, out }];
+}
+
+async function buildSlipstream() {
+  const built = [];
+  const items = SLIPSTREAM.filter((item) => wanted(item.id));
+  if (!items.length) return built;
+  if (!exists(BENCH_SOURCE)) {
+    failures.push(`slipstream bed source missing: ${BENCH_SOURCE}`);
+    return built;
+  }
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const bed = path.join(CACHE_DIR, "slipstream-bed-1080.mkv");
+  if (
+    !exists(bed) &&
+    !(await ff(
+      ["-y", "-i", BENCH_SOURCE, "-map", "0:v:0", "-vf", "scale=1920:1080:flags=lanczos", "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", bed],
+      "slipstream bed",
+    ))
+  ) {
+    failures.push("slipstream bed encode failed");
+    return built;
+  }
+  for (const item of items) {
+    const out = path.join(VIDEO_DIR, `${item.title}.mkv`);
+    if (exists(out) && !FORCE) {
+      log(`  = ${item.title}`);
+      built.push({ ...item, out });
+      continue;
+    }
+    log(`  + ${item.title}`);
+    const inputs = ["-stream_loop", String(Math.ceil(SLIPSTREAM_SECONDS / 60) - 1), "-i", bed];
+    const filters = [];
+    let next = 1;
+    item.tracks.forEach((track, t) => {
+      const tones = TONES[track.layout];
+      for (const tone of tones) inputs.push("-f", "lavfi", "-i", `sine=frequency=${tone.hz + t * 50}:duration=${SLIPSTREAM_SECONDS}:sample_rate=${RATE}`);
+      const labels = tones.map((_, i) => `[${next + i}:a]`).join("");
+      filters.push(`${labels}${joinFilter(track.layout)}[a${t}]`);
+      next += tones.length;
+    });
+    const subs = SLIPSTREAM_SUBS.map((lang) => {
+      const file = path.join(CACHE_DIR, `slipstream-${lang}.srt`);
+      fs.writeFileSync(file, srtScript(SLIPSTREAM_SECONDS, lang));
+      inputs.push("-i", file);
+      return next++;
+    });
+    const argv = [
+      "-y",
+      ...inputs,
+      "-filter_complex",
+      filters.join(";"),
+      "-map",
+      "0:v",
+      ...item.tracks.flatMap((_, t) => ["-map", `[a${t}]`]),
+      ...subs.flatMap((index) => ["-map", `${index}:s`]),
+      "-t",
+      String(SLIPSTREAM_SECONDS),
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-b:v",
+      "6M",
+      "-maxrate",
+      "6M",
+      "-bufsize",
+      "12M",
+      "-g",
+      "48",
+      "-keyint_min",
+      "48",
+      "-sc_threshold",
+      "0",
+      "-pix_fmt",
+      "yuv420p",
+      ...item.tracks.flatMap((track) => track.codec),
+      ...item.tracks.flatMap((track, t) => [`-metadata:s:a:${t}`, `language=${track.lang}`]),
+      "-c:s",
+      "srt",
+      ...SLIPSTREAM_SUBS.flatMap((lang, i) => [`-metadata:s:s:${i}`, `language=${lang}`]),
+      out,
+    ];
+    if (!(await ff(argv, item.title))) {
+      failures.push(`${item.id} encode failed`);
+      continue;
+    }
+    built.push({ ...item, out });
+  }
+  return built;
+}
+
 /** Audio-only coverage, into the music library rather than the video one. */
 async function buildCoverageAudio() {
   const built = [];
@@ -1002,6 +1231,16 @@ async function main() {
   log("\nTranscode bench ladder");
   const bench = await buildBench();
 
+  log("\nSlipstream drill items");
+  const slipstream = await buildSlipstream();
+
+  log("\nChaptered item");
+  const chaptered = await buildChapters();
+  sources.chaptered = chaptered.map((item) => ({ id: item.id, title: item.title }));
+
+  log("\nSidecar index shift item");
+  await buildSidecarShift();
+
   let downloaded = [];
   let atmos = [];
   if (!flag("--no-download")) {
@@ -1045,7 +1284,7 @@ async function main() {
     }
   }
 
-  const total = video.length + audio.length + coverage.length + coverageAudio.length + bench.length + downloaded.length + atmos.length;
+  const total = video.length + audio.length + coverage.length + coverageAudio.length + bench.length + slipstream.length + downloaded.length + atmos.length;
   log(`\n${total} items ready`);
   log(`  ${VIDEO_DIR}`);
   log(`  ${SURROUND_DIR}`);

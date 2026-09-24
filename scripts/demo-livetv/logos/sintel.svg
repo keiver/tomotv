@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <polygon points="256,16 408,172 408,340 256,496 104,340 104,172" fill="#6A3FA0"/>
+  <polygon points="256,58 374,184 374,328 256,454 138,328 138,184" fill="none" stroke="#FFFFFF" stroke-width="8"/>
+  <polygon points="256,82 270,100 256,118 242,100" fill="#FFFFFF"/>
+  <polygon points="256,394 270,412 256,430 242,412" fill="#FFFFFF"/>
+  <text x="256" y="352" font-family="Didot" font-weight="bold" font-size="250" text-anchor="middle" fill="#FFFFFF">S</text>
+</svg>

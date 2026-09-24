@@ -70,8 +70,10 @@ export const CONTROL_HEIGHT = Platform.isTV ? 82 : 56;
 export const GRID = {
   /** Portrait poster slot (width / height). */
   PORTRAIT_RATIO: 2 / 3,
-  /** Landscape thumbnail slot (width / height). */
-  LANDSCAPE_RATIO: 16 / 9,
+  /** Landscape card frame (width / height). Wider art (16:9 thumbnails) center-crops to this
+   * with cover, trimming the left/right edges, so a raised row height widens landscape cards
+   * less than a true 16:9 slot and posters get the reclaimed height. */
+  LANDSCAPE_RATIO: 3 / 2,
   /** Columns for a portrait grid (TV / narrow phone / wide phone-family screens). */
   COLUMNS_PORTRAIT: { tv: 6, phone: 3, phoneWide: 5 },
   /** Columns for a landscape grid — wider cards, fewer columns. */
@@ -84,8 +86,8 @@ export const GRID = {
   /** Density follows the device's portrait width to this power, so card size grows as
    * width^(1 - this). At 1 every device shares one card size, at 0 the card swells with the screen. */
   DENSITY_EXPONENT: 0.75,
-  /** Cards per screen at the reference width. A grid takes a denser wide card: the shelf's
-   * peeking nominal justifies into one-per-row billboards inside a folder. */
+  /** Card density baseline at the reference width; CARD_HEIGHT_SCALE grows every card above
+   * it, so the on-screen count is these over that scale. A grid takes a denser wide card. */
   DENSITY_PER_SCREEN: { portrait: 3.5, square: 2.5, landscapeShelf: 1.5, landscapeGrid: 2 },
   /** Shelves the home screen fills a viewport with, and the height that is not shelf
    * (status bar, tab bar, screen padding). A viewport tall enough to hold more than this
@@ -95,6 +97,13 @@ export const GRID = {
   /** Ceiling on that growth: the widest card a row can hold stays under this share of the
    * usable width, so filling a tall screen never brings back the landscape billboard. */
   MAX_CARD_WIDTH_SHARE: 0.5,
+  /** Bump to every mixed-row card height, per device class (tablet from the short side).
+   * Posters grow with it; landscape cards grow taller but stay width-capped by LANDSCAPE_RATIO
+   * and crop the sides. The tablet bump fills its taller screen; the phone holds its size. */
+  CARD_HEIGHT_SCALE: { phone: 1.0, tablet: 1.12 },
+  /** tvOS row-height factor over the landscape anchor. Sized so two shelves fill the screen
+   * with the third peeking, signalling the screen scrolls. */
+  CARD_ROW_SCALE_TV: 1.12,
   /** Minimum horizontal screen padding around library grids (TV / phone). See
    * gridEdgePadding — this is a floor, not an addition to the safe-area inset. */
   SIDE_PADDING: { tv: 80, phone: 20 },
@@ -229,7 +238,7 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
   const padding = slotCardPadding(isTV);
   if (isTV) {
     const landscapeAnchor = (usable / 4 - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
-    const height = Math.round(landscapeAnchor * 1.2);
+    const height = Math.round(landscapeAnchor * GRID.CARD_ROW_SCALE_TV);
     return { portrait: height, square: height, landscape: height };
   }
   // Width buys density, never size: the device factor is sub-linear, the rotation factor
@@ -251,7 +260,8 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
     const down = quantized - 0.5;
     return down >= 1.5 && raw - down <= quantized + 0.5 - raw ? down : quantized + 0.5;
   };
-  const shapeHeight = (base: number, ratio: number) => (usable / perScreen(base) - 2 * padding) / ratio + 2 * padding;
+  const s = shortSide >= GRID.PHONE_WIDE_MIN_WIDTH ? GRID.CARD_HEIGHT_SCALE.tablet : GRID.CARD_HEIGHT_SCALE.phone;
+  const shapeHeight = (base: number, ratio: number) => ((usable / perScreen(base) - 2 * padding) / ratio + 2 * padding) * s;
   const per = GRID.DENSITY_PER_SCREEN;
   const rows = {
     portrait: shapeHeight(per.portrait, GRID.PORTRAIT_RATIO),

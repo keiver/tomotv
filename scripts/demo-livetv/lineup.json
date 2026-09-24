@@ -1,0 +1,114 @@
+{
+  "epoch": "2026-09-22T00:00:00Z",
+  "guideBase": "http://127.0.0.1:9109",
+  "channels": [
+    {
+      "number": 1,
+      "id": "bunny",
+      "name": "Big Buck Bunny",
+      "colour": "#B36B00",
+      "port": 9101,
+      "sources": ["Films/Big Buck Bunny/Big Buck Bunny.mp4"],
+      "category": "Kids",
+      "slots": [30, 60, 30, 90, 60, 30]
+    },
+    {
+      "number": 2,
+      "id": "sintel",
+      "name": "Sintel",
+      "colour": "#6A3FA0",
+      "port": 9102,
+      "sources": ["Films/Sintel/Sintel.mkv"],
+      "category": "Movie",
+      "slots": [60, 30, 30, 120, 60]
+    },
+    {
+      "number": 3,
+      "id": "caminandes",
+      "name": "Caminandes",
+      "colour": "#2E7D4F",
+      "port": 9103,
+      "sources": ["Shows/Caminandes/Season 1/Caminandes S01E01.mp4", "Shows/Caminandes/Season 1/Caminandes S01E02.mp4", "Shows/Caminandes/Season 1/Caminandes S01E03.mp4"],
+      "category": "Kids",
+      "slots": [30, 30, 60, 30, 30, 90, 30]
+    },
+    {
+      "number": 4,
+      "id": "veguitas",
+      "name": "Veguitas",
+      "colour": "#1B5E9E",
+      "port": 9104,
+      "sources": ["Live TV/Welcome to Veguitas.mp4"],
+      "category": "Series",
+      "slots": [60, 60, 30, 90, 60, 30, 30]
+    },
+    {
+      "number": 5,
+      "id": "classics",
+      "name": "Classic Movies",
+      "colour": "#4A2B5C",
+      "port": 9105,
+      "sources": [
+        "Films/His Girl Friday (1940)/His Girl Friday (1940).mp4",
+        "Films/Jungle Book (1942)/Jungle Book (1942).mp4",
+        "Films/The General (1926)/The General (1926).mp4",
+        "Films/The Fast and the Furious (1955)/The Fast and the Furious (1955).mp4",
+        "Films/Voyage to the Planet of Prehistoric Women (1967)/Voyage to the Planet of Prehistoric Women (1967).mp4",
+        "Films/Charlie Chaplin Festival (1938)/Charlie Chaplin Festival (1938).mp4",
+        "Films/House on Haunted Hill (1959)/House on Haunted Hill (1959).mp4"
+      ],
+      "category": "Movie",
+      "slots": [30]
+    },
+    {
+      "number": 6,
+      "id": "utopia",
+      "name": "Utopia",
+      "colour": "#8C3B2E",
+      "port": 9106,
+      "sources": ["Films/Utopia (1951)/Utopia (1951).mp4"],
+      "category": "Movie",
+      "slots": [60, 30, 90, 30, 60, 30]
+    },
+    {
+      "number": 7,
+      "id": "dweebs",
+      "name": "The Daily Dweebs",
+      "colour": "#C2552B",
+      "port": 9107,
+      "sources": ["Live TV/The Daily Dweebs.mp4"],
+      "category": "Kids",
+      "slots": [30, 30, 60, 30]
+    },
+    {
+      "number": 8,
+      "id": "spring",
+      "name": "Spring",
+      "colour": "#2F7F86",
+      "port": 9108,
+      "sources": ["Live TV/Spring.mp4"],
+      "category": "Movie",
+      "slots": [30, 60, 30, 30, 90]
+    },
+    {
+      "number": 9,
+      "id": "cosmos",
+      "name": "Cosmos Laundromat",
+      "colour": "#2B3A67",
+      "port": 9110,
+      "sources": ["Live TV/Cosmos Laundromat.mp4"],
+      "category": "Movie",
+      "slots": [60, 30, 30, 60]
+    },
+    {
+      "number": 10,
+      "id": "sunny",
+      "name": "Sunny",
+      "colour": "#D99100",
+      "port": 9111,
+      "sources": ["Live TV/Sunny.mp4"],
+      "category": "Kids",
+      "slots": [30, 90, 30, 60]
+    }
+  ]
+}

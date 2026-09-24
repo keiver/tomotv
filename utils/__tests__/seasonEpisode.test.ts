@@ -8,8 +8,8 @@ describe("formatSeasonEpisode", () => {
   it("drops a season/episode pair that is really the year in the filename", () => {
     expect(
       formatSeasonEpisode({
-        Name: "To.Wong.Foo.Thanks.for.Everything.Julie.Newma",
-        Path: "/Users/k/Movies/To.Wong.Foo.Thanks.for.Everything.Julie.Newma.1995.DVDRip.XviD.AC3-REKD/To.Wong.Foo.Thanks.for.Everything.Julie.Newma.1995.DVDRip.XviD.AC3-REKD.avi",
+        Name: "Some.Movie.Title",
+        Path: "/media/movies/Some.Movie.Title.1995.DVDRip.XviD-GRP/Some.Movie.Title.1995.DVDRip.XviD-GRP.avi",
         ParentIndexNumber: 19,
         IndexNumber: 95,
         Type: "Episode",

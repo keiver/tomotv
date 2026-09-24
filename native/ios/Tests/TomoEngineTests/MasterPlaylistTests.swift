@@ -105,6 +105,79 @@ final class MasterPlaylistTests: XCTestCase {
         XCTAssertTrue(try playlist(bandwidth: 3_000_000).contains("BANDWIDTH=3000000"))
     }
 
+    func testPeakUsesSegmentBytesAndDurationsRatherThanAverage() {
+        var rates = SegmentBitrates()
+        rates.record(index: 0, bytes: 300_000, duration: 6)
+        rates.record(index: 1, bytes: 900_000, duration: 6)
+        rates.record(index: 2, bytes: 150_000, duration: 6)
+        XCTAssertEqual(rates.peak(targetDuration: 12), 1_200_000)
+    }
+
+    func testPeakCombinesShortContiguousSegmentsWithinTargetWindow() {
+        var rates = SegmentBitrates()
+        rates.record(index: 0, bytes: 90_000, duration: 1)
+        rates.record(index: 1, bytes: 90_000, duration: 1)
+        rates.record(index: 2, bytes: 120_000, duration: 4)
+        XCTAssertEqual(rates.peak(targetDuration: 12), 400_000)
+        rates.record(index: 2, bytes: 60_000, duration: 4)
+        XCTAssertEqual(rates.peak(targetDuration: 12), 320_000)
+    }
+
+    func testPeakDoesNotJoinSamplesAcrossASeekGap() {
+        var rates = SegmentBitrates()
+        rates.record(index: 0, bytes: 90_000, duration: 3)
+        rates.record(index: 2, bytes: 120_000, duration: 3)
+        XCTAssertNil(rates.peak(targetDuration: 12))
+        rates.record(index: 1, bytes: 30_000, duration: 3)
+        XCTAssertEqual(rates.peak(targetDuration: 12), 213_334)
+    }
+
+    func testIndexedPeakIncludesBurstsBeyondTheOpeningBuffer() {
+        let points: [SegmentBitrates.IndexPoint] = [
+            .init(seconds: 0, position: 0),
+            .init(seconds: 60, position: 3_000_000),
+            .init(seconds: 66, position: 6_000_000),
+            .init(seconds: 72, position: 6_300_000),
+        ]
+        XCTAssertEqual(SegmentBitrates.indexedPeak(points: points, durations: [60, 6, 6], targetDuration: 12), 4_000_000)
+    }
+
+    func testIndexedPeakIncludesWholeIntervalsAtSegmentBoundaries() {
+        let points: [SegmentBitrates.IndexPoint] = [
+            .init(seconds: 0, position: 0),
+            .init(seconds: 4, position: 100_000),
+            .init(seconds: 8, position: 700_000),
+            .init(seconds: 12, position: 800_000),
+        ]
+        XCTAssertEqual(SegmentBitrates.indexedPeak(points: points, durations: [6, 6], targetDuration: 12), 933_334)
+    }
+
+    func testInvalidByteIndexDoesNotProduceAPeak() {
+        let points: [SegmentBitrates.IndexPoint] = [
+            .init(seconds: 0, position: 1_000),
+            .init(seconds: 6, position: 0),
+        ]
+        XCTAssertNil(SegmentBitrates.indexedPeak(points: points, durations: [6], targetDuration: 12))
+    }
+
+    func testMeasuredPeaksKeepOriginalAndBridgeAveragesSeparate() throws {
+        let session = try gateway(audio: [serverAudio(1), serverAudio(2)])
+        defer { session.stop() }
+        session.renditionBitrates["", default: SegmentBitrates()].record(index: 0, bytes: 7_500_000, duration: 6)
+        session.renditionBitrates["a0", default: SegmentBitrates()].record(index: 0, bytes: 600_000, duration: 6)
+        session.renditionBitrates["a1", default: SegmentBitrates()].record(index: 0, bytes: 720_000, duration: 6)
+        let variants = session.masterPlaylist().split(separator: "\n").filter { $0.hasPrefix("#EXT-X-STREAM-INF") }
+        XCTAssertTrue(variants[0].contains(":BANDWIDTH=10960000,AVERAGE-BANDWIDTH=6640000,"))
+        XCTAssertTrue(variants[1].contains(":BANDWIDTH=10120000,AVERAGE-BANDWIDTH=6120000,"))
+    }
+
+    func testMuxedAudioIsNotAddedToMeasuredPrimaryTwice() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [serverAudio(1)], bandwidth: 640_000))
+        defer { session.stop() }
+        session.renditionBitrates["", default: SegmentBitrates()].record(index: 0, bytes: 900_000, duration: 6)
+        XCTAssertTrue(session.masterPlaylist().contains(":BANDWIDTH=1200000,AVERAGE-BANDWIDTH=640000,"))
+    }
+
     /// With the attribute absent AVFoundation offers an empty legible option
     /// that AVKit lists as "CC" and that draws nothing (measured on T88).
     func testClosedCaptionsAreDeclaredNone() throws {
@@ -169,5 +242,271 @@ final class MasterPlaylistTests: XCTestCase {
         XCTAssertTrue(out.contains("sub3.vtt"))
         XCTAssertFalse(out.contains("file://"))
         XCTAssertFalse(out.contains("http://x/"))
+    }
+
+    private func gateway(audio: [RemuxAudioTrack], videoRange: String = "SDR", link: Double = 30_000_000) throws -> RemuxSession {
+        var config = makeConfig(
+            durationSeconds: 18, audioTracks: audio, videoRange: videoRange,
+            codecs: "hvc1.2.4.L150.B0,ec-3", supplementalCodecs: videoRange == "PQ" ? "dvh1.08.06/db1p" : "",
+            bandwidth: 6_640_000,
+            tiers: [
+                TierConfig(playlistUrl: "http://tier.test/t0.m3u8", bandwidth: 260_000, codecs: "avc1.64000C,mp4a.40.2", width: 256, height: 144),
+                TierConfig(playlistUrl: "http://tier.test/t1.m3u8", bandwidth: 1_620_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480),
+            ])
+        config.primaryVideoCodecs = "hvc1.2.4.L150.B0"
+        config.primaryVideoBandwidth = 6_000_000
+        let session = try RemuxSession(config: config)
+        session.gridResolved = true
+        session.adoptedStarts = [0, 6, 12]
+        session.adoptedDurations = [6, 6, 6]
+        session.sourceReady = true
+        session.sourceState = .ready
+        session.copyVerdict = .listed
+        session.testLinkBps = link
+        session.linkProbeDone = true
+        session.openingRung = 0
+        return session
+    }
+
+    private func serverAudio(_ index: Int, name: String = "English", usesServerAudio: Bool = false) -> RemuxAudioTrack {
+        var track = RemuxAudioTrack(index: index, name: name, language: "eng", serverAudioUrl: "http://tier.test/audio\(index).m3u8")
+        track.serverAudioChannels = 2
+        track.usesServerAudio = usesServerAudio
+        track.codecs = usesServerAudio ? "mp4a.40.2" : "ec-3"
+        track.bandwidth = usesServerAudio ? 120_000 : 640_000
+        track.identity = "source:\(index)"
+        return track
+    }
+
+    private func variants(_ master: String, uri: String) -> [String] {
+        let lines = master.components(separatedBy: "\n")
+        return lines.indices.filter { $0 > 0 && lines[$0] == uri }.map { lines[$0 - 1] }
+    }
+
+    func testOriginalVideoHasBothAudioAssociationsAndEachRungAppearsOnce() throws {
+        let session = try gateway(audio: [serverAudio(1)])
+        defer { session.stop() }
+        let master = session.masterPlaylist()
+        let originals = variants(master, uri: "media.m3u8")
+        XCTAssertEqual(originals.count, 2)
+        XCTAssertTrue(originals[0].contains("AUDIO=\"audio\""))
+        XCTAssertTrue(originals[0].contains("CODECS=\"hvc1.2.4.L150.B0,ec-3\""))
+        XCTAssertTrue(originals[0].contains("BANDWIDTH=6640000,"))
+        XCTAssertTrue(originals[1].contains("AUDIO=\"audio-lo\""))
+        XCTAssertTrue(originals[1].contains("CODECS=\"hvc1.2.4.L150.B0,mp4a.40.2\""))
+        XCTAssertTrue(originals[1].contains("BANDWIDTH=6120000,"))
+        XCTAssertTrue(originals[1].contains("AVERAGE-BANDWIDTH=6120000,"))
+        for uri in ["t0.m3u8", "t1.m3u8"] {
+            let entries = variants(master, uri: uri)
+            XCTAssertEqual(entries.count, 1)
+            XCTAssertTrue(entries.first?.contains("AUDIO=\"audio-lo\"") == true)
+            XCTAssertFalse(entries.first?.contains("ec-3") == true)
+        }
+    }
+
+    func testHdrMetadataStaysOnBothOriginalEntriesAndNotTheSdrRungs() throws {
+        for range in ["PQ", "HLG"] {
+            let session = try gateway(audio: [serverAudio(1)], videoRange: range)
+            defer { session.stop() }
+            let master = session.masterPlaylist()
+            for original in variants(master, uri: "media.m3u8") {
+                XCTAssertTrue(original.contains("VIDEO-RANGE=\(range)"))
+                XCTAssertTrue(original.contains("RESOLUTION=1920x1080"))
+                XCTAssertTrue(original.contains("FRAME-RATE=23.976"))
+                XCTAssertEqual(original.contains("SUPPLEMENTAL-CODECS=\"dvh1.08.06/db1p\""), range == "PQ")
+            }
+            for uri in ["t0.m3u8", "t1.m3u8"] {
+                let rung = try XCTUnwrap(variants(master, uri: uri).first)
+                XCTAssertTrue(rung.contains("VIDEO-RANGE=SDR"))
+                XCTAssertFalse(rung.contains("SUPPLEMENTAL-CODECS"))
+                XCTAssertFalse(rung.contains("hvc1"))
+            }
+        }
+    }
+
+    func testQualityScoresPreferOriginalAudioEvenWhenTheServerAssociationCostsMore() throws {
+        for audioBandwidth in [32_001, 120_000, 640_000] {
+            var audio = serverAudio(1)
+            audio.codecs = "mp4a.40.5"
+            audio.bandwidth = audioBandwidth
+            let session = try gateway(audio: [audio])
+            defer { session.stop() }
+            let master = session.masterPlaylist()
+            let originals = variants(master, uri: "media.m3u8")
+            XCTAssertEqual(originals.count, 2)
+            XCTAssertTrue(originals[0].contains(",SCORE=4"))
+            XCTAssertTrue(originals[0].contains("BANDWIDTH=\(6_000_000 + audioBandwidth),"))
+            XCTAssertTrue(originals[1].contains(",SCORE=3"))
+            XCTAssertTrue(originals[1].contains("BANDWIDTH=6120000,"))
+            XCTAssertTrue(try XCTUnwrap(variants(master, uri: "t0.m3u8").first).contains(",SCORE=1"))
+            XCTAssertTrue(try XCTUnwrap(variants(master, uri: "t1.m3u8").first).contains(",SCORE=2"))
+            XCTAssertTrue(master.components(separatedBy: "\n").filter { $0.hasPrefix("#EXT-X-STREAM-INF:") }.allSatisfy { $0.contains(",SCORE=") })
+            XCTAssertTrue(master.contains("#EXT-X-VERSION:10\n"))
+        }
+    }
+
+    func testServerBackedTrackKeepsItsCataloguePositionInBothGroups() throws {
+        let session = try gateway(audio: [serverAudio(1), serverAudio(4, usesServerAudio: true), serverAudio(7)])
+        defer { session.stop() }
+        let master = session.masterPlaylist()
+        let sourceTracks = master.components(separatedBy: "\n").filter { $0.contains("GROUP-ID=\"audio\"") }
+        XCTAssertEqual(sourceTracks.count, 3)
+        XCTAssertTrue(sourceTracks[0].contains("URI=\"a0.m3u8\""))
+        XCTAssertTrue(sourceTracks[1].contains("URI=\"a1s.m3u8\""))
+        XCTAssertTrue(sourceTracks[2].contains("URI=\"a2.m3u8\""))
+        let serverTracks = master.components(separatedBy: "\n").filter { $0.contains("GROUP-ID=\"audio-lo\"") }
+        XCTAssertEqual(serverTracks.count, 3)
+        for position in sourceTracks.indices {
+            XCTAssertTrue(serverTracks[position].contains("URI=\"a\(position)s.m3u8\""))
+            let name = try XCTUnwrap(sourceTracks[position].components(separatedBy: "NAME=\"").last?.components(separatedBy: "\"").first)
+            XCTAssertTrue(serverTracks[position].contains("NAME=\"\(name)\""))
+        }
+        XCTAssertTrue(variants(master, uri: "media.m3u8")[0].contains("CODECS=\"hvc1.2.4.L150.B0,ec-3,mp4a.40.2\""))
+    }
+
+    func testSingleServerBackedTrackUsesAnAudioGroupWithoutALadder() throws {
+        let master = try playlist(audio: [serverAudio(4, usesServerAudio: true)])
+        XCTAssertTrue(master.contains("GROUP-ID=\"audio\""))
+        XCTAssertTrue(master.contains("URI=\"a0s.m3u8\""))
+        XCTAssertFalse(master.contains("GROUP-ID=\"audio-lo\""))
+        XCTAssertEqual(variants(master, uri: "media.m3u8").count, 1)
+    }
+
+    func testEncodedAudioCodecAlternativesAreFlattenedWithoutDuplicates() throws {
+        var encoded = serverAudio(1)
+        encoded.codecs = "fLaC,mp4a.40.2"
+        encoded.bandwidth = 4_000_000
+        let session = try gateway(audio: [encoded, serverAudio(4, usesServerAudio: true)])
+        defer { session.stop() }
+        let original = try XCTUnwrap(variants(session.masterPlaylist(), uri: "media.m3u8").first)
+        XCTAssertTrue(original.contains("CODECS=\"hvc1.2.4.L150.B0,fLaC,mp4a.40.2\""))
+        XCTAssertTrue(original.contains("BANDWIDTH=10000000,"))
+    }
+
+    func testNamesAreSafeAndUniqueAfterSanitization() {
+        let names = RemuxSession.renditionNames([
+            (name: "English\"\r\n", index: 1),
+            (name: "English'", index: 2),
+            (name: "English' (2)", index: 3),
+            (name: "", index: 4),
+        ])
+        XCTAssertEqual(Set(names).count, names.count)
+        XCTAssertTrue(names.allSatisfy { !$0.contains("\"") && !$0.contains("\n") && !$0.contains("\r") })
+        XCTAssertEqual(names[0], "English'")
+        XCTAssertEqual(names[1], "English' (2)")
+        XCTAssertEqual(names[3], "Track 4")
+    }
+
+    func testResolvedOutputReplacesGuessedCodecsAndDeclaresNativeChannels() throws {
+        var encoded = serverAudio(1)
+        encoded.codecs = "fLaC,mp4a.40.2"
+        let session = try gateway(audio: [encoded])
+        defer { session.stop() }
+        session.resolvedVideoCodecs = "hvc1.1.6.L93.80"
+        session.resolvedAudioCodecs = ["a0": "fLaC"]
+        session.resolvedAudioChannels = ["a0": 6]
+        let master = session.masterPlaylist()
+        let originals = variants(master, uri: "media.m3u8")
+        XCTAssertTrue(originals[0].contains("CODECS=\"hvc1.1.6.L93.80,fLaC\""))
+        XCTAssertTrue(originals[1].contains("CODECS=\"hvc1.1.6.L93.80,mp4a.40.2\""))
+        XCTAssertTrue(master.components(separatedBy: "\n").first { $0.contains("GROUP-ID=\"audio\"") }?.contains("CHANNELS=\"6\"") == true)
+        XCTAssertTrue(master.components(separatedBy: "\n").first { $0.contains("GROUP-ID=\"audio-lo\"") }?.contains("CHANNELS=\"2\"") == true)
+    }
+
+    func testOriginalLeadingMarginDoesNotChangeForTheAacAssociation() throws {
+        XCTAssertEqual(RemuxSession.copyLeadsMargin, 3)
+        XCTAssertEqual(RemuxSession.openingRungShare, 6)
+        for multiplier in [2.9, 3.0] {
+            let session = try gateway(audio: [serverAudio(1)], link: 6_640_000 * multiplier)
+            defer { session.stop() }
+            let firstUri = session.masterPlaylist().components(separatedBy: "\n").first { !$0.isEmpty && !$0.hasPrefix("#") }
+            XCTAssertEqual(firstUri, multiplier < 3 ? "t0.m3u8" : "media.m3u8")
+        }
+    }
+
+    func testRetryWaitingSourceWithoutALadderRemainsListedAndRecoverable() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.sourceState = .retryWait
+        session.recovering = true
+        session.sourceRetryAt = Date().addingTimeInterval(10)
+        let master = session.masterPlaylist()
+        XCTAssertFalse(session.hasFailed)
+        XCTAssertEqual(session.sourceState, .retryWait)
+        XCTAssertTrue(session.recovering)
+        XCTAssertTrue(session.reportsCopyListed)
+        XCTAssertEqual(variants(master, uri: "media.m3u8").count, 1)
+        XCTAssertFalse(session.wakeSourceIfAffordable(now: session.sourceRetryAt.addingTimeInterval(-1)))
+        XCTAssertTrue(session.wakeSourceIfAffordable(now: session.sourceRetryAt))
+    }
+
+    func testRetryWaitingSourceSurvivesADeclinedConfiguredLadder() throws {
+        let session = try gateway(audio: [serverAudio(1)])
+        defer { session.stop() }
+        session.adoptedStarts = []
+        session.adoptedDurations = []
+        session.sourceState = .retryWait
+        session.sourceReady = false
+        session.recovering = true
+        let master = session.masterPlaylist()
+        XCTAssertFalse(session.hasFailed)
+        XCTAssertEqual(session.sourceState, .retryWait)
+        XCTAssertTrue(session.reportsCopyListed)
+        XCTAssertFalse(master.contains("\nt0.m3u8\n"))
+        XCTAssertFalse(variants(master, uri: "media.m3u8").isEmpty)
+    }
+
+    private func serverOnlyGateway(audio: [RemuxAudioTrack] = []) throws -> RemuxSession {
+        var config = makeConfig(
+            durationSeconds: 18, audioTracks: audio, codecs: "", bandwidth: 8_000_000,
+            tiers: [TierConfig(playlistUrl: "http://tier.test/t0.m3u8", bandwidth: 400_000,
+                               codecs: audio.isEmpty ? "avc1.640015" : "avc1.640015,mp4a.40.2", width: 426, height: 240)])
+        config.serverVideoOnly = true
+        let session = try RemuxSession(config: config)
+        session.gridResolved = true
+        session.adoptedStarts = [0, 6, 12]
+        session.adoptedDurations = [6, 6, 6]
+        session.copyVerdict = .withheld
+        session.testLinkBps = 1_500_000
+        session.linkProbeDone = true
+        session.openingRung = 0
+        return session
+    }
+
+    func testServerVideoOnlyWithoutAudioDeclaresOnlyVideoRungs() throws {
+        let session = try serverOnlyGateway()
+        defer { session.stop() }
+        let master = session.masterPlaylist()
+        let rung = try XCTUnwrap(variants(master, uri: "t0.m3u8").first)
+        XCTAssertEqual(session.sourceState, .unavailable)
+        XCTAssertFalse(session.hasFailed)
+        XCTAssertFalse(session.reportsCopyListed)
+        XCTAssertFalse(master.contains("media.m3u8"))
+        XCTAssertFalse(master.contains("TYPE=AUDIO"))
+        XCTAssertFalse(rung.contains(",AUDIO="))
+        XCTAssertTrue(rung.contains("CODECS=\"avc1.640015\""))
+        XCTAssertTrue(rung.contains("VIDEO-RANGE=SDR"))
+        XCTAssertTrue(rung.contains("CLOSED-CAPTIONS=NONE"))
+    }
+
+    func testServerVideoOnlyUsesEveryServerAudioTrackWithoutListingTheOriginal() throws {
+        let session = try serverOnlyGateway(audio: [serverAudio(1, usesServerAudio: true), serverAudio(4, usesServerAudio: true)])
+        defer { session.stop() }
+        let master = session.masterPlaylist()
+        XCTAssertFalse(master.contains("media.m3u8"))
+        let tracks = master.components(separatedBy: "\n").filter { $0.contains("GROUP-ID=\"audio-lo\"") }
+        XCTAssertEqual(tracks.count, 2)
+        XCTAssertTrue(tracks[0].contains("URI=\"a0s.m3u8\""))
+        XCTAssertTrue(tracks[1].contains("URI=\"a1s.m3u8\""))
+        XCTAssertTrue(variants(master, uri: "t0.m3u8").first?.contains("AUDIO=\"audio-lo\"") == true)
+    }
+
+    func testUnavailableOriginalIsNotInventedWhenEveryRungIsRetired() throws {
+        let session = try serverOnlyGateway()
+        defer { session.stop() }
+        session.rungsUnavailable.insert(0)
+        let master = session.masterPlaylist()
+        XCTAssertFalse(master.contains("media.m3u8"))
+        XCTAssertFalse(session.reportsCopyListed)
     }
 }

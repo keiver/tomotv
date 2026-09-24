@@ -32,26 +32,28 @@ describe("slotRowHeights on TV", () => {
     expect(slotRowHeights(1920, 999, 80, 80, true)).toEqual(a);
     expect(slotRowHeights(1920, 1080, 80, 80, true, "grid")).toEqual(a);
     // One converged height for every shape, so a mixed TV row never stretches a card.
-    expect(a).toEqual({ portrait: 314, square: 314, landscape: 314 });
+    expect(a).toEqual({ portrait: 340, square: 340, landscape: 340 });
   });
 });
 
 describe("slotRowHeights density", () => {
-  it("lands the reference phone in portrait on exactly the declared per-screen counts", () => {
+  it("lands the reference phone in portrait on the declared per-screen counts, scaled", () => {
+    // On-screen count is the density baseline over CARD_HEIGHT_SCALE (bigger cards, fewer shown).
     const { heights, usable } = metrics(DEVICES[0], "portrait");
+    const s = GRID.CARD_HEIGHT_SCALE.phone;
     const per = GRID.DENSITY_PER_SCREEN;
-    expect(usable / cardWidth(heights.portrait, GRID.PORTRAIT_RATIO)).toBeCloseTo(per.portrait, 1);
-    expect(usable / cardWidth(heights.square, 1)).toBeCloseTo(per.square, 1);
-    expect(usable / cardWidth(heights.landscape, GRID.LANDSCAPE_RATIO)).toBeCloseTo(per.landscapeShelf, 1);
+    expect(usable / cardWidth(heights.portrait, GRID.PORTRAIT_RATIO)).toBeCloseTo(per.portrait / s, 1);
+    expect(usable / cardWidth(heights.square, 1)).toBeCloseTo(per.square / s, 1);
+    expect(usable / cardWidth(heights.landscape, GRID.LANDSCAPE_RATIO)).toBeCloseTo(per.landscapeShelf / s, 1);
     const grid = metrics(DEVICES[0], "portrait", "grid");
-    expect(grid.usable / cardWidth(grid.heights.landscape, GRID.LANDSCAPE_RATIO)).toBeCloseTo(per.landscapeGrid, 1);
+    expect(grid.usable / cardWidth(grid.heights.landscape, GRID.LANDSCAPE_RATIO)).toBeCloseTo(per.landscapeGrid / s, 1);
   });
 
   it("never rounds a whole-card count away from the size it asked for", () => {
     // THE regression: an iPhone 17 Pro Max asks for 3.84 posters per screen. Stepping that
     // off its whole-number quantum ALWAYS upward landed 4.5 and shrank every poster 23%.
     const { heights, usable } = metrics({ name: "iPhone 17 Pro Max", short: 440, long: 956, landscapeInset: 62 }, "portrait");
-    expect(usable / cardWidth(heights.portrait, GRID.PORTRAIT_RATIO)).toBeCloseTo(GRID.DENSITY_PER_SCREEN.portrait, 1);
+    expect(usable / cardWidth(heights.portrait, GRID.PORTRAIT_RATIO)).toBeCloseTo(GRID.DENSITY_PER_SCREEN.portrait / GRID.CARD_HEIGHT_SCALE.phone, 1);
     expect(heights.portrait).toBe(163);
   });
 

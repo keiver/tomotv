@@ -36,6 +36,15 @@ function createMockVideoItem(overrides: Partial<JellyfinVideoItem> = {}): Jellyf
 }
 
 describe("multiAudioLoader", () => {
+  beforeEach(() => {
+    jest.resetModules();
+  });
+
+  afterEach(() => {
+    jest.dontMock("react-native");
+    jest.resetModules();
+  });
+
   describe("getAudioTracks (no native module dependency)", () => {
     // These tests don't need native module mocking
     let getAudioTracks: any;
@@ -396,7 +405,7 @@ describe("multiAudioLoader", () => {
       expect(tracks[0].Index).toBe(0);
     });
 
-    it("should handle tracks with undefined Index", () => {
+    it("rejects tracks with undefined Index rather than mapping them to another track", () => {
       const videoItem = createMockVideoItem({
         MediaStreams: [
           {
@@ -411,10 +420,7 @@ describe("multiAudioLoader", () => {
         ],
       });
 
-      const tracks = getAudioTracks(videoItem);
-
-      expect(tracks).toHaveLength(1);
-      expect(tracks[0].Index).toBe(0); // Defaults to 0
+      expect(() => getAudioTracks(videoItem)).toThrow("valid Jellyfin stream index");
     });
 
     it("should handle empty DisplayTitle gracefully", () => {
@@ -433,7 +439,77 @@ describe("multiAudioLoader", () => {
 
       const tracks = getAudioTracks(videoItem);
 
-      expect(tracks[0].DisplayTitle).toMatch(/eng.*aac/i);
+      expect(tracks[0].DisplayTitle).toBe("eng");
+    });
+
+    it("keys tracks by media source and real stream index without filtering unknown codecs", () => {
+      const tracks = getAudioTracks(
+        createMockVideoItem({
+          MediaSources: [{ Id: "alternate-source" }],
+          MediaStreams: [
+            { Type: "Audio", Codec: "aac", Index: 3 },
+            { Type: "Audio", Codec: "acelp.kelvin", Index: 9, IsDefault: true },
+          ],
+        }),
+      );
+      expect(tracks.map((track: AudioTrackInfo) => track.Identity)).toEqual(["alternate-source:9", "alternate-source:3"]);
+      expect(tracks.map((track: AudioTrackInfo) => track.Index)).toEqual([9, 3]);
+    });
+
+    it.each([undefined, -1, 1.5, NaN, 2_147_483_648])("rejects invalid stream index %s instead of inventing index zero", (index) => {
+      const source = createMockVideoItem({ MediaStreams: [{ Type: "Audio", Codec: "aac", Index: index }] });
+      expect(() => getAudioTracks(source)).toThrow("valid Jellyfin stream index");
+    });
+
+    it("keeps a live channel's Index -1 tracks apart by ordinal", () => {
+      const channel = createMockVideoItem({
+        MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1" }],
+        MediaStreams: [
+          { Type: "Video", Codec: "h264", Index: -1 },
+          { Type: "Audio", Codec: "aac", Index: -1 },
+          { Type: "Audio", Codec: "aac", Index: -1 },
+        ],
+      });
+      const tracks = getAudioTracks(channel);
+      expect(tracks.map((track: AudioTrackInfo) => [track.Index, track.Identity, track.DisplayTitle])).toEqual([
+        [-1, "c1:live0", "Audio 1"],
+        [-1, "c1:live1", "Audio 2"],
+      ]);
+    });
+
+    it("accepts audio indexes at the nonnegative Int32 boundary", () => {
+      const tracks = getAudioTracks(
+        createMockVideoItem({
+          MediaStreams: [
+            { Type: "Audio", Codec: "aac", Index: 0 },
+            { Type: "Audio", Codec: "aac", Index: 2_147_483_647 },
+          ],
+        }),
+      );
+      expect(tracks.map((track: AudioTrackInfo) => track.Index)).toEqual([0, 2_147_483_647]);
+    });
+
+    it("rejects duplicate stream identities", () => {
+      const source = createMockVideoItem({
+        MediaStreams: [
+          { Type: "Audio", Codec: "aac", Index: 2 },
+          { Type: "Audio", Codec: "ac3", Index: 2 },
+        ],
+      });
+      expect(() => getAudioTracks(source)).toThrow("Duplicate audio track identity");
+    });
+
+    it("keeps sanitized rendition labels unique even when the suffix is already another track's name", () => {
+      const tracks = getAudioTracks(
+        createMockVideoItem({
+          MediaStreams: [
+            { Type: "Audio", Codec: "aac", Index: 1, DisplayTitle: 'English"\n' },
+            { Type: "Audio", Codec: "aac", Index: 2, DisplayTitle: "English" },
+            { Type: "Audio", Codec: "aac", Index: 3, DisplayTitle: "English (1)" },
+          ],
+        }),
+      );
+      expect(tracks.map((track: AudioTrackInfo) => track.DisplayTitle)).toEqual(["English (1) (1)", "English (2)", "English (1)"]);
     });
   });
 
@@ -478,6 +554,121 @@ describe("multiAudioLoader", () => {
   });
 
   describe("Integration behavior (documented)", () => {
+    it("keeps concurrent same-item preparations bound to their own configuration URLs", async () => {
+      await jest.isolateModulesAsync(async () => {
+        const firstUrl = "jellyfin-multi://server/Videos/test-video/master.m3u8?configId=first";
+        const secondUrl = "jellyfin-multi://server/Videos/test-video/master.m3u8?configId=second";
+        let resolveFirst!: (url: string) => void;
+        const firstConfiguration = new Promise<string>((resolve) => {
+          resolveFirst = resolve;
+        });
+        const configureResourceLoader = jest.fn().mockReturnValueOnce(firstConfiguration).mockResolvedValueOnce(secondUrl);
+        const generateCustomUrl = jest.fn().mockResolvedValue(secondUrl);
+        jest.doMock("react-native", () => ({
+          Platform: { OS: "ios" },
+          NativeModules: {
+            MultiAudioResourceLoader: {
+              registerVideoPlugin: jest.fn().mockResolvedValue(undefined),
+              configureResourceLoader,
+              generateCustomUrl,
+            },
+          },
+        }));
+        const loader = require("../multiAudioLoader") as typeof import("../multiAudioLoader");
+        const firstSource = createMockVideoItem({
+          MediaSources: [{ Id: "first-source" }],
+          MediaStreams: [{ Type: "Audio", Codec: "aac", Index: 2 }],
+        });
+        const secondSource = createMockVideoItem({
+          MediaSources: [{ Id: "second-source" }],
+          MediaStreams: [{ Type: "Audio", Codec: "ac3", Index: 7 }],
+        });
+        await loader.registerMultiAudioPlugin();
+        const firstPlayback = loader.prepareMultiAudioPlayback(firstSource.Id, firstSource, "http://server/Videos/test-video/master.m3u8?MediaSourceId=first-source", "first-key");
+        const secondPlayback = loader.prepareMultiAudioPlayback(secondSource.Id, secondSource, "http://server/Videos/test-video/master.m3u8?MediaSourceId=second-source", "second-key");
+        const preparations = Promise.all([firstPlayback, secondPlayback]);
+        const completion = expect(preparations).resolves.toEqual([firstUrl, secondUrl]);
+        const secondCompletion = expect(secondPlayback)
+          .resolves.toBe(secondUrl)
+          .finally(() => resolveFirst(firstUrl));
+        await Promise.all([completion, secondCompletion]);
+        expect(configureResourceLoader.mock.calls[0][3]).toEqual(loader.getAudioTracks(firstSource));
+        expect(configureResourceLoader.mock.calls[1][3]).toEqual(loader.getAudioTracks(secondSource));
+        expect(generateCustomUrl).not.toHaveBeenCalled();
+      });
+    });
+
+    it.each([undefined, true])("uses the legacy URL method when configure returns %s", async (configurationResult) => {
+      await jest.isolateModulesAsync(async () => {
+        const legacyUrl = "jellyfin-multi://server/Videos/test-video/master.m3u8";
+        const generateCustomUrl = jest.fn().mockResolvedValue(legacyUrl);
+        jest.doMock("react-native", () => ({
+          Platform: { OS: "ios" },
+          NativeModules: {
+            MultiAudioResourceLoader: {
+              registerVideoPlugin: jest.fn().mockResolvedValue(undefined),
+              configureResourceLoader: jest.fn().mockResolvedValue(configurationResult),
+              generateCustomUrl,
+            },
+          },
+        }));
+        const loader = require("../multiAudioLoader") as typeof import("../multiAudioLoader");
+        const source = createMockVideoItem({ MediaStreams: [{ Type: "Audio", Codec: "aac", Index: 1 }] });
+        await loader.registerMultiAudioPlugin();
+        await expect(loader.prepareMultiAudioPlayback(source.Id, source, "http://server/Videos/test-video/master.m3u8", "key")).resolves.toBe(legacyUrl);
+        expect(generateCustomUrl).toHaveBeenCalledWith(source.Id);
+      });
+    });
+
+    it("passes the complete catalogue to the native fallback in published order", async () => {
+      await jest.isolateModulesAsync(async () => {
+        const configureResourceLoader = jest.fn().mockResolvedValue(undefined);
+        jest.doMock("react-native", () => ({
+          Platform: { OS: "ios" },
+          NativeModules: {
+            MultiAudioResourceLoader: {
+              registerVideoPlugin: jest.fn().mockResolvedValue(undefined),
+              configureResourceLoader,
+              generateCustomUrl: jest.fn().mockResolvedValue("jellyfin-multi://test-video/master.m3u8"),
+            },
+          },
+        }));
+        const loader = require("../multiAudioLoader") as typeof import("../multiAudioLoader");
+        const source = createMockVideoItem({
+          MediaSources: [{ Id: "alternate" }],
+          MediaStreams: [
+            { Type: "Audio", Codec: "aac", Index: 2 },
+            { Type: "Audio", Codec: "acelp.kelvin", Index: 8, IsDefault: true },
+          ],
+        });
+        await loader.registerMultiAudioPlugin();
+        await loader.prepareMultiAudioPlayback(source.Id, source, "http://server/Videos/test-video/master.m3u8?MediaSourceId=alternate", "key");
+        expect(configureResourceLoader.mock.calls[0][3]).toEqual(loader.getAudioTracks(source));
+        expect(configureResourceLoader.mock.calls[0][3].map((track: AudioTrackInfo) => track.Identity)).toEqual(["alternate:8", "alternate:2"]);
+      });
+    });
+
+    it("rejects a fallback URL for another media source before configuring native", async () => {
+      await jest.isolateModulesAsync(async () => {
+        const configureResourceLoader = jest.fn();
+        jest.doMock("react-native", () => ({
+          Platform: { OS: "ios" },
+          NativeModules: {
+            MultiAudioResourceLoader: {
+              registerVideoPlugin: jest.fn().mockResolvedValue(undefined),
+              configureResourceLoader,
+              generateCustomUrl: jest.fn(),
+            },
+          },
+        }));
+        const loader = require("../multiAudioLoader") as typeof import("../multiAudioLoader");
+        const source = createMockVideoItem({ MediaSources: [{ Id: "chosen-source" }], MediaStreams: [{ Type: "Audio", Codec: "aac", Index: 4 }] });
+        await loader.registerMultiAudioPlugin();
+        await expect(loader.prepareMultiAudioPlayback(source.Id, source, "http://server/master.m3u8?MediaSourceId=another-source", "key")).rejects.toThrow("does not match");
+        expect(configureResourceLoader).not.toHaveBeenCalled();
+      });
+    });
+
     /**
      * Note: Full integration testing is limited due to module-level state (pluginRegistered).
      * The module is designed to register the plugin once per app lifetime, which makes

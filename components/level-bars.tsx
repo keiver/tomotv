@@ -5,6 +5,7 @@ import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, 
 
 const BAR = 2;
 const GAP = 2;
+export const LEVEL_BARS_WIDTH = BAR * 3 + GAP * 2;
 /** Each bar's own period, so the three never line up. */
 const PERIODS = [620, 780, 540];
 /** Fraction of the height each bar reaches. */
@@ -73,7 +74,7 @@ export function LevelBars({ size, playing, color = COLORS.ACCENT }: LevelBarsPro
   const half = size / 2;
 
   return (
-    <View style={{ width: BAR * 3 + GAP * 2, height: size, flexDirection: "row", justifyContent: "space-between" }}>
+    <View style={{ width: LEVEL_BARS_WIDTH, height: size, flexDirection: "row", justifyContent: "space-between" }}>
       <Bar index={0} half={half} playing={playing} color={color} />
       <Bar index={1} half={half} playing={playing} color={color} />
       <Bar index={2} half={half} playing={playing} color={color} />

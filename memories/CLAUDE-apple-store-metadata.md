@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 15, 2026
+**Last Updated:** September 21, 2026
 
 ## Quick Reference
 
@@ -45,23 +45,23 @@ Finds your Jellyfin server on the network, nothing to type. Stream at the right 
 ### Keywords (99 / 100)
 
 ```text
-media,player,downloads,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook
+player,downloads,server,nas,atmos,dolby,surround,hevc,mkv,subtitle,selfhosted,audiobook,comics,epub
 ```
 
-### Description (3,569 / 4000)
+### Description (3,559 / 4000)
 
 ```text
 Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, and almost nothing has to go through your server's transcoder.
 
-Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC films and shows play straight from the file in any container. That includes 4K, HDR10, HLG and Dolby Vision. Older and stranger formats are converted on the device itself. Your server only steps in for the rare case nothing else covers.
+Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC films and shows play straight from the file in any container. That includes 4K, HDR10, HLG and Dolby Vision. Older and stranger formats are converted on the device itself. We only use server conversion when a slow connection needs a smaller stream or your device cannot play the file.
 
 WHAT MAKES IT DIFFERENT
 
 - Apple's own player, with the controls, gestures and swipe-down panel you already know. AirPlay and Picture in Picture come with it.
 - Quality that adapts while the film keeps running. If your connection dips, the picture steps down and climbs back on its own, with nothing to choose and no trip back to the start.
-- Sound that does not step down with it. Dolby Atmos passes through untouched, and TrueHD, DTS-HD Master Audio, PCM and FLAC are carried losslessly. When the picture adapts, the audio is not re-encoded along with it.
+- Supported Dolby Atmos tracks and lossless surround at original quality. On slow connections, smaller streams use mono or stereo sound. All audio tracks remain selectable.
 - Downloads on iPhone and iPad. Keep an item or a whole folder on the device and play it with no server in reach. Your place is kept and syncs back once there is one.
-- Disc subtitles handled on the device. PGS, VobSub, DVB and XSUB are decoded and drawn over the video without a trip to the server.
+- Disc subtitles handled on the device. PGS, VobSub, DVB and XSUB are decoded and drawn over the video on your device.
 - A server that stays found. If its address changes later, the app recognises the same server by its identity and reconnects, instead of asking you to sign in again.
 
 WHAT YOU GET
@@ -98,6 +98,35 @@ PRIVACY
 No analytics. No tracking. No ads. No account with us. Your credentials stay in the device Keychain, and video streams straight from your server to your device.
 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
+```
+
+### What's New (2.2.7), iOS (961 / 4000)
+
+```text
+- Playback follows your connection: original quality when it is fast, smaller streams when it is slow, and back up as it recovers
+- Live TV guide: resize the channel column or snap it to logos, and empty slots say when a channel has no listings
+- Live TV Channels: every channel on one wall, each card showing a live preview
+- Live TV favorites: press and hold a channel to favorite it, then show only favorites, sort by number or name, or pause the previews
+- Recordings gets Filters, and Show in Folder opens a recording there
+- Bigger home cards with cleaner 3:2 artwork, and posters made from the video lose their black bars
+- 8K videos your device cannot play directly stream from the server without stalling
+- The playing track's card shows the level bars
+- A video that keeps failing shows its error instead of retrying forever
+- Fixed audio-track selection for videos with separate subtitle files, and a book that won't render no longer hangs the reader
+```
+
+### What's New (2.2.7), tvOS (968 / 4000)
+
+```text
+- Playback follows your connection: original quality when it is fast, smaller streams when it is slow, and back up as it recovers
+- Live TV Channels: every channel on one wall, each card showing a live preview
+- Live TV favorites: press and hold a channel to favorite it, then show only favorites, sort by number or name, or pause the previews
+- Recordings gets Filters, and Show in Folder opens a recording there
+- Folder browsing covers the tab bar, with a Home button that returns in one press, and a folder's background takes its colour from its artwork
+- Bigger home cards with cleaner 3:2 artwork and a third row in view, and posters made from the video lose their black bars
+- 8K videos your Apple TV cannot play directly stream from the server without stalling
+- A video that keeps failing shows its error instead of retrying forever
+- Fixed audio-track selection for videos with separate subtitle files, and a book that won't render no longer hangs the reader
 ```
 
 ### What's New (2.2.6), iOS (706 / 4000)
@@ -200,19 +229,10 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 
 ## The listing as it stands
 
-2.2.6 build 18 was published on iOS and tvOS on 2026-09-15 (iTunes lookup: version
-2.2.6, released 09:20 UTC). `npm run meta:upload` sent the blocks above on 2026-09-14
-and reported every field unchanged on the second run. The lookup reads back the iOS
-description and What's New per storefront; the rest is what the upload sent.
-
-| Field            | Live (iTunes lookup, 2026-09-15)     | Blocks above          | State   |
-| ---------------- | ------------------------------------ | --------------------- | ------- |
-| App Name         | Tomo TV, a Jellyfin Client           | same                  | in step |
-| Subtitle         | Movies, Live TV, Music, Books        | same                  | in step |
-| Description      | 3569 en, 3823 de, 3884 fr, 3816 es   | same counts           | in step |
-| What's New 2.2.6 | 706 en, 872 de, 896 fr, 827 es (iOS) | same counts           | in step |
-| Promotional Text | not in the lookup                    | 138, four languages   | sent    |
-| Keywords         | not in the lookup                    | `downloads` in slot 3 | sent    |
+- Live version: 2.2.6, released 2026-09-15.
+- In preparation: 2.2.7.
+- The revised descriptions and release notes have not been uploaded.
+- The unchanged promotional text also needs to be copied into the new drafts.
 
 **Promotional text is hand-written in English and does not change per release.**
 The same 138 characters went out on 2.2.2, 2.2.3, 2.2.5 and 2.2.6. Apple opens every
@@ -249,26 +269,26 @@ Filme, Live-TV, Musik, Bücher
 Findet deinen Jellyfin-Server im Netzwerk, nichts einzutippen. Startet sofort in der richtigen Qualität. Spielt alles in Apples eigenem Player.
 ```
 
-#### Keywords (96 / 100 bytes)
+#### Keywords (97 / 100 bytes)
 
 ```text
-mediaplayer,download,server,nas,atmos,dolby,surround,hevc,codec,mkv,untertitel,heimkino,hörbuch
+player,download,server,nas,atmos,dolby,surround,hevc,mkv,untertitel,heimkino,hörbuch,comics,epub
 ```
 
-#### Description (3823 / 4000 chars)
+#### Description (3900 / 4000 chars)
 
 ```text
 Tomo TV spielt deine Jellyfin-Bibliothek in Apples eigenem Player. Kostenlos, quelloffen, und fast nichts muss durch den Transkoder deines Servers.
 
-Apple TV, iPhone und iPad übernehmen die Arbeit, die sonst der Server macht. Filme und Serien in H.264 und HEVC laufen direkt aus der Datei, in jedem Container. Das gilt auch für 4K, HDR10, HLG und Dolby Vision. Ältere und seltenere Formate werden auf dem Gerät selbst umgewandelt. Dein Server springt nur ein, wenn nichts anderes greift.
+Apple TV, iPhone und iPad übernehmen die Arbeit, die sonst der Server macht. Filme und Serien in H.264 und HEVC laufen direkt aus der Datei, in jedem Container. Das gilt auch für 4K, HDR10, HLG und Dolby Vision. Ältere und seltenere Formate werden auf dem Gerät selbst umgewandelt. Wir nutzen die Umwandlung auf dem Server nur, wenn eine langsame Verbindung einen kleineren Stream braucht oder dein Gerät die Datei nicht abspielen kann.
 
 WAS ANDERS IST
 
 - Apples eigener Player, mit den Bedienelementen, Gesten und dem Panel, die du kennst. AirPlay und Bild-in-Bild sind dabei.
 - Qualität, die sich anpasst, während der Film weiterläuft. Wird die Verbindung schlechter, geht das Bild herunter und von allein wieder hinauf, ohne Auswahl und ohne Sprung zurück an den Anfang.
-- Ton, der nicht mitreduziert wird. Dolby Atmos wird unverändert durchgereicht, TrueHD, DTS-HD Master Audio, PCM und FLAC verlustfrei übertragen. Passt sich das Bild an, wird der Ton nicht neu kodiert.
+- Unterstützte Dolby-Atmos-Spuren und verlustfreier Surround-Ton in Originalqualität. Bei langsamer Verbindung nutzen kleinere Streams Mono- oder Stereoton. Alle Tonspuren bleiben auswählbar.
 - Downloads auf iPhone und iPad. Behalte einen Titel oder ein ganzes Verzeichnis auf dem Gerät und spiele es ohne Server in Reichweite. Deine Stelle bleibt gespeichert und gleicht sich ab, sobald wieder einer da ist.
-- Disc-Untertitel auf dem Gerät. PGS, VobSub, DVB und XSUB werden dekodiert und über das Video gezeichnet, ohne Umweg über den Server.
+- Disc-Untertitel auf dem Gerät. PGS, VobSub, DVB und XSUB werden auf deinem Gerät dekodiert und über das Video gezeichnet.
 - Ein Server, der gefunden bleibt. Ändert sich später seine Adresse, erkennt die App denselben Server an seiner Identität und verbindet sich neu, statt dich erneut anmelden zu lassen.
 
 WAS DU BEKOMMST
@@ -305,6 +325,35 @@ DATENSCHUTZ
 Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsdaten bleiben im Schlüsselbund des Geräts, und das Video läuft direkt von deinem Server auf dein Gerät.
 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
+```
+
+#### What's New (2.2.7), iOS (1155 / 4000 chars)
+
+```text
+- Die Wiedergabe folgt deiner Verbindung: Originalqualität bei schneller Verbindung, kleinere Streams bei langsamer, und wieder Originalqualität, sobald sie sich erholt
+- Fernsehprogramm im Live-TV: Senderspalte anpassen oder auf Logos einklappen, und leere Felder zeigen an, wenn ein Sender keine Programmdaten hat
+- Live-TV-Kanäle: alle Kanäle auf einer Seite, jede Karte mit einer Live-Vorschau
+- Live-TV-Favoriten: einen Kanal gedrückt halten, um ihn zu favorisieren, dann nur Favoriten anzeigen, nach Nummer oder Name sortieren oder die Vorschauen pausieren
+- Aufnahmen bekommen Filter, und „Im Verzeichnis zeigen“ öffnet eine Aufnahme dort
+- Größere Startseiten-Karten mit sauberem 3:2-Bild, und aus dem Video erzeugte Poster verlieren ihre schwarzen Balken
+- 8K-Videos, die das Gerät nicht direkt abspielt, laufen ohne Stocken über den Server
+- Die Karte des laufenden Titels zeigt die Pegelbalken
+- Ein Video, das ständig fehlschlägt, zeigt seinen Fehler, statt es ewig neu zu versuchen
+- Die Tonspurauswahl bei Videos mit separaten Untertiteldateien wurde korrigiert, und ein Buch, das sich nicht darstellen lässt, blockiert den Reader nicht mehr
+```
+
+#### What's New (2.2.7), tvOS (1153 / 4000 chars)
+
+```text
+- Die Wiedergabe folgt deiner Verbindung: Originalqualität bei schneller Verbindung, kleinere Streams bei langsamer, und wieder Originalqualität, sobald sie sich erholt
+- Live-TV-Kanäle: alle Kanäle auf einer Seite, jede Karte mit einer Live-Vorschau
+- Live-TV-Favoriten: einen Kanal gedrückt halten, um ihn zu favorisieren, dann nur Favoriten anzeigen, nach Nummer oder Name sortieren oder die Vorschauen pausieren
+- Aufnahmen bekommen Filter, und „Im Verzeichnis zeigen“ öffnet eine Aufnahme dort
+- Verzeichnisse werden ohne Tableiste durchsucht, mit einer Start-Taste zurück in einem Schritt, und der Verzeichnishintergrund nimmt die Farbe seines Artworks an
+- Größere Startseiten-Karten mit sauberem 3:2-Bild und einer dritten sichtbaren Reihe, und aus dem Video erzeugte Poster verlieren ihre schwarzen Balken
+- 8K-Videos, die das Apple TV nicht direkt abspielt, laufen ohne Stocken über den Server
+- Ein Video, das ständig fehlschlägt, zeigt seinen Fehler, statt es ewig neu zu versuchen
+- Die Tonspurauswahl bei Videos mit separaten Untertiteldateien wurde korrigiert, und ein Buch, das sich nicht darstellen lässt, blockiert den Reader nicht mehr
 ```
 
 #### What's New (2.2.6), iOS (872 / 4000 chars)
@@ -375,26 +424,26 @@ Ciné, TV live, musique, livres
 Trouve votre serveur Jellyfin sur le réseau, rien à saisir. Démarre tout de suite à la bonne qualité. Lit tout dans le lecteur d'Apple.
 ```
 
-#### Keywords (90 / 100 bytes)
+#### Keywords (85 / 100 bytes)
 
 ```text
-lecteur,média,téléchargement,serveur,nas,atmos,dolby,hevc,codec,mkv,sous-titres,cinéma
+lecteur,téléchargement,serveur,nas,atmos,dolby,hevc,mkv,sous-titres,cinéma,bd,epub
 ```
 
-#### Description (3884 / 4000 chars)
+#### Description (3964 / 4000 chars)
 
 ```text
 Tomo TV lit votre médiathèque Jellyfin dans le lecteur d'Apple. Gratuit, open source, et presque rien ne passe par le transcodeur de votre serveur.
 
-Apple TV, iPhone et iPad font le travail que fait d'habitude un serveur. Films et séries en H.264 et HEVC sont lus directement depuis le fichier, dans n'importe quel conteneur. 4K, HDR10, HLG et Dolby Vision compris. Les formats plus anciens ou plus rares sont convertis sur l'appareil lui-même. Votre serveur n'intervient que dans le cas rare que rien d'autre ne couvre.
+Apple TV, iPhone et iPad font le travail que fait d'habitude un serveur. Films et séries en H.264 et HEVC sont lus directement depuis le fichier, dans n'importe quel conteneur. 4K, HDR10, HLG et Dolby Vision compris. Les formats plus anciens ou plus rares sont convertis sur l'appareil lui-même. Nous utilisons la conversion sur le serveur uniquement lorsqu'une connexion lente exige une version plus légère ou que votre appareil ne peut pas lire le fichier.
 
 CE QUI CHANGE
 
 - Le lecteur d'Apple, avec les commandes, les gestes et le panneau que vous connaissez déjà. AirPlay et Image dans l'image sont inclus.
 - Une qualité qui s'adapte pendant que le film continue. Si la connexion faiblit, l'image descend puis remonte d'elle-même, sans rien choisir et sans retour au début.
-- Un son qui ne descend pas avec elle. Dolby Atmos passe intact, et TrueHD, DTS-HD Master Audio, PCM et FLAC sont transportés sans perte. Quand l'image s'adapte, l'audio n'est pas réencodé avec elle.
+- Pistes Dolby Atmos compatibles et son surround sans perte en qualité d'origine. Sur une connexion lente, les flux réduits utilisent un son mono ou stéréo. Toutes les pistes audio restent disponibles.
 - Téléchargements sur iPhone et iPad. Gardez un élément ou un dossier entier sur l'appareil et lisez-le sans serveur à portée. Votre position est gardée et se synchronise dès qu'il y en a un.
-- Sous-titres de disque traités sur l'appareil. PGS, VobSub, DVB et XSUB sont décodés et dessinés par-dessus la vidéo, sans passer par le serveur.
+- Sous-titres de disque traités sur l'appareil. PGS, VobSub, DVB et XSUB sont décodés et dessinés par-dessus la vidéo sur votre appareil.
 - Un serveur qui reste trouvé. Si son adresse change plus tard, l'app reconnaît le même serveur à son identité et se reconnecte, au lieu de vous redemander vos identifiants.
 
 CE QUE VOUS AVEZ
@@ -431,6 +480,35 @@ CONFIDENTIALITÉ
 Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos identifiants restent dans le trousseau de l'appareil, et la vidéo est diffusée directement de votre serveur vers votre appareil.
 
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
+```
+
+#### What's New (2.2.7), iOS (1213 / 4000 chars)
+
+```text
+- La lecture suit votre connexion : qualité d'origine quand elle est rapide, flux plus légers quand elle est lente, et retour à la qualité d'origine dès qu'elle se rétablit
+- Guide TV en direct : redimensionnez la colonne des chaînes ou réduisez-la aux logos, et les cases vides indiquent qu'une chaîne n'a pas de programme
+- Chaînes TV en direct : toutes les chaînes sur une seule page, chaque carte avec un aperçu en direct
+- Favoris TV en direct : maintenez une chaîne pour la mettre en favori, puis affichez uniquement les favoris, triez par numéro ou par nom, ou suspendez les aperçus
+- Les enregistrements ont des filtres, et « Afficher dans le dossier » ouvre un enregistrement à cet endroit
+- Cartes d'accueil plus grandes avec un visuel 3:2 plus net, et les affiches tirées de la vidéo perdent leurs bandes noires
+- Les vidéos 8K que l'appareil ne lit pas directement sont diffusées depuis le serveur sans saccades
+- La carte du morceau en cours affiche les barres de niveau
+- Une vidéo qui échoue sans cesse affiche son erreur au lieu de réessayer indéfiniment
+- Correction du choix de piste audio pour les vidéos avec des sous-titres séparés, et un livre impossible à afficher ne bloque plus le lecteur
+```
+
+#### What's New (2.2.7), tvOS (1190 / 4000 chars)
+
+```text
+- La lecture suit votre connexion : qualité d'origine quand elle est rapide, flux plus légers quand elle est lente, et retour à la qualité d'origine dès qu'elle se rétablit
+- Chaînes TV en direct : toutes les chaînes sur une seule page, chaque carte avec un aperçu en direct
+- Favoris TV en direct : maintenez une chaîne pour la mettre en favori, puis affichez uniquement les favoris, triez par numéro ou par nom, ou suspendez les aperçus
+- Les enregistrements ont des filtres, et « Afficher dans le dossier » ouvre un enregistrement à cet endroit
+- La navigation dans les dossiers masque la barre d'onglets, un bouton Accueil ramène en une pression, et le fond du dossier prend la couleur de son visuel
+- Cartes d'accueil plus grandes avec un visuel 3:2 plus net et une troisième rangée visible, et les affiches tirées de la vidéo perdent leurs bandes noires
+- Les vidéos 8K que l'Apple TV ne lit pas directement sont diffusées depuis le serveur sans saccades
+- Une vidéo qui échoue sans cesse affiche son erreur au lieu de réessayer indéfiniment
+- Correction du choix de piste audio pour les vidéos avec des sous-titres séparés, et un livre impossible à afficher ne bloque plus le lecteur
 ```
 
 #### What's New (2.2.6), iOS (896 / 4000 chars)
@@ -501,26 +579,26 @@ Cine, en vivo, música, libros
 Encuentra tu servidor Jellyfin en la red, sin escribir nada. Empieza ya con la calidad justa. Lo reproduce todo en el reproductor de Apple.
 ```
 
-#### Keywords (88 / 100 bytes)
+#### Keywords (94 / 100 bytes)
 
 ```text
-reproductor,descargas,servidor,nas,atmos,dolby,hevc,codec,mkv,subtitulos,audiolibro,cine
+reproductor,descargas,servidor,nas,atmos,dolby,hevc,mkv,subtitulos,audiolibro,cine,comics,epub
 ```
 
-#### Description (3816 / 4000 chars)
+#### Description (3911 / 4000 chars)
 
 ```text
 Tomo TV reproduce tu biblioteca de Jellyfin en el reproductor de Apple. Gratis, de código abierto, y casi nada tiene que pasar por el conversor de tu servidor.
 
-Tu Apple TV, tu iPhone y tu iPad hacen el trabajo que suele hacer un servidor. Películas y series en H.264 y HEVC se reproducen directamente desde el archivo, en cualquier contenedor. Eso incluye 4K, HDR10, HLG y Dolby Vision. Los formatos más antiguos o menos comunes se convierten en el propio dispositivo. Tu servidor solo interviene en el caso raro que no cubre nada más.
+Tu Apple TV, tu iPhone y tu iPad hacen el trabajo que suele hacer un servidor. Películas y series en H.264 y HEVC se reproducen directamente desde el archivo, en cualquier contenedor. Eso incluye 4K, HDR10, HLG y Dolby Vision. Los formatos más antiguos o menos comunes se convierten en el propio dispositivo. Solo usamos la conversión en el servidor cuando una conexión lenta necesita una versión más ligera o tu dispositivo no puede reproducir el archivo.
 
 QUÉ LO HACE DISTINTO
 
 - El reproductor de Apple, con los controles, los gestos y el panel que ya conoces. AirPlay e Imagen dentro de imagen vienen incluidos.
 - Calidad que se adapta mientras la película sigue. Si la conexión baja, la imagen baja y vuelve a subir sola, sin elegir nada y sin volver al principio.
-- Sonido que no baja con ella. Dolby Atmos pasa intacto, y TrueHD, DTS-HD Master Audio, PCM y FLAC se transportan sin pérdida. Cuando la imagen se adapta, el audio no se vuelve a codificar.
+- Pistas Dolby Atmos compatibles y sonido envolvente sin pérdida en calidad original. En conexiones lentas, las versiones de menor calidad usan sonido mono o estéreo. Todas las pistas de audio siguen disponibles.
 - Descargas en iPhone y iPad. Guarda un elemento o una carpeta entera en el dispositivo y reprodúcelo sin ningún servidor cerca. Tu posición se guarda y se sincroniza en cuanto vuelva a haber uno.
-- Subtítulos de disco resueltos en el dispositivo. PGS, VobSub, DVB y XSUB se decodifican y se dibujan sobre el vídeo, sin pasar por el servidor.
+- Subtítulos de disco resueltos en el dispositivo. PGS, VobSub, DVB y XSUB se decodifican y se dibujan sobre el vídeo en tu dispositivo.
 - Un servidor que sigue encontrándose. Si su dirección cambia más adelante, la app reconoce el mismo servidor por su identidad y se reconecta, en vez de pedirte que inicies sesión otra vez.
 
 QUÉ INCLUYE
@@ -557,6 +635,35 @@ PRIVACIDAD
 Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenciales se quedan en el llavero del dispositivo, y el vídeo va directo de tu servidor a tu dispositivo.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.7), iOS (1207 / 4000 chars)
+
+```text
+- La reproducción sigue tu conexión: calidad original cuando es rápida, transmisiones más ligeras cuando es lenta, y de vuelta a la calidad original en cuanto se recupera
+- Guía de TV en vivo: cambia el ancho de la columna de canales o contráela a los logotipos, y las celdas vacías indican cuando un canal no tiene programación
+- Canales de TV en vivo: todos los canales en una sola pantalla, cada tarjeta con una vista previa en vivo
+- Favoritos de TV en vivo: mantén pulsado un canal para marcarlo como favorito, luego muestra solo favoritos, ordena por número o nombre, o pausa las vistas previas
+- Grabaciones tiene Filtros, y «Mostrar en la carpeta» abre una grabación allí
+- Tarjetas de inicio más grandes con imagen 3:2 más limpia, y los pósteres creados a partir del video pierden sus franjas negras
+- Los videos 8K que el dispositivo no reproduce directamente se transmiten desde el servidor sin interrupciones
+- La tarjeta de la pista en reproducción muestra las barras de nivel
+- Un video que falla una y otra vez muestra su error en lugar de reintentar para siempre
+- Corregida la selección de audio en videos con subtítulos separados, y un libro que no se puede mostrar ya no bloquea el lector
+```
+
+#### What's New (2.2.7), tvOS (1172 / 4000 chars)
+
+```text
+- La reproducción sigue tu conexión: calidad original cuando es rápida, transmisiones más ligeras cuando es lenta, y de vuelta a la calidad original en cuanto se recupera
+- Canales de TV en vivo: todos los canales en una sola pantalla, cada tarjeta con una vista previa en vivo
+- Favoritos de TV en vivo: mantén pulsado un canal para marcarlo como favorito, luego muestra solo favoritos, ordena por número o nombre, o pausa las vistas previas
+- Grabaciones tiene Filtros, y «Mostrar en la carpeta» abre una grabación allí
+- La navegación por carpetas oculta la barra de pestañas, con un botón Inicio que vuelve con una sola pulsación, y el fondo de la carpeta toma el color de su imagen
+- Tarjetas de inicio más grandes con imagen 3:2 más limpia y una tercera fila a la vista, y los pósteres creados a partir del video pierden sus franjas negras
+- Los videos 8K que tu Apple TV no reproduce directamente se transmiten desde el servidor sin interrupciones
+- Un video que falla una y otra vez muestra su error en lugar de reintentar para siempre
+- Corregida la selección de audio en videos con subtítulos separados, y un libro que no se puede mostrar ya no bloquea el lector
 ```
 
 #### What's New (2.2.6), iOS (827 / 4000 chars)
@@ -657,15 +764,15 @@ that is all most people read before tapping more.
 
 Tomo TV plays your Jellyfin library in Apple's own player. Free, open source, and almost nothing has to go through your server's transcoder.
 
-Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC play straight from the file in any container. Older and stranger formats are converted on the device itself. Your server only steps in for the rare case nothing else covers.
+Your Apple TV, iPhone and iPad do the work a server usually does. H.264 and HEVC play straight from the file in any container. Older and stranger formats are converted on the device itself. We only use server conversion when a slow connection needs a smaller stream or your device cannot play the file.
 
 WHAT MAKES IT DIFFERENT
 
 - Apple's own player, with the controls, gestures and swipe-down panel you already know. AirPlay and Picture in Picture come with it.
 - Quality that adapts while the film keeps running. If your connection dips, the picture steps down and climbs back on its own, with nothing to choose and no trip back to the start.
-- Sound that does not step down with it. Dolby Atmos passes through untouched, and TrueHD, DTS-HD Master Audio, PCM and FLAC are carried losslessly. When the picture adapts, the audio is not re-encoded along with it.
+- Supported Dolby Atmos tracks and lossless surround at original quality. On slow connections, smaller streams use mono or stereo sound. All audio tracks remain selectable.
 - Downloads on iPhone and iPad. Keep an item or a whole folder on the device and play it with no server in reach. Your place is kept and syncs back once there is one.
-- Disc subtitles handled on the device. PGS, VobSub, DVB and XSUB are decoded and drawn over the video without a trip to the server.
+- Disc subtitles handled on the device. PGS, VobSub, DVB and XSUB are decoded and drawn over the video on your device.
 - A server that stays found. If its address changes later, the app recognises the same server by its identity and reconnects, instead of asking you to sign in again.
 
 WHAT YOU GET
@@ -710,23 +817,16 @@ RETRY_WITH_TRANSCODE (hooks/useVideoPlayback.ts:811-844). "background playback o
 iPhone" understated it: services/audioQueuePlayer.ts:71 gates on Platform.OS ===
 "ios", true on tvOS too.
 
-Three things were added that the old copy omitted entirely: adaptive streaming
-(services/localRemux.ts:156-160), audio surviving intact when video steps down
-(services/localRemux.ts:176-193, the tier is video-only and audio rides a shared
-group), and server re-discovery after an address change
-(services/connectionRecovery.ts:1-16, "a URL swap, never a logout").
-
-Two hedges are deliberate. "almost nothing has to go through your server's
-transcoder" honours memories/CLAUDE-roadmap.md:16, never claim "plays everything"
-absolutely. "steps down and climbs back" avoids promising zero reload, since
-slipstreamEligible (services/localRemux.ts:168-174) excludes HDR, which adapts on
-the server lane instead.
+Original-quality playback preserves supported Atmos and lossless surround.
+Smaller server streams use up to stereo AAC; track availability does not
+mean unchanged audio encoding. Adaptive sessions include eligible HDR files.
+Do not claim that every file plays without server conversion.
 
 ---
 
 ## Keywords (100 characters max, comma-separated)
 
-**media,player,downloads,server,nas,atmos,dolby,surround,hevc,codec,mkv,subtitle,selfhosted,audiobook**
+**player,downloads,server,nas,atmos,dolby,surround,hevc,mkv,subtitle,selfhosted,audiobook,comics,epub**
 (99 characters)
 
 This field is a fifth of everything the app ranks on: the indexed surface is only
@@ -1210,9 +1310,9 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the Add Server 
 
 ## Build Number & Version Notes
 
-**Version:** 2.2.6, build 18 (commit 120690a) published on both platforms 2026-09-15; app.json carries 18. 2.2.5 build 11 was published 2026-09-09. Pick the build number off App Store Connect
-before archiving: 2.1.1 uploaded builds under its own version string and was pulled
-from review, so nothing here predicts what 2.2.0 may reuse.
+**Live version:** 2.2.6, published 2026-09-15.
+**Local version:** 2.2.7, build 20 in app.json.
+Check App Store Connect for the last uploaded build before choosing the next number.
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
 
 **Version Naming Convention Going Forward:**
@@ -1274,16 +1374,14 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 | Field            | Limit | Current   | Status |
 | ---------------- | ----- | --------- | ------ |
 | App Name         | 30    | 26        | ✅     |
-| Subtitle         | 30    | 30        | ✅     |
+| Subtitle         | 30    | 29        | ✅     |
 | Promotional Text | 170   | 138       | ✅     |
-| Description      | 4,000 | 3,652     | ✅     |
+| Description      | 4,000 | 3,573     | ✅     |
 | Keywords         | 100   | 99        | ✅     |
-| What's New 2.2.6 | 4,000 | 706 / 779 | ✅     |
+| What's New 2.2.7 | 4,000 | 540 / 495 | ✅     |
 
-Counted, not estimated (script over this file's own copy; What's New is iOS / tvOS,
-recounted 2026-09-13). App Store Connect shows the count REMAINING, not used, so it will read
-32 / 348 / 3,294 under Promotional Text, Description and What's New (iOS). Do not
-"correct" this table against those numbers.
+Counts use the English canonical blocks; What's New is iOS / tvOS.
+Keywords are counted in UTF-8 bytes; other fields use Unicode characters.
 
 Only 160 of these characters are indexed for search: App Name, Subtitle and
 Keywords. Description, Promotional Text and What's New contribute nothing to
@@ -1311,7 +1409,8 @@ Every submission:
 - [ ] Bump build number via `npm run archive -- <n>`, reading the last used value off App Store Connect
 - [ ] Fill App Review Information → Notes with the block above
 - [ ] Physical-device screen recording if this is a platform's first submission
-- [x] Update "What's New" (2.2.6 section above)
+- [x] Update "What's New" for 2.2.7 in all four languages and both platforms
+- [ ] Upload the approved 2.2.7 metadata and verify the draft matches
 
 ---
 

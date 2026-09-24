@@ -20,13 +20,16 @@ func makeConfig(
     tierCodecs: String = "",
     tierWidth: Int = 0,
     tierHeight: Int = 0,
-    tierFirst: Bool = false,
+    tiers: [TierConfig]? = nil,
     startOffsetSeconds: Double = 0,
     isLive: Bool = false,
     liveSegmentSeconds: Double = 6.0,
     liveWindowSeconds: Double = 300.0
 ) -> RemuxConfig {
-    RemuxConfig(
+    // A `tiers` array wins; otherwise build a one-rung ladder from the single-tier
+    // params so existing tests read unchanged.
+    let resolvedTiers: [TierConfig] = tiers ?? (tierPlaylistUrl.map { [TierConfig(playlistUrl: $0, bandwidth: tierBandwidth, codecs: tierCodecs, width: tierWidth, height: tierHeight)] } ?? [])
+    return RemuxConfig(
         inputUrl: inputUrl,
         audioTracks: audioTracks,
         durationSeconds: durationSeconds,
@@ -39,12 +42,7 @@ func makeConfig(
         frameRate: frameRate,
         bandwidth: bandwidth,
         readAheadSegments: readAheadSegments,
-        tierPlaylistUrl: tierPlaylistUrl,
-        tierBandwidth: tierBandwidth,
-        tierCodecs: tierCodecs,
-        tierWidth: tierWidth,
-        tierHeight: tierHeight,
-        tierFirst: tierFirst,
+        tiers: resolvedTiers,
         startOffsetSeconds: startOffsetSeconds,
         isLive: isLive,
         liveSegmentSeconds: liveSegmentSeconds,

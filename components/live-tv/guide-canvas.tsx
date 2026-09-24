@@ -1,6 +1,9 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
-import { GuideRow, rowCells, type FocusTargets } from "@/components/live-tv/guide-row";
+import { GuideColumnDivider } from "@/components/live-tv/guide-column-divider";
+import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
+import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler } from "@/components/live-tv/guide-time-ruler";
 import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
@@ -10,12 +13,19 @@ import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cellAtEdge, cellGeometry, formatDayLabel, guideMetrics, isAiring, MINUTE_MS, programTimes } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useSharedValue } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 const METRICS = guideMetrics(IS_TV);
+/** Phone: clear the tab bar so the last channel is never tucked under it. */
+const LIST_BOTTOM_PAD = IS_TV ? 0 : 200;
+/** The floating tab bar the phone list scrolls under; matches home-shelves. */
+const TAB_BAR_HEIGHT = 49;
+/** The grid reaches this far under the channel column, the width of the grid line on the seam. */
+const SEAM_REACH = 1;
 
 interface GuideCanvasProps {
   guide: GuideState;
@@ -24,6 +34,7 @@ interface GuideCanvasProps {
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onChannelPress: (channel: JellyfinItem) => void;
+  onChannelLongPress: (channel: JellyfinItem) => void;
 }
 
 /**
@@ -31,20 +42,28 @@ interface GuideCanvasProps {
  * with the channel column beside it kept level with the rows. Cells and channels are the
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
-export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLongPress, onChannelPress }: GuideCanvasProps) {
+export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
 
+  const insets = useSafeAreaInsets();
+  const [compact, setCompact] = useState(false);
+
   const scrollX = useSharedValue(0);
   const columnRef = useAnimatedRef<Animated.FlatList<JellyfinItem>>();
   const rowsRef = useAnimatedRef<Animated.FlatList<GuideRowData>>();
+  // The channel column's live width and the whole guide's width, both driven from the UI thread
+  // so the resize drag never re-renders the two lists.
+  const columnW = useSharedValue(METRICS.channelColumnWidth);
+  const canvasW = useSharedValue(0);
   const [viewportWidth, setViewportWidth] = useState(0);
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
     setViewportWidth(event.nativeEvent.layout.width);
     setCanvasHeight(event.nativeEvent.layout.height);
   }, []);
+  const handleGuideLayout = useCallback((event: LayoutChangeEvent) => canvasW.set(event.nativeEvent.layout.width), [canvasW]);
 
   // Within a viewport of the loaded edge: grow the window before the viewer reaches it.
   const horizontalHandler = useAnimatedScrollHandler({
@@ -87,7 +106,11 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
     },
     [handles],
   );
-  const [focusTargets, setFocusTargets] = useState<{ rowIndex: number; targets: FocusTargets } | undefined>(undefined);
+  // Read at focus time through a ref: the lookup stays one function for the rows' whole life.
+  const rowDataRef = useRef(rows);
+  useEffect(() => {
+    rowDataRef.current = rows;
+  }, [rows]);
   const neighbourHandle = useCallback(
     (row: GuideRowData | undefined, edgeMs: number) => {
       if (!row) return undefined;
@@ -96,22 +119,20 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
     },
     [handles, windowStartMs, windowEndMs],
   );
-  const handleCellFocus = useCallback(
-    (program: JellyfinProgram, channel: JellyfinItem) => {
-      if (!IS_TV || !program.Id) return;
-      driver.set("grid");
-      setFocusLatched(true);
-      const rowIndex = rows.findIndex((row) => row.channel.Id === channel.Id);
+  const targetsFor = useCallback<FocusTargetsFor>(
+    (rowIndex, program) => {
       const { startMs, endMs } = programTimes(program);
       const left = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, METRICS)?.left ?? 0;
       const edgeMs = windowStartMs + (Math.max(left, scrollX.value) / METRICS.pxPerMinute) * MINUTE_MS;
-      setFocusTargets({
-        rowIndex,
-        targets: { programId: program.Id, up: neighbourHandle(rows[rowIndex - 1], edgeMs), down: neighbourHandle(rows[rowIndex + 1], edgeMs) },
-      });
+      return { up: neighbourHandle(rowDataRef.current[rowIndex - 1], edgeMs), down: neighbourHandle(rowDataRef.current[rowIndex + 1], edgeMs) };
     },
-    [rows, windowStartMs, windowEndMs, scrollX, driver, neighbourHandle],
+    [windowStartMs, windowEndMs, scrollX, neighbourHandle],
   );
+  const handleCellFocus = useCallback(() => {
+    if (!IS_TV) return;
+    driver.set("grid");
+    setFocusLatched(true);
+  }, [driver]);
   const handleChannelFocus = useCallback(() => {
     if (!IS_TV) return;
     driver.set("column");
@@ -125,7 +146,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
   }, [rows, nowMs, focusLatched, isScreenFocused]);
 
   const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
-  const dayLabel = formatDayLabel(windowStartMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") });
+  const dayLabel = formatDayLabel(windowStartMs, nowMs, { today: t("liveTv.now"), tomorrow: t("liveTv.tomorrow") });
 
   const renderRow = useCallback(
     ({ item, index }: { item: GuideRowData; index: number }) => (
@@ -139,8 +160,9 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
         nowMs={nowMs}
         timersByProgramId={timersByProgramId}
         scrollX={scrollX}
+        rowIndex={index}
         nextFocusUp={index === 0 ? topFocusHandle : undefined}
-        focusTargets={focusTargets?.rowIndex === index ? focusTargets.targets : undefined}
+        targetsFor={IS_TV ? targetsFor : undefined}
         focusProgramId={index === 0 ? focusProgramId : undefined}
         onProgramPress={onProgramPress}
         onProgramLongPress={onProgramLongPress}
@@ -148,7 +170,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
         onCellHandle={handleCellHandle}
       />
     ),
-    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, topFocusHandle, focusTargets, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus, handleCellHandle],
+    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, topFocusHandle, targetsFor, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus, handleCellHandle],
   );
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
@@ -180,7 +202,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
 
   const listHeight = Math.max(0, canvasHeight - METRICS.rulerHeight);
   return (
-    <View style={styles.canvas}>
+    <View style={styles.canvas} onLayout={handleGuideLayout}>
       <GuideChannelColumn
         channels={channels}
         metrics={METRICS}
@@ -188,7 +210,11 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
         onScroll={columnHandler}
         dayLabel={dayLabel}
         listHeight={listHeight}
+        contentBottomPad={LIST_BOTTOM_PAD}
+        columnWidth={columnW}
+        compact={compact}
         onChannelPress={onChannelPress}
+        onChannelLongPress={onChannelLongPress}
         onChannelFocus={handleChannelFocus}
         onEndReached={loadMoreRows}
       />
@@ -200,9 +226,11 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
           showsHorizontalScrollIndicator={false}
           bounces={false}
           style={styles.scroll}
-          contentContainerStyle={{ width: spanPx }}>
-          <View style={{ width: spanPx, height: canvasHeight }}>
-            <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
+          contentContainerStyle={{ width: spanPx + SEAM_REACH }}>
+          <View style={{ width: spanPx + SEAM_REACH, height: canvasHeight }}>
+            <View style={{ marginLeft: SEAM_REACH }}>
+              <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
+            </View>
             <Animated.FlatList
               ref={rowsRef}
               data={rows}
@@ -214,15 +242,34 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
               onEndReached={loadMoreRows}
               onEndReachedThreshold={1}
               showsVerticalScrollIndicator={false}
+              snapToAlignment={IS_TV ? "item" : undefined}
               removeClippedSubviews={!IS_TV}
-              initialNumToRender={IS_TV ? 10 : 12}
-              maxToRenderPerBatch={8}
-              windowSize={5}
-              style={{ height: listHeight, width: spanPx }}
+              // Three viewports each side mounted ahead of a held press, in small batches so rows
+              // paint one after another instead of as a block; a press costs no canvas render now.
+              initialNumToRender={12}
+              maxToRenderPerBatch={4}
+              updateCellsBatchingPeriod={16}
+              windowSize={7}
+              style={{ height: listHeight, width: spanPx + SEAM_REACH }}
+              contentContainerStyle={{ paddingBottom: LIST_BOTTOM_PAD, paddingLeft: SEAM_REACH }}
             />
           </View>
         </Animated.ScrollView>
       </View>
+      {IS_TV ? <View style={[styles.seam, { left: METRICS.channelColumnWidth - 1 }]} pointerEvents="none" /> : null}
+      {IS_TV ? null : (
+        <GuideColumnDivider
+          columnW={columnW}
+          canvasW={canvasW}
+          minWidth={METRICS.compactColumnWidth}
+          maxWidth={METRICS.channelColumnWidth}
+          topInset={METRICS.rulerHeight}
+          bottomInset={TAB_BAR_HEIGHT + insets.bottom}
+          onCompactChange={setCompact}
+        />
+      )}
+      {/* After the divider: the red mark sits on top of the seam line. */}
+      <GuideSeamMark columnW={columnW} scrollX={scrollX} isHour={new Date(windowStartMs).getMinutes() === 0} height={METRICS.rulerHeight - 1} />
     </View>
   );
 }
@@ -232,11 +279,20 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
   },
+  // Reaches back over the seam so a cell's focus ring can cover it; the content pads the same back.
   scrollHost: {
     flex: 1,
+    marginLeft: -SEAM_REACH,
   },
   scroll: {
     flex: 1,
+  },
+  seam: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: GRID_LINE,
   },
   center: {
     flex: 1,

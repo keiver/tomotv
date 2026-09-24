@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="4000" viewBox="0 0 4000 4000">
+  <defs>
+    <radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="2000" cy="1650" r="2800">
+      <stop offset="0" stop-color="#1E6A72"/>
+      <stop offset="0.4" stop-color="#0F3F47"/>
+      <stop offset="0.75" stop-color="#08222A"/>
+      <stop offset="1" stop-color="#040E12"/>
+    </radialGradient>
+    <radialGradient id="veil" gradientUnits="userSpaceOnUse" cx="2000" cy="-200" r="2000">
+      <stop offset="0" stop-color="#B8F4F0" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#B8F4F0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="4000" height="4000" fill="url(#glow)"/>
+  <rect width="4000" height="4000" fill="url(#veil)"/>
+</svg>

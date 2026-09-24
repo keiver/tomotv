@@ -1,6 +1,8 @@
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { fetchChannels, fetchGuidePrograms, fetchTimers } from "@/services/jellyfinApi";
+import { channelSortParam, favoriteChannels } from "@/services/liveTvPreferences";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS } from "@/utils/guide";
+import { GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, MINUTE_MS } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -38,6 +40,60 @@ function mergePrograms(existing: JellyfinProgram[] | undefined, incoming: Jellyf
   return merged;
 }
 
+type ChannelPage = { items: JellyfinItem[]; programs: JellyfinProgram[]; hasMore: boolean; pageLength: number };
+
+/**
+ * One fresh load of the list: a sort, a favorites change or a retry starts another and retires this
+ * one. Every page and extension holds the load it started under, so a superseded one settles nothing.
+ */
+interface GuideLoad {
+  fetchPage: (startIndex: number) => Promise<ChannelPage>;
+  /** Held to the favorites: pages follow each other until the server has none left. */
+  chained: boolean;
+  retired: boolean;
+  loading: boolean;
+  /** Pages and window extensions take turns: both read the loaded channel list. */
+  busy: "page" | "window" | null;
+  /** A page asked for during an extension, or one that failed: the list's onEndReached will not ask again. */
+  pagePending: boolean;
+  /** Channels the server has handed over, favorites or not: the next page starts after them. */
+  loaded: number;
+  /** Past the loaded ones: the server's total when it reports one, else a full page. */
+  hasMore: boolean;
+}
+
+/** Before the first load and after unmount: nothing may start. */
+const RETIRED_LOAD: GuideLoad = { fetchPage: () => Promise.reject(new Error("retired")), chained: false, retired: true, loading: true, busy: null, pagePending: false, loaded: 0, hasMore: false };
+
+/** The next page of `load`, and the one after while it is chained, each landed by `land`. */
+function loadNextPage(load: GuideLoad, land: (items: JellyfinItem[], programs: JellyfinProgram[]) => void): void {
+  if (load.retired || load.loading || !load.hasMore) return;
+  if (load.busy) {
+    // A page already loading answers this request; an extension does not.
+    if (load.busy === "window") load.pagePending = true;
+    return;
+  }
+  load.pagePending = false;
+  load.busy = "page";
+  load
+    .fetchPage(load.loaded)
+    .then(({ items, programs, hasMore, pageLength }) => {
+      if (load.retired) return;
+      load.hasMore = hasMore;
+      load.loaded += pageLength;
+      if (items.length > 0) land(items, programs);
+    })
+    .catch((err) => {
+      load.pagePending = true;
+      logger.warn("Guide page load failed", err, { hook: "useGuide" });
+    })
+    .finally(() => {
+      load.busy = null;
+      // Favorites are the viewer's own list: the pages keep coming until every channel has been seen.
+      if (load.chained && !load.pagePending) loadNextPage(load, land);
+    });
+}
+
 /**
  * The guide's data: channels a page at a time, each with its programs over the loaded window, and
  * the timers that mark recordings. The window opens on the current half hour and only grows.
@@ -52,15 +108,14 @@ export function useGuide(): GuideState {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  // Pages and window extensions take turns: both read the loaded channel list.
-  const busyRef = useRef<"page" | "window" | null>(null);
-  // A page asked for during an extension, or one that failed: the list's onEndReached will not ask again.
-  const pagePendingRef = useRef(false);
   const windowEndRef = useRef(windowEndMs);
   const channelsRef = useRef<JellyfinItem[]>([]);
-  // Whether the server has channels past the loaded ones: its total when it reports one, else a full page.
-  const hasMoreRef = useRef(false);
+  const loadRef = useRef<GuideLoad>(RETIRED_LOAD);
   const isFocused = useIsFocused();
+  const preferences = useLiveTvPreferences();
+  const { sort, favoritesOnly } = preferences;
+  // The list alone, not the preferences object: toggling Auto update must not reload the guide.
+  const favorites = favoritesOnly ? preferences.favorites : null;
 
   const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[]) => {
     setProgramsByChannel((current) => {
@@ -82,16 +137,17 @@ export function useGuide(): GuideState {
     [applyPrograms],
   );
 
-  /** The channel page at `startIndex` and its programs over the loaded window. */
+  /** The channel page at `startIndex`, held to the favorites when asked, and its programs over the loaded window. */
   const loadChannelPage = useCallback(
     async (startIndex: number) => {
-      const { items, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE });
-      const loaded = startIndex + items.length;
-      const hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
+      const { items: page, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort) });
+      const loaded = startIndex + page.length;
+      const hasMore = total !== undefined ? loaded < total : page.length >= GUIDE_CHANNEL_PAGE;
+      const items = favorites ? favoriteChannels({ favorites }, page) : page;
       const programs = items.length > 0 ? await fetchGuidePrograms({ channelIds: items.map((channel) => channel.Id), startMs: windowStartMs, endMs: windowEndRef.current }) : [];
-      return { items, programs, hasMore };
+      return { items, programs, hasMore, pageLength: page.length };
     },
-    [windowStartMs],
+    [windowStartMs, sort, favorites],
   );
 
   const refreshTimers = useCallback(() => {
@@ -100,29 +156,45 @@ export function useGuide(): GuideState {
       .catch((err) => logger.warn("Timers refresh failed", err, { hook: "useGuide" }));
   }, []);
 
+  const landPage = useCallback(
+    (items: JellyfinItem[], programs: JellyfinProgram[]) => {
+      channelsRef.current = channelsRef.current.concat(items);
+      setChannels(channelsRef.current);
+      applyPrograms(items, programs);
+    },
+    [applyPrograms],
+  );
+  const loadMoreRows = useCallback(() => loadNextPage(loadRef.current, landPage), [landPage]);
+
   useEffect(() => {
-    let cancelled = false;
+    const load: GuideLoad = { fetchPage: loadChannelPage, chained: favorites !== null, retired: false, loading: true, busy: null, pagePending: false, loaded: 0, hasMore: false };
+    loadRef.current = load;
     (async () => {
       try {
-        const { items, programs, hasMore } = await loadChannelPage(0);
-        if (cancelled) return;
-        hasMoreRef.current = hasMore;
+        const { items, programs, hasMore, pageLength } = await loadChannelPage(0);
+        if (load.retired) return;
+        load.hasMore = hasMore;
+        load.loaded = pageLength;
         channelsRef.current = items;
         setChannels(items);
         applyPrograms(items, programs);
         refreshTimers();
       } catch (err) {
-        if (cancelled) return;
+        if (load.retired) return;
         logger.error("Guide load failed", err, { hook: "useGuide" });
         setError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!load.retired) {
+          load.loading = false;
+          setIsLoading(false);
+          if (load.chained) loadMoreRows();
+        }
       }
     })();
     return () => {
-      cancelled = true;
+      load.retired = true;
     };
-  }, [attempt, loadChannelPage, applyPrograms, refreshTimers]);
+  }, [attempt, loadChannelPage, applyPrograms, refreshTimers, favorites, loadMoreRows]);
 
   // A minute tick moves the airing cells' progress and the ruler's now mark.
   useEffect(() => {
@@ -137,52 +209,29 @@ export function useGuide(): GuideState {
     wasFocusedRef.current = isFocused;
   }, [isFocused, isLoading, refreshTimers]);
 
-  const loadMoreRows = useCallback(() => {
-    if (isLoading || !hasMoreRef.current) return;
-    if (busyRef.current) {
-      // A page already loading answers this request; an extension does not.
-      if (busyRef.current === "window") pagePendingRef.current = true;
-      return;
-    }
-    pagePendingRef.current = false;
-    busyRef.current = "page";
-    loadChannelPage(channelsRef.current.length)
-      .then(({ items, programs, hasMore }) => {
-        hasMoreRef.current = hasMore;
-        if (items.length === 0) return;
-        channelsRef.current = channelsRef.current.concat(items);
-        setChannels(channelsRef.current);
-        applyPrograms(items, programs);
-      })
-      .catch((err) => {
-        pagePendingRef.current = true;
-        logger.warn("Guide page load failed", err, { hook: "useGuide" });
-      })
-      .finally(() => {
-        busyRef.current = null;
-      });
-  }, [isLoading, loadChannelPage, applyPrograms]);
-
   const extendWindow = useCallback(() => {
-    if (busyRef.current || isLoading) return;
+    const load = loadRef.current;
+    if (load.retired || load.loading || load.busy) return;
     const from = windowEndRef.current;
     const to = from + GUIDE_SPAN_MINUTES * MINUTE_MS;
-    busyRef.current = "window";
+    load.busy = "window";
     loadPrograms(channelsRef.current, from, to)
       .then(() => {
+        // A list loaded since holds programs up to the old edge only; the window stays there for it.
+        if (load.retired) return;
         windowEndRef.current = to;
         setWindowEndMs(to);
       })
       .catch((err) => logger.warn("Guide window extension failed", err, { hook: "useGuide" }))
       .finally(() => {
-        busyRef.current = null;
-        if (pagePendingRef.current) loadMoreRows();
+        load.busy = null;
+        if (!load.retired && load.pagePending) loadMoreRows();
       });
-  }, [isLoading, loadPrograms, loadMoreRows]);
+  }, [loadPrograms, loadMoreRows]);
 
   // The minute tick retries a page that failed.
   useEffect(() => {
-    if (pagePendingRef.current) loadMoreRows();
+    if (loadRef.current.pagePending) loadMoreRows();
   }, [nowMs, loadMoreRows]);
 
   const retry = useCallback(() => {
@@ -196,7 +245,7 @@ export function useGuide(): GuideState {
   const timersByProgramId = useMemo(() => {
     const map = new Map<string, JellyfinTimer>();
     for (const timer of timers) {
-      if (!timer.ProgramId || timer.Status === "Cancelled") continue;
+      if (!timer.ProgramId || !isActiveTimer(timer)) continue;
       map.set(timer.ProgramId, timer);
     }
     return map;

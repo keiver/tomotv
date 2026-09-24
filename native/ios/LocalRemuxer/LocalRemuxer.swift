@@ -55,6 +55,8 @@ class LocalRemuxer: RCTEventEmitter {
 
     /// Keyframe posters for cards without artwork (PosterQueue.swift), one job at a time.
     private static let posters = PosterQueue()
+    /// Live channel frames for the guide's cards (LiveFrameQueue.swift), one grab at a time.
+    private static let liveFrames = LiveFrameQueue()
 
     private static var server: LocalHTTPServer?
 
@@ -73,7 +75,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -106,6 +108,14 @@ class LocalRemuxer: RCTEventEmitter {
         let listening = Self.hasListeners
         Self.lock.unlock()
         if listening { sendEvent(withName: "onEngineThroughput", body: sample) }
+    }
+
+    /// The measured link rate, sent only while JS listens; the app turns it into AVPlayer's cap.
+    private func publish(link: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineLink", body: link) }
     }
 
     /// What the session did with its Slipstream tier; the JS listener is attached before startRemux.
@@ -166,136 +176,13 @@ class LocalRemuxer: RCTEventEmitter {
             return .notFound
         }
         if let provider {
-            if let ms = frameMilliseconds(parts[1]), let url = provider.grabber.chapterFrame(atMilliseconds: ms) {
+            if let ms = RemuxSession.frameMilliseconds(parts[1]), let url = provider.grabber.chapterFrame(atMilliseconds: ms) {
                 return .file(url, contentType: "image/jpeg")
             }
             return .notFound
         }
         guard let current else { return .notFound }
-
-        let m3u8 = "application/vnd.apple.mpegurl"
-
-        let name = parts[1]
-        switch name {
-        case "master.m3u8":
-            return .data(Data(current.masterPlaylist().utf8), contentType: m3u8)
-        case "media.m3u8":
-            return .data(Data(current.mediaPlaylist().utf8), contentType: m3u8)
-        case "t1.m3u8":
-            // Slipstream tier media playlist (emitted only when adopted).
-            guard let playlist = current.tierPlaylist() else { return .notFound }
-            return .data(Data(playlist.utf8), contentType: m3u8)
-        case "t1-init.mp4":
-            return current.tierInitResponse()
-        case "init.mp4":
-            return current.initResponse()
-        default:
-            // "init-g{N}.mp4": the init segment of live generation N (one per splice).
-            if name.hasPrefix("init-g"), name.hasSuffix(".mp4"),
-               let generation = Int(name.dropFirst(6).dropLast(4)) {
-                return current.initResponse(generation: generation)
-            }
-            if name.hasPrefix("sub"), name.hasSuffix(".m3u8"),
-               let index = Int(name.dropFirst(3).dropLast(5)),
-               let playlist = current.subtitlePlaylist(streamIndex: index) {
-                return .data(Data(playlist.utf8), contentType: m3u8)
-            }
-            // "sub{stream}-{segment}.vtt": one window of an engine-decoded text
-            // track. Blocks on the read loop, like a media segment does.
-            if name.hasPrefix("sub"), name.hasSuffix(".vtt"), name.contains("-") {
-                let parts = name.dropFirst(3).dropLast(4).split(separator: "-")
-                if parts.count == 2, let index = Int(parts[0]), let segment = Int(parts[1]),
-                   let body = current.subtitleSegment(streamIndex: index, segment: segment) {
-                    return .data(Data(body.utf8), contentType: "text/vtt")
-                }
-                return .data(Data(current.emptySubtitleBody().utf8), contentType: "text/vtt")
-            }
-            // The cue-less body an image subtitle rendition resolves to. AVKit
-            // lists and selects the track and draws none of it; the app draws
-            // the bitmaps over the video instead.
-            if name.hasPrefix("sub"), name.hasSuffix(".vtt") {
-                // A track saved with a download serves its own bytes; an image track, and any
-                // local file that has since gone, fall back to the cue-less body.
-                if let index = Int(name.dropFirst(3).dropLast(4)),
-                   let body = current.localSubtitleBody(streamIndex: index) {
-                    return .data(body, contentType: "text/vtt")
-                }
-                return .data(Data(current.emptySubtitleBody().utf8), contentType: "text/vtt")
-            }
-            // Cue manifest for an image subtitle track, and the cue images
-            // themselves. Both are read by the app, never by AVPlayer.
-            if name.hasPrefix("pgs"), name.hasSuffix(".json"),
-               let index = Int(name.dropFirst(3).dropLast(5)),
-               let manifest = current.subtitleCueManifest(streamIndex: index) {
-                return .data(manifest, contentType: "application/json")
-            }
-            if name.hasPrefix("pgs"), name.hasSuffix(".png"),
-               let url = current.subtitleImageURL(name) {
-                return .file(url, contentType: "image/png")
-            }
-            // A chapter keyframe, made on the first request. Read by AVKit's info panel.
-            if let ms = frameMilliseconds(name), let url = current.chapterFrame(atMilliseconds: ms) {
-                return .file(url, contentType: "image/jpeg")
-            }
-            if name.hasPrefix("t1-seg"), name.hasSuffix(".m4s"),
-               let n = Int(name.dropFirst(6).dropLast(4)) {
-                return current.tierSegmentResponse(n)
-            }
-            if name.hasPrefix("seg"), name.hasSuffix(".m4s"),
-               let n = Int(name.dropFirst(3).dropLast(4)) {
-                return current.segmentResponse(n)
-            }
-
-            // Slipstream audio-lo renditions: "aNs.m3u8", "aNs-init.mp4",
-            // "aNs-seg{index}.m4s" — must match before the engine "aN" block,
-            // whose digits-only guard would 404 the "s" suffix.
-            if name.hasPrefix("a"), let sIndex = name.firstIndex(of: "s"),
-               name.index(after: name.startIndex) < sIndex,
-               name[name.index(after: name.startIndex)..<sIndex].allSatisfy(\.isNumber),
-               let position = Int(name[name.index(after: name.startIndex)..<sIndex]) {
-                let rest = String(name[name.index(after: sIndex)...])
-                if rest == ".m3u8" {
-                    guard let playlist = current.audioLoPlaylist(position: position) else { return .notFound }
-                    return .data(Data(playlist.utf8), contentType: m3u8)
-                }
-                if rest == "-init.mp4" {
-                    return current.audioLoInitResponse(position: position)
-                }
-                if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
-                   let n = Int(rest.dropFirst(4).dropLast(4)) {
-                    return current.audioLoSegmentResponse(position: position, n: n)
-                }
-            }
-
-            // Alternate audio renditions: "aN.m3u8", "aN-init.mp4",
-            // "aN-seg{index}.m4s".
-            if name.hasPrefix("a"), let split = name.firstIndex(where: { $0 == "-" || $0 == "." }) {
-                let prefix = String(name[name.startIndex..<split])
-                guard prefix.count > 1, prefix.dropFirst().allSatisfy(\.isNumber) else { return .notFound }
-                let rest = String(name[split...])
-                if rest == ".m3u8" {
-                    return .data(Data(current.mediaPlaylist(prefix: prefix).utf8), contentType: m3u8)
-                }
-                if rest == "-init.mp4" {
-                    return current.initResponse(prefix: prefix)
-                }
-                if rest.hasPrefix("-init-g"), rest.hasSuffix(".mp4"),
-                   let generation = Int(rest.dropFirst(7).dropLast(4)) {
-                    return current.initResponse(prefix: prefix, generation: generation)
-                }
-                if rest.hasPrefix("-seg"), rest.hasSuffix(".m4s"),
-                   let n = Int(rest.dropFirst(4).dropLast(4)) {
-                    return current.segmentResponse(n, prefix: prefix)
-                }
-            }
-            return .notFound
-        }
-    }
-
-    /// The time in "frame-{ms}.jpg"; the path carries it because the server strips queries.
-    private static func frameMilliseconds(_ name: String) -> Int64? {
-        guard name.hasPrefix("frame-"), name.hasSuffix(".jpg") else { return nil }
-        return Int64(name.dropFirst(6).dropLast(4))
+        return current.route(parts[1])
     }
 
     // MARK: - Bridge API
@@ -340,24 +227,41 @@ class LocalRemuxer: RCTEventEmitter {
             return
         }
 
-        let audioTracks: [RemuxAudioTrack] = ((config["audioTracks"] as? [[String: Any]]) ?? []).compactMap { raw in
-            guard let index = raw["index"] as? Int else { return nil }
-            return RemuxAudioTrack(
+        let rawAudioTracks = (config["audioTracks"] as? [[String: Any]]) ?? []
+        let audioTracks: [RemuxAudioTrack] = rawAudioTracks.compactMap { raw in
+            // A live channel's tracks carry Jellyfin's -1: the pipeline discovers them off the container.
+            guard let index = raw["index"] as? Int, index >= 0 || isLive, index <= Int(Int32.max) else { return nil }
+            var track = RemuxAudioTrack(
                 index: index,
                 name: raw["name"] as? String ?? "Audio \(index)",
                 language: raw["language"] as? String ?? "",
                 serverAudioUrl: raw["serverAudioUrl"] as? String ?? ""
             )
+            track.serverAudioChannels = raw["serverAudioChannels"] as? Int ?? 0
+            track.usesServerAudio = raw["usesServerAudio"] as? Bool ?? false
+            track.codecs = raw["codecs"] as? String ?? ""
+            track.bandwidth = raw["bandwidth"] as? Int ?? 0
+            track.identity = raw["identity"] as? String ?? ""
+            track.source = SourcePosition(raw["source"])
+            guard raw["source"] == nil || track.source != nil else { return nil }
+            return track
         }
-        let subtitles: [RemuxSubtitle] = ((config["subtitles"] as? [[String: Any]]) ?? []).compactMap { raw in
-            guard let index = raw["index"] as? Int else { return nil }
+        guard audioTracks.count == rawAudioTracks.count,
+              isLive || Set(audioTracks.map(\.index)).count == audioTracks.count,
+              audioTracks.allSatisfy({ !$0.usesServerAudio || !$0.serverAudioUrl.isEmpty }) else {
+            reject("invalid_audio_tracks", "Every audio track needs its own stream index and a configured producer", nil)
+            return
+        }
+        let rawSubtitles = (config["subtitles"] as? [[String: Any]]) ?? []
+        let subtitles: [RemuxSubtitle] = rawSubtitles.compactMap { raw in
+            guard let index = raw["index"] as? Int, index >= 0, index <= Int(Int32.max) else { return nil }
             let isImage = raw["isImage"] as? Bool ?? false
             let isEngineText = raw["isEngineText"] as? Bool ?? false
             // A track with nowhere to read from has nothing to serve. An image
             // or engine-decoded one comes out of the source file, so needs no URL.
             let localVtt = raw["localVtt"] as? String ?? ""
             guard let vttUrl = raw["vttUrl"] as? String, isImage || isEngineText || !vttUrl.isEmpty || !localVtt.isEmpty else { return nil }
-            return RemuxSubtitle(
+            var subtitle = RemuxSubtitle(
                 index: index,
                 name: raw["name"] as? String ?? "Subtitle \(index)",
                 language: raw["language"] as? String ?? "",
@@ -366,8 +270,19 @@ class LocalRemuxer: RCTEventEmitter {
                 isDefault: raw["isDefault"] as? Bool ?? false,
                 isForced: raw["isForced"] as? Bool ?? false,
                 isImage: isImage,
-                isEngineText: isEngineText
+                isEngineText: isEngineText,
+                serverVttUrl: raw["serverVttUrl"] as? String ?? ""
             )
+            subtitle.serverSupUrl = raw["serverSupUrl"] as? String ?? ""
+            subtitle.isExternal = raw["isExternal"] as? Bool ?? false
+            subtitle.source = SourcePosition(raw["source"])
+            guard raw["source"] == nil || subtitle.source != nil else { return nil }
+            return subtitle
+        }
+        guard subtitles.count == rawSubtitles.count,
+              Set(subtitles.map(\.index)).count == subtitles.count else {
+            reject("invalid_subtitle_tracks", "Every subtitle track needs its own stream index and a configured producer", nil)
+            return
         }
 
         Self.lock.lock()
@@ -399,25 +314,33 @@ class LocalRemuxer: RCTEventEmitter {
                 frameRate: (config["frameRate"] as? Double) ?? 0,
                 bandwidth: (config["bandwidth"] as? Int) ?? 0,
                 readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0,
-                tierPlaylistUrl: config["tierPlaylistUrl"] as? String,
-                tierBandwidth: (config["tierBandwidth"] as? Int) ?? 0,
-                tierCodecs: (config["tierCodecs"] as? String) ?? "",
-                tierWidth: (config["tierWidth"] as? Int) ?? 0,
-                tierHeight: (config["tierHeight"] as? Int) ?? 0,
-                tierFirst: (config["tierFirst"] as? Bool) ?? false,
+                tiers: (config["tiers"] as? [[String: Any]] ?? []).map { t in
+                    TierConfig(
+                        playlistUrl: (t["playlistUrl"] as? String) ?? "",
+                        bandwidth: (t["bandwidth"] as? Int) ?? 0,
+                        codecs: (t["codecs"] as? String) ?? "",
+                        width: (t["width"] as? Int) ?? 0,
+                        height: (t["height"] as? Int) ?? 0
+                    )
+                }.filter { !$0.playlistUrl.isEmpty },
                 startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,
                 itemId: (config["itemId"] as? String) ?? "",
                 isLive: isLive,
                 liveSegmentSeconds: (config["liveSegmentSeconds"] as? Double) ?? 6.0,
                 liveWindowSeconds: (config["liveWindowSeconds"] as? Double) ?? 300.0,
                 httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:],
-                probeOrigin: (config["probeOrigin"] as? Bool) ?? false
+                probeOrigin: (config["probeOrigin"] as? Bool) ?? false,
+                primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
+                primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
+                sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,
+                serverVideoOnly: (config["serverVideoOnly"] as? Bool) ?? false
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
             session.onTier = { [weak self] report in self?.publish(tier: report) }
             session.onFailed = { [weak self] failure in self?.publish(failure: failure) }
             session.onStage = { [weak self] stage in self?.publish(stage: stage) }
+            session.onLink = { [weak self] link in self?.publish(link: link) }
             session.onSubtitleRequest = { [weak self] request in self?.publish(subtitleRequest: request) }
             session.start()
             Self.sessions[session.token] = session
@@ -626,6 +549,59 @@ class LocalRemuxer: RCTEventEmitter {
     ) {
         Self.posters.cancel(itemId: itemId as String)
         resolve(nil)
+    }
+
+    /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval (seconds), count, shownPts.
+    /// Resolves `{uris, pts}`, `{unchanged}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
+    @objc func liveFrame(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let channelId = config["channelId"] as? String, !channelId.isEmpty,
+              let inputUrl = config["inputUrl"] as? String, !inputUrl.isEmpty else {
+            reject("invalid_config", "liveFrame needs channelId and inputUrl", nil)
+            return
+        }
+        let headers = (config["httpHeaders"] as? [String: String]) ?? [:]
+        let deadline = max(1, (config["deadline"] as? Double) ?? LiveFrameQueue.defaultDeadline)
+        let span = max(1, (config["span"] as? Double) ?? LiveFrameQueue.defaultSpan)
+        let interval = max(0.1, (config["interval"] as? Double) ?? LiveFrameQueue.defaultInterval)
+        let count = max(1, (config["count"] as? Int) ?? LiveFrameQueue.defaultCount)
+        let shownPts = (config["shownPts"] as? NSNumber)?.int64Value
+        Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline,
+                                span: span, interval: interval, count: count, shownPts: shownPts) { outcome in
+            switch outcome {
+            case .frames(let urls, let pts):
+                let shown: Any = pts.map { NSNumber(value: $0) } ?? NSNull()
+                resolve(["uris": urls.map(\.absoluteString), "cancelled": false, "pts": shown])
+            case .unchanged: resolve(["uris": [], "cancelled": false, "unchanged": true])
+            case .none(let opened): resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open"])
+            case .cancelled: resolve(["uris": [], "cancelled": true])
+            }
+        }
+    }
+
+    @objc func cancelLiveFrame(
+        _ channelId: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.liveFrames.cancel(channelId: channelId as String)
+        resolve(nil)
+    }
+
+    /// The newest burst on disk per channel: `{ channelId: [fileUrl] }` in order, for those that have one.
+    @objc func liveFramesOnDisk(
+        _ channelIds: NSArray,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let ids = (channelIds as? [String]) ?? []
+        Self.liveFrames.queue.async {
+            let found = Self.liveFrames.latest(channelIds: ids)
+            resolve(found.mapValues { $0.map(\.absoluteString) })
+        }
     }
 
     /// Empties the frame pool. Item ids repeat across servers, so a switch of server or

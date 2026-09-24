@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <g fill="#D99100">
+    <circle cx="256" cy="256" r="136"/>
+    <g id="r"><polygon points="256,8 284,100 228,100"/></g>
+    <use href="#r" transform="rotate(45 256 256)"/>
+    <use href="#r" transform="rotate(90 256 256)"/>
+    <use href="#r" transform="rotate(135 256 256)"/>
+    <use href="#r" transform="rotate(180 256 256)"/>
+    <use href="#r" transform="rotate(225 256 256)"/>
+    <use href="#r" transform="rotate(270 256 256)"/>
+    <use href="#r" transform="rotate(315 256 256)"/>
+  </g>
+  <g fill="#FFFFFF">
+    <ellipse cx="206" cy="226" rx="30" ry="40"/>
+    <ellipse cx="306" cy="226" rx="30" ry="40"/>
+    <path d="M186,300 C220,344 292,344 326,300 L326,316 C292,366 220,366 186,316 Z"/>
+  </g>
+  <g fill="#D99100">
+    <circle cx="214" cy="234" r="14"/>
+    <circle cx="298" cy="234" r="14"/>
+  </g>
+</svg>

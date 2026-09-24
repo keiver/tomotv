@@ -27,15 +27,8 @@ class HLSManifestGenerator {
     ///   - fetchUrls: Array of URLs used to fetch each manifest (includes unique audioStreamIndex and playSessionId)
     /// - Returns: Combined HLS manifest string
     /// - Throws: Error if manifests are empty or malformed
-    /// `manifests` and `fetchUrls` carry ONE SLOT PER `audioTrackInfo` ENTRY, nil
-    /// where that track had no usable stream index or its fetch failed.
-    ///
-    /// They used to be dense arrays that the caller appended to while skipping
-    /// unusable tracks, but every index here is an `audioTrackInfo` position, so
-    /// one skipped track shifted every later track onto another track's manifest
-    /// URL — the viewer picked one language and heard a different one. Keeping
-    /// the slots optional makes that misalignment unrepresentable rather than
-    /// something two loops have to agree about.
+    /// `manifests` and `fetchUrls` carry one slot per `audioTrackInfo` entry, so an index names the
+    /// same track in all three. A nil slot fails the whole item: every track is served or none is.
     func combine(
         manifests: [String?],
         audioTrackInfo: [[String: Any]],
@@ -58,30 +51,22 @@ class HLSManifestGenerator {
             )
         }
 
-        // Parse in place, preserving the slots. A manifest that fails to parse
-        // drops that one track rather than failing the whole item, which is the
-        // same outcome as its fetch having failed.
+        guard manifests.count == audioTrackInfo.count, fetchUrls.count == audioTrackInfo.count,
+              manifests.allSatisfy({ $0 != nil }), fetchUrls.allSatisfy({ $0 != nil }),
+              audioTrackInfo.allSatisfy({ ($0["Index"] as? Int).map { $0 >= 0 } == true }) else {
+            throw NSError(domain: "HLSGenerator", code: 4, userInfo: [NSLocalizedDescriptionKey: "An audio track has no usable manifest"])
+        }
         let parser = HLSManifestParser()
-        let parsedManifests: [HLSManifest?] = manifests.map { text in
-            guard let text else { return nil }
-            return try? parser.parse(text)
+        let parsedManifests: [HLSManifest?] = try manifests.map { text in
+            guard let text else {
+                throw NSError(domain: "HLSGenerator", code: 4, userInfo: [NSLocalizedDescriptionKey: "An audio track has no usable manifest"])
+            }
+            return try parser.parse(text)
         }
 
-        // At least one manifest arrived (guarded above), but parsing is what
-        // decides whether it is usable. Fail loudly rather than falling through:
-        // with no parsed manifest there is no EXT-X-STREAM-INF to write, and a
-        // master playlist without one is not playable — a caller would get an
-        // opaque AVPlayer error instead of this message.
-        guard let firstFetched = parsedManifests.firstIndex(where: { $0 != nil }) else {
-            throw NSError(
-                domain: "HLSGenerator",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "No manifest could be parsed"]
-            )
-        }
-
-        // Subtitles are identical across the audio variants, so the first track
-        // that actually returned a manifest supplies them.
+        // Every slot parsed, or the map above threw. Subtitles are identical across the audio
+        // variants, so the first track supplies them.
+        let firstFetched = 0
         let subtitles = parsedManifests[firstFetched]?.subtitleTracks ?? []
 
         // Build combined manifest
@@ -113,52 +98,16 @@ class HLSManifestGenerator {
         for (index, trackInfo) in audioTrackInfo.enumerated() {
             let language = trackInfo["Language"] as? String ?? "und"
             let displayTitle = trackInfo["DisplayTitle"] as? String ?? "Audio \(index + 1)"
-            let codec = trackInfo["Codec"] as? String
-            let channels = trackInfo["Channels"] as? Int
             let isDefault = trackInfo["IsDefault"] as? Bool ?? false
-
-            // Use Jellyfin's DisplayTitle (already includes codec, channels, and "Default" suffix)
-            // Only use custom format as fallback if DisplayTitle is missing or "Unknown"
-            var name = displayTitle
-            if displayTitle.hasPrefix("Audio ") || displayTitle == "Audio \(index + 1)" ||
-               displayTitle.hasPrefix("Unknown") {
-                // Fallback: DisplayTitle is missing/invalid, generate from metadata
-                if let codec = codec, let channels = channels {
-                    let channelStr = formatChannels(channels)
-                    if isDefault {
-                        // Default track: "AAC - Stereo - Default"
-                        name = "\(codec.uppercased()) - \(channelStr) - Default"
-                    } else if language != "und" && !language.isEmpty {
-                        // Non-default with known language: "ENGLISH - AAC - Stereo"
-                        name = "\(language.uppercased()) - \(codec.uppercased()) - \(channelStr)"
-                    } else {
-                        // Non-default without language: "AAC - Stereo"
-                        name = "\(codec.uppercased()) - \(channelStr)"
-                    }
-                } else if let codec = codec {
-                    // Only codec available
-                    if isDefault {
-                        name = "\(codec.uppercased()) - Default"
-                    } else if language != "und" && !language.isEmpty {
-                        name = "\(language.uppercased()) - \(codec.uppercased())"
-                    } else {
-                        name = codec.uppercased()
-                    }
-                }
-            }
+            let name = displayTitle
 
             // Get actual Jellyfin stream index from track metadata
             guard let streamIndex = trackInfo["Index"] as? Int else {
-                NSLog("[HLSGenerator] ⚠️ Missing Index for track \(index + 1), skipping")
-                continue
+                throw NSError(domain: "HLSGenerator", code: 4, userInfo: [NSLocalizedDescriptionKey: "Audio track is missing its stream index"])
             }
 
-            // This track's own slot. Nil means it had no stream index or its
-            // manifest never arrived; advertising it anyway would point the
-            // rendition at another track's audio, so drop the rendition instead.
             guard let trackFetchUrl = fetchUrls[index] else {
-                NSLog("[HLSGenerator] ⚠️ No manifest for track \(index + 1) (stream \(streamIndex)), dropping its rendition")
-                continue
+                throw NSError(domain: "HLSGenerator", code: 4, userInfo: [NSLocalizedDescriptionKey: "Audio track \(streamIndex) is missing its manifest"])
             }
             let parsed = parsedManifests[index]
 
@@ -279,28 +228,7 @@ class HLSManifestGenerator {
             // Use video URI from default track's manifest and fetch URL
             let defaultFetchUrl = fetchUrls[defaultTrackIndex] ?? ""
             if let videoUri = defaultManifest.videoUri {
-                // Extract ONLY the path from videoUri (e.g., "main.m3u8")
-                // Don't merge query params - preserve fetchUrl's audioStreamIndex
-                let videoPath = videoUri.components(separatedBy: "?").first ?? videoUri
-
-                if var components = URLComponents(string: defaultFetchUrl) {
-                    // Replace last path component with video path
-                    var pathParts = components.path.components(separatedBy: "/")
-                    if !pathParts.isEmpty {
-                        pathParts[pathParts.count - 1] = videoPath
-                        components.path = pathParts.joined(separator: "/")
-                    }
-                    let videoUrl = components.url?.absoluteString ?? defaultFetchUrl
-                    #if DEBUG
-                    NSLog("[HLSGenerator] 📹 Video stream URL: \(videoUrl)")
-                    #endif
-                    combined += "\(videoUrl)\n"
-                } else {
-                    #if DEBUG
-                    NSLog("[HLSGenerator] 📹 Video stream URL (fallback): \(defaultFetchUrl)")
-                    #endif
-                    combined += "\(defaultFetchUrl)\n"
-                }
+                combined += "\(makeAbsoluteUrl(baseUrl: defaultFetchUrl, relativeUrl: videoUri))\n"
             } else {
                 // Fallback to default track's fetch URL
                 #if DEBUG
@@ -319,71 +247,24 @@ class HLSManifestGenerator {
     ///   - relativeUrl: Relative URL (e.g., "main.m3u8?ApiKey=...")
     /// - Returns: Absolute URL
     private func makeAbsoluteUrl(baseUrl: String, relativeUrl: String) -> String {
-        // If already absolute (starts with http/https), return as-is
-        if relativeUrl.lowercased().hasPrefix("http://") || relativeUrl.lowercased().hasPrefix("https://") {
-            return relativeUrl
+        guard let base = URL(string: baseUrl),
+              let resolved = URL(string: relativeUrl, relativeTo: base)?.absoluteURL,
+              var components = URLComponents(url: resolved, resolvingAgainstBaseURL: true) else { return baseUrl }
+        guard resolved.scheme == base.scheme, resolved.host == base.host, resolved.port == base.port else { return resolved.absoluteString }
+        let baseItems = URLComponents(url: base, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let identityKeys: Set<String> = ["audiostreamindex", "playsessionid", "mediasourceid"]
+        let protectedKeys = Set(baseItems.map { $0.name.lowercased() }).intersection(identityKeys)
+        var merged: [URLQueryItem] = []
+        for item in baseItems {
+            merged.removeAll { $0.name.lowercased() == item.name.lowercased() }
+            merged.append(item)
         }
-
-        // Parse the base URL to extract components
-        guard let baseURL = URL(string: baseUrl) else {
-            // Fallback: simple concatenation
-            return baseUrl.hasSuffix("/") ? baseUrl + relativeUrl : baseUrl + "/" + relativeUrl
+        for item in components.queryItems ?? [] where !protectedKeys.contains(item.name.lowercased()) {
+            merged.removeAll { $0.name.lowercased() == item.name.lowercased() }
+            merged.append(item)
         }
-
-        // Remove query string and fragment from base URL to get just the path
-        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-            return baseUrl.hasSuffix("/") ? baseUrl + relativeUrl : baseUrl + "/" + relativeUrl
-        }
-
-        // Remove the last path component (e.g., "master.m3u8") and append the relative URL
-        var pathComponents = components.path.split(separator: "/").map(String.init)
-        if !pathComponents.isEmpty {
-            pathComponents.removeLast() // Remove "master.m3u8"
-        }
-
-        // Append the relative URL's path component
-        let relativePath = relativeUrl.split(separator: "?").first.map(String.init) ?? relativeUrl
-        pathComponents.append(relativePath)
-
-        // Reconstruct the path
-        components.path = "/" + pathComponents.joined(separator: "/")
-
-        // Merge query parameters from both base URL and relative URL
-        var mergedQueryItems = components.queryItems ?? []
-
-        // Add query parameters from relative URL if present
-        if let queryStart = relativeUrl.firstIndex(of: "?") {
-            let relativeQuery = String(relativeUrl[relativeUrl.index(after: queryStart)...])
-            if let relativeComponents = URLComponents(string: "http://dummy?" + relativeQuery) {
-                let relativeItems = relativeComponents.queryItems ?? []
-                // Append relative params (they override base params with same name)
-                for item in relativeItems {
-                    mergedQueryItems.removeAll { $0.name == item.name }
-                    mergedQueryItems.append(item)
-                }
-            }
-        }
-
-        components.queryItems = mergedQueryItems.isEmpty ? nil : mergedQueryItems
-
-        return components.url?.absoluteString ?? baseUrl
+        components.queryItems = merged.isEmpty ? nil : merged
+        return components.url?.absoluteString ?? resolved.absoluteString
     }
 
-    /// Format channel count to human-readable string
-    /// - Parameter channels: Number of audio channels
-    /// - Returns: Formatted string (e.g., "Stereo", "5.1", "7.1")
-    private func formatChannels(_ channels: Int) -> String {
-        switch channels {
-        case 1:
-            return "Mono"
-        case 2:
-            return "Stereo"
-        case 6:
-            return "5.1"
-        case 8:
-            return "7.1"
-        default:
-            return "\(channels)ch"
-        }
-    }
 }

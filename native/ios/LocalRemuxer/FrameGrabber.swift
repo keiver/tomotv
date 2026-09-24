@@ -42,8 +42,16 @@ final class FrameGrabber {
     private static let deadline: TimeInterval = 10
     /// A grab past this is heading for the deadline; below it a card is simply working.
     private static let slowGrab: TimeInterval = 2
+    /// A bar under this share of its side is noise, and a crop keeping under half the picture
+    /// is a dark scene, not a bar (mpv's autocrop guard).
+    private static let minBar = 0.02
+    private static let minKeep = 0.5
 
     private let inputUrl: String
+    /// Headers the origin requires (a live manifest's User-Agent), as the remux pipeline sends them.
+    private let httpHeaders: [String: String]
+    /// A live source: opened with a small probe and read from its first keyframe, never sought.
+    private let live: Bool
     private let directory: URL
     /// The pool `directory` sits in, trimmed behind every write; nil for a private or session directory.
     private let pool: URL?
@@ -63,9 +71,18 @@ final class FrameGrabber {
     private var openFailed = false
     /// The container and its streams were read, whether or not a video stream was in them.
     private(set) var sourceOpened = false
+    /// Bytes the last live grab read through the container's own I/O: the whole pull for a raw stream, the playlist alone for HLS.
+    private(set) var bytesRead: Int64 = 0
+    /// Why the source would not open, for the live grab's log line.
+    private(set) var openFailure: String?
+    /// What was opened: the variant picked off a multivariant playlist, else the input itself.
+    private(set) var openedUrl: String?
 
-    init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch) {
+    init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch,
+         httpHeaders: [String: String] = [:], live: Bool = false) {
         self.inputUrl = inputUrl
+        self.httpHeaders = httpHeaders
+        self.live = live
         self.directory = directory
         self.pool = pool
         self.epoch = epoch
@@ -90,7 +107,7 @@ final class FrameGrabber {
     /// A source that refuses the seek answers nothing unless `nearestFromStart` lets the reachable frames stand in.
     /// `alternatives` are other times tried in turn while the frame found is a fade, a black or a white.
     func frame(atMilliseconds ms: Int64, named name: String? = nil, nearestFromStart: Bool = false,
-               alternatives: [Int64] = [], enhanced: Bool = false) -> URL? {
+               alternatives: [Int64] = [], enhanced: Bool = false, batch: Int = 1) -> URL? {
         guard ms >= 0, ChapterFramePool.epoch == epoch else { return nil }
         let url = directory.appendingPathComponent(name ?? "\(ms).jpg")
         if touch(url) { return url }
@@ -98,12 +115,12 @@ final class FrameGrabber {
             if touch(url) { return url }
             guard !isCancelled, open() else { return nil }
             let started = Date()
-            guard let picture = pick(ms: ms, alternatives: alternatives, nearestFromStart: nearestFromStart),
+            guard let picture = pick(ms: ms, alternatives: alternatives, nearestFromStart: nearestFromStart, batch: batch),
                   write(picture, to: url, enhanced: enhanced) else { return nil }
-            if !alternatives.isEmpty {
-                NSLog("[FrameGrabber] %@", String(format: "picked %lldms took %lldms luma %.0f contrast %.0f %@ %.0fms",
+            if !alternatives.isEmpty || batch > 1 {
+                NSLog("[FrameGrabber] %@", String(format: "picked %lldms took %lldms luma %.0f contrast %.0f %@ crop %@ %.0fms",
                                                   ms, picture.ms, picture.score.luma, picture.score.contrast, picture.matrix,
-                                                  Date().timeIntervalSince(started) * 1000))
+                                                  picture.crop?.description ?? "none", Date().timeIntervalSince(started) * 1000))
             }
             // The pool was emptied while this decoded: the frame answers for a source the
             // app has left, so it goes with the rest of that pool.
@@ -122,6 +139,89 @@ final class FrameGrabber {
         let offsets: [Int64] = [2000, 5000, 10000, 15000, -4000, -8000]
         let alternatives = offsets.map { ms + $0 }.filter { $0 >= 0 && $0 != ms }
         return frame(atMilliseconds: ms, alternatives: alternatives)
+    }
+
+    enum LiveGrab: Equatable {
+        /// The burst in order, the first keyframe's pts with it.
+        case frames([URL], pts: Int64?)
+        /// The keyframe is the one the caller already shows: the live edge has not moved a segment.
+        case unchanged
+        case none
+    }
+
+    /// A burst off one open: the first keyframe the source gives, then a picture every `interval`
+    /// seconds of stream time while `span` seconds of wall clock and `count` allow. Files are
+    /// `<base>-<i>.jpg`; the base is unique per grab, so nothing is served from the directory.
+    func liveBurst(named base: String, span: TimeInterval, interval: TimeInterval, count: Int, unlessPts shown: Int64? = nil) -> LiveGrab {
+        guard ChapterFramePool.epoch == epoch else { return .none }
+        let url = { [directory] (i: Int) in directory.appendingPathComponent("\(base)-\(i).jpg") }
+        return queue.sync {
+            guard !isCancelled, open() else { return .none }
+            let started = Date()
+            let first = decode(target: .firstKeyframe, nearestFromStart: false, batch: 1, started: started).first
+            guard let first else {
+                if let pb = input?.pointee.pb { bytesRead = pb.pointee.bytes_read }
+                return .none
+            }
+            let pts = first.pts == SWIFT_AV_NOPTS_VALUE ? nil : first.pts
+            if let pts, pts == shown { return .unchanged }
+            guard write(first, to: url(0), enhanced: false) else { return .none }
+            var written = [url(0)]
+            for picture in decodeFollowing(first, span: span, interval: interval, count: count - 1, started: started) {
+                guard write(picture, to: url(written.count), enhanced: false) else { break }
+                written.append(url(written.count))
+            }
+            if let pb = input?.pointee.pb { bytesRead = pb.pointee.bytes_read }
+            guard ChapterFramePool.epoch == epoch else {
+                for file in written { try? FileManager.default.removeItem(at: file) }
+                return .none
+            }
+            return .frames(written, pts: pts)
+        }
+    }
+
+    /// The pictures after a decoded keyframe, one per `interval` seconds of stream time: every
+    /// packet feeds the decoder in order, so the frames between keyframes decode too.
+    private func decodeFollowing(_ first: Picture, span: TimeInterval, interval: TimeInterval, count: Int, started: Date) -> [Picture] {
+        guard count > 0, let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return [] }
+        decoder.pointee.skip_frame = AVDISCARD_DEFAULT
+        avcodec_flush_buffers(decoder)
+        guard let frame = av_frame_alloc(), let pkt = av_packet_alloc() else { return [] }
+        defer {
+            var freeingFrame: UnsafeMutablePointer<AVFrame>? = frame
+            av_frame_free(&freeingFrame)
+            var freeingPacket: UnsafeMutablePointer<AVPacket>? = pkt
+            av_packet_free(&freeingPacket)
+        }
+        let timeBase = stream.pointee.time_base
+        let step = Int64((interval * Double(timeBase.den) / Double(timeBase.num)).rounded())
+        var results: [Picture] = []
+        var nextPts = first.pts == SWIFT_AV_NOPTS_VALUE ? nil : first.pts + step
+        // The keyframe already decoded goes in again after the flush, so the frames right after it decode.
+        var fed = false
+        if let key = lastKeyPacket, avcodec_send_packet(decoder, key) >= 0 {
+            fed = true
+            while avcodec_receive_frame(decoder, frame) >= 0 {}
+        }
+        readLoop: while results.count < count, Date().timeIntervalSince(started) < span, !isCancelled {
+            if av_read_frame(input, pkt) < 0 { break }
+            defer { av_packet_unref(pkt) }
+            guard pkt.pointee.stream_index == videoIndex else { continue }
+            // The decoder restarts on a keyframe; the packets before the first one cannot decode.
+            if !fed, pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY == 0 { continue }
+            fed = true
+            guard avcodec_send_packet(decoder, pkt) >= 0 else { continue }
+            while avcodec_receive_frame(decoder, frame) >= 0 {
+                let pts = frame.pointee.best_effort_timestamp
+                if pts == SWIFT_AV_NOPTS_VALUE { continue }
+                if nextPts == nil { nextPts = pts + step }
+                guard let due = nextPts, pts >= due else { continue }
+                if let picture = makePicture(from: frame, stream: stream, ms: 0, forward: false) { results.append(picture) }
+                nextPts = due + step
+                if results.count >= count { break readLoop }
+            }
+        }
+        return results
     }
 
     /// A hit refreshes the file's date, which is the pool's eviction order.
@@ -149,24 +249,31 @@ final class FrameGrabber {
         EngineLog.configure()
         var ctx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
         guard ctx != nil else { return false }
-        ctx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
+        let interrupt = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
+        ctx!.pointee.interrupt_callback = interrupt
 
-        // The same terms the remux pipeline opens with (Remuxer.swift): reconnects on a
-        // dropped link, a bounded wait per I/O call, and no trust store to verify against.
-        var opts: OpaquePointer? = nil
-        av_dict_set(&opts, "reconnect", "1", 0)
-        av_dict_set(&opts, "reconnect_streamed", "1", 0)
-        av_dict_set(&opts, "reconnect_delay_max", "5", 0)
-        av_dict_set(&opts, "rw_timeout", "15000000", 0)
-        av_dict_set(&opts, "tls_verify", "0", 0)
-        var ret = avformat_open_input(&ctx, inputUrl, nil, &opts)
+        var opts = httpOptions()
+        if live {
+            // Extension-less segment URLs (RemuxSession+Pipeline), and a probe bounded well under
+            // FFmpeg's 5 MB default: one keyframe is wanted, not every program in the multiplex.
+            av_dict_set(&opts, "extension_picky", "0", 0)
+            av_dict_set(&opts, "probesize", "1500000", 0)
+            av_dict_set(&opts, "analyzeduration", "1500000", 0)
+        }
+        let url = live ? resolveVariant(interrupt: interrupt) : inputUrl
+        openedUrl = url
+        var ret = avformat_open_input(&ctx, url, nil, &opts)
         av_dict_free(&opts)
         // Silent: the caller reports the reason once per item (localRemux.ts). A file still being
         // copied, or one the server cannot read, fails here on every retry.
-        guard ret >= 0, let opened = ctx else { return false }
+        guard ret >= 0, let opened = ctx else {
+            openFailure = "open: \(grabErr(ret))"
+            return false
+        }
         var closing: UnsafeMutablePointer<AVFormatContext>? = opened
         ret = probeStreamInfo(opened)
         guard ret >= 0 else {
+            openFailure = "probe: \(grabErr(ret))"
             avformat_close_input(&closing)
             return false
         }
@@ -177,10 +284,18 @@ final class FrameGrabber {
               let codec = avcodec_find_decoder(params.pointee.codec_id),
               let dec = avcodec_alloc_context3(codec) else {
             NSLog("[FrameGrabber] no decodable video stream")
+            openFailure = "no decodable video stream"
             avformat_close_input(&closing)
             return false
         }
         var freeing: UnsafeMutablePointer<AVCodecContext>? = dec
+        // Live: every other stream is discarded, so the HLS demuxer reads one variant's segments
+        // and no audio (measured on a 5-variant master: 11 to 16 s a grab reading them all).
+        if live {
+            for i in 0 ..< Int(opened.pointee.nb_streams) where Int32(i) != index {
+                opened.pointee.streams[i]?.pointee.discard = AVDISCARD_ALL
+            }
+        }
         // A poster is a keyframe; the decoder never touches the frames between them.
         dec.pointee.skip_frame = AVDISCARD_NONKEY
         guard avcodec_parameters_to_context(dec, params) >= 0, avcodec_open2(dec, codec, nil) >= 0 else {
@@ -197,7 +312,67 @@ final class FrameGrabber {
         return true
     }
 
+    /// The same terms the remux pipeline opens with (Remuxer.swift): reconnects on a dropped link,
+    /// a bounded wait per I/O call, no trust store to verify against, and the origin's headers.
+    private func httpOptions() -> OpaquePointer? {
+        var opts: OpaquePointer? = nil
+        av_dict_set(&opts, "reconnect", "1", 0)
+        av_dict_set(&opts, "reconnect_streamed", "1", 0)
+        av_dict_set(&opts, "reconnect_delay_max", "5", 0)
+        av_dict_set(&opts, "rw_timeout", "15000000", 0)
+        av_dict_set(&opts, "tls_verify", "0", 0)
+        for (name, value) in httpHeaders {
+            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
+                av_dict_set(&opts, "user_agent", value, 0)
+            } else {
+                av_dict_set(&opts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+            }
+        }
+        return opts
+    }
+
+    /// A playlist input read through FFmpeg's own HTTP (no App Transport Security in the way): a
+    /// multivariant playlist resolves to the variant a card needs, anything else is opened as given.
+    private func resolveVariant(interrupt: AVIOInterruptCB) -> String {
+        guard let parsed = URL(string: inputUrl), ["m3u8", "m3u"].contains(parsed.pathExtension.lowercased()) else { return inputUrl }
+        var pb: UnsafeMutablePointer<AVIOContext>? = nil
+        var opts = httpOptions()
+        var cb = interrupt
+        let ret = avio_open2(&pb, inputUrl, AVIO_FLAG_READ, &cb, &opts)
+        av_dict_free(&opts)
+        guard ret >= 0, let reader = pb else { return inputUrl }
+        var text = Data()
+        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        while text.count < 1024 * 1024 {
+            let got = chunk.withUnsafeMutableBufferPointer { avio_read(reader, $0.baseAddress, Int32($0.count)) }
+            guard got > 0 else { break }
+            text.append(contentsOf: chunk[0 ..< Int(got)])
+        }
+        // A shortlink master: its variants resolve against where it landed.
+        var base = inputUrl
+        var location: UnsafeMutablePointer<UInt8>? = nil
+        if av_opt_get(reader, "location", 1 /* AV_OPT_SEARCH_CHILDREN */, &location) >= 0, let location {
+            if let landed = String(validatingUTF8: UnsafeRawPointer(location).assumingMemoryBound(to: CChar.self)), !landed.isEmpty { base = landed }
+            av_free(location)
+        }
+        var closingPb = pb
+        avio_closep(&closingPb)
+        guard let master = String(data: text, encoding: .utf8) else { return inputUrl }
+        return LiveVariantPicker.pick(master, base: base) ?? inputUrl
+    }
+
+    /// A copy of the keyframe packet a live grab opened on, for the burst that follows it.
+    private var lastKeyPacket: UnsafeMutablePointer<AVPacket>?
+
+    private func keepKeyPacket(_ pkt: UnsafeMutablePointer<AVPacket>) {
+        if lastKeyPacket == nil { lastKeyPacket = av_packet_alloc() }
+        guard let kept = lastKeyPacket else { return }
+        av_packet_unref(kept)
+        _ = av_packet_ref(kept, pkt)
+    }
+
     private func close() {
+        if lastKeyPacket != nil { av_packet_free(&lastKeyPacket) }
         if let decoder {
             var freeing: UnsafeMutablePointer<AVCodecContext>? = decoder
             avcodec_free_context(&freeing)
@@ -220,18 +395,50 @@ final class FrameGrabber {
         /// Decoded forward from the start of an unseekable source: the only frames it has.
         let forward: Bool
         let score: FrameScore
+        /// RGB colour distribution, for the representative-of-the-batch pick.
+        let histogram: [Double]
         /// The position asked for and the matrix the RGB came through, for the log.
         let ms: Int64
         let matrix: String
+        /// The frame's own timestamp in the stream's time base, what a second decode of it seeks by.
+        let pts: Int64
+        /// The picture inside its black bars, nil for an all-black frame.
+        let box: ContentBox?
+        /// The bars cut off this picture.
+        let crop: CropFraction?
     }
 
-    /// The frame at `ms`; with alternatives, the first usable frame among them in order, else the
-    /// most contrasted seen.
-    private func pick(ms: Int64, alternatives: [Int64], nearestFromStart: Bool) -> Picture? {
+    /// What a decode seeks to: a position, or one keyframe a batch already decoded.
+    private enum Target {
+        case milliseconds(Int64)
+        case keyframe(pts: Int64, ms: Int64)
+        /// Wherever the source is now: no seek, the first keyframe read.
+        case firstKeyframe
+
+        var ms: Int64 {
+            switch self {
+            case .milliseconds(let ms), .keyframe(_, let ms): return ms
+            case .firstKeyframe: return 0
+            }
+        }
+    }
+
+    /// The frame for the card. A batch reads a run of keyframes from `ms` and takes the most
+    /// representative (ffmpeg's thumbnail measure), decoded once more with the batch's bars cut off.
+    /// Otherwise the frame at `ms`, or with alternatives the first usable among them in order, else
+    /// the most contrasted seen.
+    private func pick(ms: Int64, alternatives: [Int64], nearestFromStart: Bool, batch: Int) -> Picture? {
         let started = Date()
+        if batch > 1 {
+            let pictures = decode(target: .milliseconds(ms), nearestFromStart: nearestFromStart, batch: batch, started: started)
+            guard let best = representative(pictures) else { return nil }
+            guard let crop = Self.crop(across: pictures), best.pts != SWIFT_AV_NOPTS_VALUE else { return best }
+            return decode(target: .keyframe(pts: best.pts, ms: best.ms), nearestFromStart: nearestFromStart,
+                          batch: 1, started: started, crop: crop).first ?? best
+        }
         var best: Picture?
         for candidate in [ms] + alternatives {
-            guard let picture = decode(ms: candidate, nearestFromStart: nearestFromStart, started: started) else { continue }
+            guard let picture = decode(target: .milliseconds(candidate), nearestFromStart: nearestFromStart, batch: 1, started: started).first else { continue }
             if alternatives.isEmpty || picture.forward { return picture }
             if picture.score.isUsable { return picture }
             if best.map({ picture.score.contrast > $0.score.contrast }) ?? true { best = picture }
@@ -239,31 +446,88 @@ final class FrameGrabber {
         return best
     }
 
-    private func decode(ms: Int64, nearestFromStart: Bool, started: Date) -> Picture? {
-        guard let opened = input else { return nil }
-        let duration = opened.pointee.duration
-        if duration != SWIFT_AV_NOPTS_VALUE, ms * 1000 > duration { return nil }
+    /// The batch's most representative frame: nearest by colour histogram to the batch average, the
+    /// measure ffmpeg's thumbnail filter uses. A black or blank frame is a colour-distribution
+    /// outlier and loses. The average is taken over the usable frames alone when any are, so a
+    /// long dark opening cannot pull the pick into the black.
+    private func representative(_ pictures: [Picture]) -> Picture? {
+        guard pictures.count > 1 else { return pictures.first }
+        let usable = pictures.filter { $0.score.isUsable }
+        let pool = usable.isEmpty ? pictures : usable
+        guard pool.count > 1 else { return pool.first }
+        var avg = [Double](repeating: 0, count: 768)
+        for p in pool { for i in 0 ..< 768 { avg[i] += p.histogram[i] } }
+        for i in 0 ..< 768 { avg[i] /= Double(pool.count) }
+        return pool.min { squaredError($0.histogram, avg) < squaredError($1.histogram, avg) }
+    }
 
-        // Backward from the target: the keyframe at or before the chapter, the same
-        // contract the pipeline's seek-restart relies on.
+    private func squaredError(_ a: [Double], _ b: [Double]) -> Double {
+        var sum = 0.0
+        for i in 0 ..< a.count { let d = a[i] - b[i]; sum += d * d }
+        return sum
+    }
+
+    /// The bars every frame of the batch shares: the union of their content boxes (a black frame
+    /// adds nothing, a dark one only its true bars), nil when too thin to matter or too deep to be bars.
+    private static func crop(across pictures: [Picture]) -> CropFraction? {
+        guard let first = pictures.first, pictures.allSatisfy({ $0.width == first.width && $0.height == first.height }) else { return nil }
+        var union: ContentBox?
+        for picture in pictures {
+            guard let box = picture.box else { continue }
+            union = union.map { $0.union(box) } ?? box
+        }
+        guard var box = union else { return nil }
+        let w = Double(first.width), h = Double(first.height)
+        let bars = [Double(box.x1) / w, Double(first.width - 1 - box.x2) / w, Double(box.y1) / h, Double(first.height - 1 - box.y2) / h]
+        guard bars.contains(where: { $0 >= minBar }), Double(box.width) / w >= minKeep, Double(box.height) / h >= minKeep else { return nil }
+        // The scaled edge row blends bar and picture; a cropped side gives up one more pixel.
+        if box.x1 > 0 { box.x1 += 1 }
+        if box.y1 > 0 { box.y1 += 1 }
+        if box.x2 < first.width - 1 { box.x2 -= 1 }
+        if box.y2 < first.height - 1 { box.y2 -= 1 }
+        return CropFraction(box, width: first.width, height: first.height)
+    }
+
+    /// Keyframes at or after the target: one for a chapter grab, a run of `batch` for a poster. A seek
+    /// that the index refuses reopens at the start and reads forward, the reachable frames standing in.
+    private func decode(target: Target, nearestFromStart: Bool, batch: Int, started: Date, crop: CropFraction? = nil) -> [Picture] {
+        guard let opened = input else { return [] }
+        let ms = target.ms
         let containerStart = opened.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : opened.pointee.start_time
-        let targetUs = ms * 1000 + containerStart
-        let seekRet = avformat_seek_file(opened, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
+        let seekRet: Int32
+        // A frame's own pts seeks in its stream's time base, so no rounding lands on the keyframe before it.
+        let reached: (_ pts: Int64, _ timeBase: AVRational) -> Bool
+        switch target {
+        case .milliseconds:
+            let duration = opened.pointee.duration
+            if duration != SWIFT_AV_NOPTS_VALUE, ms * 1000 > duration { return [] }
+            // Backward from the target: the keyframe at or before the chapter, the same
+            // contract the pipeline's seek-restart relies on.
+            let targetUs = ms * 1000 + containerStart
+            seekRet = avformat_seek_file(opened, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
+            reached = { pts, timeBase in av_rescale_q(pts, timeBase, AVRational(num: 1, den: 1_000_000)) >= targetUs }
+        case .keyframe(let pts, _):
+            seekRet = avformat_seek_file(opened, videoIndex, Int64.min, pts, pts, SWIFT_AVSEEK_FLAG_BACKWARD)
+            reached = { framePts, _ in framePts >= pts }
+        case .firstKeyframe:
+            seekRet = 0
+            reached = { _, _ in true }
+        }
         // An index that keys no video frame refuses every seek. Reopened at the start, the
         // frames within the budget stand in, the last one decoded being the nearest.
         let forward = seekRet < 0
         if forward {
             guard nearestFromStart else {
                 NSLog("[FrameGrabber] seek to %lldms failed: %@", ms, grabErr(seekRet))
-                return nil
+                return []
             }
             close()
-            guard open() else { return nil }
+            guard open() else { return [] }
         }
-        guard let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return nil }
+        guard let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return [] }
         avcodec_flush_buffers(decoder)
 
-        guard let frame = av_frame_alloc(), let kept = av_frame_alloc(), let pkt = av_packet_alloc() else { return nil }
+        guard let frame = av_frame_alloc(), let kept = av_frame_alloc(), let pkt = av_packet_alloc() else { return [] }
         defer {
             var freeingFrame: UnsafeMutablePointer<AVFrame>? = frame
             av_frame_free(&freeingFrame)
@@ -272,21 +536,21 @@ final class FrameGrabber {
             var freeingPacket: UnsafeMutablePointer<AVPacket>? = pkt
             av_packet_free(&freeingPacket)
         }
-        let microseconds = AVRational(num: 1, den: 1_000_000)
-        let budget = forward ? Self.forwardPacketBudget : Self.packetBudget
+        // The chapter grab stops at one keyframe; a batch reads a keyframe per GOP, so its ceiling
+        // scales with the batch. The deadline is the real bound on a slow link.
+        let ceiling = forward ? Self.forwardPacketBudget : Self.packetBudget * max(1, batch)
 
+        var results: [Picture] = []
         var packets = 0
         var scanned = 0
-        var decoded = false
+        var keptValid = false
         var sawKeyframe = false
-        readLoop: while packets < budget, Date().timeIntervalSince(started) < Self.deadline, !isCancelled {
+        readLoop: while packets < ceiling, Date().timeIntervalSince(started) < Self.deadline, !isCancelled {
             if av_read_frame(input, pkt) < 0 {
                 // End of file: drain the decoder for a frame it may still hold.
                 _ = avcodec_send_packet(decoder, nil)
-                if avcodec_receive_frame(decoder, frame) >= 0 {
-                    av_frame_unref(kept)
-                    av_frame_ref(kept, frame)
-                    decoded = true
+                if avcodec_receive_frame(decoder, frame) >= 0, let picture = makePicture(from: frame, stream: stream, ms: ms, forward: forward, crop: crop) {
+                    results.append(picture)
                 }
                 break
             }
@@ -301,65 +565,115 @@ final class FrameGrabber {
             }
             sawKeyframe = true
             packets += 1
+            if case .firstKeyframe = target { keepKeyPacket(pkt) }
             guard avcodec_send_packet(decoder, pkt) >= 0 else { continue }
             // A keyframe held back for reordering comes out on a drain; the flush readies the next.
             _ = avcodec_send_packet(decoder, nil)
-            var reached = false
+            var arrived = false
             while avcodec_receive_frame(decoder, frame) >= 0 {
-                av_frame_unref(kept)
-                av_frame_ref(kept, frame)
-                decoded = true
-                guard forward else { reached = true; break }
-                let pts = frame.pointee.best_effort_timestamp
-                if pts != SWIFT_AV_NOPTS_VALUE, av_rescale_q(pts, stream.pointee.time_base, microseconds) >= targetUs { reached = true; break }
+                if forward {
+                    let pts = frame.pointee.best_effort_timestamp
+                    if pts != SWIFT_AV_NOPTS_VALUE, reached(pts, stream.pointee.time_base) {
+                        if let picture = makePicture(from: frame, stream: stream, ms: ms, forward: true, crop: crop) { results.append(picture) }
+                        arrived = true
+                        break
+                    }
+                    av_frame_unref(kept); av_frame_ref(kept, frame); keptValid = true
+                } else if let picture = makePicture(from: frame, stream: stream, ms: ms, forward: false, crop: crop) {
+                    results.append(picture)
+                }
             }
             avcodec_flush_buffers(decoder)
-            if reached { break readLoop }
+            if forward, arrived { break readLoop }
+            if !forward, results.count >= batch { break readLoop }
         }
-        guard decoded else { return nil }
+        // A forward read that never reached the target: the last frame decoded stands in.
+        if forward, results.isEmpty, keptValid, let picture = makePicture(from: kept, stream: stream, ms: ms, forward: true, crop: crop) {
+            results.append(picture)
+        }
+        // Only a slow grab is worth a line: a full grid decodes one batch per card, and the number
+        // that matters is the one approaching the deadline that abandons the frame.
+        let elapsed = Date().timeIntervalSince(started)
+        if elapsed >= Self.slowGrab {
+            NSLog("[FrameGrabber] %@", String(format: "slow grab %lldms %@ %.2fs (%d packets, %d frames)",
+                                              ms, forward ? "reopen" : "seek", elapsed, packets, results.count))
+        }
+        return results
+    }
 
-        let w = Int(kept.pointee.width)
-        let h = Int(kept.pointee.height)
+    /// Scales a decoded frame to the JPEG size and reads its score and histogram off it. Called
+    /// while `frame` still holds this picture, before the next receive overwrites it.
+    private func makePicture(from decoded: UnsafeMutablePointer<AVFrame>, stream: UnsafeMutablePointer<AVStream>,
+                             ms: Int64, forward: Bool, crop: CropFraction? = nil) -> Picture? {
+        let w = Int(decoded.pointee.width)
+        let h = Int(decoded.pointee.height)
         guard w > 0, h > 0 else { return nil }
         // An anamorphic source carries its shape in the sample aspect ratio; the JPEG takes the display shape.
-        var sar = av_guess_sample_aspect_ratio(input, stream, kept)
+        var sar = av_guess_sample_aspect_ratio(input, stream, decoded)
         if sar.num <= 0 || sar.den <= 0 { sar = AVRational(num: 1, den: 1) }
         let displayW = Double(w) * Double(sar.num) / Double(sar.den)
-        let outW = Self.width
-        let outH = max(1, Int((Double(h) * Double(outW) / displayW).rounded()))
+        // With a crop the whole frame is scaled larger, so the picture inside the bars comes out at
+        // `width` by the height its own shape gives.
+        var outW = Self.width
+        var outH = max(1, Int((Double(h) * Double(outW) / displayW).rounded()))
+        var cutSize = (width: outW, height: outH)
+        if let crop {
+            let cutH = max(1, Int((Double(Self.width) * Double(h) * crop.height / (displayW * crop.width)).rounded()))
+            cutSize = (Self.width, cutH)
+            outW = max(Self.width, Int((Double(Self.width) / crop.width).rounded()))
+            outH = max(cutH, Int((Double(cutH) / crop.height).rounded()))
+        }
         // Every pixel goes through libswscale, whatever the source format: 8-bit, 10-bit,
         // 4:2:2 and 4:1:1 alike, and never through a Swift loop.
-        let srcFormat = AVPixelFormat(rawValue: kept.pointee.format)
+        let srcFormat = AVPixelFormat(rawValue: decoded.pointee.format)
         sws = sws_getCachedContext(sws, Int32(w), Int32(h), srcFormat,
                                    Int32(outW), Int32(outH), AV_PIX_FMT_RGBA,
                                    Int32(SWS_BILINEAR.rawValue), nil, nil, nil)
         guard let sws else { return nil }
         // Left unset, libswscale converts every YUV frame as BT.601 limited range.
-        let fullRange: Int32 = kept.pointee.color_range == AVCOL_RANGE_JPEG ? 1 : 0
-        let matrix = Self.matrix(of: kept)
+        let fullRange: Int32 = decoded.pointee.color_range == AVCOL_RANGE_JPEG ? 1 : 0
+        let matrix = Self.matrix(of: decoded)
         sws_setColorspaceDetails(sws, sws_getCoefficients(matrix.coefficients), fullRange,
                                  sws_getCoefficients(SWS_CS_DEFAULT), 1, 0, 1 << 16, 1 << 16)
 
         var rgba = Data(count: outW * outH * 4)
         let rows: Int32 = rgba.withUnsafeMutableBytes { raw -> Int32 in
             guard let dst = raw.bindMemory(to: UInt8.self).baseAddress else { return 0 }
-            var srcData = (0 ..< 4).map { plane(kept, $0).map { UnsafePointer($0) } }
-            var srcStride = (0 ..< 4).map { linesize(kept, $0) }
+            var srcData = (0 ..< 4).map { plane(decoded, $0).map { UnsafePointer($0) } }
+            var srcStride = (0 ..< 4).map { linesize(decoded, $0) }
             var dstData: [UnsafeMutablePointer<UInt8>?] = [dst, nil, nil, nil]
             var dstStride: [Int32] = [Int32(outW * 4), 0, 0, 0]
             return sws_scale(sws, &srcData, &srcStride, 0, Int32(h), &dstData, &dstStride)
         }
         guard rows > 0 else { return nil }
-        // Only a slow grab is worth a line: a full grid decodes one per card, and the number
-        // that matters is the one approaching the deadline that abandons the frame.
-        let elapsed = Date().timeIntervalSince(started)
-        if elapsed >= Self.slowGrab {
-            NSLog("[FrameGrabber] %@", String(format: "slow grab %lldms %dx%d %@ %.2fs (%d packets)",
-                                              ms, outW, outH, forward ? "reopen" : "seek", elapsed, packets))
+        var picture = (rgba: rgba, width: outW, height: outH)
+        if let crop { picture = Self.cut(rgba, width: outW, height: outH, to: crop, size: cutSize) }
+        return Picture(rgba: picture.rgba, width: picture.width, height: picture.height, forward: forward,
+                       score: FrameScore(rgba: picture.rgba, width: picture.width, height: picture.height),
+                       histogram: FrameScore.histogram(rgba: picture.rgba, width: picture.width, height: picture.height),
+                       ms: ms, matrix: matrix.name + (fullRange == 1 ? " full" : ""),
+                       pts: decoded.pointee.best_effort_timestamp,
+                       box: crop == nil ? FrameScore.contentBox(rgba: rgba, width: outW, height: outH) : nil,
+                       crop: crop)
+    }
+
+    /// `size` pixels copied out of a tightly packed RGBA from the crop's top left corner.
+    private static func cut(_ rgba: Data, width: Int, height: Int, to crop: CropFraction,
+                            size: (width: Int, height: Int)) -> (rgba: Data, width: Int, height: Int) {
+        let outW = min(size.width, width)
+        let outH = min(size.height, height)
+        let x = max(0, min(Int((crop.left * Double(width)).rounded()), width - outW))
+        let y = max(0, min(Int((crop.top * Double(height)).rounded()), height - outH))
+        var out = Data(count: outW * outH * 4)
+        out.withUnsafeMutableBytes { dst in
+            rgba.withUnsafeBytes { src in
+                for row in 0 ..< outH {
+                    let from = src.baseAddress!.advanced(by: ((y + row) * width + x) * 4)
+                    dst.baseAddress!.advanced(by: row * outW * 4).copyMemory(from: from, byteCount: outW * 4)
+                }
+            }
         }
-        return Picture(rgba: rgba, width: outW, height: outH, forward: forward,
-                       score: FrameScore(rgba: rgba, width: outW, height: outH), ms: ms,
-                       matrix: matrix.name + (fullRange == 1 ? " full" : ""))
+        return (out, outW, outH)
     }
 
     private func write(_ picture: Picture, to url: URL, enhanced: Bool) -> Bool {
@@ -402,6 +716,33 @@ final class FrameGrabber {
     }
 }
 
+/// The picture inside its black bars, inclusive pixel edges.
+struct ContentBox: Equatable {
+    var x1: Int, y1: Int, x2: Int, y2: Int
+    var width: Int { x2 - x1 + 1 }
+    var height: Int { y2 - y1 + 1 }
+
+    func union(_ other: ContentBox) -> ContentBox {
+        ContentBox(x1: min(x1, other.x1), y1: min(y1, other.y1), x2: max(x2, other.x2), y2: max(y2, other.y2))
+    }
+}
+
+/// A crop as shares of the picture's sides, so it applies to the same frame at any scale.
+struct CropFraction: CustomStringConvertible {
+    let left: Double, top: Double, right: Double, bottom: Double
+    var width: Double { right - left }
+    var height: Double { bottom - top }
+
+    init(_ box: ContentBox, width: Int, height: Int) {
+        left = Double(box.x1) / Double(width)
+        top = Double(box.y1) / Double(height)
+        right = Double(box.x2 + 1) / Double(width)
+        bottom = Double(box.y2 + 1) / Double(height)
+    }
+
+    var description: String { String(format: "l%.3f t%.3f r%.3f b%.3f", left, top, right, bottom) }
+}
+
 /// What the poster search reads off a scaled frame, from every fourth pixel of every fourth row.
 struct FrameScore {
     /// Mean luma, 0 to 255.
@@ -411,8 +752,44 @@ struct FrameScore {
     /// Below the band is a black or a fade-out, above it a white or a fade-in; flat is a dissolve.
     static let usableLuma = 40.0 ... 170.0
     static let usableContrast = 25.0
+    /// A row or column whose mean luma stays at or under this is a bar (ffmpeg cropdetect's 24/255).
+    static let barLuma = 24.0
 
     var isUsable: Bool { Self.usableLuma.contains(luma) && contrast >= Self.usableContrast }
+
+    /// The content box, scanned inward from each edge to the first row or column over `barLuma`,
+    /// columns read within the rows found. Nil when every row is a bar.
+    static func contentBox(rgba: Data, width: Int, height: Int, stride: Int = 2) -> ContentBox? {
+        guard width > 0, height > 0 else { return nil }
+        return rgba.withUnsafeBytes { raw -> ContentBox? in
+            let pixels = raw.bindMemory(to: UInt8.self)
+            func luma(_ x: Int, _ y: Int) -> Double {
+                let i = (y * width + x) * 4
+                return 0.2126 * Double(pixels[i]) + 0.7152 * Double(pixels[i + 1]) + 0.0722 * Double(pixels[i + 2])
+            }
+            func rowIsBar(_ y: Int) -> Bool {
+                var sum = 0.0, count = 0.0
+                for x in Swift.stride(from: 0, to: width, by: stride) { sum += luma(x, y); count += 1 }
+                return sum / count <= barLuma
+            }
+            func columnIsBar(_ x: Int, _ y1: Int, _ y2: Int) -> Bool {
+                var sum = 0.0, count = 0.0
+                for y in Swift.stride(from: y1, through: y2, by: stride) { sum += luma(x, y); count += 1 }
+                return sum / count <= barLuma
+            }
+            var y1 = 0
+            while y1 < height, rowIsBar(y1) { y1 += 1 }
+            guard y1 < height else { return nil }
+            var y2 = height - 1
+            while y2 > y1, rowIsBar(y2) { y2 -= 1 }
+            var x1 = 0
+            while x1 < width, columnIsBar(x1, y1, y2) { x1 += 1 }
+            guard x1 < width else { return nil }
+            var x2 = width - 1
+            while x2 > x1, columnIsBar(x2, y1, y2) { x2 -= 1 }
+            return ContentBox(x1: x1, y1: y1, x2: x2, y2: y2)
+        }
+    }
 
     init(rgba: Data, width: Int, height: Int, stride: Int = 4) {
         var count = 0.0, sum = 0.0, sumSquares = 0.0
@@ -435,13 +812,35 @@ struct FrameScore {
         luma = count > 0 ? sum / count : 0
         contrast = count > 0 ? (sumSquares / count - luma * luma).squareRoot() : 0
     }
+
+    /// A 768-bin RGB histogram (256 per channel) from the same sampled pixels, the colour
+    /// distribution the representative-frame pick compares against the batch average.
+    static func histogram(rgba: Data, width: Int, height: Int, stride: Int = 4) -> [Double] {
+        var bins = [Double](repeating: 0, count: 768)
+        rgba.withUnsafeBytes { raw in
+            let pixels = raw.bindMemory(to: UInt8.self)
+            var y = 0
+            while y < height {
+                var x = 0
+                while x < width {
+                    let i = (y * width + x) * 4
+                    bins[Int(pixels[i])] += 1
+                    bins[256 + Int(pixels[i + 1])] += 1
+                    bins[512 + Int(pixels[i + 2])] += 1
+                    x += stride
+                }
+                y += stride
+            }
+        }
+        return bins
+    }
 }
 
 /// Where chapter frames live between plays: `Caches/chapter-frames/<itemId>/<ms>.jpg`,
 /// outside the session tree so no session sweep touches it, trimmed to a fixed size with
 /// the least recently used frames going first. The OS may purge Caches on top of this.
 enum ChapterFramePool {
-    static let capBytes: Int64 = 64 * 1024 * 1024
+    static let capBytes: Int64 = 100 * 1024 * 1024
     private static let queue = DispatchQueue(label: "tv.tomo.framepool", qos: .utility)
     private static let lock = NSLock()
     private static var generation = 0

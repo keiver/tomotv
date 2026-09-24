@@ -4,16 +4,23 @@ import {
   canRemuxLocally,
   dolbyVisionSupplementalCodecs,
   engineInputMissing,
+  engineProgress,
   engineStarving,
   imagesAt,
   isLocalRemuxAvailable,
   localRemuxToken,
+  offeredTierRungs,
+  offeredTierBandwidths,
   predictPlaybackLane,
   resolveSubtitlePick,
   slipstreamTierBandwidth,
+  slipstreamInputBandwidth,
+  sourceBandwidthForItem,
   startLocalRemux,
   stopLocalRemux,
   subscribeEngineFailure,
+  subscribeEngineLink,
+  subscribeEngineTier,
   subtitleRenditions,
   videoCodecTag,
   type ImageSubtitleEvent,
@@ -21,15 +28,18 @@ import {
 } from "../localRemux";
 import type { VideoDecodeSupport } from "@/constants/codecs";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
+import { getAudioTracks } from "../multiAudioLoader";
+import { getCachedConfig } from "@/services/jellyfin/session";
 
 const mockStartRemux = jest.fn();
 const mockStopRemux = jest.fn();
+const mockEngineProgress = jest.fn();
 /** DeviceDecode.summary() as an Apple TV 4K answers it: HEVC to Main 10, no AV1 silicon. */
 const mockDecodeSupport = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
 const mockListeners = new Map<string, (payload: unknown) => void>();
 /** The events the mocked binary declares; a shorter list is an older build. */
-const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed"];
+const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineLink"];
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -37,6 +47,7 @@ jest.mock("react-native", () => ({
     LocalRemuxer: {
       startRemux: (...args: unknown[]) => mockStartRemux(...args),
       stopRemux: (...args: unknown[]) => mockStopRemux(...args),
+      engineProgress: (...args: unknown[]) => mockEngineProgress(...args),
       videoDecodeSupport: () => mockDecodeSupport(),
       // What the running binary declares it can emit, as constantsToExport reports it. A getter
       // because the factory runs before the list is initialised.
@@ -58,7 +69,7 @@ jest.mock("@/services/playbackProbe", () => ({ probeEmit: (...args: unknown[]) =
 
 // The real streamUrls builders run in this suite; they only need a config.
 jest.mock("@/services/jellyfin/session", () => ({
-  getCachedConfig: () => ({ server: "http://server:8096", apiKey: "k", userId: "u" }),
+  getCachedConfig: jest.fn(() => ({ server: "http://server:8096", apiKey: "k", userId: "u" })),
   generatePlaySessionId: () => "test-session",
 }));
 
@@ -68,6 +79,7 @@ jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => n
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
   rememberedBitrate: async () => 3_000_000,
+  measureServerBitrate: async () => 3_000_000,
 }));
 
 const HOUR_IN_TICKS = 36000000000;
@@ -90,6 +102,7 @@ function item(overrides: Partial<JellyfinVideoItem> & { streams?: any[] } = {}):
 
 beforeEach(() => {
   jest.clearAllMocks();
+  (getCachedConfig as jest.Mock).mockReturnValue({ server: "http://server:8096", apiKey: "k", userId: "u" });
   mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
   mockStartRemux.mockResolvedValue("http://127.0.0.1:5000/token/master.m3u8");
 });
@@ -97,6 +110,120 @@ beforeEach(() => {
 describe("isLocalRemuxAvailable", () => {
   it("is available when the native module is present on iOS", () => {
     expect(isLocalRemuxAvailable()).toBe(true);
+  });
+});
+
+describe("engine link ownership", () => {
+  it("replays a report emitted before native startup resolves only to that session", async () => {
+    const token = "early-link-session";
+    const report = { token, bps: 1_500_000, copyListed: false };
+    mockStartRemux.mockImplementationOnce(async () => {
+      mockListeners.get("onEngineLink")!(report);
+      return `http://127.0.0.1:5000/${token}/master.m3u8`;
+    });
+    await startLocalRemux(item());
+    const listener = jest.fn();
+    const other = jest.fn();
+    const stop = subscribeEngineLink(token, listener);
+    const stopOther = subscribeEngineLink("another-session", other);
+    expect(listener).toHaveBeenCalledWith(report);
+    expect(other).not.toHaveBeenCalled();
+    stop();
+    stopOther();
+    await stopLocalRemux(token);
+  });
+
+  it("discards cached and late reports when their session stops", async () => {
+    const token = "stopped-link-session";
+    const listener = jest.fn();
+    const stop = subscribeEngineLink(token, listener);
+    mockListeners.get("onEngineLink")!({ token, bps: 2_000_000 });
+    await stopLocalRemux(token);
+    listener.mockClear();
+    mockListeners.get("onEngineLink")!({ token, bps: 30_000_000 });
+    const stopAgain = subscribeEngineLink(token, listener);
+    expect(listener).not.toHaveBeenCalled();
+    stop();
+    stopAgain();
+  });
+});
+
+describe("engineProgress", () => {
+  it("preserves native supplier recovery state", async () => {
+    const progress = { alive: true, bytesRead: 2048, readSeconds: 1, elapsedSeconds: 3, sourceState: "retry-wait", recovering: true, hasPlayableSupplier: true, sourceRetryAfterSeconds: 2 };
+    mockEngineProgress.mockResolvedValueOnce(progress);
+    await expect(engineProgress("active-token")).resolves.toEqual(progress);
+    expect(mockEngineProgress).toHaveBeenCalledWith("active-token");
+  });
+
+  it("does not invent supplier state for a binary that does not report it", async () => {
+    const progress = { alive: true, bytesRead: 2048, readSeconds: 1, elapsedSeconds: 3 };
+    mockEngineProgress.mockResolvedValueOnce(progress);
+    await expect(engineProgress("older-token")).resolves.toEqual(progress);
+  });
+});
+
+describe("sourceBandwidthForItem", () => {
+  it("prefers the declared whole-source rate over file size and individual streams", () => {
+    const source = item({
+      RunTimeTicks: 100_000_000,
+      MediaSources: [{ Id: "item1", Bitrate: 9_000_000, Size: 10_000_000 }],
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0, BitRate: 5_000_000 },
+        { Type: "Audio", Codec: "aac", Index: 1, BitRate: 192_000 },
+      ],
+    });
+    expect(sourceBandwidthForItem(source)).toBe(9_000_000);
+  });
+
+  it("uses file size and duration when the source bitrate is absent", () => {
+    expect(sourceBandwidthForItem(item({ RunTimeTicks: 100_000_000, MediaSources: [{ Id: "item1", Size: 10_000_000 }] }))).toBe(8_000_000);
+  });
+
+  it("counts every multiplexed audio track, not only the selected or largest track", () => {
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0, BitRate: 5_000_000 },
+        { Type: "Audio", Codec: "aac", Index: 1, BitRate: 192_000, IsDefault: true },
+        { Type: "Audio", Codec: "ac3", Index: 2, BitRate: 640_000 },
+        { Type: "Audio", Codec: "dts", Index: 3, BitRate: 768_000 },
+        { Type: "Audio", Codec: "aac", Index: 4, BitRate: 192_000, IsExternal: true },
+      ],
+    });
+    expect(sourceBandwidthForItem(source)).toBe(6_600_000);
+  });
+
+  it("preserves unknown rather than counting audio alone as a video source", () => {
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Audio", Codec: "aac", Index: 1, BitRate: 192_000 },
+      ],
+    });
+    expect(sourceBandwidthForItem(source)).toBe(0);
+  });
+
+  it("does not treat incomplete stream bitrates as a complete source total", () => {
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0, BitRate: 5_000_000 },
+        { Type: "Audio", Codec: "aac", Index: 1 },
+      ],
+    });
+    expect(sourceBandwidthForItem(source)).toBe(0);
+    expect(slipstreamInputBandwidth(source)).toBe(5_256_000);
+  });
+
+  it("shares native's source-or-variant input budget with the cap caller", async () => {
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0, BitRate: 5_000_000 },
+        { Type: "Audio", Codec: "aac", Index: 1 },
+      ],
+    });
+    await startLocalRemux(source);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(slipstreamInputBandwidth(source)).toBe(config.sourceBandwidth > 0 ? config.sourceBandwidth : config.bandwidth);
   });
 });
 
@@ -112,9 +239,10 @@ describe("canRemuxLocally", () => {
     const live = item({
       RunTimeTicks: undefined,
       MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1" }],
+      // Jellyfin 12 probes a channel's streams with Index -1 (measured on the Live rig).
       streams: [
-        { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
-        { Type: "Audio", Codec: "mp2", Index: 1 },
+        { Type: "Video", Codec: "mpeg2video", Index: -1, Width: 1920, Height: 1080, BitDepth: 8 },
+        { Type: "Audio", Codec: "mp2", Index: -1 },
       ],
     });
     await expect(canRemuxLocally(live)).resolves.toBe(true);
@@ -145,7 +273,7 @@ describe("canRemuxLocally", () => {
     },
   );
 
-  // No size gate: whether a device keeps up is measured by the session itself
+  // Below 8K, whether a device keeps up is measured by the session itself
   // (Remuxer.reportThroughput) and remembered per item (engineVerdicts.ts).
   it("accepts 4K VP9 for on-device transcode", async () => {
     const fourK = item({
@@ -157,14 +285,16 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(fourK)).resolves.toBe(true);
   });
 
-  it("accepts 8K VP9: the encoder refusing to open is the session's own start-time fallback", async () => {
+  it("declines 8K VP9, which no device copies", async () => {
+    mockProbeEmit.mockClear();
     const eightK = item({
       streams: [
         { Type: "Video", Codec: "vp9", Index: 0, Width: 7680, Height: 4320, BitDepth: 8 },
         { Type: "Audio", Codec: "opus", Index: 1 },
       ],
     });
-    await expect(canRemuxLocally(eightK)).resolves.toBe(true);
+    await expect(canRemuxLocally(eightK)).resolves.toBe(false);
+    expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "8K video this device does not copy", width: 7680, height: 4320 }));
   });
 
   // T44 and T45 guard the server-HLS subtitle-sync invariant (X-TIMESTAMP-MAP
@@ -285,18 +415,18 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(multi)).resolves.toBe(true);
   });
 
-  it("carries multi-audio when only some tracks have a decoder, dropping the rest", async () => {
+  it("accepts mixed local and server-backed audio without dropping tracks", async () => {
     const multi = item({
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
         { Type: "Audio", Codec: "aac", Index: 1 },
-        { Type: "Audio", Codec: "qdm2", Index: 2 },
+        { Type: "Audio", Codec: "acelp.kelvin", Index: 2 },
       ],
     });
     await expect(canRemuxLocally(multi)).resolves.toBe(true);
   });
 
-  it("rejects a file whose every audio track has no decoder", async () => {
+  it("allows server-backed audio when no audio track has a local decoder", async () => {
     const undecodable = item({
       streams: [
         { Type: "Video", Codec: "h264", Index: 0 },
@@ -304,7 +434,21 @@ describe("canRemuxLocally", () => {
         { Type: "Audio", Codec: "somethingelse", Index: 2 },
       ],
     });
-    await expect(canRemuxLocally(undecodable)).resolves.toBe(false);
+    await expect(canRemuxLocally(undecodable)).resolves.toBe(true);
+  });
+
+  it("declines invalid audio identities rather than inventing stream zero", async () => {
+    await expect(
+      canRemuxLocally(
+        item({
+          streams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Audio", Codec: "aac" },
+          ],
+        }),
+      ),
+    ).resolves.toBe(false);
+    expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "invalid audio catalogue" }));
   });
 
   it("carries a file with no audio at all, which was never a reason to decline", async () => {
@@ -374,7 +518,7 @@ describe("canRemuxLocally", () => {
     await expect(canRemux(av1Item(1280, 720))).resolves.toBe(true);
   });
 
-  // The software path has no size gate: the session measures whether this
+  // Below 8K the software path has no size gate: the session measures whether this
   // device keeps up, and the player answers before AVPlayer is bound.
   it("transcodes 4K AV1 on device without hardware decode", async () => {
     const canRemux = withAV1Hardware(false);
@@ -388,7 +532,453 @@ describe("canRemuxLocally", () => {
   });
 });
 
+describe("startLocalRemux source positions (issue 84)", () => {
+  // Jellyfin 12 lists the sidecar first and renumbers; before 12 it came last. The file is the same.
+  const embedded = (first: number) => [
+    { Type: "Video", Codec: "h264", Index: first },
+    { Type: "Audio", Codec: "ac3", Index: first + 1, Language: "rus", IsDefault: true },
+    { Type: "Audio", Codec: "dts", Index: first + 2, Language: "dan" },
+    { Type: "Subtitle", Codec: "subrip", Index: first + 3, Language: "rus" },
+    { Type: "Subtitle", Codec: "subrip", Index: first + 4, Language: "eng" },
+  ];
+  const sidecar = (index: number) => ({ Type: "Subtitle", Codec: "subrip", Index: index, Language: "dan", IsExternal: true });
+
+  it.each([
+    ["Jellyfin 12, sidecar first", [sidecar(0), ...embedded(1)], 1],
+    ["before 12, sidecar last", [...embedded(0), sidecar(5)], 0],
+  ])("%s: every embedded track names its place in the file", async (_shape, streams, first) => {
+    await startLocalRemux(item({ streams }));
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks.map((track: any) => [track.index, track.source])).toEqual([
+      [first + 1, { ordinal: 0, count: 2, codec: "ac3" }],
+      [first + 2, { ordinal: 1, count: 2, codec: "dts" }],
+    ]);
+    const bySource = config.subtitles.filter((sub: any) => sub.isEngineText).map((sub: any) => [sub.index, sub.source]);
+    expect(bySource).toEqual([
+      [first + 3, { ordinal: 0, count: 2, codec: "subrip" }],
+      [first + 4, { ordinal: 1, count: 2, codec: "subrip" }],
+    ]);
+    expect(config.subtitles.find((sub: any) => sub.isExternal).source).toBeUndefined();
+  });
+
+  it("names a bitmap track by FFmpeg's codec, not Jellyfin's rewrite of it", async () => {
+    const streams = [sidecar(0), { Type: "Video", Codec: "h264", Index: 1 }, { Type: "Audio", Codec: "aac", Index: 2 }, { Type: "Subtitle", Codec: "PGSSUB", Index: 3 }];
+    await startLocalRemux(item({ streams }));
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.subtitles.find((sub: any) => sub.index === 3).source).toEqual({ ordinal: 0, count: 1, codec: "hdmv_pgs_subtitle" });
+  });
+
+  it("hands a sidecar audio file to the server, it is not in the container", async () => {
+    const streams = [
+      { Type: "Video", Codec: "h264", Index: 0 },
+      { Type: "Audio", Codec: "aac", Index: 1 },
+      { Type: "Audio", Codec: "aac", Index: 2, IsExternal: true },
+    ];
+    await startLocalRemux(item({ streams }));
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks.map((track: any) => [track.index, track.usesServerAudio, track.source])).toEqual([
+      [1, false, { ordinal: 0, count: 1, codec: "aac" }],
+      [2, true, undefined],
+    ]);
+  });
+});
+
 describe("startLocalRemux", () => {
+  it("opens the explicit server-video fallback without widening ordinary local codec admission", async () => {
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "asv1", Index: 0, BitRate: 10_000 },
+        { Type: "Audio", Codec: "aac", Index: 1, BitRate: 32_000 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2 },
+      ],
+    });
+    await expect(canRemuxLocally(source)).resolves.toBe(false);
+    expect(offeredTierBandwidths(source)).toEqual([]);
+    await startLocalRemux(source, undefined, 45, { serverVideoOnly: true });
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.serverVideoOnly).toBe(true);
+    expect(config.startOffsetSeconds).toBe(45);
+    expect(config.tiers).toHaveLength(7);
+    expect(config.tiers.map((tier: { bandwidth: number }) => tier.bandwidth)).toEqual(offeredTierBandwidths(source, undefined, { serverVideoOnly: true }));
+    expect(config.audioTracks[0]).toMatchObject({ index: 1, usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: 120_000 });
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioStreamIndex=1");
+    expect(config.subtitles[0].serverVttUrl).toContain("Subtitles/2/Stream.vtt");
+    expect(config.primaryVideoCodecs).toBe("");
+  });
+
+  it("keeps every HDR-source audio track in the explicit server-video fallback", async () => {
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "hevc", Index: 0, BitRate: 20_000_000, VideoRangeType: "HDR10", BitDepth: 10 },
+        { Type: "Audio", Codec: "eac3", Index: 1, BitRate: 640_000, Language: "eng" },
+        { Type: "Audio", Codec: "truehd", Index: 7, BitRate: 3_000_000, Language: "spa" },
+      ],
+    });
+    await startLocalRemux(source, 7, undefined, { serverVideoOnly: true });
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks.map((track: { index: number }) => track.index)).toEqual([7, 1]);
+    expect(config.audioTracks.every((track: { usesServerAudio: boolean; codecs: string }) => track.usesServerAudio && track.codecs === "mp4a.40.2")).toBe(true);
+    expect(config.tiers.every((tier: { codecs: string }) => tier.codecs.startsWith("avc1.") && tier.codecs.endsWith("mp4a.40.2"))).toBe(true);
+    expect(config.serverVideoOnly).toBe(true);
+  });
+
+  it("does not invent audio on a video-only server fallback", async () => {
+    const source = item({ streams: [{ Type: "Video", Codec: "asv1", Index: 0, BitRate: 100_000 }] });
+    await startLocalRemux(source, undefined, undefined, { serverVideoOnly: true });
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks).toEqual([]);
+    expect(config.tiers[0]).toMatchObject({ bandwidth: 140_000, codecs: "avc1.64000C" });
+    expect(config.tiers.map((tier: { bandwidth: number }) => tier.bandwidth)).toEqual(offeredTierBandwidths(source, undefined, { serverVideoOnly: true }));
+  });
+
+  it("starts the server fallback without an external bitmap it has no supplier for", async () => {
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "asv1", Index: 0 },
+        { Type: "Subtitle", Codec: "pgssub", Index: 2, IsExternal: true },
+      ],
+    });
+    await startLocalRemux(source, undefined, undefined, { serverVideoOnly: true });
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
+  });
+
+  it("rejects server-video-only mode for live channels", async () => {
+    const source = item({ MediaSources: [{ Id: "live-source", IsInfiniteStream: true }] });
+    await expect(startLocalRemux(source, undefined, undefined, { serverVideoOnly: true })).rejects.toThrow("requires network VOD video");
+    expect(mockStartRemux).not.toHaveBeenCalled();
+  });
+
+  it("rejects server-video-only mode for audio-only items", async () => {
+    const source = item({ streams: [{ Type: "Audio", Codec: "vorbis", Index: 0 }] });
+    await expect(startLocalRemux(source, undefined, undefined, { serverVideoOnly: true })).rejects.toThrow("requires network VOD video");
+    expect(mockStartRemux).not.toHaveBeenCalled();
+  });
+
+  it("separates input wire cost from video plus the largest selectable output audio track", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, BitRate: 5_000_000 },
+          { Type: "Audio", Codec: "aac", Index: 1, BitRate: 192_000 },
+          { Type: "Audio", Codec: "ac3", Index: 2, BitRate: 640_000 },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0]).toMatchObject({ primaryVideoBandwidth: 5_000_000, bandwidth: 5_640_000, sourceBandwidth: 5_832_000 });
+  });
+
+  it("recovers a missing video rate from the known source total without advertising only audio", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Bitrate: 6_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1, BitRate: 192_000 },
+          { Type: "Audio", Codec: "ac3", Index: 2, BitRate: 640_000 },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0]).toMatchObject({ primaryVideoBandwidth: 5_168_000, bandwidth: 5_808_000, sourceBandwidth: 6_000_000 });
+  });
+
+  it("recovers a missing video rate from size and runtime when the source total is absent", async () => {
+    await startLocalRemux(
+      item({
+        RunTimeTicks: 100_000_000,
+        MediaSources: [{ Id: "item1", Size: 10_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1, BitRate: 192_000 },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0]).toMatchObject({ primaryVideoBandwidth: 7_808_000, bandwidth: 8_000_000, sourceBandwidth: 8_000_000 });
+  });
+
+  it("keeps video and variant rates unknown when only the audio rate is known", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1, BitRate: 192_000 },
+        ],
+      }),
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config).toMatchObject({ primaryVideoBandwidth: 0, bandwidth: 0, sourceBandwidth: 0 });
+    expect(config.tiers).toHaveLength(7);
+  });
+
+  it("carries unsupported audio through the server even when no video rung undercuts the original", async () => {
+    const source = item({
+      MediaSources: [{ Id: "selected-source", Container: "mkv" }],
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0, BitRate: 10_000 },
+        { Type: "Audio", Codec: "aac", Index: 1, BitRate: 32_000, DisplayTitle: "English" },
+        { Type: "Audio", Codec: "acelp.kelvin", Index: 7, DisplayTitle: "English", IsDefault: true, Channels: 1 },
+      ],
+    });
+    await startLocalRemux(source);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.tiers).toEqual([]);
+    expect(config.audioTracks).toHaveLength(2);
+    expect(config.audioTracks[0]).toMatchObject({
+      index: 7,
+      identity: "selected-source:7",
+      usesServerAudio: true,
+      codecs: "mp4a.40.2",
+      bandwidth: 120_000,
+      serverAudioChannels: 1,
+    });
+    const serverUrl = new URL(config.audioTracks[0].serverAudioUrl);
+    expect(serverUrl.pathname).toBe("/Videos/item1/main.m3u8");
+    expect(serverUrl.searchParams.get("MediaSourceId")).toBe("selected-source");
+    expect(serverUrl.searchParams.get("AudioStreamIndex")).toBe("7");
+    expect(config.audioTracks[1]).toMatchObject({ index: 1, identity: "selected-source:1", usesServerAudio: false, codecs: "mp4a.40.2", bandwidth: 32_000 });
+    expect(config.audioTracks[1].serverAudioUrl).toBeUndefined();
+    expect(config.audioTracks.map((track: { index: number }) => track.index)).toEqual(getAudioTracks(source).map((track) => track.Index));
+    expect(config.audioTracks.map((track: { name: string }) => track.name)).toEqual(getAudioTracks(source).map((track) => track.DisplayTitle));
+  });
+
+  it("declares the HEVC Main original beside its 144p fallback rungs", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 426_777 }],
+        streams: [
+          { Type: "Video", Codec: "hevc", Profile: "Main", Level: 93, BitDepth: 8, Index: 0, BitRate: 393_055, Width: 1280, Height: 720, VideoRangeType: "SDR" },
+          { Type: "Audio", Codec: "aac", Profile: "HE-AAC", Index: 1, BitRate: 32_001, Channels: 2 },
+        ],
+      }),
+      undefined,
+      461,
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config).toMatchObject({
+      primaryVideoCodecs: "hvc1.1.4.L93.B0",
+      codecs: "hvc1.1.4.L93.B0,mp4a.40.5",
+      primaryVideoBandwidth: 393_055,
+      bandwidth: 425_056,
+      width: 1280,
+      height: 720,
+      startOffsetSeconds: 461,
+    });
+    expect(config.tiers).toHaveLength(2);
+    expect(config.tiers.map((tier: { height: number }) => tier.height)).toEqual([144, 144]);
+  });
+
+  it.each([
+    { profile: "Main", level: 120, width: 1920, height: 1080, bitDepth: 8, videoRange: "SDR", bitrate: 12_000_000, codec: "hvc1.1.4.L120.B0" },
+    { profile: "Main", level: 153, width: 3840, height: 2160, bitDepth: 8, videoRange: "SDR", bitrate: 35_000_000, codec: "hvc1.1.4.L153.B0" },
+    { profile: "Main 10", level: 153, width: 3840, height: 2160, bitDepth: 10, videoRange: "HDR10", bitrate: 80_000_000, codec: "hvc1.2.4.L153.B0" },
+  ])("preserves the $height-p $profile original at $bitrate bps", async ({ profile, level, width, height, bitDepth, videoRange, bitrate, codec }) => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: bitrate + 192_000 }],
+        streams: [
+          { Type: "Video", Codec: "hevc", Profile: profile, Level: level, BitDepth: bitDepth, Index: 0, BitRate: bitrate, Width: width, Height: height, VideoRangeType: videoRange },
+          { Type: "Audio", Codec: "aac", Profile: "LC", Index: 1, BitRate: 192_000, Channels: 2 },
+        ],
+      }),
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config).toMatchObject({
+      primaryVideoCodecs: codec,
+      codecs: `${codec},mp4a.40.2`,
+      primaryVideoBandwidth: bitrate,
+      bandwidth: bitrate + 192_000,
+      sourceBandwidth: bitrate + 192_000,
+      width,
+      height,
+      videoRange: videoRange === "HDR10" ? "PQ" : "SDR",
+    });
+    expect(config.tiers.length).toBeGreaterThan(2);
+  });
+
+  it("declares every source-group audio codec and the largest selectable output bandwidth", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "hevc", Profile: "Main 10", Level: 120, BitDepth: 10, Index: 0, BitRate: 5_000_000, VideoRangeType: "HDR10" },
+          { Type: "Audio", Codec: "eac3", Index: 4, BitRate: 640_000, IsDefault: true },
+          { Type: "Audio", Codec: "dts", Index: 7, BitRate: 768_000, Channels: 6, SampleRate: 48_000, BitDepth: 24 },
+          { Type: "Audio", Codec: "acelp.kelvin", Index: 9 },
+        ],
+      }),
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks.map((track: { codecs: string }) => track.codecs)).toEqual(["ec-3", "fLaC,mp4a.40.2", "mp4a.40.2"]);
+    expect(config.audioTracks.map((track: { usesServerAudio: boolean }) => track.usesServerAudio)).toEqual([false, false, true]);
+    expect(config.codecs).toBe(`${config.primaryVideoCodecs},ec-3,fLaC,mp4a.40.2`);
+    expect(config.primaryVideoCodecs).toBe("hvc1.2.4.L120.B0");
+    expect(config.primaryVideoBandwidth).toBe(5_000_000);
+    expect(config.bandwidth).toBe(5_000_000 + 4_147_200);
+  });
+
+  it("uses the copied AAC profile rather than declaring every AAC track as LC", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 3, Profile: "HE-AAC", BitRate: 64_000 },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].audioTracks[0]).toMatchObject({ codecs: "mp4a.40.5", bandwidth: 64_000, usesServerAudio: false });
+  });
+
+  it.each(["dts", "truehd", "flac"])("declares both possible native outputs for %s without disabling lossless encoding", async (codec) => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: codec, Index: 3, Channels: 6 },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].audioTracks[0]).toMatchObject({ usesServerAudio: false, codecs: "fLaC,mp4a.40.2" });
+  });
+
+  it("budgets the native AAC fallback when a small lossless estimate would understate it", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "pcm_mulaw", Index: 3, Channels: 1, SampleRate: 8000, BitDepth: 8 },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].audioTracks[0]).toMatchObject({ usesServerAudio: false, codecs: "fLaC,mp4a.40.2", bandwidth: 192_000 });
+  });
+
+  it("rejects an unidentified track before passing a partial catalogue to native", async () => {
+    await expect(
+      startLocalRemux(
+        item({
+          streams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Audio", Codec: "aac" },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("valid Jellyfin stream index");
+    expect(mockStartRemux).not.toHaveBeenCalled();
+  });
+
+  it("provides an external bitmap supplier independently of ladder eligibility", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, BitRate: 10_000 },
+          { Type: "Audio", Codec: "aac", Index: 1, BitRate: 32_000 },
+          { Type: "Subtitle", Codec: "pgssub", Index: 8, IsExternal: true, DeliveryUrl: "/Videos/item1/item1/Subtitles/8/Stream.pgssub" },
+        ],
+      }),
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.tiers).toEqual([]);
+    expect(config.subtitles[0]).toMatchObject({ isExternal: true, isImage: true, isEngineText: false });
+    const subtitleUrl = new URL(config.subtitles[0].serverSupUrl);
+    expect(subtitleUrl.pathname).toBe("/Videos/item1/item1/Subtitles/8/Stream.pgssub");
+    expect(subtitleUrl.searchParams.get("ApiKey")).toBe("k");
+  });
+
+  it("does not send the Jellyfin key to an external bitmap host", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "pgssub", Index: 8, IsExternal: true, DeliveryUrl: "https://subtitles.example/track.sup" },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].subtitles[0].serverSupUrl).toBe("https://subtitles.example/track.sup");
+  });
+
+  it("plays without an external bitmap that has no supplier", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "pgssub", Index: 8, IsExternal: true },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
+  });
+
+  it.each([undefined, -1, 1.5, NaN, 2_147_483_648])("plays without a subtitle whose index is %s", async (index) => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "subrip", Index: index },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
+  });
+
+  it("keeps the first of two subtitles sharing an index, so no route is ambiguous", async () => {
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2 },
+          { Type: "Subtitle", Codec: "pgssub", Index: 2 },
+        ],
+      }),
+    );
+    const subtitles = mockStartRemux.mock.calls[0][0].subtitles;
+    expect(subtitles.map((sub: { index: number; isImage: boolean }) => [sub.index, sub.isImage])).toEqual([[2, false]]);
+  });
+
+  it("publishes the other subtitles when an external text track has no supplier", async () => {
+    (getCachedConfig as jest.Mock).mockReturnValue({ server: "http://server:8096", apiKey: "", userId: "u" });
+    await startLocalRemux(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2 },
+          { Type: "Subtitle", Codec: "subrip", Index: 3, IsExternal: true },
+        ],
+      }),
+    );
+    expect(mockStartRemux.mock.calls[0][0].subtitles.map((sub: { index: number }) => sub.index)).toEqual([2]);
+  });
+
+  it("accepts the full nonnegative Int32 subtitle index boundary", () => {
+    const subtitles = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Subtitle", Codec: "subrip", Index: 0 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2_147_483_647 },
+        ],
+      }),
+    );
+    expect(subtitles.map((subtitle) => subtitle.index)).toEqual([0, 2_147_483_647]);
+  });
+
+  it("reads the selected source's stream metadata when the top-level catalogue is empty", async () => {
+    await startLocalRemux(
+      item({
+        MediaStreams: [],
+        MediaSources: [
+          {
+            Id: "alternate",
+            MediaStreams: [
+              { Type: "Video", Codec: "h264", Index: 0, BitRate: 1_000_000 },
+              { Type: "Audio", Codec: "aac", Index: 5, BitRate: 96_000 },
+            ],
+          },
+        ],
+      }),
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks[0]).toMatchObject({ index: 5, identity: "alternate:5" });
+    expect(config.primaryVideoBandwidth).toBe(1_000_000);
+    expect(config.tiers.length).toBeGreaterThan(0);
+  });
+
   it("passes the static stream URL, audio index and duration to the native module", async () => {
     const url = await startLocalRemux(item());
 
@@ -560,6 +1150,25 @@ describe("startLocalRemux", () => {
     expect(mockListeners.get("onEngineTier")).toBeDefined();
   });
 
+  it("routes the tier verdict to the session that owns the token, until unsubscribed", async () => {
+    await startLocalRemux(item());
+    const onTier = jest.fn();
+    const off = subscribeEngineTier("token", onTier);
+    const handler = mockListeners.get("onEngineTier");
+    expect(handler).toBeDefined();
+
+    handler!({ token: "some-earlier-session", state: "listed" });
+    expect(onTier).not.toHaveBeenCalled();
+    handler!({ token: "token", state: "listed" });
+    expect(onTier).toHaveBeenCalledWith({ token: "token", state: "listed" });
+    handler!({ token: "token", state: "dropped", reason: "audio HTTP 500" });
+    expect(onTier).toHaveBeenCalledWith({ token: "token", state: "dropped", reason: "audio HTTP 500" });
+
+    off();
+    handler!({ token: "token", state: "declined" });
+    expect(onTier).toHaveBeenCalledTimes(2);
+  });
+
   it("does not subscribe on a build that predates the event, and still plays", async () => {
     // Metro serves this JS to whatever binary is installed. Subscribing to an event the running
     // build does not declare is a hard error in RCTEventEmitter and takes the player with it.
@@ -719,6 +1328,53 @@ describe("subtitleRenditions", () => {
     expect(names).toEqual(["English (1)", "English (2)"]);
   });
 
+  it("publishes sanitized subtitle names with apostrophes and spaces for control characters", () => {
+    const renditions = subtitleRenditions(item({ streams: [{ Type: "Subtitle", Codec: "pgssub", Index: 4, Language: "eng", DisplayTitle: '"English"\r\nCC\tEdition\u0000Cut\u0085Alt\u200BFinal' }] }));
+    expect(renditions[0].name).toBe("'English' CC Edition Cut Alt Final");
+    const selected = resolveSubtitlePick(renditions, [
+      { index: 0, title: "'English' CC Edition Cut Alt Final", selected: true },
+      { index: 1, title: "", selected: false },
+    ]);
+    expect(selected.imageStreamIndex).toBe(4);
+  });
+
+  it("disambiguates names that collide only after playlist sanitation", () => {
+    const renditions = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Subtitle", Codec: "pgssub", Index: 4, Language: "eng", DisplayTitle: '"English"\nCC' },
+          { Type: "Subtitle", Codec: "pgssub", Index: 8, Language: "eng", DisplayTitle: "'English' CC" },
+        ],
+      }),
+    );
+    expect(renditions.map((rendition) => rendition.name)).toEqual(["'English' CC (1)", "'English' CC (2)"]);
+    const selected = resolveSubtitlePick(renditions, [
+      { index: 0, title: "'English' CC (1)", selected: false },
+      { index: 1, title: "'English' CC (2)", selected: true },
+      { index: 2, title: "", selected: false },
+    ]);
+    expect(selected.imageStreamIndex).toBe(8);
+  });
+
+  it("keeps positional suffixes while removing collisions with an existing suffixed title", () => {
+    const renditions = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "eng", DisplayTitle: "English" },
+          { Type: "Subtitle", Codec: "pgssub", Index: 4, Language: "eng", DisplayTitle: "English" },
+          { Type: "Subtitle", Codec: "pgssub", Index: 7, Language: "eng", DisplayTitle: "English (1)" },
+          { Type: "Subtitle", Codec: "pgssub", Index: 9, Language: "eng", DisplayTitle: "English (1) (7)" },
+        ],
+      }),
+    );
+    expect(renditions.map((rendition) => rendition.name)).toEqual(["English (1)", "English (2)", "English (1) (7)", "English (1) (7) (9)"]);
+    const selected = resolveSubtitlePick(renditions, [
+      ...renditions.map((rendition, position) => ({ index: position, title: rendition.name, selected: position === 3 })),
+      { index: 4, title: "", selected: false },
+    ]);
+    expect(selected.imageStreamIndex).toBe(9);
+  });
+
   it("keeps a track's own name when the source gives it one", () => {
     const renditions = subtitleRenditions(item({ streams: [{ Type: "Video", Codec: "h264", Index: 0 }, REAL.t06Subtitle, { Type: "Subtitle", Codec: "pgssub", Index: 3 }] }));
 
@@ -761,7 +1417,7 @@ describe("subtitleRenditions", () => {
   // list. If the two ever built the list differently the mapping would be silently
   // wrong, which is why there is one function rather than two expressions.
   it("hands the engine exactly the list the app resolves ordinals against", async () => {
-    const streams = [{ Type: "Video", Codec: "h264", Index: 0 }, { Type: "Audio", Codec: "aac", Index: 1 }, ...untaggedPgs(4, 2)];
+    const streams = [{ Type: "Video", Codec: "h264", Index: 0, BitRate: 100_000 }, { Type: "Audio", Codec: "aac", Index: 1, BitRate: 96_000 }, ...untaggedPgs(4, 2)];
     await startLocalRemux(item({ streams }));
 
     expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual(subtitleRenditions(item({ streams })));
@@ -781,6 +1437,8 @@ describe("videoCodecTag", () => {
     ["h264", "Main", 30, "avc1.4D401E"],
     ["h264", "Main", 31, "avc1.4D401F"],
     ["h264", "Main", 51, "avc1.4D4033"],
+    ["hevc", "Main", 93, "hvc1.1.4.L93.B0"],
+    ["hevc", "Main", 120, "hvc1.1.4.L120.B0"],
     ["hevc", "Main 10", 120, "hvc1.2.4.L120.B0"],
   ])("matches Jellyfin for %s %s level %s", (Codec, Profile, Level, expected) => {
     expect(videoCodecTag({ Codec, Profile, Level, Type: "Video" } as JellyfinMediaStream, true)).toBe(expected);
@@ -796,7 +1454,7 @@ describe("videoCodecTag", () => {
   it("says nothing for a profile no fixture can prove", () => {
     expect(videoCodecTag({ Codec: "vc1", Profile: "Advanced", Level: 3, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
     expect(videoCodecTag({ Codec: "h264", Profile: "Baseline", Level: 31, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
-    expect(videoCodecTag({ Codec: "hevc", Profile: "Main", Level: 120, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
+    expect(videoCodecTag({ Codec: "hevc", Profile: "Rext", Level: 120, Type: "Video" } as JellyfinMediaStream, true)).toBe("");
   });
 
   it("says nothing without a level, since half a tag is not a tag", () => {
@@ -889,11 +1547,8 @@ describe("resolveSubtitlePick", () => {
     expect(pick.reason).toBeUndefined();
   });
 
-  // Quotes never survive into the playlist (Remuxer strips them before writing
-  // NAME), so the label is matched as the manifest carries it, not as Jellyfin
-  // titled it.
-  it("matches the name the manifest carries, not the label with its quotes", () => {
-    const group = reported(2).map((track) => ({ ...track, title: track.title.replace(/"/g, "") }));
+  it("matches native apostrophe substitution without relying on ordinal fallback", () => {
+    const group = [...reported(2).map((track) => ({ ...track, title: track.index === 2 ? `'${track.title}'` : track.title })), { index: 13, title: "", selected: false }];
     const pick = resolveSubtitlePick(
       renditions.map((rendition, index) => (index === 2 ? { ...rendition, name: `"${rendition.name}"` } : rendition)),
       group,
@@ -1034,7 +1689,61 @@ describe("imagesAt", () => {
 });
 
 describe("startLocalRemux Slipstream tier config", () => {
-  it("FLAC rung: tier bandwidth/codecs cover the server audio rendition, tracks carry its URL", async () => {
+  it.each([true, undefined])("keeps the ladder when SupportsTranscoding is %s", async (supportsTranscoding) => {
+    const source = item({ MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000, SupportsTranscoding: supportsTranscoding }] });
+
+    await startLocalRemux(source);
+
+    expect(offeredTierRungs(source)).toHaveLength(7);
+    expect(mockStartRemux.mock.calls[0][0].tiers).toHaveLength(7);
+  });
+
+  it.each([false, true])("does not offer forbidden rungs with serverVideoOnly=%s", (serverVideoOnly) => {
+    const source = item({
+      MediaSources: [
+        { Id: "item1", Container: "mkv", Bitrate: 20_000_000, SupportsTranscoding: false },
+        { Id: "other", SupportsTranscoding: true },
+      ],
+    });
+
+    expect(offeredTierRungs(source, undefined, { serverVideoOnly })).toEqual([]);
+    expect(offeredTierBandwidths(source, undefined, { serverVideoOnly })).toEqual([]);
+    expect(slipstreamTierBandwidth(source, undefined, { serverVideoOnly })).toBeNull();
+  });
+
+  it("rejects a forbidden server-only gateway before native startup", async () => {
+    const source = item({ MediaSources: [{ Id: "item1", SupportsTranscoding: false }] });
+
+    await expect(startLocalRemux(source, undefined, undefined, { serverVideoOnly: true })).rejects.toThrow("Server video transcoding is not permitted");
+    expect(mockStartRemux).not.toHaveBeenCalled();
+  });
+
+  it("keeps local playback and every track without ladder audio when video transcoding is forbidden", async () => {
+    const source = item({
+      MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000, SupportsTranscoding: false }],
+      streams: [
+        { Type: "Video", Codec: "hevc", Index: 0, BitRate: 20_000_000, VideoRangeType: "HDR10", BitDepth: 10 },
+        { Type: "Audio", Codec: "ac3", Index: 1, Channels: 6, Language: "eng" },
+        { Type: "Audio", Codec: "aac", Index: 7, Language: "spa" },
+        { Type: "Subtitle", Codec: "subrip", Index: 2 },
+        { Type: "Subtitle", Codec: "subrip", Index: 5, IsExternal: true },
+      ],
+    });
+
+    expect(await canRemuxLocally(source)).toBe(true);
+    await startLocalRemux(source, 7);
+
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.serverVideoOnly).toBe(false);
+    expect(config.tiers).toEqual([]);
+    expect(config.videoRange).toBe("PQ");
+    expect(config.audioTracks.map((track: { index: number }) => track.index)).toEqual([7, 1]);
+    expect(config.audioTracks.every((track: { usesServerAudio: boolean; serverAudioUrl?: string }) => !track.usesServerAudio && !track.serverAudioUrl)).toBe(true);
+    expect(config.subtitles).toHaveLength(2);
+    expect(config.subtitles).toEqual(expect.arrayContaining([expect.objectContaining({ index: 2, isEngineText: true }), expect.objectContaining({ index: 5 })]));
+  });
+
+  it("every rung rides 96k stereo AAC, whatever the source codec or channel count", async () => {
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
@@ -1046,34 +1755,69 @@ describe("startLocalRemux Slipstream tier config", () => {
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    // DTS mirrors the engine's FLAC family on the rung: server FLAC estimate.
-    const flacEstimate = Math.round(7 * 48000 * 24 * 0.6);
-    expect(config.tierBandwidth).toBe(1_500_000 + flacEstimate);
-    expect(config.tierCodecs).toBe("avc1.64001F,fLaC");
-    expect(config.audioTracks[0].serverAudioUrl).toContain("/Audio/item1/main.m3u8");
-    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=flac");
-    expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=7");
+    // A 20 Mbps source clears every rung's undercut; the ladder leads with the two 144p rungs.
+    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 256, 426, 640, 854, 1280, 1920]);
+    expect(config.tiers.map((t: { bandwidth: number }) => t.bandwidth)[0]).toBe(140_000 + 96_000 + 24_000);
+    const r480 = config.tiers.find((t: { width: number }) => t.width === 854);
+    expect(r480.bandwidth).toBe(1_500_000 + 96_000 + 24_000);
+    expect(r480.codecs).toBe("avc1.64001F,mp4a.40.2");
+    // The video route: the audio one ignores AudioStreamIndex and returns the same stream for every track.
+    expect(config.audioTracks[0].serverAudioUrl).toContain("/Videos/item1/main.m3u8");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioStreamIndex=1");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("VideoBitrate=20000&AudioBitrate=96000&MaxWidth=64");
+    // A seven-channel track arrives as stereo on a rung.
+    expect(config.audioTracks[0].serverAudioChannels).toBe(2);
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=aac");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AllowAudioStreamCopy=false");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioBitrate=96000");
+    expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");
   });
 
-  it("E-AC-3 rung: server copies the original bits", async () => {
+  it("names the server's raw stream for an embedded PGS or DVD track, and for nothing else", async () => {
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
         streams: [
           { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
-          { Type: "Audio", Codec: "eac3", Index: 1, Channels: 6, BitRate: 640_000 },
+          { Type: "Audio", Codec: "ac3", Index: 1, Channels: 6, BitRate: 640_000 },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 2 },
+          { Type: "Subtitle", Codec: "dvdsub", Index: 3 },
+          { Type: "Subtitle", Codec: "dvbsub", Index: 4 },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 5, IsExternal: true, DeliveryUrl: "https://subtitles.example/sidecar.sup" },
         ],
       }),
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    expect(config.tierBandwidth).toBe(1_500_000 + 640_000);
-    expect(config.tierCodecs).toBe("avc1.64001F,ec-3");
-    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioCodec=copy");
-    expect(config.audioTracks[0].serverAudioUrl).not.toContain("TranscodingMaxAudioChannels");
+    const byIndex = new Map<number, { serverSupUrl?: string }>(config.subtitles.map((sub: { index: number }) => [sub.index, sub]));
+    expect(byIndex.get(2)?.serverSupUrl).toContain("/Videos/item1/item1/Subtitles/2/Stream.pgssub");
+    expect(byIndex.get(3)?.serverSupUrl).toContain("/Videos/item1/item1/Subtitles/3/Stream.mks");
+    expect(byIndex.get(4)?.serverSupUrl).toBeUndefined();
+    expect(byIndex.get(5)?.serverSupUrl).toBe("https://subtitles.example/sidecar.sup");
   });
 
-  it("prices the tier from the preferred track, not the first in source order", async () => {
+  it("carries every audio track as its own AAC rendition, none dropped", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+          { Type: "Audio", Codec: "eac3", Index: 2, Channels: 6, BitRate: 640_000 },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks).toHaveLength(2);
+    for (const track of config.audioTracks) {
+      expect(track.serverAudioUrl).toContain("AudioCodec=aac");
+      expect(track.serverAudioUrl).toContain("AudioBitrate=96000");
+      expect(track.serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");
+    }
+  });
+
+  it("makes the preferred track the DEFAULT=YES rendition, over source order", async () => {
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
@@ -1087,14 +1831,10 @@ describe("startLocalRemux Slipstream tier config", () => {
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    // BANDWIDTH and CODECS describe the same DEFAULT=YES rendition: the AAC
-    // track the caller preferred, not the source-order-first DTS.
     expect(config.audioTracks[0].index).toBe(2);
-    expect(config.tierBandwidth).toBe(1_500_000 + 256_000);
-    expect(config.tierCodecs).toBe("avc1.64001F,mp4a.40.2");
   });
 
-  it("prices the tier from the default-flagged track when nothing is preferred", async () => {
+  it("makes the default-flagged track the DEFAULT=YES rendition when nothing is preferred", async () => {
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
@@ -1108,25 +1848,42 @@ describe("startLocalRemux Slipstream tier config", () => {
 
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.audioTracks[0].index).toBe(2);
-    expect(config.tierBandwidth).toBe(1_500_000 + 256_000);
-    expect(config.tierCodecs).toBe("avc1.64001F,mp4a.40.2");
   });
 
-  it("declares no tier when the rung cannot undercut the primary (audio-heavy small file)", async () => {
+  it("offers only the rungs that undercut the primary (a taller rung is dropped)", async () => {
+    // Video 3 Mbps + AC3 640k → primary 3.64M, *0.85 = 3.094M. Rungs carry AAC 96k, so 144p
+    // (336k), 240p (496k), 360p (896k), 480p (1.596M) undercut; 720p (4.096M) and 1080p do not.
     await startLocalRemux(
       item({
-        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 4_000_000 }],
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 3_640_000 }],
         streams: [
-          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 2_000_000 },
-          { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 3_000_000 },
+          { Type: "Audio", Codec: "ac3", Index: 1, Channels: 6, BitRate: 640_000 },
+        ],
+      }),
+    );
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.tiers.map((t: { width: number }) => t.width)).toEqual([256, 256, 426, 640, 854]);
+  });
+
+  it("keeps real HDR on the original while offering the SDR server ladder", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "hevc", Index: 0, VideoRangeType: "HDR10", Width: 3840, Height: 2160, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "eac3", Index: 1, Channels: 6, BitRate: 640_000 },
         ],
       }),
     );
 
     const config = mockStartRemux.mock.calls[0][0];
-    expect(config.tierPlaylistUrl).toBeUndefined();
-    expect(config.tierBandwidth).toBeUndefined();
-    expect(config.audioTracks[0].serverAudioUrl).toBeUndefined();
+    expect(config.tiers).toHaveLength(7);
+    expect(config.tiers.every((tier: { codecs: string }) => tier.codecs.startsWith("avc1."))).toBe(true);
+    expect(config.videoRange).toBe("PQ");
+    expect(config.primaryVideoCodecs).toMatch(/^hvc1\./);
+    expect(config.primaryVideoBandwidth).toBe(20_000_000);
+    expect(config.audioTracks[0].serverAudioUrl).toContain("AudioStreamIndex=1");
   });
 });
 
@@ -1137,21 +1894,24 @@ describe("slipstreamTierBandwidth", () => {
       streams: [{ Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 }, ...streams],
     });
 
-  it("prices the preferred track over source order", () => {
+  // The cap is the TOP offered rung (1080p, 6 Mbps) plus the AAC audio-lo group, so AVPlayer's ABR
+  // may use every server rung but not the 20 Mbps primary.
+  it("caps at the top rung plus the audio group it rides", () => {
     const withTwoTracks = tierItem([
       { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
       { Type: "Audio", Codec: "aac", Index: 2, BitRate: 256_000 },
     ]);
-    expect(slipstreamTierBandwidth(withTwoTracks, 2)).toBe(1_500_000 + 256_000);
-    expect(slipstreamTierBandwidth(withTwoTracks)).toBe(1_500_000 + Math.round(7 * 48000 * 24 * 0.6));
+    // The cap is the same whichever track leads: every rung rides audio-lo.
+    expect(slipstreamTierBandwidth(withTwoTracks, 2)).toBe(6_000_000 + 96_000 + 24_000);
+    expect(slipstreamTierBandwidth(withTwoTracks)).toBe(6_000_000 + 96_000 + 24_000);
   });
 
-  it("skips an uncarriable first track: it can never be the DEFAULT=YES rendition", () => {
+  it("offers the ladder with a server-backed track first in the complete catalogue", () => {
     const uncarriableFirst = tierItem([
       { Type: "Audio", Codec: "dsd_lsbf", Index: 1, Channels: 2, SampleRate: 44100, BitDepth: 24 },
       { Type: "Audio", Codec: "ac3", Index: 2, BitRate: 640_000 },
     ]);
-    expect(slipstreamTierBandwidth(uncarriableFirst)).toBe(1_500_000 + 640_000);
+    expect(slipstreamTierBandwidth(uncarriableFirst)).toBe(6_000_000 + 96_000 + 24_000);
   });
 });
 
@@ -1314,6 +2074,36 @@ describe("device decode support: a box with no HEVC decoder", () => {
     expect(config.videoRange).toBe("PQ");
     expect(config.codecs).toContain("hvc1.2.4.L120.B0");
   });
+
+  describe("8K video", () => {
+    const tv = { hevc: true, hevcMain10: true, av1: false, h264MaxHeight: 4320, hevcMaxHeight: 4320 };
+    const video = (stream: Record<string, unknown>) =>
+      item({
+        streams: [
+          { Type: "Video", Index: 0, BitDepth: 8, ...stream },
+          { Type: "Audio", Codec: "opus", Index: 1 },
+        ],
+      });
+
+    it("sends T40's 8K VP9 to one server transcode", async () => {
+      const remux = withDevice(tv);
+      const t40 = video({ Codec: "vp9", Width: 7680, Height: 4320 });
+      await expect(remux.needsSingleServerTranscode(t40)).resolves.toBe(true);
+      await expect(remux.canRemuxLocally(t40)).resolves.toBe(false);
+      await expect(remux.predictPlaybackLane(t40)).resolves.toMatchObject({ lane: "server" });
+    });
+
+    it("reads a cropped 8K picture by its width", async () => {
+      const remux = withDevice(tv);
+      await expect(remux.needsSingleServerTranscode(video({ Codec: "vp9", Width: 7680, Height: 3200 }))).resolves.toBe(true);
+    });
+
+    it("keeps 8K HEVC on the device that decodes it, and declines it on one that stops at 4K", async () => {
+      const hevc8k = video({ Codec: "hevc", Width: 7680, Height: 4320 });
+      await expect(withDevice(tv).canRemuxLocally(hevc8k)).resolves.toBe(true);
+      await expect(withDevice({ ...tv, hevcMaxHeight: 2160 }).canRemuxLocally(hevc8k)).resolves.toBe(false);
+    });
+  });
 });
 
 describe("engine throughput: the session's own clock", () => {
@@ -1393,17 +2183,29 @@ describe("predictPlaybackLane: the smaller server feed", () => {
     await expect(predictPlaybackLane(withBitrates(2_000_000, 1_800_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
   });
 
-  it("keeps the whole file when the source bitrate is unknown", async () => {
-    await expect(predictPlaybackLane(withBitrates(0, 7_000_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
+  it("uses the multiplexed stream sum when the top-level source bitrate is absent", async () => {
+    await expect(predictPlaybackLane(withBitrates(0, 7_000_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: true });
   });
 
-  it("declares no smaller feed for an HDR file, which cannot share a variant with an SDR tier", async () => {
-    await expect(predictPlaybackLane(withBitrates(8_000_000, 7_000_000, { VideoRangeType: "HDR10" }))).resolves.toMatchObject({ smallFeedFirst: false });
+  it("does not infer a source rate from audio alone when video bitrate is unknown", async () => {
+    await expect(predictPlaybackLane(withBitrates(0, 0))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
   });
 
-  it("declares no smaller feed when the 480p rung would not meaningfully undercut the file", async () => {
-    // A small, audio-heavy file: the rung costs almost what the primary does.
-    await expect(predictPlaybackLane(withBitrates(4_000_000, 1_600_000))).resolves.toEqual({ lane: "copy", smallFeedFirst: false });
+  it("offers a smaller feed for an HDR file on a thin link", async () => {
+    await expect(predictPlaybackLane(withBitrates(8_000_000, 7_000_000, { VideoRangeType: "HDR10" }))).resolves.toMatchObject({ smallFeedFirst: true });
+  });
+
+  it("offers a smaller feed even for an audio-heavy file: the rungs carry cheap AAC, not the source audio", async () => {
+    // Small video, DTS→FLAC audio (~4.84M): the primary is audio-dominated, but the rungs carry the
+    // low AAC audio-lo group, so 240p + 96k undercuts and a smaller feed is offered.
+    const audioHeavy = item({
+      MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 5_740_000 }],
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0, BitRate: 900_000, VideoRangeType: "SDR" },
+        { Type: "Audio", Codec: "dts", Index: 1, Channels: 7, SampleRate: 48000, BitDepth: 24 },
+      ],
+    } as never);
+    await expect(predictPlaybackLane(audioHeavy)).resolves.toEqual({ lane: "copy", smallFeedFirst: true });
   });
 });
 
@@ -1416,8 +2218,9 @@ describe("startLocalRemux on a live channel", () => {
       LiveStreamId: "ls-1",
       liveStreamUrl: "http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k",
       streams: [
-        { Type: "Video", Codec: "mpeg2video", Index: 0, Width: 1920, Height: 1080, BitDepth: 8 },
-        { Type: "Audio", Codec: "mp2", Index: 1 },
+        { Type: "Video", Codec: "mpeg2video", Index: -1, Width: 1920, Height: 1080, BitDepth: 8 },
+        { Type: "Audio", Codec: "mp2", Index: -1 },
+        { Type: "Audio", Codec: "mp2", Index: -1 },
         { Type: "Subtitle", Codec: "dvbsub", Index: 2 },
       ],
     });
@@ -1426,6 +2229,11 @@ describe("startLocalRemux on a live channel", () => {
     await startLocalRemux(live(), undefined, 120);
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.isLive).toBe(true);
+    // Jellyfin's -1 goes through as-is; the ordinal keeps the identities apart and nothing names a file position.
+    expect(config.audioTracks.map((track: { index: number; identity: string; name: string; source?: unknown }) => [track.index, track.identity, track.name, track.source])).toEqual([
+      [-1, "c1:live0", "Audio 1", undefined],
+      [-1, "c1:live1", "Audio 2", undefined],
+    ]);
     expect(config.liveSegmentSeconds).toBe(2);
     expect(config.inputUrl).toBe("http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k");
     expect(config.durationSeconds).toBe(0);
@@ -1433,7 +2241,7 @@ describe("startLocalRemux on a live channel", () => {
     // The DVB track rides as an image rendition the app draws; a text track would not (below).
     expect(config.subtitles.map((sub: { index: number; isImage: boolean }) => [sub.index, sub.isImage])).toEqual([[2, true]]);
     expect(config.tierPlaylistUrl).toBeUndefined();
-    expect(config.tierFirst).toBe(false);
+    expect(config.tiers).toEqual([]);
     expect(config.httpHeaders).toBeUndefined();
     // Read through the server's open, not from an origin: nothing for the engine to check.
     expect(config.probeOrigin).toBeUndefined();
@@ -1450,6 +2258,13 @@ describe("startLocalRemux on a live channel", () => {
     channel.MediaStreams = [...(channel.MediaStreams ?? []).filter((stream) => stream.Type !== "Subtitle"), { Type: "Subtitle", Codec: "subrip", Index: 2 } as never];
     await startLocalRemux(channel, undefined, 120);
     expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
+  });
+
+  it("validates only the image subset that a live session publishes", async () => {
+    const channel = live();
+    channel.MediaStreams = [...(channel.MediaStreams ?? []), { Type: "Subtitle", Codec: "subrip", IsExternal: true }, { Type: "Subtitle", Codec: "subrip", Index: 2 }];
+    await startLocalRemux(channel);
+    expect(mockStartRemux.mock.calls[0][0].subtitles.map((subtitle: { index: number }) => subtitle.index)).toEqual([2]);
   });
 
   it("hands the engine the origin's required headers for a manifest channel", async () => {

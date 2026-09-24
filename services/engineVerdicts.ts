@@ -4,7 +4,9 @@
  * What the engine measured about a file on this device. A session that ran below realtime is
  * remembered, and once two of them agree the next play takes the server lane from the first
  * request. Two, because a segment's time includes reading the source, so one slow measurement can
- * be the link rather than the device. A verdict from another app build does not count.
+ * be the link rather than the device. A verdict expires (VERDICT_TTL_MS) so the live pre-flight
+ * probe measures again: a device's decode speed is stable but a link is not. A verdict from another
+ * app build does not count.
  */
 import { APP_BUILD_LABEL } from "@/constants/app";
 import { getConfig } from "@/services/jellyfin/session";
@@ -18,6 +20,9 @@ export const VERDICTS_FILENAME = "engine-verdicts.json";
 
 /** Measurements that agreed before a file is held to the server lane. */
 export const VERDICT_STRIKES = 2;
+
+/** A verdict older than this stops counting; the next play re-probes the link live. */
+export const VERDICT_TTL_MS = 30 * 60 * 1000;
 
 export type EngineVerdict = { app: string; at: number; reason: string; produceSeconds: number; segmentSeconds: number; thermal: string; strikes: number };
 
@@ -71,7 +76,8 @@ export async function rememberedVerdict(item: VerdictItem): Promise<EngineVerdic
   try {
     const { server } = await getConfig();
     const verdict = load()[verdictKey(server, item)];
-    return verdict && verdict.app === APP_BUILD_LABEL && verdict.strikes >= VERDICT_STRIKES ? verdict : null;
+    const fresh = verdict != null && Date.now() - verdict.at <= VERDICT_TTL_MS;
+    return fresh && verdict.app === APP_BUILD_LABEL && verdict.strikes >= VERDICT_STRIKES ? verdict : null;
   } catch (error) {
     logger.warn("Engine verdict lookup failed", error, { service: "EngineVerdicts" });
     return null;
@@ -80,7 +86,8 @@ export async function rememberedVerdict(item: VerdictItem): Promise<EngineVerdic
 
 function strikesFor(key: string): number {
   const stored = load()[key];
-  return stored?.app === APP_BUILD_LABEL ? stored.strikes : 0;
+  if (!stored || stored.app !== APP_BUILD_LABEL || Date.now() - stored.at > VERDICT_TTL_MS) return 0;
+  return stored.strikes;
 }
 
 /** Records a below-realtime measurement; false when the sample was not clean enough to keep. */

@@ -8,8 +8,11 @@ import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
 import { t } from "@/services/i18n";
+import { isAudioItem, isBook } from "@/services/jellyfinApi";
+import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
+import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
@@ -22,6 +25,8 @@ const IS_TV = Platform.isTV;
 const SCREEN = Dimensions.get("screen");
 const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
 const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
+/** The channel logo over a live frame: the badge's height, twice as wide. */
+const LOGO_MARK_HEIGHT = IS_TV ? 40 : 26;
 const CARD_PADDING = IS_TV ? 16 : 8;
 // The title bar's own padding, and how far past the card's bottom edge the bar hangs. The
 // overhang is clipped by the image container, and it is what puts the bar's fill UNDER the
@@ -78,6 +83,12 @@ interface VideoGridItemProps {
   slotOrientation?: SlotOrientation;
   /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
   numColumns?: number;
+  /** A mark drawn at the title's left end, where the now-playing bars sit; the placeholder face too, except on a channel. */
+  titleIcon?: keyof typeof Ionicons.glyphMap;
+  /** Channel cards: leave the airing programme off the title (the guide beside them shows it). */
+  hideAiring?: boolean;
+  /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
+  liveFrame?: { uri: string; cacheKey: string };
 }
 
 /**
@@ -110,14 +121,18 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     fitArtwork = false,
     slotOrientation = "portrait",
     numColumns,
+    titleIcon,
+    hideAiring = false,
+    liveFrame,
   },
   ref,
 ) {
   const [pressFocused, setPressFocused] = useState(false);
   // Touch has no focus engine, so a card can only be marked from the outside.
   const focused = pressFocused || highlighted;
-  // TV: the playing item's card is marked, and select brings its native player back.
-  const nowPlayingAudio = useIsNowPlaying(IS_TV ? video.Id : null);
+  // The playing track's card is marked, and select brings its native player back. Video stays
+  // TV only: the re-push with adopt is the PiP restore path there.
+  const nowPlayingAudio = useIsNowPlaying(video.Id);
   const nowPlayingVideo = useNowPlayingVideo(IS_TV ? video.Id : null);
   const nowPlaying = nowPlayingAudio || nowPlayingVideo.active;
   const openNowPlaying = useOpenNowPlaying();
@@ -146,7 +161,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // item objects without touching these fields, and must not re-parse every card.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name]);
-  const airingName = video.Type === "TvChannel" ? video.CurrentProgram?.Name?.trim() : undefined;
+  const isChannel = video.Type === "TvChannel";
+  const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
+  // A channel card names what is on, then the channel: the logo and the badge already say which channel.
+  const cardTitle = airingName ? `${airingName} - ${video.Name}` : video?.Name || t("common.unknown");
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -183,6 +201,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // at 0 (a just-started video whose position hasn't synced yet). The fill is
   // floored at 5% below so "just starting" is always visible; grids that pass
   // no progressPercent are unaffected.
+  const renderTitleMark = (color: string) =>
+    titleIcon ? (
+      <View style={styles.titleMark} pointerEvents="none">
+        <Ionicons name={titleIcon} size={TITLE_SIZE} color={color} />
+      </View>
+    ) : null;
   const hasProgress = progressPercent != null;
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
 
@@ -207,7 +231,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       // subtree): name as the label, watched progress as the VALUE — screen
       // readers announce "Name, 42% watched, button" and re-announce the value
       // if it changes, without the name/percent fused into one string.
-      accessibilityLabel={video.Name || t("a11y.video")}
+      accessibilityLabel={airingName ? cardTitle : video.Name || t("a11y.video")}
       accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: t("a11y.percentWatched").replace("{percent}", String(watchedPercent)) } : undefined}
       accessibilityRole="button"
       accessibilityHint={IS_TV ? (hasProgress ? t("a11y.pressToResume") : t("a11y.pressToPlay")) : hasProgress ? t("a11y.doubleTapResume") : t("a11y.doubleTapPlay")}
@@ -221,28 +245,50 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       ]}>
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
-          {posterSource ? (
+          {liveFrame || posterSource ? (
             <>
               <Image
-                source={posterSource}
-                style={styles.poster}
-                contentFit="cover"
-                transition={0}
+                source={liveFrame ?? posterSource}
+                style={[styles.poster, isChannel && !liveFrame && styles.posterLogo]}
+                contentFit={isChannel && !liveFrame ? "contain" : "cover"}
+                // A live burst walks its frames; the fade is the only motion a grid card makes.
+                transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
                 priority={index < 10 ? "high" : "normal"}
-                cachePolicy="memory-disk" // Keep decoded posters in memory + disk so they don't re-decode/flash on reload
+                // A live frame is a local file replaced every minute; nothing to keep on disk.
+                cachePolicy={liveFrame ? "none" : "memory-disk"}
                 recyclingKey={video.Id} // Helps with memory recycling
                 accessible={true}
                 accessibilityLabel={t("a11y.poster").replace("{name}", video.Name || t("a11y.video"))}
               />
               <CardScrim />
-              {focused && badgeSegments ? <CardCornerScrim /> : null}
+              {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
+              {liveFrame && posterSource ? (
+                <>
+                  <CardCornerScrim corner="right" />
+                  <View style={styles.logoHalo} pointerEvents="none">
+                    <Image
+                      source={posterSource}
+                      style={styles.logoMark}
+                      contentFit="contain"
+                      transition={0}
+                      cachePolicy="memory-disk"
+                      recyclingKey={`${video.Id}-logo`}
+                      accessible={false}
+                      pointerEvents="none"
+                    />
+                  </View>
+                </>
+              ) : null}
             </>
           ) : (
-            // No artwork: the brand face (layer-front) on the dark card fill,
-            // same mark the Top Shelf placeholder uses. The title lives in the
-            // bottom bar (always rendered), same as postered cards.
+            // No artwork: a glyph for the item's kind on the dark card fill. The title
+            // lives in the bottom bar (always rendered), same as postered cards.
             <View style={styles.placeholderPoster}>
-              <Image source={require("@/assets/brand/layer-front.png")} style={styles.placeholderFace} contentFit="cover" transition={0} />
+              <Ionicons
+                name={isChannel ? "tv-outline" : (titleIcon ?? (isAudioItem(video) ? "musical-note-outline" : isBook(video) ? "book-outline" : "tv-outline"))}
+                size={IS_TV ? 90 : 56}
+                color="rgba(255, 255, 255, 0.45)"
+              />
             </View>
           )}
 
@@ -260,34 +306,36 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           {nowPlaying ? (
             <NowPlayingTitleBar video={video} focused={focused} kind={nowPlayingAudio ? "audio" : "video"} progressPercent={progressPercent} playing={nowPlayingVideo.playing} />
           ) : hasProgress ? (
-            // Opaque bar, not a BlurView: the poster tinting through a blur
-            // feeds the difference blend a variable backdrop, so the title
-            // color would drift with the artwork. Two fixed inputs (solid
-            // dark, solid gold) give exactly two fixed outputs.
-            //
-            // The whole bar is decorative to assistive tech: the card element
-            // already announces the name (label) and progress (value), so the
-            // visual duplicate is hidden to avoid double-reading.
-            <View style={[styles.infoOverlay, styles.infoOverlayDark]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            // Glass bar: the gold fill stays opaque, the difference-blended title
+            // rides the near-black bottom scrim (gold over the remainder, black
+            // over the fill). Decorative to a11y — the card announces name + value.
+            <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
-              <View style={styles.infoTitleBlend}>
+              <View style={[styles.infoTitleBlend, titleIcon && styles.titleLineInset]}>
+                {renderTitleMark(COLORS.ACCENT)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
-                  {video?.Name || t("common.unknown")}
+                  {cardTitle}
                 </MarqueeText>
               </View>
             </View>
           ) : // Focused: opaque gold bar
           focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
-              <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
-                {video?.Name || t("common.unknown")}
-              </MarqueeText>
+              <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
+                {renderTitleMark(CARD_FOCUS.TITLE_TEXT_FOCUSED)}
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
+                  {cardTitle}
+                </MarqueeText>
+              </View>
             </View>
           ) : (
-            <View style={[styles.infoOverlay, styles.infoOverlayDark]}>
-              <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
-                {video?.Name || t("common.unknown")}
-              </MarqueeText>
+            <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
+              <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
+                {renderTitleMark(COLORS.ACCENT)}
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
+                  {cardTitle}
+                </MarqueeText>
+              </View>
             </View>
           )}
 
@@ -295,12 +343,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               cards put in this same corner; "S01E05" needs no help. */}
           {badgeSegments ? (
             <View style={styles.indexBadge} pointerEvents="none">
-              {airingName ? (
-                <View style={styles.airingBadge}>
-                  <CardBadge segments={[{ label: airingName }]} focused={focused} compact />
-                </View>
-              ) : null}
-              <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" ? "live" : "gold"} compact={!!airingName} />
+              <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" ? "live" : "gold"} />
             </View>
           ) : null}
 
@@ -312,7 +355,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               cards start the sweep from their watched fraction. Mounted only
               around a press (visible lingers past the handoff fade) — idle
               cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={video?.Name || t("common.unknown")} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
         </View>
       </View>
     </TouchableOpacity>
@@ -352,7 +395,10 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.cardHeight === nextProps.cardHeight &&
     prevProps.fitArtwork === nextProps.fitArtwork &&
     prevProps.slotOrientation === nextProps.slotOrientation &&
-    prevProps.numColumns === nextProps.numColumns
+    prevProps.numColumns === nextProps.numColumns &&
+    prevProps.titleIcon === nextProps.titleIcon &&
+    prevProps.hideAiring === nextProps.hideAiring &&
+    prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey
   );
 }
 
@@ -414,6 +460,30 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  // A channel logo is a mark, not a picture: whole and centred, clear of the badges and the title bar.
+  posterLogo: {
+    width: "70%",
+    height: "50%",
+    alignSelf: "center",
+  },
+  // A channel's logo at the title's left end while its frame fills the card: flair, not identification.
+  // The channel's logo over its live frame, in the corner the LIVE badge leaves free: flair, not identification.
+  // No background, so the layer shadow traces the logo's own alpha: a white halo round a dark mark.
+  logoHalo: {
+    position: "absolute",
+    top: CARD_BADGE_INSET,
+    right: CARD_BADGE_INSET,
+    width: LOGO_MARK_HEIGHT * 2,
+    height: LOGO_MARK_HEIGHT,
+    shadowColor: "#FFFFFF",
+    shadowOpacity: 0.9,
+    shadowRadius: IS_TV ? 3 : 2,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  logoMark: {
+    width: "100%",
+    height: "100%",
+  },
   // Anchors the index pill to the top-left corner of the card.
   indexBadge: {
     position: "absolute",
@@ -422,15 +492,9 @@ const styles = StyleSheet.create({
     right: CARD_BADGE_INSET,
     flexDirection: "row",
     alignItems: "center",
-    // A lone badge stays left; a channel's programme pill sits left with LIVE at the far right.
-    justifyContent: "space-between",
     gap: IS_TV ? 8 : 5,
   },
   // About two words of programme name; the badge ellipsizes the rest and yields to LIVE first.
-  airingBadge: {
-    maxWidth: IS_TV ? 220 : 120,
-    flexShrink: 1,
-  },
   // The watched fraction, drawn as the title bar's own background: a solid
   // gold fill spanning `width` percent of the bar, clipped by the bar's
   // rounded bottom corners (infoOverlay has overflow: hidden). Full gold in
@@ -455,10 +519,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.SURFACE, // Elevated card color - matches design system
   },
-  placeholderFace: {
-    width: "100%",
-    height: "100%",
-  },
   // Opaque sliver at the very bottom showing just the title.
   infoOverlay: {
     position: "absolute",
@@ -480,11 +540,11 @@ const styles = StyleSheet.create({
   infoOverlayFocused: {
     backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
-  // Resting bar, every card: fully opaque so the title's contrast never depends
-  // on the poster, and the CW difference-blended title sees a constant backdrop
-  // (difference(gold, this) reads gold; difference(gold, fill) is black).
-  infoOverlayDark: {
-    backgroundColor: COLORS.SURFACE_SUNKEN,
+  // Resting bar: the scrimmed artwork tints through so the title area reads as part
+  // of the poster, not a flat strip against the app background. Gold stays legible on
+  // the bottom scrim's near-black wash (CardScrim reaches 0.72).
+  infoOverlayGlass: {
+    backgroundColor: "rgba(28, 28, 30, 0.6)",
   },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.
@@ -494,6 +554,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",
     width: "100%",
+  },
+  // Pulled halfway into the bar's side inset, closer to the card edge than the title sits.
+  // Out of flow at the line's left end, so the title keeps the whole line to centre in.
+  titleMark: {
+    position: "absolute",
+    left: IS_TV ? 4 : -4,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+  },
+  infoTitleLine: {
+    width: "100%",
+  },
+  // Both sides, so the TV title stays centred while it clears the mark on the left.
+  titleLineInset: {
+    paddingHorizontal: IS_TV ? TITLE_SIZE + 16 : TITLE_SIZE + 2,
   },
   infoValueTitleFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,

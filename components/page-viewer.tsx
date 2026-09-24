@@ -83,6 +83,10 @@ export interface PageViewerProps {
   pages: number;
   /** The page's image, or "" while it is not ready (a spinner shows in its place). */
   uriAt: (index: number) => string;
+  /** A smaller copy drawn while the page's image loads. */
+  previewAt?: (index: number) => string;
+  /** Request headers for a page's image and its preview. */
+  headersAt?: (index: number) => Record<string, string> | undefined;
   initialIndex?: number;
   onIndexChange?: (index: number) => void;
   onLeave: () => void;
@@ -127,6 +131,8 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
   const {
     pages,
     uriAt,
+    previewAt,
+    headersAt,
     initialIndex = 0,
     onIndexChange,
     onLeave,
@@ -630,26 +636,44 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
 
   const uriA = buffers.pageA != null ? uriAt(buffers.pageA) : "";
   const uriB = buffers.pageB != null ? uriAt(buffers.pageB) : "";
+  const previewA = buffers.pageA != null && previewAt ? previewAt(buffers.pageA) : "";
+  const previewB = buffers.pageB != null && previewAt ? previewAt(buffers.pageB) : "";
+  // The uri each buffer last finished loading; its spinner stays up, under the image, until then.
+  const [loaded, setLoaded] = useState<{ a: string; b: string }>({ a: "", b: "" });
+  const markLoaded = useCallback((buffer: "a" | "b", uri: string) => setLoaded((prev) => (prev[buffer] === uri ? prev : { ...prev, [buffer]: uri })), []);
+
+  const page = (buffer: "a" | "b", pageIndex: number | null, uri: string, preview: string) => {
+    if (pageIndex == null) return null;
+    const headers = headersAt?.(pageIndex);
+    return (
+      <>
+        {(!uri || loaded[buffer] !== uri) && <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} style={styles.loader} />}
+        {uri ? (
+          <Image
+            source={{ uri, headers }}
+            placeholder={preview ? { uri: preview, headers } : undefined}
+            placeholderContentFit="contain"
+            style={styles.page}
+            contentFit="contain"
+            onLoad={() => markLoaded(buffer, uri)}
+            onError={() => markLoaded(buffer, uri)}
+          />
+        ) : null}
+      </>
+    );
+  };
 
   /* Persistent page buffers: never remounted, only their sources swap. zIndex follows the
      role flip in the same commit as the source swap, so the incoming buffer always slides in
-     ON TOP of the fading outgoing one. A buffer holding a page whose image is not ready yet
-     shows the spinner in its place. */
+     ON TOP of the fading outgoing one. The spinner sits under the image, so the preview or
+     the page covers it the moment either draws. */
   const pageStack = (
     <>
       <Animated.View style={[styles.pageLayer, { zIndex: buffers.frontIsA ? 2 : 1 }, layerAStyle]} pointerEvents="none">
-        {uriA ? (
-          <Image source={{ uri: uriA }} style={styles.page} contentFit="contain" />
-        ) : buffers.pageA != null ? (
-          <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} style={styles.loader} />
-        ) : null}
+        {page("a", buffers.pageA, uriA, previewA)}
       </Animated.View>
       <Animated.View style={[styles.pageLayer, { zIndex: buffers.frontIsA ? 1 : 2 }, layerBStyle]} pointerEvents="none">
-        {uriB ? (
-          <Image source={{ uri: uriB }} style={styles.page} contentFit="contain" />
-        ) : buffers.pageB != null ? (
-          <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} style={styles.loader} />
-        ) : null}
+        {page("b", buffers.pageB, uriB, previewB)}
       </Animated.View>
     </>
   );

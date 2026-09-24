@@ -1,7 +1,6 @@
 import { COLORS } from "@/constants/colors";
 import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider, useNavigationContainerRef } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { LogBox, Platform } from "react-native";
 import { useCallback, useEffect } from "react";
 import "react-native-reanimated";
@@ -10,6 +9,7 @@ import { preloadAmbientBackgrounds } from "@/components/ambient-background";
 import { AudioMiniPlayer } from "@/components/audio-mini-player";
 import { downloadManager } from "@/services/downloads/manager";
 import { flushOfflinePositions } from "@/services/downloads/offlineProgress";
+import { closeLeftoverOpens } from "@/services/jellyfin/liveTv";
 import { resetPlaybackReportBackoff } from "@/services/jellyfin/playback";
 import { nudgeBitrateMemory, warmBitrateMemory } from "@/services/jellyfin/bitrateTest";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -85,6 +85,8 @@ export default function RootLayout() {
     // Reconciles the download manifest with the files on disk. Playback asks isReady()
     // synchronously, so it has to be true before any route can start something.
     void downloadManager.hydrate().then(() => flushOfflinePositions());
+    // Tuner streams a previous run opened and never closed: the server holds them until told.
+    void closeLeftoverOpens();
     // Background link measurement so playback routing reads warm memory
     // instead of ever probing on the session-start path.
     warmBitrateMemory();
@@ -150,6 +152,20 @@ export default function RootLayout() {
                   <ThemeProvider value={AppDarkTheme}>
                     <Stack screenOptions={{ contentStyle: { backgroundColor: COLORS.BACKGROUND } }}>
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                      {/* Folder browsing is a ROOT route, not nested in (tabs): a route inside the tabs
+                      leaves the native tab bar on screen, and on tvOS the focus engine hands it focus
+                      the moment a programmatic pop tears out the focused card (RNSScreenStack rebuilds
+                      the stack animated:NO). Covering the tabs — the same reason Filters lives here —
+                      removes that focus sink. TV hides the header (the grid draws its own bar); phone
+                      keeps the native UINavigationBar the folder screen configures. */}
+                      <Stack.Screen
+                        name="[folderId]"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitleStyle: { color: COLORS.TEXT_PRIMARY }, animation: "default" }
+                        }
+                      />
                       {/* Regular push, NOT a fullScreenModal: UIModalPresentationFullScreen takes the RN
                       root view out of the window, so every native view below it sees window == nil and
                       back again. expo-tvos-search tears its UIHostingController out of the VC hierarchy
@@ -218,25 +234,61 @@ export default function RootLayout() {
                               : { headerShown: false, presentation: "modal" }
                         }
                       />
-                      {/* The guide's program panel: the same presentation as video-info on every platform. */}
+                      {/* The guide's program panel: a card sized to its content over the screen's own backdrop
+                      (centred on iPad, on the bottom edge on iPhone), a floating card on TV. */}
                       <Stack.Screen
                         name="program-info"
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : Platform.OS === "ios" && Platform.isPad
-                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
-                              : { headerShown: false, presentation: "modal" }
+                            : { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
                         }
                       />
-                      {/* The guide's Recordings and Schedule: TV crossfades like program-info, phone pushes
-                      under a transparent native bar whose back chevron returns to the guide. */}
+                      {/* The guide's Recordings, Channels and Schedule: TV crossfades like program-info, phone
+                      pushes under a transparent native bar whose back chevron returns to the guide. */}
                       <Stack.Screen
                         name="recordings"
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitle: t("liveTv.recordings"), headerTitleStyle: { color: COLORS.TEXT_PRIMARY } }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.recordings"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.title"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="channels"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.channels"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.title"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="channel-settings"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.channelSettings"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.channels"),
+                              }
                         }
                       />
                       <Stack.Screen
@@ -244,7 +296,14 @@ export default function RootLayout() {
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitle: t("liveTv.scheduled"), headerTitleStyle: { color: COLORS.TEXT_PRIMARY } }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.scheduled"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.title"),
+                              }
                         }
                       />
                       {/* Root route (covers the tabs) so the native tab bar can't steal focus while the
@@ -381,7 +440,6 @@ export default function RootLayout() {
                 {/* Opens the group's item when the server pushes a SyncPlay queue. Renders null. */}
                 <SyncPlayDriver />
               </PlayerSessionProvider>
-              <StatusBar style="light" />
             </PlayQueueProvider>
           </LibraryProvider>
         </LoadingProvider>

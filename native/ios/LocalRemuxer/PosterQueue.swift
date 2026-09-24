@@ -60,10 +60,10 @@ final class PosterQueue {
                 return
             }
             let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch)
-            // Later positions stand in while the frame at `milliseconds` is a fade, a black or a white.
-            let alternatives = [1.5, 2, 2.5, 3].map { Int64(Double(milliseconds) * $0) }
+            // A run of keyframes from the 10% mark; the grabber takes the most representative, so a
+            // dark or blank opening loses to real footage further in.
             let result = grabber.frame(atMilliseconds: milliseconds, named: Self.fileName, nearestFromStart: true,
-                                       alternatives: alternatives, enhanced: true)
+                                       enhanced: true, batch: 10)
             grabber.stop()
             if let result {
                 completion(.poster(result, fresh: true))

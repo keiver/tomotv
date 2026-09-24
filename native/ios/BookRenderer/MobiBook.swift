@@ -172,6 +172,8 @@ final class MobiBook: TextChapters {
     /// A resource record written to disk once, by index; nil for fonts, media and unknown bytes.
     private func resourceFile(_ index: Int) -> String? {
         if let cached = resourceFiles[index] { return cached }
+        // An index off the book's own text: past the record count the sum would overflow.
+        guard index < records.count else { return nil }
         let rec = Self.record(data, records, resourceStart + index)
         var name: String? = nil
         let magic = rec.ascii(0, 4)

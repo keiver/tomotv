@@ -1,9 +1,3 @@
-/**
- * slipstreamEligible — the JS gate deciding whether a session gets a
- * Slipstream tier (SDR video with audio; HDR keeps Layer 4, video-only
- * variants need the audio group).
- */
-
 import { slipstreamEligible } from "../localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -23,9 +17,9 @@ describe("slipstreamEligible", () => {
     expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: "SDR" }, { Type: "Audio" }]))).toBe(true);
   });
 
-  it("rejects every HDR range (VIDEO-RANGE must not mix across variants)", () => {
+  it("accepts HDR originals alongside explicitly SDR server rungs", () => {
     for (const range of ["HDR10", "HDR10+", "DOVI", "PQ", "HLG"]) {
-      expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: range }, { Type: "Audio" }]))).toBe(false);
+      expect(slipstreamEligible(item([{ Type: "Video", VideoRangeType: range }, { Type: "Audio" }]))).toBe(true);
     }
   });
 

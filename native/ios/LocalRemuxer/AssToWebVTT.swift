@@ -250,9 +250,7 @@ struct AssToWebVTT {
 
 /// WebVTT timestamp: `HH:MM:SS.mmm`, the form that holds past an hour.
 func webVTTTimestamp(_ seconds: Double) -> String {
-    let clamped = max(0, seconds)
-    let hours = Int(clamped / 3600)
-    let minutes = Int(clamped.truncatingRemainder(dividingBy: 3600) / 60)
-    let rest = clamped.truncatingRemainder(dividingBy: 60)
-    return String(format: "%02d:%02d:%06.3f", hours, minutes, rest)
+    // Rounded to a millisecond before the split, so a time just under a minute never prints SS as 60.
+    let ms = Int((max(0, seconds) * 1000).rounded())
+    return String(format: "%02d:%02d:%02d.%03d", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
 }

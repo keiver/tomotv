@@ -97,7 +97,10 @@ const styles = StyleSheet.create({
     backgroundColor: RESTING_FILL,
     borderColor: RESTING_RIM,
   },
+  // Tighter than the index pill: one short word, the same vertical air would read as padding.
   badgeLive: {
+    minWidth: IS_TV ? 30 : 20,
+    height: IS_TV ? 30 : 20,
     backgroundColor: COLORS.DESTRUCTIVE_DEEP,
     borderColor: COLORS.DESTRUCTIVE_DEEP,
   },

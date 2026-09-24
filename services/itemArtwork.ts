@@ -61,7 +61,8 @@ export function posterSource(item: PosterItem, height: number, frame?: string | 
   return keyframe ? { uri: keyframe, cacheKey: `${serverTag()}-${item.Id}-keyframe-${posterFrameGeneration()}.${revision}` } : undefined;
 }
 
-function serverPoster(itemId: string, tag: string | undefined, height: number): PosterSource | undefined {
+/** The server's Primary image keyed by its tag, so a replaced image misses expo-image's cache. */
+export function serverPoster(itemId: string, tag: string | undefined, height: number): PosterSource | undefined {
   const uri = getPosterUrl(itemId, height);
   return uri ? { uri, cacheKey: `${serverTag()}-${itemId}-${tag}-${height}` } : undefined;
 }

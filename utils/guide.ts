@@ -2,10 +2,13 @@
  * Guide geometry: time to pixels, cells clipped to the loaded window, ruler ticks. Pure, so the
  * canvas and its tests share one source of truth.
  */
-import type { JellyfinProgram } from "@/types/jellyfin";
+import { GRID, slotCardPadding } from "@/constants/app";
+import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 
 export const MINUTE_MS = 60_000;
 export const TICK_MINUTES = 30;
+/** Minor scale marks between the labelled half hours. */
+export const MINOR_TICK_MINUTES = 5;
 /** Programs loaded per fetch, and how far the window grows when the canvas nears its end. */
 export const GUIDE_SPAN_MINUTES = 360;
 
@@ -13,11 +16,19 @@ export interface GuideMetrics {
   pxPerMinute: number;
   rowHeight: number;
   channelColumnWidth: number;
+  /** Phone: the column's width once dragged to the left magnet, a portrait channel card per row. */
+  compactColumnWidth: number;
   rulerHeight: number;
 }
 
+/** A row is as tall as the channel card the column draws at its width: a wide slot inside the card's padding. */
 export function guideMetrics(isTV: boolean): GuideMetrics {
-  return isTV ? { pxPerMinute: 8, rowHeight: 96, channelColumnWidth: 300, rulerHeight: 56 } : { pxPerMinute: 4, rowHeight: 64, channelColumnWidth: 150, rulerHeight: 36 };
+  const channelColumnWidth = isTV ? 300 : 150;
+  const padding = slotCardPadding(isTV);
+  const rowHeight = Math.round((channelColumnWidth - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding);
+  // The compact column holds a portrait card the row's own height, capping the row: padded on the left only.
+  const compactColumnWidth = isTV ? channelColumnWidth : Math.round((rowHeight - 1) * GRID.PORTRAIT_RATIO + padding);
+  return isTV ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 56 } : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 36 };
 }
 
 /** The window opens on the half hour the current time falls in. */
@@ -47,13 +58,16 @@ export interface RulerTick {
   left: number;
   atMs: number;
   isHour: boolean;
+  /** A bare mark between the labelled half hours. */
+  isMinor: boolean;
 }
 
 export function rulerTicks(windowStartMs: number, windowEndMs: number, metrics: GuideMetrics): RulerTick[] {
   const ticks: RulerTick[] = [];
-  const step = TICK_MINUTES * MINUTE_MS;
+  const step = MINOR_TICK_MINUTES * MINUTE_MS;
   for (let at = windowStartMs; at < windowEndMs; at += step) {
-    ticks.push({ left: ((at - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute, atMs: at, isHour: new Date(at).getMinutes() === 0 });
+    const minutes = new Date(at).getMinutes();
+    ticks.push({ left: ((at - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute, atMs: at, isHour: minutes === 0, isMinor: minutes % TICK_MINUTES !== 0 });
   }
   return ticks;
 }
@@ -62,12 +76,6 @@ export function rulerTicks(windowStartMs: number, windowEndMs: number, metrics: 
 export function labelPin(scrollX: number, cellLeft: number, cellWidth: number, labelWidth: number): number {
   "worklet";
   return Math.min(Math.max(0, scrollX - cellLeft), Math.max(0, cellWidth - labelWidth));
-}
-
-/** 0..1 through the airing at `nowMs`; 0 before it starts, 1 after it ends. */
-export function airingProgress(startMs: number, endMs: number, nowMs: number): number {
-  if (!(endMs > startMs)) return 0;
-  return Math.min(1, Math.max(0, (nowMs - startMs) / (endMs - startMs)));
 }
 
 export type ProgramCategory = "news" | "sports" | "kids" | "movie";
@@ -93,6 +101,11 @@ export function cellAtEdge<T extends Pick<JellyfinProgram, "StartDate" | "EndDat
     if (startMs > edgeMs && (!next || startMs < programTimes(next).startMs)) next = program;
   }
   return next ?? programs[programs.length - 1];
+}
+
+/** A timer still scheduled or recording. */
+export function isActiveTimer(timer: Pick<JellyfinTimer, "Status">): boolean {
+  return timer.Status !== "Cancelled" && timer.Status !== "Completed";
 }
 
 export function isAiring(program: Pick<JellyfinProgram, "StartDate" | "EndDate">, nowMs: number): boolean {

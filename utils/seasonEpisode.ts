@@ -137,7 +137,7 @@ export function formatIndexBadge(item: SeasonEpisodeSource): IndexBadge | null {
 
 /**
  * Jellyfin files a bare-year movie under a phantom series, splitting the year
- * into the pair ("...Newmar.1995.DVDRip" → S19E95). The pair is bogus when it
+ * into the pair ("...Title.1995.DVDRip" → S19E95). The pair is bogus when it
  * reassembles into a year the text carries and no explicit marker backs it up.
  */
 function isSplitYear(season: number, episode: number, texts: (string | undefined)[]): boolean {

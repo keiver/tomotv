@@ -9,19 +9,19 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { t } from "@/services/i18n";
-import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
+import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers, hasPoster } from "@/services/jellyfinApi";
+import { serverPoster } from "@/services/itemArtwork";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
+import { formatClock, formatDayLabel, isActiveTimer, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-// iPad presents the panel over the app, so the screen owns its own backdrop and close.
+// Off TV the panel is presented over the app, so the screen owns its own backdrop and close.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 
 type Busy = "record" | "series" | "cancel" | "cancelSeries" | null;
@@ -34,7 +34,6 @@ type Busy = "record" | "series" | "cancel" | "cancelSeries" | null;
 export default function ProgramInfoScreen() {
   const params = useLocalSearchParams<{ programId: string; channelId?: string; channelName?: string }>();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { showGlobalLoader } = useLoadingActions();
   const [program, setProgram] = useState<JellyfinProgram | null>(null);
   const [timer, setTimer] = useState<JellyfinTimer | null>(null);
@@ -45,7 +44,7 @@ export default function ProgramInfoScreen() {
 
   const loadTimer = useCallback(async () => {
     const timers = await fetchTimers();
-    setTimer(timers.find((candidate) => candidate.ProgramId === params.programId && candidate.Status !== "Cancelled") ?? null);
+    setTimer(timers.find((candidate) => candidate.ProgramId === params.programId && isActiveTimer(candidate)) ?? null);
   }, [params.programId]);
 
   useEffect(() => {
@@ -98,6 +97,7 @@ export default function ProgramInfoScreen() {
   const when = program ? `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)} to ${formatClock(endMs)}` : "";
   const category = program ? programCategory(program) : null;
   const inSeries = !!timer?.SeriesTimerId;
+  const recordingNow = timer?.Status === "InProgress";
 
   const content = failed ? (
     <View style={styles.status}>
@@ -114,7 +114,7 @@ export default function ProgramInfoScreen() {
       <View style={styles.headline}>
         {program.Id && hasPoster(program) ? (
           <Image
-            source={{ uri: getPosterUrl(program.Id, IS_TV ? 600 : 300) }}
+            source={serverPoster(program.Id, program.ImageTags?.Primary, IS_TV ? 600 : 300)}
             style={[styles.poster, { aspectRatio: program.PrimaryImageAspectRatio || 2 / 3 }]}
             contentFit="cover"
             transition={200}
@@ -132,7 +132,7 @@ export default function ProgramInfoScreen() {
               {timer ? (
                 <View style={styles.recordingTag}>
                   <View style={styles.recordingDot} />
-                  <Text style={styles.recordingTagText}>{timer.Status === "InProgress" ? t("liveTv.recordingNow") : inSeries ? t("liveTv.seriesRules") : t("liveTv.record")}</Text>
+                  <Text style={styles.recordingTagText}>{recordingNow ? t("liveTv.recordingNow") : inSeries ? t("liveTv.seriesRules") : t("liveTv.record")}</Text>
                 </View>
               ) : null}
             </View>
@@ -153,12 +153,12 @@ export default function ProgramInfoScreen() {
         ) : null}
         {!canManage ? null : timer ? (
           <FocusableButton
-            title={t("liveTv.cancelRecording")}
+            title={recordingNow ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
             variant="secondary"
             hasTVPreferredFocus={!airing}
             isLoading={busy === "cancel"}
             disabled={busy !== null}
-            icon={<Ionicons name="close-circle-outline" size={IS_TV ? 30 : 20} color={COLORS.ACCENT} />}
+            icon={<Ionicons name={recordingNow ? "stop-circle-outline" : "close-circle-outline"} size={IS_TV ? 30 : 20} color={COLORS.ACCENT} />}
             onPress={handleCancel}
             style={styles.button}
           />
@@ -211,17 +211,12 @@ export default function ProgramInfoScreen() {
       </View>
     );
   }
-  if (IS_PAD) {
-    return (
-      <PadSheet onClose={() => router.back()}>
-        <ScrollView contentContainerStyle={[styles.phoneContent, styles.padContent, { paddingBottom: 24 + insets.bottom }]}>{content}</ScrollView>
-      </PadSheet>
-    );
-  }
   return (
-    <View style={styles.phoneRoot}>
-      <ScrollView contentContainerStyle={[styles.phoneContent, { paddingBottom: 24 + insets.bottom }]}>{content}</ScrollView>
-    </View>
+    <PadSheet onClose={() => router.back()} closeHint={t("info.closeHint")} fit={IS_PAD ? "center" : "bottom"}>
+      <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+        {content}
+      </ScrollView>
+    </PadSheet>
   );
 }
 
@@ -239,17 +234,13 @@ const styles = StyleSheet.create({
     padding: 56,
     gap: 14,
   },
-  phoneRoot: {
-    flex: 1,
-    backgroundColor: COLORS.BACKGROUND,
+  // flexGrow 0 lets the card shrink to its content, scrolling only past the sheet's max height.
+  sheetScroll: {
+    flexGrow: 0,
   },
-  phoneContent: {
+  sheetContent: {
     padding: 24,
     gap: 10,
-  },
-  // Clear of the sheet's floating close, which the headline would otherwise run under.
-  padContent: {
-    paddingTop: 68,
   },
 
   status: {
@@ -268,9 +259,11 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: IS_TV ? 36 : 16,
   },
+  // Off TV the right margin clears the card's floating close (12 + 44 from the edge).
   headlineText: {
     flex: 1,
     gap: IS_TV ? 14 : 10,
+    marginRight: IS_TV ? 0 : 36,
   },
   poster: {
     width: IS_TV ? 260 : 110,

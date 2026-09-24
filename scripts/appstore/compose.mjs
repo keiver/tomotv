@@ -1,9 +1,9 @@
 /**
  * One capture -> one App Store Connect image.
  *
- * Four layers: the arc backdrop, a cast shadow, the capture masked to the panel,
- * then panel stroke or shell plus the type. Only the top layer is SVG, so no
- * large raster is ever base64'd through librsvg.
+ * Four layers: the backdrop with its cast shadow, the capture masked to the panel,
+ * the panel stroke or shell, then the type. Backdrop and shell are the same for
+ * every shot in a device set, so they render once per set and stay raw.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +11,6 @@ import sharp from "sharp";
 import { COLORS } from "./palette.mjs";
 import { FRAMES, frameBody, placeFrame } from "./frames.mjs";
 import { loadFace, typeset, fitSize, blockEm } from "./typeset.mjs";
-import { FIELDS } from "./field.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FONTS = path.join(ROOT, "applestore", "fonts");
@@ -192,42 +191,49 @@ function layout(device, shot, shared) {
   };
 }
 
-/**
- * Grain, tiled. It exists to break the banding a dark gradient shows at 4K;
- * librsvg's feTurbulence does the same job at 11s a canvas against 0.8s here.
- */
-let grainTile = null;
-const grain = async () =>
-  (grainTile ??= sharp({ create: { width: 512, height: 512, channels: 3, noise: { type: "gaussian", mean: 128, sigma: 8 } } })
-    .greyscale()
-    .toColourspace("srgb")
-    .png()
-    .toBuffer());
+/** Shared layers, keyed by everything that draws them. Held until resetLayers(). */
+const layers = new Map();
+const memo = (key, make) => {
+  if (!layers.has(key)) layers.set(key, make());
+  return layers.get(key);
+};
+export const resetLayers = () => layers.clear();
 
-async function base(L, spec) {
+const raw = (pipeline) => pipeline.raw().toBuffer({ resolveWithObject: true });
+const asInput = ({ data, info }) => ({ input: data, raw: { width: info.width, height: info.height, channels: info.channels } });
+
+/** Type and shadow colours, from constants/colors.ts. */
+const INK = { head: COLORS.TEXT_PRIMARY, rule: COLORS.ACCENT, shadow: "#000", shadowOpacity: 0.7 };
+
+/** Largest canvas edge: a background rasterises once at this size and every device crops from it. */
+const MASTER = Math.max(...Object.values(DEVICES).flatMap((d) => d.canvas));
+const masters = new Map();
+const rasterise = (background) => {
+  if (!masters.has(background))
+    masters.set(
+      background,
+      sharp(background)
+        .metadata()
+        .then(({ width, height }) => raw(sharp(background, { density: (72 * MASTER) / Math.min(width, height) }))),
+    );
+  return masters.get(background);
+};
+
+/** The background image cover-scaled to the canvas and centre-cropped, with the device's cast shadow. */
+async function base(L, background) {
   const s = L.screen;
-  const ink = spec.ink;
   // One key light from upper left: a tight contact shadow the device sits on and
   // a long soft cast below it. A single symmetric blur reads as a sticker.
   const shadow = (dx, dy, blur, opacity, id) => `<filter id="${id}" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="${round(blur)}"/></filter>
-  <rect x="${round(s.x + dx)}" y="${round(s.y + dy)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius ?? 0)}" fill="${ink.shadow}" opacity="${opacity}" filter="url(#${id})"/>`;
+  <rect x="${round(s.x + dx)}" y="${round(s.y + dy)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius ?? 0)}" fill="${INK.shadow}" opacity="${opacity}" filter="url(#${id})"/>`;
 
-  const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}">${spec.svg}
-  ${shadow(L.W * 0.012, L.H * 0.026, L.W * 0.03, round(ink.shadowOpacity * 0.72), "cast")}
-  ${shadow(L.W * 0.002, L.H * 0.005, L.W * 0.005, round(ink.shadowOpacity * 0.85), "contact")}
+  const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}">
+  ${shadow(L.W * 0.012, L.H * 0.026, L.W * 0.03, round(INK.shadowOpacity * 0.72), "cast")}
+  ${shadow(L.W * 0.002, L.H * 0.005, L.W * 0.005, round(INK.shadowOpacity * 0.85), "contact")}
 </svg>`);
-  const grainLayer = { input: await grain(), tile: true, blend: "overlay" };
-
-  if (spec.image) {
-    let art = sharp(path.join(ROOT, spec.image.file)).resize(L.W, L.H, { fit: "cover", position: spec.image.position, kernel: "lanczos3" });
-    if (spec.image.brightness) art = art.modulate({ brightness: spec.image.brightness });
-    const bg = await art.toBuffer();
-    return sharp(bg)
-      .composite([{ input: svg }, grainLayer])
-      .png()
-      .toBuffer();
-  }
-  return sharp(svg).composite([grainLayer]).png().toBuffer();
+  const master = await rasterise(background);
+  const art = await raw(sharp(master.data, { raw: master.info }).resize(L.W, L.H, { fit: "cover", position: "centre", kernel: "lanczos3" }).flatten({ background: COLORS.BACKGROUND_DEEP }));
+  return raw(sharp(art.data, { raw: art.info }).composite([{ input: svg }]));
 }
 
 /**
@@ -258,11 +264,19 @@ async function screen(capture, s, W, H) {
   return { buffer: full, left, top };
 }
 
-/** Panel hairline or device shell, the gold band, and the three tiers of type. */
-function overlay(device, L, spec) {
-  const ink = spec.ink;
-  const m = L.metrics;
+/** Panel hairline or device shell. */
+function frame(device, L) {
   const s = L.screen;
+  const body = device.frame
+    ? `<g transform="${L.shell.transform}">${frameBody(device.frame)}</g>`
+    : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="${round(L.W * PANEL_STROKE)}"/>`;
+  return raw(sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}" fill="none">${body}</svg>`)));
+}
+
+/** The gold band and the three tiers of type. */
+function overlay(L) {
+  const ink = INK;
+  const m = L.metrics;
   const type = (ls, size, track, y) =>
     ls.length && size ? typeset(sub_, ls, { size, tracking: track, lineHeight: SUB_LINE, x: round(L.margin), y: round(y), align: "center", boxWidth: round(L.box) }) : null;
 
@@ -277,17 +291,12 @@ function overlay(device, L, spec) {
     m.ebTop,
   );
 
-  const frame = device.frame
-    ? `<g transform="${L.shell.transform}">${frameBody(device.frame)}</g>`
-    : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="${spec.panelStroke ?? 0.16}" stroke-width="${round(L.W * PANEL_STROKE)}"/>`;
-
   return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}" fill="none">
   <defs>
     <filter id="lift" x="-25%" y="-25%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="${round(L.H * (ink.flat ? 0.0012 : 0.0025))}" stdDeviation="${round(L.W * (ink.flat ? 0.0008 : 0.005))}" flood-color="${ink.shadow}" flood-opacity="${ink.flat ? 0.28 : 0.55}"/>
+      <feDropShadow dx="0" dy="${round(L.H * 0.0025)}" stdDeviation="${round(L.W * 0.005)}" flood-color="${ink.shadow}" flood-opacity="0.55"/>
     </filter>
   </defs>
-  ${frame}
   ${eb ? `<path d="${eb.d}" fill="${ink.rule}"/>` : ""}
   ${caption ? `<g filter="url(#lift)">${caption.lineData.map((d, i) => `<path d="${d}" fill="${i === L.accent ? ink.rule : ink.head}"/>`).join("")}</g>` : ""}
   ${subhead ? `<rect x="0" y="${round(m.barTop)}" width="${L.W}" height="${round(m.barHeight)}" fill="${COLORS.ACCENT}"/>` : ""}
@@ -296,14 +305,14 @@ function overlay(device, L, spec) {
 }
 
 /** Alpha is rejected by App Store Connect, so the result is flattened to 3 channels. */
-export async function compose(device, shot, capturePath, outPath, shared, place = { index: 0, count: 1 }) {
+export async function compose(device, shot, capturePath, outPath, shared, background) {
   const L = layout(device, shot, shared);
-  const spec = (FIELDS[shot.field ?? place.field] ?? FIELDS.app)(L, { ...place, device });
+  const key = JSON.stringify([device.frame, L.W, L.H, L.screen, L.shell?.transform, background]);
 
-  const [bg, panel] = await Promise.all([base(L, spec), screen(capturePath, L.screen, L.W, L.H)]);
+  const [bg, shell, panel] = await Promise.all([memo(`base ${key}`, () => base(L, background)), memo(`frame ${key}`, () => frame(device, L)), screen(capturePath, L.screen, L.W, L.H)]);
 
-  await sharp(bg)
-    .composite([{ input: panel.buffer, left: panel.left, top: panel.top }, { input: overlay(device, L, spec) }])
+  await sharp(bg.data, { raw: bg.info })
+    .composite([{ input: panel.buffer, left: panel.left, top: panel.top }, asInput(shell), { input: overlay(L) }])
     .flatten({ background: COLORS.BACKGROUND_DEEP })
     .removeAlpha()
     .png({ compressionLevel: 9 })

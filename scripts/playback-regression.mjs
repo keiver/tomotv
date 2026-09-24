@@ -28,11 +28,6 @@
  *   npm run test:playback -- --verify-manifest   manifest/baseline agreement, no device needed
  *   npm run test:playback -- --json out.json     write the run record for CI
  *
- * Requires: gitignored .env.playback-test with JELLYFIN_URL and
- * JELLYFIN_API_KEY (+ optional BUNDLE_ID, JELLYFIN_USER/JELLYFIN_PASSWORD to
- * sign a dev build in through tomotv://dev-session); ffmpeg/ffprobe on PATH; the app
- * installed on the target simulator with its JS available (Metro running for a
- * dev build).
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -46,7 +41,6 @@ const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST_PATH = path.join(ROOT, "test", "playback", "manifest.json");
 const BASELINE_DIR = path.join(ROOT, "test", "playback", "baselines");
-const ENV_PATH = path.join(ROOT, ".env.playback-test");
 const PROBE_FILENAME = "playback-probe.jsonl";
 const VERDICTS_FILENAME = "engine-verdicts.json";
 const HASH_WINDOW_SECONDS = 30;
@@ -94,25 +88,22 @@ function fail(msg) {
   process.exit(1);
 }
 
-export function loadEnv() {
-  if (!fs.existsSync(ENV_PATH)) {
-    fail(
-      `Missing ${ENV_PATH}\nCreate it with:\n  JELLYFIN_URL=http://<server>:8096\n  JELLYFIN_API_KEY=<api key from Dashboard -> API Keys>\n` +
-        `  # optional: BUNDLE_ID=dev.keiver.tomotv\n  # optional: JELLYFIN_FIXTURE_ROOTS=${DEFAULT_FIXTURE_ROOTS}\n` +
-        `  # optional: JELLYFIN_USER=<name> and JELLYFIN_PASSWORD=<pw> (dev build signs itself in via tomotv://dev-session)`,
-    );
-  }
+export function loadEnv(environment = process.env) {
   const env = {};
-  for (const line of fs.readFileSync(ENV_PATH, "utf8").split("\n")) {
-    const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/);
-    if (m) env[m[1]] = m[2];
+  for (const key of [
+    "JELLYFIN_URL",
+    "JELLYFIN_API_KEY",
+    "JELLYFIN_USER",
+    "JELLYFIN_PASSWORD",
+    "JELLYFIN_ACCESS_TOKEN",
+    "JELLYFIN_USER_ID",
+    "JELLYFIN_DEVICE_ID",
+    "BUNDLE_ID",
+    "JELLYFIN_FIXTURE_ROOTS",
+  ]) {
+    if (environment[key]) env[key] = environment[key];
   }
-  // The shell wins: a device run needs the LAN address the app is signed in to,
-  // where the file names localhost for the simulator.
-  for (const key of ["JELLYFIN_URL", "JELLYFIN_API_KEY", "JELLYFIN_USER", "JELLYFIN_PASSWORD", "BUNDLE_ID", "JELLYFIN_FIXTURE_ROOTS"]) {
-    if (process.env[key]) env[key] = process.env[key];
-  }
-  if (!env.JELLYFIN_URL || !env.JELLYFIN_API_KEY) fail(`${ENV_PATH} must define JELLYFIN_URL and JELLYFIN_API_KEY`);
+  if (!env.JELLYFIN_URL || !env.JELLYFIN_API_KEY) throw new Error("Set JELLYFIN_URL and JELLYFIN_API_KEY in the environment");
   env.JELLYFIN_URL = env.JELLYFIN_URL.replace(/\/$/, "");
   env.BUNDLE_ID = env.BUNDLE_ID || "dev.keiver.tomotv";
   env.JELLYFIN_FIXTURE_ROOTS = env.JELLYFIN_FIXTURE_ROOTS || DEFAULT_FIXTURE_ROOTS;
@@ -151,7 +142,7 @@ export async function resolveItems(env, items) {
     const { Items = [] } = await (await jf(env, "/LiveTv/Channels?EnableTotalRecordCount=false")).json();
     for (const m of liveWanted) {
       const hit = Items.find((c) => c.Name === m.title);
-      if (!hit) fail(`Live channel "${m.title}" is not on the server (the Live TV rig in test/playback/README.md provides it)`);
+      if (!hit) fail(`Live channel "${m.title}" is not on the server (the local tuner, test/playback/live/real.m3u, provides it)`);
       liveResolved.set(m.title, { id: hit.Id, path: null });
     }
   }
@@ -309,7 +300,7 @@ async function assertAppOnSameServer(env) {
       `It is almost certainly signed in to a DIFFERENT server, in which case every item\n` +
       `resolved here is a 404 there and all ${"items"} fail as "Video not found or unavailable".\n\n` +
       `Clients seen on this server: ${seen.length ? seen.join(", ") : "none"}\n\n` +
-      `Fix: set JELLYFIN_USER and JELLYFIN_PASSWORD in .env.playback-test so the run signs the app in itself\n` +
+      `Fix: set JELLYFIN_USER and JELLYFIN_PASSWORD in the environment so the run signs the app in itself\n` +
       `(dev builds only), or open the app, Settings -> sign out, reconnect to ${env.JELLYFIN_URL}, and re-run.\n` +
       `To confirm what it is talking to: lsof -nP -a -p $(pgrep -f 'TomoTV.app/TomoTV') -i`,
   );
@@ -659,37 +650,54 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
     if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
 
-    // Slipstream gateway shape. tierVariant pins whether the master carries
-    // the 480p server tier (eligibility is SDR + audio, so an HDR fixture
-    // asserts absence). When present the structural invariants matter most:
-    // a variant switch must never touch audio or subtitles, which holds only
-    // if both STREAM-INFs name the same rendition groups, and the tier's
-    // BANDWIDTH must count the shared audio (RFC 8216 §4.3.4.2).
+    // Slipstream gateway shape. tierVariant pins whether the master offers server rungs at all
+    // (eligibility is video + audio + a server source, HDR included). The rungs
+    // ride their own low audio group by design; what must hold is that a switch between them never
+    // moves the viewer's subtitles, and that each BANDWIDTH counts the group it plays with
+    // (RFC 8216 4.3.4.2). The harness link is fast, so the copy is listed beside them.
+    const variants = [];
+    {
+      const lines = master.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue;
+        const uri = lines.slice(i + 1).find((line) => line.trim() && !line.startsWith("#")) ?? "";
+        variants.push({
+          uri: uri.trim(),
+          line: lines[i],
+          audio: /AUDIO="([^"]*)"/.exec(lines[i])?.[1] ?? null,
+          subs: /SUBTITLES="([^"]*)"/.exec(lines[i])?.[1] ?? null,
+          bandwidth: Number(/BANDWIDTH=(\d+)/.exec(lines[i])?.[1] ?? 0),
+          codecs: /CODECS="([^"]*)"/.exec(lines[i])?.[1] ?? "",
+        });
+      }
+    }
     if (expect.tierVariant !== undefined) {
-      const variantLines = master.split("\n").filter((line) => line.startsWith("#EXT-X-STREAM-INF:"));
-      const hasTier = master.includes("t1.m3u8");
-      if (expect.tierVariant && !hasTier) problems.push("master playlist carries no Slipstream tier variant (t1.m3u8)");
-      if (!expect.tierVariant && hasTier) problems.push("master playlist carries a Slipstream tier variant for an ineligible item");
-      if (expect.tierVariant && hasTier) {
-        if (variantLines.length !== 2) problems.push(`expected 2 variants (primary + tier), master has ${variantLines.length}`);
-        const groups = variantLines.map((line) => ({
-          audio: /AUDIO="([^"]*)"/.exec(line)?.[1] ?? null,
-          subs: /SUBTITLES="([^"]*)"/.exec(line)?.[1] ?? null,
-          bandwidth: Number(/BANDWIDTH=(\d+)/.exec(line)?.[1] ?? 0),
-          codecs: /CODECS="([^"]*)"/.exec(line)?.[1] ?? "",
-        }));
-        if (new Set(groups.map((g) => g.audio)).size > 1) problems.push("variants name different AUDIO groups: a switch would touch sound");
-        if (new Set(groups.map((g) => g.subs)).size > 1) problems.push("variants name different SUBTITLES groups: a switch would drop subtitles");
-        const tier = groups[1];
-        if (tier && tier.bandwidth <= 1_500_000) problems.push(`tier BANDWIDTH=${tier.bandwidth} covers video only; the shared audio group is not counted`);
-        if (tier && tier.codecs && !tier.codecs.includes(",")) problems.push(`tier CODECS=${JSON.stringify(tier.codecs)} omits the audio codec of its group`);
+      const rungs = variants.filter((v) => /^t\d+\.m3u8$/.test(v.uri));
+      if (expect.tierVariant && rungs.length === 0) problems.push("master playlist offers no Slipstream rung");
+      if (!expect.tierVariant && rungs.length > 0) problems.push(`master playlist offers ${rungs.length} Slipstream rungs for an ineligible item`);
+      if (expect.tierVariant && rungs.length > 0) {
+        const copy = variants.find((v) => v.uri === "media.m3u8");
+        if (!copy) problems.push("master playlist withholds the on-device copy on a link that carries it");
+        if (copy && new Set([copy, ...rungs].map((v) => v.subs)).size > 1) problems.push("variants name different SUBTITLES groups: a switch would drop subtitles");
+        if (rungs.some((rung) => rung.audio !== "audio-lo")) problems.push("a rung does not name the audio-lo group, so its audio comes from the engine it exists to relieve");
+        const declared = new Set(
+          master
+            .split("\n")
+            .filter((line) => line.startsWith("#EXT-X-MEDIA:TYPE=AUDIO"))
+            .map((line) => /GROUP-ID="([^"]*)"/.exec(line)?.[1]),
+        );
+        if (rungs.some((rung) => !declared.has(rung.audio))) problems.push("a rung names an audio group the master does not declare");
+        if (rungs.some((rung) => rung.codecs && !rung.codecs.includes(","))) problems.push("a rung's CODECS omits the audio codec of its group");
+        const ascending = rungs.every((rung, i) => i === 0 || rung.bandwidth > rungs[i - 1].bandwidth);
+        if (!ascending) problems.push(`rung BANDWIDTHs are not ascending: ${rungs.map((r) => r.bandwidth).join(", ")}`);
       }
     }
 
     // Without this, the player cannot rule out captions embedded in the video
     // and offers a legible option with an empty title that AVKit lists as "CC"
     // and that draws nothing. Seen on T88, which has no subtitle streams at all.
-    if (!master.includes("CLOSED-CAPTIONS=NONE")) problems.push("EXT-X-STREAM-INF does not declare CLOSED-CAPTIONS=NONE, so the player will offer a phantom CC track");
+    // A source whose copied packets carry A/53 captions names a group instead.
+    if (variants.some((v) => !v.line.includes("CLOSED-CAPTIONS="))) problems.push("an EXT-X-STREAM-INF does not declare CLOSED-CAPTIONS, so the player will offer a phantom CC track");
 
     // Apple's authoring specification requires these on every variant that has
     // video: RESOLUTION (9.2), FRAME-RATE (9.15) and AVERAGE-BANDWIDTH (9.14).
@@ -1054,7 +1062,7 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
     // start-time fallback (engine below realtime, session failed to open) emits none and the
     // stream event carries the lane instead. Both end in a stream.
     const lastMode = events.filter((e) => e.event === "stream").at(-1) ?? events.filter((e) => e.event === "mode").at(-1);
-    if (lastMode?.mode !== item.finalMode) result.problems.push(`final mode ${lastMode?.mode}, expected ${item.finalMode} after retry`);
+    if (lastMode?.mode !== item.finalMode) result.problems.push(`final mode ${lastMode?.mode}, expected ${item.finalMode}`);
     result.actual = `${modeEvent.mode}->${lastMode?.mode}`;
   }
   const fallback = events.find((e) => e.event === "fallback");
@@ -1212,15 +1220,8 @@ async function preflight() {
   };
 
   let env = null;
-  await check(".env.playback-test", async () => {
-    if (!fs.existsSync(ENV_PATH)) throw new Error(`missing ${ENV_PATH}`);
-    const parsed = {};
-    for (const line of fs.readFileSync(ENV_PATH, "utf8").split("\n")) {
-      const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/);
-      if (m) parsed[m[1]] = m[2];
-    }
-    if (!parsed.JELLYFIN_URL || !parsed.JELLYFIN_API_KEY) throw new Error("JELLYFIN_URL and JELLYFIN_API_KEY are both required");
-    env = { ...parsed, JELLYFIN_URL: parsed.JELLYFIN_URL.replace(/\/$/, ""), BUNDLE_ID: parsed.BUNDLE_ID || "dev.keiver.tomotv" };
+  await check("playback environment", async () => {
+    env = loadEnv();
     return env.JELLYFIN_URL;
   });
 
@@ -1329,13 +1330,15 @@ async function main() {
   await assertAppOnSameServer(env);
   await terminateApp(env, target);
 
-  // Every device copy lands here, one directory for the whole run.
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-playback-"));
 
   const results = [];
   for (const item of items) {
     console.log(`\n▶ ${item.id} ${item.title} (expect ${item.mode}, play ${item.playSeconds}s)`);
-    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, work);
+    const itemWork = fs.mkdtempSync(path.join(work, `${item.id}-`));
+    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, itemWork);
+    const probePath = path.join(itemWork, PROBE_FILENAME);
+    if (fs.existsSync(probePath)) r.probePath = probePath;
     results.push(r);
     console.log(r.problems.length ? `  ✗ ${r.problems.join("\n    ")}` : `  ✓ mode=${r.actual} pos=${r.position}s validation=${r.validation}`);
   }

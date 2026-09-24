@@ -9,6 +9,10 @@ import { t } from "@/services/i18n";
 interface LibraryHeaderProps {
   /** Current folder navigation stack. Empty = library root (header renders nothing). */
   stack: FolderStackEntry[];
+  /** Jumps to the home shelves. Renders the home glass button only when provided. */
+  onGoHome?: () => void;
+  /** The leading button reads as Back where the route sits one level above its opener. */
+  homeAsBack?: boolean;
   /** Opens the Filters panel. Renders the glass Filters capsule only when provided. */
   onOpenFilters?: () => void;
   /** Number of active filter selections, shown on the Filters button. */
@@ -19,13 +23,41 @@ interface LibraryHeaderProps {
   onFiltersButtonRef?: (node: View | null) => void;
   /** TV: the Filters button gained/lost focus (grid focus bookkeeping, see library-grid's recovery). */
   onFiltersFocusChange?: (focused: boolean) => void;
+  /** The trailing capsule where Filters would sit, for a grid with a different action (the channel wall's Settings). */
+  action?: HeaderAction;
+  /** A capsule to the left of `action` (the wall's favorites filter toggle). */
+  secondaryAction?: HeaderAction;
+}
+
+export interface HeaderAction {
+  /** Omit for an icon-only capsule, and name it through accessibilityLabel. */
+  title?: string;
+  icon: keyof typeof Ionicons.glyphMap | React.ReactElement;
+  accessibilityLabel?: string;
+  onPress: () => void;
+}
+
+function actionIcon(icon: HeaderAction["icon"]) {
+  return typeof icon === "string" ? <Ionicons name={icon} size={24} color={COLORS.ACCENT} /> : icon;
 }
 
 /**
- * tvOS folder header: a glass Filters capsule, then the non-focusable path. Going up is the
- * remote's Menu button (native stack pop), so there is no on-screen back control.
+ * tvOS folder header: a home glass button, the non-focusable path, then the Filters capsule
+ * pushed to the right. Home is for viewers who don't reach for the remote's Menu button — one
+ * press exits folder browsing, where a back button would have to be refocused at every level.
  */
-function LibraryHeaderComponent({ stack, onOpenFilters, activeFilterCount = 0, filtersButtonHasPreferredFocus = false, onFiltersButtonRef, onFiltersFocusChange }: LibraryHeaderProps) {
+function LibraryHeaderComponent({
+  stack,
+  onGoHome,
+  homeAsBack = false,
+  onOpenFilters,
+  activeFilterCount = 0,
+  filtersButtonHasPreferredFocus = false,
+  onFiltersButtonRef,
+  onFiltersFocusChange,
+  action,
+  secondaryAction,
+}: LibraryHeaderProps) {
   const filtersButtonRef = useCallback(
     (node: View | null) => {
       onFiltersButtonRef?.(node);
@@ -41,15 +73,11 @@ function LibraryHeaderComponent({ stack, onOpenFilters, activeFilterCount = 0, f
 
   return (
     <View style={styles.container}>
-      {onOpenFilters ? (
+      {onGoHome ? (
         <GlassButton
-          ref={filtersButtonRef}
-          title={activeFilterCount > 0 ? t("filters.titleCount").replace("{count}", String(activeFilterCount)) : t("filters.title")}
-          hasTVPreferredFocus={filtersButtonHasPreferredFocus}
-          onPress={onOpenFilters}
-          onFocus={handleFiltersFocus}
-          onBlur={handleFiltersBlur}
-          icon={<Ionicons name="options-outline" size={24} color={COLORS.ACCENT} />}
+          onPress={onGoHome}
+          accessibilityLabel={homeAsBack ? t("common.back") : t("tab.home")}
+          icon={<Ionicons name={homeAsBack ? "chevron-back" : "home"} size={24} color={COLORS.ACCENT} />}
         />
       ) : null}
       <View style={styles.path} pointerEvents="none">
@@ -65,6 +93,31 @@ function LibraryHeaderComponent({ stack, onOpenFilters, activeFilterCount = 0, f
           );
         })}
       </View>
+      {secondaryAction ? (
+        <GlassButton title={secondaryAction.title} accessibilityLabel={secondaryAction.accessibilityLabel} onPress={secondaryAction.onPress} icon={actionIcon(secondaryAction.icon)} />
+      ) : null}
+      {onOpenFilters ? (
+        <GlassButton
+          ref={filtersButtonRef}
+          title={activeFilterCount > 0 ? t("filters.titleCount").replace("{count}", String(activeFilterCount)) : t("filters.title")}
+          hasTVPreferredFocus={filtersButtonHasPreferredFocus}
+          onPress={onOpenFilters}
+          onFocus={handleFiltersFocus}
+          onBlur={handleFiltersBlur}
+          icon={<Ionicons name="funnel-outline" size={24} color={COLORS.ACCENT} />}
+        />
+      ) : action ? (
+        <GlassButton
+          ref={filtersButtonRef}
+          title={action.title}
+          hasTVPreferredFocus={filtersButtonHasPreferredFocus}
+          onPress={action.onPress}
+          onFocus={handleFiltersFocus}
+          onBlur={handleFiltersBlur}
+          accessibilityLabel={action.accessibilityLabel}
+          icon={actionIcon(action.icon)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -76,15 +129,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 24,
-    marginLeft: 16,
+    marginHorizontal: 16,
     marginBottom: 4,
     paddingBottom: 14,
   },
+  // Grows to fill the row so the Filters capsule is pushed to the right edge.
   path: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    flexShrink: 1,
+    flex: 1,
   },
   pathSegment: {
     flexDirection: "row",

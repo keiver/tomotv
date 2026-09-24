@@ -8,7 +8,7 @@
     {
       "id": "T01",
       "title": "T01 DIRECT H264 AAC",
-      "mode": "direct",
+      "mode": "localRemux",
       "validate": "none",
       "playSeconds": 14,
       "progressMin": 10
@@ -25,9 +25,9 @@
         "audio": "flac",
         "subtitles": 1,
         "codecs": "avc1.640029,fLaC",
-        "tierVariant": false
+        "tierVariant": true
       },
-      "comment": "Its one SUBRIP track is flagged forced AND default, which is the shape that lost the track entirely: shipped FORCED=YES it was withheld from AVKit's picker and never applied, so a file with cues at 2.253s showed nothing. The only fixture that pins the rule that a subtitle group must always advertise something the viewer can reach. tierVariant false: the tier declares only on a measured-slow link, and the harness LAN is fast; tier shape is covered by the throttled drill."
+      "comment": "Its one SUBRIP track is flagged forced AND default, which is the shape that lost the track entirely: shipped FORCED=YES it was withheld from AVKit's picker and never applied, so a file with cues at 2.253s showed nothing. The only fixture that pins the rule that a subtitle group must always advertise something the viewer can reach. tierVariant true: an SDR file with audio is offered the ladder on every link, and a fast one lists the copy beside it."
     },
     {
       "id": "T06",
@@ -92,7 +92,7 @@
         "audio": "aac",
         "videoRange": "PQ",
         "codecs": "hvc1.2.4.L120.B0,mp4a.40.2",
-        "tierVariant": false
+        "tierVariant": true
       }
     },
     {
@@ -375,12 +375,10 @@
       "id": "T40",
       "title": "T40 SERVER VP9 8K gate-reject",
       "playSeconds": 14,
-      "mode": "localRemux",
-      "allowRetry": true,
-      "finalMode": "transcode",
+      "mode": "transcode",
       "validate": "none",
       "progressMin": 8,
-      "comment": "8K VP9 with no size gate. The engine opens the session and times segment 0 before the player is bound: on the simulator its software encoder runs far below realtime, so the pre-flight hands the item to the server ('engine below realtime' fallback, no error, no restart); on a device the H.264 encoder refuses 7680x4320 and the start-time fallback lands in the same place. The title still says gate-reject because it must match the file on disk."
+      "comment": "8K video the device does not copy plays as one server transcode (needsSingleServerTranscode). The title is retained to match the fixture on disk."
     },
     {
       "id": "T41",
@@ -766,9 +764,9 @@
         "video": "h264",
         "audio": "flac",
         "audioChannels": 7,
-        "tierVariant": false
+        "tierVariant": true
       },
-      "comment": "DTS-ES, seven channels. Today's min(channels, 6) downmixes it; it is the item that proves the channel cap moved. tierVariant false: the tier declares only on a measured-slow link, and the harness LAN is fast; tier shape is covered by the throttled drill."
+      "comment": "DTS-ES, seven channels. Today's min(channels, 6) downmixes it; it is the item that proves the channel cap moved. tierVariant true: an SDR file with audio is offered the ladder on every link, and a fast one lists the copy beside it."
     },
     {
       "id": "T88",
@@ -896,59 +894,117 @@
       "comment": "A judgeable SSA fixture: the picture carries a running clock and every cue names the second it belongs to and what it should look like, so a wrong cue, a late one or a dropped override is visible by eye on a television. Track 0 is that script, SSA v4.00 with CRLF endings and the *Default style marker Aegisub writes. Track 1 is a9-misc.ssa from FFmpeg's FATE suite, a real fansub header kept because that is what the style parser has to survive. Its inline italic and bold, style-carried bold italic, hard line break, karaoke, drawing block, positioned sign and markup characters each land on their own two-second slot."
     },
     {
+      "id": "T101",
+      "title": "T101 REMUX H264 AC3 12min slipstream",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "audio": "ac3",
+        "subtitles": 3
+      },
+      "comment": "Slipstream drill item (scripts/abr-drill.mjs): 12 minutes of real motion at ~6 Mbps, one AC3 5.1 track."
+    },
+    {
+      "id": "T102",
+      "title": "T102 REMUX H264 AC3 AAC 12min slipstream",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "audio": "ac3",
+        "audioRenditions": 2,
+        "subtitles": 3
+      },
+      "comment": "Slipstream drill item: T101's picture with AC3 5.1 and AAC stereo, so every rung switch is checked for both tracks."
+    },
+    {
+      "id": "T103",
+      "title": "T103 REMUX H264 AAC chapters",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "audio": "aac"
+      },
+      "comment": "Six embedded chapters, each with a server-extracted image: the player draws the server's pictures and makes no frame request of its own."
+    },
+    {
+      "id": "T104",
+      "title": "T104 REMUX H264 multi-audio sidecar",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "video": "h264",
+        "audio": "ac3",
+        "audioRenditions": 4,
+        "audioCopy": true,
+        "subtitles": 3
+      },
+      "comment": "Issue 84: a sidecar makes Jellyfin 12 list it first and renumber, so the embedded Index is one past the file position. audioCopy proves the default rendition holds the file's first audio stream. Four renditions: both tracks in the engine group and in audio-lo."
+    },
+    {
       "id": "L01",
-      "title": "T24 MPEG2 MP2 TS",
+      "title": "Bloomberg TV+ 4K HEVC (partner)",
       "live": true,
       "mode": "localRemux",
       "validate": "live",
       "playSeconds": 30,
       "progressMin": 8,
       "expect": { "audioTracks": 1 },
-      "comment": "Live TV, OTA shape: MPEG-2 video and MP2 audio in MPEG-TS, decoded and re-encoded on device. A channel of the Live TV rig (README), never a file under the roots."
+      "comment": "Live TV, 4K HEVC and AAC from an HLS origin in the local tuner (test/playback/live/real.m3u)."
     },
     {
       "id": "L02",
-      "title": "T07 H264 AC3 TS",
+      "title": "Africanews English",
       "live": true,
       "mode": "localRemux",
       "validate": "live",
       "playSeconds": 30,
       "progressMin": 8,
       "expect": { "audioTracks": 1 },
-      "comment": "Live TV, IPTV shape: H.264 and AC-3 stream-copied into the live window."
+      "comment": "Live TV, H.264 and AAC in MPEG-TS segments from an HLS origin in the local tuner."
     },
     {
       "id": "L03",
-      "title": "T09 multi-audio TS",
+      "title": "Unified live",
       "live": true,
       "mode": "localRemux",
       "validate": "live",
       "playSeconds": 30,
       "progressMin": 8,
-      "expect": { "audioTracks": 2 },
-      "comment": "Both AAC tracks reach the master as renditions. The server's own probe of this channel lists one, and a server transcode would carry one."
+      "expect": { "audioTracks": 1 },
+      "comment": "Live TV, an HLS origin whose audio rides as a separate rendition group."
     },
     {
       "id": "L04",
-      "title": "SPLICE RAW discontinuity TS",
+      "title": "Unified SCTE-35 live",
       "live": true,
       "mode": "localRemux",
       "validate": "live",
       "playSeconds": 75,
       "progressMin": 8,
-      "expect": { "discontinuity": true },
-      "comment": "The timing PTS steps from 71.4s back to 1.4s once per pass of the source. The session rolls a generation (EXT-X-DISCONTINUITY, a new MAP) and keeps producing."
+      "expect": { "audioTracks": 1 },
+      "comment": "Live TV, an HLS origin carrying SCTE-35 ad cues (EXT-X-CUE-OUT, DATERANGE) every two minutes."
     },
     {
       "id": "L05",
-      "title": "HLS T07 origin",
+      "title": "DW English",
       "live": true,
       "mode": "localRemux",
       "validate": "live",
       "playSeconds": 30,
       "progressMin": 8,
       "expect": { "audioTracks": 1 },
-      "comment": "IPTV list shape: an HLS channel. The server never marks a manifest direct play, so the engine reads the origin itself. Simulator only, the origin sits on the Mac loopback."
+      "comment": "Live TV, IPTV list shape: a multi-variant news HLS channel in the local tuner."
     }
   ]
 }

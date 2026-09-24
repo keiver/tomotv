@@ -8,8 +8,8 @@ import { isHotChannel } from "@/services/liveRing";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { STAGE_HINT_AFTER_SECONDS, stageHint, stageLabel, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
-import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { chapterFrameUrl } from "@/services/localRemux";
+import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -64,12 +64,12 @@ const PIP_HANDOFF_BURST_MS = 1500;
  * those are computed from the QUEUE, which only the route knows, while chapters
  * come off the item the host has already loaded.
  *
- * The uri is the chapter's picture: the server's extracted keyframe where the library has one,
- * else the keyframe the engine makes on demand under `frameBase` (FrameGrabber.swift). The
- * patched RCTVideoTVUtils fetches them on their own task after the item is built and assigns
- * the marker groups again with the pictures as eager data, so the start never waits on one.
+ * A uri is the chapter's picture: the server's extracted keyframe where the library has one, else
+ * the one the engine makes under `frameBase` (FrameGrabber.swift). Both wait for `artwork`, which
+ * the host turns on at PLAYING: the patched RCTVideoTVUtils fetches a picture the moment a uri
+ * reaches it. Titles alone until then.
  */
-export function playerChapters(item: JellyfinVideoItem | null, frameBase: string | null = null): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
+export function playerChapters(item: JellyfinVideoItem | null, frameBase: string | null = null, artwork = false): { title: string; startTime: number; endTime: number; uri?: string }[] | undefined {
   if (!item?.Chapters?.length) return undefined;
   const runtimeSeconds = (item.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
   // Jellyfin reports a runtime of 0 for anything whose duration it could not read. A known
@@ -83,7 +83,8 @@ export function playerChapters(item: JellyfinVideoItem | null, frameBase: string
   const lastEnd = runtimeSeconds > 0 ? runtimeSeconds : lastStart + Math.max(previousGap, 1);
   const chapters = markers
     .map(({ chapter, index, start }, position) => {
-      const uri = chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : (chapterFrameUrl(frameBase, start) ?? "");
+      // The server's own keyframe when the library extracted one, else the engine's.
+      const uri = !artwork ? "" : chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : (chapterFrameUrl(frameBase, start) ?? "");
       return {
         // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
         title: chapter.Name?.trim() || t("player.chapterNum").replace("{num}", String(index + 1)),
@@ -223,6 +224,7 @@ export function PlayerHost() {
     startPositionMs,
     paused,
     maxBitRate,
+    forwardBufferSeconds,
     videoCallbacks,
     state,
     showLoadingOverlay,
@@ -232,10 +234,11 @@ export function PlayerHost() {
     play,
     seekBy,
     imageSubtitleSessionUrl,
-    chapterFrameBaseUrl,
     activeImageSubtitleStream,
     currentTimeRef,
     selectedTextTrack,
+    selectedAudioTrack,
+    chapterFrameBaseUrl,
   } = useVideoPlayback({
     videoId: session?.videoId ?? "",
     skip: session === null || liveSettling,
@@ -396,9 +399,9 @@ export function PlayerHost() {
   // Deliberate cascades: the held source and the flip flag follow the stream and the session.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (streamSource !== null) setHeldLiveSource(streamSource);
+    if (streamSource !== null && !showLoadingOverlay) setHeldLiveSource(streamSource);
     else if (session === null) setHeldLiveSource(null);
-  }, [streamSource, session]);
+  }, [streamSource, session, showLoadingOverlay]);
   // The flip ends when the new channel plays, fails with no rung left, or the session goes.
   const failedForGood = state.type === "ERROR" && !state.canRetryWithTranscode;
   useEffect(() => {
@@ -455,7 +458,10 @@ export function PlayerHost() {
 
   // tvOS chapter list, gated here rather than inside playerChapters so the rule
   // stays testable off a TV. See that function for what AVKit does with it.
-  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails, chapterFrameBaseUrl) : undefined), [videoDetails, chapterFrameBaseUrl]);
+  // Pictures are asked for from the PLAYING edge on: a uri reaching AVKit is fetched at once, and
+  // AVKit reads the value while it builds the panel's cells, so a later one is never drawn.
+  const playing = state.type === "PLAYING";
+  const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails, chapterFrameBaseUrl, playing) : undefined), [videoDetails, chapterFrameBaseUrl, playing]);
 
   // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
   // full-screen state: every native control works and the stock ✕ is visible from the start
@@ -468,7 +474,20 @@ export function PlayerHost() {
   // The held URI is the channel already left: its load, end and failure are not the attempt's.
   const showingHeld = sourceUri === null && shownUri !== null;
   const attemptCallbacks = useMemo(
-    () => (showingHeld ? { ...videoCallbacks, onLoad: ignore, onProgress: ignore, onError: ignore, onEnd: ignore, onBuffer: ignore, onPlaybackStateChanged: ignore } : videoCallbacks),
+    () =>
+      showingHeld
+        ? {
+            ...videoCallbacks,
+            onLoad: ignore,
+            onProgress: ignore,
+            onError: ignore,
+            onEnd: ignore,
+            onBuffer: ignore,
+            onPlaybackStateChanged: ignore,
+            onBandwidthUpdate: ignore,
+            onReadyForDisplay: ignore,
+          }
+        : videoCallbacks,
     [showingHeld, videoCallbacks],
   );
   const presentedCallbacks = useMemo(() => {
@@ -859,12 +878,16 @@ export function PlayerHost() {
           resizeMode={fills ? "cover" : "contain"}
           controls={true}
           paused={paused}
-          // Slipstream: live variant cap (pins); undefined everywhere else.
-          maxBitRate={maxBitRate ?? undefined}
+          // Both float props stay set: 0 is AVFoundation's "no cap" and "own threshold". Clearing a scalar
+          // prop makes React restore a default RNV never exposes a getter for, an uninitialised float.
+          maxBitRate={maxBitRate ?? 0}
+          preferredForwardBufferDuration={forwardBufferSeconds ?? 0}
           // The viewer's remembered subtitle choice, applied at item start.
           // Unset is {type: "system"}, which is the automatic path the lib
           // already takes, so a fresh install is unchanged.
           selectedTextTrack={selectedTextTrack}
+          // Only set when the viewer chose a track and a rebuild has to restore it.
+          selectedAudioTrack={selectedAudioTrack}
           allowsExternalPlayback={true}
           // RNV hard-disables AVKit's own now-playing publishing (updatesNowPlayingInfoCenter
           // = false); this prop is what turns on the lib's replacement publisher, which feeds

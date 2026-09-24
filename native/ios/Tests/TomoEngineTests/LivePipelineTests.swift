@@ -80,7 +80,7 @@ final class LivePipelineTests: XCTestCase {
         }
         guard FileManager.default.isExecutableFile(atPath: Self.ffprobe) else { throw XCTSkip("no ffprobe at \(Self.ffprobe)") }
         // The server's probe listed one track (measured); the engine carries every stream it finds.
-        let tracks = [RemuxAudioTrack(index: 1, name: "Stereo", language: "und", serverAudioUrl: "")]
+        let tracks = [RemuxAudioTrack(index: -1, name: "Stereo", language: "und", serverAudioUrl: "")]
         let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: source, audioTracks: tracks, codecs: "avc1.4d401f,mp4a.40.2", width: 1024, height: 576, isLive: true))
         let lock = NSLock()
         var failure: String?
@@ -215,6 +215,67 @@ final class LivePipelineTests: XCTestCase {
         XCTAssertEqual(fields.first, "h264", context)
         XCTAssertEqual(fields.count > 1 ? Int(fields[1]) : nil, 1280, context)
         XCTAssertGreaterThan(fields.count > 2 ? Int(fields[2]) ?? 0 : 0, 0, "init carries no parameter sets: \(context)")
+    }
+
+    /// A tuner joined mid-GOP on an open-GOP source (the demo channels' stream-copied films): the first
+    /// keyframes are recovery points with no SPS/PPS, and the init must still carry an avcC.
+    func testAnOpenGopJoinOpensOnTheFirstKeyframeWithParameterSets() throws {
+        let ffmpeg = "/opt/homebrew/bin/ffmpeg"
+        guard FileManager.default.isExecutableFile(atPath: ffmpeg), FileManager.default.isExecutableFile(atPath: Self.ffprobe) else {
+            throw XCTSkip("no ffmpeg/ffprobe under /opt/homebrew/bin")
+        }
+        let tmp = FileManager.default.temporaryDirectory
+        let mp4 = tmp.appendingPathComponent("open-gop.mp4").path
+        let ts = tmp.appendingPathComponent("open-gop-join.ts").path
+        let fifo = tmp.appendingPathComponent("open-gop-feed-\(UUID().uuidString).ts").path
+        for arguments in [
+            ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30", "-t", "12", "-c:v", "libx264", "-profile:v", "main", "-preset", "veryfast",
+             "-x264-params", "keyint=30:open-gop=1:scenecut=0", "-forced-idr", "1", "-force_key_frames", "expr:gte(t,n_forced*3)", mp4],
+            ["-v", "error", "-y", "-ss", "1.2", "-i", mp4, "-c", "copy", "-f", "mpegts", ts],
+        ] {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: ffmpeg)
+            p.arguments = arguments
+            try p.run()
+            p.waitUntilExit()
+            XCTAssertEqual(p.terminationStatus, 0, arguments.joined(separator: " "))
+        }
+        // A read at file speed hits the end before a segment closes; a FIFO fed at -re is a live feed.
+        XCTAssertEqual(mkfifo(fifo, 0o600), 0)
+        defer { try? FileManager.default.removeItem(atPath: fifo) }
+        let feed = Process()
+        feed.executableURL = URL(fileURLWithPath: ffmpeg)
+        feed.arguments = ["-v", "error", "-re", "-i", ts, "-c", "copy", "-f", "mpegts", "-y", fifo]
+        try feed.run()
+        defer { feed.terminate() }
+
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, inputUrl: fifo, codecs: "avc1.4D401E", width: 640, height: 360, isLive: true, liveSegmentSeconds: 2))
+        let lock = NSLock()
+        var failure: String?
+        session.onFailed = { payload in
+            lock.lock()
+            failure = "\(payload)"
+            lock.unlock()
+        }
+        session.start()
+        defer { session.stop() }
+
+        var playlist = ""
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline, entries(playlist).isEmpty {
+            lock.lock()
+            let f = failure
+            lock.unlock()
+            if let f { return XCTFail("session failed: \(f)") }
+            playlist = session.mediaPlaylist()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        let first = try XCTUnwrap(entries(playlist).first, playlist)
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("localremux").appendingPathComponent(session.token)
+        let probe = try probeRendition(dir: dir, map: first.map, segment: first.name, entries: "stream=codec_name,extradata_size")
+        XCTAssertEqual(probe.fields.first, "h264", probe.context)
+        XCTAssertGreaterThan(probe.fields.count > 1 ? Int(probe.fields[1]) ?? 0 : 0, 0, "init carries no parameter sets: \(probe.context)")
     }
 
     func testAnUnboundedSourceFormsAWindowAndRollsOnASplice() throws {

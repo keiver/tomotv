@@ -1,8 +1,8 @@
 # TomoTV Roadmap: Competitive Research & Release Plan
 
 > Researched 2026-08-04 from primary sources, competitive section and Dolby
-> Vision re-verified 2026-08-23, re-baselined against the shipped app
-> 2026-09-07 (2.2.4 on the store, release/2.2.5 in flight). This is the plan
+> Vision re-verified 2026-08-23. Implementation status updated 2026-09-21:
+> 2.2.6 on the store, release/2.2.7 in preparation. This is the plan
 > of record and nothing in it is fixed: reorder, drop or add as demand shows.
 > Each release gets its own implementation plan and harness/device
 > verification when it starts.
@@ -43,7 +43,7 @@ release); Moonfin-Client/Moonfin-Core; jellywatch.app 2026 client guide.
 
 ## Demand signal: Swiftfin open issues by community reactions (2026-08-04)
 
-Where each ask stands in Tomo TV as of 2026-09-07.
+Where each ask stands in Tomo TV as of 2026-09-21.
 
 | Reactions | Ask                                          | Tomo TV                                                                        |
 | --------- | -------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -52,7 +52,7 @@ Where each ask stands in Tomo TV as of 2026-09-07.
 | 41        | macOS build                                  | Runs as Designed for iPad with Mac keyboard support (2.2.1); Catalyst deferred |
 | 28        | SharePlay                                    | Open, second ring                                                              |
 | 26        | tvOS deep links                              | `tomotv://` scheme exists (Top Shelf, dev session); no public per-item link    |
-| 23        | SyncPlay                                     | Open, second ring                                                              |
+| 23        | SyncPlay                                     | Shipped 2.2.5, video only                                                      |
 | 15        | Map Apple TV users to Jellyfin users         | Open, profiles Phase B (blocked on Apple, see 3.2)                             |
 | 9         | Secondary subtitles                          | Open, second ring                                                              |
 | 9         | Skip button for media segments (intro/outro) | Shipped 2.1.0                                                                  |
@@ -88,75 +88,75 @@ Where each ask stands in Tomo TV as of 2026-09-07.
    artwork), not from the numbered releases below. The numbered releases are
    candidates, and a user issue outranks them.
 
-## Status board (2026-09-07, 2.2.4 on the store)
+## Status board (2026-09-21, 2.2.6 on the store)
 
 Every item the plan, the demand signal or a shipped release has named.
 Version is the one whose changelog carries it.
 
-| Area     | Item                                                             | Status   | Where                                                |
-| -------- | ---------------------------------------------------------------- | -------- | ---------------------------------------------------- |
-| Engine   | H.264/HEVC stream copy from any container                        | Shipped  | 2.0.0                                                |
-| Engine   | VideoToolbox transcode for legacy codecs                         | Shipped  | 2.0.0, widened 2.1.0 (DivX 3, Theora, DV, VVC, Real) |
-| Engine   | Any resolution on device, realtime gate, per-file memory         | Shipped  | 2.2.2                                                |
-| Engine   | 10-bit HEVC probe, 8-bit fallback                                | Shipped  | 2.2.3                                                |
-| Engine   | AV1 software decode lane                                         | Shipped  | 2.2.3                                                |
-| Engine   | HDR10 / HLG passthrough                                          | Shipped  | 2.0.0                                                |
-| Engine   | Dolby Vision 8.1 / 8.4 stream copy                               | Shipped  | 2.2.0, device-verified                               |
-| Engine   | Dolby Vision profile 7 to 8.1 on the fly                         | Shipped  | 2.2.0, device-verified                               |
-| Engine   | Dolby Vision profile 5                                           | Non-goal |                                                      |
-| Engine   | Multi-audio switching, seamless                                  | Shipped  | 2.0.0, seamless 2.1.0                                |
-| Engine   | DD / DD+ / Atmos passthrough                                     | Shipped  | 2.1.0, device-verified                               |
-| Engine   | TrueHD, DTS-HD MA, PCM, FLAC lossless, 7.1, 24-bit               | Shipped  | 2.1.0                                                |
-| Engine   | Text subtitles as HLS renditions                                 | Shipped  | 2.0.0                                                |
-| Engine   | Image subtitles (PGS, VobSub, DVB, XSUB) on device               | Shipped  | 2.1.0                                                |
-| Engine   | Subtitle choice remembered between items                         | Shipped  | 2.1.0                                                |
-| Engine   | Secondary subtitles                                              | Open     | second ring                                          |
-| Engine   | Adaptive Auto quality, link measured per server                  | Shipped  | 2.1.0                                                |
-| Engine   | Server rung proved before it is offered                          | Shipped  | 2.2.3                                                |
-| Engine   | Stall recovery, seek timestamp repair                            | Shipped  | 2.1.0, 2.2.3                                         |
-| Engine   | Native scrub previews (I-frame playlist)                         | Open     | 3.1.0, nothing built                                 |
-| Engine   | Host-side engine tests, codec coverage measured                  | Shipped  | `npm run test:engine`, 59/110 proven                 |
-| Player   | Skip Intro / Skip Credits, auto-skip toggle                      | Shipped  | 2.1.0                                                |
-| Player   | Native chapters in the tvOS info panel                           | Shipped  | 2.2.1, device-made images 2.2.2                      |
-| Player   | Native Up Next card and Up Next tab                              | Shipped  | 2.1.0                                                |
-| Player   | Picture in Picture (iPhone/iPad)                                 | Shipped  | 2.0.0                                                |
-| Player   | Music queue: gapless, background, Now Playing, mini player       | Shipped  | 2.1.0, mini player 2.2.0                             |
-| Player   | Photo viewer: slideshow, gestures, share                         | Shipped  | 2.2.0, 2.2.1                                         |
-| Player   | Playback speed                                                   | Non-goal | AVPlayer owns it                                     |
-| Player   | Custom controls / overlay chrome                                 | Non-goal | presented AVKit is the product                       |
-| Library  | Downloads: originals, offline play, folders, storage gauge       | Shipped  | 2.2.0, folders 2.2.2 (iPhone/iPad)                   |
-| Library  | Offline progress queued and synced                               | Shipped  | 2.2.0                                                |
-| Library  | Item detail: long-press info panel with overview and cast        | Shipped  | 2.1.0                                                |
-| Library  | Playback Info / Diagnostics, Send to iPhone                      | Shipped  | 2.2.1, 2.2.2, 2.2.3                                  |
-| Library  | Continue Watching next-up, binge queue                           | Shipped  | 2.0.0                                                |
-| Library  | Top Shelf (tvOS)                                                 | Shipped  | 2.0.0                                                |
-| Library  | Filters: favorites, genre, artist, year, per-library scope       | Shipped  | 1.7.0                                                |
-| Library  | Random order play (shuffle)                                      | Shipped  | 1.7.0 filters, 2.2.2 download folders                |
-| Library  | Keyframe artwork, folder collages, season poster fallback        | Shipped  | 2.2.2                                                |
-| Library  | Shows tree: seasons and episodes surface                         | Partial  | Next Up derived, no dedicated tree                   |
-| Library  | Jellyseerr discover and request                                  | Open     | second ring, no measured demand                      |
-| Library  | Multiserver View                                                 | Open     | 3.0.0                                                |
-| Library  | Deep links (`tomotv:///player?videoId=`)                         | Shipped  | 2.0.0 Top Shelf; works from any caller, undocumented |
-| Library  | Live TV: guide, DVR, channels through the engine                 | Shipped  | 2.2.6                                                |
-| Library  | Trakt scrobbling                                                 | Open     | second ring                                          |
-| Library  | OpenSubtitles download                                           | Open     | second ring, built once and removed                  |
-| Accounts | Saved sign-ins, per-account DeviceId, Continue as, Switch Server | Shipped  | 2.1.0                                                |
-| Accounts | In-app profiles picker, PIN                                      | Open     | 3.2.0                                                |
-| Accounts | tvOS system-user mapping                                         | Open     | 3.2.0 Phase B, blocked on Apple                      |
-| Accounts | LAN-change recovery, never auto-logout                           | Shipped  | 2.0.0                                                |
-| Accounts | iCloud settings sync                                             | Open     | second ring                                          |
-| Platform | iPhone / iPad                                                    | Shipped  | 2.0.0                                                |
-| Platform | Mac as Designed for iPad, keyboard shortcuts                     | Shipped  | 2.2.1                                                |
-| Platform | Mac Catalyst build                                               | Open     | second ring                                          |
-| Platform | Chromecast                                                       | Non-goal | AirPlay comes with AVPlayer                          |
-| Platform | SyncPlay / SharePlay                                             | Open     | 3.0.0, largest open ask (23 + 28)                    |
-| Platform | Apple Watch app                                                  | Non-goal | evaluated 2026-09-01, Now Playing covers it          |
-| Platform | Android, BDMV/ISO                                                | Non-goal |                                                      |
-| Growth   | In-app ratings prompt                                            | Won't do | never ask a user to rate                             |
-| Growth   | keiver.dev comparison page                                       | Deferred | not until the app is more solid and tested           |
-| Growth   | Jellyfin.org client listing                                      | Won't do |                                                      |
-
-**Totals:** 60 rows. Shipped 38, Partial 1, Open 12, Deferred 1, Non-goal 6, Won't do 2.
+| Area     | Item                                                              | Status      | Where                                                |
+| -------- | ----------------------------------------------------------------- | ----------- | ---------------------------------------------------- |
+| Engine   | H.264/HEVC stream copy from any container                         | Shipped     | 2.0.0                                                |
+| Engine   | VideoToolbox transcode for legacy codecs                          | Shipped     | 2.0.0, widened 2.1.0 (DivX 3, Theora, DV, VVC, Real) |
+| Engine   | Any resolution on device, realtime gate, per-file memory          | Shipped     | 2.2.2                                                |
+| Engine   | 10-bit HEVC probe, 8-bit fallback                                 | Shipped     | 2.2.3                                                |
+| Engine   | AV1 software decode lane                                          | Shipped     | 2.2.3                                                |
+| Engine   | HDR10 / HLG passthrough                                           | Shipped     | 2.0.0                                                |
+| Engine   | Dolby Vision 8.1 / 8.4 stream copy                                | Shipped     | 2.2.0, device-verified                               |
+| Engine   | Dolby Vision profile 7 to 8.1 on the fly                          | Shipped     | 2.2.0, device-verified                               |
+| Engine   | Dolby Vision profile 5                                            | Non-goal    |                                                      |
+| Engine   | Multi-audio switching, seamless                                   | Shipped     | 2.0.0, seamless 2.1.0                                |
+| Engine   | DD / DD+ / Atmos passthrough                                      | Shipped     | 2.1.0, device-verified                               |
+| Engine   | TrueHD, DTS-HD MA, PCM, FLAC lossless, 7.1, 24-bit                | Shipped     | 2.1.0                                                |
+| Engine   | Text subtitles as HLS renditions                                  | Shipped     | 2.0.0                                                |
+| Engine   | Image subtitles (PGS, VobSub, DVB, XSUB) on device                | Shipped     | 2.1.0                                                |
+| Engine   | Subtitle choice remembered between items                          | Shipped     | 2.1.0                                                |
+| Engine   | Secondary subtitles                                               | Open        | second ring                                          |
+| Engine   | Adaptive Auto quality, link measured per server                   | Shipped     | 2.1.0                                                |
+| Engine   | Server rung proved before it is offered                           | Shipped     | 2.2.3                                                |
+| Engine   | Slipstream: copy and the rung ladder in one master, link measured | Implemented | 2.2.7, not yet released                              |
+| Engine   | Stall recovery, seek timestamp repair                             | Shipped     | 2.1.0, 2.2.3                                         |
+| Engine   | Native scrub previews (I-frame playlist)                          | Open        | 3.1.0, nothing built                                 |
+| Engine   | Host-side engine tests, codec coverage measured                   | Shipped     | `npm run test:engine`, 59/110 proven                 |
+| Player   | Skip Intro / Skip Credits, auto-skip toggle                       | Shipped     | 2.1.0                                                |
+| Player   | Native chapters in the tvOS info panel                            | Shipped     | 2.2.1, device-made images 2.2.2                      |
+| Player   | Native Up Next card and Up Next tab                               | Shipped     | 2.1.0                                                |
+| Player   | Picture in Picture (iPhone/iPad)                                  | Shipped     | 2.0.0                                                |
+| Player   | Music queue: gapless, background, Now Playing, mini player        | Shipped     | 2.1.0, mini player 2.2.0                             |
+| Player   | Photo viewer: slideshow, gestures, share                          | Shipped     | 2.2.0, 2.2.1                                         |
+| Player   | Playback speed                                                    | Non-goal    | AVPlayer owns it                                     |
+| Player   | Custom controls / overlay chrome                                  | Non-goal    | presented AVKit is the product                       |
+| Library  | Downloads: originals, offline play, folders, storage gauge        | Shipped     | 2.2.0, folders 2.2.2 (iPhone/iPad)                   |
+| Library  | Offline progress queued and synced                                | Shipped     | 2.2.0                                                |
+| Library  | Item detail: long-press info panel with overview and cast         | Shipped     | 2.1.0                                                |
+| Library  | Playback Info / Diagnostics, Send to iPhone                       | Shipped     | 2.2.1, 2.2.2, 2.2.3                                  |
+| Library  | Continue Watching next-up, binge queue                            | Shipped     | 2.0.0                                                |
+| Library  | Top Shelf (tvOS)                                                  | Shipped     | 2.0.0                                                |
+| Library  | Filters: favorites, genre, artist, year, per-library scope        | Shipped     | 1.7.0                                                |
+| Library  | Random order play (shuffle)                                       | Shipped     | 1.7.0 filters, 2.2.2 download folders                |
+| Library  | Keyframe artwork, folder collages, season poster fallback         | Shipped     | 2.2.2                                                |
+| Library  | Shows tree: seasons and episodes surface                          | Partial     | Next Up derived, no dedicated tree                   |
+| Library  | Jellyseerr discover and request                                   | Open        | second ring, no measured demand                      |
+| Library  | Multiserver View                                                  | Open        | 3.0.0                                                |
+| Library  | Deep links (`tomotv:///player?videoId=`)                          | Shipped     | 2.0.0 Top Shelf; works from any caller, undocumented |
+| Library  | Live TV: guide, DVR, channels through the engine                  | Shipped     | 2.2.6                                                |
+| Library  | Trakt scrobbling                                                  | Open        | second ring                                          |
+| Library  | OpenSubtitles download                                            | Open        | second ring, built once and removed                  |
+| Accounts | Saved sign-ins, per-account DeviceId, Continue as, Switch Server  | Shipped     | 2.1.0                                                |
+| Accounts | In-app profiles picker, PIN                                       | Open        | 3.2.0                                                |
+| Accounts | tvOS system-user mapping                                          | Open        | 3.2.0 Phase B, blocked on Apple                      |
+| Accounts | LAN-change recovery, never auto-logout                            | Shipped     | 2.0.0                                                |
+| Accounts | iCloud settings sync                                              | Open        | second ring                                          |
+| Platform | iPhone / iPad                                                     | Shipped     | 2.0.0                                                |
+| Platform | Mac as Designed for iPad, keyboard shortcuts                      | Shipped     | 2.2.1                                                |
+| Platform | Mac Catalyst build                                                | Open        | second ring                                          |
+| Platform | Chromecast                                                        | Non-goal    | AirPlay comes with AVPlayer                          |
+| Platform | Jellyfin SyncPlay                                                 | Shipped     | 2.2.5, video only                                    |
+| Platform | Apple SharePlay                                                   | Open        | 3.0.0                                                |
+| Platform | Apple Watch app                                                   | Non-goal    | evaluated 2026-09-01, Now Playing covers it          |
+| Platform | Android, BDMV/ISO                                                 | Non-goal    |                                                      |
+| Growth   | In-app ratings prompt                                             | Won't do    | never ask a user to rate                             |
+| Growth   | keiver.dev comparison page                                        | Deferred    | not until the app is more solid and tested           |
+| Growth   | Jellyfin.org client listing                                       | Won't do    |                                                      |
 
 ## Open releases
 
@@ -164,12 +164,8 @@ Numbered by what each one is, not by when. Pull from any of them.
 
 ### 3.0.0 "Together"
 
-- **SyncPlay**: watch together across devices through Jellyfin's own
-  SyncPlay groups (built into every server, nothing extra to run). The
-  largest open ask on Swiftfin (23, plus 28 for SharePlay wanting the same
-  experience) and no Apple client does it well. SharePlay on top of the
-  presented AVPlayer is the Apple-native face of the same feature; scope it
-  after SyncPlay works.
+- **SharePlay**: Apple-native watch-together remains open. Jellyfin
+  SyncPlay shipped in 2.2.5 for video.
 - **Multiserver View** (added 2026-08-28): Home, Search and the shelves read
   from every saved server at once instead of the active one. The account
   store already holds every server and sign-in; the session is what is
