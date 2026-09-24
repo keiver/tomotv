@@ -89,13 +89,13 @@ async function main() {
     });
     fail(
       [
-        `RELEASE NOTES MISSING for ${version} — nothing was uploaded.`,
+        CHECK ? `RELEASE NOTES MISSING for ${version}. Nothing was built or uploaded.` : `RELEASE NOTES MISSING for ${version} — nothing was uploaded.`,
         ``,
         `  app.json is on ${version}, but ${DOC}`,
         `  has no "What's New" for it. Notes exist for: ${have.join(", ") || "no versions"}.`,
         ``,
         `  Add a block for each (heading, then a \`\`\`text ... \`\`\` fence), then re-run`,
-        `  npm run meta:upload:`,
+        CHECK ? `  npm run archive (with --notes, only the en-US blocks are needed):` : `  npm run meta:upload:`,
         ``,
         ...rows,
       ].join("\n"),

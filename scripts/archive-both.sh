@@ -191,11 +191,13 @@ fi
 # The listing text is checked before the build, not after the uploads it would follow.
 # --notes translates the other languages later, so only the English has to exist yet.
 if [[ $UPLOAD -eq 1 ]]; then
+  echo "Checking the release notes and listing text before building"
   if [[ $NOTES -eq 1 ]]; then
     node scripts/appstore-upload-meta.mjs --check --locale en-US
   else
     node scripts/appstore-upload-meta.mjs --check
   fi
+  echo ""
 fi
 
 VERSION=$(node -p "require('./app.json').expo.version")
@@ -333,25 +335,27 @@ build_platform() {
 
 # ---------------------------------------------------------------- pipeline
 
-echo "[1/4] Stamping build number $BUILD_NUMBER into app.json"
+STEPS=$([[ $UPLOAD -eq 1 ]] && echo 7 || echo 4)
+
+echo "[1/$STEPS] Stamping build number $BUILD_NUMBER into app.json"
 node -e 'const fs=require("fs");const n=process.argv[1];const s=fs.readFileSync("app.json","utf8");const out=s.replace(/("buildNumber":\s*")[^"]*(")/,"$1"+n+"$2");if(!out.includes(`"buildNumber": "${n}"`))throw new Error("buildNumber not stamped in app.json");fs.writeFileSync("app.json",out);' "$BUILD_NUMBER"
 
 # Never deletes package-lock.json: without it npm resolves the newest version in
 # every range and ships dependencies nobody tested.
 if [[ $NUKE_NODE_MODULES -eq 1 ]]; then
-  echo "[2/4] Reinstall node_modules from scratch (npm ci)"
+  echo "[2/$STEPS] Reinstall node_modules from scratch (npm ci)"
   rm -rf .expo node_modules
   run_logged "npm-install.log" npm ci
 else
-  echo "[2/4] Install (npm i, lockfile versions)"
+  echo "[2/$STEPS] Install (npm i, lockfile versions)"
   run_logged "npm-install.log" npm i
 fi
 echo ""
 
-echo "[3/4] iOS"
+echo "[3/$STEPS] iOS"
 build_platform iOS "generic/platform=iOS" ios iphoneos 0 scripts/exportOptions-ios.plist
 
-echo "[4/4] tvOS"
+echo "[4/$STEPS] tvOS"
 build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/exportOptions-tvos.plist
 
 # ---------------------------------------------------------------- summary
@@ -367,7 +371,7 @@ build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/export
 # unreliable on some screens, so the captures are taken by hand and this step
 # only composes and uploads them.
 if [[ $UPLOAD -eq 1 ]]; then
-  echo "[5/6] Screenshots"
+  echo "[5/$STEPS] Screenshots"
   npm run shots || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
   # --create-version: the binary for this version just went up, so opening its
   # draft to hang the shots on is intended, not the silent open the flag guards.
@@ -388,9 +392,13 @@ if [[ $UPLOAD -eq 1 ]]; then
 
   # A language with screenshots and no description cannot be submitted, so the
   # text goes up in the same run as the pictures.
-  echo "[6/6] Listing text"
+  echo "[6/$STEPS] Listing text"
   npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
   RESULTS+=("listing text | uploaded, every store language, both platforms")
+
+  echo "[7/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
+  node scripts/appstore-attach-build.mjs "$BUILD_NUMBER" || { echo "Selecting the build failed; everything is uploaded, pick build $BUILD_NUMBER in App Store Connect." >&2; exit 1; }
+  RESULTS+=("build $BUILD_NUMBER | selected on both $VERSION versions")
 fi
 
 echo "Done. TomoTV $VERSION ($BUILD_NUMBER)"
