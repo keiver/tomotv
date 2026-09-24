@@ -98,6 +98,28 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
+### What's New (2.2.8), iOS (437 / 4000)
+
+```text
+- Audio and subtitle choices are saved to your Jellyfin account, so every device uses them
+- Live TV on iPhone: drag the new glass knob to resize the channel column
+- A refreshed app icon
+- Audio and subtitle picks no longer reset when you return to the app
+- Subtitles no longer turn off when a file labels its language differently
+- On iPad, screens no longer sit under the tab bar
+- The Live TV guide's now line matches the hour marks
+```
+
+### What's New (2.2.8), tvOS (341 / 4000)
+
+```text
+- Audio and subtitle choices are saved to your Jellyfin account, so every device uses them
+- Cleaner server list, SyncPlay and sign-in screens
+- Audio and subtitle picks no longer reset when you return to the app
+- Subtitles no longer turn off when a file labels its language differently
+- The Live TV guide's now line matches the hour marks
+```
+
 ### What's New (2.2.7), iOS (961 / 4000)
 
 ```text
@@ -317,6 +339,28 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.8), iOS (517 / 4000 chars)
+
+```text
+- Audio- und Untertitelwahl werden in deinem Jellyfin-Konto gespeichert und gelten auf jedem Gerät
+- Live-TV auf dem iPhone: Zieh den neuen Glasregler, um die Senderspalte anzupassen
+- Ein überarbeitetes App-Symbol
+- Gewählte Tonspur und Untertitel bleiben erhalten, wenn du zur App zurückkehrst
+- Untertitel schalten sich nicht mehr ab, wenn eine Datei die Sprache anders bezeichnet
+- Auf dem iPad liegen die Bildschirme nicht mehr unter der Tab-Leiste
+- Die Jetzt-Linie im Fernsehprogramm passt zu den Stundenmarken
+```
+
+#### What's New (2.2.8), tvOS (397 / 4000 chars)
+
+```text
+- Audio- und Untertitelwahl werden in deinem Jellyfin-Konto gespeichert und gelten auf jedem Gerät
+- Aufgeräumte Bildschirme für Serverliste, SyncPlay und Anmeldung
+- Gewählte Tonspur und Untertitel bleiben erhalten, wenn du zur App zurückkehrst
+- Untertitel schalten sich nicht mehr ab, wenn eine Datei die Sprache anders bezeichnet
+- Die Jetzt-Linie im Fernsehprogramm passt zu den Stundenmarken
+```
+
 #### What's New (2.2.7), iOS (1155 / 4000 chars)
 
 ```text
@@ -470,6 +514,28 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.8), iOS (583 / 4000 chars)
+
+```text
+- Vos choix d'audio et de sous-titres sont enregistrés dans votre compte Jellyfin et s'appliquent sur tous vos appareils
+- TV en direct sur iPhone : faites glisser le nouveau curseur en verre pour redimensionner la colonne des chaînes
+- Une icône d'app rafraîchie
+- La piste audio et les sous-titres choisis ne changent plus quand vous revenez dans l'app
+- Les sous-titres ne se désactivent plus quand un fichier nomme la langue autrement
+- Sur iPad, les écrans ne passent plus sous la barre d'onglets
+- La ligne « maintenant » du guide TV en direct s'aligne sur les repères horaires
+```
+
+#### What's New (2.2.8), tvOS (434 / 4000 chars)
+
+```text
+- Vos choix d'audio et de sous-titres sont enregistrés dans votre compte Jellyfin et s'appliquent sur tous vos appareils
+- Liste des serveurs, SyncPlay et connexion plus soignés
+- La piste audio et les sous-titres choisis ne changent plus quand vous revenez dans l'app
+- Les sous-titres ne se désactivent plus quand un fichier nomme la langue autrement
+- La ligne « maintenant » du guide TV en direct s'aligne sur les repères horaires
+```
+
 #### What's New (2.2.7), iOS (1213 / 4000 chars)
 
 ```text
@@ -621,6 +687,28 @@ PRIVACIDAD
 Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenciales se quedan en el llavero del dispositivo, y el vídeo va directo de tu servidor a tu dispositivo.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.8), iOS (554 / 4000 chars)
+
+```text
+- Tus opciones de audio y subtítulos se guardan en tu cuenta de Jellyfin y se usan en todos tus dispositivos
+- TV en vivo en iPhone: arrastra el nuevo control de cristal para cambiar el ancho de la columna de canales
+- Un icono de la app renovado
+- La pista de audio y los subtítulos elegidos ya no cambian al volver a la app
+- Los subtítulos ya no se desactivan cuando un archivo nombra el idioma de otra forma
+- En iPad, las pantallas ya no quedan bajo la barra de pestañas
+- La línea de «ahora» de la guía de TV en vivo coincide con las marcas de hora
+```
+
+#### What's New (2.2.8), tvOS (436 / 4000 chars)
+
+```text
+- Tus opciones de audio y subtítulos se guardan en tu cuenta de Jellyfin y se usan en todos tus dispositivos
+- Pantallas más limpias para la lista de servidores, SyncPlay y el inicio de sesión
+- La pista de audio y los subtítulos elegidos ya no cambian al volver a la app
+- Los subtítulos ya no se desactivan cuando un archivo nombra el idioma de otra forma
+- La línea de «ahora» de la guía de TV en vivo coincide con las marcas de hora
 ```
 
 #### What's New (2.2.7), iOS (1207 / 4000 chars)
