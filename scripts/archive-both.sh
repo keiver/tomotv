@@ -10,7 +10,7 @@
 #                                               #  store language)
 #   npm run archive -- <buildNumber> --upload --notes
 #                                               # and translate missing release notes first
-#   --clean                                     # any mode: wipe node_modules and `npm ci`
+#   --nuke-node-modules                         # any mode: wipe node_modules and `npm ci`
 #                                               # (default `npm i` keeps the tested tree;
 #                                               #  the lockfile is never deleted)
 #
@@ -48,18 +48,18 @@ cd "$(dirname "$0")/.."
 BUILD_NUMBER="${1:-}"
 UPLOAD=0
 NOTES=0
-CLEAN=0
+NUKE_NODE_MODULES=0
 for arg in "${@:2}"; do
   case "$arg" in
     --upload) UPLOAD=1 ;;
     --notes) NOTES=1 ;;
-    --clean) CLEAN=1 ;;
+    --nuke-node-modules) NUKE_NODE_MODULES=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
 if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes]] [--clean]" >&2
+  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes]] [--nuke-node-modules]" >&2
   echo "Build number must be a positive integer (check the last one in App Store Connect)." >&2
   exit 1
 fi
@@ -313,8 +313,8 @@ node -e 'const fs=require("fs");const n=process.argv[1];const s=fs.readFileSync(
 
 # Never deletes package-lock.json: without it npm resolves the newest version in
 # every range and ships dependencies nobody tested.
-if [[ $CLEAN -eq 1 ]]; then
-  echo "[2/4] Clean install (npm ci)"
+if [[ $NUKE_NODE_MODULES -eq 1 ]]; then
+  echo "[2/4] Reinstall node_modules from scratch (npm ci)"
   rm -rf .expo node_modules
   run_logged "npm-install.log" npm ci
 else
