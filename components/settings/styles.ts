@@ -153,7 +153,7 @@ export const settingsStyles = StyleSheet.create({
   scrollContent: {
     // Matches the Search/Library title offset (the ScrollView's automatic inset adjustment
     // supplies the safe-area part); iPad adds room for the floating top tab bar.
-    paddingTop: pick(4, 30, 8),
+    paddingTop: pick(4, 20, 8),
     paddingBottom: Platform.isTV ? 60 : 40,
     alignItems: "center",
   },

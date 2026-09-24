@@ -127,7 +127,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
   // by the bar height creates a phantom band of scrollable space below the last shelf.
   const scrollContentStyle = useMemo(
     () => ({
-      paddingTop: (IS_TV ? 20 : isTablet ? 30 : 8) + insets.top,
+      paddingTop: (IS_TV || isTablet ? 20 : 8) + insets.top,
       paddingBottom: (IS_TV || isTablet ? 40 : TAB_BAR_HEIGHT + 20) + insets.bottom,
       paddingLeft: gridEdgePadding(insets.left, IS_TV),
       paddingRight: gridEdgePadding(insets.right, IS_TV),

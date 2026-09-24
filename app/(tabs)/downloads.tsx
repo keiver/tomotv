@@ -319,7 +319,7 @@ export default function DownloadsScreen() {
 
       {/* The list is the screen's own scroller. A virtualised list inside a ScrollView of the
           same axis is a dev error and keeps every row mounted, which is the whole point of it. */}
-      <View style={[screenStyles.page, { paddingTop: insets.top + (Platform.isTV ? 4 : IS_PAD ? 30 : 8) }]}>
+      <View style={[screenStyles.page, { paddingTop: insets.top + (Platform.isTV ? 4 : IS_PAD ? 20 : 8) }]}>
         <View style={[styles.contentContainer, screenStyles.column]}>
           {!Platform.isTV && (
             <Text style={styles.screenTitle} accessibilityRole="header">

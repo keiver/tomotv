@@ -56,7 +56,7 @@ const SearchHeader = React.memo(
     // Horizontal padding is the shared contentContainer's job, so the field lands on the column the
     // Settings cards and the connect form use; the phone override adds only the safe-area inset.
     return (
-      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + (IS_PAD ? 30 : 8), paddingLeft: insets.left, paddingRight: insets.right }]}>
+      <View style={[styles.searchContainer, !Platform.isTV && { paddingTop: insets.top + (IS_PAD ? 20 : 8), paddingLeft: insets.left, paddingRight: insets.right }]}>
         <View style={settingsStyles.contentContainer}>
           {/* Phone: a real header area above the field: the tab needs a title, not a bare input
               floating under the status bar. TV keeps its top-padded input (title would fight the
