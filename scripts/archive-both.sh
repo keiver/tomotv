@@ -10,6 +10,9 @@
 #                                               #  store language)
 #   npm run archive -- <buildNumber> --upload --notes
 #                                               # and translate missing release notes first
+#   --clean                                     # any mode: wipe node_modules and `npm ci`
+#                                               # (default `npm i` keeps the tested tree;
+#                                               #  the lockfile is never deleted)
 #
 # Per platform: expo prebuild -> xcodebuild archive (lands in Xcode Organizer)
 # -> export signed .ipa -> local verification -> App Store validation
@@ -45,16 +48,18 @@ cd "$(dirname "$0")/.."
 BUILD_NUMBER="${1:-}"
 UPLOAD=0
 NOTES=0
+CLEAN=0
 for arg in "${@:2}"; do
   case "$arg" in
     --upload) UPLOAD=1 ;;
     --notes) NOTES=1 ;;
+    --clean) CLEAN=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
 if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes]]" >&2
+  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes]] [--clean]" >&2
   echo "Build number must be a positive integer (check the last one in App Store Connect)." >&2
   exit 1
 fi
@@ -306,9 +311,16 @@ build_platform() {
 echo "[1/4] Stamping build number $BUILD_NUMBER into app.json"
 node -e 'const fs=require("fs");const n=process.argv[1];const s=fs.readFileSync("app.json","utf8");const out=s.replace(/("buildNumber":\s*")[^"]*(")/,"$1"+n+"$2");if(!out.includes(`"buildNumber": "${n}"`))throw new Error("buildNumber not stamped in app.json");fs.writeFileSync("app.json",out);' "$BUILD_NUMBER"
 
-echo "[2/4] Clean install"
-rm -rf .expo .metro-cache node_modules package-lock.json
-run_logged "npm-install.log" npm i
+# Never deletes package-lock.json: without it npm resolves the newest version in
+# every range and ships dependencies nobody tested.
+if [[ $CLEAN -eq 1 ]]; then
+  echo "[2/4] Clean install (npm ci)"
+  rm -rf .expo node_modules
+  run_logged "npm-install.log" npm ci
+else
+  echo "[2/4] Install (npm i, lockfile versions)"
+  run_logged "npm-install.log" npm i
+fi
 echo ""
 
 echo "[3/4] iOS"
