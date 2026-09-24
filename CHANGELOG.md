@@ -17,6 +17,7 @@ All notable changes to Tomo TV are documented here.
 - The guide's channel column is made of the same video cards as the wall, and programme cells carry a slot line and their artwork
 - Recordings: Filters and the folder header on the Recordings screen, and Show in Folder on a recording opens it there
 - The playing track's card wears the level bars on iPhone and iPad too
+- Recordings with nothing to show say the account may not have access to the Recordings library, and where a server admin grants it
 
 ### Changed
 
@@ -31,6 +32,7 @@ All notable changes to Tomo TV are documented here.
 - Chapter pictures the engine makes are asked for once the picture is playing, and not on a connection measured too thin to carry them beside the stream
 - A channel card titles the programme on air before the channel name, recording cards wear a camera mark, and a card with no artwork wears a glyph for its kind
 - The guide ruler's marks centre on the cell edge, and the cell scrim reaches the cell's edges at rest
+- The photo viewer shows a spinner until a photo draws and opens a small preview first, and photos arrive as WebP, about a fifth of the PNG size
 
 ### Fixed
 
