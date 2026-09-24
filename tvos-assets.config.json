@@ -1,0 +1,9 @@
+{
+  "brandAssets": {
+    "appIconLarge": {
+      "layers": {
+        "back": { "imagePath": "./assets/brand/background-appstore.png" }
+      }
+    }
+  }
+}

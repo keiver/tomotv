@@ -69,10 +69,12 @@
           "background": "./assets/brand/background.png",
           "color": "#F39C12",
           "darkColor": "#1C1C1E",
+          "iosIconScale": 0.68,
           "layers": {
             "front": "./assets/brand/layer-front.svg",
             "middle": "./assets/brand/layer-middle.svg"
-          }
+          },
+          "config": "./tvos-assets.config.json"
         }
       ],
       "./plugins/withTopShelfExtension",
