@@ -149,6 +149,70 @@ describe("writing a pick", () => {
     expect(posts).toHaveLength(0);
   });
 
+  it("keeps a refused pick through the next refresh and a relaunch", async () => {
+    server(serverConfiguration({ AudioLanguagePreference: "eng" }), 403);
+    recordAudioPick("jpn");
+    await settle();
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync().audioLanguage).toBe("jpn");
+    const onDisk = (SecureStore.setItemAsync as jest.Mock).mock.calls.filter(([key]) => key === STORAGE_KEYS.TRACK_SETTINGS).at(-1)?.[1];
+    resetTrackSettingsForTests(true);
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.TRACK_SETTINGS ? onDisk : null));
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync().audioLanguage).toBe("jpn");
+  });
+
+  it("keeps the demo account's pick through the next refresh", async () => {
+    server(serverConfiguration());
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.IS_DEMO_MODE ? "true" : null));
+    recordSubtitlePick({ kind: "off" });
+    await settle();
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync().subtitleMode).toBe("None");
+  });
+
+  it("carries a kept pick into the first write the server accepts", async () => {
+    const refused = server(serverConfiguration(), 403);
+    recordAudioPick("jpn");
+    await settle();
+    expect(refused).toHaveLength(1);
+    const onDisk = (SecureStore.setItemAsync as jest.Mock).mock.calls.filter(([key]) => key === STORAGE_KEYS.TRACK_SETTINGS).at(-1)?.[1];
+    resetTrackSettingsForTests(true);
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.TRACK_SETTINGS ? onDisk : null));
+    await primeTrackSettings();
+    const posts = server(serverConfiguration());
+    recordSubtitlePick({ kind: "off" });
+    await settle();
+    expect(posts).toEqual([serverConfiguration({ AudioLanguagePreference: "jpn", PlayDefaultAudioTrack: false, SubtitleMode: "None" })]);
+    server(serverConfiguration({ AudioLanguagePreference: "spa" }));
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync().audioLanguage).toBe("spa");
+  });
+
+  it("never lets a read that started before a write land over it", async () => {
+    let answerFirstRead: (body: unknown) => void = () => undefined;
+    const posts: Record<string, unknown>[] = [];
+    let reads = 0;
+    fetchMock.mockImplementation((url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(init.body ?? "{}"));
+        return respond(204);
+      }
+      reads += 1;
+      if (reads === 1) return new Promise((resolve) => (answerFirstRead = (body) => resolve({ ok: true, status: 200, json: () => Promise.resolve(body) })));
+      return respond(200, { Configuration: serverConfiguration() });
+    });
+    const refreshing = refreshTrackSettings();
+    await settle();
+    recordAudioPick("jpn");
+    await settle();
+    answerFirstRead({ Configuration: serverConfiguration() });
+    await refreshing;
+    await settle();
+    expect(posts).toHaveLength(1);
+    expect(getTrackSettingsSync().audioLanguage).toBe("jpn");
+  });
+
   it("never writes the shared demo account", async () => {
     const posts = server(serverConfiguration());
     (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.IS_DEMO_MODE ? "true" : null));
@@ -167,6 +231,19 @@ describe("migration", () => {
     await settle();
     expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(STORAGE_KEYS.SUBTITLE_PREFERENCE);
     expect(posts).toEqual([serverConfiguration({ SubtitleMode: "None" })]);
+  });
+
+  it("keeps the old choice for later when the account switches during the migration", async () => {
+    const posts = server(serverConfiguration());
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => {
+      if (key !== STORAGE_KEYS.SUBTITLE_PREFERENCE) return Promise.resolve(null);
+      signIn(BOB);
+      return Promise.resolve("off");
+    });
+    await refreshTrackSettings();
+    await settle();
+    expect(SecureStore.deleteItemAsync).not.toHaveBeenCalled();
+    expect(posts).toHaveLength(0);
   });
 
   it("leaves an account the user already configured alone", async () => {
@@ -194,6 +271,24 @@ describe("Keychain", () => {
     await primeTrackSettings();
     expect(getTrackSettingsSync()).toEqual(JELLYFIN_DEFAULTS);
     await expect(readTrackSettings()).resolves.toMatchObject({ subtitleMode: "None" });
+  });
+
+  it("keeps a refused pick on disk when a new pick lands before the first read", async () => {
+    resetTrackSettingsForTests(true);
+    const kept = { audioLanguage: "jpn", playDefaultAudio: false };
+    const disk = JSON.stringify({ "https://jf.example|alice": { settings: { ...JELLYFIN_DEFAULTS, ...kept }, local: kept } });
+    let land: (raw: string) => void = () => undefined;
+    (SecureStore.getItemAsync as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (land = resolve)));
+    fetchMock.mockRejectedValue(new Error("offline"));
+    const reading = primeTrackSettings();
+    recordSubtitlePick({ kind: "off" });
+    land(disk);
+    await reading;
+    expect(getTrackSettingsSync()).toMatchObject({ audioLanguage: "jpn", subtitleMode: "None" });
+    server(serverConfiguration({ AudioLanguagePreference: "eng" }), 403);
+    await refreshTrackSettings();
+    await settle();
+    expect(getTrackSettingsSync()).toMatchObject({ audioLanguage: "jpn", subtitleMode: "None" });
   });
 
   it("keeps a pick made before the first read landed", async () => {

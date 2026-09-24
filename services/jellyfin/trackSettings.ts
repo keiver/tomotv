@@ -30,8 +30,8 @@ type ServerConfiguration = Record<string, unknown> & {
 };
 
 type Change = Partial<TrackSettings>;
-/** `pending` is a pick the server has not taken yet, pushed before anything is adopted from it. */
-type Entry = { settings: TrackSettings; pending?: Change };
+/** `pending` is a pick the server has not taken yet; `local` one it refused, laid over every read. */
+type Entry = { settings: TrackSettings; pending?: Change; local?: Change };
 type Stored = Record<string, Entry>;
 
 export function fromServer(configuration: ServerConfiguration): TrackSettings {
@@ -89,13 +89,37 @@ function persist(): void {
   });
 }
 
+function saveEntry(account: string, entry: Entry): void {
+  stored = { ...stored, [account]: entry };
+  persist();
+}
+
+/** This device's own picks: the ones the server refused, then the ones not sent yet. */
+function devicePicks(entry: Pick<Entry, "local" | "pending">): Change {
+  return { ...entry.local, ...entry.pending };
+}
+
+/** Settings with this device's own picks laid over them. */
+function withDevicePicks(settings: TrackSettings, entry: Pick<Entry, "local" | "pending">): TrackSettings {
+  return { ...settings, ...devicePicks(entry) };
+}
+
 export function primeTrackSettings(): Promise<void> {
   if (primed) return Promise.resolve();
   if (priming) return priming;
   priming = (async () => {
     try {
       // A pick recorded before the read landed is newer than anything on disk.
-      stored = { ...parse(await SecureStore.getItemAsync(STORAGE_KEYS.TRACK_SETTINGS)), ...stored };
+      const disk = parse(await SecureStore.getItemAsync(STORAGE_KEYS.TRACK_SETTINGS));
+      const merged: Stored = { ...disk, ...stored };
+      for (const [account, entry] of Object.entries(stored)) {
+        const onDisk = disk[account]?.local;
+        if (!onDisk) continue;
+        // Memory's settings are defaults plus its picks; the refused picks on disk still hold under them.
+        const local = { ...onDisk, ...entry.local };
+        merged[account] = { ...entry, local, settings: withDevicePicks(entry.settings, { local, pending: entry.pending }) };
+      }
+      stored = merged;
       primed = true;
       primeFailed = false;
     } catch (error) {
@@ -151,16 +175,18 @@ async function signedIn(): Promise<{ session: Session; account: string } | null>
 function pushPending(account: string): Promise<void> {
   const run = writeChain.then(async () => {
     const signed = await signedIn();
-    const pending = stored[account]?.pending;
+    const entry = stored[account];
+    const pending = entry?.pending;
     if (!signed || signed.account !== account || !pending) return;
     if (localOnly.has(account) || (await SecureStore.getItemAsync(STORAGE_KEYS.IS_DEMO_MODE).catch(() => null))) {
       localOnly.add(account);
-      stored = { ...stored, [account]: { settings: stored[account].settings } };
-      persist();
+      const latest = stored[account];
+      saveEntry(account, { settings: latest.settings, local: devicePicks(latest) });
       return;
     }
     const { session } = signed;
-    const next = toServer(await fetchConfiguration(session), pending);
+    const sent = devicePicks(entry);
+    const next = toServer(await fetchConfiguration(session), sent);
     // The account can switch while the read was in flight; its configuration must not land on another user.
     if ((await signedIn())?.account !== account) return;
     const response = await fetchWithTimeout(
@@ -176,9 +202,9 @@ function pushPending(account: string): Promise<void> {
     }
     // A pick made while this one was posting stays pending for the next push.
     const latest = stored[account];
-    const settings = response.ok ? { ...fromServer(next), ...(latest.pending === pending ? {} : latest.pending) } : latest.settings;
-    stored = { ...stored, [account]: latest.pending === pending ? { settings } : { settings, pending: latest.pending } };
-    persist();
+    const newer = latest.pending === pending ? undefined : latest.pending;
+    if (response.ok) saveEntry(account, { settings: withDevicePicks(fromServer(next), { pending: newer }), pending: newer });
+    else saveEntry(account, { settings: latest.settings, local: devicePicks({ local: latest.local, pending }), pending: newer });
   });
   writeChain = run.catch(() => undefined);
   return run;
@@ -188,8 +214,7 @@ function record(change: Change): void {
   const account = currentAccount();
   if (!account) return;
   const entry = stored[account] ?? { settings: JELLYFIN_DEFAULTS };
-  stored = { ...stored, [account]: { settings: { ...entry.settings, ...change }, pending: { ...entry.pending, ...change } } };
-  persist();
+  saveEntry(account, { ...entry, settings: { ...entry.settings, ...change }, pending: { ...entry.pending, ...change } });
   pushPending(account).catch((error) => logger.warn("Could not sync the track settings, retrying on the next refresh", { service: "TrackSettings", error }));
 }
 
@@ -205,10 +230,9 @@ export function recordSubtitlePick(pick: { kind: "off" } | { kind: "language"; t
 /** The device-wide subtitle choice from before settings synced, handed to the first untouched account once. */
 async function migrateLegacySubtitle(account: string, settings: TrackSettings): Promise<void> {
   const legacy = await SecureStore.getItemAsync(STORAGE_KEYS.SUBTITLE_PREFERENCE).catch(() => null);
-  if (!legacy) return;
+  if (!legacy || currentAccount() !== account) return;
+  if (settings.subtitleMode === "Default" && !settings.subtitleLanguage) recordSubtitlePick(legacy === "off" ? { kind: "off" } : { kind: "language", tag: legacy });
   await SecureStore.deleteItemAsync(STORAGE_KEYS.SUBTITLE_PREFERENCE).catch(() => undefined);
-  if (settings.subtitleMode !== "Default" || settings.subtitleLanguage || currentAccount() !== account) return;
-  recordSubtitlePick(legacy === "off" ? { kind: "off" } : { kind: "language", tag: legacy });
 }
 
 async function runRefresh(): Promise<void> {
@@ -221,12 +245,18 @@ async function runRefresh(): Promise<void> {
       await pushPending(account);
       return;
     }
-    const settings = fromServer(await fetchConfiguration(session));
-    // A pick made during the read wins over what the read returned.
-    if (stored[account]?.pending || (await signedIn())?.account !== account) return;
-    stored = { ...stored, [account]: { settings } };
-    persist();
-    await migrateLegacySubtitle(account, settings);
+    // On the write chain, so a read never lands after a write that started later.
+    const read = writeChain.then(async () => {
+      const settings = fromServer(await fetchConfiguration(session));
+      // A pick made during the read wins over what the read returned.
+      if (stored[account]?.pending || (await signedIn())?.account !== account) return null;
+      const local = stored[account]?.local;
+      saveEntry(account, { settings: withDevicePicks(settings, { local }), local });
+      return settings;
+    });
+    writeChain = read.catch(() => undefined);
+    const settings = await read;
+    if (settings) await migrateLegacySubtitle(account, settings);
   } catch (error) {
     logger.warn("Could not refresh the track settings, using the last known ones", { service: "TrackSettings", error });
   }
