@@ -175,6 +175,15 @@ export function canonicalLanguage(tag: string): string {
   return TWO_LETTER[terminologic] ?? terminologic;
 }
 
+/** ISO 639-2 codes that name no language, plus Jellyfin's "Unknown". */
+const NOT_A_LANGUAGE = new Set(["und", "unknown", "mul", "mis", "zxx"]);
+
+/** The canonical language a tag names, or null when it names none. */
+export function knownLanguage(tag: string | null | undefined): string | null {
+  const canonical = canonicalLanguage(tag ?? "");
+  return canonical && !NOT_A_LANGUAGE.has(canonical) ? canonical : null;
+}
+
 /** The reported spelling of this language, whichever each side used, or null when none carries it. */
 export function reportedSpelling(tag: string, reported: string[]): string | null {
   const wanted = canonicalLanguage(tag);
@@ -239,12 +248,10 @@ export function nextPreference(args: { observed: ObservedSubtitle; previous: Sub
  */
 export function subtitlePreferenceFrom(settings: TrackSettings, playingAudioLanguage?: string | null): SubtitlePreference {
   const tag = settings.subtitleLanguage;
-  // "und" is ISO 639's undetermined, the engine's label for a stream with no language.
-  const audio = playingAudioLanguage ? canonicalLanguage(playingAudioLanguage) : "";
-  const audioKnown = audio !== "" && audio !== "und";
+  const audio = knownLanguage(playingAudioLanguage);
   if (settings.subtitleMode === "None") return { kind: "off" };
   if (settings.subtitleMode === "Always" && tag) return { kind: "language", tag };
-  if (settings.subtitleMode === "Smart" && tag && audioKnown && audio !== canonicalLanguage(tag)) return { kind: "language", tag };
+  if (settings.subtitleMode === "Smart" && tag && audio && audio !== canonicalLanguage(tag)) return { kind: "language", tag };
   return SYSTEM;
 }
 

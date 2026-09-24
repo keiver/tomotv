@@ -3,17 +3,13 @@
  * Language is the key because an index means nothing on the next item.
  */
 import { getTrackSettingsSync, readTrackSettings, recordAudioPick, type TrackSettings } from "@/services/jellyfin/trackSettings";
-import { canonicalLanguage } from "@/services/subtitlePreference";
+import { canonicalLanguage, knownLanguage } from "@/services/subtitlePreference";
 
 type AudioStream = { Index: number; Language: string; IsDefault?: boolean };
 
-/** ISO 639-2 codes that name no language, plus Jellyfin's "Unknown". */
-const NOT_A_LANGUAGE = new Set(["und", "unknown", "mul", "mis", "zxx"]);
-
 /** One spelling of a language worth storing, or null for a tag no other item could match. */
 export function audioLanguageToStore(tag: string | null | undefined): string | null {
-  const canonical = canonicalLanguage(tag ?? "");
-  return canonical && !NOT_A_LANGUAGE.has(canonical) ? canonical : null;
+  return knownLanguage(tag);
 }
 
 /** The stream carrying the stored language, the file's default among several, else the first. */

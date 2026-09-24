@@ -202,6 +202,7 @@ jest.mock("@/services/audioPreference", () => ({
 
 jest.mock("@/services/subtitlePreference", () => ({
   canonicalLanguage: jest.requireActual("@/services/subtitlePreference").canonicalLanguage,
+  knownLanguage: jest.requireActual("@/services/subtitlePreference").knownLanguage,
   reportedSpelling: jest.requireActual("@/services/subtitlePreference").reportedSpelling,
   getSubtitlePreferenceSync: jest.fn(() => ({ kind: "system" })),
   nextPreference: jest.fn((p: unknown) => p),
