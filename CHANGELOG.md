@@ -2,6 +2,25 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.8]
+
+### Added
+
+- The audio language and subtitle choice picked during playback are remembered in the account's own Jellyfin Playback settings, so the next item opens on them and every device signed in as that user follows them, other Jellyfin clients included. Choices made in Jellyfin's settings are followed too, Smart subtitles among them. A pick made offline syncs on the next item; the demo account, and a server that refuses the change, keep it on the device
+- Live TV on iPhone: the column's resize handle is a glass knob that slides along the seam, and the day cell above the channel column drags the column too
+
+### Changed
+
+- The iPhone and iPad app icon draws the brand mark smaller on its tile, and the Apple TV App Store icon sits on the splash screen's dark
+
+### Fixed
+
+- An audio track or subtitle picked mid-item no longer reverts when the app returns to the foreground
+- A remembered subtitle language no longer turns subtitles off on a file that spells it differently ("en" in an MP4, "eng" in a stream)
+- On iPad, Home, Search, Downloads and Settings clear the floating tab bar at the top
+- On Apple TV, the server list and SyncPlay keep the tab screens' header position, and the sign-in form narrows to a form's width with Back as wide as Sign In
+- The Live TV guide's now edge stands as tall as the ruler's hour marks
+
 ## [2.2.7]
 
 ### Added
