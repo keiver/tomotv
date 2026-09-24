@@ -2,7 +2,7 @@
  * Mapping AVPlayer's positional audio indices onto Jellyfin stream indices, and what a
  * track report means. Drives the real orderAudioTracks/planAudioReport.
  */
-import { isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack, type AudioReportInput } from "../videoPlayback/audioTracks";
+import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack, type AudioReportInput } from "../videoPlayback/audioTracks";
 
 const report = (overrides: Partial<AudioReportInput> = {}): AudioReportInput => ({
   tracks: [],
@@ -12,6 +12,7 @@ const report = (overrides: Partial<AudioReportInput> = {}): AudioReportInput => 
   freshManifest: false,
   stablePlayback: true,
   seamless: false,
+  preferredLanguage: null,
   ...overrides,
 });
 
@@ -139,5 +140,58 @@ describe("serverLaneCarriesEveryTrack", () => {
     expect(serverLaneCarriesEveryTrack({ ...lane, hdrSource: true })).toBe(false);
     expect(serverLaneCarriesEveryTrack({ ...lane, loaderAvailable: false })).toBe(false);
     expect(serverLaneCarriesEveryTrack({ ...lane, multiTrack: false })).toBe(false);
+  });
+});
+
+describe("remembered audio language", () => {
+  // Direct play has no mapping: AVFoundation's own tags are all there is ("en", "ja" in an MP4).
+  const mp4 = [
+    { index: 0, selected: true, language: "en" },
+    { index: 1, selected: false, language: "ja" },
+  ];
+
+  it("selects the remembered language by the report's tags on direct play's first report", () => {
+    expect(planAudioReport(report({ tracks: mp4, freshManifest: true, stablePlayback: false, preferredLanguage: "ja" })).reapplyPosition).toBe(1);
+  });
+
+  it("does nothing on direct play when the item lacks the language or it is already playing", () => {
+    expect(planAudioReport(report({ tracks: mp4, freshManifest: true, preferredLanguage: "fr" })).reapplyPosition).toBeNull();
+    expect(planAudioReport(report({ tracks: mp4, freshManifest: true, preferredLanguage: "en" })).reapplyPosition).toBeNull();
+  });
+
+  it("leaves a later report alone, which is the viewer moving", () => {
+    expect(planAudioReport(report({ tracks: mp4, freshManifest: false, lastSelectedIndex: 0, preferredLanguage: "ja" })).reapplyPosition).toBeNull();
+  });
+
+  it("goes by the mapping, not the language, where a mapping exists", () => {
+    const engine = [
+      { index: 0, selected: true, language: "eng" },
+      { index: 1, selected: false, language: "jpn" },
+    ];
+    expect(planAudioReport(report({ tracks: engine, mapping: [1, 2], freshManifest: true, preferredLanguage: "ja" })).reapplyPosition).toBeNull();
+  });
+
+  it("names the position the viewer moved to during stable playback", () => {
+    const moved = [track(0), track(1, true)];
+    expect(planAudioReport(report({ tracks: moved, mapping: [1, 2], lastSelectedIndex: 0, seamless: true })).viewerChosePosition).toBe(1);
+    expect(planAudioReport(report({ tracks: moved, mapping: [1, 2], lastSelectedIndex: 0 })).viewerChosePosition).toBe(1);
+    expect(planAudioReport(report({ tracks: moved, lastSelectedIndex: 0 })).viewerChosePosition).toBe(1);
+  });
+
+  it("names nothing for the player's own selection", () => {
+    const moved = [track(0), track(1, true)];
+    expect(planAudioReport(report({ tracks: moved, mapping: [1, 2], lastSelectedIndex: 0, stablePlayback: false, seamless: true })).viewerChosePosition).toBeNull();
+    expect(planAudioReport(report({ tracks: moved, mapping: [1, 2], lastSelectedIndex: 0, freshManifest: true, seamless: true })).viewerChosePosition).toBeNull();
+    expect(planAudioReport(report({ tracks: moved, mapping: [1, 2], lastSelectedIndex: 1, seamless: true })).viewerChosePosition).toBeNull();
+  });
+
+  it("reads the chosen language from Jellyfin where mapped, else from the report", () => {
+    const streams = [
+      { Index: 1, Language: "eng" },
+      { Index: 2, Language: "jpn" },
+    ];
+    expect(chosenAudioLanguage({ position: 0, mapping: [2, 1], streams, reported: [] })).toBe("jpn");
+    expect(chosenAudioLanguage({ position: 1, mapping: [], streams, reported: [{ index: 1, language: "ja" }] })).toBe("ja");
+    expect(chosenAudioLanguage({ position: 5, mapping: [], streams, reported: [] })).toBeNull();
   });
 });

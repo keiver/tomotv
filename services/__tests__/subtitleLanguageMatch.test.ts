@@ -6,7 +6,7 @@
  * viewer's preference and leaves subtitles off on a file that carries their language.
  */
 
-import { canonicalLanguage, languageAvailable } from "@/services/subtitlePreference";
+import { canonicalLanguage, reportedSpelling } from "@/services/subtitlePreference";
 
 describe("canonicalLanguage", () => {
   it("folds the three spellings of one language together", () => {
@@ -34,26 +34,26 @@ describe("canonicalLanguage", () => {
   });
 });
 
-describe("languageAvailable", () => {
+describe("reportedSpelling", () => {
   // Exactly what the device reported for Sintel after the repackage.
   const reported = ["ger", "ger", "en", "en", "es", "es", "fre", "fre", "it", "it", "dut", "dut", "pl", "pl", "pt", "pt", "ru", "ru", "vi", "vi", "es-US", "ja-JP"];
 
   it("finds the language an exact compare missed", () => {
     expect(reported.includes("fra")).toBe(false);
-    expect(languageAvailable("fra", reported)).toBe(true);
+    expect(reportedSpelling("fra", reported)).toBe("fre");
   });
 
   it("finds the other two Sintel carries in a different spelling", () => {
-    expect(languageAvailable("deu", reported)).toBe(true);
-    expect(languageAvailable("nld", reported)).toBe(true);
+    expect(reportedSpelling("deu", reported)).toBe("ger");
+    expect(reportedSpelling("nld", reported)).toBe("dut");
   });
 
   it("still says no to a language the item does not carry", () => {
-    expect(languageAvailable("kor", reported)).toBe(false);
-    expect(languageAvailable("", reported)).toBe(false);
+    expect(reportedSpelling("kor", reported)).toBeNull();
+    expect(reportedSpelling("", reported)).toBeNull();
   });
 
   it("matches a plain code against a regional one", () => {
-    expect(languageAvailable("jpn", reported)).toBe(true);
+    expect(reportedSpelling("jpn", reported)).toBe("ja-JP");
   });
 });

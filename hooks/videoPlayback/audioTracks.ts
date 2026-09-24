@@ -1,3 +1,5 @@
+import { canonicalLanguage } from "@/services/subtitlePreference";
+
 /**
  * Mapping AVPlayer's positional audio indices onto Jellyfin stream indices, and deciding
  * what a track report means. Structural input types on purpose: nothing here needs the
@@ -6,8 +8,8 @@
 
 /** A Jellyfin audio stream, as getAudioTracks() returns it. */
 type AudioStream = { Index: number };
-/** One row of the player's report. */
-type ReportedTrack = { index: number; selected?: boolean };
+/** One row of the player's report; `language` is AVFoundation's extendedLanguageTag. */
+type ReportedTrack = { index: number; selected?: boolean; language?: string };
 
 /**
  * The order the native side was handed: default-first, except a local remux carrying a
@@ -48,6 +50,8 @@ export interface AudioReportInput {
   stablePlayback: boolean;
   /** Multi-audio protocol or the engine: every track is a rendition, so AVPlayer already switched. */
   seamless: boolean;
+  /** The remembered language, selected by the report's own tags where no mapping exists (direct play). */
+  preferredLanguage: string | null;
 }
 
 export interface AudioReportPlan {
@@ -61,9 +65,11 @@ export interface AudioReportPlan {
   setLastSelectedIndex: number | null;
   /** The report named a position the mapping does not cover. */
   unmapped: boolean;
+  /** Position the viewer moved to during stable playback: the only selection worth remembering. */
+  viewerChosePosition: number | null;
 }
 
-const NOTHING: AudioReportPlan = { reapplyPosition: null, restartStreamIndex: null, recordStreamIndex: null, setLastSelectedIndex: null, unmapped: false };
+const NOTHING: AudioReportPlan = { reapplyPosition: null, restartStreamIndex: null, recordStreamIndex: null, setLastSelectedIndex: null, unmapped: false, viewerChosePosition: null };
 
 /** Whether a report is the first to describe its stream. An empty one names no track, so it leaves the stream fresh. */
 export function isFreshManifestReport(trackCount: number, reportedGeneration: number, streamGeneration: number): boolean {
@@ -77,8 +83,9 @@ export function planAudioReport(input: AudioReportInput): AudioReportPlan {
   // viewer's track be re-applied. Any later report IS the viewer moving, and re-applying there
   // would push them back to the previous track.
   let reapplyPosition: number | null = null;
-  if (input.freshManifest && input.viewerPickedStreamIndex !== null && input.tracks.length > 1) {
-    const position = input.mapping.indexOf(input.viewerPickedStreamIndex);
+  if (input.freshManifest && input.tracks.length > 1) {
+    const position =
+      input.mapping.length > 0 ? (input.viewerPickedStreamIndex === null ? -1 : input.mapping.indexOf(input.viewerPickedStreamIndex)) : reportedPosition(input.tracks, input.preferredLanguage);
     if (position >= 0 && selectedPosition !== position) reapplyPosition = position;
   }
 
@@ -92,12 +99,13 @@ export function planAudioReport(input: AudioReportInput): AudioReportPlan {
   const previous = input.freshManifest ? null : input.lastSelectedIndex;
   const moved = previous !== null && previous !== selectedPosition;
   const streamIndex = input.mapping[selectedPosition];
+  const viewerChosePosition = moved && input.stablePlayback ? selectedPosition : null;
 
   // Only the plain Jellyfin transcode carries one audio track per manifest, so only it needs
   // the restart with AudioStreamIndex.
   if (moved && input.stablePlayback && !input.seamless) {
-    if (streamIndex !== undefined) return { ...NOTHING, reapplyPosition, restartStreamIndex: streamIndex };
-    return { ...NOTHING, reapplyPosition, unmapped: true, setLastSelectedIndex: nextLastSelected(input, selectedPosition) };
+    if (streamIndex !== undefined) return { ...NOTHING, reapplyPosition, restartStreamIndex: streamIndex, viewerChosePosition };
+    return { ...NOTHING, reapplyPosition, unmapped: true, setLastSelectedIndex: nextLastSelected(input, selectedPosition), viewerChosePosition };
   }
 
   return {
@@ -105,7 +113,22 @@ export function planAudioReport(input: AudioReportInput): AudioReportPlan {
     reapplyPosition,
     recordStreamIndex: moved && input.seamless && streamIndex !== undefined ? streamIndex : null,
     setLastSelectedIndex: nextLastSelected(input, selectedPosition),
+    viewerChosePosition,
   };
+}
+
+/** Position of the first reported track in this language, or -1. */
+function reportedPosition(tracks: ReportedTrack[], language: string | null): number {
+  const wanted = canonicalLanguage(language ?? "");
+  if (!wanted || wanted === "und") return -1;
+  return tracks.find((track) => canonicalLanguage(track.language ?? "") === wanted)?.index ?? -1;
+}
+
+/** The language of a chosen position: Jellyfin's tag where the mapping names the stream, else the report's. */
+export function chosenAudioLanguage(input: { position: number; mapping: number[]; streams: { Index: number; Language: string }[]; reported: ReportedTrack[] }): string | null {
+  const streamIndex = input.mapping[input.position];
+  if (streamIndex !== undefined) return input.streams.find((stream) => stream.Index === streamIndex)?.Language ?? null;
+  return input.reported.find((track) => track.index === input.position)?.language ?? null;
 }
 
 /** Left alone during a restart, where the ref parks the Jellyfin index instead of a position. */

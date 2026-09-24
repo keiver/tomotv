@@ -73,11 +73,14 @@ import {
   getSubtitlePreferenceSync,
   nextPreference,
   observedFromReport,
+  reportedSpelling,
   saveSubtitlePreference,
   selectedTextTrackFor,
   type ObservedSubtitle,
   type SubtitlePreference,
 } from "@/services/subtitlePreference";
+import { audioLanguageToStore, getAudioPreferenceSync, preferredAudioStreamIndex, readAudioPreference, saveAudioPreference } from "@/services/audioPreference";
+import { refreshTrackSettings } from "@/services/jellyfin/trackSettings";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { gatewayMaxBitRate } from "@/services/adaptiveQuality";
@@ -88,7 +91,7 @@ import { videoPlayerReducer, type PlaybackMode, type PlaybackTransport, type Vid
 import { automaticRetryDelay, planErrorRecovery, planLiveErrorRecovery, shouldAutomaticallyRetry } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
-import { isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
+import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
 import { classifyObservedChoice, planSubtitleApplication, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
 import {
@@ -437,6 +440,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // reads this rather than closing over one report, so a burst of reports only
   // ever persists the value it came to rest on.
   const lastObservedSubtitleRef = useRef<ObservedSubtitle | null>(null);
+  // Its ordinal in the report, null when not exactly one track reads selected.
+  const lastObservedOrdinalRef = useRef<number | null>(null);
+  const lastObservedKeyRef = useRef<string | null>(null);
   const subtitleCaptureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Whether the stored choice has already been applied to this item.
   const subtitlesAppliedForItemRef = useRef(false);
@@ -520,6 +526,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // One player at a time: starting any video ends background music. No-op
     // when the audio queue is idle (covers mid-item restarts too).
     void audioPlayerManager.stop();
+    // Another device may have changed the account's audio or subtitle choice; the stream build waits briefly for it.
+    void refreshTrackSettings();
 
     // The channel this attempt opened: a failure before playback takes it closes it again.
     let openedLiveStreamId: string | null = null;
@@ -900,6 +908,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // A new server session orphans the group's view of us; tell it we are buffering
         // until the fresh stream reports ready, so the group waits rather than plays on.
         syncPlayManager.noteStreamRebuild();
+        // The remembered language opens the item as a pick would; nothing matching leaves AVPlayer's own selection.
+        if (viewerPickedAudioRef.current === null && audioStreamIndexForReportingRef.current === null && !isLiveRef.current && !isAudioOnly(details)) {
+          // Awaited: the Keychain read on a cold launch, and briefly the refresh fetchMetadata started.
+          const language = await readAudioPreference();
+          if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
+          const remembered = preferredAudioStreamIndex(getAudioTracks(details), language);
+          if (remembered !== null && viewerPickedAudioRef.current === null) {
+            viewerPickedAudioRef.current = remembered;
+            audioStreamIndexForReportingRef.current = remembered;
+            logger.info("🎵 Opening on the remembered audio language", { service: "useVideoPlayback", language, jellyfinStreamIndex: remembered });
+          }
+        }
 
         // Empty until a lane builds it; the guard below the branch is what catches a lane that did not.
         let url = "";
@@ -1473,6 +1493,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         isUsingMultiAudioRef.current = preparedMultiAudio;
         audioTrackMappingRef.current = preparedMapping;
         if (audioStreamIndexForReportingRef.current === null) audioStreamIndexForReportingRef.current = preparedMapping[0] ?? null;
+        // Held for the whole stream: RNV re-applies this prop on foreground, and unset means automatic, which drops a pick.
+        const pickedPosition = viewerPickedAudioRef.current === null || preparedMapping.length < 2 ? -1 : preparedMapping.indexOf(viewerPickedAudioRef.current);
+        setSelectedAudioTrack(pickedPosition < 0 ? undefined : ({ type: "index", value: String(pickedPosition) } as SelectedTrack));
+        // A held subtitle ordinal names a position in the previous manifest; off still holds.
+        setSelectedSubtitleTrack((current) => (current?.type === "index" ? null : current));
         if (transportRef.current !== "gateway") {
           stopLocalRemux(localRemuxTokenRef.current);
           localRemuxTokenRef.current = null;
@@ -2198,6 +2223,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         stablePlayback: hasStablePlaybackRef.current,
         // Both seamless lanes serve every track as a rendition, so AVPlayer has already switched.
         seamless: isUsingMultiAudioRef.current || transportRef.current === "gateway",
+        preferredLanguage: isLiveRef.current ? null : getAudioPreferenceSync(),
       });
 
       if (plan.reapplyPosition !== null) {
@@ -2219,12 +2245,26 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         logger.info("Audio track switched seamlessly", { service: "useVideoPlayback", jellyfinStreamIndex: plan.recordStreamIndex });
       }
       if (plan.setLastSelectedIndex !== null) selectedAudioTrackIndexRef.current = plan.setLastSelectedIndex;
+      if (plan.viewerChosePosition !== null && !isLiveRef.current && !isAudioOnly(videoDetails)) {
+        const position = plan.viewerChosePosition;
+        // A restart opens a new stream that sets the prop itself; here AVPlayer has already switched.
+        if (plan.restartStreamIndex === null) setSelectedAudioTrack({ type: "index", value: String(position) } as SelectedTrack);
+        const streams = videoDetails ? getAudioTracks(videoDetails) : [];
+        const chosen = chosenAudioLanguage({ position, mapping: audioTrackMappingRef.current, streams, reported: data.audioTracks });
+        // Jellyfin's spelling of it, the one its settings and every other client expect.
+        const jellyfinLanguages = streams.map((stream) => stream.Language);
+        const language = chosen && (reportedSpelling(chosen, jellyfinLanguages) ?? chosen);
+        if (language && audioLanguageToStore(language) && audioLanguageToStore(language) !== getAudioPreferenceSync()) {
+          logger.info("🎵 Remembering the viewer's audio language", { service: "useVideoPlayback", language });
+          saveAudioPreference(language);
+        }
+      }
       if (plan.restartStreamIndex !== null) {
         logger.info("Audio track changed by the viewer, restarting", { service: "useVideoPlayback", jellyfinStreamIndex: plan.restartStreamIndex });
         handleAudioTrackSwitch(plan.restartStreamIndex);
       }
     },
-    [handleAudioTrackSwitch],
+    [handleAudioTrackSwitch, videoDetails],
   );
 
   // Callback: Text tracks (subtitles) discovered
@@ -2337,6 +2377,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       });
       if (!observed) return;
       lastObservedSubtitleRef.current = observed;
+      const selectedNow = data.textTracks.filter((track) => track.selected === true);
+      lastObservedOrdinalRef.current = selectedNow.length === 1 ? selectedNow[0].index : null;
+      const observedKey = `${observed.kind === "language" ? observed.tag : "off"}:${lastObservedOrdinalRef.current ?? "-"}`;
+      const selectionMoved = observedKey !== lastObservedKeyRef.current;
+      lastObservedKeyRef.current = observedKey;
 
       // Starting an item moves the selection by itself: the preference is applied,
       // the auto-seek re-resolves the legible group, the engine restarts its
@@ -2347,6 +2392,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         if (observed.kind === "off") viewerSubtitleStreamRef.current = null;
         else if (pick.rendition) viewerSubtitleStreamRef.current = pick.rendition.index;
       }
+      // Variant switches and track reloads re-report an unchanged selection; only a move is a choice to weigh.
+      if (!selectionMoved && !subtitleCaptureTimerRef.current) return;
 
       // And let it settle. Each report restarts the timer, so a burst only ever
       // persists what it lands on. Device log 2026-08-13: a track was reported
@@ -2359,6 +2406,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         subtitleCaptureTimerRef.current = null;
         const settled = lastObservedSubtitleRef.current;
         if (!isMountedRef.current || requestIdRef.current !== attempt || streamGenerationRef.current !== generation || !settled) return;
+
+        // Held for the rest of the item: RNV re-applies this prop on foreground, and the item-start language would undo the pick.
+        const ordinal = lastObservedOrdinalRef.current;
+        const held = settled.kind === "off" ? ({ type: "disabled" } as SelectedTrack) : ordinal === null ? null : ({ type: "index", value: String(ordinal) } as SelectedTrack);
+        if (held) setSelectedSubtitleTrack((current) => (current?.type === held.type && current?.value === held.value ? current : held));
 
         const previous = getSubtitlePreferenceSync();
 
@@ -2385,16 +2437,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           service: "useVideoPlayback",
           preference: updated.kind === "language" ? updated.tag : updated.kind,
         });
-        // Cache and disk only. The prop is NOT updated here: re-applying mid-item
-        // would re-run setSelectedTextTrack, and RCTPlayerOperations selects the
-        // FIRST option matching the language, so on a file carrying both English
-        // and English SDH a pick of the second would snap to the first.
-        void saveSubtitlePreference(updated);
+        // The account's settings only; the prop is held by ordinal above. Jellyfin's spelling is stored.
+        const jellyfinTags = (videoDetails?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle").map((stream) => stream.Language || "");
+        void saveSubtitlePreference(updated.kind === "language" ? { kind: "language", tag: reportedSpelling(updated.tag, jellyfinTags) ?? updated.tag } : updated);
       }, SUBTITLE_CAPTURE_SETTLE_MS);
       // videoId: a held file's bitmap tracks are looked up per item, and a queue advance
       // reuses this callback.
     },
-    [videoId],
+    [videoId, videoDetails],
   );
 
   // Live: selecting a rendition changes no track, so no report above fires for it (measured). AVPlayer
@@ -2625,6 +2675,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       subtitleCaptureTimerRef.current = null;
     }
     lastObservedSubtitleRef.current = null;
+    lastObservedOrdinalRef.current = null;
+    lastObservedKeyRef.current = null;
     // Every item opens UNSET, and the stored choice is applied later, once the
     // item has reported its tracks. Applying it here instead looked right and
     // silently did nothing: RCTVideo.setSelectedTextTrack bails on `_source`
@@ -2650,8 +2702,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (textTrackLanguages.length === 0) return;
     subtitlesAppliedForItemRef.current = true;
 
+    const playingAudio = (videoDetails?.MediaStreams ?? []).find((stream) => stream.Type === "Audio" && stream.Index === audioStreamIndexForReportingRef.current)?.Language;
     const plan = planSubtitleApplication({
-      stored: getSubtitlePreferenceSync(),
+      stored: getSubtitlePreferenceSync(playingAudio),
       languages: textTrackLanguages,
       defaultRenditionLanguage: subtitleRenditionsRef.current.find((rendition) => rendition.isDefault)?.language,
     });
@@ -2667,7 +2720,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     });
     appliedSubtitlePreferenceRef.current = plan.preference;
     setAppliedSubtitlePreference(plan.preference);
-  }, [hasStablePlayback, textTrackLanguages]);
+  }, [hasStablePlayback, textTrackLanguages, videoDetails]);
 
   /**
    * Start metadata fetch when in IDLE or FETCHING_METADATA state
