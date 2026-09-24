@@ -170,5 +170,6 @@ describe("subtitlePreferenceFrom", () => {
   it("leaves Smart to automatic selection while the playing audio is unknown", () => {
     expect(subtitlePreferenceFrom(settings("Smart"))).toEqual(SYSTEM);
     expect(subtitlePreferenceFrom(settings("Smart"), null)).toEqual(SYSTEM);
+    expect(subtitlePreferenceFrom(settings("Smart"), "und")).toEqual(SYSTEM);
   });
 });

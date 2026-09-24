@@ -239,9 +239,12 @@ export function nextPreference(args: { observed: ObservedSubtitle; previous: Sub
  */
 export function subtitlePreferenceFrom(settings: TrackSettings, playingAudioLanguage?: string | null): SubtitlePreference {
   const tag = settings.subtitleLanguage;
+  // "und" is ISO 639's undetermined, the engine's label for a stream with no language.
+  const audio = playingAudioLanguage ? canonicalLanguage(playingAudioLanguage) : "";
+  const audioKnown = audio !== "" && audio !== "und";
   if (settings.subtitleMode === "None") return { kind: "off" };
   if (settings.subtitleMode === "Always" && tag) return { kind: "language", tag };
-  if (settings.subtitleMode === "Smart" && tag && playingAudioLanguage && canonicalLanguage(playingAudioLanguage) !== canonicalLanguage(tag)) return { kind: "language", tag };
+  if (settings.subtitleMode === "Smart" && tag && audioKnown && audio !== canonicalLanguage(tag)) return { kind: "language", tag };
   return SYSTEM;
 }
 
