@@ -13,23 +13,30 @@ const mockCloseLiveStream = jest.fn();
 const mockOpenRecentlyFailed = jest.fn((_id: string) => false);
 let appStateListener: ((state: string) => void) | null = null;
 
-jest.mock("react-native", () => ({
-  Platform: { OS: "ios", isTV: true, select: (spec: { ios?: unknown; default?: unknown }) => spec.ios ?? spec.default },
-  AppState: {
+jest.mock("react-native", () => {
+  const AppState = {
     currentState: "active",
+    // RN updates currentState before any listener hears the change.
     addEventListener: (_event: string, listener: (state: string) => void) => {
-      appStateListener = listener;
+      appStateListener = (state) => {
+        AppState.currentState = state;
+        listener(state);
+      };
       return { remove: jest.fn() };
     },
-  },
-  NativeModules: {
-    LocalRemuxer: {
-      liveFrame: (config: unknown) => mockLiveFrame(config),
-      liveFramesOnDisk: (ids: string[]) => mockOnDisk(ids),
-      cancelLiveFrame: (id: string) => mockCancel(id),
+  };
+  return {
+    Platform: { OS: "ios", isTV: true, select: (spec: { ios?: unknown; default?: unknown }) => spec.ios ?? spec.default },
+    AppState,
+    NativeModules: {
+      LocalRemuxer: {
+        liveFrame: (config: unknown) => mockLiveFrame(config),
+        liveFramesOnDisk: (ids: string[]) => mockOnDisk(ids),
+        cancelLiveFrame: (id: string) => mockCancel(id),
+      },
     },
-  },
-}));
+  };
+});
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true }));
 jest.mock("@/services/jellyfinApi", () => ({
@@ -52,6 +59,7 @@ import {
   subscribeLiveFrame,
 } from "@/services/liveFrames";
 import { setPlaybackHold } from "@/services/playbackHold";
+import { AppState } from "react-native";
 
 const flush = async () => {
   for (let i = 0; i < 8; i += 1) await Promise.resolve();
@@ -235,6 +243,18 @@ describe("live frames", () => {
     setLiveFramesActive("guide", false);
     await advance(LIVE_FRAME_REFRESH_MS * 2);
     expect(grabs()).toHaveLength(3);
+  });
+
+  it("grabs once the app turned active before any surface wired its listener", async () => {
+    (AppState as { currentState: string }).currentState = "inactive";
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(grabs()).toEqual([]);
+    (AppState as { currentState: string }).currentState = "active";
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
   });
 
   it("stops the grab reading when the guide leaves, so its server open closes at once", async () => {
