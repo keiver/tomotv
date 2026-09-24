@@ -234,14 +234,14 @@ export function nextPreference(args: { observed: ObservedSubtitle; previous: Sub
 // MARK: - Storage
 
 /**
- * The account's Jellyfin subtitle settings as a preference. Smart shows the preferred language
- * only under audio in another language, else forced subtitles, which automatic selection covers.
+ * The account's Jellyfin subtitle settings as a preference. Smart shows the preferred language only
+ * under audio known to be in another language, else automatic selection, which covers forced ones.
  */
 export function subtitlePreferenceFrom(settings: TrackSettings, playingAudioLanguage?: string | null): SubtitlePreference {
   const tag = settings.subtitleLanguage;
   if (settings.subtitleMode === "None") return { kind: "off" };
   if (settings.subtitleMode === "Always" && tag) return { kind: "language", tag };
-  if (settings.subtitleMode === "Smart" && tag && !(playingAudioLanguage && canonicalLanguage(playingAudioLanguage) === canonicalLanguage(tag))) return { kind: "language", tag };
+  if (settings.subtitleMode === "Smart" && tag && playingAudioLanguage && canonicalLanguage(playingAudioLanguage) !== canonicalLanguage(tag)) return { kind: "language", tag };
   return SYSTEM;
 }
 
@@ -249,7 +249,6 @@ export function subtitlePreferenceFrom(settings: TrackSettings, playingAudioLang
 export function getSubtitlePreferenceSync(playingAudioLanguage?: string | null): SubtitlePreference {
   return subtitlePreferenceFrom(getTrackSettingsSync(), playingAudioLanguage);
 }
-
 /** `tag` is Jellyfin's spelling of the stream's language, the one its settings expect. */
 export async function saveSubtitlePreference(preference: SubtitlePreference): Promise<void> {
   if (preference.kind !== "system") recordSubtitlePick(preference);

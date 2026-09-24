@@ -46,7 +46,7 @@ import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { probeEmit } from "@/services/playbackProbe";
 import { recordTimeoutVerdict, recordVerdict, rememberedVerdict } from "@/services/engineVerdicts";
 import { getAudioTracks, isMultiAudioAvailable, prepareMultiAudioPlayback, shouldUseMultiAudio } from "@/services/multiAudioLoader";
-import { observedFromReport } from "@/services/subtitlePreference";
+import { getSubtitlePreferenceSync, observedFromReport, selectedTextTrackFor } from "@/services/subtitlePreference";
 import { getAudioPreferenceSync, readAudioPreference, saveAudioPreference } from "@/services/audioPreference";
 import { logger } from "@/utils/logger";
 
@@ -1683,6 +1683,103 @@ describe("useVideoPlayback (mounted)", () => {
         });
         // An unchanged re-report (a variant switch) is not a choice to weigh.
         expect(settles()).toBe(before);
+        await act(async () => renderer.unmount());
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it.each([
+      ["audio", "en", { type: "system" }],
+      ["audio", "ja", { type: "language", value: "en" }],
+      ["text", "ja", { type: "system" }],
+    ])("weighs Smart subtitles against the reported audio on direct play when the %s report lands first (%s audio)", async (first, audioLanguage, expected) => {
+      jest.useFakeTimers();
+      try {
+        (selectedTextTrackFor as jest.Mock).mockImplementation(jest.requireActual("@/services/subtitlePreference").selectedTextTrackFor);
+        mockPlaysFromDisk.mockReturnValue(true);
+        mockCanRemux.mockResolvedValue(true);
+        (getTextSubtitleStreams as jest.Mock).mockReturnValue([{ Type: "Subtitle", Index: 2, Codec: "mov_text", IsExternal: false }]);
+        mockDetails.mockResolvedValue(
+          videoItem({
+            MediaStreams: [
+              { Type: "Video", Index: 0, Codec: "h264" },
+              { Type: "Audio", Index: 1, Codec: "aac", Language: "eng" },
+              { Type: "Subtitle", Index: 2, Codec: "mov_text", Language: "eng" },
+            ],
+          }),
+        );
+        // The app mounts the hook idle, so an item opens unset; the setting only matters from here.
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        expect(ref.current!.get().state).toMatchObject({ mode: "direct" });
+        // Smart with English: subtitles only under audio known to be in another language.
+        const smart = { audioLanguage: null, playDefaultAudio: true, subtitleMode: "Smart", subtitleLanguage: "eng" };
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation((audio?: string | null) => jest.requireActual("@/services/subtitlePreference").subtitlePreferenceFrom(smart, audio));
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onLoad({ duration: 120 } as never);
+          jest.advanceTimersByTime(101);
+        });
+        await act(async () => {
+          ref.current!.get().play();
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
+          jest.advanceTimersByTime(501);
+        });
+        const reportAudio = () => ref.current!.get().videoCallbacks.onAudioTracks({ audioTracks: [{ index: 0, language: audioLanguage, selected: true }] } as never);
+        const reportText = () => ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, language: "en", selected: false }] } as never);
+        await act(async () => (first === "audio" ? reportAudio() : reportText()));
+        await act(async () => (first === "audio" ? reportText() : reportAudio()));
+        expect(ref.current!.get().selectedTextTrack).toEqual(expected);
+        await act(async () => renderer.unmount());
+      } finally {
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation(() => ({ kind: "system" }));
+        (selectedTextTrackFor as jest.Mock).mockImplementation(() => ({ type: "system" }));
+        jest.useRealTimers();
+      }
+    });
+
+    it("keeps subtitles off through a server restart of the stream", async () => {
+      jest.useFakeTimers();
+      try {
+        mockDetails.mockResolvedValue(
+          videoItem({
+            MediaStreams: [
+              { Type: "Video", Index: 0, Codec: "h264" },
+              { Type: "Subtitle", Index: 2, Codec: "mov_text", Language: "eng" },
+            ],
+          }),
+        );
+        (observedFromReport as jest.Mock).mockImplementation(jest.requireActual("@/services/subtitlePreference").observedFromReport);
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onLoad({ duration: 120 } as never);
+          jest.advanceTimersByTime(101);
+        });
+        await act(async () => {
+          ref.current!.get().play();
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
+          jest.advanceTimersByTime(501);
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, language: "en", selected: true }] } as never);
+          jest.advanceTimersByTime(5000);
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, language: "en", selected: false }] } as never);
+          jest.advanceTimersByTime(5000);
+        });
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "disabled" });
+        const builds = mockTranscodeUrl.mock.calls.length;
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onError({ error: { code: -11800, domain: "AVFoundationErrorDomain" } } as never);
+          jest.advanceTimersByTime(5000);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        expect(mockTranscodeUrl.mock.calls.length).toBeGreaterThan(builds);
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "disabled" });
         await act(async () => renderer.unmount());
       } finally {
         jest.useRealTimers();

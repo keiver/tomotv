@@ -165,6 +165,10 @@ describe("subtitlePreferenceFrom", () => {
   it("shows Smart's language only under audio in another language", () => {
     expect(subtitlePreferenceFrom(settings("Smart"), "jpn")).toEqual(ENGLISH);
     expect(subtitlePreferenceFrom(settings("Smart"), "en")).toEqual(SYSTEM);
-    expect(subtitlePreferenceFrom(settings("Smart"))).toEqual(ENGLISH);
+  });
+
+  it("leaves Smart to automatic selection while the playing audio is unknown", () => {
+    expect(subtitlePreferenceFrom(settings("Smart"))).toEqual(SYSTEM);
+    expect(subtitlePreferenceFrom(settings("Smart"), null)).toEqual(SYSTEM);
   });
 });

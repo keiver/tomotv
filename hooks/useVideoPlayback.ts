@@ -511,6 +511,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   // Track last logged state for deduplication
   const lastLoggedAudioTracksRef = useRef<string>("");
+  /** The playing audio's language as the player reports it; direct play builds no stream mapping. */
+  const reportedAudioLanguageRef = useRef<string | undefined>(undefined);
   const lastLoggedTextTracksRef = useRef<string>("");
 
   /**
@@ -1510,7 +1512,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           setForwardBufferSeconds(null);
         }
         retryProgressStartRef.current = null;
-        setSelectedSubtitleTrack(null);
         setPlaybackStage("player");
         // A new stream remounts the player, which starts paused; a live reload keeps the one player.
         if (!isLiveRef.current) playerPlayingRef.current = false;
@@ -2200,6 +2201,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current) return;
 
       const selected = data.audioTracks.find((track) => track.selected);
+      if (selected?.language) reportedAudioLanguageRef.current = selected.language;
       const signature = `${data.audioTracks.length}:${selected?.index ?? -1}`;
       if (signature !== lastLoggedAudioTracksRef.current) {
         lastLoggedAudioTracksRef.current = signature;
@@ -2660,6 +2662,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setSelectedSubtitleTrack(null);
     setSelectedAudioTrack(undefined);
     audioStreamIndexForReportingRef.current = null;
+    reportedAudioLanguageRef.current = undefined;
     burnInSubtitleIndexRef.current = null;
     audioTrackMappingRef.current = [];
     isUsingMultiAudioRef.current = false;
@@ -2702,7 +2705,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (textTrackLanguages.length === 0) return;
     subtitlesAppliedForItemRef.current = true;
 
-    const playingAudio = (videoDetails?.MediaStreams ?? []).find((stream) => stream.Type === "Audio" && stream.Index === audioStreamIndexForReportingRef.current)?.Language;
+    const mappedAudio = (videoDetails?.MediaStreams ?? []).find((stream) => stream.Type === "Audio" && stream.Index === audioStreamIndexForReportingRef.current);
+    const playingAudio = mappedAudio?.Language ?? reportedAudioLanguageRef.current;
     const plan = planSubtitleApplication({
       stored: getSubtitlePreferenceSync(playingAudio),
       languages: textTrackLanguages,
