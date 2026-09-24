@@ -46,8 +46,8 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  // iPadOS renders the tab bar at the TOP, inside insets.top, so a tablet has no bottom bar
-  // to clear and reserving one leaves a dead band under the last shelf.
+  // iPadOS floats the tab bar at the TOP, below insets.top, so a tablet clears it at the top
+  // and reserving a bottom bar leaves a dead band under the last shelf.
   const isTablet = !IS_TV && Math.min(windowWidth, windowHeight) >= GRID.PHONE_WIDE_MIN_WIDTH;
 
   // Gates the first card's mount-time focus claim: a covered screen must never take the
@@ -127,7 +127,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
   // by the bar height creates a phantom band of scrollable space below the last shelf.
   const scrollContentStyle = useMemo(
     () => ({
-      paddingTop: (IS_TV ? 20 : 8) + insets.top,
+      paddingTop: (IS_TV ? 20 : isTablet ? 30 : 8) + insets.top,
       paddingBottom: (IS_TV || isTablet ? 40 : TAB_BAR_HEIGHT + 20) + insets.bottom,
       paddingLeft: gridEdgePadding(insets.left, IS_TV),
       paddingRight: gridEdgePadding(insets.right, IS_TV),
