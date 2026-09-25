@@ -6,28 +6,30 @@
  * background or playback holds the link.
  */
 import { closeLiveStream, openChannel, openRecentlyFailed, resolveChannelOrigin, type ChannelOrigin } from "@/services/jellyfinApi";
-import { isLocalRemuxAvailable } from "@/services/localRemux";
+import { isLocalRemuxAvailable, nativeEmits } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
-import { AppState, NativeModules } from "react-native";
+import { AppState, NativeEventEmitter, NativeModules } from "react-native";
 
 const { LocalRemuxer } = NativeModules;
 
-/** A channel is asked again this soon after its picture moved; its burst plays across the wait. */
-export const LIVE_FRAME_REFRESH_MS = 60_000;
+/** A channel is asked again this soon after its picture moved; its burst loops across the wait. */
+export const LIVE_FRAME_REFRESH_MS = 120_000;
 /** A channel whose live edge has not moved waits twice as long each time, up to this. */
 export const LIVE_FRAME_REFRESH_CAP_MS = 300_000;
 /** The link breathes between grabs. */
 export const LIVE_FRAME_SPACING_MS = 1_000;
-/** One open reads this long after its first keyframe, a picture a second. */
-export const LIVE_FRAME_BURST_S = 8;
-export const LIVE_FRAME_BURST_INTERVAL_S = 1;
-export const LIVE_FRAME_BURST_COUNT = 8;
+/** One open covers this much stream time after its first keyframe, a keyframe per interval. */
+export const LIVE_FRAME_BURST_S = 36;
+export const LIVE_FRAME_BURST_INTERVAL_S = 3;
+export const LIVE_FRAME_BURST_COUNT = 12;
 /** Wall clock per grab, the keyframe wait included; the engine's watchdog stops the read at it. */
 export const LIVE_FRAME_DEADLINE_S = 12;
 /** A failed channel waits this long, doubling per failure, up to the cap. */
 export const LIVE_FRAME_RETRY_MS = 120_000;
 export const LIVE_FRAME_RETRY_CAP_MS = 600_000;
+/** The card holds each frame of a burst this long, looping until the next grab. */
+export const LIVE_FRAME_DWELL_MS = 3_000;
 /** The card's crossfade between two frames of a burst. */
 export const LIVE_FRAME_TRANSITION_MS = 400;
 
@@ -73,6 +75,8 @@ const viewableBySurface = new Map<LiveFrameSurface, string[]>();
 let activeSurface: LiveFrameSurface | null = null;
 /** The channel a grab is reading now, so playback taking the link can stop it. */
 let grabbing: string | null = null;
+/** The generation the running grab started in; a frame event from an older one is dropped. */
+let grabGeneration = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
 /** Walks every burst on screen; runs only while a surface shows one with more than one frame. */
 let ticker: ReturnType<typeof setInterval> | null = null;
@@ -80,9 +84,31 @@ let wired = false;
 /** Bumped by every clear, so a grab that outlived one writes nothing back. */
 let generation = 0;
 
+/** A frame the running grab just wrote: it joins the channel's burst at once, ahead of the rest. */
+function onLiveFrameEvent(event: { channelId?: string; uri?: string; index?: number }): void {
+  const { channelId, uri, index } = event;
+  if (!channelId || !uri || typeof index !== "number") return;
+  if (channelId !== grabbing || grabGeneration !== generation) return;
+  const item = entries.get(channelId);
+  if (!item) return;
+  if (index === 0) {
+    item.burst = burstOf(channelId, [uri], item.lastAt);
+    item.shownIndex = 0;
+  } else {
+    // Appends in order only; anything missed is reconciled when the grab resolves.
+    if (!item.burst || item.burst.at !== item.lastAt || index !== item.burst.frames.length) return;
+    item.burst.frames.push({ uri, cacheKey: `live-${channelId}-${item.burst.at}-${index}` });
+  }
+  notify(channelId);
+  startTicker();
+}
+
 function wire(): void {
   if (wired) return;
   wired = true;
+  if (nativeEmits("onLiveFrame")) {
+    new NativeEventEmitter(LocalRemuxer).addListener("onLiveFrame", onLiveFrameEvent);
+  }
   AppState.addEventListener("change", (state) => {
     if (state === "active") schedule(0);
     else stop();
@@ -145,11 +171,10 @@ function burstOf(channelId: string, uris: string[], at: number): Burst {
   return { at, frames: uris.map((uri, index) => ({ uri, cacheKey: `live-${channelId}-${at}-${index}` })) };
 }
 
-/** Which frame of a burst the card shows now: the burst spread evenly across the refresh. */
+/** Which frame of a burst the card shows now: one per dwell, looping until the next grab. */
 function frameIndex(burst: Burst, now: number): number {
   if (burst.frames.length <= 1) return 0;
-  const slice = LIVE_FRAME_REFRESH_MS / burst.frames.length;
-  return Math.floor(Math.max(0, now - burst.at) / slice) % burst.frames.length;
+  return Math.floor(Math.max(0, now - burst.at) / LIVE_FRAME_DWELL_MS) % burst.frames.length;
 }
 
 function tick(): void {
@@ -236,6 +261,7 @@ async function pump(): Promise<void> {
     return;
   }
   grabbing = due.channelId;
+  grabGeneration = generation;
   try {
     await grab(due.channelId);
   } finally {

@@ -2,10 +2,10 @@
 //  LiveFrameQueue.swift
 //  TomoTV
 //
-//  One frame per live channel on request, for the guide's cards: the channel's first keyframe
-//  now, kept in the chapter frame pool under a time-named file. Jobs run one at a time on a
-//  low-priority queue of their own, so a dead origin never stalls the library's posters, and a
-//  watchdog stops a grab at its deadline.
+//  A burst per live channel on request, for the guide's cards: keyframes sampled `interval`
+//  stream seconds apart across `span`, kept in the chapter frame pool under time-named files.
+//  Jobs run one at a time on a low-priority queue of their own, so a dead origin never stalls
+//  the library's posters, and a watchdog stops a grab at its deadline.
 //
 
 import Foundation
@@ -27,10 +27,10 @@ final class LiveFrameQueue {
         self.root = root
     }
 
-    /// One open yields a burst: a keyframe, then a picture per second for up to `defaultSpan`.
-    static let defaultSpan: TimeInterval = 8
-    static let defaultInterval: TimeInterval = 1
-    static let defaultCount = 8
+    /// One open yields a burst: a keyframe, then one per `defaultInterval` stream seconds across `defaultSpan`.
+    static let defaultSpan: TimeInterval = 36
+    static let defaultInterval: TimeInterval = 3
+    static let defaultCount = 12
 
     enum Outcome {
         /// The burst in order, the first keyframe's pts with it.
@@ -42,10 +42,11 @@ final class LiveFrameQueue {
         case cancelled
     }
 
-    /// The channel's burst now, decoded in turn. The completion runs on the queue's thread.
+    /// The channel's burst now, decoded in turn. `frame` announces each file as it is written;
+    /// it and the completion run on the queue's thread.
     func request(channelId: String, inputUrl: String, headers: [String: String], deadline: TimeInterval = defaultDeadline,
                  span: TimeInterval = defaultSpan, interval: TimeInterval = defaultInterval, count: Int = defaultCount,
-                 shownPts: Int64? = nil, completion: @escaping (Outcome) -> Void) {
+                 shownPts: Int64? = nil, frame: ((URL, Int) -> Void)? = nil, completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: channelId, in: root) else {
             completion(.none(opened: true))
             return
@@ -86,7 +87,8 @@ final class LiveFrameQueue {
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: watchdog)
             let started = Date()
             let base = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000))"
-            let result = grabber.liveBurst(named: base, span: min(span, deadline), interval: interval, count: max(1, count), unlessPts: shownPts)
+            let result = grabber.liveBurst(named: base, span: span, interval: interval, count: max(1, count),
+                                           wall: deadline, unlessPts: shownPts, onFrame: frame)
             watchdog.cancel()
             grabber.stop()
             let elapsed = Date().timeIntervalSince(started)
@@ -95,7 +97,7 @@ final class LiveFrameQueue {
             let stoppedMidway = cancelled.contains(channelId)
             lock.unlock()
             if stoppedMidway {
-                if case .frames(let files, _) = result { for file in files { try? FileManager.default.removeItem(at: file) } }
+                // Frames already written stay: the card was told about each as it landed.
                 NSLog("[LiveFrame] %@", String(format: "%@ cancelled %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
                 completion(.cancelled)
                 return

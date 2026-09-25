@@ -75,7 +75,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink", "onLiveFrame"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -148,6 +148,14 @@ class LocalRemuxer: RCTEventEmitter {
         let listening = Self.hasListeners
         Self.lock.unlock()
         if listening { sendEvent(withName: "onEngineSubtitleRequest", body: subtitleRequest) }
+    }
+
+    /// A live burst frame just written, sent only while JS listens; the card shows it at once.
+    private func publish(liveFrame: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onLiveFrame", body: liveFrame) }
     }
 
     // MARK: - Routing
@@ -552,6 +560,7 @@ class LocalRemuxer: RCTEventEmitter {
     }
 
     /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval (seconds), count, shownPts.
+    /// Each frame is announced as `onLiveFrame` while the burst is read.
     /// Resolves `{uris, pts}`, `{unchanged}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
     @objc func liveFrame(
         _ config: NSDictionary,
@@ -570,7 +579,10 @@ class LocalRemuxer: RCTEventEmitter {
         let count = max(1, (config["count"] as? Int) ?? LiveFrameQueue.defaultCount)
         let shownPts = (config["shownPts"] as? NSNumber)?.int64Value
         Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline,
-                                span: span, interval: interval, count: count, shownPts: shownPts) { outcome in
+                                span: span, interval: interval, count: count, shownPts: shownPts,
+                                frame: { [weak self] url, index in
+                                    self?.publish(liveFrame: ["channelId": channelId, "uri": url.absoluteString, "index": index])
+                                }) { outcome in
             switch outcome {
             case .frames(let urls, let pts):
                 let shown: Any = pts.map { NSNumber(value: $0) } ?? NSNull()

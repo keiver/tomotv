@@ -1,10 +1,11 @@
 /**
- * The live frame sampler: one grab at a time, a burst per open walked across the refresh, a refresh that backs off
- * while a live edge stands still, the oldest first, a manifest channel read at its origin and a tuner channel
- * opened on the server for its burst and closed after, backoff on failure, and standing down for the screen, the
- * app and playback.
+ * The live frame sampler: one grab at a time, a burst per open looped at a fixed dwell, frames streamed to the
+ * card as the grab writes them, a refresh that backs off while a live edge stands still, the oldest first, a
+ * manifest channel read at its origin and a tuner channel opened on the server for its burst and closed after,
+ * backoff on failure, and standing down for the screen, the app and playback.
  */
 const mockLiveFrame = jest.fn();
+const mockEmitterListeners = new Map<string, Set<(event: unknown) => void>>();
 const mockOnDisk = jest.fn();
 const mockCancel = jest.fn();
 const mockResolveOrigin = jest.fn();
@@ -25,9 +26,21 @@ jest.mock("react-native", () => {
       return { remove: jest.fn() };
     },
   };
+  class NativeEventEmitter {
+    addListener(event: string, listener: (body: unknown) => void) {
+      let set = mockEmitterListeners.get(event);
+      if (!set) {
+        set = new Set();
+        mockEmitterListeners.set(event, set);
+      }
+      set.add(listener);
+      return { remove: () => set!.delete(listener) };
+    }
+  }
   return {
     Platform: { OS: "ios", isTV: true, select: (spec: { ios?: unknown; default?: unknown }) => spec.ios ?? spec.default },
     AppState,
+    NativeEventEmitter,
     NativeModules: {
       LocalRemuxer: {
         liveFrame: (config: unknown) => mockLiveFrame(config),
@@ -38,7 +51,7 @@ jest.mock("react-native", () => {
   };
 });
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
-jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true }));
+jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true, nativeEmits: (event: string) => event === "onLiveFrame" }));
 jest.mock("@/services/jellyfinApi", () => ({
   resolveChannelOrigin: (id: string) => mockResolveOrigin(id),
   openChannel: (id: string, item: unknown, options: unknown) => mockOpenChannel(id, item, options),
@@ -49,6 +62,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 import {
   clearLiveFrames,
   LIVE_FRAME_BURST_COUNT,
+  LIVE_FRAME_DWELL_MS,
   LIVE_FRAME_REFRESH_CAP_MS,
   LIVE_FRAME_REFRESH_MS,
   LIVE_FRAME_RETRY_MS,
@@ -69,6 +83,9 @@ const advance = async (ms: number) => {
   await flush();
 };
 const grabs = () => mockLiveFrame.mock.calls.map(([config]) => (config as { channelId: string }).channelId);
+const emitLiveFrame = (body: { channelId: string; uri: string; index: number }) => {
+  for (const listener of mockEmitterListeners.get("onLiveFrame") ?? []) listener(body);
+};
 /** A burst of `count` files under one stamp, the shape the engine answers with. */
 const burst = (channelId: string, stamp: number, count = LIVE_FRAME_BURST_COUNT) => Array.from({ length: count }, (_, i) => `file:///pool/${channelId}/live-${stamp}-${i}.jpg`);
 
@@ -108,23 +125,50 @@ describe("live frames", () => {
     expect(mockOpenChannel).not.toHaveBeenCalled();
   });
 
-  it("walks a burst across the refresh, one frame per slice, telling the card at each step", async () => {
+  it("walks a burst one frame per dwell, telling the card at each step", async () => {
     const listener = jest.fn();
     subscribeLiveFrame("m1", listener);
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
     expect(listener).toHaveBeenCalledTimes(1);
-    const slice = LIVE_FRAME_REFRESH_MS / LIVE_FRAME_BURST_COUNT;
-    await advance(slice - 1_000);
+    await advance(LIVE_FRAME_DWELL_MS - 1_000);
     expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-0.jpg");
-    // The ticker walks once a second; the slice edge is noticed on the tick after it.
+    // The ticker walks once a second; the dwell edge is noticed on the tick after it.
     await advance(1_500);
     expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-1.jpg");
     expect(listener).toHaveBeenCalledTimes(2);
-    await advance(slice * 6);
+    await advance(LIVE_FRAME_DWELL_MS * 6);
     expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-7.jpg");
     expect(listener).toHaveBeenCalledTimes(8);
+    // The burst loops: a full lap lands back on the same frame.
+    await advance(LIVE_FRAME_DWELL_MS * LIVE_FRAME_BURST_COUNT);
+    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-7.jpg");
+  });
+
+  it("shows each frame the grab streams before its burst resolves", async () => {
+    let answer: (() => void) | undefined;
+    mockLiveFrame.mockImplementation(({ channelId }: { channelId: string }) => new Promise((resolve) => (answer = () => resolve({ uris: burst(channelId, 1_000_000, 2), pts: 5, cancelled: false }))));
+    const listener = jest.fn();
+    subscribeLiveFrame("m1", listener);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    expect(listener).not.toHaveBeenCalled();
+
+    emitLiveFrame({ channelId: "m1", uri: "file:///pool/m1/live-1000000-0.jpg", index: 0 });
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-0.jpg", cacheKey: "live-m1-1000000-0" });
+    expect(listener).toHaveBeenCalledTimes(1);
+    emitLiveFrame({ channelId: "m1", uri: "file:///pool/m1/live-1000000-1.jpg", index: 1 });
+    expect(listener).toHaveBeenCalledTimes(2);
+    // A frame for a channel no grab is reading is dropped.
+    emitLiveFrame({ channelId: "m9", uri: "file:///pool/m9/live-1000000-0.jpg", index: 0 });
+    expect(liveFrameFor("m9")).toBeUndefined();
+
+    answer?.();
+    await flush();
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-0.jpg", cacheKey: "live-m1-1000000-0" });
   });
 
   it("asks a channel again at the refresh floor, doubles the wait while its live edge stands still, and drops back once it moves", async () => {
@@ -147,8 +191,8 @@ describe("live frames", () => {
     expect(mockLiveFrame.mock.calls[1][0]).toMatchObject({ shownPts: 1 });
     expect(listener).toHaveBeenCalledTimes(1);
     const shown = liveFrameFor("m1");
-    // Each unchanged answer doubles the wait: 2 min, 4 min, then the 5 min cap.
-    for (const waitMs of [120_000, 240_000, LIVE_FRAME_REFRESH_CAP_MS, LIVE_FRAME_REFRESH_CAP_MS]) {
+    // Each unchanged answer doubles the wait: 4 min, then the 5 min cap.
+    for (const waitMs of [240_000, LIVE_FRAME_REFRESH_CAP_MS, LIVE_FRAME_REFRESH_CAP_MS, LIVE_FRAME_REFRESH_CAP_MS]) {
       const before = grabs().length;
       await advance(waitMs - 1);
       expect(grabs()).toHaveLength(before);
@@ -213,10 +257,15 @@ describe("live frames", () => {
     setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
     expect(grabs()).toEqual(["m1"]);
-    await advance(LIVE_FRAME_REFRESH_MS + LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_RETRY_MS - 1);
     expect(grabs()).toEqual(["m1"]);
-    await advance(LIVE_FRAME_RETRY_MS);
+    await advance(1);
     expect(grabs()).toEqual(["m1", "m1"]);
+    // The second failure doubles the wait past the refresh floor.
+    await advance(LIVE_FRAME_REFRESH_MS);
+    expect(grabs()).toEqual(["m1", "m1"]);
+    await advance(LIVE_FRAME_RETRY_MS * 2 - LIVE_FRAME_REFRESH_MS);
+    expect(grabs()).toEqual(["m1", "m1", "m1"]);
     expect(liveFrameFor("m1")).toBeUndefined();
   });
 

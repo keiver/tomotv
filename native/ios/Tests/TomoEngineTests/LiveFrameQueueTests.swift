@@ -55,6 +55,14 @@ final class LiveFrameQueueTests: XCTestCase {
         return out
     }
 
+    /// A short-GOP transport stream: a keyframe a second, enough of them for a whole sparse burst.
+    private func shortGopStream() throws -> URL {
+        try fixture("shortgop.ts", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=60",
+            "-c:v", "libx264", "-g", "25", "-keyint_min", "25", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-an",
+        ])
+    }
+
     private func scratchRoot() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("liveframes-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -91,9 +99,9 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(pixelWidth(url), 480)
     }
 
-    func testOneOpenYieldsABurstOfPicturesASecondApart() throws {
-        // 20 s at 25 fps: eight pictures a second apart fit inside the first GOP after the keyframe.
-        let stream = try midGopStream()
+    func testOneOpenYieldsABurstOfKeyframesAnIntervalApart() throws {
+        // 60 s of one-second GOPs: a keyframe at or past each 3 s interval fills the burst.
+        let stream = try shortGopStream()
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
@@ -105,6 +113,30 @@ final class LiveFrameQueueTests: XCTestCase {
         for url in urls { XCTAssertEqual(pixelWidth(url), 480) }
         let left = try FileManager.default.contentsOfDirectory(atPath: urls[0].deletingLastPathComponent().path).sorted()
         XCTAssertEqual(left, urls.map(\.lastPathComponent).sorted())
+    }
+
+    func testEachFrameIsAnnouncedOnDiskBeforeTheBurstCompletes() throws {
+        let stream = try shortGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        let done = XCTestExpectation(description: "burst")
+        var streamed: [(URL, Int)] = []
+        var onDiskWhenAnnounced = true
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:], frame: { url, index in
+            if !FileManager.default.fileExists(atPath: url.path) { onDiskWhenAnnounced = false }
+            streamed.append((url, index))
+        }) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 15)
+        guard case .frames(let urls, _)? = outcome else { return XCTFail("no burst") }
+        XCTAssertTrue(onDiskWhenAnnounced, "an announced frame is already readable")
+        XCTAssertEqual(streamed.map(\.0), urls)
+        XCTAssertEqual(streamed.map(\.1), Array(0 ..< urls.count))
     }
 
     func testEachGrabKeepsTheChannelsLastTwoBursts() throws {

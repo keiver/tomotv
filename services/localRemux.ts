@@ -528,7 +528,7 @@ const tierListeners = new Map<string, Set<TierListener>>();
 
 /** Whether the running binary declares an event. A Metro reload can carry JS that knows one the
  *  installed native build does not, and subscribing to it there breaks the module outright. */
-function nativeEmits(event: string): boolean {
+export function nativeEmits(event: string): boolean {
   const events = (LocalRemuxer as { events?: unknown } | undefined)?.events;
   return Array.isArray(events) && events.includes(event);
 }

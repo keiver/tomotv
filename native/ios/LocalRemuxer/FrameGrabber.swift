@@ -149,10 +149,12 @@ final class FrameGrabber {
         case none
     }
 
-    /// A burst off one open: the first keyframe the source gives, then a picture every `interval`
-    /// seconds of stream time while `span` seconds of wall clock and `count` allow. Files are
-    /// `<base>-<i>.jpg`; the base is unique per grab, so nothing is served from the directory.
-    func liveBurst(named base: String, span: TimeInterval, interval: TimeInterval, count: Int, unlessPts shown: Int64? = nil) -> LiveGrab {
+    /// A burst off one open: the first keyframe the source gives, then a keyframe every `interval`
+    /// seconds of stream time across `span` stream seconds, `wall` bounding the read's wall clock.
+    /// Files are `<base>-<i>.jpg`, each announced through `onFrame` as it is written; the base is
+    /// unique per grab, so nothing is served from the directory.
+    func liveBurst(named base: String, span: TimeInterval, interval: TimeInterval, count: Int, wall: TimeInterval,
+                   unlessPts shown: Int64? = nil, onFrame: ((URL, Int) -> Void)? = nil) -> LiveGrab {
         guard ChapterFramePool.epoch == epoch else { return .none }
         let url = { [directory] (i: Int) in directory.appendingPathComponent("\(base)-\(i).jpg") }
         return queue.sync {
@@ -167,9 +169,13 @@ final class FrameGrabber {
             if let pts, pts == shown { return .unchanged }
             guard write(first, to: url(0), enhanced: false) else { return .none }
             var written = [url(0)]
-            for picture in decodeFollowing(first, span: span, interval: interval, count: count - 1, started: started) {
-                guard write(picture, to: url(written.count), enhanced: false) else { break }
-                written.append(url(written.count))
+            onFrame?(url(0), 0)
+            decodeFollowing(first, span: span, interval: interval, count: count - 1, wall: wall, started: started) { picture in
+                let file = url(written.count)
+                guard write(picture, to: file, enhanced: false) else { return false }
+                written.append(file)
+                onFrame?(file, written.count - 1)
+                return true
             }
             if let pb = input?.pointee.pb { bytesRead = pb.pointee.bytes_read }
             guard ChapterFramePool.epoch == epoch else {
@@ -180,13 +186,12 @@ final class FrameGrabber {
         }
     }
 
-    /// The pictures after a decoded keyframe, one per `interval` seconds of stream time: every
-    /// packet feeds the decoder in order, so the frames between keyframes decode too.
-    private func decodeFollowing(_ first: Picture, span: TimeInterval, interval: TimeInterval, count: Int, started: Date) -> [Picture] {
-        guard count > 0, let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return [] }
-        decoder.pointee.skip_frame = AVDISCARD_DEFAULT
-        avcodec_flush_buffers(decoder)
-        guard let frame = av_frame_alloc(), let pkt = av_packet_alloc() else { return [] }
+    /// The keyframes after a decoded one, the first at or past each `interval` of stream time,
+    /// handed to `emit` in turn until it declines, `count`, `span` or `wall` runs out.
+    private func decodeFollowing(_ first: Picture, span: TimeInterval, interval: TimeInterval, count: Int,
+                                 wall: TimeInterval, started: Date, emit: (Picture) -> Bool) {
+        guard count > 0, let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return }
+        guard let frame = av_frame_alloc(), let pkt = av_packet_alloc() else { return }
         defer {
             var freeingFrame: UnsafeMutablePointer<AVFrame>? = frame
             av_frame_free(&freeingFrame)
@@ -195,33 +200,33 @@ final class FrameGrabber {
         }
         let timeBase = stream.pointee.time_base
         let step = Int64((interval * Double(timeBase.den) / Double(timeBase.num)).rounded())
-        var results: [Picture] = []
+        let spanPts = Int64((span * Double(timeBase.den) / Double(timeBase.num)).rounded())
+        var kept = 0
         var nextPts = first.pts == SWIFT_AV_NOPTS_VALUE ? nil : first.pts + step
-        // The keyframe already decoded goes in again after the flush, so the frames right after it decode.
-        var fed = false
-        if let key = lastKeyPacket, avcodec_send_packet(decoder, key) >= 0 {
-            fed = true
-            while avcodec_receive_frame(decoder, frame) >= 0 {}
-        }
-        readLoop: while results.count < count, Date().timeIntervalSince(started) < span, !isCancelled {
+        var endPts = first.pts == SWIFT_AV_NOPTS_VALUE ? nil : first.pts + spanPts
+        readLoop: while kept < count, Date().timeIntervalSince(started) < wall, !isCancelled {
             if av_read_frame(input, pkt) < 0 { break }
             defer { av_packet_unref(pkt) }
             guard pkt.pointee.stream_index == videoIndex else { continue }
-            // The decoder restarts on a keyframe; the packets before the first one cannot decode.
-            if !fed, pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY == 0 { continue }
-            fed = true
+            // Keyframes alone: each decodes on its own, and the decoder skips the rest anyway.
+            guard pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0 else { continue }
             guard avcodec_send_packet(decoder, pkt) >= 0 else { continue }
+            // A keyframe held back for reordering comes out on a drain; the flush readies the next.
+            _ = avcodec_send_packet(decoder, nil)
             while avcodec_receive_frame(decoder, frame) >= 0 {
                 let pts = frame.pointee.best_effort_timestamp
                 if pts == SWIFT_AV_NOPTS_VALUE { continue }
                 if nextPts == nil { nextPts = pts + step }
+                if endPts == nil { endPts = pts + spanPts }
+                if let end = endPts, pts >= end { break readLoop }
                 guard let due = nextPts, pts >= due else { continue }
-                if let picture = makePicture(from: frame, stream: stream, ms: 0, forward: false) { results.append(picture) }
-                nextPts = due + step
-                if results.count >= count { break readLoop }
+                guard let picture = makePicture(from: frame, stream: stream, ms: 0, forward: false), emit(picture) else { break readLoop }
+                nextPts = pts + step
+                kept += 1
+                if kept >= count { break readLoop }
             }
+            avcodec_flush_buffers(decoder)
         }
-        return results
     }
 
     /// A hit refreshes the file's date, which is the pool's eviction order.
@@ -361,18 +366,7 @@ final class FrameGrabber {
         return LiveVariantPicker.pick(master, base: base) ?? inputUrl
     }
 
-    /// A copy of the keyframe packet a live grab opened on, for the burst that follows it.
-    private var lastKeyPacket: UnsafeMutablePointer<AVPacket>?
-
-    private func keepKeyPacket(_ pkt: UnsafeMutablePointer<AVPacket>) {
-        if lastKeyPacket == nil { lastKeyPacket = av_packet_alloc() }
-        guard let kept = lastKeyPacket else { return }
-        av_packet_unref(kept)
-        _ = av_packet_ref(kept, pkt)
-    }
-
     private func close() {
-        if lastKeyPacket != nil { av_packet_free(&lastKeyPacket) }
         if let decoder {
             var freeing: UnsafeMutablePointer<AVCodecContext>? = decoder
             avcodec_free_context(&freeing)
@@ -565,7 +559,6 @@ final class FrameGrabber {
             }
             sawKeyframe = true
             packets += 1
-            if case .firstKeyframe = target { keepKeyPacket(pkt) }
             guard avcodec_send_packet(decoder, pkt) >= 0 else { continue }
             // A keyframe held back for reordering comes out on a drain; the flush readies the next.
             _ = avcodec_send_packet(decoder, nil)
