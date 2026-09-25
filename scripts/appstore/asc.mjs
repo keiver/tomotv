@@ -27,11 +27,14 @@ export function ascEnv(root) {
   return { ...env, keyPath };
 }
 
+/** Apple rejects any token living past 20 minutes (probed: 20 -> 200, 21 -> 401). */
+const TOKEN_LIFE_S = 20 * 60;
+
 /** ES256, the only algorithm App Store Connect accepts. */
 export function token(env) {
   const header = { alg: "ES256", kid: env.ASC_KEY_ID, typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
-  const payload = { iss: env.ASC_ISSUER_ID, iat: now, exp: now + 15 * 60, aud: "appstoreconnect-v1" };
+  const payload = { iss: env.ASC_ISSUER_ID, iat: now, exp: now + TOKEN_LIFE_S, aud: "appstoreconnect-v1" };
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const signing = `${b64(header)}.${b64(payload)}`;
   const der = crypto.sign("sha256", Buffer.from(signing), {
@@ -47,8 +50,9 @@ const RETRIES = 3;
  * Retries network drops, 429 and 5xx up to RETRIES times, backing off 5s, 10s, 20s.
  * POST is never retried: a lost response may still have created the resource.
  */
-async function fetchWithRetry(url, init) {
+async function fetchWithRetry(url, makeInit) {
   for (let attempt = 0; ; attempt++) {
+    const init = makeInit();
     let res;
     let error;
     try {
@@ -69,18 +73,27 @@ async function fetchWithRetry(url, init) {
 }
 
 export function client(env) {
-  const jwt = token(env);
+  // Every attempt asks for the bearer, so a retry after a slow upload never carries a stale one.
+  let jwt;
+  let jwtExpires = 0;
+  function bearer() {
+    if (Date.now() > jwtExpires - 3 * 60 * 1000) {
+      jwt = token(env);
+      jwtExpires = Date.now() + TOKEN_LIFE_S * 1000;
+    }
+    return jwt;
+  }
   async function call(method, endpoint, body, extraHeaders) {
     const url = endpoint.startsWith("http") ? endpoint : `${BASE}${endpoint}`;
-    const res = await fetchWithRetry(url, {
+    const res = await fetchWithRetry(url, () => ({
       method,
       headers: {
-        Authorization: `Bearer ${jwt}`,
+        Authorization: `Bearer ${bearer()}`,
         ...(body && !(body instanceof Buffer) ? { "Content-Type": "application/json" } : {}),
         ...extraHeaders,
       },
       body: body instanceof Buffer ? body : body ? JSON.stringify(body) : undefined,
-    });
+    }));
     if (res.status === 204 || res.headers.get("content-length") === "0") {
       if (!res.ok) throw new Error(`${method} ${endpoint} -> HTTP ${res.status}`);
       return null;
@@ -110,7 +123,7 @@ export function client(env) {
     /** One upload operation of a reserved asset, verbatim from Apple's plan. */
     async put(operation, slice) {
       const headers = Object.fromEntries((operation.requestHeaders ?? []).map((h) => [h.name, h.value]));
-      const res = await fetchWithRetry(operation.url, { method: operation.method, headers, body: slice });
+      const res = await fetchWithRetry(operation.url, () => ({ method: operation.method, headers, body: slice }));
       if (!res.ok) throw new Error(`upload part -> HTTP ${res.status}`);
     },
   };

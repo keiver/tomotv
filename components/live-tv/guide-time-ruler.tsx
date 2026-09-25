@@ -10,7 +10,7 @@ export const MAJOR_MARK_WIDTH = 1;
 export const MAJOR_MARK_HEIGHT = IS_TV ? 16 : 10;
 export const HOUR_MARK_HEIGHT = IS_TV ? 26 : 16;
 const NOW_EDGE = IS_TV ? 3 : 2;
-/** The gold band and its now edge stand as tall as a minor mark. */
+/** The gold band stands as tall as a minor mark; its now edge as tall as an hour mark. */
 const NOW_HEIGHT = IS_TV ? 8 : 5;
 
 interface GuideTimeRulerProps {
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 0,
     width: NOW_EDGE,
-    height: NOW_HEIGHT,
+    height: HOUR_MARK_HEIGHT,
     backgroundColor: COLORS.ACCENT,
   },
 });

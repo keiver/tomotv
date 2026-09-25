@@ -58,7 +58,7 @@ export default function ServersScreen() {
   };
 
   return (
-    <ConnectStepScreen header={t("settings.jellyfinServer")}>
+    <ConnectStepScreen header={t("settings.jellyfinServer")} pushed>
       <ServerConnectFlow />
       {signedIn && (
         <View style={settingsStyles.section}>

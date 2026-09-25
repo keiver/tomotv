@@ -10,10 +10,14 @@
 #                                               #  store language)
 #   npm run archive -- <buildNumber> --upload --notes
 #                                               # and translate missing release notes first
+#   --nuke-node-modules                         # any mode: wipe node_modules and `npm ci`
+#                                               # (default `npm i` keeps the tested tree;
+#                                               #  the lockfile is never deleted)
 #
 # Per platform: expo prebuild -> xcodebuild archive (lands in Xcode Organizer)
-# -> export signed .ipa -> local verification -> App Store validation
-# -> optional upload. iOS runs first; tvOS runs last so the working tree is
+# -> export signed .ipa -> local verification -> App Store validation, or with
+# --upload a single upload (Apple validates it) confirmed by its delivery id.
+# iOS runs first; tvOS runs last so the working tree is
 # left in tvOS state for normal development.
 #
 # Validation and upload authenticate with an App Store Connect API key,
@@ -22,6 +26,7 @@
 #   ASC_KEY_ID=XXXXXXXXXX
 #   ASC_ISSUER_ID=<uuid from ASC > Users and Access > Integrations>
 #   API_PRIVATE_KEYS_DIR=/absolute/path/to/dir/containing/AuthKey_XXXXXXXXXX.p8
+#   NTFY_TOPIC=<optional ntfy.sh topic, pinged when a run fails>
 #
 # Without credentials the script still produces signed, locally verified
 # .ipas and skips ASC validation with a notice. --upload requires them.
@@ -44,16 +49,18 @@ cd "$(dirname "$0")/.."
 BUILD_NUMBER="${1:-}"
 UPLOAD=0
 NOTES=0
+NUKE_NODE_MODULES=0
 for arg in "${@:2}"; do
   case "$arg" in
     --upload) UPLOAD=1 ;;
     --notes) NOTES=1 ;;
+    --nuke-node-modules) NUKE_NODE_MODULES=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
 if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes]]" >&2
+  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes]] [--nuke-node-modules]" >&2
   echo "Build number must be a positive integer (check the last one in App Store Connect)." >&2
   exit 1
 fi
@@ -127,6 +134,18 @@ API_PRIVATE_KEYS_DIR="${API_PRIVATE_KEYS_DIR:-}"
 HAVE_CREDS=0
 [[ -n "$ASC_KEY_ID" && -n "$ASC_ISSUER_ID" ]] && HAVE_CREDS=1
 
+# Any failed exit pings NTFY_TOPIC (ntfy.sh), when .env.archive sets one.
+FAILED_STEP=""
+FAILED_LOG=""
+notify_failure() {
+  local rc=$?
+  [[ $rc -eq 0 || -z "${NTFY_TOPIC:-}" ]] && return
+  curl -s --max-time 10 -H "Title: TomoTV archive failed" -H "Priority: high" -H "Tags: rotating_light" \
+    -d "${VERSION:-?} (${BUILD_NUMBER}): ${FAILED_STEP:-exit $rc}${FAILED_LOG:+
+Log: $FAILED_LOG}" "https://ntfy.sh/$NTFY_TOPIC" >/dev/null || true
+}
+trap notify_failure EXIT
+
 # Sign archive+export with the App Store Connect API key, not the Xcode account.
 # The account's session token (Xcode-Token, in the data-protection keychain) has
 # proven unreliable since the 2026-08 clean install: it loaded for one export and
@@ -169,6 +188,18 @@ if [[ $UPLOAD -eq 1 && $HAVE_CREDS -eq 0 ]]; then
   exit 1
 fi
 
+# The listing text is checked before the build, not after the uploads it would follow.
+# --notes translates the other languages later, so only the English has to exist yet.
+if [[ $UPLOAD -eq 1 ]]; then
+  echo "Checking the release notes and listing text before building"
+  if [[ $NOTES -eq 1 ]]; then
+    node scripts/appstore-upload-meta.mjs --check --locale en-US
+  else
+    node scripts/appstore-upload-meta.mjs --check
+  fi
+  echo ""
+fi
+
 VERSION=$(node -p "require('./app.json').expo.version")
 TS=$(date +%Y%m%d-%H%M%S)
 ORGANIZER_DIR="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)"
@@ -196,6 +227,8 @@ run_logged() {
   shift
   echo "  -> $* "
   if ! "$@" >>"$log" 2>&1; then
+    FAILED_STEP="$*"
+    FAILED_LOG="$log"
     echo "" >&2
     echo "FAILED: $*" >&2
     echo "Last 40 log lines:" >&2
@@ -203,6 +236,29 @@ run_logged() {
     echo "Full log: $log" >&2
     exit 1
   fi
+}
+
+# altool drops Apple's connection on flaky networks; a fresh session usually gets through.
+run_retried() {
+  local log="$LOG_DIR/$1" attempt
+  for attempt in 1 2; do
+    echo "  -> [attempt $attempt/3] ${*:2}"
+    echo "=== attempt $attempt/3 ===" >>"$log"
+    "${@:2}" >>"$log" 2>&1 && return 0
+    echo "     failed, retrying in 60s" >&2
+    sleep 60
+  done
+  echo "=== attempt 3/3 ===" >>"$log"
+  run_logged "$@"
+}
+
+# altool has been reported exiting 0 on a rejected upload, so App Store Connect has the last word.
+delivered() {
+  local json
+  json=$(xcrun altool --build-status --delivery-id "$1" --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID" \
+    --output-format json) || { printf '%s\n' "$json"; return 1; }
+  printf '%s\n' "$json"
+  [[ $(plutil -extract is-on-app-store-connect raw -o - - <<<"$json" 2>/dev/null) == true ]]
 }
 
 # verify_ipa <ipa> <expected DTPlatformName>
@@ -257,15 +313,20 @@ build_platform() {
   echo "  -> verifying signature, platform, build number"
   verify_ipa "$ipa" "$dt_platform"
 
-  if [[ $HAVE_CREDS -eq 1 ]]; then
-    run_logged "$label-validate.log" xcrun altool --validate-app -f "$ipa" -t "$alt_type" \
+  # The upload runs Apple's validation itself, so validating first would send the .ipa twice.
+  if [[ $HAVE_CREDS -eq 1 && $UPLOAD -eq 1 ]]; then
+    run_retried "$label-upload.log" xcrun altool --upload-app -f "$ipa" -t "$alt_type" \
+      --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
+    local delivery
+    delivery=$(grep -oE 'Delivery UUID: [0-9a-f-]{36}' "$LOG_DIR/$label-upload.log" | tail -1 | cut -d' ' -f3 || true)
+    [[ -n "$delivery" ]] || run_logged "$label-upload.log" false "no Delivery UUID in the upload output"
+    run_retried "$label-delivery.log" delivered "$delivery"
+    validated="passed (on upload)"
+    uploaded="uploaded"
+  elif [[ $HAVE_CREDS -eq 1 ]]; then
+    run_retried "$label-validate.log" xcrun altool --validate-app -f "$ipa" -t "$alt_type" \
       --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
     validated="passed"
-    if [[ $UPLOAD -eq 1 ]]; then
-      run_logged "$label-upload.log" xcrun altool --upload-app -f "$ipa" -t "$alt_type" \
-        --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
-      uploaded="uploaded"
-    fi
   fi
 
   RESULTS+=("$label | $archive | $ipa | validation: $validated | upload: $uploaded")
@@ -274,18 +335,27 @@ build_platform() {
 
 # ---------------------------------------------------------------- pipeline
 
-echo "[1/4] Stamping build number $BUILD_NUMBER into app.json"
+STEPS=$([[ $UPLOAD -eq 1 ]] && echo 7 || echo 4)
+
+echo "[1/$STEPS] Stamping build number $BUILD_NUMBER into app.json"
 node -e 'const fs=require("fs");const n=process.argv[1];const s=fs.readFileSync("app.json","utf8");const out=s.replace(/("buildNumber":\s*")[^"]*(")/,"$1"+n+"$2");if(!out.includes(`"buildNumber": "${n}"`))throw new Error("buildNumber not stamped in app.json");fs.writeFileSync("app.json",out);' "$BUILD_NUMBER"
 
-echo "[2/4] Clean install"
-rm -rf .expo .metro-cache node_modules package-lock.json
-run_logged "npm-install.log" npm i
+# Never deletes package-lock.json: without it npm resolves the newest version in
+# every range and ships dependencies nobody tested.
+if [[ $NUKE_NODE_MODULES -eq 1 ]]; then
+  echo "[2/$STEPS] Reinstall node_modules from scratch (npm ci)"
+  rm -rf .expo node_modules
+  run_logged "npm-install.log" npm ci
+else
+  echo "[2/$STEPS] Install (npm i, lockfile versions)"
+  run_logged "npm-install.log" npm i
+fi
 echo ""
 
-echo "[3/4] iOS"
+echo "[3/$STEPS] iOS"
 build_platform iOS "generic/platform=iOS" ios iphoneos 0 scripts/exportOptions-ios.plist
 
-echo "[4/4] tvOS"
+echo "[4/$STEPS] tvOS"
 build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/exportOptions-tvos.plist
 
 # ---------------------------------------------------------------- summary
@@ -301,7 +371,7 @@ build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/export
 # unreliable on some screens, so the captures are taken by hand and this step
 # only composes and uploads them.
 if [[ $UPLOAD -eq 1 ]]; then
-  echo "[5/6] Screenshots"
+  echo "[5/$STEPS] Screenshots"
   npm run shots || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
   # --create-version: the binary for this version just went up, so opening its
   # draft to hang the shots on is intended, not the silent open the flag guards.
@@ -322,9 +392,13 @@ if [[ $UPLOAD -eq 1 ]]; then
 
   # A language with screenshots and no description cannot be submitted, so the
   # text goes up in the same run as the pictures.
-  echo "[6/6] Listing text"
+  echo "[6/$STEPS] Listing text"
   npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
   RESULTS+=("listing text | uploaded, every store language, both platforms")
+
+  echo "[7/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
+  node scripts/appstore-attach-build.mjs "$BUILD_NUMBER" || { echo "Selecting the build failed; everything is uploaded, pick build $BUILD_NUMBER in App Store Connect." >&2; exit 1; }
+  RESULTS+=("build $BUILD_NUMBER | selected on both $VERSION versions")
 fi
 
 echo "Done. TomoTV $VERSION ($BUILD_NUMBER)"

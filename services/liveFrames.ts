@@ -71,7 +71,6 @@ let viewable: string[] = [];
 /** Each surface's last reported set; the one that turns active plays its set back. */
 const viewableBySurface = new Map<LiveFrameSurface, string[]>();
 let activeSurface: LiveFrameSurface | null = null;
-let appActive = AppState.currentState !== "background" && AppState.currentState !== "inactive";
 /** The channel a grab is reading now, so playback taking the link can stop it. */
 let grabbing: string | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -85,8 +84,7 @@ function wire(): void {
   if (wired) return;
   wired = true;
   AppState.addEventListener("change", (state) => {
-    appActive = state === "active";
-    if (appActive) schedule(0);
+    if (state === "active") schedule(0);
     else stop();
   });
   onPlaybackHoldReleased(() => schedule(0));
@@ -97,8 +95,13 @@ function wire(): void {
   });
 }
 
+/** Read live: a release bundle evaluates this module while launch is still "inactive", before any listener is wired. */
+function appActive(): boolean {
+  return AppState.currentState !== "background" && AppState.currentState !== "inactive";
+}
+
 function running(): boolean {
-  return activeSurface !== null && appActive && !isPlaybackHeld() && viewable.length > 0 && isLocalRemuxAvailable();
+  return activeSurface !== null && appActive() && !isPlaybackHeld() && viewable.length > 0 && isLocalRemuxAvailable();
 }
 
 function stop(): void {

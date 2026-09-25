@@ -141,6 +141,9 @@ export const ADD_ROW_PADDING_V = Platform.isTV ? 20 : 8;
 /** The field is a SunkenTextInput, so it stands a full control tall. */
 export const ADD_SERVER_ROW_HEIGHT = ADD_ROW_PADDING_V * 2 + CONTROL_HEIGHT;
 
+/** TV: a pushed screen's header top, scroll padding included, level with the Settings tab's under its bar. */
+export const TV_PUSHED_HEADER_TOP = 117;
+
 export const settingsStyles = StyleSheet.create({
   // Screen layout — shared by the Settings tab and ServerConnectScreen (the full-screen
   // connect widget the Library and Search tabs show when no server is connected).
@@ -151,9 +154,9 @@ export const settingsStyles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    // Phone: 8 matches the Search/Library title offset (the ScrollView's automatic
-    // inset adjustment supplies the safe-area part).
-    paddingTop: Platform.isTV ? 4 : 8,
+    // Matches the Search/Library title offset (the ScrollView's automatic inset adjustment
+    // supplies the safe-area part); iPad adds room for the floating top tab bar.
+    paddingTop: pick(4, 20, 8),
     paddingBottom: Platform.isTV ? 60 : 40,
     alignItems: "center",
   },
@@ -198,6 +201,15 @@ export const settingsStyles = StyleSheet.create({
   // would only shift the floating block up by half of itself.
   connectHeaderSpacing: {
     marginTop: Platform.isTV ? 32 : 12,
+  },
+  // TV, on a pushed route that covers the tab bar: the header lands where the Settings tab
+  // puts it under the bar (measured 65pt lower than connectHeaderSpacing alone).
+  connectPushedHeaderSpacing: {
+    marginTop: TV_PUSHED_HEADER_TOP - 20,
+  },
+  // TV form steps (sign in): a field no wider than a name needs, the header on the card's edge.
+  connectNarrow: {
+    maxWidth: 760,
   },
   sectionHeaderText: {
     fontSize: Platform.isTV ? 28 : 16,

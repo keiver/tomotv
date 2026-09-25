@@ -2,7 +2,7 @@
  * When an item's subtitle choice is applied, and what counts as the viewer making one.
  * The preference vocabulary itself lives in services/subtitlePreference.ts.
  */
-import { languageAvailable, type ObservedSubtitle, type SubtitlePreference } from "@/services/subtitlePreference";
+import { canonicalLanguage, reportedSpelling, type ObservedSubtitle, type SubtitlePreference } from "@/services/subtitlePreference";
 
 export function subtitleSelectionForReport(
   streamIndex: number | null,
@@ -43,17 +43,17 @@ export type ApplyPlan =
 export function planSubtitleApplication(input: ApplyInput): ApplyPlan {
   if (input.stored.kind === "system") {
     const tag = input.defaultRenditionLanguage ?? "";
-    if (!tag || tag === "und" || !languageAvailable(tag, input.languages)) return { kind: "leave", reason: "noDefault" };
-    return { kind: "autoDefault", preference: { kind: "language", tag }, tag };
+    const reported = tag && tag !== "und" ? reportedSpelling(tag, input.languages) : null;
+    if (!reported) return { kind: "leave", reason: "noDefault" };
+    return { kind: "autoDefault", preference: { kind: "language", tag: reported }, tag: reported };
   }
+  if (input.stored.kind === "off") return { kind: "apply", preference: input.stored };
 
-  // Asking for a language this item does not carry makes RCTPlayerOperations select nil,
-  // which switches subtitles OFF rather than leaving them alone.
-  if (input.stored.kind === "language" && !languageAvailable(input.stored.tag, input.languages)) {
-    return { kind: "leave", reason: "languageMissing" };
-  }
-
-  return { kind: "apply", preference: input.stored };
+  // RCTPlayerOperations matches extendedLanguageTag exactly (HLS "eng", MP4 "en") and selects nil,
+  // subtitles OFF, on a miss, so the item's own spelling is what gets applied.
+  const reported = reportedSpelling(input.stored.tag, input.languages);
+  if (!reported) return { kind: "leave", reason: "languageMissing" };
+  return { kind: "apply", preference: { kind: "language", tag: reported } };
 }
 
 /**
@@ -62,6 +62,6 @@ export function planSubtitleApplication(input: ApplyInput): ApplyPlan {
  * over, and everything after is theirs to keep, including switching back to that track.
  */
 export function classifyObservedChoice(input: { settled: ObservedSubtitle; autoApplied: string | null }): "echoOfDefault" | "viewerChoice" {
-  if (input.autoApplied !== null && input.settled.kind === "language" && input.settled.tag === input.autoApplied) return "echoOfDefault";
+  if (input.autoApplied !== null && input.settled.kind === "language" && canonicalLanguage(input.settled.tag) === canonicalLanguage(input.autoApplied)) return "echoOfDefault";
   return "viewerChoice";
 }

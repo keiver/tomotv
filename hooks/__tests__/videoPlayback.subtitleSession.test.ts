@@ -65,7 +65,29 @@ describe("planSubtitleApplication", () => {
   });
 });
 
+describe("planSubtitleApplication across lanes", () => {
+  // AVFoundation reports an HLS rendition's LANGUAGE verbatim and an MP4 track as 639-1 (tvOS 26 sim).
+  it("applies a preference stored on the engine lane in the MP4's own spelling", () => {
+    const plan = planSubtitleApplication({ stored: { kind: "language", tag: "eng" }, languages: ["en", "ja"], defaultRenditionLanguage: undefined });
+    expect(plan).toEqual({ kind: "apply", preference: { kind: "language", tag: "en" } });
+  });
+
+  it("applies a preference stored on direct play in the playlist's own spelling", () => {
+    const plan = planSubtitleApplication({ stored: { kind: "language", tag: "en" }, languages: ["eng", "jpn"], defaultRenditionLanguage: undefined });
+    expect(plan).toEqual({ kind: "apply", preference: { kind: "language", tag: "eng" } });
+  });
+
+  it("selects the file's default in the reported spelling", () => {
+    const plan = planSubtitleApplication({ stored: { kind: "system" }, languages: ["en"], defaultRenditionLanguage: "eng" });
+    expect(plan).toEqual({ kind: "autoDefault", preference: { kind: "language", tag: "en" }, tag: "en" });
+  });
+});
+
 describe("classifyObservedChoice", () => {
+  it("reads an echo in another spelling as the same default", () => {
+    expect(classifyObservedChoice({ settled: { kind: "language", tag: "eng" }, autoApplied: "en" })).toBe("echoOfDefault");
+  });
+
   it("reads an echo of the default this session applied as the player agreeing, not a choice", () => {
     expect(classifyObservedChoice({ settled: { kind: "language", tag: "spa" }, autoApplied: "spa" })).toBe("echoOfDefault");
   });

@@ -4,8 +4,8 @@ import { isPlaybackHeld } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
 
 /**
- * Custom hook that triggers a callback when the app comes to the foreground
- * (transitions from background/inactive to active state)
+ * Custom hook that triggers a callback when the app returns from the background.
+ * Launch reads "inactive" in a release build, and inactive alone never left the foreground.
  *
  * Skipped while playback holds the link: the refresh storm (cache wipe plus one
  * refetch per mounted folder screen) competes with stream startup. Screens refetch on focus.
@@ -14,23 +14,22 @@ import { logger } from "@/utils/logger";
  * @param context - Context name for logging (e.g., "LibraryContext")
  */
 export function useAppStateRefresh(onForeground: () => void, context: string): void {
-  const appState = useRef<AppStateStatus>(AppState.currentState);
+  const wasBackgrounded = useRef(AppState.currentState === "background");
 
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      // Refresh when app comes to foreground (background/inactive -> active)
-      if (appState.current.match(/inactive|background/) && nextAppState === "active") {
-        if (isPlaybackHeld()) {
-          logger.debug("Foreground refresh skipped (playback active)", { context });
-        } else {
-          logger.info("App came to foreground, triggering refresh", {
-            context,
-            previousState: appState.current,
-          });
-          onForeground();
-        }
+      if (nextAppState === "background") {
+        wasBackgrounded.current = true;
+        return;
       }
-      appState.current = nextAppState;
+      if (nextAppState !== "active" || !wasBackgrounded.current) return;
+      wasBackgrounded.current = false;
+      if (isPlaybackHeld()) {
+        logger.debug("Foreground refresh skipped (playback active)", { context });
+      } else {
+        logger.info("App came to foreground, triggering refresh", { context });
+        onForeground();
+      }
     };
 
     const subscription = AppState.addEventListener("change", handleAppStateChange);

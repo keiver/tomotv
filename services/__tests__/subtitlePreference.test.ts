@@ -4,7 +4,8 @@
  * Every case here stands for a way this went wrong or could go wrong on a real
  * device, not for coverage of the branches.
  */
-import { nextPreference, observedFromReport, sameSubtitlePreference, selectedTextTrackFor, type SubtitlePreference } from "@/services/subtitlePreference";
+import { JELLYFIN_DEFAULTS, type SubtitleMode } from "@/services/jellyfin/trackSettings";
+import { nextPreference, observedFromReport, sameSubtitlePreference, selectedTextTrackFor, subtitlePreferenceFrom, type SubtitlePreference } from "@/services/subtitlePreference";
 
 const SYSTEM: SubtitlePreference = { kind: "system" };
 const OFF: SubtitlePreference = { kind: "off" };
@@ -140,5 +141,35 @@ describe("sameSubtitlePreference", () => {
   it("compares languages by tag", () => {
     expect(sameSubtitlePreference(ENGLISH, { kind: "language", tag: "eng" })).toBe(true);
     expect(sameSubtitlePreference(ENGLISH, { kind: "language", tag: "spa" })).toBe(false);
+  });
+
+  it("reads two spellings of one language as the same preference", () => {
+    expect(sameSubtitlePreference(ENGLISH, { kind: "language", tag: "en" })).toBe(true);
+  });
+});
+
+describe("subtitlePreferenceFrom", () => {
+  const settings = (subtitleMode: SubtitleMode, subtitleLanguage: string | null = "eng") => ({ ...JELLYFIN_DEFAULTS, subtitleMode, subtitleLanguage });
+
+  it("maps None to off and Always to its language", () => {
+    expect(subtitlePreferenceFrom(settings("None"))).toEqual(OFF);
+    expect(subtitlePreferenceFrom(settings("Always"))).toEqual(ENGLISH);
+  });
+
+  it("leaves Default, OnlyForced and a language-less Always to the file's own flags", () => {
+    expect(subtitlePreferenceFrom(settings("Default"))).toEqual(SYSTEM);
+    expect(subtitlePreferenceFrom(settings("OnlyForced"))).toEqual(SYSTEM);
+    expect(subtitlePreferenceFrom(settings("Always", null))).toEqual(SYSTEM);
+  });
+
+  it("shows Smart's language only under audio in another language", () => {
+    expect(subtitlePreferenceFrom(settings("Smart"), "jpn")).toEqual(ENGLISH);
+    expect(subtitlePreferenceFrom(settings("Smart"), "en")).toEqual(SYSTEM);
+  });
+
+  it("leaves Smart to automatic selection while the playing audio is unknown", () => {
+    expect(subtitlePreferenceFrom(settings("Smart"))).toEqual(SYSTEM);
+    expect(subtitlePreferenceFrom(settings("Smart"), null)).toEqual(SYSTEM);
+    for (const placeholder of ["und", "unknown", "Unknown", "mul", "mis", "zxx"]) expect(subtitlePreferenceFrom(settings("Smart"), placeholder)).toEqual(SYSTEM);
   });
 });

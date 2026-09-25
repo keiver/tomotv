@@ -13,19 +13,16 @@
  * next video.
  *
  * The native mechanism was being invoked but never configured. This supplies it:
- * a global, language-keyed preference fed back as `selectedTextTrack`, which
- * seeds AVKit's own picker rather than replacing it.
+ * a language-keyed preference fed back as `selectedTextTrack`, which seeds AVKit's
+ * own picker rather than replacing it. It lives in the account's Jellyfin settings
+ * (services/jellyfin/trackSettings.ts), so every device signed in as the user shares it.
  *
  * Language is the key rather than a track index, because an index means nothing
- * on the next item. It works identically on all three lanes, since
- * RCTPlayerOperations matches on `extendedLanguageTag`: the engine publishes
- * LANGUAGE on every rendition (Remuxer.masterPlaylist), the server lane does too
- * (HLSManifestGenerator), and direct play carries the file's own tags.
+ * on the next item. RCTPlayerOperations matches `extendedLanguageTag` exactly, which
+ * is the playlist's LANGUAGE on both HLS lanes (`eng`) and 639-1 in an MP4 (`en`), so
+ * the item's own spelling is applied (planSubtitleApplication).
  */
-import * as SecureStore from "expo-secure-store";
-
-import { STORAGE_KEYS } from "@/services/jellyfin/constants";
-import { logger } from "@/utils/logger";
+import { getTrackSettingsSync, recordSubtitlePick, type TrackSettings } from "@/services/jellyfin/trackSettings";
 
 /**
  * What the viewer last settled on.
@@ -178,10 +175,20 @@ export function canonicalLanguage(tag: string): string {
   return TWO_LETTER[terminologic] ?? terminologic;
 }
 
-/** Whether any reported track is this language, in whichever spelling each side used. */
-export function languageAvailable(tag: string, reported: string[]): boolean {
+/** ISO 639-2 codes that name no language, plus Jellyfin's "Unknown". */
+const NOT_A_LANGUAGE = new Set(["und", "unknown", "mul", "mis", "zxx"]);
+
+/** The canonical language a tag names, or null when it names none. */
+export function knownLanguage(tag: string | null | undefined): string | null {
+  const canonical = canonicalLanguage(tag ?? "");
+  return canonical && !NOT_A_LANGUAGE.has(canonical) ? canonical : null;
+}
+
+/** The reported spelling of this language, whichever each side used, or null when none carries it. */
+export function reportedSpelling(tag: string, reported: string[]): string | null {
   const wanted = canonicalLanguage(tag);
-  return wanted.length > 0 && reported.some((candidate) => canonicalLanguage(candidate) === wanted);
+  if (!wanted) return null;
+  return reported.find((candidate) => canonicalLanguage(candidate) === wanted) ?? null;
 }
 
 export function selectedTextTrackFor(preference: SubtitlePreference): SelectedTextTrack {
@@ -195,21 +202,9 @@ export function selectedTextTrackFor(preference: SubtitlePreference): SelectedTe
   }
 }
 
-/** Serialised form. `system` is stored as absence, so clearing the key resets it. */
-function serialize(preference: SubtitlePreference): string | null {
-  if (preference.kind === "system") return null;
-  return preference.kind === "off" ? "off" : preference.tag;
-}
-
-function deserialize(raw: string | null): SubtitlePreference {
-  if (!raw) return SYSTEM;
-  if (raw === "off") return { kind: "off" };
-  return { kind: "language", tag: raw };
-}
-
 export function sameSubtitlePreference(a: SubtitlePreference, b: SubtitlePreference): boolean {
   if (a.kind !== b.kind) return false;
-  return a.kind !== "language" || b.kind !== "language" || a.tag === b.tag;
+  return a.kind !== "language" || b.kind !== "language" || canonicalLanguage(a.tag) === canonicalLanguage(b.tag);
 }
 
 /**
@@ -247,72 +242,24 @@ export function nextPreference(args: { observed: ObservedSubtitle; previous: Sub
 
 // MARK: - Storage
 
-let cached: SubtitlePreference = SYSTEM;
 /**
- * The read failed and the cache is a fallback, not the stored value.
- *
- * A cold launch on a locked device throws "User interaction is not allowed" out
- * of the Keychain (seen 2026-08-13), and without this the preference would read
- * as unset for the whole app session, silently.
+ * The account's Jellyfin subtitle settings as a preference. Smart shows the preferred language only
+ * under audio known to be in another language, else automatic selection, which covers forced ones.
  */
-let primeFailed = false;
-let priming: Promise<SubtitlePreference> | null = null;
-
-/**
- * Read the stored preference into the cache.
- *
- * Kicked off on import rather than from app/_layout.tsx, and safe by ordering
- * rather than by luck: a SecureStore read resolves long before any `sourceUri`
- * exists, since that waits on the Jellyfin metadata fetch and a playback-mode
- * decision. Until it lands the getter answers `system`, which is what the app
- * did before this module existed.
- */
-export async function primeSubtitlePreference(): Promise<SubtitlePreference> {
-  if (priming) return priming;
-  priming = (async () => {
-    try {
-      cached = deserialize(await SecureStore.getItemAsync(STORAGE_KEYS.SUBTITLE_PREFERENCE));
-      primeFailed = false;
-    } catch (error) {
-      logger.warn("Could not read the stored subtitle preference", { service: "SubtitlePreference", error });
-      cached = SYSTEM;
-      primeFailed = true;
-    } finally {
-      priming = null;
-    }
-    return cached;
-  })();
-  return priming;
+export function subtitlePreferenceFrom(settings: TrackSettings, playingAudioLanguage?: string | null): SubtitlePreference {
+  const tag = settings.subtitleLanguage;
+  const audio = knownLanguage(playingAudioLanguage);
+  if (settings.subtitleMode === "None") return { kind: "off" };
+  if (settings.subtitleMode === "Always" && tag) return { kind: "language", tag };
+  if (settings.subtitleMode === "Smart" && tag && audio && audio !== canonicalLanguage(tag)) return { kind: "language", tag };
+  return SYSTEM;
 }
 
-/**
- * The cached preference. Synchronous on purpose: the player prop has to be
- * stable at render, and an awaited read would change it mid-item and re-apply
- * the selection over whatever the viewer had just chosen.
- */
-export function getSubtitlePreferenceSync(): SubtitlePreference {
-  // A failed read is retried in the background so the NEXT item gets the real
-  // value, rather than the whole session inheriting a locked Keychain.
-  if (primeFailed && !priming) void primeSubtitlePreference();
-  return cached;
+/** Synchronous: the player prop has to be stable at render. */
+export function getSubtitlePreferenceSync(playingAudioLanguage?: string | null): SubtitlePreference {
+  return subtitlePreferenceFrom(getTrackSettingsSync(), playingAudioLanguage);
 }
-
+/** `tag` is Jellyfin's spelling of the stream's language, the one its settings expect. */
 export async function saveSubtitlePreference(preference: SubtitlePreference): Promise<void> {
-  cached = preference;
-  const value = serialize(preference);
-  try {
-    if (value === null) await SecureStore.deleteItemAsync(STORAGE_KEYS.SUBTITLE_PREFERENCE);
-    else await SecureStore.setItemAsync(STORAGE_KEYS.SUBTITLE_PREFERENCE, value);
-  } catch (error) {
-    // The cache still holds it, so the rest of this app session honours the
-    // choice; only persistence across launches is lost.
-    logger.warn("Could not persist the subtitle preference", { service: "SubtitlePreference", error });
-  }
+  if (preference.kind !== "system") recordSubtitlePick(preference);
 }
-
-/** Test seam: drop the cache so a suite can start from the unset state. */
-export function resetSubtitlePreferenceCache(): void {
-  cached = SYSTEM;
-}
-
-void primeSubtitlePreference();
