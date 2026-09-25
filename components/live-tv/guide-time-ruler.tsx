@@ -77,9 +77,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     bottom: 0,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: IS_TV ? 8 : 5,
+    alignItems: "flex-start",
+    justifyContent: "flex-end",
   },
   majorMark: {
     width: MAJOR_MARK_WIDTH,
@@ -92,13 +91,19 @@ const styles = StyleSheet.create({
   hidden: {
     opacity: 0,
   },
+  // Sits on top of its mark, shifted so the first digit centers over the line.
+  // Explicit width: the 1px tick parent would clamp an auto-sized absolute label to nothing.
   tickLabel: {
+    position: "absolute",
+    left: IS_TV ? -5 : -3,
+    bottom: MAJOR_MARK_HEIGHT,
+    width: IS_TV ? 120 : 70,
     color: RED,
     fontSize: IS_TV ? 18 : 11,
     fontWeight: "600",
-    paddingBottom: IS_TV ? 20 : 13,
   },
   tickLabelHour: {
+    bottom: HOUR_MARK_HEIGHT,
     fontSize: IS_TV ? 20 : 12,
     fontWeight: "700",
   },
