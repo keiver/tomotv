@@ -121,8 +121,9 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
   const entryProgramId = useMemo(() => {
     const first = rows[0];
     if (!IS_TV || !first) return undefined;
-    return (first.programs.find((program) => isAiring(program, nowMs)) ?? first.programs[0])?.Id;
-  }, [rows, nowMs]);
+    const cells = rowCells(first.channel, first.programs, windowStartMs, windowEndMs, METRICS);
+    return (cells.find((program) => isAiring(program, nowMs)) ?? cells[0])?.Id;
+  }, [rows, nowMs, windowStartMs, windowEndMs]);
   useEffect(() => {
     entryProgramIdRef.current = entryProgramId;
     setEntryHandle(entryProgramId ? handlesRef.current.get(entryProgramId) : undefined);
@@ -163,8 +164,9 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
     if (!IS_TV || focusLatched || !isScreenFocused) return undefined;
     const first = rows[0];
     if (!first) return undefined;
-    return (first.programs.find((program) => isAiring(program, nowMs)) ?? first.programs[0])?.Id;
-  }, [rows, nowMs, focusLatched, isScreenFocused]);
+    const cells = rowCells(first.channel, first.programs, windowStartMs, windowEndMs, METRICS);
+    return (cells.find((program) => isAiring(program, nowMs)) ?? cells[0])?.Id;
+  }, [rows, nowMs, focusLatched, isScreenFocused, windowStartMs, windowEndMs]);
 
   const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
   const dayLabel = formatDayLabel(windowStartMs, nowMs, { today: t("liveTv.now"), tomorrow: t("liveTv.tomorrow") });
