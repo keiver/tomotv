@@ -145,7 +145,9 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
     (rowIndex, program) => {
       const { startMs, endMs } = programTimes(program);
       const left = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, METRICS)?.left ?? 0;
-      const edgeMs = windowStartMs + (Math.max(left, scrollX.value) / METRICS.pxPerMinute) * MINUTE_MS;
+      // get(), never .value: the React Compiler hoists a `.value` read into its render-time
+      // memo comparison, which is a shared-value read during render.
+      const edgeMs = windowStartMs + (Math.max(left, scrollX.get()) / METRICS.pxPerMinute) * MINUTE_MS;
       return { up: neighbourHandle(rowDataRef.current[rowIndex - 1], edgeMs), down: neighbourHandle(rowDataRef.current[rowIndex + 1], edgeMs) };
     },
     [windowStartMs, windowEndMs, scrollX, neighbourHandle],
@@ -203,27 +205,38 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
 
+  // The HUD stays mounted through every branch: an empty pick must keep the group cells (and the
+  // focus sitting on one) so the viewer can pick their way back out.
   if (isLoading && rows.length === 0) {
     return (
-      <View style={styles.center}>
-        <LoadingRow label={t("liveTv.loadingGuide")} />
+      <View style={styles.canvas}>
+        {hudRow}
+        <View style={styles.center}>
+          <LoadingRow label={t("liveTv.loadingGuide")} />
+        </View>
       </View>
     );
   }
   if (error && rows.length === 0) {
     return (
-      <View style={styles.center}>
-        <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-        <Text style={styles.errorText}>{error}</Text>
-        <FocusableButton title={t("common.retry")} variant="primary" onPress={retry} hasTVPreferredFocus icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} />
+      <View style={styles.canvas}>
+        {hudRow}
+        <View style={styles.center}>
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
+          <Text style={styles.errorText}>{error}</Text>
+          <FocusableButton title={t("common.retry")} variant="primary" onPress={retry} hasTVPreferredFocus icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} />
+        </View>
       </View>
     );
   }
   if (rows.length === 0) {
     return (
-      <View style={styles.center}>
-        <Ionicons name="tv-outline" size={64} color={COLORS.TEXT_SECONDARY} />
-        <Text style={styles.emptyText}>{t("liveTv.noChannels")}</Text>
+      <View style={styles.canvas}>
+        {hudRow}
+        <View style={styles.center}>
+          <Ionicons name="tv-outline" size={64} color={COLORS.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>{t("liveTv.noChannels")}</Text>
+        </View>
       </View>
     );
   }

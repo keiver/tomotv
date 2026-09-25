@@ -3,7 +3,7 @@ import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { cellGeometry, NO_GUIDE_PREFIX, programTimes, type GuideMetrics } from "@/utils/guide";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 
@@ -90,16 +90,28 @@ function GuideRowComponent({
   const cellHeight = metrics.rowHeight - 1;
   // Row-local, so a focus move re-renders this row and the one it left, never the canvas.
   const [focusTargets, setFocusTargets] = useState<FocusTargets | undefined>(undefined);
+  const focusedIdRef = useRef<string | null>(null);
   const press = useCallback((program: JellyfinProgram) => onProgramPress(program, channel), [onProgramPress, channel]);
   const longPress = useCallback((program: JellyfinProgram) => onProgramLongPress(program, channel), [onProgramLongPress, channel]);
   const focus = useCallback(
     (program: JellyfinProgram) => {
-      if (targetsFor && program.Id) setFocusTargets({ programId: program.Id, ...targetsFor(rowIndex, program) });
+      if (targetsFor && program.Id) {
+        const programId = program.Id;
+        focusedIdRef.current = programId;
+        // A tick later: the mount claim's focus event lands inside React's commit, where
+        // targetsFor may not read the scroll offset's shared value.
+        setTimeout(() => {
+          if (focusedIdRef.current === programId) setFocusTargets({ programId, ...targetsFor(rowIndex, program) });
+        }, 0);
+      }
       onCellFocus?.(program, channel);
     },
     [targetsFor, rowIndex, onCellFocus, channel],
   );
-  const blur = useCallback((program: JellyfinProgram) => setFocusTargets((current) => (current?.programId === program.Id ? undefined : current)), []);
+  const blur = useCallback((program: JellyfinProgram) => {
+    if (focusedIdRef.current === program.Id) focusedIdRef.current = null;
+    setFocusTargets((current) => (current?.programId === program.Id ? undefined : current));
+  }, []);
   return (
     // TV: a focused cell lands its row on the list's top edge (snapToAlignment="item" on the list).
     <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapAlign={IS_TV ? "start" : undefined}>
