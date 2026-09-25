@@ -10,6 +10,7 @@ import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
 import {
   clearResumePosition,
+  deleteItem,
   fetchFolderMediaKinds,
   FolderMediaKinds,
   fetchItemDetails,
@@ -21,6 +22,7 @@ import {
   isAudioItem,
   isFolder,
   isBook,
+  isLiveChannel,
   isPhoto,
   notifyResumeChange,
   setVideoFavorite,
@@ -37,6 +39,7 @@ import { folderPosterSource } from "@/services/itemArtwork";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
+import { useIsAdministrator } from "@/hooks/useIsAdministrator";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
@@ -76,6 +79,7 @@ export default function VideoInfoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openItem = useOpenShelfItem();
+  const isAdmin = useIsAdministrator();
   const [inGroup, setInGroup] = useState(false);
   useEffect(() => subscribeSyncPlay((snap) => setInGroup(snap.group !== null)), []);
   const { showGlobalLoader } = useLoadingActions();
@@ -301,6 +305,29 @@ export default function VideoInfoScreen() {
     }
   }, [details, sharing, params.videoId]);
 
+  // Admin-only, and irreversible on the server, so the press only opens the confirm.
+  const [deleting, setDeleting] = useState(false);
+  const handleDelete = useCallback(() => {
+    if (!details) return;
+    Alert.alert(details.Name, t("info.deleteConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("common.delete"),
+        style: "destructive",
+        onPress: () => {
+          setDeleting(true);
+          deleteItem(details.Id)
+            .then(() => router.back())
+            .catch((error) => {
+              logger.warn("Failed to delete item", error, { service: "VideoInfo", videoId: details.Id });
+              Alert.alert(details.Name, t("info.deleteFailed"));
+            })
+            .finally(() => setDeleting(false));
+        },
+      },
+    ]);
+  }, [details, router]);
+
   // dismissFirst, not a router.back() here: the panel is a ROOT route and the folder levels
   // live in the tabs' own stack, so the pushes have to be QUEUED after the dismissal reaches
   // the navigation state. The hook owns that wait (see whenRootStateSettles).
@@ -335,6 +362,8 @@ export default function VideoInfoScreen() {
   // Audio, video or any mix of the two. Gated on what the container actually holds, so a
   // photo album never offers to download a set the downloads screen could not play.
   const canDownloadFolder = isContainer && downloadsSupported() && !!mediaKinds && (mediaKinds.video || mediaKinds.audio);
+  // Admins only; a channel is a tuner's listing, not a library file the server could delete.
+  const canDelete = isAdmin && !!details && !isLiveChannel(details);
 
   // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
   // holding several, each one names its own set. A folder with nothing playable keeps the
@@ -523,6 +552,15 @@ export default function VideoInfoScreen() {
             whatever mix of audio and video the folder holds comes down in this one press. */}
         {canDownloadFolder && (
           <FocusableButton title={t("info.downloadAll")} variant="secondary" icon={<Ionicons name="arrow-down" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
+        )}
+        {canDelete && (
+          <FocusableButton
+            title={t("common.delete")}
+            variant="destructive"
+            icon={<Ionicons name="trash-outline" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+            onPress={handleDelete}
+            isLoading={deleting}
+          />
         )}
       </View>
 

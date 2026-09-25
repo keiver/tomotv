@@ -15,8 +15,48 @@ import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, READABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
+import { invalidateItemRemoved } from "./cacheKeys";
 import { resolveChannel } from "./liveTv";
 import { didConfigReadFail, getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
+
+/** Whether the signed-in account is a server administrator; gates the panel's Delete action. */
+export async function fetchIsAdministrator(): Promise<boolean> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey) return false;
+  const response = await fetchWithTimeout(
+    `${config.server}/Users/Me`,
+    {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) },
+    },
+    API_TIMEOUTS.QUICK,
+  );
+  if (!response.ok) {
+    throwRequestError(response, `Failed to read user policy: ${response.status}`);
+  }
+  const user = (await response.json()) as { Policy?: { IsAdministrator?: boolean } };
+  return user.Policy?.IsAdministrator === true;
+}
+
+/** Permanently delete an item (a folder takes its descendants with it) and evict every read that could still list it. */
+export async function deleteItem(itemId: string): Promise<void> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+  const response = await fetchWithTimeout(
+    `${config.server}/Items/${itemId}`,
+    {
+      method: "DELETE",
+      headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) },
+    },
+    API_TIMEOUTS.NORMAL,
+  );
+  if (!response.ok) {
+    throwRequestError(response, `Failed to delete item: ${response.status}`);
+  }
+  invalidateItemRemoved(config.userId, itemId);
+}
 
 /**
  * Fetch primary library/view name from Jellyfin

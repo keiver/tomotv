@@ -36,7 +36,7 @@ export { activateAccount, getAccountsForServer, getSavedAccounts, relocateAccoun
 export type { ActivateAccountResult } from "./jellyfin/accounts";
 
 export { DEMO_ADDRESS, DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
-export { notifyResumeChange, notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
+export { notifyResumeChange, notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribeItemRemoved, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
 export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupported, isLiveChannel, isLiveSource, needsTranscoding } from "./jellyfin/media";
 export {
   cancelSeriesTimer,
@@ -140,7 +140,9 @@ export {
   isPhoto,
 } from "./jellyfin/library";
 export {
+  deleteItem,
   fetchAllPlaylistItems,
+  fetchIsAdministrator,
   fetchItemDetails,
   fetchItemFolderPath,
   fetchItemsByIds,

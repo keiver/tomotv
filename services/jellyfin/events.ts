@@ -59,6 +59,20 @@ export function notifyPlayedChange(itemId: string, played: boolean): void {
   playedListeners.forEach((cb) => cb(itemId, played));
 }
 
+// Item-removed pub/sub: fired after a server-side delete lands, so visible lists drop
+// the card in place (the cached reads are evicted separately, see cacheKeys.ts).
+const removedListeners = new Set<(itemId: string) => void>();
+
+/** Subscribe to server-side item deletions. Returns an unsubscribe function. */
+export function subscribeItemRemoved(cb: (itemId: string) => void): () => void {
+  removedListeners.add(cb);
+  return () => removedListeners.delete(cb);
+}
+
+export function notifyItemRemoved(itemId: string): void {
+  removedListeners.forEach((cb) => cb(itemId));
+}
+
 // Resume-change pub/sub: fired after the server's resume state for an item was rewritten
 // (playback stop, resume persist, manual clear). Carries the item and, when the app wrote
 // the value itself, the ticks the server now holds; a Stopped report passes through the

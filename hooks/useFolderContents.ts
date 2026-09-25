@@ -13,6 +13,7 @@ import {
   isLiveChannel,
   subscribeAuthChange,
   subscribeFavoriteChange,
+  subscribeItemRemoved,
   subscribePlayedChange,
   subscribeResumeChange,
 } from "@/services/jellyfinApi";
@@ -313,6 +314,13 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       });
     });
   }, [activeFilters]);
+
+  // A deleted item vanishes from the visible list in place; its cached reads are already evicted.
+  useEffect(() => {
+    return subscribeItemRemoved((itemId) => {
+      setItems((prev) => prev.filter((item) => item.Id !== itemId));
+    });
+  }, []);
 
   // A resume write names its item and, when the app wrote the value, the ticks the server now
   // holds. A Stopped report carries none (the server gated it), so the item is read back; a
