@@ -487,8 +487,20 @@ export function PlayerHost() {
             onBandwidthUpdate: ignore,
             onReadyForDisplay: ignore,
           }
-        : videoCallbacks,
-    [showingHeld, videoCallbacks],
+        : {
+            ...videoCallbacks,
+            // No route attached = a detached window. A retry cannot restore one (the rebuild
+            // remounts <Video>), so its error ends the session, same as playback ending does.
+            onError: (error: OnVideoErrorData) => {
+              if (!handlersRef.current) {
+                logger.warn("Player host: stream error with no route attached, ending the session", { service: "PlayerHost" });
+                endSessionRef.current();
+                return;
+              }
+              videoCallbacks.onError(error);
+            },
+          },
+    [showingHeld, videoCallbacks, handlersRef],
   );
   const presentedCallbacks = useMemo(() => {
     if (!PRESENTS_NATIVE_FULLSCREEN) {

@@ -10,7 +10,7 @@
  */
 
 import { PlaybackErrorType, planErrorRecovery, type ErrorRecoveryInput } from "../useVideoPlayback";
-import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, planLiveErrorRecovery, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+import { AUTOMATIC_RETRY_BUDGET_MS, NATIVE_PAUSE_CARRY_MS, automaticRetryDelay, planLiveErrorRecovery, rebuildResumesPaused, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
 
 describe("automatic network recovery", () => {
   it("caps the delay without exhausting retries", () => {
@@ -40,6 +40,27 @@ describe("automatic network recovery", () => {
   it("leaves live and offline recovery to their existing policies", () => {
     expect(shouldAutomaticallyRetry({ ...vod, live: true, errorType: PlaybackErrorType.NETWORK })).toBe(false);
     expect(shouldAutomaticallyRetry({ ...vod, heldOnDisk: true, errorType: PlaybackErrorType.NETWORK })).toBe(false);
+  });
+});
+
+describe("rebuildResumesPaused", () => {
+  const now = 1_790_340_000_000;
+
+  it("carries a JS pause into the rebuild", () => {
+    expect(rebuildResumesPaused({ jsPaused: true, lastNativePlayingAt: now - 1000, now })).toBe(true);
+  });
+
+  it("carries a native pause the JS flag never saw (paused overnight, error on wake)", () => {
+    expect(rebuildResumesPaused({ jsPaused: false, lastNativePlayingAt: now - 11 * 3600_000, now })).toBe(true);
+  });
+
+  it("resumes playing after a stall that erred within the carry window", () => {
+    expect(rebuildResumesPaused({ jsPaused: false, lastNativePlayingAt: now - NATIVE_PAUSE_CARRY_MS, now })).toBe(false);
+    expect(rebuildResumesPaused({ jsPaused: false, lastNativePlayingAt: now - NATIVE_PAUSE_CARRY_MS - 1, now })).toBe(true);
+  });
+
+  it("resumes when the native player never reported playing for this item", () => {
+    expect(rebuildResumesPaused({ jsPaused: false, lastNativePlayingAt: 0, now })).toBe(false);
   });
 });
 

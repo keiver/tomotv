@@ -88,7 +88,7 @@ import { measureServerBitrate, rememberedBitrate } from "@/services/jellyfin/bit
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
 import { getQualitySettings } from "@/services/jellyfin/session";
 import { videoPlayerReducer, type PlaybackMode, type PlaybackTransport, type VideoPlayerState } from "./videoPlayback/machine";
-import { automaticRetryDelay, planErrorRecovery, planLiveErrorRecovery, shouldAutomaticallyRetry } from "./videoPlayback/errorRecovery";
+import { automaticRetryDelay, planErrorRecovery, planLiveErrorRecovery, rebuildResumesPaused, shouldAutomaticallyRetry } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
@@ -389,6 +389,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
+  // Last isPlaying report from the native player; 0 = none yet for this item.
+  const lastNativePlayingAtRef = useRef(0);
+  /** Paused intent carried into the next session: the JS flag, or a long-standing native pause. */
+  const resumePausedIntent = useCallback(() => rebuildResumesPaused({ jsPaused: pausedRef.current, lastNativePlayingAt: lastNativePlayingAtRef.current, now: Date.now() }), []);
 
   // Audio track state (for tracking selected track)
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
@@ -815,26 +819,29 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    * recovery goes through here: the player is unmounted with the stream URL so the dead source
    * cannot fire again, and the play/stable edges are re-armed so the next session reports them.
    */
-  const restartAtPlayhead = useCallback((position?: number) => {
-    const attempt = ++requestIdRef.current;
-    if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = pausedRef.current;
-    if (position !== undefined) seekToPositionAfterLoadRef.current = position;
-    if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
-    if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
-    if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
-    if (gatewayRecoveryRef.current) clearTimeout(gatewayRecoveryRef.current.timer);
-    gatewayRecoveryRef.current = null;
-    autoPlayTriggeredRef.current = false;
-    isPlayingRef.current = false;
-    hasStablePlaybackRef.current = false;
-    setHasStablePlayback(false);
-    setStreamUrl(null);
-    streamUrlRef.current = null;
-    setImmediate(() => {
-      if (!isMountedRef.current || requestIdRef.current !== attempt) return;
-      dispatch({ type: "RETRY_WITH_TRANSCODE" });
-    });
-  }, []);
+  const restartAtPlayhead = useCallback(
+    (position?: number) => {
+      const attempt = ++requestIdRef.current;
+      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = resumePausedIntent();
+      if (position !== undefined) seekToPositionAfterLoadRef.current = position;
+      if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
+      if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
+      if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
+      if (gatewayRecoveryRef.current) clearTimeout(gatewayRecoveryRef.current.timer);
+      gatewayRecoveryRef.current = null;
+      autoPlayTriggeredRef.current = false;
+      isPlayingRef.current = false;
+      hasStablePlaybackRef.current = false;
+      setHasStablePlayback(false);
+      setStreamUrl(null);
+      streamUrlRef.current = null;
+      setImmediate(() => {
+        if (!isMountedRef.current || requestIdRef.current !== attempt) return;
+        dispatch({ type: "RETRY_WITH_TRANSCODE" });
+      });
+    },
+    [resumePausedIntent],
+  );
 
   /**
    * The engine is losing mid-play: one move to the server at the playhead, before the buffer
@@ -1980,7 +1987,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
 
       const attempt = requestIdRef.current;
-      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = pausedRef.current;
+      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = resumePausedIntent();
       if (currentTimeRef.current > 0) seekToPositionAfterLoadRef.current = currentTimeRef.current;
       // The whole ladder decision is pure (see planErrorRecovery); this callback only applies it.
       const decision = planErrorRecovery({
@@ -2144,7 +2151,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       });
     },
-    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead, retryingForMs],
+    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead, retryingForMs, resumePausedIntent],
   );
 
   const onError = useCallback(
@@ -2647,6 +2654,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // outlive the route, which makes resetting it here the only thing that does.
     isPlayingRef.current = false;
     autoPlayTriggeredRef.current = false;
+    lastNativePlayingAtRef.current = 0;
     // The reporter reads this as its live position source, without the reset a queue
     // advance would stamp the new video's first reports with the previous video's clock.
     currentTimeRef.current = 0;
@@ -2782,7 +2790,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
     if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
     if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
-    if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = pausedRef.current;
+    if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = resumePausedIntent();
     if (!isLiveRef.current && currentTimeRef.current > 0) seekToPositionAfterLoadRef.current = currentTimeRef.current;
 
     // A failed DIRECT play gets the engine as its next rung, not the server: AVPlayer refusing
@@ -2821,7 +2829,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (state.autoRetry) retryWindowStartRef.current ??= Date.now();
 
     return () => clearTimeout(retryTimer);
-  }, [skip, state]);
+  }, [skip, state, resumePausedIntent]);
 
   /**
    * Playback control functions
@@ -2877,6 +2885,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (event: OnPlaybackStateChangedData) => {
       syncPlayManager.notePlaybackState(event);
       playerPlayingRef.current = event.isPlaying;
+      if (event.isPlaying) lastNativePlayingAtRef.current = Date.now();
       reportPauseChange(!event.isPlaying);
     },
     [reportPauseChange],

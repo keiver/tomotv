@@ -24,6 +24,17 @@ export function shouldAutomaticallyRetry(input: { live: boolean; heldOnDisk: boo
   }
 }
 
+/** A native pause older than this reads as the viewer leaving the player paused. */
+export const NATIVE_PAUSE_CARRY_MS = 5 * 60_000;
+
+/**
+ * Whether a rebuilt session comes back paused. The JS flag only knows JS pauses; a pause taken
+ * natively (AVKit button, lock screen) shows as a long gap since the last isPlaying report.
+ */
+export function rebuildResumesPaused(input: { jsPaused: boolean; lastNativePlayingAt: number; now: number }): boolean {
+  return input.jsPaused || (input.lastNativePlayingAt > 0 && input.now - input.lastNativePlayingAt > NATIVE_PAUSE_CARRY_MS);
+}
+
 export interface ErrorRecoveryInput {
   mode: PlaybackMode;
   errorType: PlaybackErrorType;

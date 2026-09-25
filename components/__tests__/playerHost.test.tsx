@@ -478,4 +478,37 @@ describe("PlayerHost", () => {
 
     expect(requestedVideoId()).toBeNull();
   });
+
+  it("routes a stream error to the ladder while a route is attached", async () => {
+    handlersRef.current = { onPlaybackEnd: jest.fn() };
+    await act(async () => {
+      bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+    sourceUri = "http://stream/1";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+
+    await act(async () => {
+      renderer.root.findByType(Video).props.onError({ error: { errorString: "gone" } });
+    });
+
+    expect(videoCallbacks.onError).toHaveBeenCalledTimes(1);
+    expect(requestedVideoId()).toBe("movie-1");
+  });
+
+  it("ends a routeless session when its stream errors, instead of retrying it", async () => {
+    await playWithPipUp();
+    await act(async () => {
+      bridge().stopSession();
+      bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+
+    await act(async () => {
+      renderer.root.findByType(Video).props.onError({ error: { errorString: "Could not connect to the server." } });
+    });
+
+    expect(videoCallbacks.onError).not.toHaveBeenCalled();
+    expect(requestedVideoId()).toBeNull();
+  });
 });
