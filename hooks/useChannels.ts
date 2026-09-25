@@ -75,6 +75,14 @@ export function useChannels(
     pageFailuresRef.current = 0;
     if (pageBackoffRef.current) clearTimeout(pageBackoffRef.current);
     pageBackoffRef.current = null;
+    // A fresh load empties the wall and shows the loading state, so a filter pick reads at once.
+    itemsRef.current = [];
+    loadedRef.current = 0;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setItems([]);
+    setIsLoading(true);
+    setHasMore(false);
+    setError(null);
     // The ids still loading: the returned isLoading covers it without a state write.
     if (ids === "loading") return;
     loadPage(0)

@@ -31,6 +31,9 @@ export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderS
   // precedes its first focus can't be read as the user leaving.
   const editedOnce = useRef(false);
   const fieldRef = useRef<TextInput>(null);
+  // What the field holds, kept out of state: any render while the tvOS keyboard
+  // is up dismisses it, so the term only leaves on the keyboard's Search key.
+  const draft = useRef(value);
 
   const progress = useSharedValue(0);
   const reducedMotion = useReducedMotion();
@@ -58,9 +61,11 @@ export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderS
     setOpen(true);
     setRolling(true);
   };
-  // An empty field gives the slot back; a typed term stays open with its results.
+  // An empty committed term gives the slot back; a searched term stays open with its results.
   const handleBlur = () => {
     if (!editedOnce.current || value.trim()) return;
+    draft.current = "";
+    fieldRef.current?.clear();
     setOpen(false);
     setRolling(true);
   };
@@ -71,8 +76,8 @@ export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderS
   return (
     <View style={styles.row}>
       <Animated.View style={[styles.fieldSlot, fieldStyle, fieldGone && styles.gone]}>
-        {/* Uncontrolled on purpose: a controlled TextInput re-rendering per keystroke drops the
-            tvOS keyboard; the native field keeps its own text and only reports changes out. */}
+        {/* Uncontrolled on purpose: the native field keeps its own text, keystrokes land in the
+            draft ref, and only the Search key hands the term to the screen. */}
         <SunkenTextInput
           ref={fieldRef}
           containerStyle={styles.fieldWrapper}
@@ -86,7 +91,10 @@ export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderS
           numberOfLines={1}
           multiline={false}
           clearButtonMode="while-editing"
-          onChangeText={onChangeText}
+          onChangeText={(text) => {
+            draft.current = text;
+          }}
+          onSubmitEditing={() => onChangeText(draft.current)}
           onFocus={() => {
             editedOnce.current = true;
           }}
