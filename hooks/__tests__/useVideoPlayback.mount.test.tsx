@@ -179,7 +179,12 @@ jest.mock("@/services/downloads/manager", () => ({ downloadManager: { getState: 
 
 const mockTakeHot = jest.fn((_id: string): unknown => null);
 const mockRetain = jest.fn((_channel: unknown) => false);
-jest.mock("@/services/liveRing", () => ({ takeRingSession: (id: string) => Promise.resolve(mockTakeHot(id)), retainLiveSession: (channel: unknown) => mockRetain(channel) }));
+jest.mock("@/services/liveRing", () => ({
+  takeRingSession: (id: string) => Promise.resolve(mockTakeHot(id)),
+  retainLiveSession: (channel: unknown) => mockRetain(channel),
+  takeWarmDetails: () => null,
+  yieldLiveRing: jest.fn(),
+}));
 
 jest.mock("@/services/multiAudioLoader", () => ({
   prepareMultiAudioPlayback: jest.fn(() => Promise.resolve("jellyfin-multi://session")),

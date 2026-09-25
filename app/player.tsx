@@ -273,8 +273,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       cancelled = true;
     };
   }, [isLiveChannel, ringAttempt]);
-  // The ring follows the channel on screen: its neighbours cut segments in the engine once it plays,
-  // the wider ring is held open on the server. The snapshot must name this channel, not the one left.
+  // The ring follows the channel on screen: its neighbours cut segments in the engine while a surf
+  // window is open. The snapshot must name this channel, not the one left.
   const livePlaying = isLiveChannel && playbackState.type === "PLAYING" && sessionVideoId === videoId;
   useEffect(() => {
     if (!Platform.isTV || !isLiveChannel || channelRing.length === 0) return;

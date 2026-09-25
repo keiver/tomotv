@@ -64,7 +64,7 @@ import {
   type SubtitleRendition,
   type ThroughputSample,
 } from "@/services/localRemux";
-import { retainLiveSession, takeRingSession } from "@/services/liveRing";
+import { retainLiveSession, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
 import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
 import { downloadManager } from "@/services/downloads/manager";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
@@ -553,7 +553,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
       if (ringSession) adoptedLiveRef.current = { videoId, url: ringSession.url, token: ringSession.token, ready: ringSession.ready };
-      let details = ringSession ? ringSession.details : await fetchVideoDetails(videoId);
+      // A neighbour's quiet resolve is the same shape a fresh one returns, minus two server round trips.
+      const warmDetails = ringSession ? null : takeWarmDetails(videoId);
+      let details = ringSession ? ringSession.details : (warmDetails ?? (await fetchVideoDetails(videoId)));
 
       // Check if this response is stale (videoId changed while fetching)
       if (requestIdRef.current !== currentRequestId) {
@@ -1066,6 +1068,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           const stopThroughput = subscribeEngineThroughput(token, (sample) => {
             if (!ownsAttempt() || localRemuxTokenRef.current !== token) return;
             throughputRef.current.samples = [...throughputRef.current.samples.slice(-7), sample];
+            // A read-bound live segment measured the link at its limit: the playing channel gets it whole.
+            if (isLiveRef.current && readBound(sample)) yieldLiveRing();
             if (preflight.settle(sample)) return;
             // On the tier lane the primary is unproducible by design; its starvation is not
             // a reason to abandon the tier for a higher-bitrate server transcode.
@@ -2514,7 +2518,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // segments don't outlive the screen. The token is per-instance: during a
       // screen transition two players are briefly mounted at once, and passing
       // anything shared here would stop the incoming player's session instead.
-      // A live channel left while playing stays hot in the ring, so flipping back to it is instant.
+      // A live channel left mid-surf stays hot in the ring, so flipping back to it is instant.
       const liveDetails = liveDetailsRef.current;
       const liveToken = localRemuxTokenRef.current;
       const liveUrl = liveSessionUrlRef.current;

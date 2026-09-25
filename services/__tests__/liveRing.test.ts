@@ -3,7 +3,7 @@
  * session is bindable only once the engine cut a segment, and whatever leaves the ring is stopped.
  */
 import { closeLiveStream, noteOpenFailed, resolveChannel } from "@/services/jellyfinApi";
-import { isHotChannel, recenterLiveRing, releaseLiveRing, retainLiveSession, ringAround, takeRingSession } from "@/services/liveRing";
+import { isHotChannel, recenterLiveRing, releaseLiveRing, retainLiveSession, ringAround, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
 import { setLiveWindow, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
@@ -214,5 +214,97 @@ describe("liveRing", () => {
     await flush();
 
     expect(noteOpenFailed).toHaveBeenCalledWith("c26");
+  });
+
+  describe("surf window", () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it("releases every neighbour when the window closes, and a flip re-arms it", async () => {
+      recenterLiveRing(RING, "c5", true);
+      await flush();
+      segmentCut("c6-s");
+      segmentCut("c6-s");
+
+      jest.advanceTimersByTime(30_000);
+      expect(stopLocalRemux).toHaveBeenCalledWith("c6-s");
+      expect(stopLocalRemux).toHaveBeenCalledWith("c4-s");
+      expect(isHotChannel("c6")).toBe(false);
+
+      // A lane retry recenters on the same channel and heats nothing.
+      (startLocalRemux as jest.Mock).mockClear();
+      recenterLiveRing(RING, "c5", true);
+      await flush();
+      expect(startLocalRemux).not.toHaveBeenCalled();
+
+      recenterLiveRing(RING, "c6", true);
+      await flush();
+      expect(startLocalRemux).toHaveBeenCalledWith(expect.objectContaining({ Id: "c7" }), undefined, undefined, expect.anything());
+    });
+
+    it("abandons a start still in flight when the window closes", async () => {
+      let started!: (url: string) => void;
+      (startLocalRemux as jest.Mock).mockImplementationOnce(() => new Promise<string>((resolve) => (started = resolve)));
+      recenterLiveRing(RING, "c5", true);
+      await flush();
+
+      jest.advanceTimersByTime(30_000);
+      started("http://127.0.0.1:1/c6-s/master.m3u8");
+      await flush();
+      expect(stopLocalRemux).toHaveBeenCalledWith("c6-s");
+      expect(isHotChannel("c6")).toBe(false);
+    });
+
+    it("refuses to retain a channel left after the window closed", async () => {
+      recenterLiveRing(RING, "c10", true);
+      await flush();
+      jest.advanceTimersByTime(30_000);
+
+      const left = { channelId: "c10", details: { Id: "c10", Name: "c10", LiveStreamId: "ls-c10" } as never, url: "http://127.0.0.1:1/c10-s/master.m3u8", token: "c10-s" };
+      expect(retainLiveSession(left)).toBe(false);
+    });
+
+    it("yields every neighbour to a starving playing channel, until the next flip", async () => {
+      recenterLiveRing(RING, "c5", true);
+      await flush();
+
+      yieldLiveRing();
+      expect(stopLocalRemux).toHaveBeenCalledWith("c6-s");
+      expect(stopLocalRemux).toHaveBeenCalledWith("c4-s");
+
+      (startLocalRemux as jest.Mock).mockClear();
+      recenterLiveRing(RING, "c5", true);
+      await flush();
+      expect(startLocalRemux).not.toHaveBeenCalled();
+
+      recenterLiveRing(RING, "c6", true);
+      await flush();
+      expect(startLocalRemux).toHaveBeenCalled();
+    });
+  });
+
+  describe("warm details", () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it("keeps a manifest resolve for one flip, fresh only", async () => {
+      const manifest = (id: string) => Promise.resolve({ Id: id, Name: id, liveStreamUrl: `https://origin/${id}.m3u8` });
+      (resolveChannel as jest.Mock).mockImplementationOnce(manifest).mockImplementationOnce(manifest);
+      recenterLiveRing(RING, "c5", true);
+      await flush();
+
+      expect(takeWarmDetails("c6")).toMatchObject({ Id: "c6" });
+      expect(takeWarmDetails("c6")).toBeNull();
+
+      jest.advanceTimersByTime(61_000);
+      expect(takeWarmDetails("c4")).toBeNull();
+    });
+
+    it("never keeps a resolve that opened a stream on the server", async () => {
+      recenterLiveRing(RING, "c5", true);
+      await flush();
+
+      expect(takeWarmDetails("c6")).toBeNull();
+    });
   });
 });
