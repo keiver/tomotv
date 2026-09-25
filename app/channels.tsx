@@ -3,31 +3,68 @@ import { GlassButton } from "@/components/glass-button";
 import { LibraryGrid } from "@/components/library-grid";
 import { ShowAllChannels } from "@/components/live-tv/show-all-channels";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
+import { HeaderSearchReveal } from "@/components/header-search-reveal";
+import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useChannelFavoriteMenu } from "@/hooks/useChannelFavoriteMenu";
 import { useChannelFilterPicker } from "@/hooks/useChannelFilterPicker";
 import { useChannels } from "@/hooks/useChannels";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
 import { t } from "@/services/i18n";
+import { searchLiveTv } from "@/services/jellyfinApi";
 import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
-import type { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
+import type { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
+import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter, type NativeStackNavigationOptions } from "expo-router";
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
+import { useHeaderHeight } from "expo-router/react-navigation";
 
 const IS_TV = Platform.isTV;
+const SEARCH_DEBOUNCE_MS = 300;
+/** A term shorter than this searches nothing, the search tab's own floor. */
+const MIN_QUERY = 2;
 
-/** The channel wall: every channel as the guide's card, tuning on select, a held card a favorite. A root route beside Recordings. */
+/** The channel wall: every channel as the guide's card, tuning on select, a held card a favorite. A root route beside Recordings.
+ *  Its head is the Live TV HUD: a search over channels and programmes, the group pills, and the guide's status. */
 export default function ChannelsScreen() {
   const router = useRouter();
+  const headerHeight = useHeaderHeight();
   const { showGlobalLoader } = useLoadingActions();
   const preferences = useLiveTvPreferences();
   const playlistIds = usePlaylistChannelIds(preferences.filter);
-  const { items: shown, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannels(preferences.sort, activeCategory(preferences.filter), activeChannelList(preferences), playlistIds);
+  const { items: wall, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannels(preferences.sort, activeCategory(preferences.filter), activeChannelList(preferences), playlistIds);
   const filtered = preferences.filter !== "all";
+
+  // The targeted search: channels and programmes only, debounced like the search tab. Results
+  // are remembered with the term they answer, so what shows is derived and never reset in-effect.
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState<{ term: string; items: JellyfinVideoItem[] } | null>(null);
+  const term = query.trim();
+  const searching = term.length >= MIN_QUERY;
+  useEffect(() => {
+    if (term.length < MIN_QUERY) return;
+    let stale = false;
+    const timer = setTimeout(async () => {
+      try {
+        const items = await searchLiveTv(term);
+        if (!stale) setFound({ term, items });
+      } catch (error) {
+        logger.warn("Live TV search failed", error, { screen: "Channels" });
+        if (!stale) setFound({ term, items: [] });
+      }
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [term]);
+  const results = searching && found?.term === term ? found.items : [];
+  const isSearching = searching && found?.term !== term;
 
   const tune = useCallback(
     (channel: JellyfinItem) => {
@@ -36,12 +73,15 @@ export default function ChannelsScreen() {
     },
     [router, showGlobalLoader],
   );
+  // A search result follows the guide's rule: a channel or airing programme tunes, a later one opens its panel.
+  const openResult = useOpenShelfItem();
   const openSettings = useCallback(() => router.push("/channel-settings"), [router]);
   const openFavoriteMenu = useChannelFavoriteMenu();
-  const favoriteMark = useCallback((channel: JellyfinItem) => (isFavoriteChannel(preferences, channel) ? ("heart" as const) : undefined), [preferences]);
+  const favoriteMark = useCallback((channel: JellyfinItem) => (!searching && isFavoriteChannel(preferences, channel) ? ("heart" as const) : undefined), [preferences, searching]);
   const crumbs = useMemo<FolderStackEntry[]>(() => [{ id: "channels", name: t("liveTv.channels"), type: "livetv" }], []);
   const openFilterPicker = useChannelFilterPicker();
-  const headerAction = useMemo(() => ({ title: t("settings.title"), icon: "settings-outline" as const, onPress: openSettings }), [openSettings]);
+  // Icon-only: the cog carries it.
+  const headerAction = useMemo(() => ({ icon: "settings-outline" as const, accessibilityLabel: t("settings.title"), onPress: openSettings }), [openSettings]);
   // Left of Settings, the platform's filter button: the symbol fills while a filter holds the list.
   const filterAction = useMemo(
     () => ({
@@ -72,12 +112,34 @@ export default function ChannelsScreen() {
     [openSettings, filterAction, filtered],
   );
 
-  if (!isLoading && !error && shown.length === 0 && !hasMore) {
+  // Phone: a plain field under the native bar. TV: the bar's search capsule reveals the field.
+  const head = IS_TV ? null : (
+    <View style={[styles.head, { paddingTop: headerHeight + 8 }]}>
+      <SunkenTextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder={t("liveTv.searchLive")}
+        placeholderTextColor={COLORS.TEXT_SECONDARY}
+        accessibilityLabel={t("liveTv.searchLive")}
+        autoCorrect={false}
+        autoCapitalize="none"
+        returnKeyType="search"
+        numberOfLines={1}
+        multiline={false}
+        clearButtonMode="while-editing"
+        containerStyle={styles.searchField}
+        style={styles.searchInput}
+      />
+    </View>
+  );
+
+  if (!searching && !isLoading && !error && wall.length === 0 && !hasMore) {
     const favoritesEmpty = preferences.filter === "favorites";
     return (
       <View style={styles.container}>
         <Stack.Screen options={screenOptions} />
         <AmbientBackground />
+        {head}
         <View style={styles.center}>
           <Ionicons name={favoritesEmpty ? "heart-outline" : "tv-outline"} size={64} color={COLORS.TEXT_SECONDARY} />
           <Text style={styles.emptyText}>{favoritesEmpty ? t("liveTv.noFavorites") : t("liveTv.noChannels")}</Text>
@@ -91,33 +153,60 @@ export default function ChannelsScreen() {
     );
   }
   return (
-    <>
+    <View style={styles.container}>
       <Stack.Screen options={screenOptions} />
-      <LibraryGrid
-        items={shown}
-        liveChannels
-        liveFramesEnabled={preferences.autoUpdate}
-        titleIconFor={favoriteMark}
-        headerAction={headerAction}
-        headerSecondaryAction={filterAction}
-        isLoading={isLoading}
-        isLoadingMore={isLoadingMore}
-        hasMoreResults={hasMore}
-        error={error}
-        onItemPress={tune}
-        onItemLongPress={openFavoriteMenu}
-        onLoadMore={loadMore}
-        onRetry={retry}
-        crumbs={crumbs}
-        homeAsBack
-      />
-    </>
+      {head}
+      <View style={styles.grid}>
+        <LibraryGrid
+          items={searching ? (results as JellyfinItem[]) : wall}
+          liveChannels
+          liveFramesEnabled={!searching && preferences.autoUpdate}
+          titleIconFor={favoriteMark}
+          headerAction={headerAction}
+          headerSecondaryAction={filterAction}
+          headerTrailing={IS_TV ? <HeaderSearchReveal value={query} onChangeText={setQuery} placeholder={t("liveTv.searchLive")} /> : undefined}
+          isLoading={searching ? isSearching : isLoading}
+          isLoadingMore={!searching && isLoadingMore}
+          hasMoreResults={!searching && hasMore}
+          error={searching ? null : error}
+          onItemPress={searching ? openResult : tune}
+          onItemLongPress={searching ? undefined : openFavoriteMenu}
+          onLoadMore={loadMore}
+          onRetry={retry}
+          crumbs={crumbs}
+          homeAsBack
+        />
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  grid: {
+    flex: 1,
+  },
+  // Phone: the field's row under the native bar.
+  head: {
+    alignItems: "center",
+    gap: 10,
+  },
+  // TV rides the grid bar, capped to the glass capsules' height beside it.
+  searchField: {
+    width: "100%",
+    maxWidth: IS_TV ? 560 : 500,
+    ...(IS_TV ? { height: 64 } : null),
+    paddingHorizontal: IS_TV ? 0 : 16,
+  },
+  searchInput: {
+    width: "100%",
+    flex: 1,
+    backgroundColor: "transparent",
+    paddingHorizontal: IS_TV ? 28 : 20,
+    fontSize: IS_TV ? 24 : 17,
+    color: COLORS.TEXT_PRIMARY,
   },
   center: {
     flex: 1,

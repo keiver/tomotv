@@ -90,6 +90,8 @@ interface LibraryGridProps {
   headerAction?: HeaderAction;
   /** TV: a capsule left of headerAction (the wall's favorites filter toggle). */
   headerSecondaryAction?: HeaderAction;
+  /** TV: a control leading the bar's right cluster (the wall's Live TV search reveal). */
+  headerTrailing?: React.ReactNode;
 }
 
 /**
@@ -121,6 +123,7 @@ export function LibraryGrid({
   titleIconFor,
   headerAction,
   headerSecondaryAction,
+  headerTrailing,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -777,6 +780,7 @@ export function LibraryGrid({
         onOpenFilters={onOpenFilters}
         action={headerAction}
         secondaryAction={headerSecondaryAction}
+        trailing={headerTrailing}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}
         onFiltersFocusChange={handleFiltersFocusChange}

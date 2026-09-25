@@ -27,6 +27,8 @@ interface LibraryHeaderProps {
   action?: HeaderAction;
   /** A capsule to the left of `action` (the wall's favorites filter toggle). */
   secondaryAction?: HeaderAction;
+  /** A control leading the bar's right cluster (the wall's Live TV search reveal). */
+  trailing?: React.ReactNode;
 }
 
 export interface HeaderAction {
@@ -57,6 +59,7 @@ function LibraryHeaderComponent({
   onFiltersFocusChange,
   action,
   secondaryAction,
+  trailing,
 }: LibraryHeaderProps) {
   const filtersButtonRef = useCallback(
     (node: View | null) => {
@@ -93,6 +96,7 @@ function LibraryHeaderComponent({
           );
         })}
       </View>
+      {trailing ?? null}
       {secondaryAction ? (
         <GlassButton title={secondaryAction.title} accessibilityLabel={secondaryAction.accessibilityLabel} onPress={secondaryAction.onPress} icon={actionIcon(secondaryAction.icon)} />
       ) : null}
