@@ -7,7 +7,8 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
-import { fetchChannels, fetchMediaSegments, fetchNextEpisodeAutoPlay, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { fetchChannels, fetchMediaSegments, fetchNextEpisodeAutoPlay, fetchVideoDetails, setVideoFavorite, type ItemMediaSegments } from "@/services/jellyfinApi";
+import { getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences, toggleFavoriteChannel } from "@/services/liveTvPreferences";
 import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { adjacentChannelId } from "@/utils/guide";
@@ -449,11 +450,69 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     return actions.length > 0 ? actions : undefined;
   }, [segments, cardWillPresent]);
 
-  // The three AVKit surfaces are computed here, from the queue and this item's
+  // tvOS transport bar heart (patched transportBarButtons prop): the playing
+  // item's favorite state, server-backed for media, device-local for a live
+  // channel. Omitted until the state is known.
+  // Keyed by item, like segmentResult above: params change while this body is mounted.
+  const [vodFavoriteResult, setVodFavoriteResult] = useState<{ itemId: string; favorite: boolean } | null>(null);
+  const vodFavorite = vodFavoriteResult?.itemId === videoId ? vodFavoriteResult.favorite : null;
+  useEffect(() => {
+    if (!Platform.isTV || isLiveChannel) return;
+    let cancelled = false;
+    const itemId = videoId;
+    fetchVideoDetails(itemId)
+      .then((details) => {
+        if (!cancelled) setVodFavoriteResult({ itemId, favorite: !!details?.UserData?.IsFavorite });
+      })
+      .catch((err) => logger.warn("Favorite state read failed", err, { service: "VideoPlayer" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [isLiveChannel, videoId]);
+
+  const [liveFavorite, setLiveFavorite] = useState(false);
+  useEffect(() => {
+    if (!Platform.isTV || !isLiveChannel) return;
+    const compute = () => {
+      const channel = channelRing.find((entry) => entry.Id === videoId);
+      setLiveFavorite(channel ? isFavoriteChannel(getLiveTvPreferences(), channel) : false);
+    };
+    compute();
+    return subscribeLiveTvPreferences(compute);
+  }, [isLiveChannel, channelRing, videoId]);
+
+  const transportBarButtons = useMemo(() => {
+    if (!Platform.isTV) return undefined;
+    if (isLiveChannel && !channelRing.some((entry) => entry.Id === videoId)) return undefined;
+    const favorite = isLiveChannel ? liveFavorite : vodFavorite;
+    if (favorite === null) return undefined;
+    return [{ id: "favorite", title: t(favorite ? "info.removeFavorite" : "info.addFavorite"), sfSymbol: favorite ? "heart.fill" : "heart" }];
+  }, [isLiveChannel, channelRing, videoId, liveFavorite, vodFavorite]);
+
+  const handleTransportBarButtonSelected = useCallback(
+    (event: { id: string }) => {
+      if (event.id !== "favorite") return;
+      if (isLiveChannel) {
+        const channel = channelRing.find((entry) => entry.Id === videoId);
+        if (channel) toggleFavoriteChannel(channel);
+        return;
+      }
+      if (vodFavorite === null) return;
+      const next = !vodFavorite;
+      setVodFavoriteResult({ itemId: videoId, favorite: next });
+      setVideoFavorite(videoId, next).catch((err) => {
+        logger.warn("Favorite toggle failed", err, { service: "VideoPlayer" });
+        setVodFavoriteResult({ itemId: videoId, favorite: !next });
+      });
+    },
+    [isLiveChannel, channelRing, videoId, vodFavorite],
+  );
+
+  // The AVKit surfaces are computed here, from the queue and this item's
   // segments, and handed to the host to attach to its player.
   useEffect(() => {
-    setTvConfig({ contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip });
-  }, [setTvConfig, contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip]);
+    setTvConfig({ contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip, transportBarButtons });
+  }, [setTvConfig, contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip, transportBarButtons]);
 
   // Disarm on unmount, while the player is still alive to receive it: a PiP window outlives this route.
   useEffect(() => () => setTvConfig({}), [setTvConfig]);
@@ -565,10 +624,11 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       onContentProposalRejected: handleInterstitialClose,
       onInfoPanelItemSelected: handleInfoPanelItemSelected,
       onSkipChannel: handleSkipChannel,
+      onTransportBarButtonSelected: handleTransportBarButtonSelected,
       onRequestBack: handleBack,
     });
     return () => setHandlers(null);
-  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleBack]);
+  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleTransportBarButtonSelected, handleBack]);
 
   // Handle Android TV back button
   useEffect(() => {

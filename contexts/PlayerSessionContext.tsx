@@ -25,6 +25,8 @@ export interface PlayerTvConfig {
   infoPanelTitle?: ReactVideoProps["infoPanelTitle"];
   /** Live channel flipping: the neighbours AVKit's interstitial names; unset disables the gesture. */
   liveChannelFlip?: ReactVideoProps["liveChannelFlip"];
+  /** Custom buttons in the transport bar's control row (the favorite heart). */
+  transportBarButtons?: ReactVideoProps["transportBarButtons"];
 }
 
 export interface PlayerSessionRequest {
@@ -59,6 +61,8 @@ export interface PlayerSessionHandlers {
   onInfoPanelItemSelected: (event: { id: string }) => void;
   /** tvOS live channel flip: +1 next, -1 previous. */
   onSkipChannel: (direction: 1 | -1) => void;
+  /** tvOS transport bar custom button press, by the button's id. */
+  onTransportBarButtonSelected: (event: { id: string }) => void;
   /** Leave the player: the phone's ✕/swipe, and the tvOS Menu press. */
   onRequestBack: () => void;
 }

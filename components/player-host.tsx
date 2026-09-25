@@ -919,6 +919,9 @@ export function PlayerHost() {
           // tvOS Chapters tab in the same info panel, from this item's markers.
           chapters={chapters}
           onInfoPanelItemSelected={(event) => handlersRef.current?.onInfoPanelItemSelected(event)}
+          // tvOS transport bar: the route's custom buttons (the favorite heart).
+          transportBarButtons={tvConfig.transportBarButtons}
+          onTransportBarButtonSelected={(event) => handlersRef.current?.onTransportBarButtonSelected(event)}
           // tvOS live channel flipping: AVKit's own swipe and interstitial, gated on a live session.
           liveChannelFlip={session.isLive ? tvConfig.liveChannelFlip : undefined}
           liveChannelStage={session.isLive ? liveChannelStage : undefined}

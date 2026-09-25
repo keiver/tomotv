@@ -29,7 +29,13 @@ jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(), cance
 jest.mock("@/services/syncPlayManager", () => ({ isJoined: () => false, requestNextItem: jest.fn() }));
 jest.mock("@/services/libraryManager", () => ({ libraryManager: { getState: () => ({ videos: [] }) } }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn() } }));
-jest.mock("@/services/jellyfinApi", () => ({ fetchMediaSegments: jest.fn(), fetchNextEpisodeAutoPlay: jest.fn(), fetchChannels: jest.fn() }));
+jest.mock("@/services/jellyfinApi", () => ({
+  fetchMediaSegments: jest.fn(),
+  fetchNextEpisodeAutoPlay: jest.fn(),
+  fetchChannels: jest.fn(),
+  fetchVideoDetails: jest.fn(async () => null),
+  setVideoFavorite: jest.fn(async () => {}),
+}));
 const mockLoaders = { hideGlobalLoader: jest.fn(), showGlobalLoader: jest.fn() };
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => mockLoaders }));
 const mockQueue = {
