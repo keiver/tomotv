@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
     color: RED,
     fontSize: IS_TV ? 18 : 11,
     fontWeight: "600",
-    paddingBottom: IS_TV ? 10 : 8,
+    paddingBottom: IS_TV ? 20 : 13,
   },
   tickLabelHour: {
     fontSize: IS_TV ? 20 : 12,
