@@ -1,20 +1,19 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GROUP_CELL_HEIGHT, GuideGroupCell } from "@/components/live-tv/guide-group-cell";
-import { COLORS } from "@/constants/colors";
 import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
-import { guideStatus, subscribeGuideStatus, type GuideStatus } from "@/services/externalGuide";
-import { t } from "@/services/i18n";
+import { guideStatus, subscribeGuideStatus } from "@/services/externalGuide";
 import { updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
-import React, { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { findNodeHandle, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useSyncExternalStore } from "react";
+import { findNodeHandle, Platform, ScrollView, StyleSheet, View } from "react-native";
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
-export const HUD_BAR_HEIGHT = GROUP_CELL_HEIGHT;
-const BAR_HEIGHT = IS_TV ? 4 : 3;
-/** How long the "updated" note stays before the HUD goes quiet. */
-const READY_LINGER_MS = 5000;
+/** The band's full height: the cells plus its own bottom line, which draws inside the height. */
+export const HUD_BAR_HEIGHT = GROUP_CELL_HEIGHT + 1;
+
+/** An accent band, soft on both flanks; the cells' frosted floors let it glow through. */
+const SCAN_WASH = "linear-gradient(90deg, rgba(255, 195, 18, 0) 0%, rgba(255, 195, 18, 0.2) 40%, rgba(255, 195, 18, 0.38) 50%, rgba(255, 195, 18, 0.2) 60%, rgba(255, 195, 18, 0) 100%)";
 
 interface GuideHudProps {
   /** TV: the slot over the channel column, holding the guide's round actions. */
@@ -22,56 +21,45 @@ interface GuideHudProps {
   cornerActions?: React.ReactNode;
   /** TV: the picked group cell's native node, where the guide's top row sends Up. */
   onSelectedHandle?: (handle: number | undefined) => void;
+  /** True while the guide's programs load behind the grid: the band wears the scan for it. */
+  updating?: boolean;
 }
 
-/** True while the ready note should still show; a timer marks `at` expired READY_LINGER_MS later. */
-function useLinger(status: GuideStatus): boolean {
-  const at = status.state === "ready" ? status.at : 0;
-  const [expiredAt, setExpiredAt] = useState(0);
-  useEffect(() => {
-    if (!at) return;
-    const timer = setTimeout(() => setExpiredAt(at), Math.max(0, at + READY_LINGER_MS - Date.now()));
-    return () => clearTimeout(timer);
-  }, [at]);
-  return at !== 0 && expiredAt !== at;
-}
-
-function caption(status: GuideStatus): string | null {
-  switch (status.state) {
-    case "downloading":
-      return status.progress !== null ? `${t("liveTv.guideDownloading")} · ${Math.round(status.progress * 100)}%` : t("liveTv.guideDownloading");
-    case "parsing":
-      return t("liveTv.guideParsing");
-    case "ready":
-      return status.channels > 0 ? `${t("liveTv.guideUpdated")} · ${status.channels.toLocaleString()} ${t("liveTv.channels").toLowerCase()}` : t("liveTv.guideUpdated");
-    case "error":
-      return t("liveTv.guideUnavailable");
-    default:
-      return null;
-  }
-}
-
-/** The thin accent bar: a determinate fill while bytes count, a sweep while work is opaque. */
-function ProgressBar({ progress }: { progress: number | null }) {
+/**
+ * An accent wash sweeping back and forth over the group cells while the guide works, fading out
+ * once the new values are on screen; under the cells, so it never occludes focus.
+ */
+function ScanBand({ active }: { active: boolean }) {
   const sweep = useSharedValue(0);
-  const indeterminate = progress === null;
+  const fade = useSharedValue(0);
   useEffect(() => {
-    if (!indeterminate) return;
-    sweep.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.quad) }), -1, false);
-    return () => cancelAnimation(sweep);
-  }, [indeterminate, sweep]);
-  const sweepStyle = useAnimatedStyle(() => ({ left: `${sweep.value * 130 - 30}%` }));
+    if (active) {
+      fade.value = withTiming(1, { duration: 250 });
+      sweep.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.quad) }), -1, true);
+    } else {
+      fade.value = withTiming(0, { duration: 500 }, (finished) => {
+        if (finished) cancelAnimation(sweep);
+      });
+    }
+    return () => {
+      cancelAnimation(sweep);
+      cancelAnimation(fade);
+    };
+  }, [active, sweep, fade]);
+  const drift = useAnimatedStyle(() => ({ left: `${sweep.value * 90 - 5}%`, opacity: fade.value }));
   return (
-    <View style={styles.track}>{indeterminate ? <Animated.View style={[styles.fill, styles.sweep, sweepStyle]} /> : <View style={[styles.fill, { width: `${Math.round(progress * 100)}%` }]} />}</View>
+    <View style={styles.scanHost} pointerEvents="none">
+      <Animated.View style={[styles.scan, drift]} />
+    </View>
   );
 }
 
 /**
- * The guide's HUD band under the time ruler: the corner's round actions over the channel column,
- * the channel groups as grid cells beside them, the guide's progress underneath, and the way down
- * into the grid (a focus guide, since the canvas cells cannot be entered geometrically).
+ * The guide's HUD band under the time ruler: the corner's round actions over the channel column
+ * and the channel groups as grid cells beside them. While the guide downloads or its programs
+ * load, a subtle accent scan drifts across the band; nothing moves when it comes or goes.
  */
-export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle }: GuideHudProps) {
+export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle, updating }: GuideHudProps) {
   const choices = useChannelFilterChoices();
   const { filter } = useLiveTvPreferences();
   const select = useCallback((next: ChannelFilter) => updateLiveTvPreferences({ filter: next }), []);
@@ -83,76 +71,64 @@ export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle }: Guide
     [onSelectedHandle],
   );
   const status = useSyncExternalStore(subscribeGuideStatus, guideStatus);
-  const lingering = useLinger(status);
   const busy = status.state === "downloading" || status.state === "parsing";
-  const showNote = busy || status.state === "error" || (status.state === "ready" && lingering);
-  const text = caption(status);
 
   if (choices.length <= 1 && !cornerActions) return null;
   return (
-    <View>
-      <View style={styles.band}>
-        {cornerActions ? <View style={[styles.cornerBox, { width: cornerWidth }]}>{cornerActions}</View> : null}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.cells}>
+    <View style={styles.band}>
+      {cornerActions ? <View style={[styles.cornerBox, { width: cornerWidth }]}>{cornerActions}</View> : null}
+      <View style={styles.cellsHost}>
+        <ScanBand active={busy || updating === true} />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.cells} contentContainerStyle={styles.cellsContent}>
           {choices.map((choice) => {
             const selected = choice.filter === filter;
             return <GuideGroupCell key={choice.filter} ref={selected ? selectedRef : undefined} label={choice.label} selected={selected} onPress={() => select(choice.filter)} />;
           })}
         </ScrollView>
       </View>
-      {showNote && text ? (
-        <View style={styles.note}>
-          {busy ? <ProgressBar progress={status.state === "downloading" ? status.progress : null} /> : null}
-          <Text style={[styles.caption, status.state === "error" && styles.captionError]} numberOfLines={1} accessibilityLiveRegion="polite">
-            {text}
-          </Text>
-        </View>
-      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Closed on its left edge; the grid line below carries on under the tiles.
   band: {
     flexDirection: "row",
     alignItems: "center",
     height: HUD_BAR_HEIGHT,
     borderBottomWidth: 1,
+    borderLeftWidth: 1,
     borderColor: GRID_LINE,
   },
+  // Edge to edge: the cells' own grid lines divide the one surface.
+  cellsContent: {
+    alignItems: "center",
+  },
   cornerBox: {
-    height: HUD_BAR_HEIGHT,
+    height: GROUP_CELL_HEIGHT,
     justifyContent: "center",
+  },
+  cellsHost: {
+    flex: 1,
+    alignSelf: "stretch",
   },
   cells: {
     flex: 1,
     flexGrow: 1,
   },
-  note: {
-    paddingVertical: IS_TV ? 8 : 5,
-    paddingHorizontal: IS_TV ? 4 : 8,
-    gap: IS_TV ? 6 : 4,
-  },
-  track: {
-    height: BAR_HEIGHT,
-    borderRadius: BAR_HEIGHT / 2,
-    backgroundColor: COLORS.SURFACE,
+  scanHost: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     overflow: "hidden",
   },
-  fill: {
-    height: "100%",
-    borderRadius: BAR_HEIGHT / 2,
-    backgroundColor: COLORS.ACCENT,
-  },
-  sweep: {
+  scan: {
     position: "absolute",
-    width: "30%",
-  },
-  caption: {
-    color: COLORS.TEXT_SECONDARY,
-    fontSize: IS_TV ? 20 : 12,
-  },
-  captionError: {
-    color: COLORS.DESTRUCTIVE_SOFT,
+    top: 0,
+    bottom: 0,
+    width: "20%",
+    experimental_backgroundImage: SCAN_WASH,
   },
 });

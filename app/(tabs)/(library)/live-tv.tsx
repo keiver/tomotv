@@ -127,11 +127,13 @@ export default function LiveTvScreen() {
                       onRecordings={openRecordings}
                       onSchedule={openSchedule}
                       onRefreshGuide={hasExternalGuide ? refreshGuide : undefined}
+                      refreshing={guide.isUpdating}
                       onFirstRef={handleFirstActionRef}
                     />
                   ) : undefined
                 }
                 onSelectedHandle={setStripHandle}
+                updating={guide.isUpdating}
               />
             }
             onProgramPress={handleProgramPress}

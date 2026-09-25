@@ -14,26 +14,29 @@ interface HudActionProps {
   icon: React.ReactNode;
   label: string;
   onPress: () => void;
+  /** Stays focusable so TV focus is never ejected; presses drop and the icon dims. */
+  disabled?: boolean;
   forwardedRef?: (node: View | null) => void;
 }
 
 /** One frosted-black cell of the band's corner, square-cornered and band-tall; focus draws the cells' gold ring. */
-function HudAction({ icon, label, onPress, forwardedRef }: HudActionProps) {
+function HudAction({ icon, label, onPress, disabled, forwardedRef }: HudActionProps) {
   const [focused, setFocused] = useState(false);
   return (
     <View style={styles.tile}>
       <Pressable
         ref={forwardedRef}
-        onPress={onPress}
+        onPress={disabled ? undefined : onPress}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         isTVSelectable
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityState={{ disabled: disabled === true }}
         tvParallaxProperties={{ enabled: false }}
         style={styles.hit}>
         {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
-        {icon}
+        <View style={disabled ? styles.iconDisabled : null}>{icon}</View>
       </Pressable>
     </View>
   );
@@ -47,12 +50,14 @@ interface GuideCornerActionsProps {
   onSchedule: () => void;
   /** Present while an external guide is in play: a fourth cell re-downloads it. */
   onRefreshGuide?: () => void;
+  /** True while the guide is already working: the refresh cell drops presses and dims. */
+  refreshing?: boolean;
   /** The first cell's node, the guide cells' fallback Up target. */
   onFirstRef?: (node: View | null) => void;
 }
 
 /** Channels, Recordings, Schedule and the guide refresh: equal frosted cells spanning the band's corner. */
-export function GuideCornerActions({ filtered, onChannels, onRecordings, onSchedule, onRefreshGuide, onFirstRef }: GuideCornerActionsProps) {
+export function GuideCornerActions({ filtered, onChannels, onRecordings, onSchedule, onRefreshGuide, refreshing, onFirstRef }: GuideCornerActionsProps) {
   return (
     <View style={styles.row}>
       <HudAction
@@ -63,7 +68,9 @@ export function GuideCornerActions({ filtered, onChannels, onRecordings, onSched
       />
       <HudAction label={t("liveTv.recordings")} onPress={onRecordings} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} />
       <HudAction label={t("liveTv.scheduled")} onPress={onSchedule} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} />
-      {onRefreshGuide ? <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} icon={<Ionicons name="refresh-outline" size={ICON} color={COLORS.ACCENT} />} /> : null}
+      {onRefreshGuide ? (
+        <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} disabled={refreshing} icon={<Ionicons name="refresh-outline" size={ICON} color={COLORS.ACCENT} />} />
+      ) : null}
     </View>
   );
 }
@@ -85,6 +92,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  iconDisabled: {
+    opacity: 0.35,
   },
   // The program cells' focus mark, spanning the shared lines so it meets the band's edges.
   focusRing: {
