@@ -5,7 +5,7 @@ import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { guideStatus, subscribeGuideStatus } from "@/services/externalGuide";
 import { updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
 import React, { useCallback, useEffect, useSyncExternalStore } from "react";
-import { findNodeHandle, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { findNodeHandle, type LayoutChangeEvent, Platform, ScrollView, StyleSheet, View } from "react-native";
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
@@ -16,7 +16,7 @@ export const HUD_BAR_HEIGHT = GROUP_CELL_HEIGHT + 1;
 const SCAN_WASH = "linear-gradient(90deg, rgba(255, 195, 18, 0) 0%, rgba(255, 195, 18, 0.2) 40%, rgba(255, 195, 18, 0.38) 50%, rgba(255, 195, 18, 0.2) 60%, rgba(255, 195, 18, 0) 100%)";
 
 interface GuideHudProps {
-  /** TV: the slot over the channel column, holding the guide's round actions. */
+  /** The band's leading slot: TV's corner actions over the channel column, phone's guide refresh cell. */
   cornerWidth?: number;
   cornerActions?: React.ReactNode;
   /** TV: the picked group cell's native node, where the guide's top row sends Up. */
@@ -32,6 +32,7 @@ interface GuideHudProps {
 function ScanBand({ active }: { active: boolean }) {
   const sweep = useSharedValue(0);
   const fade = useSharedValue(0);
+  const hostW = useSharedValue(0);
   useEffect(() => {
     if (active) {
       fade.value = withTiming(1, { duration: 250 });
@@ -46,9 +47,12 @@ function ScanBand({ active }: { active: boolean }) {
       cancelAnimation(fade);
     };
   }, [active, sweep, fade]);
-  const drift = useAnimatedStyle(() => ({ left: `${sweep.value * 90 - 5}%`, opacity: fade.value }));
+  const handleLayout = useCallback((event: LayoutChangeEvent) => hostW.set(event.nativeEvent.layout.width), [hostW]);
+  // translateX, never `left`: a layout prop animated on the UI thread commits into the shadow
+  // tree against the guide's own row commits.
+  const drift = useAnimatedStyle(() => ({ opacity: fade.value, transform: [{ translateX: (sweep.value * 0.9 - 0.05) * hostW.value }] }));
   return (
-    <View style={styles.scanHost} pointerEvents="none">
+    <View style={styles.scanHost} pointerEvents="none" onLayout={handleLayout}>
       <Animated.View style={[styles.scan, drift]} />
     </View>
   );
@@ -128,6 +132,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     bottom: 0,
+    left: 0,
     width: "20%",
     experimental_backgroundImage: SCAN_WASH,
   },

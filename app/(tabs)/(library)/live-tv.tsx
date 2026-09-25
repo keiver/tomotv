@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
-import { GuideCornerActions } from "@/components/live-tv/guide-corner-actions";
+import { GuideCornerActions, HUD_ACTION_ICON, HudAction } from "@/components/live-tv/guide-corner-actions";
 import { GuideHud } from "@/components/live-tv/guide-hud";
 import { gridEdgePadding } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -13,6 +13,7 @@ import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { EXTERNAL_GUIDE_PREFIX, guideMetrics, NO_GUIDE_PREFIX } from "@/utils/guide";
+import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useMemo, useState } from "react";
@@ -21,6 +22,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 const COLUMN_WIDTH = guideMetrics(IS_TV).channelColumnWidth;
+// Phone: the guide refresh cell pinned before the groups, a 44pt touch target.
+const PHONE_REFRESH_CELL_WIDTH = 44;
 
 /**
  * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
@@ -96,7 +99,7 @@ export default function LiveTvScreen() {
               {
                 type: "button",
                 label: t("liveTv.channels"),
-                icon: { type: "sfSymbol", name: filtered ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2" },
+                icon: { type: "sfSymbol", name: "square.grid.2x2" },
                 tintColor: COLORS.ACCENT,
                 onPress: openChannels,
               },
@@ -104,7 +107,7 @@ export default function LiveTvScreen() {
               { type: "button", label: t("liveTv.scheduled"), icon: { type: "sfSymbol", name: "calendar" }, tintColor: COLORS.ACCENT, onPress: openSchedule },
             ],
           },
-    [params.name, openRecordings, openChannels, openSchedule, filtered],
+    [params.name, openRecordings, openChannels, openSchedule],
   );
 
   return (
@@ -118,7 +121,7 @@ export default function LiveTvScreen() {
             topFocusHandle={stripHandle ?? topFocusHandle}
             hudRow={
               <GuideHud
-                cornerWidth={COLUMN_WIDTH}
+                cornerWidth={IS_TV ? COLUMN_WIDTH : PHONE_REFRESH_CELL_WIDTH}
                 cornerActions={
                   IS_TV ? (
                     <GuideCornerActions
@@ -129,6 +132,13 @@ export default function LiveTvScreen() {
                       onRefreshGuide={hasExternalGuide ? refreshGuide : undefined}
                       refreshing={guide.isUpdating}
                       onFirstRef={handleFirstActionRef}
+                    />
+                  ) : hasExternalGuide ? (
+                    <HudAction
+                      label={t("liveTv.guideRefresh")}
+                      onPress={refreshGuide}
+                      disabled={guide.isUpdating}
+                      icon={<Ionicons name="refresh-outline" size={HUD_ACTION_ICON} color={COLORS.ACCENT} />}
                     />
                   ) : undefined
                 }

@@ -8,7 +8,8 @@ import React, { useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-const ICON = IS_TV ? 22 : 16;
+export const HUD_ACTION_ICON = IS_TV ? 22 : 16;
+const ICON = HUD_ACTION_ICON;
 
 interface HudActionProps {
   icon: React.ReactNode;
@@ -20,7 +21,7 @@ interface HudActionProps {
 }
 
 /** One frosted-black cell of the band's corner, square-cornered and band-tall; focus draws the cells' gold ring. */
-function HudAction({ icon, label, onPress, disabled, forwardedRef }: HudActionProps) {
+export function HudAction({ icon, label, onPress, disabled, forwardedRef }: HudActionProps) {
   const [focused, setFocused] = useState(false);
   return (
     <View style={styles.tile}>
