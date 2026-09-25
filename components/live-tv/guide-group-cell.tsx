@@ -1,11 +1,15 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
-import React, { forwardRef } from "react";
+import React, { forwardRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-/** The HUD band's height: the group cells and the corner circles share it. */
+/** The HUD band's height: the group tiles and the corner tiles share it. */
 export const GROUP_CELL_HEIGHT = IS_TV ? 56 : 40;
+/** The band's frosted-black floor, shared by the group and corner tiles. */
+export const HUD_CELL_BACKGROUND = "rgba(0, 0, 0, 0.4)";
+/** The pick's yellow wash over the black floor. */
+const WASH_SELECTED = "rgba(255, 195, 18, 0.85)";
 
 interface GuideGroupCellProps {
   label: string;
@@ -14,46 +18,52 @@ interface GuideGroupCellProps {
 }
 
 /**
- * One channel group on the guide's HUD band, drawn as a grid cell: the canvas surface, the grid's
- * lines, the cells' gold focus ring, and the accent fill while its group holds the channels.
+ * One channel group on the guide's HUD band: a frosted-black cell filling the band, square-cornered
+ * so the row reads as one surface split by the grid's lines. The picked group wears the accent;
+ * focus draws the program cells' gold ring.
  */
 export const GuideGroupCell = forwardRef<View, GuideGroupCellProps>(function GuideGroupCell({ label, selected, onPress }, ref) {
+  const [focused, setFocused] = useState(false);
   return (
-    <Pressable
-      ref={ref}
-      onPress={onPress}
-      isTVSelectable
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: selected }}
-      accessibilityLabel={label}
-      tvParallaxProperties={{ enabled: false }}
-      style={[styles.cell, selected && styles.cellSelected]}>
-      {({ focused }) => (
-        <>
-          {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
-          <Text style={[styles.label, selected && styles.labelSelected]} numberOfLines={1}>
-            {label}
-          </Text>
-        </>
-      )}
-    </Pressable>
+    <View style={[styles.tile, selected && styles.tileSelected]}>
+      <Pressable
+        ref={ref}
+        onPress={onPress}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        isTVSelectable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: selected }}
+        accessibilityLabel={label}
+        tvParallaxProperties={{ enabled: false }}
+        style={styles.hit}>
+        {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
+        <Text style={[styles.label, selected && styles.labelSelected]} numberOfLines={1}>
+          {label}
+        </Text>
+      </Pressable>
+    </View>
   );
 });
 
 const styles = StyleSheet.create({
-  // The guide cell's language: the canvas surface, its own right line, the band's bottom line.
-  cell: {
+  // Fills the band; its right line is the row's divider, as a cell's is the grid's.
+  tile: {
     height: GROUP_CELL_HEIGHT,
     justifyContent: "center",
-    paddingHorizontal: IS_TV ? 28 : 16,
-    backgroundColor: COLORS.SURFACE,
     borderRightWidth: 1,
     borderColor: GRID_LINE,
+    backgroundColor: HUD_CELL_BACKGROUND,
   },
-  cellSelected: {
-    backgroundColor: COLORS.ACCENT,
+  tileSelected: {
+    backgroundColor: WASH_SELECTED,
   },
-  // The cells' ring: spanning the neighbour's line too, so it meets the band's edges.
+  hit: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: IS_TV ? 26 : 14,
+  },
+  // The program cells' focus mark, spanning the shared lines so it meets the band's edges.
   focusRing: {
     position: "absolute",
     top: 0,
