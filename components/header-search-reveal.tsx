@@ -70,12 +70,13 @@ export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderS
 
   return (
     <View style={styles.row}>
-      <GlassButton icon={<Ionicons name="search" size={24} color={COLORS.ACCENT} />} accessibilityLabel={placeholder} onPress={reveal} />
       <Animated.View style={[styles.fieldSlot, fieldStyle, fieldGone && styles.gone]}>
+        {/* Uncontrolled on purpose: a controlled TextInput re-rendering per keystroke drops the
+            tvOS keyboard; the native field keeps its own text and only reports changes out. */}
         <SunkenTextInput
           ref={fieldRef}
           containerStyle={styles.fieldWrapper}
-          value={value}
+          defaultValue={value}
           placeholder={placeholder}
           placeholderTextColor={COLORS.TEXT_SECONDARY}
           accessibilityLabel={placeholder}
@@ -93,6 +94,7 @@ export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderS
           style={styles.fieldInput}
         />
       </Animated.View>
+      <GlassButton icon={<Ionicons name="search" size={24} color={COLORS.ACCENT} />} accessibilityLabel={placeholder} onPress={reveal} />
     </View>
   );
 }
@@ -102,7 +104,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  // Clips the field while it grows; the capsule to its left is what appears to slide.
+  // Anchored to the capsule's edge: the slot grows leftward and the field's left end emerges.
   fieldSlot: {
     overflow: "hidden",
     alignItems: "flex-end",
@@ -114,7 +116,7 @@ const styles = StyleSheet.create({
   fieldWrapper: {
     width: FIELD_WIDTH,
     height: 64,
-    marginLeft: FIELD_GAP,
+    marginRight: FIELD_GAP,
   },
   fieldInput: {
     width: "100%",
