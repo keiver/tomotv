@@ -55,7 +55,7 @@ export function CardBadge({ segments, loading, focused, tone = "gold", compact =
         <View key={index} style={styles.segment}>
           {icon ? <Ionicons name={icon} size={ICON_SIZE} color={ink} /> : null}
           {label != null ? (
-            <Text style={[styles.badgeText, small && styles.badgeTextCompact, { color: ink }]} numberOfLines={1}>
+            <Text style={[styles.badgeText, live && styles.badgeTextLive, small && styles.badgeTextCompact, { color: ink }]} numberOfLines={1}>
               {label}
             </Text>
           ) : null}
@@ -101,6 +101,7 @@ const styles = StyleSheet.create({
   badgeLive: {
     minWidth: IS_TV ? 30 : 20,
     height: IS_TV ? 30 : 20,
+    paddingHorizontal: IS_TV ? 9 : 6,
     backgroundColor: COLORS.DESTRUCTIVE_DEEP,
     borderColor: COLORS.DESTRUCTIVE_DEEP,
   },
@@ -111,6 +112,9 @@ const styles = StyleSheet.create({
   },
   badgeTextCompact: {
     fontSize: 9,
+  },
+  badgeTextLive: {
+    fontSize: IS_TV ? 16 : 9,
   },
   segment: {
     flexDirection: "row",
