@@ -592,6 +592,13 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // A live channel on stage through a retried failure is AVKit's screen, not this one.
   const liveOnStage = isLiveChannel && hostMode === "video";
 
+  // A live channel dying on stage leaves nothing focused and Retry's mount-time claim does not take;
+  // with no focus Menu backgrounds the app. It claims again once laid out.
+  const retryButtonRef = useRef<View>(null);
+  const claimRetryFocus = useCallback(() => {
+    if (Platform.isTV) (retryButtonRef.current as unknown as { requestTVFocus?: () => void } | null)?.requestTVFocus?.();
+  }, []);
+
   // Render error state (but not if auto-retry is in progress)
   if (playbackState.type === "ERROR" && !liveOnStage) {
     // If we can retry with transcoding, show loading overlay instead of error
@@ -615,7 +622,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         {failedStage ? <Text style={styles.errorStage}>{`${t("player.failedWhile")}: ${stageLabel(failedStage).toLocaleLowerCase()}`}</Text> : null}
 
         <View style={styles.buttonGroup}>
-          <FocusableButton title={t("common.retry")} onPress={retry} variant="retry" style={styles.button} hasTVPreferredFocus={true} />
+          <FocusableButton ref={retryButtonRef} onLayout={claimRetryFocus} title={t("common.retry")} onPress={retry} variant="retry" style={styles.button} hasTVPreferredFocus={true} />
           <FocusableButton title={t("common.goBack")} onPress={handleBack} variant="secondary" style={styles.button} />
         </View>
       </View>
