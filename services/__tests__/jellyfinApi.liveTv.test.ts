@@ -2,7 +2,7 @@
  * Live TV client: the channel list, opening a channel as raw direct play on the address the
  * app signed into (never the server's own bind address), and releasing the tuner.
  */
-import { closeLeftoverOpens, closeLiveStream, fetchChannels, openChannel, refreshConfig, resolveChannel, resolveChannelOrigin } from "../jellyfinApi";
+import { closeLeftoverOpens, closeLiveStream, fetchChannelCategories, fetchChannels, fetchListedChannels, openChannel, refreshConfig, resolveChannel, resolveChannelOrigin } from "../jellyfinApi";
 import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
 import { recordClose, recordedOpens, recordOpen } from "../jellyfin/liveOpens";
 
@@ -81,6 +81,53 @@ describe("live TV client", () => {
     expect(url).toContain("startIndex=60");
     expect(url).toContain("limit=60");
     expect(url).toContain("enableTotalRecordCount=true");
+  });
+
+  it("holds a page to a category through the server's flag", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
+    await fetchChannels({ startIndex: 0, limit: 40, category: "kids" });
+    const [url] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain("isKids=true");
+  });
+
+  it("names the categories the server has channels for, one count query each", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => ({ Items: [], TotalRecordCount: url.includes("isKids=true") || url.includes("isSeries=true") ? 1 : 0 }),
+    }));
+    await expect(fetchChannelCategories()).resolves.toEqual(["kids", "series"]);
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url as string);
+    expect(urls).toHaveLength(5);
+    for (const url of urls) expect(url).toContain("limit=0");
+  });
+
+  it("fetches listed channels by id in one call, and by name where the id answers for another channel", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () =>
+        url.includes("ids=")
+          ? {
+              Items: [
+                { Id: "c1", Name: "KQED", ChannelNumber: "9.1", Type: "TvChannel" },
+                { Id: "c2", Name: "Someone Else", Type: "TvChannel" },
+              ],
+            }
+          : {
+              Items: [
+                { Id: "x", Name: "Al Jazeera English (1080p)", Type: "TvChannel" },
+                { Id: "c9", Name: "Al Jazeera English", Type: "TvChannel" },
+              ],
+            },
+    }));
+    const channels = await fetchListedChannels([
+      { id: "c2", name: "Al Jazeera English" },
+      { id: "c1", number: "9.1", name: "KQED" },
+    ]);
+    expect(channels.map((channel) => channel.Id)).toEqual(["c9", "c1"]);
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url as string);
+    expect(urls[0]).toContain("ids=c2%2Cc1");
+    expect(urls[1]).toContain("searchTerm=Al+Jazeera+English");
+    expect(urls).toHaveLength(2);
   });
 
   it("opens a channel as raw direct play and returns the ids the session needs", async () => {

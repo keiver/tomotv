@@ -417,3 +417,49 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
     CACHE.SEARCH_TTL_MS,
   );
 }
+
+/** Live TV search results kept on screen. */
+const LIVE_TV_RESULT_CAP = 30;
+
+/** Channels first, then programmes on now, then later ones by start; programmes already over are dropped. */
+export function orderLiveTvResults(items: readonly JellyfinVideoItem[], nowMs: number): JellyfinVideoItem[] {
+  const channels = items.filter((item) => item.Type === "TvChannel");
+  const programs = items.filter((item) => item.Type === "Program" && Date.parse(item.EndDate ?? "") > nowMs).sort((a, b) => Date.parse(a.StartDate ?? "") - Date.parse(b.StartDate ?? ""));
+  return channels.concat(programs).slice(0, LIVE_TV_RESULT_CAP);
+}
+
+/**
+ * Channels and programmes matching the term. /Items ignores hasAired and minEndDate (probed), so
+ * ended programmes are dropped here. A server without Live TV answers empty; a failure too.
+ */
+export async function searchLiveTv(searchTerm: string): Promise<JellyfinVideoItem[]> {
+  const trimmed = searchTerm.trim();
+  if (!trimmed) return [];
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) return [];
+  const query = new URLSearchParams({
+    userId: config.userId,
+    recursive: "true",
+    includeItemTypes: "TvChannel,LiveTvProgram",
+    searchTerm: trimmed,
+    limit: "100",
+    fields: "StartDate,EndDate,ChannelInfo,PrimaryImageAspectRatio",
+    enableImages: "true",
+  });
+  try {
+    const response = await fetchWithTimeout(
+      `${config.server}/Items?${query.toString()}`,
+      { method: "GET", headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
+      API_TIMEOUTS.QUICK,
+    );
+    if (!response.ok) {
+      logger.warn("Live TV search failed", { service: "JellyfinAPI", status: response.status });
+      return [];
+    }
+    const data: JellyfinVideosResponse = await response.json();
+    return orderLiveTvResults(data.Items ?? [], Date.now());
+  } catch (error) {
+    logger.warn("Live TV search failed", { service: "JellyfinAPI", error: error instanceof Error ? error.message : "unknown" });
+    return [];
+  }
+}

@@ -21,7 +21,7 @@ function serverTag(): string {
 }
 
 /** What the rule reads off an item; every list, detail and queue item carries these. */
-export type PosterItem = Pick<JellyfinVideoItem, "Id" | "Type" | "ImageTags" | "MediaStreams"> & { RunTimeTicks?: number };
+export type PosterItem = Pick<JellyfinVideoItem, "Id" | "Type" | "ImageTags" | "MediaStreams"> & { RunTimeTicks?: number; ChannelId?: string };
 
 /**
  * True only where the streams prove there is no picture to grab: a MusicVideo row that is
@@ -55,6 +55,8 @@ export interface PosterSource {
  */
 export function posterSource(item: PosterItem, height: number, frame?: string | null, revision: number = posterFrameRevision(item.Id)): PosterSource | undefined {
   if (hasPoster(item)) return serverPoster(item.Id, item.ImageTags?.Primary, height);
+  // A programme found by search wears its channel's logo.
+  if (item.Type === "Program" && item.ChannelId) return serverPoster(item.ChannelId, "channel", height);
   const keyframe = frame ?? posterFrameIfCached(item.Id);
   // The pool path repeats across servers and across a decode, so the server, the generation and
   // the revision are what part one picture from the next.

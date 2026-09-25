@@ -34,6 +34,12 @@ describe("posterSource", () => {
     });
   });
 
+  it("draws a programme without art with its channel's picture, never a keyframe", () => {
+    mockCached.mockReturnValue("file:///pool/p/poster.jpg");
+    expect(posterSource(item({ Id: "p", Type: "Program", ChannelId: "ch1" }), 300)?.uri).toBe("https://jf/Items/ch1/Images/Primary?maxHeight=300");
+    expect(wantsPosterFrame({ Type: "Program" })).toBe(false);
+  });
+
   it("falls back to the keyframe the engine has settled", () => {
     mockCached.mockReturnValue("file:///pool/a/poster.jpg");
     expect(posterSource(item(), 300)).toEqual({ uri: "file:///pool/a/poster.jpg", cacheKey: expect.stringMatching(/^[a-z0-9]+-a-keyframe-0\.0$/) });

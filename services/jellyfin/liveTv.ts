@@ -6,6 +6,7 @@
 import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { CACHE } from "@/constants/app";
 import { engineCodecAllowlists } from "@/services/localRemux";
+import { channelListKey, favoriteKey, LIVE_TV_CATEGORIES, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
 import { setPlaybackStage } from "@/services/playbackStage";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
@@ -167,8 +168,10 @@ export function openRecentlyFailed(channelId: string): boolean {
   return false;
 }
 
+const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports: "isSports", kids: "isKids", movie: "isMovie", series: "isSeries" };
+
 /** One page of channels in the server's channel order; the whole list when no page is asked for. */
-export async function fetchChannels(page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name" } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
+export async function fetchChannels(page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; category?: LiveTvCategory } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const query = new URLSearchParams({
@@ -181,6 +184,7 @@ export async function fetchChannels(page: { startIndex?: number; limit?: number;
     ...(page.startIndex !== undefined ? { startIndex: String(page.startIndex) } : {}),
     ...(page.limit !== undefined ? { limit: String(page.limit) } : {}),
     ...(page.sortBy ? { sortBy: page.sortBy } : {}),
+    ...(page.category ? { [CATEGORY_PARAMS[page.category]]: "true" } : {}),
   });
   const response = await fetchWithTimeout(
     `${config.server}/LiveTv/Channels?${query.toString()}`,
@@ -190,6 +194,63 @@ export async function fetchChannels(page: { startIndex?: number; limit?: number;
   if (!response.ok) throwRequestError(response, `Failed to fetch channels: ${response.status}`);
   const json = await response.json();
   return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
+}
+
+/** The categories with at least one channel: the flags come from XMLTV programme categories, so most servers have few. */
+export async function fetchChannelCategories(): Promise<LiveTvCategory[]> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
+  const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
+  const present = await Promise.all(
+    LIVE_TV_CATEGORIES.map(async (category) => {
+      const query = new URLSearchParams({ userId: config.userId, limit: "0", enableTotalRecordCount: "true", [CATEGORY_PARAMS[category]]: "true" });
+      const response = await fetchWithTimeout(`${config.server}/LiveTv/Channels?${query.toString()}`, { headers }, API_TIMEOUTS.NORMAL);
+      if (!response.ok) throwRequestError(response, `Failed to count channels: ${response.status}`);
+      const json = await response.json();
+      return (json.TotalRecordCount ?? 0) > 0;
+    }),
+  );
+  return LIVE_TV_CATEGORIES.filter((_, index) => present[index]);
+}
+
+const LISTED_CHANNEL_FIELDS = "ChannelInfo,PrimaryImageAspectRatio";
+
+/**
+ * The channels a list names, in its order, without paging the catalog. Stored ids come back in one
+ * call; an entry whose id answers for another channel here (ids repeat across servers) is found by name.
+ */
+export async function fetchListedChannels(list: readonly ChannelFavorite[]): Promise<JellyfinItem[]> {
+  if (list.length === 0) return [];
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
+  const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
+  const getItems = async (params: Record<string, string>): Promise<JellyfinItem[]> => {
+    const query = new URLSearchParams({ userId: config.userId, fields: LISTED_CHANNEL_FIELDS, enableImages: "true", enableUserData: "true", ...params });
+    const response = await fetchWithTimeout(`${config.server}/Items?${query.toString()}`, { headers }, API_TIMEOUTS.NORMAL);
+    if (!response.ok) throwRequestError(response, `Failed to fetch channels: ${response.status}`);
+    const json = await response.json();
+    return (json.Items ?? []) as JellyfinItem[];
+  };
+
+  const byKey = new Map<string, JellyfinItem>();
+  const ids = list.flatMap((entry) => (entry.id ? [entry.id] : []));
+  if (ids.length > 0) {
+    for (const item of await getItems({ ids: ids.join(",") })) {
+      if (item.Type === "TvChannel") byKey.set(channelListKey(item), item);
+    }
+  }
+  const missing = list.filter((entry) => !byKey.has(favoriteKey(entry)));
+  const found = await Promise.all(
+    missing.map(async (entry) => {
+      const matches = await getItems({ recursive: "true", includeItemTypes: "TvChannel", searchTerm: entry.name, limit: "20" });
+      return matches.find((item) => channelListKey(item) === favoriteKey(entry));
+    }),
+  );
+  for (const item of found) if (item) byKey.set(channelListKey(item), item);
+  return list.flatMap((entry) => {
+    const item = byKey.get(favoriteKey(entry));
+    return item ? [item] : [];
+  });
 }
 
 /**

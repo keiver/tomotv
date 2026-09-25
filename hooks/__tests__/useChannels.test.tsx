@@ -5,15 +5,15 @@ import type { ChannelSort } from "@/services/liveTvPreferences";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
-jest.mock("@/services/jellyfinApi", () => ({ fetchChannels: jest.fn() }));
+jest.mock("@/services/jellyfinApi", () => ({ fetchChannels: jest.fn(), fetchListedChannels: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
 const mockFetch = fetchChannels as jest.Mock;
 type Hook = ReturnType<typeof useChannels>;
 type HookRef = { get: () => Hook };
 
-const Harness = forwardRef<HookRef, { sort: ChannelSort }>(({ sort }, ref) => {
-  const result = useChannels(sort);
+const Harness = forwardRef<HookRef, { sort: ChannelSort; list?: { id?: string; name: string }[] }>(({ sort, list }, ref) => {
+  const result = useChannels(sort, null, list ?? null);
   useImperativeHandle(ref, () => ({ get: () => result }), [result]);
   return null;
 });
@@ -134,5 +134,20 @@ describe("useChannels", () => {
     await settle();
     expect(ref.current?.get()).toMatchObject({ isLoading: false, error: null, hasMore: false });
     expect(ref.current?.get().items).toHaveLength(2);
+  });
+
+  it("fetches a list's channels in one page and never pages the catalog", async () => {
+    const { fetchListedChannels } = jest.requireMock("@/services/jellyfinApi") as { fetchListedChannels: jest.Mock };
+    fetchListedChannels.mockResolvedValue([{ Id: "c2", Name: "Two", Type: "TvChannel", Path: "" }]);
+    const ref = React.createRef<HookRef>();
+    const list = [{ id: "c2", name: "Two" }];
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} sort="number" list={list} />);
+    });
+    await act(async () => Promise.resolve());
+    expect(fetchListedChannels).toHaveBeenCalledWith(list);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(ref.current!.get().items.map((item) => item.Id)).toEqual(["c2"]);
+    expect(ref.current!.get().hasMore).toBe(false);
   });
 });

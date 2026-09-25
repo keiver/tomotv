@@ -4,11 +4,12 @@ import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
-import { updateLiveTvPreferences, type ChannelSort } from "@/services/liveTvPreferences";
+import { deleteGroup, updateLiveTvPreferences, type ChannelGroup, type ChannelSort } from "@/services/liveTvPreferences";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -18,14 +19,24 @@ function tick({ color }: { color: string }) {
   return <Ionicons name="checkmark" size={TRAILING_SIZE} color={color === COLORS.TEXT_TERTIARY ? COLORS.SUCCESS : color} />;
 }
 
-/** The channel wall's choices, two sunken lists of large rows. A root route: Menu pops it, every press applies at once. */
+/** The channel wall's choices, sunken lists of large rows. A root route: Menu pops it, every press applies at once. */
 export default function ChannelSettingsScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const preferences = useLiveTvPreferences();
   const toggleAutoUpdate = useCallback(() => updateLiveTvPreferences({ autoUpdate: !preferences.autoUpdate }), [preferences.autoUpdate]);
-  const toggleFavoritesOnly = useCallback(() => updateLiveTvPreferences({ favoritesOnly: !preferences.favoritesOnly }), [preferences.favoritesOnly]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
+  const newGroup = useCallback(() => router.push("/channel-group"), [router]);
+  const manageGroup = useCallback(
+    (group: ChannelGroup) =>
+      Alert.alert(group.name, undefined, [
+        { text: t("liveTv.renameGroup"), onPress: () => router.push({ pathname: "/channel-group", params: { groupId: group.id } }) },
+        { text: t("liveTv.deleteGroup"), style: "destructive", onPress: () => deleteGroup(group.id) },
+        { text: t("common.cancel"), style: "cancel" },
+      ]),
+    [router],
+  );
 
   return (
     <View style={styles.container}>
@@ -46,15 +57,17 @@ export default function ChannelSettingsScreen() {
               onPress={toggleAutoUpdate}
               hasTVPreferredFocus
               isFirst
-            />
-            <ListRow
-              icon="heart"
-              title={t("liveTv.favoritesOnly")}
-              subtitle={t("liveTv.favoritesHint")}
-              trailingIcon={preferences.favoritesOnly ? tick : undefined}
-              onPress={toggleFavoritesOnly}
               isLast
             />
+          </View>
+          <View style={settingsStyles.sectionHeader}>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
+          </View>
+          <View style={settingsStyles.section}>
+            {preferences.groups.map((group, index) => (
+              <ListRow key={group.id} icon="albums-outline" title={group.name} onPress={() => manageGroup(group)} isFirst={index === 0} />
+            ))}
+            <ListRow icon="add" title={t("liveTv.newGroup")} onPress={newGroup} isFirst={preferences.groups.length === 0} isLast />
           </View>
           <View style={settingsStyles.sectionHeader}>
             <Text style={settingsStyles.sectionHeaderText}>{t("filters.sort")}</Text>

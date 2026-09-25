@@ -35,6 +35,8 @@ interface SearchResultsGridProps {
   onFirstCardHandleChange?: (handle: number | undefined) => void;
   onEndReached?: () => void;
   ListFooterComponent?: React.ComponentType<unknown> | React.ReactElement | null;
+  /** Above the rows: the Live TV matches. */
+  ListHeaderComponent?: React.ReactElement | null;
   /**
    * Width the rows are packed against. Defaults to the window minus its edge padding; the native
    * search view passes the results region it measured, which is already inset.
@@ -52,7 +54,7 @@ interface SearchResultsGridProps {
  * exactly fill the width. The list virtualizes ROWS, so its index space is rows.
  */
 export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, SearchResultsGridProps>(function SearchResultsGrid(
-  { items, onItemPress, onItemLongPress, nextFocusUpHandle, claimInitialFocus = false, onFirstCardHandleChange, onEndReached, ListFooterComponent, availableWidth, edgePadding },
+  { items, onItemPress, onItemLongPress, nextFocusUpHandle, claimInitialFocus = false, onFirstCardHandleChange, onEndReached, ListFooterComponent, ListHeaderComponent, availableWidth, edgePadding },
   ref,
 ) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -165,6 +167,7 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
       removeClippedSubviews={!Platform.isTV}
       onEndReached={onEndReached}
       onEndReachedThreshold={0.5}
+      ListHeaderComponent={ListHeaderComponent}
       ListFooterComponent={ListFooterComponent}
     />
   );

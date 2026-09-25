@@ -3,17 +3,25 @@
  */
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
-import { fetchChannels, fetchGuidePrograms, fetchTimers } from "@/services/jellyfinApi";
+import { fetchChannels, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { GUIDE_CHANNEL_PAGE, useGuide } from "../useGuide";
 import { GUIDE_SPAN_MINUTES, MINUTE_MS } from "@/utils/guide";
 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchChannels: jest.fn(),
   fetchGuidePrograms: jest.fn(),
+  fetchListedChannels: jest.fn(),
   fetchTimers: jest.fn(),
 }));
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
-let mockPreferences = { version: 1, autoUpdate: true, favoritesOnly: false, sort: "number", favorites: [] as { number?: string; name: string }[] };
+let mockPreferences = {
+  version: 1,
+  autoUpdate: true,
+  filter: "all" as string,
+  sort: "number",
+  favorites: [] as { id?: string; number?: string; name: string }[],
+  groups: [] as { id: string; name: string; channels: { number?: string; name: string }[] }[],
+};
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => mockPreferences }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
@@ -64,25 +72,40 @@ const program = (id: string, channelId: string, startMin: number, endMin: number
 describe("useGuide", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockPreferences = { version: 1, autoUpdate: true, favoritesOnly: false, sort: "number", favorites: [] };
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [] };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
   });
 
-  it("held to favorites, keeps only their rows, asks programs for them alone, and pages on by itself until every channel is seen", async () => {
-    const many = Array.from({ length: GUIDE_CHANNEL_PAGE + 5 }, (_, i) => channel(i + 1));
-    mockPreferences = { ...mockPreferences, favoritesOnly: true, favorites: [{ name: "Channel 2" }, { name: `Channel ${GUIDE_CHANNEL_PAGE + 3}` }] };
-    (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex, limit }: { startIndex: number; limit: number }) => ({
-      items: many.slice(startIndex, startIndex + limit),
-      total: many.length,
-    }));
+  it("held to favorites, fetches the listed channels in one page, asks programs for them alone, and never pages the catalog", async () => {
+    mockPreferences = { ...mockPreferences, filter: "favorites", favorites: [{ id: "c2", name: "Channel 2" }, { name: "Channel 9" }] };
+    (fetchListedChannels as jest.Mock).mockResolvedValue([channel(2), channel(9)]);
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ channelIds, startMs }: { channelIds: string[]; startMs: number }) => channelIds.map((id) => program(`${id}-p`, id, 0, 30, startMs)));
 
     const ref = await mount();
-    await settle();
-    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c2", `c${GUIDE_CHANNEL_PAGE + 3}`]);
-    expect((fetchChannels as jest.Mock).mock.calls.map(([args]) => args.startIndex)).toEqual([0, GUIDE_CHANNEL_PAGE]);
-    expect((fetchGuidePrograms as jest.Mock).mock.calls.map(([args]) => args.channelIds)).toEqual([["c2"], [`c${GUIDE_CHANNEL_PAGE + 3}`]]);
-    expect(ref.current!.get().rows[1].programs).toHaveLength(1);
+    expect(fetchListedChannels).toHaveBeenCalledWith([{ id: "c2", name: "Channel 2" }, { name: "Channel 9" }]);
+    expect(fetchChannels).not.toHaveBeenCalled();
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c2", "c9"]);
+    expect((fetchGuidePrograms as jest.Mock).mock.calls.map(([args]) => args.channelIds)).toEqual([["c2", "c9"]]);
+    await act(async () => ref.current!.get().loadMoreRows());
+    expect(fetchListedChannels).toHaveBeenCalledTimes(1);
+  });
+
+  it("held to a category, asks the server for that flag and keeps every row it returns", async () => {
+    mockPreferences = { ...mockPreferences, filter: "category:kids" };
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(7)], total: 1 });
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    const ref = await mount();
+    expect((fetchChannels as jest.Mock).mock.calls[0][0]).toEqual({ startIndex: 0, limit: GUIDE_CHANNEL_PAGE, sortBy: "SortName", category: "kids" });
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c7"]);
+  });
+
+  it("held to a group, fetches the group's channels", async () => {
+    mockPreferences = { ...mockPreferences, filter: "group:g1", groups: [{ id: "g1", name: "Mine", channels: [{ name: "Channel 4" }] }] };
+    (fetchListedChannels as jest.Mock).mockResolvedValue([channel(4)]);
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    const ref = await mount();
+    expect(fetchListedChannels).toHaveBeenCalledWith([{ name: "Channel 4" }]);
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c4"]);
   });
 
   it("loads the channels, the first page of programs and the timers", async () => {
@@ -192,14 +215,13 @@ describe("useGuide", () => {
     expect((fetchChannels as jest.Mock).mock.calls.at(-1)![0]).toEqual({ startIndex: GUIDE_CHANNEL_PAGE, limit: GUIDE_CHANNEL_PAGE, sortBy: "Name" });
   });
 
-  it("held to favorites, a favorite added while the pages load still reaches every page", async () => {
-    mockPreferences = { ...mockPreferences, favoritesOnly: true, favorites: [{ name: "Channel 2" }, { name: "Channel 100" }] };
-    const release = pagedChannels(3 * GUIDE_CHANNEL_PAGE, GUIDE_CHANNEL_PAGE);
+  it("held to favorites, a favorite added reloads the list with it", async () => {
+    mockPreferences = { ...mockPreferences, filter: "favorites", favorites: [{ name: "Channel 2" }] };
+    (fetchListedChannels as jest.Mock).mockImplementation(async (list: { name: string }[]) => list.map((entry) => channel(Number(entry.name.split(" ")[1]))));
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     const ref = await mount();
     await changePreferences(ref, { favorites: [...mockPreferences.favorites, { name: "Channel 3" }] });
-    await act(async () => release());
-    for (let i = 0; i < 4; i++) await settle();
-    expect(ref.current!.get().rows.map((row) => row.channel.Name)).toEqual(["Channel 2", "Channel 3", "Channel 100"]);
+    expect(ref.current!.get().rows.map((row) => row.channel.Name)).toEqual(["Channel 2", "Channel 3"]);
   });
 
   it("drops a window extension that finishes after the list reloaded, and extends again after it", async () => {
@@ -220,7 +242,7 @@ describe("useGuide", () => {
   });
 
   it("does not reload when a preference it does not read changes", async () => {
-    mockPreferences = { ...mockPreferences, favoritesOnly: true, favorites: [{ name: "Channel 1" }] };
+    mockPreferences = { ...mockPreferences, filter: "favorites", favorites: [{ name: "Channel 1" }] };
     pagedChannels(2, -1);
     const ref = await mount();
     const calls = (fetchChannels as jest.Mock).mock.calls.length;

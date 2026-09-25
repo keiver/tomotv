@@ -152,6 +152,11 @@ export interface JellyfinVideoItem {
   liveTranscodeUrl?: string;
   ChannelNumber?: string;
   CurrentProgram?: JellyfinProgram | null;
+  // A Live TV programme found by search (Type "Program"): its airing and its channel.
+  StartDate?: string;
+  EndDate?: string;
+  ChannelId?: string;
+  ChannelName?: string;
   // Only present when the request asked for Fields=Chapters (fetchItemDetails does).
   Chapters?: JellyfinChapter[];
   Type: string;

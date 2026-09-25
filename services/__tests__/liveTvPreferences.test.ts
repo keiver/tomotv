@@ -1,13 +1,20 @@
-/** The live TV preferences: defaults, a document read back field by field, favorites by number and name, the sort's server parameter. */
+/** The live TV preferences: defaults, a document read back field by field, favorites and groups by number and name, the filter, the sort's server parameter. */
 import {
+  activeCategory,
+  activeChannelList,
   channelSortParam,
+  channelsInList,
+  createGroup,
   DEFAULT_LIVE_TV_PREFERENCES,
-  favoriteChannels,
+  deleteGroup,
   getLiveTvPreferences,
+  isChannelInGroup,
   isFavoriteChannel,
   LIVE_TV_PREFERENCES_KEY,
   parseLiveTvPreferences,
+  renameGroup,
   subscribeLiveTvPreferences,
+  toggleChannelInGroup,
   toggleFavoriteChannel,
   updateLiveTvPreferences,
 } from "@/services/liveTvPreferences";
@@ -26,10 +33,28 @@ describe("live TV preferences", () => {
     expect(parseLiveTvPreferences(JSON.stringify({ sort: "name", favorites: [{ number: "9.1", name: "KQED" }, { name: "Al Jazeera English" }, { bogus: true }, null], autoUpdate: "yes" }))).toEqual({
       version: 1,
       autoUpdate: true,
-      favoritesOnly: false,
+      filter: "all",
       sort: "name",
       favorites: [{ number: "9.1", name: "KQED" }, { name: "Al Jazeera English" }],
+      groups: [],
     });
+  });
+
+  it("reads a favorites-only document from the previous build as the Favorites filter", () => {
+    expect(parseLiveTvPreferences({ favoritesOnly: true }).filter).toBe("favorites");
+    expect(parseLiveTvPreferences({ favoritesOnly: false }).filter).toBe("all");
+    expect(parseLiveTvPreferences({ favoritesOnly: true, filter: "all" }).filter).toBe("all");
+  });
+
+  it("drops a filter naming a missing group or an unknown category, and malformed groups", () => {
+    const groups = [{ id: "g1", name: "Sports", channels: [{ name: "Red Bull TV" }, { bogus: 1 }] }, { name: "no id" }, null];
+    const parsed = parseLiveTvPreferences({ groups, filter: "group:g1" });
+    expect(parsed.groups).toEqual([{ id: "g1", name: "Sports", channels: [{ name: "Red Bull TV" }] }]);
+    expect(parsed.filter).toBe("group:g1");
+    expect(parseLiveTvPreferences({ groups, filter: "group:gone" }).filter).toBe("all");
+    expect(parseLiveTvPreferences({ filter: "category:kids" }).filter).toBe("category:kids");
+    expect(parseLiveTvPreferences({ filter: "category:weather" }).filter).toBe("all");
+    expect(parseLiveTvPreferences({ filter: 7 }).filter).toBe("all");
   });
 
   it("names a favorite by number and name, or by name alone, and matches channels the same way", () => {
@@ -38,7 +63,22 @@ describe("live TV preferences", () => {
     expect(isFavoriteChannel(stored, kqedPlus)).toBe(false);
     expect(isFavoriteChannel(stored, unnumbered)).toBe(true);
     expect(isFavoriteChannel(stored, { Name: "KQED" })).toBe(false);
-    expect(favoriteChannels(stored, [kqedPlus, unnumbered, kqed])).toEqual([unnumbered, kqed]);
+    expect(channelsInList(stored.favorites, [kqedPlus, unnumbered, kqed])).toEqual([unnumbered, kqed]);
+  });
+
+  it("remembers the id of a channel it lists, and reads an id back, while matching by number and name only", () => {
+    toggleFavoriteChannel({ Id: "ch-9", Name: "Nine", ChannelNumber: "9" });
+    expect(getLiveTvPreferences().favorites).toContainEqual({ id: "ch-9", number: "9", name: "Nine" });
+    expect(isFavoriteChannel(getLiveTvPreferences(), { Id: "other-server-id", Name: "Nine", ChannelNumber: "9" })).toBe(true);
+    toggleFavoriteChannel({ Name: "Nine", ChannelNumber: "9" });
+    expect(
+      parseLiveTvPreferences({
+        favorites: [
+          { id: "a", name: "A" },
+          { id: 3, name: "B" },
+        ],
+      }).favorites,
+    ).toEqual([{ id: "a", name: "A" }, { name: "B" }]);
   });
 
   it("toggles a favorite, persists the document and tells its subscribers", () => {
@@ -52,9 +92,41 @@ describe("live TV preferences", () => {
     expect(getLiveTvPreferences().favorites).toEqual([{ name: "Al Jazeera English" }]);
     expect(listener).toHaveBeenCalledTimes(3);
     unsubscribe();
-    updateLiveTvPreferences({ favoritesOnly: true, sort: "name" });
+    updateLiveTvPreferences({ filter: "favorites", sort: "name" });
     expect(listener).toHaveBeenCalledTimes(3);
-    expect(getLiveTvPreferences()).toMatchObject({ favoritesOnly: true, sort: "name", favorites: [{ name: "Al Jazeera English" }] });
+    expect(getLiveTvPreferences()).toMatchObject({ filter: "favorites", sort: "name", favorites: [{ name: "Al Jazeera English" }] });
+  });
+
+  it("creates, fills, renames and deletes a group; deleting the group on screen shows everything", () => {
+    const group = createGroup("  News  ");
+    expect(group.name).toBe("News");
+    toggleChannelInGroup(group.id, kqed);
+    toggleChannelInGroup(group.id, unnumbered);
+    let stored = getLiveTvPreferences().groups.find((entry) => entry.id === group.id)!;
+    expect(stored.channels).toEqual([{ number: "9.1", name: "KQED" }, { name: "Al Jazeera English" }]);
+    expect(isChannelInGroup(stored, kqed)).toBe(true);
+    toggleChannelInGroup(group.id, kqed);
+    stored = getLiveTvPreferences().groups.find((entry) => entry.id === group.id)!;
+    expect(isChannelInGroup(stored, kqed)).toBe(false);
+
+    renameGroup(group.id, "World");
+    expect(getLiveTvPreferences().groups.find((entry) => entry.id === group.id)?.name).toBe("World");
+
+    updateLiveTvPreferences({ filter: `group:${group.id}` });
+    expect(activeChannelList(getLiveTvPreferences())).toEqual([{ name: "Al Jazeera English" }]);
+    deleteGroup(group.id);
+    expect(getLiveTvPreferences().groups.some((entry) => entry.id === group.id)).toBe(false);
+    expect(getLiveTvPreferences().filter).toBe("all");
+  });
+
+  it("reads the list and category a filter holds", () => {
+    const stored = parseLiveTvPreferences({ favorites: [{ name: "A" }], groups: [{ id: "g", name: "G", channels: [{ name: "B" }] }] });
+    expect(activeChannelList({ ...stored, filter: "all" })).toBeNull();
+    expect(activeChannelList({ ...stored, filter: "favorites" })).toEqual([{ name: "A" }]);
+    expect(activeChannelList({ ...stored, filter: "group:g" })).toEqual([{ name: "B" }]);
+    expect(activeChannelList({ ...stored, filter: "category:news" })).toBeNull();
+    expect(activeCategory("category:news")).toBe("news");
+    expect(activeCategory("favorites")).toBeNull();
   });
 
   it("maps the sort to the server's parameter", () => {

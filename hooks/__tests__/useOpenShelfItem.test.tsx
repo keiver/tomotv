@@ -80,4 +80,15 @@ describe("useOpenShelfItem", () => {
 
     expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/player" }));
   });
+
+  it("tunes the channel of a programme on now, and opens the panel of a later one", () => {
+    const now = Date.now();
+    const iso = (offsetMin: number) => new Date(now + offsetMin * 60_000).toISOString();
+    const handle = mountHarness();
+    handle.open({ Id: "p1", Name: "Witness", Type: "Program", ChannelId: "ch1", ChannelName: "Al Jazeera", StartDate: iso(-10), EndDate: iso(20) } as JellyfinItem);
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/player", params: { videoId: "ch1", videoName: "Al Jazeera", live: "1" } });
+    handle.open({ Id: "p2", Name: "Witness", Type: "Program", ChannelId: "ch1", ChannelName: "Al Jazeera", StartDate: iso(60), EndDate: iso(90) } as JellyfinItem);
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/program-info", params: { programId: "p2", channelId: "ch1", channelName: "Al Jazeera" } });
+    expect(mockBuildQueue).not.toHaveBeenCalled();
+  });
 });

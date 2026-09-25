@@ -30,6 +30,19 @@ export function useOpenShelfItem() {
         router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
         return;
       }
+      // A programme from search follows the guide's rule: on now tunes its channel, later opens its panel.
+      if (item.Type === "Program" && item.ChannelId) {
+        const startMs = Date.parse(item.StartDate ?? "");
+        const endMs = Date.parse(item.EndDate ?? "");
+        const nowMs = Date.now();
+        if (startMs <= nowMs && nowMs < endMs) {
+          showGlobalLoader();
+          router.push({ pathname: "/player", params: { videoId: item.ChannelId, videoName: item.ChannelName ?? item.Name, live: "1" } });
+        } else {
+          router.push({ pathname: "/program-info", params: { programId: item.Id, channelId: item.ChannelId, ...(item.ChannelName ? { channelName: item.ChannelName } : {}) } });
+        }
+        return;
+      }
       if (isFolder(item)) {
         const type = item.Type === "Playlist" ? "playlist" : "folder";
         const crumb: FolderStackEntry = { id: item.Id, name: item.Name, type, parentId: item.ParentId };

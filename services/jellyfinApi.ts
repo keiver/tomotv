@@ -45,6 +45,8 @@ export {
   closeLiveStream,
   createSeriesTimer,
   createTimer,
+  fetchChannelCategories,
+  fetchListedChannels,
   fetchChannels,
   fetchGuidePrograms,
   fetchLiveTvManagement,
@@ -149,7 +151,7 @@ export {
   fetchVideoDetails,
 } from "./jellyfin/items";
 export { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "./jellyfin/facets";
-export { searchVideos } from "./jellyfin/search";
+export { searchLiveTv, searchVideos } from "./jellyfin/search";
 
 export { markItemPlayed, setVideoFavorite, setVideoPlayed } from "./jellyfin/userData";
 export {

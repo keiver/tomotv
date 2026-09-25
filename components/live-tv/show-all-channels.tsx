@@ -12,9 +12,9 @@ interface ShowAllChannelsProps {
   hasTVPreferredFocus?: boolean;
 }
 
-/** The wall's empty favorites state: the filled filter symbol, one press lifts the filter. */
+/** The wall's empty filtered state: the filled filter symbol, one press lifts the filter. */
 export function ShowAllChannels({ hasTVPreferredFocus = false }: ShowAllChannelsProps) {
-  const showAll = useCallback(() => updateLiveTvPreferences({ favoritesOnly: false }), []);
+  const showAll = useCallback(() => updateLiveTvPreferences({ filter: "all" }), []);
   return (
     <View style={styles.row}>
       <GlassButton

@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { GlassButton } from "@/components/glass-button";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
+import { GuideGroupStrip } from "@/components/live-tv/guide-group-strip";
 import { gridEdgePadding } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
@@ -40,8 +41,9 @@ export default function LiveTvScreen() {
 
   const guide = useGuide();
   const openFavoriteMenu = useChannelFavoriteMenu();
-  // The Channels pill wears the filled filter symbol while the channels are held to the favorites.
-  const { favoritesOnly } = useLiveTvPreferences();
+  // The Channels pill wears the filled filter symbol while a filter holds the channels.
+  const filtered = useLiveTvPreferences().filter !== "all";
+  const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
@@ -86,7 +88,7 @@ export default function LiveTvScreen() {
               {
                 type: "button",
                 label: t("liveTv.channels"),
-                icon: { type: "sfSymbol", name: favoritesOnly ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2" },
+                icon: { type: "sfSymbol", name: filtered ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2" },
                 tintColor: COLORS.ACCENT,
                 onPress: openChannels,
               },
@@ -94,7 +96,7 @@ export default function LiveTvScreen() {
               { type: "button", label: t("liveTv.scheduled"), icon: { type: "sfSymbol", name: "calendar" }, tintColor: COLORS.ACCENT, onPress: openSchedule },
             ],
           },
-    [params.name, openRecordings, openChannels, openSchedule, favoritesOnly],
+    [params.name, openRecordings, openChannels, openSchedule, filtered],
   );
 
   return (
@@ -108,9 +110,7 @@ export default function LiveTvScreen() {
               <GlassButton
                 ref={handleFirstActionRef}
                 title={t("liveTv.channels")}
-                icon={
-                  favoritesOnly ? <SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={ICON} color={COLORS.ACCENT} /> : <Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />
-                }
+                icon={filtered ? <SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={ICON} color={COLORS.ACCENT} /> : <Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />}
                 onPress={openChannels}
               />
               <GlassButton title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
@@ -118,10 +118,11 @@ export default function LiveTvScreen() {
             </View>
           ) : null}
         </View>
+        <GuideGroupStrip edgePadding={edgeLeft} onSelectedHandle={setStripHandle} />
         <View style={[styles.body, { paddingLeft: edgeLeft }]}>
           <GuideCanvas
             guide={guide}
-            topFocusHandle={topFocusHandle}
+            topFocusHandle={stripHandle ?? topFocusHandle}
             onProgramPress={handleProgramPress}
             onProgramLongPress={openProgram}
             onChannelPress={handleChannelPress}

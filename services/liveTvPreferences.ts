@@ -1,6 +1,6 @@
 /**
- * The viewer's live TV choices: how the channels sort, whether only favorites show, whether the
- * wall keeps sampling, and the favorites themselves. One JSON document in the device's defaults,
+ * The viewer's live TV choices: how the channels sort, which channels show, whether the wall keeps
+ * sampling, the favorites and the named groups. One JSON document in the device's defaults,
  * naming channels by number and name so it outlives any one server.
  */
 import type { JellyfinItem } from "@/types/jellyfin";
@@ -10,39 +10,76 @@ import { Settings } from "react-native";
 export const LIVE_TV_PREFERENCES_KEY = "app_live_tv_preferences";
 
 export type ChannelSort = "number" | "name";
+/** A listed channel: number and name identify it on any server; the id fetches it without scanning the catalog. */
 export interface ChannelFavorite {
+  id?: string;
   number?: string;
   name: string;
 }
+/** The server's channel flags, each set when any programme in the channel's guide carries it. */
+export const LIVE_TV_CATEGORIES = ["news", "sports", "kids", "movie", "series"] as const;
+export type LiveTvCategory = (typeof LIVE_TV_CATEGORIES)[number];
+export interface ChannelGroup {
+  id: string;
+  name: string;
+  channels: ChannelFavorite[];
+}
+/** Which channels the guide and the wall show. */
+export type ChannelFilter = "all" | "favorites" | `category:${LiveTvCategory}` | `group:${string}`;
 export interface LiveTvPreferences {
   version: 1;
   autoUpdate: boolean;
-  favoritesOnly: boolean;
+  filter: ChannelFilter;
   sort: ChannelSort;
   favorites: ChannelFavorite[];
+  groups: ChannelGroup[];
 }
-export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber">;
+export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber"> & { Id?: string };
 
-export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = { version: 1, autoUpdate: true, favoritesOnly: false, sort: "number", favorites: [] };
+export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [] };
 
 let current: LiveTvPreferences | null = null;
 const listeners = new Set<() => void>();
 
+function parseChannelList(raw: unknown): ChannelFavorite[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry): entry is ChannelFavorite => !!entry && typeof entry === "object" && typeof entry.name === "string")
+    .map((entry) => ({ ...(typeof entry.id === "string" ? { id: entry.id } : {}), ...(typeof entry.number === "string" ? { number: entry.number } : {}), name: entry.name }));
+}
+
+function parseGroups(raw: unknown): ChannelGroup[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry): entry is ChannelGroup => !!entry && typeof entry === "object" && typeof entry.id === "string" && typeof entry.name === "string")
+    .map((entry) => ({ id: entry.id, name: entry.name, channels: parseChannelList(entry.channels) }));
+}
+
+/** A filter naming a group that no longer exists, or a category the server has no flag for, shows everything. */
+function parseFilter(raw: unknown, legacyFavoritesOnly: unknown, groups: readonly ChannelGroup[]): ChannelFilter {
+  if (raw === undefined) return legacyFavoritesOnly === true ? "favorites" : "all";
+  if (raw === "all" || raw === "favorites") return raw;
+  if (typeof raw !== "string") return "all";
+  if (raw.startsWith("category:")) {
+    const category = raw.slice("category:".length);
+    return (LIVE_TV_CATEGORIES as readonly string[]).includes(category) ? (raw as ChannelFilter) : "all";
+  }
+  if (raw.startsWith("group:")) return groups.some((group) => `group:${group.id}` === raw) ? (raw as ChannelFilter) : "all";
+  return "all";
+}
+
 /** Every field falls back to its default on its own, so a document from another build still reads. */
 export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
   const doc = typeof raw === "string" ? safeParse(raw) : raw;
-  const source = doc && typeof doc === "object" ? (doc as Partial<LiveTvPreferences>) : {};
-  const favorites = Array.isArray(source.favorites)
-    ? source.favorites
-        .filter((entry): entry is ChannelFavorite => !!entry && typeof entry === "object" && typeof entry.name === "string")
-        .map((entry) => ({ ...(typeof entry.number === "string" ? { number: entry.number } : {}), name: entry.name }))
-    : [];
+  const source = doc && typeof doc === "object" ? (doc as Record<string, unknown>) : {};
+  const groups = parseGroups(source.groups);
   return {
     version: 1,
     autoUpdate: typeof source.autoUpdate === "boolean" ? source.autoUpdate : DEFAULT_LIVE_TV_PREFERENCES.autoUpdate,
-    favoritesOnly: typeof source.favoritesOnly === "boolean" ? source.favoritesOnly : DEFAULT_LIVE_TV_PREFERENCES.favoritesOnly,
+    filter: parseFilter(source.filter, source.favoritesOnly, groups),
     sort: source.sort === "name" ? "name" : "number",
-    favorites,
+    favorites: parseChannelList(source.favorites),
+    groups,
   };
 }
 
@@ -76,32 +113,84 @@ export function subscribeLiveTvPreferences(listener: () => void): () => void {
   };
 }
 
-/** A channel as a favorite names it: its number when the source gives one, and its name. */
+/** A channel as a list names it: its id, its number when the source gives one, and its name. */
 export function channelFavorite(channel: ChannelIdentity): ChannelFavorite {
   const number = channel.ChannelNumber?.trim();
-  return number ? { number, name: channel.Name } : { name: channel.Name };
+  return { ...(channel.Id ? { id: channel.Id } : {}), ...(number ? { number } : {}), name: channel.Name };
 }
 
-function favoriteKey(favorite: ChannelFavorite): string {
+/** The key a list matches by: number and name, never the id, which repeats across servers. */
+export function channelListKey(channel: ChannelIdentity): string {
+  return favoriteKey(channelFavorite(channel));
+}
+
+export function favoriteKey(favorite: ChannelFavorite): string {
   return favorite.number ? `${favorite.number}|${favorite.name}` : favorite.name;
 }
 
-export function isFavoriteChannel(preferences: LiveTvPreferences, channel: ChannelIdentity): boolean {
+function listHas(list: readonly ChannelFavorite[], channel: ChannelIdentity): boolean {
   const key = favoriteKey(channelFavorite(channel));
-  return preferences.favorites.some((favorite) => favoriteKey(favorite) === key);
+  return list.some((entry) => favoriteKey(entry) === key);
+}
+
+function listToggled(list: readonly ChannelFavorite[], channel: ChannelIdentity): ChannelFavorite[] {
+  const key = favoriteKey(channelFavorite(channel));
+  return listHas(list, channel) ? list.filter((entry) => favoriteKey(entry) !== key) : list.concat(channelFavorite(channel));
+}
+
+export function isFavoriteChannel(preferences: LiveTvPreferences, channel: ChannelIdentity): boolean {
+  return listHas(preferences.favorites, channel);
 }
 
 export function toggleFavoriteChannel(channel: ChannelIdentity): void {
-  const preferences = getLiveTvPreferences();
-  const key = favoriteKey(channelFavorite(channel));
-  const favorites = isFavoriteChannel(preferences, channel) ? preferences.favorites.filter((favorite) => favoriteKey(favorite) !== key) : preferences.favorites.concat(channelFavorite(channel));
-  updateLiveTvPreferences({ favorites });
+  updateLiveTvPreferences({ favorites: listToggled(getLiveTvPreferences().favorites, channel) });
 }
 
-/** The channels the favorites name, in the order given. */
-export function favoriteChannels<T extends ChannelIdentity>(preferences: Pick<LiveTvPreferences, "favorites">, channels: readonly T[]): T[] {
-  const keys = new Set(preferences.favorites.map(favoriteKey));
+/** The channels a list names, in the order given. */
+export function channelsInList<T extends ChannelIdentity>(list: readonly ChannelFavorite[], channels: readonly T[]): T[] {
+  const keys = new Set(list.map(favoriteKey));
   return channels.filter((channel) => keys.has(favoriteKey(channelFavorite(channel))));
+}
+
+/** The list the filter holds the channels to: the favorites or a group's channels; null for everything else. */
+export function activeChannelList(preferences: Pick<LiveTvPreferences, "filter" | "favorites" | "groups">): ChannelFavorite[] | null {
+  if (preferences.filter === "favorites") return preferences.favorites;
+  if (preferences.filter.startsWith("group:")) return preferences.groups.find((group) => `group:${group.id}` === preferences.filter)?.channels ?? null;
+  return null;
+}
+
+/** The server flag the filter asks for, or null. */
+export function activeCategory(filter: ChannelFilter): LiveTvCategory | null {
+  return filter.startsWith("category:") ? (filter.slice("category:".length) as LiveTvCategory) : null;
+}
+
+export function isChannelInGroup(group: ChannelGroup, channel: ChannelIdentity): boolean {
+  return listHas(group.channels, channel);
+}
+
+export function toggleChannelInGroup(groupId: string, channel: ChannelIdentity): void {
+  const groups = getLiveTvPreferences().groups.map((group) => (group.id === groupId ? { ...group, channels: listToggled(group.channels, channel) } : group));
+  updateLiveTvPreferences({ groups });
+}
+
+/** A new empty group, returned so the caller can add the channel it was made for. */
+export function createGroup(name: string): ChannelGroup {
+  const group: ChannelGroup = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: name.trim(), channels: [] };
+  updateLiveTvPreferences({ groups: getLiveTvPreferences().groups.concat(group) });
+  return group;
+}
+
+export function renameGroup(groupId: string, name: string): void {
+  updateLiveTvPreferences({ groups: getLiveTvPreferences().groups.map((group) => (group.id === groupId ? { ...group, name: name.trim() } : group)) });
+}
+
+/** Deleting the group on screen shows everything again. */
+export function deleteGroup(groupId: string): void {
+  const preferences = getLiveTvPreferences();
+  updateLiveTvPreferences({
+    groups: preferences.groups.filter((group) => group.id !== groupId),
+    ...(preferences.filter === `group:${groupId}` ? { filter: "all" as const } : {}),
+  });
 }
 
 /** The server's sort for a choice: SortName is its channel order, the number then the name. */

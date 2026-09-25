@@ -1,5 +1,5 @@
-import { fetchChannels } from "@/services/jellyfinApi";
-import { channelSortParam, type ChannelSort } from "@/services/liveTvPreferences";
+import { fetchChannels, fetchListedChannels } from "@/services/jellyfinApi";
+import { channelSortParam, type ChannelFavorite, type ChannelSort, type LiveTvCategory } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -17,8 +17,11 @@ export interface ChannelsState {
   retry: () => void;
 }
 
-/** The channel list a page at a time in the server's order for the sort; a new sort starts over. */
-export function useChannels(sort: ChannelSort): ChannelsState {
+/**
+ * The channel list a page at a time in the server's order for the sort, held to a category when given.
+ * A list (favorites, a group) comes in one fetch of its entries. Any change starts over.
+ */
+export function useChannels(sort: ChannelSort, category: LiveTvCategory | null = null, list: readonly ChannelFavorite[] | null = null): ChannelsState {
   const [items, setItems] = useState<JellyfinItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -29,17 +32,18 @@ export function useChannels(sort: ChannelSort): ChannelsState {
   const busyRef = useRef(false);
   // Bumped by every fresh load, so a page from the previous sort lands nowhere.
   const generationRef = useRef(0);
-  // A failed page holds isLoadingMore for a backoff, or the favorites pass asks for it again at once.
+  // A failed page holds isLoadingMore for a backoff, or the grid asks for it again at once.
   const pageFailuresRef = useRef(0);
   const pageBackoffRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadPage = useCallback(
     async (startIndex: number) => {
-      const { items: page, total } = await fetchChannels({ startIndex, limit: CHANNEL_WALL_PAGE, sortBy: channelSortParam(sort) });
+      if (list) return { page: startIndex === 0 ? await fetchListedChannels(list) : [], hasMore: false };
+      const { items: page, total } = await fetchChannels({ startIndex, limit: CHANNEL_WALL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) });
       const loaded = startIndex + page.length;
       return { page, hasMore: total !== undefined ? loaded < total : page.length >= CHANNEL_WALL_PAGE };
     },
-    [sort],
+    [sort, category, list],
   );
 
   useEffect(() => {

@@ -292,6 +292,21 @@ export default function RootLayout() {
                         }
                       />
                       <Stack.Screen
+                        name="channel-group"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.groupName"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("common.cancel"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
                         name="schedule"
                         options={
                           Platform.isTV
