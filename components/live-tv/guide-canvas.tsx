@@ -243,7 +243,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
         {IS_TV ? (
           corner
         ) : (
-          <GestureHandlerRootView>
+          <GestureHandlerRootView style={styles.cornerHost}>
             <GestureDetector gesture={resize.corner}>{corner}</GestureDetector>
           </GestureHandlerRootView>
         )}
@@ -340,6 +340,10 @@ const styles = StyleSheet.create({
   rulerClip: {
     flex: 1,
     overflow: "hidden",
+  },
+  // Unstyled, RNGH's root defaults to flex: 1 and takes half the top row from the ruler.
+  cornerHost: {
+    flexGrow: 0,
   },
   corner: {
     justifyContent: "center",
