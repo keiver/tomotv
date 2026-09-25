@@ -8,8 +8,9 @@ const IS_TV = Platform.isTV;
 export const GROUP_CELL_HEIGHT = IS_TV ? 56 : 40;
 /** The band's frosted-black floor, shared by the group and corner tiles. */
 export const HUD_CELL_BACKGROUND = "rgba(0, 0, 0, 0.4)";
-/** The pick's yellow wash over the black floor. */
+/** The pick's yellow wash over the black floor; focus flips the cell white, the platform's focus tone. */
 const WASH_SELECTED = "rgba(255, 195, 18, 0.85)";
+const FILL_SELECTED_FOCUSED = "#FFFFFF";
 
 interface GuideGroupCellProps {
   label: string;
@@ -25,7 +26,7 @@ interface GuideGroupCellProps {
 export const GuideGroupCell = forwardRef<View, GuideGroupCellProps>(function GuideGroupCell({ label, selected, onPress }, ref) {
   const [focused, setFocused] = useState(false);
   return (
-    <View style={[styles.tile, selected && styles.tileSelected]}>
+    <View style={[styles.tile, selected && (focused ? styles.tileSelectedFocused : styles.tileSelected)]}>
       <Pressable
         ref={ref}
         onPress={onPress}
@@ -57,6 +58,9 @@ const styles = StyleSheet.create({
   },
   tileSelected: {
     backgroundColor: WASH_SELECTED,
+  },
+  tileSelectedFocused: {
+    backgroundColor: FILL_SELECTED_FOCUSED,
   },
   hit: {
     flex: 1,
