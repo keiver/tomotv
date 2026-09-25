@@ -1,6 +1,9 @@
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
-import { fetchChannels, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
-import { activeCategory, activeChannelList, channelSortParam } from "@/services/liveTvPreferences";
+import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
+import { fetchChannels, fetchChannelsByIds, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
+import { fetchExternalPrograms } from "@/services/externalGuide";
+import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences } from "@/services/liveTvPreferences";
+import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, MINUTE_MS } from "@/utils/guide";
 import { logger } from "@/utils/logger";
@@ -113,6 +116,7 @@ export function useGuide(): GuideState {
   // The list alone, not the preferences object: toggling Auto update must not reload the guide.
   const list = activeChannelList(preferences);
   const category = activeCategory(preferences.filter);
+  const playlistIds = usePlaylistChannelIds(preferences.filter);
 
   const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[]) => {
     setProgramsByChannel((current) => {
@@ -126,30 +130,56 @@ export function useGuide(): GuideState {
     });
   }, []);
 
+  /** Server programs for the page; channels the server has none for fall back to the external guide. */
+  const fetchPrograms = useCallback(async (list: JellyfinItem[], startMs: number, endMs: number) => {
+    if (list.length === 0) return [];
+    const programs = await fetchGuidePrograms({ channelIds: list.map((channel) => channel.Id), startMs, endMs });
+    const url = getLiveTvPreferences().guideUrl;
+    if (!url) return programs;
+    const covered = new Set(programs.map((program) => program.ChannelId));
+    const bare = list.filter((channel) => !covered.has(channel.Id));
+    if (bare.length === 0) return programs;
+    const { tvgById } = await fetchTunerData().catch(() => ({ tvgById: {} as Record<string, string> }));
+    const wanted = bare.flatMap((channel) => (tvgById[channel.Id] ? [{ channelId: channel.Id, tvgId: tvgById[channel.Id] }] : []));
+    return programs.concat(await fetchExternalPrograms(url, wanted, { from: startMs, to: endMs }));
+  }, []);
+
   const loadPrograms = useCallback(
     async (list: JellyfinItem[], startMs: number, endMs: number) => {
       if (list.length === 0) return;
-      applyPrograms(list, await fetchGuidePrograms({ channelIds: list.map((channel) => channel.Id), startMs, endMs }));
+      applyPrograms(list, await fetchPrograms(list, startMs, endMs));
     },
-    [applyPrograms],
+    [applyPrograms, fetchPrograms],
   );
 
   /** The channel page at `startIndex`, held to the filter's list or category, and its programs over the loaded window. */
   const loadChannelPage = useCallback(
     async (startIndex: number) => {
+      if (Array.isArray(playlistIds)) {
+        // Slices whose ids the server does not know come back empty; keep going until items or the end.
+        let consumed = 0;
+        let items: JellyfinItem[] = [];
+        while (items.length === 0 && startIndex + consumed < playlistIds.length) {
+          const slice = playlistIds.slice(startIndex + consumed, startIndex + consumed + GUIDE_CHANNEL_PAGE);
+          items = await fetchChannelsByIds(slice);
+          consumed += slice.length;
+        }
+        const programs = await fetchPrograms(items, windowStartMs, windowEndRef.current);
+        return { items, programs, hasMore: startIndex + consumed < playlistIds.length, pageLength: consumed };
+      }
       // A list is fetched by its entries in one page: a catalog can hold thousands of channels.
       if (list) {
         const items = await fetchListedChannels(list);
-        const programs = items.length > 0 ? await fetchGuidePrograms({ channelIds: items.map((channel) => channel.Id), startMs: windowStartMs, endMs: windowEndRef.current }) : [];
+        const programs = await fetchPrograms(items, windowStartMs, windowEndRef.current);
         return { items, programs, hasMore: false, pageLength: items.length };
       }
       const { items, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) });
       const loaded = startIndex + items.length;
       const hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
-      const programs = items.length > 0 ? await fetchGuidePrograms({ channelIds: items.map((channel) => channel.Id), startMs: windowStartMs, endMs: windowEndRef.current }) : [];
+      const programs = await fetchPrograms(items, windowStartMs, windowEndRef.current);
       return { items, programs, hasMore, pageLength: items.length };
     },
-    [windowStartMs, sort, list, category],
+    [windowStartMs, sort, list, category, playlistIds, fetchPrograms],
   );
 
   const refreshTimers = useCallback(() => {
@@ -171,6 +201,12 @@ export function useGuide(): GuideState {
   useEffect(() => {
     const load: GuideLoad = { fetchPage: loadChannelPage, retired: false, loading: true, busy: null, pagePending: false, loaded: 0, hasMore: false };
     loadRef.current = load;
+    // The ids still loading: the returned isLoading covers it without a state write.
+    if (playlistIds === "loading") {
+      return () => {
+        load.retired = true;
+      };
+    }
     (async () => {
       try {
         const { items, programs, hasMore, pageLength } = await loadChannelPage(0);
@@ -195,7 +231,7 @@ export function useGuide(): GuideState {
     return () => {
       load.retired = true;
     };
-  }, [attempt, loadChannelPage, applyPrograms, refreshTimers]);
+  }, [attempt, loadChannelPage, applyPrograms, refreshTimers, playlistIds]);
 
   // A minute tick moves the airing cells' progress and the ruler's now mark.
   useEffect(() => {
@@ -252,5 +288,5 @@ export function useGuide(): GuideState {
     return map;
   }, [timers]);
 
-  return { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading, error, retry, extendWindow, loadMoreRows, refreshTimers };
+  return { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading: isLoading || playlistIds === "loading", error, retry, extendWindow, loadMoreRows, refreshTimers };
 }

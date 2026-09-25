@@ -24,8 +24,8 @@ export interface ChannelGroup {
   name: string;
   channels: ChannelFavorite[];
 }
-/** Which channels the guide and the wall show. */
-export type ChannelFilter = "all" | "favorites" | `category:${LiveTvCategory}` | `group:${string}`;
+/** Which channels the guide and the wall show. A playlist group is named by its tuner `group-title`. */
+export type ChannelFilter = "all" | "favorites" | `category:${LiveTvCategory}` | `group:${string}` | `playlist:${string}`;
 export interface LiveTvPreferences {
   version: 1;
   autoUpdate: boolean;
@@ -33,10 +33,12 @@ export interface LiveTvPreferences {
   sort: ChannelSort;
   favorites: ChannelFavorite[];
   groups: ChannelGroup[];
+  /** XMLTV URL for channels the server has no guide for (iptv-org/epg output ids); empty is off. */
+  guideUrl: string;
 }
 export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber"> & { Id?: string };
 
-export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [] };
+export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], guideUrl: "" };
 
 let current: LiveTvPreferences | null = null;
 const listeners = new Set<() => void>();
@@ -65,6 +67,7 @@ function parseFilter(raw: unknown, legacyFavoritesOnly: unknown, groups: readonl
     return (LIVE_TV_CATEGORIES as readonly string[]).includes(category) ? (raw as ChannelFilter) : "all";
   }
   if (raw.startsWith("group:")) return groups.some((group) => `group:${group.id}` === raw) ? (raw as ChannelFilter) : "all";
+  if (raw.startsWith("playlist:")) return raw.length > "playlist:".length ? (raw as ChannelFilter) : "all";
   return "all";
 }
 
@@ -80,6 +83,7 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     sort: source.sort === "name" ? "name" : "number",
     favorites: parseChannelList(source.favorites),
     groups,
+    guideUrl: typeof source.guideUrl === "string" && /^https?:\/\//i.test(source.guideUrl) ? source.guideUrl : "",
   };
 }
 
@@ -162,6 +166,11 @@ export function activeChannelList(preferences: Pick<LiveTvPreferences, "filter" 
 /** The server flag the filter asks for, or null. */
 export function activeCategory(filter: ChannelFilter): LiveTvCategory | null {
   return filter.startsWith("category:") ? (filter.slice("category:".length) as LiveTvCategory) : null;
+}
+
+/** The playlist group the filter names, or null. */
+export function activePlaylistGroup(filter: ChannelFilter): string | null {
+  return filter.startsWith("playlist:") ? filter.slice("playlist:".length) : null;
 }
 
 export function isChannelInGroup(group: ChannelGroup, channel: ChannelIdentity): boolean {

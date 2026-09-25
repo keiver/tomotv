@@ -364,12 +364,16 @@ export async function clearContentCaches(context: string): Promise<void> {
     const { libraryManager } = await import("@/services/libraryManager");
     // Dynamic import, like libraryManager above: nextUp imports its fetchers from this module.
     const { clearNextUpDismissals } = await import("@/services/nextUp");
+    const { resetExternalGuide } = await import("@/services/externalGuide");
+    const { resetTunerCache } = await import("@/services/jellyfin/tunerGroups");
     libraryManager.clearCache();
     clearFolderContentsCache();
     clearFavoriteIdsCache();
     clearPlayedCache();
     clearRequestCache();
     clearNextUpDismissals();
+    resetExternalGuide();
+    resetTunerCache();
   } catch (cacheError) {
     logger.warn(`Failed to clear manager caches ${context}`, cacheError, {
       service: "JellyfinAPI",

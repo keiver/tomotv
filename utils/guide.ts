@@ -132,6 +132,9 @@ export function formatDayLabel(ms: number, nowMs: number, labels: { today: strin
 /** Id prefix of the stand-in cell a channel without guide data shows; select tunes, nothing else. */
 export const NO_GUIDE_PREFIX = "no-guide:";
 
+/** Id prefix of a programme from the viewer's external XMLTV guide: not on the server, never fetched. */
+export const EXTERNAL_GUIDE_PREFIX = "epg:";
+
 /**
  * The channel one flip away, wrapping at the ends: +1 for the next channel, -1 for the previous.
  * Returns null when the id is not in the list or the list has fewer than two entries (nothing to

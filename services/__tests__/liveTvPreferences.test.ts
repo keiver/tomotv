@@ -2,6 +2,7 @@
 import {
   activeCategory,
   activeChannelList,
+  activePlaylistGroup,
   channelSortParam,
   channelsInList,
   createGroup,
@@ -37,7 +38,12 @@ describe("live TV preferences", () => {
       sort: "name",
       favorites: [{ number: "9.1", name: "KQED" }, { name: "Al Jazeera English" }],
       groups: [],
+      guideUrl: "",
     });
+    // The guide URL survives only as http(s); anything else falls back to off.
+    expect(parseLiveTvPreferences({ guideUrl: "https://g/guide.xml.gz" }).guideUrl).toBe("https://g/guide.xml.gz");
+    expect(parseLiveTvPreferences({ guideUrl: "file:///etc/passwd" }).guideUrl).toBe("");
+    expect(parseLiveTvPreferences({ guideUrl: 7 }).guideUrl).toBe("");
   });
 
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {
@@ -55,6 +61,17 @@ describe("live TV preferences", () => {
     expect(parseLiveTvPreferences({ filter: "category:kids" }).filter).toBe("category:kids");
     expect(parseLiveTvPreferences({ filter: "category:weather" }).filter).toBe("all");
     expect(parseLiveTvPreferences({ filter: 7 }).filter).toBe("all");
+  });
+
+  it("keeps a playlist filter across restarts and reads its group name back", () => {
+    // The groups live on the tuner, not in the document, so any named playlist group is kept.
+    expect(parseLiveTvPreferences({ filter: "playlist:News" }).filter).toBe("playlist:News");
+    expect(parseLiveTvPreferences({ filter: "playlist:" }).filter).toBe("all");
+    expect(activePlaylistGroup("playlist:News & Talk")).toBe("News & Talk");
+    expect(activePlaylistGroup("all")).toBeNull();
+    expect(activePlaylistGroup("group:g1")).toBeNull();
+    expect(activeChannelList({ filter: "playlist:News", favorites: [], groups: [] })).toBeNull();
+    expect(activeCategory("playlist:News")).toBeNull();
   });
 
   it("names a favorite by number and name, or by name alone, and matches channels the same way", () => {

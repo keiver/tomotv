@@ -11,10 +11,12 @@ interface GuideGroupStripProps {
   edgePadding: number;
   /** TV: the picked chip's native node, where the guide's top row sends Up. */
   onSelectedHandle?: (handle: number | undefined) => void;
+  /** TV: where a chip's Down lands; the guide's cells cannot be entered geometrically. */
+  nextFocusDown?: number;
 }
 
 /** The channel filters as one row of chips above the guide, in layout flow: an overlay would occlude TV focus. */
-export function GuideGroupStrip({ edgePadding, onSelectedHandle }: GuideGroupStripProps) {
+export function GuideGroupStrip({ edgePadding, onSelectedHandle, nextFocusDown }: GuideGroupStripProps) {
   const choices = useChannelFilterChoices();
   const { filter } = useLiveTvPreferences();
   const select = useCallback((next: ChannelFilter) => updateLiveTvPreferences({ filter: next }), []);
@@ -31,7 +33,9 @@ export function GuideGroupStrip({ edgePadding, onSelectedHandle }: GuideGroupStr
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.row, { paddingHorizontal: edgePadding }]} style={styles.strip}>
       {choices.map((choice) => {
         const selected = choice.filter === filter;
-        return <FilterChip key={choice.filter} ref={selected ? selectedRef : undefined} label={choice.label} selected={selected} onToggle={() => select(choice.filter)} />;
+        return (
+          <FilterChip key={choice.filter} ref={selected ? selectedRef : undefined} label={choice.label} selected={selected} nextFocusDown={nextFocusDown} onToggle={() => select(choice.filter)} />
+        );
       })}
     </ScrollView>
   );

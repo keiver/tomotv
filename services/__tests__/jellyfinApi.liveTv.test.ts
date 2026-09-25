@@ -2,7 +2,18 @@
  * Live TV client: the channel list, opening a channel as raw direct play on the address the
  * app signed into (never the server's own bind address), and releasing the tuner.
  */
-import { closeLeftoverOpens, closeLiveStream, fetchChannelCategories, fetchChannels, fetchListedChannels, openChannel, refreshConfig, resolveChannel, resolveChannelOrigin } from "../jellyfinApi";
+import {
+  closeLeftoverOpens,
+  closeLiveStream,
+  fetchChannelCategories,
+  fetchChannels,
+  fetchChannelsByIds,
+  fetchListedChannels,
+  openChannel,
+  refreshConfig,
+  resolveChannel,
+  resolveChannelOrigin,
+} from "../jellyfinApi";
 import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
 import { recordClose, recordedOpens, recordOpen } from "../jellyfin/liveOpens";
 
@@ -99,6 +110,32 @@ describe("live TV client", () => {
     const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url as string);
     expect(urls).toHaveLength(5);
     for (const url of urls) expect(url).toContain("limit=0");
+  });
+
+  it("fetches channels by id in chunks of 100 with includeItemTypes, keeping the ids' order and dropping unknown ids", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      const ids = new URL(url).searchParams.get("ids")!.split(",");
+      // The server answers out of order and never knows c7.
+      return {
+        ok: true,
+        json: async () => ({
+          Items: ids
+            .filter((id) => id !== "c7")
+            .reverse()
+            .map((id) => ({ Id: id, Name: id, Type: "TvChannel" })),
+        }),
+      };
+    });
+    const ids = Array.from({ length: 150 }, (_, index) => `c${index}`);
+    const channels = await fetchChannelsByIds(ids);
+    expect(channels.map((channel) => channel.Id)).toEqual(ids.filter((id) => id !== "c7"));
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url as string);
+    expect(urls).toHaveLength(2);
+    for (const url of urls) expect(url).toContain("includeItemTypes=TvChannel");
+    expect(new URL(urls[0]).searchParams.get("ids")!.split(",")).toHaveLength(100);
+    expect(new URL(urls[1]).searchParams.get("ids")!.split(",")).toHaveLength(50);
+    await expect(fetchChannelsByIds([])).resolves.toEqual([]);
+    expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2);
   });
 
   it("fetches listed channels by id in one call, and by name where the id answers for another channel", async () => {

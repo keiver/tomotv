@@ -9,6 +9,7 @@ import { useChannelFavoriteMenu } from "@/hooks/useChannelFavoriteMenu";
 import { useChannelFilterPicker } from "@/hooks/useChannelFilterPicker";
 import { useChannels } from "@/hooks/useChannels";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
 import { t } from "@/services/i18n";
 import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
 import type { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
@@ -24,7 +25,8 @@ export default function ChannelsScreen() {
   const router = useRouter();
   const { showGlobalLoader } = useLoadingActions();
   const preferences = useLiveTvPreferences();
-  const { items: shown, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannels(preferences.sort, activeCategory(preferences.filter), activeChannelList(preferences));
+  const playlistIds = usePlaylistChannelIds(preferences.filter);
+  const { items: shown, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannels(preferences.sort, activeCategory(preferences.filter), activeChannelList(preferences), playlistIds);
   const filtered = preferences.filter !== "all";
 
   const tune = useCallback(

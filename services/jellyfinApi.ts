@@ -46,6 +46,7 @@ export {
   createSeriesTimer,
   createTimer,
   fetchChannelCategories,
+  fetchChannelsByIds,
   fetchListedChannels,
   fetchChannels,
   fetchGuidePrograms,
@@ -64,6 +65,8 @@ export {
 } from "./jellyfin/liveTv";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
 export type { ChannelOrigin } from "./jellyfin/liveTv";
+export { fetchTunerGroups, lastKnownTunerData } from "./jellyfin/tunerGroups";
+export type { TunerGroup } from "./jellyfin/tunerGroups";
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";

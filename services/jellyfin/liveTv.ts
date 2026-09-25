@@ -214,35 +214,49 @@ export async function fetchChannelCategories(): Promise<LiveTvCategory[]> {
 }
 
 const LISTED_CHANNEL_FIELDS = "ChannelInfo,PrimaryImageAspectRatio";
+/** Ids per /Items call, keeping the query string short. */
+const IDS_PER_REQUEST = 100;
+
+async function fetchChannelItems(params: Record<string, string>): Promise<JellyfinItem[]> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
+  const query = new URLSearchParams({ userId: config.userId, includeItemTypes: "TvChannel", fields: LISTED_CHANNEL_FIELDS, enableImages: "true", enableUserData: "true", ...params });
+  const response = await fetchWithTimeout(
+    `${config.server}/Items?${query.toString()}`,
+    { headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
+    API_TIMEOUTS.NORMAL,
+  );
+  if (!response.ok) throwRequestError(response, `Failed to fetch channels: ${response.status}`);
+  const json = await response.json();
+  return (json.Items ?? []) as JellyfinItem[];
+}
+
+/** The channels with these ids, in the ids' order; ids the server does not know are dropped. */
+export async function fetchChannelsByIds(ids: readonly string[]): Promise<JellyfinItem[]> {
+  const chunks: string[][] = [];
+  for (let start = 0; start < ids.length; start += IDS_PER_REQUEST) chunks.push(ids.slice(start, start + IDS_PER_REQUEST));
+  // Without includeItemTypes the server drops most live channels from an ids query.
+  const pages = await Promise.all(chunks.map((chunk) => fetchChannelItems({ ids: chunk.join(",") })));
+  const byId = new Map<string, JellyfinItem>();
+  for (const item of pages.flat()) if (item.Type === "TvChannel") byId.set(item.Id, item);
+  return ids.flatMap((id) => {
+    const item = byId.get(id);
+    return item ? [item] : [];
+  });
+}
 
 /**
- * The channels a list names, in its order, without paging the catalog. Stored ids come back in one
- * call; an entry whose id answers for another channel here (ids repeat across servers) is found by name.
+ * The channels a list names, in its order, without paging the catalog. Stored ids come back by id;
+ * an entry whose id answers for another channel here (ids repeat across servers) is found by name.
  */
 export async function fetchListedChannels(list: readonly ChannelFavorite[]): Promise<JellyfinItem[]> {
   if (list.length === 0) return [];
-  const config = await getConfig();
-  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
-  const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
-  const getItems = async (params: Record<string, string>): Promise<JellyfinItem[]> => {
-    const query = new URLSearchParams({ userId: config.userId, fields: LISTED_CHANNEL_FIELDS, enableImages: "true", enableUserData: "true", ...params });
-    const response = await fetchWithTimeout(`${config.server}/Items?${query.toString()}`, { headers }, API_TIMEOUTS.NORMAL);
-    if (!response.ok) throwRequestError(response, `Failed to fetch channels: ${response.status}`);
-    const json = await response.json();
-    return (json.Items ?? []) as JellyfinItem[];
-  };
-
   const byKey = new Map<string, JellyfinItem>();
-  const ids = list.flatMap((entry) => (entry.id ? [entry.id] : []));
-  if (ids.length > 0) {
-    for (const item of await getItems({ ids: ids.join(",") })) {
-      if (item.Type === "TvChannel") byKey.set(channelListKey(item), item);
-    }
-  }
+  for (const item of await fetchChannelsByIds(list.flatMap((entry) => (entry.id ? [entry.id] : [])))) byKey.set(channelListKey(item), item);
   const missing = list.filter((entry) => !byKey.has(favoriteKey(entry)));
   const found = await Promise.all(
     missing.map(async (entry) => {
-      const matches = await getItems({ recursive: "true", includeItemTypes: "TvChannel", searchTerm: entry.name, limit: "20" });
+      const matches = await fetchChannelItems({ recursive: "true", searchTerm: entry.name, limit: "20" });
       return matches.find((item) => channelListKey(item) === favoriteKey(entry));
     }),
   );

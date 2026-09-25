@@ -31,6 +31,8 @@ interface GuideCanvasProps {
   guide: GuideState;
   /** Native node the top row's Up lands on: the screen's first action above the guide. */
   topFocusHandle?: number;
+  /** TV: reports the first channel card's node, the way down into the guide from above. */
+  onEntryHandle?: (handle: number | undefined) => void;
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onChannelPress: (channel: JellyfinItem) => void;
@@ -42,7 +44,7 @@ interface GuideCanvasProps {
  * with the channel column beside it kept level with the rows. Cells and channels are the
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
-export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
+export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
@@ -217,6 +219,7 @@ export function GuideCanvas({ guide, topFocusHandle, onProgramPress, onProgramLo
         onChannelPress={onChannelPress}
         onChannelLongPress={onChannelLongPress}
         onChannelFocus={handleChannelFocus}
+        onFirstHandle={onEntryHandle}
         onEndReached={loadMoreRows}
         cornerGesture={IS_TV ? undefined : resize.corner}
       />

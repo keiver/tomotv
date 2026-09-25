@@ -1,7 +1,8 @@
 import { useLiveTvCategories } from "@/hooks/useLiveTvCategories";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { useTunerGroups } from "@/hooks/useTunerGroups";
 import { t } from "@/services/i18n";
-import type { ChannelFilter, LiveTvCategory } from "@/services/liveTvPreferences";
+import { activePlaylistGroup, type ChannelFilter, type LiveTvCategory } from "@/services/liveTvPreferences";
 import { useMemo } from "react";
 
 export interface ChannelFilterChoice {
@@ -17,16 +18,24 @@ const CATEGORY_LABELS: Record<LiveTvCategory, () => string> = {
   series: () => t("liveTv.catSeries"),
 };
 
-/** Favorites, All, the viewer's groups, then the server's non-empty categories. Favorites shows once there is one, or while it is picked. */
+/**
+ * Favorites, All, the viewer's groups, the tuner playlists' groups, then the server's non-empty categories.
+ * Favorites shows once there is one, or while it is picked; a picked playlist group shows before the groups arrive.
+ */
 export function useChannelFilterChoices(): ChannelFilterChoice[] {
   const { favorites, groups, filter } = useLiveTvPreferences();
   const categories = useLiveTvCategories();
+  const playlistGroups = useTunerGroups();
   return useMemo(() => {
     const choices: ChannelFilterChoice[] = [];
     if (favorites.length > 0 || filter === "favorites") choices.push({ filter: "favorites", label: t("library.favorites") });
     choices.push({ filter: "all", label: t("liveTv.groupAll") });
     for (const group of groups) choices.push({ filter: `group:${group.id}`, label: group.name });
+    // The picked group holds its slot until the groups arrive; a dead pick then resets to All (usePlaylistChannelIds).
+    const picked = activePlaylistGroup(filter);
+    if (picked !== null && playlistGroups === null) choices.push({ filter, label: picked });
+    for (const group of playlistGroups ?? []) choices.push({ filter: `playlist:${group.name}`, label: group.name });
     for (const category of categories) choices.push({ filter: `category:${category}`, label: CATEGORY_LABELS[category]() });
     return choices;
-  }, [favorites.length, groups, filter, categories]);
+  }, [favorites.length, groups, filter, playlistGroups, categories]);
 }

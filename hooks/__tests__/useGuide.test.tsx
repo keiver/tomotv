@@ -9,9 +9,12 @@ import { GUIDE_SPAN_MINUTES, MINUTE_MS } from "@/utils/guide";
 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchChannels: jest.fn(),
+  fetchChannelsByIds: jest.fn(),
   fetchGuidePrograms: jest.fn(),
   fetchListedChannels: jest.fn(),
   fetchTimers: jest.fn(),
+  fetchTunerGroups: jest.fn().mockResolvedValue([]),
+  lastKnownTunerData: jest.fn(() => null),
 }));
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
 let mockPreferences = {
@@ -106,6 +109,25 @@ describe("useGuide", () => {
     const ref = await mount();
     expect(fetchListedChannels).toHaveBeenCalledWith([{ name: "Channel 4" }]);
     expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c4"]);
+  });
+
+  it("held to a playlist group, pages its ids in order and keeps paging past ids the server does not know", async () => {
+    mockPreferences = { ...mockPreferences, filter: "playlist:News" };
+    const { fetchChannelsByIds, fetchTunerGroups } = jest.requireMock("@/services/jellyfinApi") as { fetchChannelsByIds: jest.Mock; fetchTunerGroups: jest.Mock };
+    const ids = Array.from({ length: GUIDE_CHANNEL_PAGE + 2 }, (_, index) => `p${index}`);
+    fetchTunerGroups.mockResolvedValue([{ name: "News", channelIds: ids }]);
+    // p0 never resolves; the page keeps its ids' order without it.
+    fetchChannelsByIds.mockImplementation(async (slice: string[]) => slice.filter((id) => id !== "p0").map((id) => ({ Id: id, Name: id, Type: "TvChannel", Path: "" })));
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    const ref = await mount();
+    await settle();
+    expect(fetchChannels).not.toHaveBeenCalled();
+    expect(fetchChannelsByIds).toHaveBeenCalledWith(ids.slice(0, GUIDE_CHANNEL_PAGE));
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(ids.slice(1, GUIDE_CHANNEL_PAGE));
+    act(() => ref.current!.get().loadMoreRows());
+    await settle();
+    expect(fetchChannelsByIds).toHaveBeenLastCalledWith(ids.slice(GUIDE_CHANNEL_PAGE));
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(ids.filter((id) => id !== "p0"));
   });
 
   it("loads the channels, the first page of programs and the timers", async () => {

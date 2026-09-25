@@ -1,14 +1,16 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
+import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { resetExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import { deleteGroup, updateLiveTvPreferences, type ChannelGroup, type ChannelSort } from "@/services/liveTvPreferences";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -28,6 +30,14 @@ export default function ChannelSettingsScreen() {
   const toggleAutoUpdate = useCallback(() => updateLiveTvPreferences({ autoUpdate: !preferences.autoUpdate }), [preferences.autoUpdate]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
   const newGroup = useCallback(() => router.push("/channel-group"), [router]);
+  const [guideUrl, setGuideUrl] = useState(preferences.guideUrl);
+  // Saved on blur and Done; the guide picks it up on its next load.
+  const saveGuideUrl = useCallback(() => {
+    const trimmed = guideUrl.trim();
+    if (trimmed === preferences.guideUrl) return;
+    updateLiveTvPreferences({ guideUrl: trimmed });
+    resetExternalGuide();
+  }, [guideUrl, preferences.guideUrl]);
   const manageGroup = useCallback(
     (group: ChannelGroup) =>
       Alert.alert(group.name, undefined, [
@@ -76,6 +86,26 @@ export default function ChannelSettingsScreen() {
             <ListRow icon="list" title={t("liveTv.sortNumber")} trailingIcon={preferences.sort === "number" ? tick : undefined} onPress={() => pickSort("number")} isFirst />
             <ListRow icon="text" title={t("liveTv.sortName")} trailingIcon={preferences.sort === "name" ? tick : undefined} onPress={() => pickSort("name")} isLast />
           </View>
+          <View style={settingsStyles.sectionHeader}>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSection")}</Text>
+          </View>
+          <SunkenTextInput
+            value={guideUrl}
+            onChangeText={setGuideUrl}
+            onBlur={saveGuideUrl}
+            onSubmitEditing={saveGuideUrl}
+            placeholder={t("liveTv.guideUrl")}
+            placeholderTextColor={COLORS.TEXT_SECONDARY}
+            accessibilityLabel={t("liveTv.guideUrlHint")}
+            autoCorrect={false}
+            autoCapitalize="none"
+            keyboardType="url"
+            returnKeyType="done"
+            numberOfLines={1}
+            multiline={false}
+            clearButtonMode="while-editing"
+            style={settingsStyles.textInput}
+          />
         </View>
       </ScrollView>
     </View>

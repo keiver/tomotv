@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GlassButton } from "@/components/glass-button";
 import { settingsStyles } from "@/components/settings/styles";
+import { COLORS } from "@/constants/colors";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { t } from "@/services/i18n";
 import { createGroup, getLiveTvPreferences, renameGroup, toggleChannelInGroup } from "@/services/liveTvPreferences";
@@ -38,7 +39,22 @@ export default function ChannelGroupScreen() {
       <AmbientBackground />
       <View style={[styles.page, { paddingTop: IS_TV ? 80 + insets.top : headerHeight + 24 }]}>
         <View style={[settingsStyles.contentContainer, styles.column]}>
-          <SunkenTextInput value={name} onChangeText={setName} onSubmitEditing={save} placeholder={t("liveTv.groupName")} autoFocus returnKeyType="done" autoCorrect={false} />
+          {/* On TV, Done only closes the keyboard: navigating out of a screen whose keyboard still
+              holds focus trips UIFocusSystem's removed-while-focused assertion and kills the app. */}
+          <SunkenTextInput
+            value={name}
+            onChangeText={setName}
+            onSubmitEditing={IS_TV ? undefined : save}
+            placeholder={t("liveTv.groupName")}
+            placeholderTextColor={COLORS.TEXT_SECONDARY}
+            autoFocus={!IS_TV}
+            returnKeyType="done"
+            autoCorrect={false}
+            numberOfLines={1}
+            multiline={false}
+            clearButtonMode="while-editing"
+            style={settingsStyles.textInput}
+          />
           <GlassButton title={t("common.save")} onPress={save} />
         </View>
       </View>

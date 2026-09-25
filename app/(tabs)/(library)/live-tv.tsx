@@ -11,7 +11,7 @@ import { useGuide } from "@/hooks/useGuide";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { NO_GUIDE_PREFIX } from "@/utils/guide";
+import { EXTERNAL_GUIDE_PREFIX, NO_GUIDE_PREFIX } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -44,6 +44,7 @@ export default function LiveTvScreen() {
   // The Channels pill wears the filled filter symbol while a filter holds the channels.
   const filtered = useLiveTvPreferences().filter !== "all";
   const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
+  const [gridEntryHandle, setGridEntryHandle] = useState<number | undefined>(undefined);
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
@@ -54,7 +55,7 @@ export default function LiveTvScreen() {
   );
   const openProgram = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
-      if (!program.Id || program.Id.startsWith(NO_GUIDE_PREFIX)) return;
+      if (!program.Id || program.Id.startsWith(NO_GUIDE_PREFIX) || program.Id.startsWith(EXTERNAL_GUIDE_PREFIX)) return;
       router.push({ pathname: "/program-info", params: { programId: program.Id, channelId: channel.Id, channelName: channel.Name } });
     },
     [router],
@@ -118,11 +119,12 @@ export default function LiveTvScreen() {
             </View>
           ) : null}
         </View>
-        <GuideGroupStrip edgePadding={edgeLeft} onSelectedHandle={setStripHandle} />
+        <GuideGroupStrip edgePadding={edgeLeft} onSelectedHandle={setStripHandle} nextFocusDown={gridEntryHandle} />
         <View style={[styles.body, { paddingLeft: edgeLeft }]}>
           <GuideCanvas
             guide={guide}
             topFocusHandle={stripHandle ?? topFocusHandle}
+            onEntryHandle={setGridEntryHandle}
             onProgramPress={handleProgramPress}
             onProgramLongPress={openProgram}
             onChannelPress={handleChannelPress}

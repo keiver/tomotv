@@ -5,15 +5,15 @@ import type { ChannelSort } from "@/services/liveTvPreferences";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
-jest.mock("@/services/jellyfinApi", () => ({ fetchChannels: jest.fn(), fetchListedChannels: jest.fn() }));
+jest.mock("@/services/jellyfinApi", () => ({ fetchChannels: jest.fn(), fetchChannelsByIds: jest.fn(), fetchListedChannels: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
 const mockFetch = fetchChannels as jest.Mock;
 type Hook = ReturnType<typeof useChannels>;
 type HookRef = { get: () => Hook };
 
-const Harness = forwardRef<HookRef, { sort: ChannelSort; list?: { id?: string; name: string }[] }>(({ sort, list }, ref) => {
-  const result = useChannels(sort, null, list ?? null);
+const Harness = forwardRef<HookRef, { sort: ChannelSort; list?: { id?: string; name: string }[]; ids?: readonly string[] | "loading" | null }>(({ sort, list, ids }, ref) => {
+  const result = useChannels(sort, null, list ?? null, ids ?? null);
   useImperativeHandle(ref, () => ({ get: () => result }), [result]);
   return null;
 });

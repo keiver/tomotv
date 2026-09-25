@@ -8,7 +8,7 @@ import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPref
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { GuideMetrics } from "@/utils/guide";
 import React, { useCallback } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { findNodeHandle, Platform, StyleSheet, Text, View } from "react-native";
 import { type Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
@@ -36,6 +36,9 @@ interface GuideChannelColumnProps {
   /** A held card marks the channel a favorite, or unmarks it. */
   onChannelLongPress: (channel: JellyfinItem) => void;
   onChannelFocus?: () => void;
+  /** TV: the first card's native node, the strip's way down into the guide (the canvas cells sit
+      in a scrolled expanse the focus engine cannot enter geometrically). */
+  onFirstHandle?: (handle: number | undefined) => void;
   onEndReached?: () => void;
   /** Phone: the corner is a second resize handle, the seam grip's pan from useColumnResize. */
   cornerGesture?: ReturnType<typeof Gesture.Pan>;
@@ -58,10 +61,17 @@ export function GuideChannelColumn({
   onChannelPress,
   onChannelLongPress,
   onChannelFocus,
+  onFirstHandle,
   onEndReached,
   cornerGesture,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
+  const firstCardRef = useCallback(
+    (node: React.ElementRef<typeof GuideChannelCard> | null) => {
+      onFirstHandle?.(node ? (findNodeHandle(node) ?? undefined) : undefined);
+    },
+    [onFirstHandle],
+  );
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows,
   // and the TV snap target, so a focused card lands its row on the list's top edge.
   const renderItem = useCallback(
@@ -69,6 +79,7 @@ export function GuideChannelColumn({
       <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapAlign={IS_TV ? "start" : undefined}>
         {IS_TV ? (
           <GuideChannelCard
+            ref={index === 0 ? firstCardRef : undefined}
             channel={item}
             index={index}
             cardWidth={metrics.channelColumnWidth}
@@ -92,7 +103,7 @@ export function GuideChannelColumn({
         )}
       </View>
     ),
-    [metrics, columnWidth, compact, preferences, onChannelPress, onChannelLongPress, onChannelFocus],
+    [metrics, columnWidth, compact, preferences, onChannelPress, onChannelLongPress, onChannelFocus, firstCardRef],
   );
   const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const getItemLayout = useCallback(

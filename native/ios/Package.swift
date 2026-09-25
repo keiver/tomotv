@@ -14,8 +14,24 @@ let package = Package(
     products: [
         .library(name: "TomoEngine", targets: ["TomoEngine"]),
         .library(name: "TomoBooks", targets: ["TomoBooks"]),
+        .library(name: "TomoLiveSources", targets: ["TomoLiveSources"]),
     ],
     targets: [
+        // Live TV sources (plugins/withLiveSources.js copies the same files into the app):
+        // XMLTV on libxml2 SAX and zlib, Jellyfin channel ids. No UIKit outside the bridge.
+        .target(
+            name: "TomoLiveSources",
+            path: "LiveSources",
+            exclude: ["LiveSources.swift", "LiveSources.m"],
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            linkerSettings: [.linkedLibrary("xml2"), .linkedLibrary("z")]
+        ),
+        .testTarget(
+            name: "TomoLiveSourcesTests",
+            dependencies: ["TomoLiveSources"],
+            path: "Tests/TomoLiveSourcesTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         // The book reader's page renderer (plugins/withBookRenderer.js copies the same
         // files into the app). No UIKit outside the bridge, so it tests on the host.
         .target(
