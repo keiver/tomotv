@@ -1,18 +1,18 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { GlassButton } from "@/components/glass-button";
-import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
-import { GuideGroupStrip } from "@/components/live-tv/guide-group-strip";
+import { GuideCornerActions } from "@/components/live-tv/guide-corner-actions";
+import { GuideHud } from "@/components/live-tv/guide-hud";
 import { gridEdgePadding } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useChannelFavoriteMenu } from "@/hooks/useChannelFavoriteMenu";
 import { useGuide } from "@/hooks/useGuide";
+import { lastKnownTunerData } from "@/services/jellyfinApi";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { EXTERNAL_GUIDE_PREFIX, NO_GUIDE_PREFIX } from "@/utils/guide";
-import { Ionicons } from "@expo/vector-icons";
+import { EXTERNAL_GUIDE_PREFIX, guideMetrics, NO_GUIDE_PREFIX } from "@/utils/guide";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useMemo, useState } from "react";
@@ -20,7 +20,7 @@ import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-const ICON = 26;
+const COLUMN_WIDTH = guideMetrics(IS_TV).channelColumnWidth;
 
 /**
  * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
@@ -41,10 +41,17 @@ export default function LiveTvScreen() {
 
   const guide = useGuide();
   const openFavoriteMenu = useChannelFavoriteMenu();
+  const preferences = useLiveTvPreferences();
   // The Channels pill wears the filled filter symbol while a filter holds the channels.
-  const filtered = useLiveTvPreferences().filter !== "all";
+  const filtered = preferences.filter !== "all";
   const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
-  const [gridEntryHandle, setGridEntryHandle] = useState<number | undefined>(undefined);
+  // The refresh circle shows only while an external guide is in play: named, or playlist-declared.
+  const hasExternalGuide = preferences.guideUrl !== "" || (lastKnownTunerData()?.tvgUrls.length ?? 0) > 0;
+  const { retry } = guide;
+  const refreshGuide = useCallback(() => {
+    refreshExternalGuide();
+    retry();
+  }, [retry]);
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
@@ -105,26 +112,28 @@ export default function LiveTvScreen() {
       <Stack.Screen options={screenOptions} />
       <View style={styles.container}>
         <AmbientBackground />
-        <View style={[styles.header, { paddingTop: topClearance, paddingHorizontal: edgeLeft }]}>
-          {IS_TV ? (
-            <View style={styles.headerBar}>
-              <GlassButton
-                ref={handleFirstActionRef}
-                title={t("liveTv.channels")}
-                icon={filtered ? <SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={ICON} color={COLORS.ACCENT} /> : <Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />}
-                onPress={openChannels}
-              />
-              <GlassButton title={t("liveTv.recordings")} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openRecordings} />
-              <GlassButton title={t("liveTv.scheduled")} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} onPress={openSchedule} />
-            </View>
-          ) : null}
-        </View>
-        <GuideGroupStrip edgePadding={edgeLeft} onSelectedHandle={setStripHandle} nextFocusDown={gridEntryHandle} />
-        <View style={[styles.body, { paddingLeft: edgeLeft }]}>
+        <View style={[styles.body, { paddingLeft: edgeLeft, paddingTop: topClearance }]}>
           <GuideCanvas
             guide={guide}
             topFocusHandle={stripHandle ?? topFocusHandle}
-            onEntryHandle={setGridEntryHandle}
+            hudRow={
+              <GuideHud
+                cornerWidth={COLUMN_WIDTH}
+                cornerActions={
+                  IS_TV ? (
+                    <GuideCornerActions
+                      filtered={filtered}
+                      onChannels={openChannels}
+                      onRecordings={openRecordings}
+                      onSchedule={openSchedule}
+                      onRefreshGuide={hasExternalGuide ? refreshGuide : undefined}
+                      onFirstRef={handleFirstActionRef}
+                    />
+                  ) : undefined
+                }
+                onSelectedHandle={setStripHandle}
+              />
+            }
             onProgramPress={handleProgramPress}
             onProgramLongPress={openProgram}
             onChannelPress={handleChannelPress}
@@ -139,17 +148,6 @@ export default function LiveTvScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: "row",
-    paddingBottom: IS_TV ? 28 : 0,
-  },
-  // TV: the pills sit as one centred group.
-  headerBar: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 16,
   },
   body: {
     flex: 1,

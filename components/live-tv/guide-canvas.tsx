@@ -1,6 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
+import { HUD_BAR_HEIGHT } from "@/components/live-tv/guide-hud";
 import { GuideColumnDivider, useColumnResize } from "@/components/live-tv/guide-column-divider";
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
 import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
@@ -14,9 +15,10 @@ import { cellAtEdge, cellGeometry, formatDayLabel, guideMetrics, isAiring, MINUT
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
+import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { LayoutChangeEvent, Platform, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useSharedValue } from "react-native-reanimated";
+import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 const METRICS = guideMetrics(IS_TV);
@@ -33,6 +35,8 @@ interface GuideCanvasProps {
   topFocusHandle?: number;
   /** TV: reports the first channel card's node, the way down into the guide from above. */
   onEntryHandle?: (handle: number | undefined) => void;
+  /** The HUD band between the ruler and the rows: corner actions, group cells, guide status. */
+  hudRow?: React.ReactNode;
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onChannelPress: (channel: JellyfinItem) => void;
@@ -44,7 +48,7 @@ interface GuideCanvasProps {
  * with the channel column beside it kept level with the rows. Cells and channels are the
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
-export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
+export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
@@ -67,6 +71,9 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, onProgramPre
     setCanvasHeight(event.nativeEvent.layout.height);
   }, []);
   const handleGuideLayout = useCallback((event: LayoutChangeEvent) => canvasW.set(event.nativeEvent.layout.width), [canvasW]);
+  // The corner tracks the column's live width; the ruler band mirrors the rows' horizontal offset.
+  const cornerWidthStyle = useAnimatedStyle(() => ({ width: columnW.get() }));
+  const rulerShift = useAnimatedStyle(() => ({ transform: [{ translateX: -scrollX.value }] }));
 
   // Within a viewport of the loaded edge: grow the window before the viewer reaches it.
   const horizontalHandler = useAnimatedScrollHandler({
@@ -101,14 +108,25 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, onProgramPre
 
   // Up and Down from a cell land on the neighbouring row's cell under its visible left edge,
   // named by handle: left to geometry, the focus engine picks the wide cell's far end.
-  const handles = useRef(new Map<string, number>()).current;
-  const handleCellHandle = useCallback(
-    (programId: string, handle: number | undefined) => {
-      if (handle === undefined) handles.delete(programId);
-      else handles.set(programId, handle);
-    },
-    [handles],
-  );
+  const handlesRef = useRef(new Map<string, number>());
+  // The first row's airing cell doubles as the HUD band's way into the grid: the entry focus
+  // guide names it, so Down from a group cell lands on a programme, never on the channel column.
+  const entryProgramIdRef = useRef<string | undefined>(undefined);
+  const [entryHandle, setEntryHandle] = useState<number | undefined>(undefined);
+  const handleCellHandle = useCallback((programId: string, handle: number | undefined) => {
+    if (handle === undefined) handlesRef.current.delete(programId);
+    else handlesRef.current.set(programId, handle);
+    if (programId === entryProgramIdRef.current) setEntryHandle(handle);
+  }, []);
+  const entryProgramId = useMemo(() => {
+    const first = rows[0];
+    if (!IS_TV || !first) return undefined;
+    return (first.programs.find((program) => isAiring(program, nowMs)) ?? first.programs[0])?.Id;
+  }, [rows, nowMs]);
+  useEffect(() => {
+    entryProgramIdRef.current = entryProgramId;
+    setEntryHandle(entryProgramId ? handlesRef.current.get(entryProgramId) : undefined);
+  }, [entryProgramId]);
   // Read at focus time through a ref: the lookup stays one function for the rows' whole life.
   const rowDataRef = useRef(rows);
   useEffect(() => {
@@ -118,9 +136,9 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, onProgramPre
     (row: GuideRowData | undefined, edgeMs: number) => {
       if (!row) return undefined;
       const target = cellAtEdge(rowCells(row.channel, row.programs, windowStartMs, windowEndMs, METRICS), edgeMs);
-      return target?.Id ? handles.get(target.Id) : undefined;
+      return target?.Id ? handlesRef.current.get(target.Id) : undefined;
     },
-    [handles, windowStartMs, windowEndMs],
+    [windowStartMs, windowEndMs],
   );
   const targetsFor = useCallback<FocusTargetsFor>(
     (rowIndex, program) => {
@@ -203,39 +221,65 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, onProgramPre
     );
   }
 
-  const listHeight = Math.max(0, canvasHeight - METRICS.rulerHeight);
+  const listHeight = Math.max(0, canvasHeight);
+  const corner = (
+    <Animated.View style={[styles.corner, { height: METRICS.rulerHeight }, cornerWidthStyle]}>
+      <Text style={styles.cornerLabel} numberOfLines={1}>
+        {dayLabel}
+      </Text>
+    </Animated.View>
+  );
   return (
     <View style={styles.canvas} onLayout={handleGuideLayout}>
-      <GuideChannelColumn
-        channels={channels}
-        metrics={METRICS}
-        listRef={columnRef}
-        onScroll={columnHandler}
-        dayLabel={dayLabel}
-        listHeight={listHeight}
-        contentBottomPad={LIST_BOTTOM_PAD}
-        columnWidth={columnW}
-        compact={compact}
-        onChannelPress={onChannelPress}
-        onChannelLongPress={onChannelLongPress}
-        onChannelFocus={handleChannelFocus}
-        onFirstHandle={onEntryHandle}
-        onEndReached={loadMoreRows}
-        cornerGesture={IS_TV ? undefined : resize.corner}
-      />
-      <View style={styles.scrollHost} onLayout={handleCanvasLayout}>
-        <Animated.ScrollView
-          horizontal
-          onScroll={horizontalHandler}
-          scrollEventThrottle={16}
-          showsHorizontalScrollIndicator={false}
-          bounces={false}
-          style={styles.scroll}
-          contentContainerStyle={{ width: spanPx + SEAM_REACH }}>
-          <View style={{ width: spanPx + SEAM_REACH, height: canvasHeight }}>
-            <View style={{ marginLeft: SEAM_REACH }}>
-              <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
-            </View>
+      {/* The ruler band: the corner cell, then the ruler mirroring the rows' horizontal scroll. */}
+      <View style={[styles.topRow, { height: METRICS.rulerHeight }]}>
+        {IS_TV ? (
+          corner
+        ) : (
+          <GestureHandlerRootView>
+            <GestureDetector gesture={resize.corner}>{corner}</GestureDetector>
+          </GestureHandlerRootView>
+        )}
+        <View style={styles.rulerClip}>
+          <Animated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
+            <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
+          </Animated.View>
+        </View>
+      </View>
+      {hudRow}
+      {/* Only over the cells, so Up from the channel column still reaches the corner actions;
+          only with a destination, an empty guide would catch presses and trap them. */}
+      {IS_TV && entryHandle !== undefined ? (
+        <View style={styles.entryRow}>
+          <Animated.View style={cornerWidthStyle} />
+          <TVFocusGuideView style={styles.entryGuide} destinations={[entryHandle]} />
+        </View>
+      ) : null}
+      <View style={styles.bandRow}>
+        <GuideChannelColumn
+          channels={channels}
+          metrics={METRICS}
+          listRef={columnRef}
+          onScroll={columnHandler}
+          listHeight={listHeight}
+          contentBottomPad={LIST_BOTTOM_PAD}
+          columnWidth={columnW}
+          compact={compact}
+          onChannelPress={onChannelPress}
+          onChannelLongPress={onChannelLongPress}
+          onChannelFocus={handleChannelFocus}
+          onFirstHandle={onEntryHandle}
+          onEndReached={loadMoreRows}
+        />
+        <View style={styles.scrollHost} onLayout={handleCanvasLayout}>
+          <Animated.ScrollView
+            horizontal
+            onScroll={horizontalHandler}
+            scrollEventThrottle={16}
+            showsHorizontalScrollIndicator={false}
+            bounces={false}
+            style={styles.scroll}
+            contentContainerStyle={{ width: spanPx + SEAM_REACH }}>
             <Animated.FlatList
               ref={rowsRef}
               data={rows}
@@ -258,12 +302,19 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, onProgramPre
               style={{ height: listHeight, width: spanPx + SEAM_REACH }}
               contentContainerStyle={{ paddingBottom: LIST_BOTTOM_PAD, paddingLeft: SEAM_REACH }}
             />
-          </View>
-        </Animated.ScrollView>
+          </Animated.ScrollView>
+        </View>
       </View>
       {IS_TV ? <View style={[styles.seam, { left: METRICS.channelColumnWidth - 1 }]} pointerEvents="none" /> : null}
       {IS_TV ? null : (
-        <GuideColumnDivider columnW={columnW} topInset={METRICS.rulerHeight} bottomInset={TAB_BAR_HEIGHT + insets.bottom} gesture={resize.seam} gripY={resize.gripY} bandH={resize.bandH} />
+        <GuideColumnDivider
+          columnW={columnW}
+          topInset={METRICS.rulerHeight + HUD_BAR_HEIGHT}
+          bottomInset={TAB_BAR_HEIGHT + insets.bottom}
+          gesture={resize.seam}
+          gripY={resize.gripY}
+          bandH={resize.bandH}
+        />
       )}
       {/* After the divider: the red mark sits on top of the seam line. */}
       <GuideSeamMark columnW={columnW} scrollX={scrollX} isHour={new Date(windowStartMs).getMinutes() === 0} height={METRICS.rulerHeight - 1} />
@@ -274,7 +325,38 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, onProgramPre
 const styles = StyleSheet.create({
   canvas: {
     flex: 1,
+  },
+  topRow: {
     flexDirection: "row",
+  },
+  // The ruler is a passive mirror of the rows' scroll: clipped here, shifted by -scrollX.
+  rulerClip: {
+    flex: 1,
+    overflow: "hidden",
+  },
+  corner: {
+    justifyContent: "center",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: GRID_LINE,
+  },
+  cornerLabel: {
+    color: COLORS.TEXT_PRIMARY,
+    fontSize: IS_TV ? 22 : 13,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  bandRow: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  entryRow: {
+    flexDirection: "row",
+    height: 1,
+  },
+  entryGuide: {
+    flex: 1,
+    height: 1,
   },
   // Reaches back over the seam so a cell's focus ring can cover it; the content pads the same back.
   scrollHost: {

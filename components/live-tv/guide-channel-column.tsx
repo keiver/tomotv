@@ -8,8 +8,7 @@ import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPref
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { GuideMetrics } from "@/utils/guide";
 import React, { useCallback } from "react";
-import { findNodeHandle, Platform, StyleSheet, Text, View } from "react-native";
-import { type Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
@@ -22,8 +21,6 @@ interface GuideChannelColumnProps {
   /** The grid scrolls this list while the grid is the one moving, and this handler scrolls the grid back. */
   listRef: AnimatedRef<Animated.FlatList<JellyfinItem>>;
   onScroll: ScrollHandlerProcessed;
-  /** The corner above the column, level with the ruler. */
-  dayLabel: string;
   /** The grid list's measured height, so both lists scroll the same span. */
   listHeight: number;
   /** Bottom padding under the last channel so the tab bar never covers it. */
@@ -40,8 +37,6 @@ interface GuideChannelColumnProps {
       in a scrolled expanse the focus engine cannot enter geometrically). */
   onFirstHandle?: (handle: number | undefined) => void;
   onEndReached?: () => void;
-  /** Phone: the corner is a second resize handle, the seam grip's pan from useColumnResize. */
-  cornerGesture?: ReturnType<typeof Gesture.Pan>;
 }
 
 /**
@@ -53,7 +48,6 @@ export function GuideChannelColumn({
   metrics,
   listRef,
   onScroll,
-  dayLabel,
   listHeight,
   contentBottomPad,
   columnWidth,
@@ -63,7 +57,6 @@ export function GuideChannelColumn({
   onChannelFocus,
   onFirstHandle,
   onEndReached,
-  cornerGesture,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
   const firstCardRef = useCallback(
@@ -115,23 +108,6 @@ export function GuideChannelColumn({
 
   return (
     <Animated.View style={[styles.column, widthStyle]}>
-      {cornerGesture ? (
-        <GestureHandlerRootView style={[styles.corner, { height: metrics.rulerHeight }]}>
-          <GestureDetector gesture={cornerGesture}>
-            <View style={styles.cornerHit}>
-              <Text style={styles.cornerLabel} numberOfLines={1}>
-                {dayLabel}
-              </Text>
-            </View>
-          </GestureDetector>
-        </GestureHandlerRootView>
-      ) : (
-        <View style={[styles.corner, { height: metrics.rulerHeight }]}>
-          <Text style={styles.cornerLabel} numberOfLines={1}>
-            {dayLabel}
-          </Text>
-        </View>
-      )}
       <Animated.FlatList
         ref={listRef}
         data={channels}

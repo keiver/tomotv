@@ -11,8 +11,6 @@ interface FilterChipProps {
   selected: boolean;
   onToggle: () => void;
   hasTVPreferredFocus?: boolean;
-  /** TV: an explicit Down target, for hosts whose content below cannot be entered geometrically. */
-  nextFocusDown?: number;
 }
 
 /**
@@ -20,14 +18,13 @@ interface FilterChipProps {
  * Sized to its label so sections can wrap several per row. Focus feedback is color/border
  * only — no scale animation (grid performance rule).
  */
-const FilterChipComponent = forwardRef<View, FilterChipProps>(function FilterChipComponent({ label, selected, onToggle, hasTVPreferredFocus = false, nextFocusDown }, ref) {
+const FilterChipComponent = forwardRef<View, FilterChipProps>(function FilterChipComponent({ label, selected, onToggle, hasTVPreferredFocus = false }, ref) {
   return (
     <Pressable
       ref={ref}
       onPress={onToggle}
       isTVSelectable
       hasTVPreferredFocus={hasTVPreferredFocus}
-      nextFocusDown={nextFocusDown}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
       accessibilityLabel={label}
