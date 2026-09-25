@@ -155,6 +155,11 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
     driver.set("grid");
     setFocusLatched(true);
   }, [driver]);
+  // While focus sits in the cells region the entry guide points back up at the HUD, so both
+  // guides on row 0's top edge name the same target and Up never redirects to the focused cell.
+  const [cellsFocused, setCellsFocused] = useState(false);
+  const handleCellsEnter = useCallback(() => setCellsFocused(true), []);
+  const handleCellsLeave = useCallback(() => setCellsFocused(false), []);
   const handleChannelFocus = useCallback(() => {
     if (!IS_TV) return;
     driver.set("column");
@@ -254,7 +259,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       {IS_TV && entryHandle !== undefined ? (
         <View style={styles.entryRow}>
           <Animated.View style={cornerWidthStyle} />
-          <TVFocusGuideView style={styles.entryGuide} destinations={[entryHandle]} />
+          <TVFocusGuideView style={styles.entryGuide} destinations={cellsFocused && topFocusHandle !== undefined ? [topFocusHandle] : [entryHandle]} />
         </View>
       ) : null}
       <View style={styles.bandRow}>
@@ -273,7 +278,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
           onFirstHandle={onEntryHandle}
           onEndReached={loadMoreRows}
         />
-        <View style={styles.scrollHost} onLayout={handleCanvasLayout}>
+        <TVFocusGuideView style={styles.scrollHost} onLayout={handleCanvasLayout} onFocusEnter={IS_TV ? handleCellsEnter : undefined} onFocusLeave={IS_TV ? handleCellsLeave : undefined}>
           <Animated.ScrollView
             horizontal
             onScroll={horizontalHandler}
@@ -305,7 +310,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
               contentContainerStyle={{ paddingBottom: LIST_BOTTOM_PAD, paddingLeft: SEAM_REACH }}
             />
           </Animated.ScrollView>
-        </View>
+        </TVFocusGuideView>
       </View>
       {IS_TV ? <View style={[styles.seam, { left: METRICS.channelColumnWidth - 1 }]} pointerEvents="none" /> : null}
       {IS_TV ? null : (
