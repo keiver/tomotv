@@ -193,7 +193,7 @@ class LiveSources: NSObject {
                         let entries = store.allEntries
                         let groups: [[String: Any]] = TunerGroups.groups(entries: entries, tunerUrl: text).map { ["name": $0.name, "channelIds": $0.channelIds] }
                         let channels: [[String: Any]] = TunerGroups.channels(entries: entries, tunerUrl: text).map { ["id": $0.id, "tvgId": $0.tvgId] }
-                        resolve(["groups": groups, "channels": channels, "stats": Self.dictionary(stats)])
+                        resolve(["groups": groups, "channels": channels, "tvgUrls": store.playlistHeader.tvgUrls, "stats": Self.dictionary(stats)])
                     case let .failure(error):
                         reject("load_failed", String(describing: error), error)
                     }

@@ -130,17 +130,18 @@ export function useGuide(): GuideState {
     });
   }, []);
 
-  /** Server programs for the page; channels the server has none for fall back to the external guide. */
+  /** Server programs for the page; channels the server has none for fall back to the external guide:
+   *  the viewer's URL, or the first guide the playlist itself declares (x-tvg-url / url-tvg). */
   const fetchPrograms = useCallback(async (list: JellyfinItem[], startMs: number, endMs: number) => {
     if (list.length === 0) return [];
     const programs = await fetchGuidePrograms({ channelIds: list.map((channel) => channel.Id), startMs, endMs });
-    const url = getLiveTvPreferences().guideUrl;
-    if (!url) return programs;
     const covered = new Set(programs.map((program) => program.ChannelId));
     const bare = list.filter((channel) => !covered.has(channel.Id));
     if (bare.length === 0) return programs;
-    const { tvgById } = await fetchTunerData().catch(() => ({ tvgById: {} as Record<string, string> }));
-    const wanted = bare.flatMap((channel) => (tvgById[channel.Id] ? [{ channelId: channel.Id, tvgId: tvgById[channel.Id] }] : []));
+    const data = await fetchTunerData().catch(() => null);
+    const url = getLiveTvPreferences().guideUrl || data?.tvgUrls[0] || "";
+    if (!url || !data) return programs;
+    const wanted = bare.flatMap((channel) => (data.tvgById[channel.Id] ? [{ channelId: channel.Id, tvgId: data.tvgById[channel.Id] }] : []));
     return programs.concat(await fetchExternalPrograms(url, wanted, { from: startMs, to: endMs }));
   }, []);
 

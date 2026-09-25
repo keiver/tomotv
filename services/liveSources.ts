@@ -24,6 +24,8 @@ export interface TunerChannel {
 export interface TunerPlaylist {
   groups: TunerGroup[];
   channels: TunerChannel[];
+  /** Guide URLs the playlist header declares (x-tvg-url / url-tvg). */
+  tvgUrls: string[];
 }
 
 export interface GuideProgramme {
@@ -48,10 +50,14 @@ export function isLiveSourcesAvailable(): boolean {
  * tvg-ids, keyed by the item ids the server gave the entries. `cancelTunerGroups` stops a load.
  */
 export async function loadTunerPlaylist(requestId: string, url: string, userAgent?: string): Promise<TunerPlaylist> {
-  const result = (await LiveSources.loadTunerGroups({ requestId, url, ...(userAgent ? { userAgent } : {}) })) as { groups?: unknown; channels?: unknown } | null;
+  const result = (await LiveSources.loadTunerGroups({ requestId, url, ...(userAgent ? { userAgent } : {}) })) as { groups?: unknown; channels?: unknown; tvgUrls?: unknown } | null;
   const groups = result?.groups;
   if (!Array.isArray(groups)) throw new Error("The live source module returned no groups.");
-  return { groups: groups as TunerGroup[], channels: Array.isArray(result?.channels) ? (result.channels as TunerChannel[]) : [] };
+  return {
+    groups: groups as TunerGroup[],
+    channels: Array.isArray(result?.channels) ? (result.channels as TunerChannel[]) : [],
+    tvgUrls: Array.isArray(result?.tvgUrls) ? (result.tvgUrls as unknown[]).filter((u): u is string => typeof u === "string") : [],
+  };
 }
 
 export function cancelTunerGroups(requestId: string): void {

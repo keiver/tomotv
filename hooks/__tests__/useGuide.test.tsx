@@ -17,6 +17,8 @@ jest.mock("@/services/jellyfinApi", () => ({
   lastKnownTunerData: jest.fn(() => null),
 }));
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
+jest.mock("@/services/jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgUrls: [] })) }));
+jest.mock("@/services/externalGuide", () => ({ fetchExternalPrograms: jest.fn(async () => []) }));
 let mockPreferences = {
   version: 1,
   autoUpdate: true,
@@ -128,6 +130,21 @@ describe("useGuide", () => {
     await settle();
     expect(fetchChannelsByIds).toHaveBeenLastCalledWith(ids.slice(GUIDE_CHANNEL_PAGE));
     expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(ids.filter((id) => id !== "p0"));
+  });
+
+  it("falls back to the playlist-declared guide for channels the server has no programs for", async () => {
+    const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+    const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs)]);
+    fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgUrls: ["http://g/auto.xml.gz"] });
+    fetchExternalPrograms.mockImplementation(async (_url: string, wanted: { channelId: string }[], windowMs: { from: number }) =>
+      wanted.map(({ channelId }) => program(`epg:${channelId}`, channelId, 0, 30, windowMs.from)),
+    );
+    const ref = await mount();
+    // No guideUrl preference is set: the URL is the playlist's own, and only the bare channel is asked for.
+    expect(fetchExternalPrograms).toHaveBeenCalledWith("http://g/auto.xml.gz", [{ channelId: "c2", tvgId: "B.us@SD" }], expect.anything());
+    expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual(["epg:c2"]);
   });
 
   it("loads the channels, the first page of programs and the timers", async () => {

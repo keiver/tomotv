@@ -17,6 +17,8 @@ export interface TunerData {
   groups: TunerGroup[];
   /** tvg-id by channel item id, for matching an XMLTV guide. */
   tvgById: Record<string, string>;
+  /** http(s) guide URLs the playlists declare (x-tvg-url / url-tvg), deduped in order. */
+  tvgUrls: string[];
 }
 
 interface TunerHost {
@@ -29,7 +31,7 @@ const TUNER_GROUPS_TTL_MS = 60 * 60 * 1000;
 /** A failed read is not retried before this passes, or every screen mount re-streams the playlists. */
 const TUNER_GROUPS_FAILURE_TTL_MS = 5 * 60 * 1000;
 
-const NO_DATA: TunerData = { groups: [], tvgById: {} };
+const NO_DATA: TunerData = { groups: [], tvgById: {}, tvgUrls: [] };
 const failedAt = new Map<string, number>();
 /** The last successful read per key: a failed refetch serves this instead of nothing. */
 const lastGood = new Map<string, TunerData>();
@@ -70,6 +72,7 @@ export async function fetchTunerData(): Promise<TunerData> {
         const tuners = (json.TunerHosts ?? []).filter((tuner) => tuner.Type?.toLowerCase() === "m3u" && /^https?:\/\//i.test(tuner.Url ?? ""));
         const groups = new Map<string, Set<string>>();
         const tvgById: Record<string, string> = {};
+        const tvgUrls: string[] = [];
         for (const tuner of tuners) {
           try {
             const playlist = await loadTunerPlaylist(`tuner-${++requestSeq}`, tuner.Url!, tuner.UserAgent);
@@ -79,12 +82,13 @@ export async function fetchTunerData(): Promise<TunerData> {
               groups.set(group.name, ids);
             }
             for (const channel of playlist.channels) tvgById[channel.id] = channel.tvgId;
+            for (const url of playlist.tvgUrls) if (/^https?:\/\//i.test(url) && !tvgUrls.includes(url)) tvgUrls.push(url);
           } catch (error) {
             logger.warn("Tuner playlist read failed", error, { service: "TunerGroups" });
           }
         }
         failedAt.delete(key);
-        const data = { groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })), tvgById };
+        const data = { groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })), tvgById, tvgUrls };
         lastGood.set(key, data);
         latest = data;
         return data;

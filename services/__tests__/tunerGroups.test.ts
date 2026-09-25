@@ -42,19 +42,24 @@ describe("fetchTunerGroups", () => {
         { Type: "hdhomerun", Url: "http://t/hdhr" },
       ]),
     );
-    mockLiveSources.loadTunerPlaylist.mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a", "b"] }], channels: [{ id: "a", tvgId: "A.us" }] }).mockResolvedValueOnce({
-      groups: [
-        { name: "News", channelIds: ["b", "c"] },
-        { name: "Kids", channelIds: ["d"] },
-      ],
-      channels: [{ id: "d", tvgId: "D.us@SD" }],
-    });
+    mockLiveSources.loadTunerPlaylist
+      .mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a", "b"] }], channels: [{ id: "a", tvgId: "A.us" }], tvgUrls: ["http://g/a.xml", "ftp://nope", "http://g/a.xml"] })
+      .mockResolvedValueOnce({
+        groups: [
+          { name: "News", channelIds: ["b", "c"] },
+          { name: "Kids", channelIds: ["d"] },
+        ],
+        channels: [{ id: "d", tvgId: "D.us@SD" }],
+        tvgUrls: ["https://g/b.xml.gz", "http://g/a.xml"],
+      });
     await expect(fetchTunerData()).resolves.toEqual({
       groups: [
         { name: "News", channelIds: ["a", "b", "c"] },
         { name: "Kids", channelIds: ["d"] },
       ],
       tvgById: { a: "A.us", d: "D.us@SD" },
+      // Declared guide URLs merge in order, http(s) only, deduped.
+      tvgUrls: ["http://g/a.xml", "https://g/b.xml.gz"],
     });
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledTimes(2);
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledWith(expect.any(String), "http://t/one.m3u", "UA/1");
@@ -78,7 +83,7 @@ describe("fetchTunerGroups", () => {
         { Type: "m3u", Url: "http://t/good.m3u" },
       ]),
     );
-    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("403")).mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [] });
+    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("403")).mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
     await expect(fetchTunerGroups()).resolves.toEqual([{ name: "News", channelIds: ["a"] }]);
   });
 
@@ -97,7 +102,7 @@ describe("fetchTunerGroups", () => {
 
   it("serves the last good read when a refetch fails, until a reset", async () => {
     global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
-    mockLiveSources.loadTunerPlaylist.mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [] });
+    mockLiveSources.loadTunerPlaylist.mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
     await fetchTunerGroups();
     expect(lastKnownTunerData()?.groups).toEqual([{ name: "News", channelIds: ["a"] }]);
     clearRequestCache();
