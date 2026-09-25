@@ -1977,7 +1977,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           stallWatchRef.current = null;
         }
         // With no rung left the Stopped report is what ends the server's transcode for this play.
-        if (!retry) resetPlaybackSessionRef.current?.();
+        if (!retry) {
+          resetPlaybackSessionRef.current?.();
+          // The dead player must leave the window on TV: parked offstage with its stream it keeps
+          // tvOS focus inside AVKit's transport, and no claim can move it to the error buttons.
+          if (Platform.isTV) {
+            streamUrlRef.current = null;
+            setStreamUrl(null);
+          }
+        }
         const attempt = requestIdRef.current;
         setImmediate(() => {
           if (!isMountedRef.current || requestIdRef.current !== attempt) return;

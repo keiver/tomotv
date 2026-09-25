@@ -31,6 +31,10 @@ const UPCOMING_FRAMES = 5;
 /** How long AVKit's channel skip waits for an answer before the patch's watchdog refuses it. */
 const CHANNEL_SKIP_WATCHDOG_MS = 20_000;
 
+/** The error screen re-claims focus this often, for this long, while no error button holds it. */
+const ERROR_FOCUS_CLAIM_EVERY_MS = 300;
+const ERROR_FOCUS_CLAIM_WINDOW_MS = 5_000;
+
 // Suppress known warnings
 LogBox.ignoreLogs([
   "JS object is no longer associated",
@@ -592,12 +596,32 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // A live channel on stage through a retried failure is AVKit's screen, not this one.
   const liveOnStage = isLiveChannel && hostMode === "video";
 
-  // A live channel dying on stage leaves nothing focused and Retry's mount-time claim does not take;
-  // with no focus Menu backgrounds the app. It claims again once laid out.
+  // A live channel dying on stage leaves nothing focused, and a one-shot claim loses too: AVKit's
+  // stage (parked player, channel interstitial) tears down after it and focus lands on the tab bar,
+  // where Menu backgrounds the app. Re-claim while no error button holds focus, briefly.
   const retryButtonRef = useRef<View>(null);
-  const claimRetryFocus = useCallback(() => {
-    if (Platform.isTV) (retryButtonRef.current as unknown as { requestTVFocus?: () => void } | null)?.requestTVFocus?.();
+  const errorButtonFocusedRef = useRef(false);
+  const onErrorButtonFocus = useCallback(() => {
+    errorButtonFocusedRef.current = true;
   }, []);
+  const onErrorButtonBlur = useCallback(() => {
+    errorButtonFocusedRef.current = false;
+  }, []);
+  const showErrorButtons = playbackState.type === "ERROR" && !liveOnStage && !playbackState.canRetryWithTranscode;
+  useEffect(() => {
+    if (!Platform.isTV || !showErrorButtons) return;
+    errorButtonFocusedRef.current = false;
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      if (Date.now() - startedAt > ERROR_FOCUS_CLAIM_WINDOW_MS) {
+        clearInterval(timer);
+        return;
+      }
+      if (errorButtonFocusedRef.current) return;
+      (retryButtonRef.current as unknown as { requestTVFocus?: () => void } | null)?.requestTVFocus?.();
+    }, ERROR_FOCUS_CLAIM_EVERY_MS);
+    return () => clearInterval(timer);
+  }, [showErrorButtons]);
 
   // Render error state (but not if auto-retry is in progress)
   if (playbackState.type === "ERROR" && !liveOnStage) {
@@ -622,8 +646,17 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         {failedStage ? <Text style={styles.errorStage}>{`${t("player.failedWhile")}: ${stageLabel(failedStage).toLocaleLowerCase()}`}</Text> : null}
 
         <View style={styles.buttonGroup}>
-          <FocusableButton ref={retryButtonRef} onLayout={claimRetryFocus} title={t("common.retry")} onPress={retry} variant="retry" style={styles.button} hasTVPreferredFocus={true} />
-          <FocusableButton title={t("common.goBack")} onPress={handleBack} variant="secondary" style={styles.button} />
+          <FocusableButton
+            ref={retryButtonRef}
+            onFocus={onErrorButtonFocus}
+            onBlur={onErrorButtonBlur}
+            title={t("common.retry")}
+            onPress={retry}
+            variant="retry"
+            style={styles.button}
+            hasTVPreferredFocus={true}
+          />
+          <FocusableButton onFocus={onErrorButtonFocus} onBlur={onErrorButtonBlur} title={t("common.goBack")} onPress={handleBack} variant="secondary" style={styles.button} />
         </View>
       </View>
     );
