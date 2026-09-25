@@ -4,6 +4,7 @@ import { LibraryGrid } from "@/components/library-grid";
 import { ShowAllChannels } from "@/components/live-tv/show-all-channels";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { HeaderSearchReveal } from "@/components/header-search-reveal";
+import { settingsStyles } from "@/components/settings/styles";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
@@ -20,7 +21,7 @@ import type { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter, type NativeStackNavigationOptions } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { useHeaderHeight } from "expo-router/react-navigation";
 
@@ -65,6 +66,14 @@ export default function ChannelsScreen() {
   }, [term]);
   const results = searching && found?.term === term ? found.items : [];
   const isSearching = searching && found?.term !== term;
+  // A group pick answers over any search: the term drops so the picked list shows at once.
+  const lastFilterRef = useRef(preferences.filter);
+  useEffect(() => {
+    if (lastFilterRef.current === preferences.filter) return;
+    lastFilterRef.current = preferences.filter;
+    setQuery("");
+    setFound(null);
+  }, [preferences.filter]);
 
   const tune = useCallback(
     (channel: JellyfinItem) => {
@@ -77,7 +86,10 @@ export default function ChannelsScreen() {
   const openResult = useOpenShelfItem();
   const openSettings = useCallback(() => router.push("/channel-settings"), [router]);
   const openFavoriteMenu = useChannelFavoriteMenu();
-  const favoriteMark = useCallback((channel: JellyfinItem) => (!searching && isFavoriteChannel(preferences, channel) ? ("heart" as const) : undefined), [preferences, searching]);
+  // A held search result: channels get the same favorite menu as the wall; programmes carry
+  // no channel identity the favorites list could match, so a hold on one does nothing.
+  const openResultMenu = useCallback((item: JellyfinItem) => (item.Type === "TvChannel" ? openFavoriteMenu(item) : undefined), [openFavoriteMenu]);
+  const favoriteMark = useCallback((item: JellyfinItem) => (item.Type === "TvChannel" && isFavoriteChannel(preferences, item) ? ("heart" as const) : undefined), [preferences]);
   const crumbs = useMemo<FolderStackEntry[]>(() => [{ id: "channels", name: t("liveTv.channels"), type: "livetv" }], []);
   const openFilterPicker = useChannelFilterPicker();
   // Icon-only: the cog carries it.
@@ -112,24 +124,27 @@ export default function ChannelsScreen() {
     [openSettings, filterAction, filtered],
   );
 
-  // Phone: a plain field under the native bar. TV: the bar's search capsule reveals the field.
+  // Phone: the search tab's field, in the body on the shared content column. TV: the bar's
+  // search capsule reveals the field.
   const head = IS_TV ? null : (
     <View style={[styles.head, { paddingTop: headerHeight + 8 }]}>
-      <SunkenTextInput
-        value={query}
-        onChangeText={setQuery}
-        placeholder={t("liveTv.searchLive")}
-        placeholderTextColor={COLORS.TEXT_SECONDARY}
-        accessibilityLabel={t("liveTv.searchLive")}
-        autoCorrect={false}
-        autoCapitalize="none"
-        returnKeyType="search"
-        numberOfLines={1}
-        multiline={false}
-        clearButtonMode="while-editing"
-        containerStyle={styles.searchField}
-        style={styles.searchInput}
-      />
+      <View style={settingsStyles.contentContainer}>
+        <SunkenTextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder={t("liveTv.searchLive")}
+          placeholderTextColor={COLORS.TEXT_SECONDARY}
+          accessibilityLabel={t("liveTv.searchLive")}
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+          numberOfLines={1}
+          multiline={false}
+          clearButtonMode="while-editing"
+          containerStyle={styles.searchField}
+          style={styles.searchInput}
+        />
+      </View>
     </View>
   );
 
@@ -155,6 +170,8 @@ export default function ChannelsScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={screenOptions} />
+      {/* Phone paints the canvas at screen level so the field and the grid share one wash. */}
+      {IS_TV ? null : <AmbientBackground />}
       {head}
       <View style={styles.grid}>
         <LibraryGrid
@@ -164,17 +181,18 @@ export default function ChannelsScreen() {
           titleIconFor={favoriteMark}
           headerAction={headerAction}
           headerSecondaryAction={filterAction}
-          headerTrailing={IS_TV ? <HeaderSearchReveal value={query} onChangeText={setQuery} placeholder={t("liveTv.searchLive")} /> : undefined}
+          headerTrailing={IS_TV ? <HeaderSearchReveal key={preferences.filter} value={query} onChangeText={setQuery} placeholder={t("liveTv.searchLive")} /> : undefined}
           isLoading={searching ? isSearching : isLoading}
           isLoadingMore={!searching && isLoadingMore}
           hasMoreResults={!searching && hasMore}
           error={searching ? null : error}
           onItemPress={searching ? openResult : tune}
-          onItemLongPress={searching ? undefined : openFavoriteMenu}
+          onItemLongPress={searching ? openResultMenu : openFavoriteMenu}
           onLoadMore={loadMore}
           onRetry={retry}
           crumbs={crumbs}
           homeAsBack
+          noAmbient={!IS_TV}
         />
       </View>
     </View>
@@ -188,24 +206,20 @@ const styles = StyleSheet.create({
   grid: {
     flex: 1,
   },
-  // Phone: the field's row under the native bar.
+  // Phone: the field's row under the native bar, on the search tab's shared column.
   head: {
     alignItems: "center",
-    gap: 10,
+    paddingBottom: 8,
   },
-  // TV rides the grid bar, capped to the glass capsules' height beside it.
   searchField: {
     width: "100%",
-    maxWidth: IS_TV ? 560 : 500,
-    ...(IS_TV ? { height: 64 } : null),
-    paddingHorizontal: IS_TV ? 0 : 16,
   },
   searchInput: {
     width: "100%",
     flex: 1,
     backgroundColor: "transparent",
-    paddingHorizontal: IS_TV ? 28 : 20,
-    fontSize: IS_TV ? 24 : 17,
+    paddingHorizontal: 20,
+    fontSize: 20,
     color: COLORS.TEXT_PRIMARY,
   },
   center: {

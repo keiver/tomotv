@@ -92,6 +92,8 @@ interface LibraryGridProps {
   headerSecondaryAction?: HeaderAction;
   /** TV: a control leading the bar's right cluster (the wall's Live TV search reveal). */
   headerTrailing?: React.ReactNode;
+  /** The host screen paints the ambient canvas itself (the wall's phone search head sits on it). */
+  noAmbient?: boolean;
 }
 
 /**
@@ -124,6 +126,7 @@ export function LibraryGrid({
   headerAction,
   headerSecondaryAction,
   headerTrailing,
+  noAmbient = false,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -843,7 +846,7 @@ export function LibraryGrid({
 
   return (
     <View style={styles.container}>
-      <AmbientBackground />
+      {noAmbient ? null : <AmbientBackground />}
       {backdropSource !== undefined ? <FolderBackdrop source={backdropSource} /> : null}
       {/* The brand mark, in the bottom-right corner on every platform and orientation. Screen-level
           and out of flow, so it holds that corner while the grid scrolls under it. Before the
