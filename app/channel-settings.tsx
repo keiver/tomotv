@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { GuideUrlRow } from "@/components/settings/GuideUrlRow";
 import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
-import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { resetExternalGuide } from "@/services/externalGuide";
@@ -67,8 +67,8 @@ export default function ChannelSettingsScreen() {
               onPress={toggleAutoUpdate}
               hasTVPreferredFocus
               isFirst
-              isLast
             />
+            <GuideUrlRow value={guideUrl} onChangeText={setGuideUrl} onSave={saveGuideUrl} />
           </View>
           <View style={settingsStyles.sectionHeader}>
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
@@ -86,26 +86,6 @@ export default function ChannelSettingsScreen() {
             <ListRow icon="list" title={t("liveTv.sortNumber")} trailingIcon={preferences.sort === "number" ? tick : undefined} onPress={() => pickSort("number")} isFirst />
             <ListRow icon="text" title={t("liveTv.sortName")} trailingIcon={preferences.sort === "name" ? tick : undefined} onPress={() => pickSort("name")} isLast />
           </View>
-          <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSection")}</Text>
-          </View>
-          <SunkenTextInput
-            value={guideUrl}
-            onChangeText={setGuideUrl}
-            onBlur={saveGuideUrl}
-            onSubmitEditing={saveGuideUrl}
-            placeholder={t("liveTv.guideUrl")}
-            placeholderTextColor={COLORS.TEXT_SECONDARY}
-            accessibilityLabel={t("liveTv.guideUrlHint")}
-            autoCorrect={false}
-            autoCapitalize="none"
-            keyboardType="url"
-            returnKeyType="done"
-            numberOfLines={1}
-            multiline={false}
-            clearButtonMode="while-editing"
-            style={settingsStyles.textInput}
-          />
         </View>
       </ScrollView>
     </View>

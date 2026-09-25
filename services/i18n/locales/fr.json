@@ -63,7 +63,6 @@
   "liveTv.renameGroup": "Renommer",
   "liveTv.deleteGroup": "Supprimer le groupe",
   "liveTv.groupName": "Nom du groupe",
-  "liveTv.guideSection": "Guide TV",
   "liveTv.guideUrl": "URL du guide externe",
   "liveTv.guideUrlHint": "XMLTV pour les chaînes sans guide serveur",
   "liveTv.catNews": "Actualités",
