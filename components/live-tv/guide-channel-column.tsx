@@ -65,11 +65,10 @@ export function GuideChannelColumn({
     },
     [onFirstHandle],
   );
-  // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows,
-  // and the TV snap target, so a focused card lands its row on the list's top edge.
+  // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows.
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
-      <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapAlign={IS_TV ? "start" : undefined}>
+      <View style={{ height: metrics.rowHeight, justifyContent: "center" }}>
         {IS_TV ? (
           <GuideChannelCard
             ref={index === 0 ? firstCardRef : undefined}
@@ -121,7 +120,6 @@ export function GuideChannelColumn({
         viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}
         showsVerticalScrollIndicator={false}
-        snapToAlignment={IS_TV ? "item" : undefined}
         removeClippedSubviews={!IS_TV}
         maxToRenderPerBatch={4}
         updateCellsBatchingPeriod={16}

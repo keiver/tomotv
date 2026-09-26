@@ -113,8 +113,7 @@ function GuideRowComponent({
     setFocusTargets((current) => (current?.programId === program.Id ? undefined : current));
   }, []);
   return (
-    // TV: a focused cell lands its row on the list's top edge (snapToAlignment="item" on the list).
-    <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapAlign={IS_TV ? "start" : undefined}>
+    <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]}>
       <View style={styles.line} pointerEvents="none" />
       {(() => {
         return rowCells(channel, programs, windowStartMs, windowEndMs, metrics).map((program) => {

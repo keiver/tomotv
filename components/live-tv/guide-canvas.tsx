@@ -18,7 +18,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { LayoutChangeEvent, Platform, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+
+import { claimMacEscape } from "@/services/macKeyCommands";
+import { IS_MAC } from "@/utils/hostEnvironment";
 
 const IS_TV = Platform.isTV;
 const METRICS = guideMetrics(IS_TV);
@@ -85,11 +88,13 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
   // Only the list the viewer is moving scrolls the other, so the two never chase each other.
   // A drag picks it on phone; on TV focus picks it, since a focus scroll fires no drag.
   const driver = useSharedValue<"grid" | "column">("grid");
+  const scrollY = useSharedValue(0);
   const verticalHandler = useAnimatedScrollHandler({
     onBeginDrag: () => {
       driver.value = "grid";
     },
     onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
       if (driver.value === "grid") scrollTo(columnRef, 0, event.contentOffset.y, false);
     },
   });
@@ -101,6 +106,23 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       if (driver.value === "column") scrollTo(rowsRef, 0, event.contentOffset.y, false);
     },
   });
+  const rewindToTop = useCallback(() => {
+    driver.set("grid");
+    runOnUI(() => {
+      "worklet";
+      scrollTo(rowsRef, 0, 0, true);
+    })();
+  }, [driver, rowsRef]);
+
+  // Mac: Escape from a scrolled guide rewinds it to the top; the next press pops as usual.
+  useEffect(() => {
+    if (!IS_MAC || !isScreenFocused) return;
+    return claimMacEscape("guide", () => {
+      if (scrollY.get() < 1) return false;
+      rewindToTop();
+      return true;
+    });
+  }, [isScreenFocused, scrollY, rewindToTop]);
 
   // One-shot latch (home-shelves pattern): the first row's airing cell claims focus on mount
   // while the screen is on top; once any cell or channel reports focus the claim retires for good.
@@ -311,7 +333,6 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
               onEndReached={loadMoreRows}
               onEndReachedThreshold={1}
               showsVerticalScrollIndicator={false}
-              snapToAlignment={IS_TV ? "item" : undefined}
               removeClippedSubviews={!IS_TV}
               // Three viewports each side mounted ahead of a held press, in small batches so rows
               // paint one after another instead of as a block; a press costs no canvas render now.
