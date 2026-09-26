@@ -1,7 +1,8 @@
 import { COLORS } from "@/constants/colors";
+import { getLiveTvAvailability, subscribeLiveTvAvailability } from "@/services/liveTvAvailability";
 import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import { t } from "@/services/i18n";
 
@@ -26,6 +27,9 @@ const DISABLE_TAB_RESELECT_EFFECTS = Platform.isTV;
 // Build constant like the two below, never flipped at runtime, so the static-trigger rule
 // further down holds. A hidden trigger takes its route out of the navigator entirely.
 const DOWNLOADS_HIDDEN = Platform.isTV;
+
+// TV only: at a tab root Menu has nothing to pop, so the tab bar claims it natively.
+// Phone keeps the pushed /live-tv route with its native header actions.
 
 // The bar's background, and the one thing that decides whether it is glass. react-native-screens
 // exposes no UIGlassEffect: blurEffect maps only to UIBlurEffectStyle, so no string asks for Liquid
@@ -85,11 +89,22 @@ export default function TabLayout() {
   const [inGroup, setInGroup] = useState(false);
   useEffect(() => subscribeSyncPlay((snap) => setInGroup(snap.group !== null)), []);
 
+  // The server's Live TV presence, persisted across launches (updated where the views land).
+  // It reaches the Live TV trigger only through the navigator's key: a change remounts the
+  // whole bar, so no trigger ever flips on a live navigator and the static-trigger rule holds.
+  const hasLiveTv = useSyncExternalStore(subscribeLiveTvAvailability, getLiveTvAvailability);
+  const showLiveTvTab = Platform.isTV && hasLiveTv;
+
   return (
-    <NativeTabs {...TAB_BAR_BACKGROUND} tintColor={TAB_TINT} disableTransparentOnScrollEdge>
+    <NativeTabs key={showLiveTvTab ? "tabs-livetv" : "tabs"} {...TAB_BAR_BACKGROUND} tintColor={TAB_TINT} disableTransparentOnScrollEdge>
       <NativeTabs.Trigger name="(library)" disablePopToTop={DISABLE_TAB_RESELECT_EFFECTS} disableScrollToTop={DISABLE_TAB_RESELECT_EFFECTS}>
         <Icon sf="house.fill" />
         <Label>{t("tab.home")}</Label>
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="livetv" hidden={!showLiveTvTab}>
+        <Icon sf="tv" />
+        <Label>{t("liveTv.title")}</Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="search">

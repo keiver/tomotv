@@ -9,6 +9,7 @@
  */
 import { EMPTY_FILTERS, JellyfinFolderResponse, JellyfinItem, JellyfinVideoItem, JellyfinVideosResponse, LibraryFilters } from "@/types/jellyfin";
 import { addFavoriteIds, getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
+import { updateLiveTvAvailability } from "@/services/liveTvAvailability";
 import { getPlayedOverrides } from "@/services/playedCache";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
@@ -297,6 +298,8 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
       // recursive count loads lazily per card (fetchViewItemCount) so this list never
       // waits on the count walk.
       const items: JellyfinItem[] = result.items.map((view: JellyfinItem) => ({ ...view, ChildCount: undefined }));
+
+      updateLiveTvAvailability(items.some((view) => view.CollectionType === "livetv"));
 
       return { items, total: result.total };
     },

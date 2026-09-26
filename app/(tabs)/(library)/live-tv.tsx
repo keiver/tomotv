@@ -27,7 +27,7 @@ const PHONE_REFRESH_CELL_WIDTH = 44;
 
 /**
  * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
- * Schedule one press away. A pushed route inside the library stack, so Menu pops it natively.
+ * Schedule one press away. The livetv tab's root on TV; a pushed library-stack route on phone.
  */
 export default function LiveTvScreen() {
   const router = useRouter();

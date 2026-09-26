@@ -5,6 +5,7 @@ import { isJoined, playForGroup } from "@/services/syncPlayManager";
 import { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
+import { Platform } from "react-native";
 
 /**
  * One press handler for every home shelf card. Folder kinds (Series, MusicAlbum, BoxSet,
@@ -27,7 +28,8 @@ export function useOpenShelfItem() {
     (item: JellyfinItem, options?: { replace?: boolean }) => {
       // The Live TV view is a screen of its own (the guide), not a folder.
       if (item.CollectionType === "livetv") {
-        router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
+        if (Platform.isTV) router.navigate("/livetv");
+        else router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
         return;
       }
       // A programme from search follows the guide's rule: on now tunes its channel, later opens its panel.
