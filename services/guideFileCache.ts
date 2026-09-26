@@ -20,7 +20,8 @@ const SWEEP_AGE_MS = 48 * 60 * 60 * 1000;
 export type GuideDownloadProgress = { bytesWritten: number; totalBytes: number };
 
 const failedAt = new Map<string, number>();
-const inFlight = new Map<string, Promise<string>>();
+/** One download per URL; every caller's progress listener rides it. */
+const inFlight = new Map<string, { promise: Promise<string>; listeners: Set<(progress: GuideDownloadProgress) => void> }>();
 
 function cacheDir(): Directory {
   return new Directory(Paths.cache, "guides");
@@ -66,7 +67,10 @@ async function fetchToCache(url: string, dir: Directory, file: File, onProgress?
  */
 export async function cachedGuideFile(url: string, onProgress?: (progress: GuideDownloadProgress) => void, options?: { force?: boolean }): Promise<string> {
   const pending = inFlight.get(url);
-  if (pending) return pending;
+  if (pending) {
+    if (onProgress) pending.listeners.add(onProgress);
+    return pending.promise;
+  }
   const dir = cacheDir();
   if (!dir.exists) dir.create({ intermediates: true });
   const name = keyFor(url);
@@ -80,9 +84,13 @@ export async function cachedGuideFile(url: string, onProgress?: (progress: Guide
       throw new Error("Guide download skipped after a recent failure.");
     }
   }
+  const listeners = new Set<(progress: GuideDownloadProgress) => void>();
+  if (onProgress) listeners.add(onProgress);
   const download = (async () => {
     try {
-      return await fetchToCache(url, dir, file, onProgress);
+      return await fetchToCache(url, dir, file, (progress) => {
+        for (const listener of listeners) listener(progress);
+      });
     } catch (error) {
       failedAt.set(url, Date.now());
       if (file.exists) {
@@ -94,7 +102,7 @@ export async function cachedGuideFile(url: string, onProgress?: (progress: Guide
       inFlight.delete(url);
     }
   })();
-  inFlight.set(url, download);
+  inFlight.set(url, { promise: download, listeners });
   return download;
 }
 
