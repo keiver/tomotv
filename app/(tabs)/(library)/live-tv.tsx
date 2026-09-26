@@ -143,7 +143,7 @@ export default function LiveTvScreen() {
                   ) : undefined
                 }
                 onSelectedHandle={setStripHandle}
-                updating={guide.isUpdating}
+                updating={guide.isUpdating || guide.isLoading}
               />
             }
             onProgramPress={handleProgramPress}

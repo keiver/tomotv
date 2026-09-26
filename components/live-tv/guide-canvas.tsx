@@ -6,7 +6,6 @@ import { GuideColumnDivider, useColumnResize } from "@/components/live-tv/guide-
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
 import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler } from "@/components/live-tv/guide-time-ruler";
-import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
@@ -229,16 +228,6 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
 
   // The HUD stays mounted through every branch: an empty pick must keep the group cells (and the
   // focus sitting on one) so the viewer can pick their way back out.
-  if (isLoading && rows.length === 0) {
-    return (
-      <View style={styles.canvas}>
-        {hudRow}
-        <View style={styles.center}>
-          <LoadingRow label={t("liveTv.loadingGuide")} />
-        </View>
-      </View>
-    );
-  }
   if (error && rows.length === 0) {
     return (
       <View style={styles.canvas}>
@@ -251,7 +240,8 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       </View>
     );
   }
-  if (rows.length === 0) {
+  // While loading, the empty grid renders as the skeleton the arriving rows fill in.
+  if (!isLoading && rows.length === 0) {
     return (
       <View style={styles.canvas}>
         {hudRow}
