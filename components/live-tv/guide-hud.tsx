@@ -1,5 +1,4 @@
-import { GRID_LINE } from "@/components/live-tv/guide-cell";
-import { GROUP_CELL_HEIGHT, GuideGroupCell } from "@/components/live-tv/guide-group-cell";
+import { GROUP_CELL_HEIGHT, GuideGroupCell, HUD_CELL_BACKGROUND } from "@/components/live-tv/guide-group-cell";
 import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { guideStatus, subscribeGuideStatus } from "@/services/externalGuide";
@@ -9,7 +8,7 @@ import { findNodeHandle, type LayoutChangeEvent, Platform, ScrollView, StyleShee
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
-/** The band's full height: the cells plus its own bottom line, which draws inside the height. */
+/** The band's full height. */
 export const HUD_BAR_HEIGHT = GROUP_CELL_HEIGHT + 1;
 
 /** An accent band, soft on both flanks; the cells' frosted floors let it glow through. */
@@ -95,16 +94,11 @@ export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle, updatin
 }
 
 const styles = StyleSheet.create({
-  // Closed on its left edge; the grid line below carries on under the tiles.
   band: {
     flexDirection: "row",
     alignItems: "center",
     height: HUD_BAR_HEIGHT,
-    borderBottomWidth: 1,
-    borderLeftWidth: 1,
-    borderColor: GRID_LINE,
   },
-  // Edge to edge: the cells' own grid lines divide the one surface.
   cellsContent: {
     alignItems: "center",
   },
@@ -112,9 +106,11 @@ const styles = StyleSheet.create({
     height: GROUP_CELL_HEIGHT,
     justifyContent: "center",
   },
+  // Wears the tiles' floor so the band reads full even past the last group.
   cellsHost: {
     flex: 1,
     alignSelf: "stretch",
+    backgroundColor: HUD_CELL_BACKGROUND,
   },
   cells: {
     flex: 1,

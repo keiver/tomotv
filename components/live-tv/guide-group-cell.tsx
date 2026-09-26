@@ -1,4 +1,3 @@
-import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
 import React, { forwardRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -48,12 +47,10 @@ export const GuideGroupCell = forwardRef<View, GuideGroupCellProps>(function Gui
 });
 
 const styles = StyleSheet.create({
-  // Fills the band; its right line is the row's divider, as a cell's is the grid's.
+  // Borderless, natural width; the band's floor fills the space beyond the last tile.
   tile: {
     height: GROUP_CELL_HEIGHT,
     justifyContent: "center",
-    borderRightWidth: 1,
-    borderColor: GRID_LINE,
     backgroundColor: HUD_CELL_BACKGROUND,
   },
   tileSelected: {
@@ -67,12 +64,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: IS_TV ? 26 : 14,
   },
-  // The program cells' focus mark, spanning the shared lines so it meets the band's edges.
+  // The program cells' focus mark.
   focusRing: {
     position: "absolute",
     top: 0,
-    left: -1,
-    right: -1,
+    left: 0,
+    right: 0,
     bottom: 0,
     borderWidth: IS_TV ? 2 : 1,
     borderColor: COLORS.ACCENT,

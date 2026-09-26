@@ -1,4 +1,3 @@
-import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GROUP_CELL_HEIGHT, HUD_CELL_BACKGROUND } from "@/components/live-tv/guide-group-cell";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { COLORS } from "@/constants/colors";
@@ -85,8 +84,6 @@ const styles = StyleSheet.create({
   tile: {
     flex: 1,
     height: GROUP_CELL_HEIGHT,
-    borderRightWidth: 1,
-    borderColor: GRID_LINE,
     backgroundColor: HUD_CELL_BACKGROUND,
   },
   hit: {
@@ -97,12 +94,12 @@ const styles = StyleSheet.create({
   iconDisabled: {
     opacity: 0.35,
   },
-  // The program cells' focus mark, spanning the shared lines so it meets the band's edges.
+  // The program cells' focus mark.
   focusRing: {
     position: "absolute",
     top: 0,
-    left: -1,
-    right: -1,
+    left: 0,
+    right: 0,
     bottom: 0,
     borderWidth: IS_TV ? 2 : 1,
     borderColor: COLORS.ACCENT,
