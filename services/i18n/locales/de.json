@@ -48,6 +48,7 @@
   "liveTv.recordingLengthHint": "Ein Sender ohne Programmdaten wird so lange aufgenommen",
   "liveTv.recordingScheduled": "Aufnahme geplant",
   "liveTv.recordingStarted": "Aufnahme gestartet",
+  "liveTv.recordingStartedFor": "Aufnahme gestartet für {duration}",
   "liveTv.recordingStopped": "Aufnahme beendet",
   "liveTv.recordingCanceled": "Aufnahme abgebrochen",
   "liveTv.recordingFailed": "Aufnahmeaktion fehlgeschlagen",

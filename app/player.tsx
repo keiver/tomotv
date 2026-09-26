@@ -63,6 +63,15 @@ function proposalTime(outroStartSeconds: number | undefined): number | null {
   return outroStartSeconds !== undefined && Number.isFinite(outroStartSeconds) && outroStartSeconds > 0 ? outroStartSeconds : null;
 }
 
+/** "2h", "1h 12m" or "45m": the length the start toast names. */
+function durationLabel(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest}m`;
+  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
 /** The timer covering this target: a program's by id, else the channel's over the clock now. */
 function activeRecordTimer(timers: JellyfinTimer[], target: { programId?: string; channelId: string }, nowMs: number): JellyfinTimer | null {
   if (target.programId) return timers.find((candidate) => candidate.ProgramId === target.programId && isActiveTimer(candidate)) ?? null;
@@ -554,12 +563,12 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   const transportBarButtons = useMemo(() => {
     if (!Platform.isTV) return undefined;
     const buttons: { id: string; title: string; sfSymbol: string; tintColor?: string }[] = [];
+    // A timer here always covers the airing now, so an existing one reads as Stop, never Cancel.
     if (canRecord && recordKey && recordTimer !== undefined) {
-      const recordingNow = recordTimer?.Status === "InProgress";
       buttons.push({
         id: "record",
-        title: t(recordTimer ? (recordingNow ? "liveTv.stopRecording" : "liveTv.cancelRecording") : "liveTv.record"),
-        sfSymbol: recordTimer ? (recordingNow ? "stop.circle" : "xmark.circle") : "record.circle",
+        title: t(recordTimer ? "liveTv.stopRecording" : "liveTv.record"),
+        sfSymbol: recordTimer ? "stop.circle" : "record.circle",
         tintColor: COLORS.DESTRUCTIVE,
       });
     }
@@ -580,10 +589,34 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         const key = recordKey;
         const programId = currentProgramId;
         const channelId = videoId;
-        const doneMessage = recordTimer ? (recordTimer.Status === "InProgress" ? "liveTv.recordingStopped" : "liveTv.recordingCanceled") : "liveTv.recordingStarted";
+        // A program timer runs to the program's end, a manual one for the settings length.
+        const recordingMs = programId
+          ? Math.max(0, (liveChannel.CurrentProgram ? programTimes(liveChannel.CurrentProgram).endMs : NaN) - Date.now())
+          : getLiveTvPreferences().recordingMinutes * 60_000;
+        const doneToast = recordTimer
+          ? t("liveTv.recordingStopped")
+          : recordingMs > 0
+            ? t("liveTv.recordingStartedFor").replace("{duration}", durationLabel(recordingMs))
+            : t("liveTv.recordingStarted");
         // The timer's name becomes the recording folder; a leading dot (".sci-fi") would hide
         // it from the server's own scanner (Jellyfin ignores "**/.*").
         const channelName = liveChannel.Name.replace(/^[.\s]+/, "") || channelId;
+        // Optimistic: the CTA flips at the press; reloadTimer reconciles, the catch reverts.
+        const previousTimer = recordTimer;
+        setTimerResult({
+          key,
+          timer: recordTimer
+            ? null
+            : {
+                Id: "",
+                Name: channelName,
+                ChannelId: channelId,
+                ProgramId: programId,
+                StartDate: new Date().toISOString(),
+                EndDate: new Date(Date.now() + (recordingMs > 0 ? recordingMs : 3_600_000)).toISOString(),
+                Status: "InProgress",
+              },
+        });
         const action = recordTimer
           ? cancelTimer(recordTimer.Id)
           : fetchTimerDefaults(programId).then((defaults) =>
@@ -601,10 +634,11 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
             );
         action
           .then(() => {
-            showToast(t(doneMessage));
+            showToast(doneToast);
             return reloadTimer(key, programId, channelId);
           })
           .catch((err) => {
+            setTimerResult({ key, timer: previousTimer ?? null });
             logger.warn("Recording action failed", err, { service: "VideoPlayer" });
             Alert.alert(t("liveTv.record"), t("info.couldNotReachServer"));
           })

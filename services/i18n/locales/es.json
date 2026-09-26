@@ -48,6 +48,7 @@
   "liveTv.recordingLengthHint": "Un canal sin datos de guía se graba durante este tiempo",
   "liveTv.recordingScheduled": "Grabación programada",
   "liveTv.recordingStarted": "Grabación iniciada",
+  "liveTv.recordingStartedFor": "Grabación iniciada durante {duration}",
   "liveTv.recordingStopped": "Grabación detenida",
   "liveTv.recordingCanceled": "Grabación cancelada",
   "liveTv.recordingFailed": "La acción de grabación falló",

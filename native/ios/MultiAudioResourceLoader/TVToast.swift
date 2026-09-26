@@ -76,9 +76,10 @@ class TVToast: NSObject {
             label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -12),
             label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 28),
             label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -28),
-            pill.centerXAnchor.constraint(equalTo: controller.view.centerXAnchor),
-            pill.bottomAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
-            pill.widthAnchor.constraint(lessThanOrEqualTo: controller.view.widthAnchor, multiplier: 0.6),
+            // The screen's right lower third, above the player chrome's bottom band.
+            pill.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor, constant: -90),
+            NSLayoutConstraint(item: pill, attribute: .centerY, relatedBy: .equal, toItem: controller.view, attribute: .bottom, multiplier: 0.75, constant: 0),
+            pill.widthAnchor.constraint(lessThanOrEqualTo: controller.view.widthAnchor, multiplier: 0.5),
         ])
 
         self.window = window

@@ -48,6 +48,7 @@
   "liveTv.recordingLengthHint": "A channel without guide data records this long",
   "liveTv.recordingScheduled": "Recording scheduled",
   "liveTv.recordingStarted": "Recording started",
+  "liveTv.recordingStartedFor": "Recording started for {duration}",
   "liveTv.recordingStopped": "Recording stopped",
   "liveTv.recordingCanceled": "Recording canceled",
   "liveTv.recordingFailed": "Recording action failed",
