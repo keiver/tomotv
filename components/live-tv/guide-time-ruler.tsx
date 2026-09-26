@@ -91,11 +91,11 @@ const styles = StyleSheet.create({
   hidden: {
     opacity: 0,
   },
-  // Sits on top of its mark, shifted so the first digit centers over the line.
+  // Sits on top of its mark, nudged just right of the line.
   // Explicit width: the 1px tick parent would clamp an auto-sized absolute label to nothing.
   tickLabel: {
     position: "absolute",
-    left: IS_TV ? -5 : -3,
+    left: IS_TV ? 2.5 : 2,
     bottom: MAJOR_MARK_HEIGHT,
     width: IS_TV ? 120 : 70,
     color: RED,
