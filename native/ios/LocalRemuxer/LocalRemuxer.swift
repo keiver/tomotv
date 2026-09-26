@@ -603,7 +603,7 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// The newest burst on disk per channel: `{ channelId: [fileUrl] }` in order, for those that have one.
+    /// The newest fresh burst on disk per channel: `{ channelId: [fileUrl] }` in order, for those that have one.
     @objc func liveFramesOnDisk(
         _ channelIds: NSArray,
         resolver resolve: @escaping RCTPromiseResolveBlock,

@@ -32,6 +32,12 @@ export const LIVE_FRAME_RETRY_CAP_MS = 600_000;
 export const LIVE_FRAME_DWELL_MS = 3_000;
 /** The card's crossfade between two frames of a burst. */
 export const LIVE_FRAME_TRANSITION_MS = 400;
+/**
+ * A burst older than this no longer shows: a healthy channel refreshes within minutes, so
+ * past it the pictures are stale, not live. An `unchanged` answer re-dates the burst, so a
+ * genuinely still live edge never expires while it keeps being verified.
+ */
+export const LIVE_FRAME_EXPIRY_MS = 30 * 60_000;
 
 export interface LiveFrame {
   uri: string;
@@ -171,6 +177,10 @@ function burstOf(channelId: string, uris: string[], at: number): Burst {
   return { at, frames: uris.map((uri, index) => ({ uri, cacheKey: `live-${channelId}-${at}-${index}` })) };
 }
 
+function expired(burst: Burst, now: number): boolean {
+  return now - burst.at > LIVE_FRAME_EXPIRY_MS;
+}
+
 /** Which frame of a burst the card shows now: one per dwell, looping until the next grab. */
 function frameIndex(burst: Burst, now: number): number {
   if (burst.frames.length <= 1) return 0;
@@ -182,7 +192,16 @@ function tick(): void {
   let walking = false;
   for (const channelId of viewable) {
     const item = entries.get(channelId);
-    if (!item?.burst || item.burst.frames.length <= 1) continue;
+    if (!item?.burst) continue;
+    // A burst that aged out mid-wait comes down; the card falls back to its placeholder.
+    if (expired(item.burst, now)) {
+      item.burst = undefined;
+      item.shownIndex = undefined;
+      item.pts = undefined;
+      notify(channelId);
+      continue;
+    }
+    if (item.burst.frames.length <= 1) continue;
     walking = true;
     const index = frameIndex(item.burst, now);
     if (index === item.shownIndex) continue;
@@ -218,6 +237,8 @@ async function seedFromDisk(): Promise<void> {
       const item = entry(channelId);
       if (item.burst || uris.length === 0) continue;
       const at = stampOf(uris[0]);
+      // A stale burst from a past run stays off screen; the channel is due at once instead.
+      if (Date.now() - at > LIVE_FRAME_EXPIRY_MS) continue;
       item.burst = burstOf(channelId, uris, at);
       item.shownIndex = undefined;
       item.lastAt = Math.max(item.lastAt, at);
@@ -322,6 +343,8 @@ async function grab(channelId: string): Promise<void> {
     });
     if (gen !== generation || result?.cancelled) return;
     if (result?.unchanged) {
+      // The live edge was just verified on these pictures, so their expiry counts from now.
+      if (item.burst) item.burst.at = now;
       item.intervalMs = Math.min((item.intervalMs ?? LIVE_FRAME_REFRESH_MS) * 2, LIVE_FRAME_REFRESH_CAP_MS);
       item.failure = undefined;
     } else if (result?.uris?.length) {
@@ -376,7 +399,9 @@ export function setLiveFramesActive(surface: LiveFrameSurface, active: boolean):
 /** The channel's frame for now: the burst spread across the refresh, one picture at a time. */
 export function liveFrameFor(channelId: string): LiveFrame | undefined {
   const burst = entries.get(channelId)?.burst;
-  return burst ? burst.frames[frameIndex(burst, Date.now())] : undefined;
+  const now = Date.now();
+  if (!burst || expired(burst, now)) return undefined;
+  return burst.frames[frameIndex(burst, now)];
 }
 
 export function subscribeLiveFrame(channelId: string, listener: () => void): () => void {

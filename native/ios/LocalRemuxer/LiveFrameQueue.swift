@@ -12,6 +12,9 @@ import Foundation
 
 final class LiveFrameQueue {
     static let defaultDeadline: TimeInterval = 8
+    /// A burst older than this never answers for a channel again; its files come off disk.
+    /// Mirrored by LIVE_FRAME_EXPIRY_MS in services/liveFrames.ts, the display's own gate.
+    static let expiryMs: Int64 = 30 * 60 * 1000
     private static let filePrefix = "live-"
 
     private let root: URL
@@ -118,15 +121,21 @@ final class LiveFrameQueue {
         }
     }
 
-    /// The newest burst on disk for each channel that has one, by the time in its names, in order.
-    /// A reload or a relaunch reads these before any grab, so a card never loses the picture it had.
-    func latest(channelIds: [String]) -> [String: [URL]] {
+    /// The newest fresh burst on disk for each channel that has one, by the time in its names, in
+    /// order. A reload or a relaunch reads these before any grab, so a card never loses the picture
+    /// it had; a channel whose newest burst aged out answers nothing and its frames come off disk.
+    func latest(channelIds: [String], now: Date = Date()) -> [String: [URL]] {
         var found: [String: [URL]] = [:]
+        let oldest = Int64(now.timeIntervalSince1970 * 1000) - Self.expiryMs
         for channelId in channelIds {
             guard let location = ChapterFramePool.location(for: channelId, in: root),
                   let entries = try? FileManager.default.contentsOfDirectory(at: location, includingPropertiesForKeys: nil) else { continue }
             let frames = entries.filter { $0.lastPathComponent.hasPrefix(Self.filePrefix) }
             guard let newest = frames.map(Self.stamp).max() else { continue }
+            if newest < oldest {
+                for frame in frames { try? FileManager.default.removeItem(at: frame) }
+                continue
+            }
             found[channelId] = frames.filter { Self.stamp($0) == newest }.sorted { Self.index($0) < Self.index($1) }
         }
         return found

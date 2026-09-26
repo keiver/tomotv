@@ -161,15 +161,38 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let dir = root.appendingPathComponent("chan-a", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        for name in ["live-1000.jpg", "live-3000-1.jpg", "live-3000-0.jpg", "live-2000-0.jpg", "poster.jpg"] {
+        let newest = Int64(Date().timeIntervalSince1970 * 1000)
+        for name in ["live-\(newest - 2000).jpg", "live-\(newest)-1.jpg", "live-\(newest)-0.jpg", "live-\(newest - 1000)-0.jpg", "poster.jpg"] {
             try Data([0xFF, 0xD8]).write(to: dir.appendingPathComponent(name))
         }
         let queue = LiveFrameQueue(root: root)
         let found = queue.latest(channelIds: ["chan-a", "chan-none", "../escape"])
         XCTAssertEqual(found.keys.sorted(), ["chan-a"])
-        XCTAssertEqual(found["chan-a"]?.map(\.lastPathComponent), ["live-3000-0.jpg", "live-3000-1.jpg"])
-        XCTAssertEqual(LiveFrameQueue.stamp(found["chan-a"]![0]), 3000)
+        XCTAssertEqual(found["chan-a"]?.map(\.lastPathComponent), ["live-\(newest)-0.jpg", "live-\(newest)-1.jpg"])
+        XCTAssertEqual(LiveFrameQueue.stamp(found["chan-a"]![0]), newest)
         XCTAssertEqual(LiveFrameQueue.stamp(dir.appendingPathComponent("live-1000.jpg")), 1000)
+    }
+
+    func testABurstPastTheExpiryAnswersNothingAndComesOffDisk() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date()
+        let nowMs = Int64(now.timeIntervalSince1970 * 1000)
+        let stale = root.appendingPathComponent("chan-old", isDirectory: true)
+        try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
+        let old = nowMs - LiveFrameQueue.expiryMs - 60_000
+        for name in ["live-\(old)-0.jpg", "live-\(old)-1.jpg", "poster.jpg"] {
+            try Data([0xFF, 0xD8]).write(to: stale.appendingPathComponent(name))
+        }
+        let fresh = root.appendingPathComponent("chan-new", isDirectory: true)
+        try FileManager.default.createDirectory(at: fresh, withIntermediateDirectories: true)
+        try Data([0xFF, 0xD8]).write(to: fresh.appendingPathComponent("live-\(nowMs)-0.jpg"))
+
+        let queue = LiveFrameQueue(root: root)
+        let found = queue.latest(channelIds: ["chan-old", "chan-new"], now: now)
+        XCTAssertEqual(found.keys.sorted(), ["chan-new"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: stale.path), ["poster.jpg"], "the expired frames are gone, the poster stays")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fresh.path), ["live-\(nowMs)-0.jpg"])
     }
 
     func testTheKeyframeAlreadyShownWritesNothing() throws {

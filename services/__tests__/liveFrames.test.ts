@@ -63,6 +63,7 @@ import {
   clearLiveFrames,
   LIVE_FRAME_BURST_COUNT,
   LIVE_FRAME_DWELL_MS,
+  LIVE_FRAME_EXPIRY_MS,
   LIVE_FRAME_REFRESH_CAP_MS,
   LIVE_FRAME_REFRESH_MS,
   LIVE_FRAME_RETRY_MS,
@@ -417,6 +418,43 @@ describe("live frames", () => {
     await flush();
     expect(grabs()).toEqual([]);
     expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t1");
+  });
+
+  it("leaves a stale burst on disk off screen and asks that channel at once", async () => {
+    mockOnDisk.mockResolvedValue({ m1: burst("m1", 1_000_000 - LIVE_FRAME_EXPIRY_MS - 60_000, 2) });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    // The day-old pictures never show; the first grab replaces nothing but a placeholder.
+    expect(grabs()).toEqual(["m1"]);
+    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-0.jpg");
+  });
+
+  it("expires a burst whose channel keeps failing, so the card lets its old picture go", async () => {
+    mockOnDisk.mockResolvedValue({ m1: burst("m1", 1_000_000 - 2_000, 2) });
+    mockLiveFrame.mockRejectedValue(new Error("dead origin"));
+    const listener = jest.fn();
+    subscribeLiveFrame("m1", listener);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(liveFrameFor("m1")).toBeDefined();
+    await advance(LIVE_FRAME_EXPIRY_MS);
+    expect(liveFrameFor("m1")).toBeUndefined();
+    expect(listener.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps a burst alive past the expiry while the engine answers unchanged", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(liveFrameFor("m1")).toBeDefined();
+    mockLiveFrame.mockImplementation(async () => ({ unchanged: true }));
+    // Stepped so each unchanged grab lands before the next stretch of ticks ages the burst.
+    for (let stepped = 0; stepped < LIVE_FRAME_EXPIRY_MS + LIVE_FRAME_REFRESH_MS; stepped += LIVE_FRAME_REFRESH_CAP_MS) {
+      await advance(LIVE_FRAME_REFRESH_CAP_MS);
+    }
+    expect(liveFrameFor("m1")).toBeDefined();
   });
 
   it("tells a channel's subscribers about its frame and drops every frame on a clear", async () => {
