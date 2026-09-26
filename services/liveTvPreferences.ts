@@ -26,6 +26,9 @@ export interface ChannelGroup {
 }
 /** Which channels the guide and the wall show. A playlist group is named by its tuner `group-title`. */
 export type ChannelFilter = "all" | "favorites" | `category:${LiveTvCategory}` | `group:${string}` | `playlist:${string}`;
+/** How long a manual recording (a channel without guide data) runs before it stops itself. */
+export const RECORDING_MINUTES_OPTIONS = [30, 45, 60, 120, 180] as const;
+export type RecordingMinutes = (typeof RECORDING_MINUTES_OPTIONS)[number];
 export interface LiveTvPreferences {
   version: 1;
   autoUpdate: boolean;
@@ -35,10 +38,11 @@ export interface LiveTvPreferences {
   groups: ChannelGroup[];
   /** XMLTV URL for channels the server has no guide for (iptv-org/epg output ids); empty is off. */
   guideUrl: string;
+  recordingMinutes: RecordingMinutes;
 }
 export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber"> & { Id?: string };
 
-export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], guideUrl: "" };
+export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], guideUrl: "", recordingMinutes: 120 };
 
 let current: LiveTvPreferences | null = null;
 const listeners = new Set<() => void>();
@@ -84,6 +88,9 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     favorites: parseChannelList(source.favorites),
     groups,
     guideUrl: typeof source.guideUrl === "string" && /^https?:\/\//i.test(source.guideUrl) ? source.guideUrl : "",
+    recordingMinutes: (RECORDING_MINUTES_OPTIONS as readonly number[]).includes(source.recordingMinutes as number)
+      ? (source.recordingMinutes as RecordingMinutes)
+      : DEFAULT_LIVE_TV_PREFERENCES.recordingMinutes,
   };
 }
 

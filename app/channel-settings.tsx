@@ -6,7 +6,7 @@ import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { resetExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
-import { deleteGroup, updateLiveTvPreferences, type ChannelGroup, type ChannelSort } from "@/services/liveTvPreferences";
+import { deleteGroup, RECORDING_MINUTES_OPTIONS, updateLiveTvPreferences, type ChannelGroup, type ChannelSort, type RecordingMinutes } from "@/services/liveTvPreferences";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -21,6 +21,11 @@ function tick({ color }: { color: string }) {
   return <Ionicons name="checkmark" size={TRAILING_SIZE} color={color === COLORS.TEXT_TERTIARY ? COLORS.SUCCESS : color} />;
 }
 
+/** "30m" under the hour, "2h" from it, the duration style formatDuration prints. */
+function minutesLabel(minutes: number): string {
+  return minutes < 60 ? `${minutes}m` : `${minutes / 60}h`;
+}
+
 /** The channel wall's choices, sunken lists of large rows. A root route: Menu pops it, every press applies at once. */
 export default function ChannelSettingsScreen() {
   const router = useRouter();
@@ -29,6 +34,7 @@ export default function ChannelSettingsScreen() {
   const preferences = useLiveTvPreferences();
   const toggleAutoUpdate = useCallback(() => updateLiveTvPreferences({ autoUpdate: !preferences.autoUpdate }), [preferences.autoUpdate]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
+  const pickRecordingMinutes = useCallback((recordingMinutes: RecordingMinutes) => updateLiveTvPreferences({ recordingMinutes }), []);
   const newGroup = useCallback(() => router.push("/channel-group"), [router]);
   const [guideUrl, setGuideUrl] = useState(preferences.guideUrl);
   // Saved on blur and Done; the guide picks it up on its next load.
@@ -85,6 +91,23 @@ export default function ChannelSettingsScreen() {
           <View style={settingsStyles.section}>
             <ListRow icon="list" title={t("liveTv.sortNumber")} trailingIcon={preferences.sort === "number" ? tick : undefined} onPress={() => pickSort("number")} isFirst />
             <ListRow icon="text" title={t("liveTv.sortName")} trailingIcon={preferences.sort === "name" ? tick : undefined} onPress={() => pickSort("name")} isLast />
+          </View>
+          <View style={settingsStyles.sectionHeader}>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.recordingLength")}</Text>
+          </View>
+          <View style={settingsStyles.section}>
+            {RECORDING_MINUTES_OPTIONS.map((minutes, index) => (
+              <ListRow
+                key={minutes}
+                icon="recording-outline"
+                title={minutesLabel(minutes)}
+                subtitle={index === 0 ? t("liveTv.recordingLengthHint") : undefined}
+                trailingIcon={preferences.recordingMinutes === minutes ? tick : undefined}
+                onPress={() => pickRecordingMinutes(minutes)}
+                isFirst={index === 0}
+                isLast={index === RECORDING_MINUTES_OPTIONS.length - 1}
+              />
+            ))}
           </View>
         </View>
       </ScrollView>

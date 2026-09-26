@@ -15,6 +15,7 @@ import {
   subscribeFavoriteChange,
   subscribeItemRemoved,
   subscribePlayedChange,
+  subscribeRecordingsChange,
   subscribeResumeChange,
 } from "@/services/jellyfinApi";
 import { attemptConnectionRecovery } from "@/services/connectionRecovery";
@@ -358,6 +359,11 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // triggers are static — see app/(tabs)/_layout.tsx), so the data must reset itself.
   useEffect(() => {
     return subscribeAuthChange(() => refresh());
+  }, [refresh]);
+
+  // A timer write starts or stops a recording, so a mounted recordings-library browse refetches.
+  useEffect(() => {
+    return subscribeRecordingsChange(() => refresh());
   }, [refresh]);
 
   // Refetch the visible folder when the app returns to the foreground.

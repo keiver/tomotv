@@ -28,6 +28,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   subscribeItemRemoved: jest.fn(() => jest.fn()),
   subscribePlayedChange: jest.fn(() => jest.fn()),
   subscribeResumeChange: jest.fn(() => jest.fn()),
+  subscribeRecordingsChange: jest.fn(() => jest.fn()),
   subscribeAuthChange: jest.fn(() => jest.fn()),
 }));
 

@@ -7,21 +7,34 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
-import { fetchChannels, fetchMediaSegments, fetchNextEpisodeAutoPlay, fetchVideoDetails, setVideoFavorite, type ItemMediaSegments } from "@/services/jellyfinApi";
+import {
+  cancelTimer,
+  createTimer,
+  fetchChannels,
+  fetchLiveTvManagement,
+  fetchMediaSegments,
+  fetchNextEpisodeAutoPlay,
+  fetchTimerDefaults,
+  fetchTimers,
+  fetchVideoDetails,
+  setVideoFavorite,
+  type ItemMediaSegments,
+} from "@/services/jellyfinApi";
 import { getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences, toggleFavoriteChannel } from "@/services/liveTvPreferences";
 import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
-import { adjacentChannelId } from "@/utils/guide";
+import { showToast } from "@/services/toast";
+import { adjacentChannelId, isActiveTimer, programTimes } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPlayManager";
-import { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
+import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
+import { Alert, BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
 import { stageLabel } from "@/hooks/usePlaybackStage";
 import { currentPlaybackStage } from "@/services/playbackStage";
@@ -48,6 +61,18 @@ LogBox.ignoreLogs([
 /** A known credits start, or null to let AVKit present at the actual playback end. */
 function proposalTime(outroStartSeconds: number | undefined): number | null {
   return outroStartSeconds !== undefined && Number.isFinite(outroStartSeconds) && outroStartSeconds > 0 ? outroStartSeconds : null;
+}
+
+/** The timer covering this target: a program's by id, else the channel's over the clock now. */
+function activeRecordTimer(timers: JellyfinTimer[], target: { programId?: string; channelId: string }, nowMs: number): JellyfinTimer | null {
+  if (target.programId) return timers.find((candidate) => candidate.ProgramId === target.programId && isActiveTimer(candidate)) ?? null;
+  return (
+    timers.find((candidate) => {
+      if (candidate.ChannelId !== target.channelId || !isActiveTimer(candidate)) return false;
+      const { startMs, endMs } = programTimes(candidate);
+      return startMs <= nowMs && nowMs < endMs;
+    }) ?? null
+  );
 }
 
 /**
@@ -481,16 +506,113 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     return subscribeLiveTvPreferences(compute);
   }, [isLiveChannel, channelRing, videoId]);
 
+  // tvOS transport bar record button, program-info's flow on the airing program:
+  // record the channel's CurrentProgram, or cancel/stop its active timer. Shown
+  // only with the recording permission and a known timer state.
+  const [canRecord, setCanRecord] = useState(false);
+  useEffect(() => {
+    if (!Platform.isTV || !isLiveChannel) return;
+    let cancelled = false;
+    fetchLiveTvManagement()
+      .then((allowed) => {
+        if (!cancelled) setCanRecord(allowed);
+      })
+      .catch((err) => logger.warn("Recording permission read failed", err, { service: "VideoPlayer" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [isLiveChannel]);
+
+  // A channel with guide data records its CurrentProgram; without one it gets a manual
+  // timer (ChannelId + the recordingMinutes window; the server names this path IsManual).
+  const liveChannel = Platform.isTV && isLiveChannel ? channelRing.find((entry) => entry.Id === videoId) : undefined;
+  const currentProgramId = liveChannel?.CurrentProgram?.Id;
+  const recordKey = liveChannel ? (currentProgramId ?? `channel:${videoId}`) : undefined;
+  // Keyed by target: a channel flip must not show the previous target's timer.
+  const [timerResult, setTimerResult] = useState<{ key: string; timer: JellyfinTimer | null } | null>(null);
+  const recordTimer = recordKey && timerResult?.key === recordKey ? timerResult.timer : undefined;
+  const reloadTimer = useCallback(async (key: string, programId: string | undefined, channelId: string) => {
+    const timers = await fetchTimers();
+    setTimerResult({ key, timer: activeRecordTimer(timers, { programId, channelId }, Date.now()) });
+  }, []);
+  useEffect(() => {
+    if (!canRecord || !recordKey) return;
+    let cancelled = false;
+    const key = recordKey;
+    const programId = currentProgramId;
+    const channelId = videoId;
+    fetchTimers()
+      .then((timers) => {
+        if (!cancelled) setTimerResult({ key, timer: activeRecordTimer(timers, { programId, channelId }, Date.now()) });
+      })
+      .catch((err) => logger.warn("Timer state read failed", err, { service: "VideoPlayer" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [canRecord, recordKey, currentProgramId, videoId]);
+
   const transportBarButtons = useMemo(() => {
     if (!Platform.isTV) return undefined;
-    if (isLiveChannel && !channelRing.some((entry) => entry.Id === videoId)) return undefined;
-    const favorite = isLiveChannel ? liveFavorite : vodFavorite;
-    if (favorite === null) return undefined;
-    return [{ id: "favorite", title: t(favorite ? "info.removeFavorite" : "info.addFavorite"), sfSymbol: favorite ? "heart.fill" : "heart" }];
-  }, [isLiveChannel, channelRing, videoId, liveFavorite, vodFavorite]);
+    const buttons: { id: string; title: string; sfSymbol: string; tintColor?: string }[] = [];
+    if (canRecord && recordKey && recordTimer !== undefined) {
+      const recordingNow = recordTimer?.Status === "InProgress";
+      buttons.push({
+        id: "record",
+        title: t(recordTimer ? (recordingNow ? "liveTv.stopRecording" : "liveTv.cancelRecording") : "liveTv.record"),
+        sfSymbol: recordTimer ? (recordingNow ? "stop.circle" : "xmark.circle") : "record.circle",
+        tintColor: COLORS.DESTRUCTIVE,
+      });
+    }
+    const favorite = isLiveChannel ? (channelRing.some((entry) => entry.Id === videoId) ? liveFavorite : null) : vodFavorite;
+    if (favorite !== null) {
+      buttons.push({ id: "favorite", title: t(favorite ? "info.removeFavorite" : "info.addFavorite"), sfSymbol: favorite ? "heart.fill" : "heart" });
+    }
+    return buttons.length > 0 ? buttons : undefined;
+  }, [isLiveChannel, channelRing, videoId, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer]);
 
+  // One recording write at a time: AVKit can deliver a second press before the reload lands.
+  const recordBusyRef = useRef(false);
   const handleTransportBarButtonSelected = useCallback(
     (event: { id: string }) => {
+      if (event.id === "record") {
+        if (!recordKey || !liveChannel || recordTimer === undefined || recordBusyRef.current) return;
+        recordBusyRef.current = true;
+        const key = recordKey;
+        const programId = currentProgramId;
+        const channelId = videoId;
+        const doneMessage = recordTimer ? (recordTimer.Status === "InProgress" ? "liveTv.recordingStopped" : "liveTv.recordingCanceled") : "liveTv.recordingStarted";
+        // The timer's name becomes the recording folder; a leading dot (".sci-fi") would hide
+        // it from the server's own scanner (Jellyfin ignores "**/.*").
+        const channelName = liveChannel.Name.replace(/^[.\s]+/, "") || channelId;
+        const action = recordTimer
+          ? cancelTimer(recordTimer.Id)
+          : fetchTimerDefaults(programId).then((defaults) =>
+              createTimer(
+                programId
+                  ? defaults
+                  : {
+                      ...defaults,
+                      ChannelId: channelId,
+                      Name: channelName,
+                      StartDate: new Date().toISOString(),
+                      EndDate: new Date(Date.now() + getLiveTvPreferences().recordingMinutes * 60_000).toISOString(),
+                    },
+              ),
+            );
+        action
+          .then(() => {
+            showToast(t(doneMessage));
+            return reloadTimer(key, programId, channelId);
+          })
+          .catch((err) => {
+            logger.warn("Recording action failed", err, { service: "VideoPlayer" });
+            Alert.alert(t("liveTv.record"), t("info.couldNotReachServer"));
+          })
+          .finally(() => {
+            recordBusyRef.current = false;
+          });
+        return;
+      }
       if (event.id !== "favorite") return;
       if (isLiveChannel) {
         const channel = channelRing.find((entry) => entry.Id === videoId);
@@ -505,7 +627,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         setVodFavoriteResult({ itemId: videoId, favorite: !next });
       });
     },
-    [isLiveChannel, channelRing, videoId, vodFavorite],
+    [isLiveChannel, channelRing, videoId, vodFavorite, recordKey, liveChannel, currentProgramId, recordTimer, reloadTimer],
   );
 
   // The AVKit surfaces are computed here, from the queue and this item's

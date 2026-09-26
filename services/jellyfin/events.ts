@@ -73,6 +73,20 @@ export function notifyItemRemoved(itemId: string): void {
   removedListeners.forEach((cb) => cb(itemId));
 }
 
+// Recordings-change pub/sub: fired after a timer write lands on the server, so the
+// recordings list and a mounted recordings-library browse refetch in place.
+const recordingsListeners = new Set<() => void>();
+
+/** Subscribe to timer/recording writes. Returns an unsubscribe function. */
+export function subscribeRecordingsChange(cb: () => void): () => void {
+  recordingsListeners.add(cb);
+  return () => recordingsListeners.delete(cb);
+}
+
+export function notifyRecordingsChange(): void {
+  recordingsListeners.forEach((cb) => cb());
+}
+
 // Resume-change pub/sub: fired after the server's resume state for an item was rewritten
 // (playback stop, resume persist, manual clear). Carries the item and, when the app wrote
 // the value itself, the ticks the server now holds; a Stopped report passes through the

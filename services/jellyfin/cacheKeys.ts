@@ -9,7 +9,7 @@
 import { patchFolderCacheItem } from "@/services/folderContentsCache";
 import { invalidateByPrefix } from "@/services/requestCache";
 import { LibraryFilters } from "@/types/jellyfin";
-import { notifyItemRemoved, notifyResumeChange } from "./events";
+import { notifyItemRemoved, notifyRecordingsChange, notifyResumeChange } from "./events";
 
 /**
  * Stable cache-key fragment for a LibraryFilters selection. Read functions cache their mapped
@@ -66,6 +66,22 @@ export function invalidateItemRemoved(userId: string, itemId: string): void {
   patchFolderCacheItem(itemId, null);
   notifyItemRemoved(itemId);
   notifyResumeChange();
+}
+
+/**
+ * Evict cached reads whose contents change when a timer write starts or stops a recording:
+ * the recordings folders (a first recording creates one) and every listing that could carry
+ * the new item, then tell the recordings screens to refetch.
+ */
+export function invalidateRecordingReads(userId: string): void {
+  if (!userId) return;
+  invalidateByPrefix("recordingFolders:");
+  invalidateByPrefix(`folder:${userId}:`);
+  invalidateByPrefix(`filtered:${userId}:`);
+  invalidateByPrefix(`latest:${userId}:`);
+  invalidateByPrefix(`items:${userId}:`);
+  invalidateByPrefix(`recursive:${userId}:`);
+  notifyRecordingsChange();
 }
 
 /**

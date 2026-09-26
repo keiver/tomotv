@@ -11,6 +11,7 @@ import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { t } from "@/services/i18n";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers, hasPoster } from "@/services/jellyfinApi";
 import { serverPoster } from "@/services/itemArtwork";
+import { showToast } from "@/services/toast";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { formatClock, formatDayLabel, isActiveTimer, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
@@ -69,8 +70,10 @@ export default function ProgramInfoScreen() {
       try {
         await action();
         await loadTimer();
+        showToast(t(kind === "record" || kind === "series" ? "liveTv.recordingScheduled" : "liveTv.recordingCanceled"));
       } catch (err) {
         logger.error("Recording action failed", err, { screen: "ProgramInfo", kind });
+        showToast(t("liveTv.recordingFailed"), "error");
       } finally {
         setBusy(null);
       }

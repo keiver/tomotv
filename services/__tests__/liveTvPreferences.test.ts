@@ -39,11 +39,16 @@ describe("live TV preferences", () => {
       favorites: [{ number: "9.1", name: "KQED" }, { name: "Al Jazeera English" }],
       groups: [],
       guideUrl: "",
+      recordingMinutes: 120,
     });
     // The guide URL survives only as http(s); anything else falls back to off.
     expect(parseLiveTvPreferences({ guideUrl: "https://g/guide.xml.gz" }).guideUrl).toBe("https://g/guide.xml.gz");
     expect(parseLiveTvPreferences({ guideUrl: "file:///etc/passwd" }).guideUrl).toBe("");
     expect(parseLiveTvPreferences({ guideUrl: 7 }).guideUrl).toBe("");
+    // The recording length survives only as a listed option; anything else falls back to 2h.
+    expect(parseLiveTvPreferences({ recordingMinutes: 30 }).recordingMinutes).toBe(30);
+    expect(parseLiveTvPreferences({ recordingMinutes: 90 }).recordingMinutes).toBe(120);
+    expect(parseLiveTvPreferences({ recordingMinutes: "45" }).recordingMinutes).toBe(120);
   });
 
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {

@@ -10,6 +10,7 @@ import { channelListKey, favoriteKey, LIVE_TV_CATEGORIES, type ChannelFavorite, 
 import { setPlaybackStage } from "@/services/playbackStage";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
+import { invalidateRecordingReads } from "./cacheKeys";
 import { API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
@@ -196,21 +197,30 @@ export async function fetchChannels(page: { startIndex?: number; limit?: number;
   return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
 }
 
+/** Category flags move only when guide data refreshes, so mounts share one read for a while. */
+const CHANNEL_CATEGORIES_TTL_MS = 60 * 60 * 1000;
+
 /** The categories with at least one channel: the flags come from XMLTV programme categories, so most servers have few. */
 export async function fetchChannelCategories(): Promise<LiveTvCategory[]> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
-  const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
-  const present = await Promise.all(
-    LIVE_TV_CATEGORIES.map(async (category) => {
-      const query = new URLSearchParams({ userId: config.userId, limit: "0", enableTotalRecordCount: "true", [CATEGORY_PARAMS[category]]: "true" });
-      const response = await fetchWithTimeout(`${config.server}/LiveTv/Channels?${query.toString()}`, { headers }, API_TIMEOUTS.NORMAL);
-      if (!response.ok) throwRequestError(response, `Failed to count channels: ${response.status}`);
-      const json = await response.json();
-      return (json.TotalRecordCount ?? 0) > 0;
-    }),
+  return cachedRequest(
+    `channelCategories:${config.server}:${config.userId}`,
+    async () => {
+      const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
+      const present = await Promise.all(
+        LIVE_TV_CATEGORIES.map(async (category) => {
+          const query = new URLSearchParams({ userId: config.userId, limit: "0", enableTotalRecordCount: "true", [CATEGORY_PARAMS[category]]: "true" });
+          const response = await fetchWithTimeout(`${config.server}/LiveTv/Channels?${query.toString()}`, { headers }, API_TIMEOUTS.NORMAL);
+          if (!response.ok) throwRequestError(response, `Failed to count channels: ${response.status}`);
+          const json = await response.json();
+          return (json.TotalRecordCount ?? 0) > 0;
+        }),
+      );
+      return LIVE_TV_CATEGORIES.filter((_, index) => present[index]);
+    },
+    CHANNEL_CATEGORIES_TTL_MS,
   );
-  return LIVE_TV_CATEGORIES.filter((_, index) => present[index]);
 }
 
 const LISTED_CHANNEL_FIELDS = "ChannelInfo,PrimaryImageAspectRatio";
@@ -520,25 +530,36 @@ export async function fetchSeriesTimers(): Promise<JellyfinSeriesTimer[]> {
 }
 
 /** The server's prefilled timer for a program; the same body creates a single timer or a series rule. */
-export async function fetchTimerDefaults(programId: string): Promise<JellyfinSeriesTimer> {
-  const response = await liveTvRequest(`/LiveTv/Timers/Defaults?programId=${encodeURIComponent(programId)}`);
+export async function fetchTimerDefaults(programId?: string): Promise<JellyfinSeriesTimer> {
+  const query = programId ? `?programId=${encodeURIComponent(programId)}` : "";
+  const response = await liveTvRequest(`/LiveTv/Timers/Defaults${query}`);
   return (await response.json()) as JellyfinSeriesTimer;
+}
+
+/** A timer write starts or stops a recording, so cached recording reads go stale at once. */
+async function invalidateAfterTimerWrite(): Promise<void> {
+  const config = await getConfig();
+  invalidateRecordingReads(config.userId);
 }
 
 export async function createTimer(defaults: JellyfinSeriesTimer): Promise<void> {
   await liveTvRequest("/LiveTv/Timers", { method: "POST", body: JSON.stringify(defaults) });
+  await invalidateAfterTimerWrite();
 }
 
 export async function createSeriesTimer(defaults: JellyfinSeriesTimer): Promise<void> {
   await liveTvRequest("/LiveTv/SeriesTimers", { method: "POST", body: JSON.stringify(defaults) });
+  await invalidateAfterTimerWrite();
 }
 
 export async function cancelTimer(timerId: string): Promise<void> {
   await liveTvRequest(`/LiveTv/Timers/${encodeURIComponent(timerId)}`, { method: "DELETE" });
+  await invalidateAfterTimerWrite();
 }
 
 export async function cancelSeriesTimer(seriesTimerId: string): Promise<void> {
   await liveTvRequest(`/LiveTv/SeriesTimers/${encodeURIComponent(seriesTimerId)}`, { method: "DELETE" });
+  await invalidateAfterTimerWrite();
 }
 
 /** Whether the account may schedule and cancel recordings; the server answers 403 to timer writes without it. */
