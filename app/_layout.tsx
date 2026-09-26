@@ -16,6 +16,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { MacKeyCommands } from "@/components/mac-key-commands";
 import { DiagnosticsInbox } from "@/components/diagnostics-inbox";
 import { SyncPlayDriver } from "@/components/sync-play-driver";
+import { ToastHost } from "@/components/toast-host";
 import { PlayerHost } from "@/components/player-host";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LoadingProvider } from "@/contexts/LoadingContext";
@@ -454,6 +455,8 @@ export default function RootLayout() {
                 <DiagnosticsInbox />
                 {/* Opens the group's item when the server pushes a SyncPlay queue. Renders null. */}
                 <SyncPlayDriver />
+                {/* The toast pill. Renders null on TV: a floated view would occlude focus there. */}
+                <ToastHost />
               </PlayerSessionProvider>
             </PlayQueueProvider>
           </LibraryProvider>
