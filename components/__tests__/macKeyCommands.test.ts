@@ -1,5 +1,5 @@
 import { escapeAction, macKeyAction, type MacKeyState } from "@/components/mac-key-commands";
-import { MAC_KEYS } from "@/services/macKeyCommands";
+import { claimMacEscape, consumeMacEscape, MAC_KEYS } from "@/services/macKeyCommands";
 
 /**
  * What one Escape press means on the Mac build.
@@ -91,5 +91,29 @@ describe("macKeyAction", () => {
     for (const key of MAC_KEYS) {
       expect(macKeyAction(key, PLAYING_AUDIO)).toBeDefined();
     }
+  });
+});
+
+/** The claim stack behind goBack: the newest claim answers, releasing restores the one under it. */
+describe("claimMacEscape", () => {
+  it("answers false with nothing claimed", () => {
+    expect(consumeMacEscape()).toBe(false);
+  });
+
+  it("consults the newest claim and restores the previous on release", () => {
+    const releaseA = claimMacEscape("a", () => true);
+    const releaseB = claimMacEscape("b", () => false);
+    expect(consumeMacEscape()).toBe(false);
+    releaseB();
+    expect(consumeMacEscape()).toBe(true);
+    releaseA();
+    expect(consumeMacEscape()).toBe(false);
+  });
+
+  it("survives a double release", () => {
+    const release = claimMacEscape("a", () => true);
+    release();
+    release();
+    expect(consumeMacEscape()).toBe(false);
   });
 });

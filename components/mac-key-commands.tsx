@@ -1,6 +1,6 @@
 import { usePlayerSession, usePlayerSessionHost, type HostMode } from "@/contexts/PlayerSessionContext";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
-import { claimMacContextKeys, MAC_SEEK_SECONDS, subscribeMacKeyCommand, type MacKey } from "@/services/macKeyCommands";
+import { claimMacContextKeys, consumeMacEscape, MAC_SEEK_SECONDS, subscribeMacKeyCommand, type MacKey } from "@/services/macKeyCommands";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -146,7 +146,9 @@ function MacKeyCommandsListener() {
           // Nothing listening (a detached window): the session ends itself.
           stopSession();
           return;
+        // The focused screen may consume the pop first (the guide rewinds to its top).
         case "goBack":
+          if (consumeMacEscape()) return;
           router.back();
           return;
         // navigate, not push: expo-router turns a NAVIGATE on the tabs navigator into
