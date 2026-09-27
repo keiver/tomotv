@@ -148,6 +148,13 @@ describe("Video info: live items", () => {
     expect(mockReplace).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
   });
 
+  it("offers no Record on a programme that has ended", async () => {
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    const ended = { ...airing, StartDate: new Date(now - 60 * 60_000).toISOString(), EndDate: new Date(now - 30 * 60_000).toISOString() };
+    const tree = await mount(ended);
+    expect(buttons(tree)).toEqual([]);
+  });
+
   it("records from the server's defaults and then offers to cancel", async () => {
     (fetchTimers as jest.Mock)
       .mockResolvedValueOnce([])

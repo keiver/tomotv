@@ -421,6 +421,7 @@ export default function VideoInfoScreen() {
     return true;
   }, [details]);
   const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);
+  const programEnded = !!liveProgram && detailsAtMs > 0 && programTimes(liveProgram).endMs <= detailsAtMs;
   const watchable = !!liveChannelId && (liveChannel || programAiring);
   const handleWatch = useCallback(() => {
     if (!liveChannelId) return;
@@ -624,7 +625,7 @@ export default function VideoInfoScreen() {
           onPress={handleWatch}
         />
       )}
-      {recordTimer === undefined ? null : recordTimer ? (
+      {recordTimer === undefined || (!recordTimer && programEnded) ? null : recordTimer ? (
         <FocusableButton
           title={recordTimer.Status === "InProgress" ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
           variant="record"
