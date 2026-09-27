@@ -571,6 +571,18 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         const key = recordKey;
         const programId = currentProgramId;
         const channelId = videoId;
+        // The stand-in a failed re-read left has no Id to cancel: read the real timer first.
+        if (recordTimer && !recordTimer.Id) {
+          reloadTimer(key, programId, channelId)
+            .catch((err) => {
+              logger.warn("Timer state read failed", err, { service: "VideoPlayer" });
+              Alert.alert(t("liveTv.record"), t("info.couldNotReachServer"));
+            })
+            .finally(() => {
+              recordBusyRef.current = false;
+            });
+          return;
+        }
         // A program timer runs to the program's end, a manual one for the settings length.
         const recordingMs = programId
           ? Math.max(0, (liveChannel.CurrentProgram ? programTimes(liveChannel.CurrentProgram).endMs : NaN) - Date.now())
@@ -583,7 +595,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         // The timer's name becomes the recording folder; a leading dot (".sci-fi") would hide
         // it from the server's own scanner (Jellyfin ignores "**/.*").
         const channelName = liveChannel.Name.replace(/^[.\s]+/, "") || channelId;
-        // Optimistic: the CTA flips at the press; reloadTimer reconciles, the catch reverts.
+        // Optimistic: the CTA flips at the press; reloadTimer reconciles, a failed write reverts.
         const previousTimer = recordTimer;
         setTimerResult({
           key,
@@ -617,7 +629,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         action
           .then(() => {
             showToast(doneToast, "success");
-            return reloadTimer(key, programId, channelId);
+            // The write landed: a failed re-read keeps the flipped CTA rather than reverting it.
+            return reloadTimer(key, programId, channelId).catch((err) => logger.warn("Timer state read failed", err, { service: "VideoPlayer" }));
           })
           .catch((err) => {
             setTimerResult({ key, timer: previousTimer ?? null });
@@ -798,24 +811,31 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // stage (parked player, channel interstitial) tears down after it and focus lands on the tab bar,
   // where Menu backgrounds the app. Re-claim while no error button holds focus, briefly.
   const retryButtonRef = useRef<View>(null);
-  const errorButtonFocusedRef = useRef(false);
-  const onErrorButtonFocus = useCallback(() => {
-    errorButtonFocusedRef.current = true;
+  // Which error button holds focus; a blur clears only its own name, so either event order reads right.
+  const errorButtonFocusedRef = useRef<"retry" | "back" | null>(null);
+  const onRetryFocus = useCallback(() => {
+    errorButtonFocusedRef.current = "retry";
   }, []);
-  const onErrorButtonBlur = useCallback(() => {
-    errorButtonFocusedRef.current = false;
+  const onBackFocus = useCallback(() => {
+    errorButtonFocusedRef.current = "back";
+  }, []);
+  const onRetryBlur = useCallback(() => {
+    if (errorButtonFocusedRef.current === "retry") errorButtonFocusedRef.current = null;
+  }, []);
+  const onBackBlur = useCallback(() => {
+    if (errorButtonFocusedRef.current === "back") errorButtonFocusedRef.current = null;
   }, []);
   const showErrorButtons = playbackState.type === "ERROR" && !liveOnStage && !playbackState.canRetryWithTranscode;
   useEffect(() => {
     if (!Platform.isTV || !showErrorButtons) return;
-    errorButtonFocusedRef.current = false;
+    errorButtonFocusedRef.current = null;
     const startedAt = Date.now();
     const timer = setInterval(() => {
       if (Date.now() - startedAt > ERROR_FOCUS_CLAIM_WINDOW_MS) {
         clearInterval(timer);
         return;
       }
-      if (errorButtonFocusedRef.current) return;
+      if (errorButtonFocusedRef.current !== null) return;
       (retryButtonRef.current as unknown as { requestTVFocus?: () => void } | null)?.requestTVFocus?.();
     }, ERROR_FOCUS_CLAIM_EVERY_MS);
     return () => clearInterval(timer);
@@ -846,15 +866,15 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         <View style={styles.buttonGroup}>
           <FocusableButton
             ref={retryButtonRef}
-            onFocus={onErrorButtonFocus}
-            onBlur={onErrorButtonBlur}
+            onFocus={onRetryFocus}
+            onBlur={onRetryBlur}
             title={t("common.retry")}
             onPress={retry}
             variant="retry"
             style={styles.button}
             hasTVPreferredFocus={true}
           />
-          <FocusableButton onFocus={onErrorButtonFocus} onBlur={onErrorButtonBlur} title={t("common.goBack")} onPress={handleBack} variant="secondary" style={styles.button} />
+          <FocusableButton onFocus={onBackFocus} onBlur={onBackBlur} title={t("common.goBack")} onPress={handleBack} variant="secondary" style={styles.button} />
         </View>
       </View>
     );

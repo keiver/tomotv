@@ -9,6 +9,9 @@ import { useCallback, useEffect, useState } from "react";
 
 export type RecordBusy = "record" | "series" | "cancel" | "cancelSeries" | null;
 
+/** The series rule a stand-in timer names: set, but with no id the server knows. */
+const STAND_IN_SERIES_ID = "stand-in";
+
 /** A program to record, or (no programId) a channel that records a manual timer for the settings length. */
 export interface RecordTarget {
   programId?: string;
@@ -45,16 +48,24 @@ export function useRecordActions(target: RecordTarget | null) {
     };
   }, [enabled, programId, channelId]);
 
+  /** A write, then a re-read; a write that landed stands even when the re-read fails, as `landed`. */
   const run = useCallback(
-    async (kind: Exclude<RecordBusy, null>, action: () => Promise<void>, doneToast: string) => {
+    async (kind: Exclude<RecordBusy, null>, action: () => Promise<void>, doneToast: string, landed: JellyfinTimer | null) => {
       setBusy(kind);
       try {
         await action();
-        await loadTimer();
-        showToast(doneToast, "success");
       } catch (err) {
         logger.error("Recording action failed", err, { hook: "useRecordActions", kind });
         showToast(t("liveTv.recordingFailed"), "error");
+        setBusy(null);
+        return;
+      }
+      showToast(doneToast, "success");
+      try {
+        await loadTimer();
+      } catch (err) {
+        logger.warn("Timer state read failed", err, { hook: "useRecordActions" });
+        setTimer(landed);
       } finally {
         setBusy(null);
       }
@@ -62,12 +73,41 @@ export function useRecordActions(target: RecordTarget | null) {
     [loadTimer],
   );
 
+  /** A stand-in left by a failed re-read has no ids to cancel: read the real timer instead. */
+  const rereadStandIn = useCallback(async () => {
+    setBusy("cancel");
+    try {
+      await loadTimer();
+    } catch (err) {
+      logger.warn("Timer state read failed", err, { hook: "useRecordActions" });
+      showToast(t("liveTv.recordingFailed"), "error");
+    } finally {
+      setBusy(null);
+    }
+  }, [loadTimer]);
+
+  const standIn = useCallback(
+    (endMs: number, airing: boolean, seriesTimerId?: string): JellyfinTimer => ({
+      Id: "",
+      Name: channelName,
+      ChannelId: channelId,
+      ProgramId: programId,
+      StartDate: new Date(Date.now()).toISOString(),
+      EndDate: new Date(endMs).toISOString(),
+      Status: airing ? "InProgress" : "New",
+      SeriesTimerId: seriesTimerId,
+    }),
+    [channelName, channelId, programId],
+  );
+
   const record = useCallback(() => {
     // A program records to its end; the toast names the running length, a future program is scheduled.
     if (programId) {
-      const remainingMs = program && isAiring(program, Date.now()) ? programTimes(program).endMs - Date.now() : 0;
+      const airing = !!program && isAiring(program, Date.now());
+      const remainingMs = airing && program ? programTimes(program).endMs - Date.now() : 0;
       const doneToast = remainingMs > 0 ? t("liveTv.recordingStartedFor").replace("{duration}", durationLabel(remainingMs)) : t("liveTv.recordingScheduled");
-      return run("record", async () => createTimer(await fetchTimerDefaults(programId)), doneToast);
+      const endMs = program ? programTimes(program).endMs : Date.now();
+      return run("record", async () => createTimer(await fetchTimerDefaults(programId)), doneToast, standIn(endMs, airing));
     }
     if (!channelId) return;
     const recordingMs = getLiveTvPreferences().recordingMinutes * 60_000;
@@ -80,14 +120,24 @@ export function useRecordActions(target: RecordTarget | null) {
         await createTimer({ ...defaults, ChannelId: channelId, Name: timerName, StartDate: new Date().toISOString(), EndDate: new Date(Date.now() + recordingMs).toISOString() });
       },
       t("liveTv.recordingStartedFor").replace("{duration}", durationLabel(recordingMs)),
+      standIn(Date.now() + recordingMs, true),
     );
-  }, [run, programId, program, channelId, channelName]);
-  const recordSeries = useCallback(() => run("series", async () => createSeriesTimer(await fetchTimerDefaults(programId)), t("liveTv.recordingScheduled")), [run, programId]);
-  const cancel = useCallback(
-    () => run("cancel", async () => (timer ? cancelTimer(timer.Id) : undefined), t(timer?.Status === "InProgress" ? "liveTv.recordingStopped" : "liveTv.recordingCanceled")),
-    [run, timer],
-  );
-  const cancelSeries = useCallback(() => run("cancelSeries", async () => (timer?.SeriesTimerId ? cancelSeriesTimer(timer.SeriesTimerId) : undefined), t("liveTv.recordingCanceled")), [run, timer]);
+  }, [run, standIn, programId, program, channelId, channelName]);
+  const recordSeries = useCallback(() => {
+    const airing = !!program && isAiring(program, Date.now());
+    const endMs = program ? programTimes(program).endMs : Date.now();
+    return run("series", async () => createSeriesTimer(await fetchTimerDefaults(programId)), t("liveTv.recordingScheduled"), standIn(endMs, airing, STAND_IN_SERIES_ID));
+  }, [run, standIn, programId, program]);
+  const cancel = useCallback(() => {
+    if (timer && !timer.Id) return rereadStandIn();
+    return run("cancel", async () => (timer ? cancelTimer(timer.Id) : undefined), t(timer?.Status === "InProgress" ? "liveTv.recordingStopped" : "liveTv.recordingCanceled"), null);
+  }, [run, rereadStandIn, timer]);
+  const cancelSeries = useCallback(() => {
+    if (timer && !timer.Id) return rereadStandIn();
+    // The rule goes; this airing's own timer stays until the re-read says otherwise.
+    const landed = timer ? { ...timer, SeriesTimerId: undefined } : null;
+    return run("cancelSeries", async () => (timer?.SeriesTimerId ? cancelSeriesTimer(timer.SeriesTimerId) : undefined), t("liveTv.recordingCanceled"), landed);
+  }, [run, rereadStandIn, timer]);
 
   return { timer, busy, record, recordSeries, cancel, cancelSeries };
 }
