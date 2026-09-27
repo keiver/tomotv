@@ -3,7 +3,9 @@ import { GuideCanvas } from "@/components/live-tv/guide-canvas";
 import { GuideCornerActions, HUD_ACTION_ICON, HudAction } from "@/components/live-tv/guide-corner-actions";
 import { GuideHud } from "@/components/live-tv/guide-hud";
 import { gridEdgePadding } from "@/constants/app";
+import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { COLORS } from "@/constants/colors";
+import { useAuth } from "@/contexts/AuthContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useGuide } from "@/hooks/useGuide";
@@ -30,8 +32,16 @@ const PHONE_REFRESH_CELL_WIDTH = 44;
 /**
  * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
  * Schedule one press away. The livetv tab's root on TV; a pushed library-stack route on phone.
+ * Signed out, the tab keeps its trigger (static-trigger rule) and shows the connect widget.
  */
-export default function LiveTvScreen() {
+export default function LiveTvRoute() {
+  const { isConnected, isReady } = useAuth();
+  if (!isReady) return null;
+  if (!isConnected) return <ServerConnectScreen title={t("liveTv.title")} />;
+  return <LiveTvScreen />;
+}
+
+function LiveTvScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
