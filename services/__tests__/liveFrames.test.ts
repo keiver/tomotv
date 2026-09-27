@@ -73,6 +73,10 @@ import {
   LIVE_FRAME_SPACING_MS,
   liveFrameFor,
   liveFrameReel,
+  setLiveFrameFocus,
+  clearLiveFrameFocus,
+  LIVE_FRAME_FOCUS_DWELL_MS,
+  LIVE_FRAME_FOCUS_REFRESH_MS,
   setLiveFramesActive,
   setLiveFrameViewable,
   subscribeLiveFrame,
@@ -197,6 +201,33 @@ describe("live frames", () => {
     expect(second?.frames.map((frame) => frame.cacheKey)).toEqual(["live-m1-1000000-0", "live-m1-1000000-1"]);
     answer?.();
     await flush();
+  });
+
+  it("promotes a row focused past the dwell to the front, on its short floor, never past backoff", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2"]);
+
+    // Fresh bursts everywhere: nothing is due, but a dwell on m2 asks for it after its short floor.
+    await advance(LIVE_FRAME_FOCUS_REFRESH_MS);
+    setLiveFrameFocus("m2");
+    await advance(LIVE_FRAME_FOCUS_DWELL_MS);
+    await advance(1);
+    expect(grabs()).toEqual(["m1", "m2", "m2"]);
+
+    // Leaving the row retires the promotion: the short floor asks for nothing more.
+    clearLiveFrameFocus("m2");
+    await advance(LIVE_FRAME_FOCUS_REFRESH_MS);
+    expect(grabs()).toEqual(["m1", "m2", "m2"]);
+
+    // A glance shorter than the dwell promotes nothing.
+    setLiveFrameFocus("m1");
+    await advance(LIVE_FRAME_FOCUS_DWELL_MS / 2);
+    clearLiveFrameFocus("m1");
+    await advance(LIVE_FRAME_FOCUS_DWELL_MS);
+    expect(grabs()).toEqual(["m1", "m2", "m2"]);
   });
 
   it("asks a channel again at the refresh floor, doubles the wait while its live edge stands still, and drops back once it moves", async () => {

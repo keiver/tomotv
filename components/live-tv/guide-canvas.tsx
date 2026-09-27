@@ -19,6 +19,7 @@ import { LayoutChangeEvent, Platform, StyleSheet, Text, TVFocusGuideView, View }
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
+import { setLiveFrameFocus } from "@/services/liveFrames";
 import { claimMacEscape } from "@/services/macKeyCommands";
 import { IS_MAC } from "@/utils/hostEnvironment";
 
@@ -173,16 +174,24 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
     },
     [windowStartMs, windowEndMs, scrollX, neighbourHandle],
   );
-  const handleCellFocus = useCallback(() => {
-    if (!IS_TV) return;
-    driver.set("grid");
-    setFocusLatched(true);
-  }, [driver]);
+  const handleCellFocus = useCallback(
+    (_program: JellyfinProgram, channel: JellyfinItem) => {
+      if (!IS_TV) return;
+      driver.set("grid");
+      setFocusLatched(true);
+      // A dwell on the row promotes its channel to the sampler's front.
+      setLiveFrameFocus(channel.Id);
+    },
+    [driver],
+  );
   // While focus sits in the cells region the entry guide points back up at the HUD, so both
   // guides on row 0's top edge name the same target and Up never redirects to the focused cell.
   const [cellsFocused, setCellsFocused] = useState(false);
   const handleCellsEnter = useCallback(() => setCellsFocused(true), []);
-  const handleCellsLeave = useCallback(() => setCellsFocused(false), []);
+  const handleCellsLeave = useCallback(() => {
+    setCellsFocused(false);
+    setLiveFrameFocus(null);
+  }, []);
   const handleChannelFocus = useCallback(() => {
     if (!IS_TV) return;
     driver.set("column");

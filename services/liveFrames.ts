@@ -48,6 +48,10 @@ export const LIVE_FRAME_RETRY_CAP_MS = 600_000;
 export const LIVE_FRAME_DWELL_MS = 3_000;
 /** The card's crossfade between two frames of a burst. */
 export const LIVE_FRAME_TRANSITION_MS = 400;
+/** A row focused this long promotes its channel to the front of the sampler. */
+export const LIVE_FRAME_FOCUS_DWELL_MS = 2_000;
+/** The promoted channel's own refresh floor, well under the ordinary one. */
+export const LIVE_FRAME_FOCUS_REFRESH_MS = 30_000;
 /**
  * A burst older than this no longer shows: a healthy channel refreshes within minutes, so
  * past it the pictures are stale, not live. An `unchanged` answer re-dates the burst, so a
@@ -111,6 +115,10 @@ let generation = 0;
 let openFailStreak = 0;
 /** The sampler rests until this passes once the streak trips. */
 let capRestUntil = 0;
+/** The row holding focus, and the channel it promoted once the dwell passed. */
+let focusCandidate: string | null = null;
+let focusTimer: ReturnType<typeof setTimeout> | null = null;
+let priority: string | null = null;
 
 function noteOpenFailure(): void {
   openFailStreak += 1;
@@ -298,8 +306,15 @@ function recordFailure(item: Entry, now: number): void {
   item.failure = { at: now, attempts: (item.failure?.attempts ?? 0) + 1 };
 }
 
-/** The channel due next: the one longest without a burst, once its refresh and any backoff have passed. */
+/** The channel due next: the promoted one on its short floor first, else the one longest
+ *  without a burst once its refresh and any backoff have passed. Backoff binds them both:
+ *  staring at a dead channel never hammers it. */
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
+  if (priority && viewable.includes(priority) && !grabbing.has(priority)) {
+    const item = entry(priority);
+    const readyAt = Math.max(item.lastAt + LIVE_FRAME_FOCUS_REFRESH_MS, backoffUntil(item.failure));
+    if (readyAt <= now) return { channelId: priority, waitMs: 0 };
+  }
   let pick: { channelId: string; readyAt: number } | null = null;
   for (const channelId of viewable) {
     if (grabbing.has(channelId)) continue;
@@ -308,6 +323,26 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
     if (!pick || readyAt < pick.readyAt) pick = { channelId, readyAt };
   }
   return pick ? { channelId: pick.channelId, waitMs: Math.max(0, pick.readyAt - now) } : null;
+}
+
+/** The row holding focus names its channel; after the dwell it jumps the queue. Null on leave. */
+export function setLiveFrameFocus(channelId: string | null): void {
+  if (focusCandidate === channelId) return;
+  focusCandidate = channelId;
+  priority = null;
+  if (focusTimer) clearTimeout(focusTimer);
+  focusTimer = null;
+  if (!channelId) return;
+  focusTimer = setTimeout(() => {
+    focusTimer = null;
+    priority = channelId;
+    if (running()) schedule(0);
+  }, LIVE_FRAME_FOCUS_DWELL_MS);
+}
+
+/** A blur that may land after the next row's focus: clears only its own claim. */
+export function clearLiveFrameFocus(channelId: string): void {
+  if (focusCandidate === channelId) setLiveFrameFocus(null);
 }
 
 async function pump(): Promise<void> {
@@ -456,6 +491,7 @@ export function setLiveFramesActive(surface: LiveFrameSurface, active: boolean):
   }
   if (activeSurface !== surface) return;
   activeSurface = null;
+  setLiveFrameFocus(null);
   stop();
   stopTicker();
   // The reads in flight are stopped, so their server opens close now rather than at their deadlines.

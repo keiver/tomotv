@@ -4,6 +4,7 @@ import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { clearFocusedGuideChannel, setFocusedGuideChannel } from "@/services/guideChannelFocus";
+import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
@@ -70,11 +71,15 @@ export function GuideChannelColumn({
   const cardFocus = useCallback(
     (video: JellyfinItem) => {
       setFocusedGuideChannel(video.Id);
+      setLiveFrameFocus(video.Id);
       onChannelFocus?.();
     },
     [onChannelFocus],
   );
-  const cardBlur = useCallback((video: JellyfinItem) => clearFocusedGuideChannel(video.Id), []);
+  const cardBlur = useCallback((video: JellyfinItem) => {
+    clearFocusedGuideChannel(video.Id);
+    clearLiveFrameFocus(video.Id);
+  }, []);
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows.
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
