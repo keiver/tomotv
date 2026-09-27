@@ -1,16 +1,15 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { DurationChips } from "@/components/settings/DurationChips";
 import { DurationSlider } from "@/components/settings/DurationSlider";
-import { GuideUrlRow } from "@/components/settings/GuideUrlRow";
-import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
+import { ListRow } from "@/components/settings/ListRow";
+import { RollingFieldRow } from "@/components/settings/RollingFieldRow";
+import { tick } from "@/components/settings/tick";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
-import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { resetExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import { deleteGroup, RECORDING_MINUTES_OPTIONS, updateLiveTvPreferences, type ChannelGroup, type ChannelSort, type RecordingMinutes } from "@/services/liveTvPreferences";
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useState } from "react";
@@ -18,11 +17,6 @@ import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-nativ
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-
-/** Green at rest so the choice reads without the row filling; on the gold bar it takes the bar's ink. */
-function tick({ color }: { color: string }) {
-  return <Ionicons name="checkmark" size={TRAILING_SIZE} color={color === COLORS.TEXT_TERTIARY ? COLORS.SUCCESS : color} />;
-}
 
 /** "30m" under the hour, "2h" from it, the duration style formatDuration prints. */
 function minutesLabel(minutes: number): string {
@@ -81,7 +75,18 @@ export default function ChannelSettingsScreen() {
               isFirst
             />
             <ListRow icon="earth" title={t("liveTv.autoGuide")} subtitle={t("liveTv.autoGuideHint")} trailingIcon={preferences.autoGuide ? tick : undefined} onPress={toggleAutoGuide} />
-            <GuideUrlRow value={guideUrl} onChangeText={setGuideUrl} onSave={saveGuideUrl} />
+            <RollingFieldRow
+              icon="calendar-outline"
+              title={t("liveTv.guideUrl")}
+              subtitle={guideUrl.trim() || t("liveTv.guideUrlHint")}
+              placeholder={t("liveTv.guideUrl")}
+              accessibilityLabel={t("liveTv.guideUrlHint")}
+              keyboardType="url"
+              autoCapitalize="none"
+              value={guideUrl}
+              onChangeText={setGuideUrl}
+              onSave={saveGuideUrl}
+            />
           </View>
           <View style={settingsStyles.sectionHeader}>
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>

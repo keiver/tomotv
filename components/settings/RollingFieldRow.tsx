@@ -2,31 +2,36 @@ import { ListRow } from "@/components/settings/ListRow";
 import { ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
-import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
-import { Platform, StyleSheet, TextInput, View } from "react-native";
+import { Platform, StyleSheet, TextInput, TextInputProps, View } from "react-native";
 import Animated, { Easing, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 const DURATION = 260;
 const EASING = Easing.out(Easing.cubic);
 const IS_TV = Platform.isTV;
-const GLYPH: keyof typeof Ionicons.glyphMap = "calendar-outline";
 
-interface GuideUrlRowProps {
+interface RollingFieldRowProps {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle?: string;
+  placeholder: string;
+  accessibilityLabel?: string;
+  keyboardType?: TextInputProps["keyboardType"];
+  autoCapitalize?: TextInputProps["autoCapitalize"];
+  isFirst?: boolean;
   value: string;
   onChangeText: (v: string) => void;
-  /** Persist the typed URL; called as the field gives up the caret. */
+  /** Persist the typed value; called as the field gives up the caret. */
   onSave: () => void;
 }
 
 /**
- * The external guide URL in one list slot, AddServerRow's roll: the row rolls
- * down out of the slot while the field drops in from above to take its place.
- * Whichever is out of the slot leaves layout (`display: none`), never merely
- * clipped: a clipped view is still focusable on tvOS.
+ * A text entry in one list slot, AddServerRow's roll: the row rolls down out of the
+ * slot while the field drops in from above to take its place. Whichever is out of
+ * the slot leaves layout (`display: none`); a clipped view is still focusable on tvOS.
  */
-export function GuideUrlRow({ value, onChangeText, onSave }: GuideUrlRowProps) {
+export function RollingFieldRow({ icon, title, subtitle, placeholder, accessibilityLabel, keyboardType, autoCapitalize, isFirst, value, onChangeText, onSave }: RollingFieldRowProps) {
   const [open, setOpen] = useState(false);
   // True only while the roll is in flight, when both rows have to be on screen.
   const [rolling, setRolling] = useState(false);
@@ -62,9 +67,8 @@ export function GuideUrlRow({ value, onChangeText, onSave }: GuideUrlRowProps) {
     setRolling(true);
   };
 
-  // Giving up the caret saves and gives the slot back; the row's subtitle then
-  // shows the saved URL. Gated on having actually held the caret: the field is
-  // focused programmatically the moment the roll settles.
+  // Giving up the caret saves and gives the slot back. Gated on having actually held
+  // the caret: the field is focused programmatically the moment the roll settles.
   const handleBlur = () => {
     if (!editedOnce.current) return;
     onSave();
@@ -84,23 +88,23 @@ export function GuideUrlRow({ value, onChangeText, onSave }: GuideUrlRowProps) {
   return (
     <View style={styles.slot}>
       <Animated.View style={[styles.layer, ctaStyle, ctaGone && styles.gone]}>
-        <ListRow icon={GLYPH} title={t("liveTv.guideUrl")} subtitle={value.trim() || t("liveTv.guideUrlHint")} onPress={reveal} isLast />
+        <ListRow icon={icon} title={title} subtitle={subtitle} onPress={reveal} isFirst={isFirst} isLast />
       </Animated.View>
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
         <View style={styles.fieldRow}>
-          <Ionicons name={GLYPH} size={IS_TV ? 32 : 22} color={COLORS.ACCENT} />
+          <Ionicons name={icon} size={IS_TV ? 32 : 22} color={COLORS.ACCENT} />
           {/* The same shared sunken field the login inputs use; this call site adds layout only. */}
           <SunkenTextInput
             ref={fieldRef}
             containerStyle={styles.fieldWrapper}
             value={value}
-            placeholder={t("liveTv.guideUrl")}
+            placeholder={placeholder}
             placeholderTextColor={COLORS.TEXT_SECONDARY}
-            accessibilityLabel={t("liveTv.guideUrlHint")}
+            accessibilityLabel={accessibilityLabel ?? placeholder}
             autoCorrect={false}
-            autoCapitalize="none"
-            keyboardType="url"
+            autoCapitalize={autoCapitalize}
+            keyboardType={keyboardType}
             onChangeText={onChangeText}
             onFocus={() => {
               editedOnce.current = true;
