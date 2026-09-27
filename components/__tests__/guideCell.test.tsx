@@ -109,6 +109,16 @@ describe("GuideCell", () => {
     expect(testIds(standIn)).not.toContain("guide-cell-progress");
   });
 
+  it("drops a guide's no info available placeholder from the meta line, dot and all", () => {
+    const metaLine = (genre: string) =>
+      render({ program: { ...program, Id: "p6", IsNews: false, Genres: [genre] } })
+        .root.findAllByType(Text)
+        .map((node) => node.props.children)
+        .find((child) => typeof child === "string" && child.includes(" – "));
+    expect(metaLine("no info available")).not.toContain("·");
+    expect(metaLine("Drama")).toContain("  ·  Drama");
+  });
+
   it("titles a stand-in cell in the cell's own face, the hint trailing only while focused", () => {
     const flatText = (tree: TestRenderer.ReactTestRenderer) =>
       tree.root

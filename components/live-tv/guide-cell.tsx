@@ -15,6 +15,7 @@ import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, StyleSheet, Tex
 import Animated, { SharedValue, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
+const NO_INFO = /^\s*no info(rmation)?( available)?\s*$/i;
 /** The grid's line, the same the ruler and the channel column draw. */
 export const GRID_LINE = "rgba(255, 255, 255, 0.14)";
 
@@ -83,7 +84,8 @@ function GuideCellComponent({
   // The reel also unrolls while the row's channel card holds focus over in the column.
   const cardFocused = useGuideChannelFocus(standInChannel ?? program.ChannelId);
   // One line under the titles: the slot, then whatever the guide source filled in.
-  const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter(Boolean).join("  ·  ");
+  // A guide's "no info available" placeholder gets no slot of its own.
+  const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter((part) => part && !NO_INFO.test(part)).join("  ·  ");
   const art = program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
   // The art box is the picture's own shape at the cell's height, cut down to what fits past the
   // text; the picture keeps its right end, and the fade spans the box so the bleed starts at its edge.
