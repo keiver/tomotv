@@ -1,9 +1,10 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { CloseOverlayButton } from "@/components/close-overlay-button";
+import { FolderBackdrop } from "@/components/folder-backdrop";
 import { PAD_SHEET_RATIO, PadSheet } from "@/components/pad-sheet";
 
 import { FocusableButton } from "@/components/FocusableButton";
-import { InfoActionRow } from "@/components/info-action-row";
+import { InfoActionRow, InfoExtraAction } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
 import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
 import { LoadingRow } from "@/components/loading-row";
@@ -21,6 +22,8 @@ import {
   getBackdropUrl,
   getLogoUrl,
   getPersonImageUrl,
+  getTintUrl,
+  hasPoster,
   isAudioItem,
   isFolder,
   isBook,
@@ -31,6 +34,7 @@ import {
   setVideoPlayed,
 } from "@/services/jellyfinApi";
 import { COLORS } from "@/constants/colors";
+import { RECESS_EDGE } from "@/constants/app";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
@@ -38,6 +42,7 @@ import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
 import { folderPosterSource } from "@/services/itemArtwork";
+import { STANDALONE_VIDEO_TYPES } from "@/services/jellyfin/constants";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
@@ -73,6 +78,14 @@ const IS_TV = Platform.isTV;
 // iPad presents the panel over the app rather than as a page sheet: UIKit hands out no control
 // over what shows either side of a sheet, so the screen has to own its own backdrop.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
+// Past the inset shadows' reach, so the re-painted rim has no bottom corners inside the hero.
+// A video's own Primary is a frame of it, scenery like a backdrop, so it never takes the frame.
+const VIDEO_STILL_TYPES = new Set<string>([...STANDALONE_VIDEO_TYPES, "Episode", "Recording"]);
+const HERO_EDGE_OVERRUN = 40;
+// Added to the artwork hero's height, pushing the title and everything under it down.
+const HERO_GROW = 35;
+// The fade's one colour, the surface under the hero (TV card SURFACE, phone sheet BACKGROUND), so it never dips darker than the card.
+const HERO_FADE_RGB = IS_TV ? "rgba(44, 44, 46, " : "rgba(20, 20, 20, ";
 
 /**
  * Video Info panel: everything the server knows about one item, plus its
@@ -112,7 +125,7 @@ export default function VideoInfoScreen() {
     // Landscape phone: width-derived caps exceed the ~440pt window height, so the
     // hero also clamps to a share of it (no-op in portrait).
     const phoneCap = windowHeight * 0.42;
-    if (hasArt) return Math.min((width * 9) / 16, IS_TV ? 460 : Math.min(320, phoneCap));
+    if (hasArt) return Math.min((width * 9) / 16, IS_TV ? 460 : Math.min(320, phoneCap)) + HERO_GROW;
     // Artless hero: just enough for the inset face plus a tight gap to the title below.
     return IS_TV ? 388 : Math.min(Math.min(width * 0.8, 380) - 88, phoneCap);
   };
@@ -320,7 +333,7 @@ export default function VideoInfoScreen() {
   // Admin-only, and irreversible on the server, so the press only opens the confirm.
   const [deleting, setDeleting] = useState(false);
   const handleDelete = useCallback(() => {
-    if (!details) return;
+    if (!details || deleting) return;
     Alert.alert(cleanLabel(details.Name), t("info.deleteConfirm"), [
       { text: t("common.cancel"), style: "cancel" },
       {
@@ -338,7 +351,7 @@ export default function VideoInfoScreen() {
         },
       },
     ]);
-  }, [details, router]);
+  }, [deleting, details, router]);
 
   // Stop an in-progress recording: deleting its timer is the stop, the file stays. The flip
   // is local (`stopped`) because the item's own Status lags the timer delete server-side.
@@ -512,6 +525,21 @@ export default function VideoInfoScreen() {
   // repeats across servers, so its cache key travels with it.
   const heroSource: { uri: string; cacheKey?: string } | undefined = backdropUri ? { uri: backdropUri } : (poster ?? folderPoster);
   const heroUri = heroSource?.uri ?? "";
+  // A server poster, logo or channel tile is shown whole on a glow of its own colours; only a
+  // backdrop or an engine keyframe is scenery that takes the full-bleed crop and the scrim.
+  const tintItemId =
+    details && !backdropUri
+      ? hasPoster(details) && !VIDEO_STILL_TYPES.has(details.Type)
+        ? details.Id
+        : details.Type === "Program" && details.ChannelId
+          ? details.ChannelId
+          : !poster && folderPoster
+            ? details.Id
+            : ""
+      : "";
+  // Framed only once measured as square or wider; a portrait picture crops in like scenery.
+  const framed = !!heroUri && !!tintItemId && heroAspect != null && heroAspect >= 1;
+  const tintUri = framed ? getTintUrl(tintItemId, "Primary") : "";
   // A folder the server has no picture for wears the same collage its card does.
   const preview = useFolderPreview(isContainer ? details : null, !heroUri);
   const showCollage = preview.length > 0;
@@ -528,8 +556,9 @@ export default function VideoInfoScreen() {
   // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
   // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
   const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
-  const heroCropStyle =
-    heroWidth > 0 && heroHeight > 0 && heroAspect != null && heroAspect < heroWidth / heroHeight
+  const heroCropStyle = framed
+    ? styles.heroFramed
+    : heroWidth > 0 && heroHeight > 0 && heroAspect != null && heroAspect < heroWidth / heroHeight
       ? { position: "absolute" as const, top: 0, left: 0, width: heroWidth, height: heroWidth / heroAspect }
       : StyleSheet.absoluteFill;
 
@@ -556,22 +585,89 @@ export default function VideoInfoScreen() {
     );
   };
 
+  // The CTA row holds two buttons at most; every further action is a circle in the row below.
+  const showFolderCta = !live && !!folderLeafId && folderLeafId !== params.inFolderId;
+  const shareable = photo && !IS_TV;
+  const folderInRow = showFolderCta && (!isContainer || folderCtas.length < 2);
+  const seriesSet = !!recordTimer?.SeriesTimerId;
+  const extras: InfoExtraAction[] = [
+    ...(isContainer ? folderCtas.slice(2).map((cta) => ({ key: cta.kind, icon: cta.icon, label: cta.title, onPress: () => handlePlayFolder(cta.kind) })) : []),
+    ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), onPress: handleShowInFolder }] : []),
+    ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), onPress: () => void handleShare() }] : []),
+    ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), onPress: handleDownloadFolder }] : []),
+    ...(recordTimer !== undefined && liveProgram?.IsSeries
+      ? [
+          {
+            key: "series",
+            icon: "repeat" as const,
+            label: seriesSet ? t("liveTv.cancelSeries") : t("liveTv.recordSeries"),
+            onPress: () => {
+              if (recording.busy === null) void (seriesSet ? recording.cancelSeries : recording.recordSeries)();
+            },
+          },
+        ]
+      : []),
+    ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), destructive: true, onPress: handleDelete }] : []),
+  ];
+
+  // Portrait phone puts Watch and Record side by side, as the TV row does, splitting the gutter width.
+  const pairButton = stackCtas ? styles.livePairButton : undefined;
+  const livePair = (
+    <>
+      {watchable && (
+        <FocusableButton
+          title={t("liveTv.watch")}
+          variant="primary"
+          hasTVPreferredFocus
+          style={pairButton}
+          icon={<Ionicons name="play" size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
+          onPress={handleWatch}
+        />
+      )}
+      {recordTimer === undefined ? null : recordTimer ? (
+        <FocusableButton
+          title={recordTimer.Status === "InProgress" ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
+          variant="record"
+          style={pairButton}
+          hasTVPreferredFocus={!watchable}
+          isLoading={recording.busy === "cancel"}
+          disabled={recording.busy !== null}
+          icon={<Ionicons name={recordTimer.Status === "InProgress" ? "stop-circle-outline" : "close-circle-outline"} size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+          onPress={recording.cancel}
+        />
+      ) : (
+        <FocusableButton
+          title={t("liveTv.record")}
+          variant="record"
+          style={pairButton}
+          hasTVPreferredFocus={!watchable}
+          isLoading={recording.busy === "record"}
+          disabled={recording.busy !== null}
+          icon={<Ionicons name="radio-button-on" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+          onPress={recording.record}
+        />
+      )}
+    </>
+  );
+
   // CTA row through File: one fragment, hosted by both platform layouts.
   const sections = details ? (
     <>
-      <View style={[styles.ctaRow, stackCtas && styles.ctaColumn]}>
+      <View style={[styles.ctaRow, stackCtas && styles.ctaColumn, stackCtas && live && styles.ctaColumnFull]}>
         {isContainer ? (
           folderCtas.length > 0 ? (
-            folderCtas.map((cta, index) => (
-              <FocusableButton
-                key={cta.kind}
-                title={cta.title}
-                variant={index === 0 ? "primary" : "secondary"}
-                hasTVPreferredFocus={index === 0}
-                icon={<Ionicons name={cta.icon} size={IS_TV ? 34 : 22} color={index === 0 ? COLORS.ON_ACCENT : COLORS.ACCENT} />}
-                onPress={() => handlePlayFolder(cta.kind)}
-              />
-            ))
+            folderCtas
+              .slice(0, 2)
+              .map((cta, index) => (
+                <FocusableButton
+                  key={cta.kind}
+                  title={cta.title}
+                  variant={index === 0 ? "primary" : "secondary"}
+                  hasTVPreferredFocus={index === 0}
+                  icon={<Ionicons name={cta.icon} size={IS_TV ? 34 : 22} color={index === 0 ? COLORS.ON_ACCENT : COLORS.ACCENT} />}
+                  onPress={() => handlePlayFolder(cta.kind)}
+                />
+              ))
           ) : (
             <FocusableButton
               title={t("common.open")}
@@ -582,42 +678,7 @@ export default function VideoInfoScreen() {
             />
           )
         ) : live ? (
-          <>
-            {watchable && (
-              <FocusableButton title={t("liveTv.watch")} variant="primary" hasTVPreferredFocus icon={<Ionicons name="play" size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />} onPress={handleWatch} />
-            )}
-            {recordTimer === undefined ? null : recordTimer ? (
-              <FocusableButton
-                title={recordTimer.Status === "InProgress" ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
-                variant="record"
-                hasTVPreferredFocus={!watchable}
-                isLoading={recording.busy === "cancel"}
-                disabled={recording.busy !== null}
-                icon={<Ionicons name={recordTimer.Status === "InProgress" ? "stop-circle-outline" : "close-circle-outline"} size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
-                onPress={recording.cancel}
-              />
-            ) : (
-              <FocusableButton
-                title={t("liveTv.record")}
-                variant="record"
-                hasTVPreferredFocus={!watchable}
-                isLoading={recording.busy === "record"}
-                disabled={recording.busy !== null}
-                icon={<Ionicons name="radio-button-on" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
-                onPress={recording.record}
-              />
-            )}
-            {recordTimer !== undefined && liveProgram?.IsSeries && (
-              <FocusableButton
-                title={recordTimer?.SeriesTimerId ? t("liveTv.cancelSeries") : t("liveTv.recordSeries")}
-                variant="secondary"
-                isLoading={recording.busy === (recordTimer?.SeriesTimerId ? "cancelSeries" : "series")}
-                disabled={recording.busy !== null}
-                icon={<Ionicons name="repeat" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
-                onPress={recordTimer?.SeriesTimerId ? recording.cancelSeries : recording.recordSeries}
-              />
-            )}
-          </>
+          <>{stackCtas ? <View style={styles.livePair}>{livePair}</View> : livePair}</>
         ) : (
           <ProgressButton
             title={
@@ -641,7 +702,7 @@ export default function VideoInfoScreen() {
           />
         )}
         {/* Photos only, and never on tvOS: React Native compiles the share module out there. */}
-        {photo && !IS_TV && (
+        {shareable && !folderInRow && (
           <FocusableButton
             title={t("common.share")}
             variant="secondary"
@@ -650,23 +711,8 @@ export default function VideoInfoScreen() {
             isLoading={sharing}
           />
         )}
-        {!live && !!folderLeafId && folderLeafId !== params.inFolderId && (
+        {folderInRow && (
           <FocusableButton title={t("info.showInFolder")} variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
-        )}
-        {/* Containers only: a leaf has the download circle in the action row below. "All" in
-            the sense the play CTAs use it, and it stays "All" even where they split by kind:
-            whatever mix of audio and video the folder holds comes down in this one press. */}
-        {canDownloadFolder && (
-          <FocusableButton title={t("info.downloadAll")} variant="secondary" icon={<Ionicons name="arrow-down" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
-        )}
-        {canDelete && (
-          <FocusableButton
-            title={t("common.delete")}
-            variant="destructive"
-            icon={<Ionicons name="trash-outline" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
-            onPress={handleDelete}
-            isLoading={deleting}
-          />
         )}
       </View>
 
@@ -676,14 +722,13 @@ export default function VideoInfoScreen() {
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
           is not a flag either: Folder.MarkPlayed sweeps every descendant and resets each
           resume position, which no card here could state. */}
-      {liveChannel && (
+      {liveChannel ? (
         <View style={styles.actionRow}>
-          <InfoActionRow isFavorite={channelFavorite} cleared={false} onToggleFavorite={toggleChannelFavorite} />
+          <InfoActionRow isFavorite={channelFavorite} onToggleFavorite={toggleChannelFavorite} extras={extras} />
           <Text style={styles.sectionHeading}>{t("liveTv.groups")}</Text>
           <ChannelGroupSection channel={details} />
         </View>
-      )}
-      {!isContainer && !photo && !live && (
+      ) : !isContainer && !photo && !live ? (
         <View style={styles.actionRow}>
           <InfoActionRow
             isFavorite={isFavorite}
@@ -697,8 +742,15 @@ export default function VideoInfoScreen() {
             downloadState={book ? undefined : downloadState}
             onToggleDownload={book ? undefined : toggleDownload}
             onStopRecording={recordingNow && details.TimerId ? handleStopRecording : undefined}
+            extras={extras}
           />
         </View>
+      ) : (
+        extras.length > 0 && (
+          <View style={styles.actionRow}>
+            <InfoActionRow extras={extras} />
+          </View>
+        )
       )}
 
       {!!tagline && <Text style={styles.tagline}>{tagline}</Text>}
@@ -808,13 +860,19 @@ export default function VideoInfoScreen() {
           setHeroWidth(event.nativeEvent.layout.width);
           setHeroMeasured(true);
         }}>
+        {framed && (
+          <>
+            <FolderBackdrop source={tintUri ? { uri: tintUri, sharp: false } : null} />
+            <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />
+          </>
+        )}
         {heroSource ? (
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
             <Image
               key={heroUri}
               source={heroSource}
               style={heroCropStyle}
-              contentFit="cover"
+              contentFit={framed ? "contain" : "cover"}
               transition={0}
               cachePolicy="memory-disk"
               onLoad={handleHeroLoad}
@@ -836,13 +894,13 @@ export default function VideoInfoScreen() {
             accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
           />
         )}
-        <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />
-        {/* The section's top lip, re-painted above the opaque artwork (settings rowShadowTop
-            move). Overlay is tvOS-safe here: the hero holds no focusables. */}
-        {IS_TV && <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTop]} />}
+        {!framed && <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />}
+        {/* The card's own lip and rim, re-painted above the opaque artwork and run past the hero's
+            foot so they meet the card's below it. tvOS-safe: the hero holds no focusables. */}
+        {IS_TV && <View pointerEvents="none" style={[styles.heroEdge, { height: heroHeight + HERO_EDGE_OVERRUN }]} />}
       </View>
       {/* Title sits below the hero on every item, never over the artwork. */}
-      <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
+      <View style={[styles.heroTitleWrap, logoUri && !framed ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
         {logoUri ? (
           <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
         ) : (
@@ -955,7 +1013,23 @@ const styles = StyleSheet.create({
   },
   // Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone.
   heroScrim: {
-    experimental_backgroundImage: `linear-gradient(to bottom, rgba(20, 20, 20, 0) 35%, rgba(20, 20, 20, 0.45) 72%, ${IS_TV ? COLORS.SURFACE : COLORS.BACKGROUND} 100%)`,
+    experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) 15%, ${HERO_FADE_RGB}0.3) 50%, ${HERO_FADE_RGB}0.7) 80%, ${HERO_FADE_RGB}1) 100%)`,
+  },
+  heroEdge: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    boxShadow: `${RECESS_EDGE.LIP_TOP}, ${RECESS_EDGE.RIM}`,
+  },
+  // A framed poster or logo: whole, inset from the hero's edges, over its colour glow.
+  heroFramed: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    margin: IS_TV ? 48 : 24,
   },
   // Transparent brand face, contained and inset so it reads as a small centered
   // mark over the hero's dark fill rather than full-bleed art.
@@ -1067,6 +1141,20 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     alignItems: "stretch",
     gap: 22,
+  },
+  ctaColumnFull: {
+    alignSelf: "stretch",
+  },
+  livePair: {
+    flexDirection: "row",
+    gap: 16,
+  },
+  // Content-proportional widths so a long label ("Cancel recording") keeps one line.
+  livePairButton: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    paddingHorizontal: 12,
   },
   actionRow: {
     marginTop: IS_TV ? 52 : 34,
