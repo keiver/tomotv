@@ -27,6 +27,8 @@ interface GuideFocusReelProps {
   cellHeight: number;
   /** The canvas's horizontal offset; the reel rides it so it stays on the visible edge, label-style. */
   scrollX: SharedValue<number>;
+  /** The rows' visible width: the pinned strip runs out at the screen's edge when the cell runs past it. */
+  viewportWidth?: number;
   /** The row holds focus (its cell or its channel card): full strength and the one-shot drift. */
   active: boolean;
   /** A programme cell's variant: smaller tiles, no caption, under the cell's own three lines. */
@@ -54,7 +56,7 @@ function Tile({ uri, cacheKey, index, width, height, active }: { uri: string; ca
  * faded as texture, brightening while the row holds focus. History, not "now": the caption says
  * so, with the sample's clock time in it.
  */
-export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, active, compact = false }: GuideFocusReelProps) {
+export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, viewportWidth = 0, active, compact = false }: GuideFocusReelProps) {
   const subscribe = useCallback((listener: () => void) => subscribeLiveFrame(channelId, listener), [channelId]);
   const read = useCallback(() => liveFrameReel(channelId), [channelId]);
   const reel = useSyncExternalStore(subscribe, read);
@@ -64,7 +66,7 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, ac
   if (!reel || reel.frames.length === 0) return null;
   const tileHeight = Math.round(cellHeight * (compact ? 0.42 : IS_TV ? 0.55 : 0.5));
   const tileWidth = Math.round(tileHeight * (16 / 9));
-  const room = Math.max(0, width - PAD_LEFT);
+  const room = Math.max(0, (viewportWidth > 0 ? Math.min(width, viewportWidth) : width) - PAD_LEFT);
   const cut = reel.frames.length * (tileWidth + GAP) - GAP > room;
   return (
     <Animated.View style={[styles.reel, pinStyle]} onLayout={handleLayout} pointerEvents="none" testID="guide-focus-reel">

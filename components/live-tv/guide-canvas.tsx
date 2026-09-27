@@ -220,6 +220,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
         nowMs={nowMs}
         timersByProgramId={timersByProgramId}
         scrollX={scrollX}
+        viewportWidth={viewportWidth}
         rowIndex={index}
         nextFocusUp={index === 0 ? topFocusHandle : undefined}
         targetsFor={IS_TV ? targetsFor : undefined}
@@ -230,7 +231,22 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
         onCellHandle={handleCellHandle}
       />
     ),
-    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, topFocusHandle, targetsFor, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus, handleCellHandle],
+    [
+      windowStartMs,
+      windowEndMs,
+      spanPx,
+      nowMs,
+      timersByProgramId,
+      scrollX,
+      viewportWidth,
+      topFocusHandle,
+      targetsFor,
+      focusProgramId,
+      onProgramPress,
+      onProgramLongPress,
+      handleCellFocus,
+      handleCellHandle,
+    ],
   );
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);

@@ -1,5 +1,6 @@
 /** A resting reel follows its channel's bursts: a replaced burst repaints without any focus. */
 import React from "react";
+import { StyleSheet } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 const mockListeners = new Map<string, Set<() => void>>();
@@ -38,5 +39,19 @@ describe("GuideFocusReel", () => {
       for (const listener of mockListeners.get("c1") ?? []) listener();
     });
     expect(keys()).toEqual(["k-2000-0", "k-2000-1", "k-2000-2", "k-2000-3"]);
+  });
+
+  it("cuts a strip that runs past the screen at the screen's edge, not the window-wide cell's", () => {
+    mockBurst = frames(1000, 12);
+    const clipWidth = (viewportWidth?: number) => {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(<GuideFocusReel channelId="c1" left={0} width={40000} cellHeight={180} scrollX={scrollX} viewportWidth={viewportWidth} active={false} />);
+      });
+      const clip = tree.root.findAll((node) => (node.type as unknown) === "View" && StyleSheet.flatten(node.props.style)?.flexDirection === "row");
+      return StyleSheet.flatten(clip[0].props.style).width;
+    };
+    expect(clipWidth()).toBeUndefined();
+    expect(clipWidth(1600)).toBeLessThan(1600);
   });
 });

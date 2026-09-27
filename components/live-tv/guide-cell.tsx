@@ -39,6 +39,7 @@ interface GuideCellProps {
   recording: RecordingMark;
   /** The canvas's horizontal offset; the label rides it so it stays on the visible edge. */
   scrollX: SharedValue<number>;
+  viewportWidth?: number;
   onPress: (program: JellyfinProgram) => void;
   onLongPress: (program: JellyfinProgram) => void;
   onFocus?: (program: JellyfinProgram) => void;
@@ -63,6 +64,7 @@ function GuideCellComponent({
   nowMs,
   recording,
   scrollX,
+  viewportWidth,
   onPress,
   onLongPress,
   onFocus,
@@ -134,11 +136,11 @@ function GuideCellComponent({
           only while it airs: sampled history under a future slot would lie. */}
       {standInChannel ? (
         <View style={styles.reelClip} pointerEvents="none">
-          <GuideFocusReel channelId={standInChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} active={focused || cardFocused} />
+          <GuideFocusReel channelId={standInChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} />
         </View>
       ) : reelChannel ? (
         <View style={styles.reelClip} pointerEvents="none">
-          <GuideFocusReel channelId={reelChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} active compact />
+          <GuideFocusReel channelId={reelChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active compact />
         </View>
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
