@@ -414,12 +414,14 @@ export async function requestLibraryItems(
     timeoutMs?: number;
   },
 ): Promise<{ items: JellyfinVideoItem[]; total?: number }> {
-  // includeAllTypes (search): every playable and readable kind across all libraries.
+  // includeAllTypes (search): every playable and readable kind across all libraries,
+  // minus TvChannel — channel matches ride the search screens' Live TV shelf
+  // (searchLiveTv), so listing them here duplicated every channel into the grid.
   // Default (flat library list): standalone videos only.
   // Series: only when includeSeries=true (expanded to episodes by the caller).
   // Photos are excluded from both paths — they only surface via folder browsing.
   // See the BaseItemKind allowlists next to isFolder() for the full picture.
-  let itemTypes: string = includeAllTypes ? [...PLAYABLE_ITEM_TYPES, ...READABLE_ITEM_TYPES].join(",") : STANDALONE_VIDEO_TYPES.join(",");
+  let itemTypes: string = includeAllTypes ? [...PLAYABLE_ITEM_TYPES.filter((kind) => kind !== "TvChannel"), ...READABLE_ITEM_TYPES].join(",") : STANDALONE_VIDEO_TYPES.join(",");
   if (includeSeries) {
     itemTypes += ",Series";
   }
