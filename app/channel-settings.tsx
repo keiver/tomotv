@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GuideUrlRow } from "@/components/settings/GuideUrlRow";
 import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -101,13 +102,14 @@ export default function ChannelSettingsScreen() {
                 key={minutes}
                 icon="recording-outline"
                 title={minutesLabel(minutes)}
-                subtitle={index === 0 ? t("liveTv.recordingLengthHint") : undefined}
                 trailingIcon={preferences.recordingMinutes === minutes ? tick : undefined}
                 onPress={() => pickRecordingMinutes(minutes)}
                 isFirst={index === 0}
-                isLast={index === RECORDING_MINUTES_OPTIONS.length - 1}
               />
             ))}
+            <SectionFooter>
+              <Text style={settingsStyles.sectionNote}>{t("liveTv.recordingLengthHint")}</Text>
+            </SectionFooter>
           </View>
         </View>
       </ScrollView>
