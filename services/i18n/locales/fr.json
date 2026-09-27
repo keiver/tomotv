@@ -40,6 +40,7 @@
   "liveTv.recordingNow": "Enregistrement en cours",
   "liveTv.upcoming": "À venir",
   "liveTv.live": "DIRECT",
+  "liveTv.rec": "REC",
   "liveTv.seriesRules": "Séries",
   "liveTv.noRecordings": "Aucun enregistrement pour l'instant, ou ce compte n'y a pas accès.",
   "liveTv.noRecordingsHint": "Un administrateur du serveur peut accorder l'accès dans Jellyfin : Utilisateurs, ce compte, Accès à la médiathèque, puis activer Enregistrements.",

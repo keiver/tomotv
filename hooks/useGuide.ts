@@ -8,7 +8,7 @@ import { whenSamplerQuiet } from "@/services/liveFrames";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, MINUTE_MS } from "@/utils/guide";
+import { activeRecordTimer, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, MINUTE_MS } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -29,6 +29,8 @@ export interface GuideState {
   nowMs: number;
   /** Live timers by program id; a cell reads its recording state here, never off the program. */
   timersByProgramId: Map<string, JellyfinTimer>;
+  /** Channels a timer covers right now; their cards wear REC. */
+  recordingChannelIds: Set<string>;
   isLoading: boolean;
   /** True while programs are being fetched; the HUD shows its thin bar for it. */
   isUpdating: boolean;
@@ -379,6 +381,7 @@ export function useGuide(): GuideState {
     }
     return map;
   }, [timers]);
+  const recordingChannelIds = useMemo(() => new Set(channels.filter((channel) => activeRecordTimer(timers, { channelId: channel.Id }, nowMs)).map((channel) => channel.Id)), [channels, timers, nowMs]);
 
   return {
     rows,
@@ -386,6 +389,7 @@ export function useGuide(): GuideState {
     windowEndMs,
     nowMs,
     timersByProgramId,
+    recordingChannelIds,
     isLoading: isLoading || playlistIds === "loading",
     isUpdating: pendingPrograms > 0,
     error,

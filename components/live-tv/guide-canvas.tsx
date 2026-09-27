@@ -52,7 +52,7 @@ interface GuideCanvasProps {
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
 export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
-  const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
+  const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
 
@@ -308,6 +308,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       <View style={styles.bandRow}>
         <GuideChannelColumn
           channels={channels}
+          recordingChannelIds={recordingChannelIds}
           metrics={METRICS}
           listRef={columnRef}
           onScroll={columnHandler}

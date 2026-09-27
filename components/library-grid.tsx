@@ -87,6 +87,8 @@ interface LibraryGridProps {
   liveFramesEnabled?: boolean;
   /** Channel wall: the mark a card wears at its title's left end (a favorite's heart). */
   titleIconFor?: (item: JellyfinItem) => keyof typeof Ionicons.glyphMap | undefined;
+  /** Channel wall: whether a timer is recording the card's channel (a REC pill). */
+  recordingFor?: (item: JellyfinItem) => boolean;
   /** TV: the header's trailing capsule when the grid has no Filters (the wall's Settings). */
   headerAction?: HeaderAction;
   /** TV: a capsule left of headerAction (the wall's favorites filter toggle). */
@@ -124,6 +126,7 @@ export function LibraryGrid({
   liveChannels = false,
   liveFramesEnabled = true,
   titleIconFor,
+  recordingFor,
   headerAction,
   headerSecondaryAction,
   headerTrailing,
@@ -531,6 +534,7 @@ export function LibraryGrid({
                   nextFocusDown={nextFocusDown}
                   cardHeight={card.cardHeight}
                   titleIcon={titleIconFor?.(item)}
+                  recording={recordingFor?.(item)}
                 />
               );
             }
@@ -582,6 +586,7 @@ export function LibraryGrid({
       recordings,
       liveChannels,
       titleIconFor,
+      recordingFor,
     ],
   );
 

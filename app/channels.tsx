@@ -16,12 +16,13 @@ import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
 import { healthFor, healthGeneration, subscribeHealthGeneration } from "@/services/channelHealth";
 import { t } from "@/services/i18n";
-import { searchLiveTv } from "@/services/jellyfinApi";
+import { fetchTimers, searchLiveTv } from "@/services/jellyfinApi";
 import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
-import type { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
+import type { FolderStackEntry, JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
+import { activeRecordTimer } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useRouter, type NativeStackNavigationOptions } from "expo-router";
+import { Stack, useIsFocused, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -97,6 +98,20 @@ export default function ChannelsScreen() {
   // A held search result: channels get the same favorite menu as the wall; programmes carry
   // no channel identity the favorites list could match, so a hold on one does nothing.
   const openResultMenu = useCallback((item: JellyfinItem) => (item.Type === "TvChannel" ? openFavoriteMenu(item) : undefined), [openFavoriteMenu]);
+  // Reread on every return: the program panel and the player start and stop recordings.
+  const isFocused = useIsFocused();
+  const [timers, setTimers] = useState<JellyfinTimer[]>([]);
+  useEffect(() => {
+    if (!isFocused) return;
+    let stale = false;
+    fetchTimers()
+      .then((next) => !stale && setTimers(next))
+      .catch((err) => logger.warn("Timers refresh failed", err, { screen: "Channels" }));
+    return () => {
+      stale = true;
+    };
+  }, [isFocused]);
+  const recordingFor = useCallback((item: JellyfinItem) => item.Type === "TvChannel" && !!activeRecordTimer(timers, { channelId: item.Id }, Date.now()), [timers]);
   const favoriteMark = useCallback((item: JellyfinItem) => (item.Type === "TvChannel" && isFavoriteChannel(preferences, item) ? ("heart" as const) : undefined), [preferences]);
   const crumbs = useMemo<FolderStackEntry[]>(() => [{ id: "channels", name: t("liveTv.channels"), type: "livetv" }], []);
   const openFilterPicker = useChannelFilterPicker();
@@ -187,6 +202,7 @@ export default function ChannelsScreen() {
           liveChannels
           liveFramesEnabled={!searching && preferences.autoUpdate}
           titleIconFor={favoriteMark}
+          recordingFor={recordingFor}
           headerAction={headerAction}
           headerSecondaryAction={filterAction}
           headerTrailing={IS_TV ? <HeaderSearchReveal key={preferences.filter} value={query} onChangeText={setQuery} placeholder={t("liveTv.searchLive")} /> : undefined}

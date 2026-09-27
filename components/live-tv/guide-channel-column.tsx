@@ -19,6 +19,7 @@ const favoriteMark = (preferences: LiveTvPreferences, channel: JellyfinItem) => 
 
 interface GuideChannelColumnProps {
   channels: JellyfinItem[];
+  recordingChannelIds: Set<string>;
   metrics: GuideMetrics;
   /** The grid scrolls this list while the grid is the one moving, and this handler scrolls the grid back. */
   listRef: AnimatedRef<Animated.FlatList<JellyfinItem>>;
@@ -47,6 +48,7 @@ interface GuideChannelColumnProps {
  */
 export function GuideChannelColumn({
   channels,
+  recordingChannelIds,
   metrics,
   listRef,
   onScroll,
@@ -93,6 +95,7 @@ export function GuideChannelColumn({
             hideAiring
             flat
             titleIcon={favoriteMark(preferences, item)}
+            recording={recordingChannelIds.has(item.Id)}
             onPress={onChannelPress}
             onLongPress={onChannelLongPress}
             onItemFocus={cardFocus}
@@ -106,13 +109,14 @@ export function GuideChannelColumn({
             columnWidth={columnWidth}
             compact={compact}
             titleIcon={favoriteMark(preferences, item)}
+            recording={recordingChannelIds.has(item.Id)}
             onPress={onChannelPress}
             onLongPress={onChannelLongPress}
           />
         )}
       </View>
     ),
-    [metrics, columnWidth, compact, preferences, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef],
+    [metrics, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef],
   );
   const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const getItemLayout = useCallback(
@@ -160,6 +164,7 @@ function ChannelMorph({
   columnWidth,
   compact,
   titleIcon,
+  recording,
   onPress,
   onLongPress,
 }: {
@@ -169,6 +174,7 @@ function ChannelMorph({
   columnWidth: SharedValue<number>;
   compact: boolean;
   titleIcon?: "heart";
+  recording: boolean;
   onPress: (channel: JellyfinItem) => void;
   onLongPress: (channel: JellyfinItem) => void;
 }) {
@@ -184,7 +190,17 @@ function ChannelMorph({
   return (
     <>
       <Animated.View style={[styles.cardLayer, cardStyle]} pointerEvents={compact ? "none" : "auto"}>
-        <GuideChannelCard channel={channel} index={index} cardWidth={metrics.channelColumnWidth} hideAiring flat titleIcon={titleIcon} onPress={onPress} onLongPress={onLongPress} />
+        <GuideChannelCard
+          channel={channel}
+          index={index}
+          cardWidth={metrics.channelColumnWidth}
+          hideAiring
+          flat
+          titleIcon={titleIcon}
+          recording={recording}
+          onPress={onPress}
+          onLongPress={onLongPress}
+        />
       </Animated.View>
       <Animated.View style={[styles.tileLayer, { width: metrics.compactColumnWidth }, tileStyle]} pointerEvents={compact ? "auto" : "none"}>
         <GuideChannelTile channel={channel} metrics={metrics} onPress={onPress} />

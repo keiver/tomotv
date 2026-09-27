@@ -105,6 +105,8 @@ interface VideoGridItemProps {
   liveFrame?: { uri: string; cacheKey: string };
   /** Channel cards: the health check concluded down; the art dims and the corner badge says Offline. */
   offline?: boolean;
+  /** Channel cards: the server is recording this channel; a REC pill joins the corner badge. */
+  recording?: boolean;
   /** No resting depth shadow, for hosts that clip it; the focus glow stays. */
   flat?: boolean;
 }
@@ -143,6 +145,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     hideAiring = false,
     liveFrame,
     offline = false,
+    recording = false,
     flat = false,
   },
   ref,
@@ -366,13 +369,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
-          {offline ? (
+          {offline || badgeSegments || recording ? (
             <View style={styles.indexBadge} pointerEvents="none">
-              <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} tone="live" />
-            </View>
-          ) : badgeSegments ? (
-            <View style={styles.indexBadge} pointerEvents="none">
-              <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
+              {offline ? (
+                <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} tone="live" />
+              ) : badgeSegments ? (
+                <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
+              ) : null}
+              {recording ? <CardBadge segments={[{ icon: "radio-button-on", label: t("liveTv.rec") }]} focused={focused} tone="live" /> : null}
             </View>
           ) : null}
 
@@ -431,6 +435,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.hideAiring === nextProps.hideAiring &&
     prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
     prevProps.offline === nextProps.offline &&
+    prevProps.recording === nextProps.recording &&
     prevProps.flat === nextProps.flat
   );
 }
