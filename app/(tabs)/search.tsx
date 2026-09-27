@@ -113,6 +113,8 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
   // measures it and reports it, so the grid packs against the box it is actually drawn in.
   const [region, setRegion] = useState<{ width: number; height: number } | null>(null);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped by every keystroke: a response for an older query lands nothing.
+  const searchSeqRef = useRef(0);
   useEffect(() => {
     return () => {
       if (searchDelayRef.current) clearTimeout(searchDelayRef.current);
@@ -132,6 +134,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
 
   const handleSearch = useCallback((event: { nativeEvent: { query: string } }) => {
     const nextQuery = event.nativeEvent.query;
+    const seq = ++searchSeqRef.current;
     setQuery(nextQuery);
 
     if (searchDelayRef.current) {
@@ -149,10 +152,12 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
     searchDelayRef.current = setTimeout(async () => {
       try {
         const [{ items }, live] = await Promise.all([searchVideos(nextQuery.trim(), { limit: 60 }), searchLiveTv(nextQuery.trim())]);
+        if (seq !== searchSeqRef.current) return;
         logger.debug("Search results", { service: "NativeSearchScreen", query: nextQuery.trim(), count: items.length, live: live.length });
         setSearchResults(items);
         setLiveResults(live);
       } catch (error) {
+        if (seq !== searchSeqRef.current) return;
         logger.error("Search failed", error, { service: "NativeSearchScreen", query: nextQuery.trim() });
         setSearchResults([]);
         setLiveResults([]);
@@ -162,7 +167,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
           Alert.alert(t("search.error"), message);
         }
       } finally {
-        setIsSearching(false);
+        if (seq === searchSeqRef.current) setIsSearching(false);
       }
     }, 300);
   }, []);
@@ -341,6 +346,8 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const [isConnectingToDemo, setIsConnectingToDemo] = useState(false);
   const searchInputRef = useRef<TextInput>(null);
   const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped by every new query: a page for an older one lands nothing.
+  const searchSeqRef = useRef(0);
   const nextStartIndexRef = useRef(0);
   const gridRef = useRef<SearchResultsGridHandle>(null);
 
@@ -360,6 +367,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const executeSearch = useCallback(async (term: string, append: boolean = false) => {
     const trimmed = term.trim();
     if (!trimmed) return;
+    const seq = append ? searchSeqRef.current : ++searchSeqRef.current;
 
     if (append) {
       setIsLoadingMore(true);
@@ -375,6 +383,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       const pageSize = 60;
       // Live TV matches ride the first page only; searchLiveTv answers empty rather than throwing.
       const [{ items, total }, live] = await Promise.all([searchVideos(trimmed, { limit: pageSize, startIndex }), append ? null : searchLiveTv(trimmed)]);
+      if (seq !== searchSeqRef.current) return;
       if (live) setLiveResults(live);
 
       if (append) {
@@ -390,6 +399,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       nextStartIndexRef.current = startIndex + items.length;
       setActiveQuery(trimmed);
     } catch (err) {
+      if (seq !== searchSeqRef.current) return;
       setSearchError(getLoadErrorMessage(err));
       if (!append) {
         setSearchResults([]);
@@ -398,7 +408,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     } finally {
       if (append) {
         setIsLoadingMore(false);
-      } else {
+      } else if (seq === searchSeqRef.current) {
         setIsSearching(false);
       }
     }
@@ -461,6 +471,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
 
     const trimmed = searchQuery.trim();
     if (trimmed.length < 2) {
+      searchSeqRef.current += 1;
       // Guarded reset when the query is cleared; not a render cascade.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSearchResults([]);

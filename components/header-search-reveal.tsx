@@ -57,6 +57,8 @@ export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderS
 
   const reveal = () => {
     if (open) return;
+    // The screen may have cleared the term since mount; the field shows what `value` says now.
+    draft.current = value;
     editedOnce.current = false;
     setOpen(true);
     setRolling(true);
