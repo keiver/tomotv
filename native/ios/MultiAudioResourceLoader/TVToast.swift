@@ -76,10 +76,10 @@ class TVToast: NSObject {
             label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -12),
             label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 28),
             label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -28),
-            // The screen's upper right, a fifth down from the top edge, clear of the player
+            // The screen's upper right, 12% down from the top edge, clear of the player
             // chrome's bottom band and of AVKit's own top-right badges.
             pill.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor, constant: -90),
-            NSLayoutConstraint(item: pill, attribute: .centerY, relatedBy: .equal, toItem: controller.view, attribute: .bottom, multiplier: 0.2, constant: 0),
+            NSLayoutConstraint(item: pill, attribute: .centerY, relatedBy: .equal, toItem: controller.view, attribute: .bottom, multiplier: 0.12, constant: 0),
             pill.widthAnchor.constraint(lessThanOrEqualTo: controller.view.widthAnchor, multiplier: 0.5),
         ])
 

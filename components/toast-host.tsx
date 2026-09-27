@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const SHOW_MS = 2600;
 
 /**
- * The toast pill, one at a time in the screen's upper right, a fifth down from the top edge
+ * The toast pill, one at a time in the screen's upper right, 12% down from the top edge
  * (TVToast.swift holds the same spot on tvOS); the latest message replaces the current one.
  * Touch platforms only: services/toast.ts never emits on TV.
  */
@@ -47,7 +47,7 @@ export function ToastHost() {
 const styles = StyleSheet.create({
   host: {
     position: "absolute",
-    top: "20%",
+    top: "12%",
     left: 0,
     right: 0,
     alignItems: "flex-end",
