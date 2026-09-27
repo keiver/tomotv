@@ -304,6 +304,7 @@
   "search.emptyHint": "Nach Titel, Genre, Interpret oder Jahr suchen…",
   "search.unableBody": "Suche nicht möglich. Bitte prüfe deine Verbindung.",
   "search.noResultsFor": "Keine Ergebnisse für",
+  "search.libraryHeading": "Bibliothek",
   "search.demoFailedTitle": "Verbindung zum Demoserver nicht möglich",
   "settings.quality.auto": "Automatisch",
   "settings.quality.max4k": "Bis zu 4K",

@@ -29,6 +29,17 @@ interface MediaShelfProps<T> {
  * presentational — data loading, press routing and focus side effects belong to the wrapper
  * that instantiates it. Renders null with no items so empty shelves collapse.
  */
+/** The shelf's index-mark heading, exported so sibling sections can label themselves alike. */
+export function ShelfHeading({ title }: { title: string }) {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const spacing = shelfSpacing(IS_TV, windowWidth, windowHeight);
+  return (
+    <View style={[styles.headingRow, { marginBottom: spacing.headingGap }]}>
+      <Text style={[styles.heading, { fontSize: spacing.headingSize, lineHeight: spacing.headingLine }]}>{title}</Text>
+    </View>
+  );
+}
+
 export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtractor }: MediaShelfProps<T>) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -71,8 +82,6 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
   // against this same block, so the shelf still lands where the fill maths put it.
   const spacing = shelfSpacing(IS_TV, windowWidth, windowHeight);
   const containerStyle = useMemo(() => ({ marginBottom: spacing.rowGap }), [spacing]);
-  const headingRowStyle = useMemo(() => ({ marginBottom: spacing.headingGap }), [spacing]);
-  const headingStyle = useMemo(() => ({ fontSize: spacing.headingSize, lineHeight: spacing.headingLine }), [spacing]);
   const rowContentStyle = useMemo(() => ({ paddingVertical: GLOW_PAD, paddingLeft: edgeLeft, paddingRight: edgeRight }), [edgeLeft, edgeRight]);
 
   if (data.length === 0) {
@@ -81,9 +90,7 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
 
   return (
     <View style={[styles.container, containerStyle]}>
-      <View style={[styles.headingRow, headingRowStyle]}>
-        <Text style={[styles.heading, headingStyle]}>{title}</Text>
-      </View>
+      <ShelfHeading title={title} />
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
       <View style={rowAreaStyle}>
         <FlatList

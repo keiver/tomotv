@@ -5,6 +5,7 @@ import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { LiveTvSearchShelf } from "@/components/live-tv/live-tv-search-shelf";
+import { ShelfHeading } from "@/components/media-shelf";
 import { SearchResultsGrid, type SearchResultsGridHandle } from "@/components/search-results-grid";
 import { IS_PAD, settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
@@ -256,7 +257,15 @@ function NativeSearchResults({
         onItemLongPress={onItemLongPress}
         availableWidth={region?.width}
         edgePadding={region ? 0 : undefined}
-        ListHeaderComponent={liveResults.length > 0 ? <LiveTvSearchShelf items={liveResults} /> : null}
+        // With two sections on screen, each wears its heading; a lone grid stays unlabelled.
+        ListHeaderComponent={
+          liveResults.length > 0 ? (
+            <>
+              <LiveTvSearchShelf items={liveResults} />
+              {results.length > 0 && <ShelfHeading title={t("search.libraryHeading")} />}
+            </>
+          ) : null
+        }
       />
     ) : (
       <EmptyResults query={query} isSearching={isSearching} />
@@ -594,7 +603,15 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
           claimInitialFocus
           onFirstCardHandleChange={setFirstResultHandle}
           onEndReached={handleLoadMore}
-          ListHeaderComponent={liveResults.length > 0 ? <LiveTvSearchShelf items={liveResults} /> : null}
+          // With two sections on screen, each wears its heading; a lone grid stays unlabelled.
+          ListHeaderComponent={
+            liveResults.length > 0 ? (
+              <>
+                <LiveTvSearchShelf items={liveResults} />
+                {searchResults.length > 0 && <ShelfHeading title={t("search.libraryHeading")} />}
+              </>
+            ) : null
+          }
           ListFooterComponent={renderFooter}
         />
       ) : (

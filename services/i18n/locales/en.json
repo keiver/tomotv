@@ -304,6 +304,7 @@
   "search.emptyHint": "Find by title, genre, artist, or year…",
   "search.unableBody": "Unable to search. Please check your connection.",
   "search.noResultsFor": "No results for",
+  "search.libraryHeading": "Library",
   "search.demoFailedTitle": "Unable to connect to demo server",
   "settings.quality.auto": "Auto",
   "settings.quality.max4k": "Up to 4K",

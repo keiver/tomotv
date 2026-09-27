@@ -304,6 +304,7 @@
   "search.emptyHint": "Busca por título, género, artista o año…",
   "search.unableBody": "No se pudo buscar. Comprueba tu conexión.",
   "search.noResultsFor": "Sin resultados para",
+  "search.libraryHeading": "Biblioteca",
   "search.demoFailedTitle": "No se pudo conectar al servidor de demostración",
   "settings.quality.auto": "Automático",
   "settings.quality.max4k": "Hasta 4K",
