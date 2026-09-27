@@ -11,12 +11,13 @@ import { lastKnownTunerData } from "@/services/jellyfinApi";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
+import { showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { EXTERNAL_GUIDE_PREFIX, guideMetrics, NO_GUIDE_PREFIX } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -51,10 +52,22 @@ export default function LiveTvScreen() {
   // The refresh circle shows only while an external guide is in play: named, or playlist-declared.
   const hasExternalGuide = preferences.guideUrl !== "" || (lastKnownTunerData()?.tvgUrls.length ?? 0) > 0;
   const { retry } = guide;
+  // The refresh press announces itself and its outcome; armed so the passive loads
+  // (first open, paging, window growth) stay silent.
+  const refreshToastArmed = useRef(false);
   const refreshGuide = useCallback(() => {
     refreshExternalGuide();
     retry();
+    refreshToastArmed.current = true;
+    showToast(t("liveTv.guideDownloading"));
   }, [retry]);
+  const guideWorking = guide.isLoading || guide.isUpdating;
+  const guideFailed = !!guide.error;
+  useEffect(() => {
+    if (guideWorking || !refreshToastArmed.current) return;
+    refreshToastArmed.current = false;
+    showToast(t(guideFailed ? "liveTv.guideUnavailable" : "liveTv.guideUpdated"), guideFailed ? "error" : "info");
+  }, [guideWorking, guideFailed]);
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
