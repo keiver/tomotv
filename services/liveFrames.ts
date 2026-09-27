@@ -5,7 +5,7 @@
  * the server's disk while it lasts. Stands down while the screen is away, the app is in the
  * background or playback holds the link.
  */
-import { clearChannelHealth, noteChannelAlive, setHealthViewable } from "@/services/channelHealth";
+import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 import { closeLiveStream, openChannel, openRecentlyFailed, resolveChannelOrigin, type ChannelOrigin } from "@/services/jellyfinApi";
 import { isLocalRemuxAvailable, nativeEmits } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "@/services/playbackHold";
@@ -72,6 +72,8 @@ interface Entry {
   /** How long after `lastAt` the channel is due; the refresh floor until its picture stands still. */
   intervalMs?: number;
   burst?: Burst;
+  /** The burst aged past the display gate and the cards were told once; the reel keeps it. */
+  expiredAnnounced?: boolean;
   /** The frame of the burst the card was last told about. */
   shownIndex?: number;
   /** The shown burst's keyframe timestamp: the engine answers unchanged while the live edge is still on it. */
@@ -95,10 +97,10 @@ let viewable: string[] = [];
 /** Each surface's last reported set; the one that turns active plays its set back. */
 const viewableBySurface = new Map<LiveFrameSurface, string[]>();
 let activeSurface: LiveFrameSurface | null = null;
-/** The channel a grab is reading now, so playback taking the link can stop it. */
-let grabbing: string | null = null;
-/** The generation the running grab started in; a frame event from an older one is dropped. */
-let grabGeneration = 0;
+/** Grabs at once; the native queue serializes same-host jobs itself. */
+const MAX_INFLIGHT = 2;
+/** Channels grabs are reading now, each with the generation it started in. */
+const grabbing = new Map<string, number>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 /** Walks every burst on screen; runs only while a surface shows one with more than one frame. */
 let ticker: ReturnType<typeof setInterval> | null = null;
@@ -122,11 +124,12 @@ function noteOpenFailure(): void {
 function onLiveFrameEvent(event: { channelId?: string; uri?: string; index?: number }): void {
   const { channelId, uri, index } = event;
   if (!channelId || !uri || typeof index !== "number") return;
-  if (channelId !== grabbing || grabGeneration !== generation) return;
+  if (grabbing.get(channelId) !== generation) return;
   const item = entries.get(channelId);
   if (!item) return;
   if (index === 0) {
     item.burst = burstOf(channelId, [uri], item.lastAt);
+    item.expiredAnnounced = false;
     item.shownIndex = 0;
   } else {
     // Appends in order only; anything missed is reconciled when the grab resolves.
@@ -151,7 +154,7 @@ function wire(): void {
   // A channel opening needs the whole link: the grab reading now is stopped, not waited out.
   onPlaybackHoldTaken(() => {
     stop();
-    cancelGrab();
+    cancelGrabs();
   });
 }
 
@@ -169,8 +172,10 @@ function stop(): void {
   timer = null;
 }
 
-function cancelGrab(): void {
-  if (grabbing) void LocalRemuxer?.cancelLiveFrame?.(grabbing)?.catch(() => {});
+function cancelGrabs(keep?: readonly string[]): void {
+  for (const channelId of grabbing.keys()) {
+    if (!keep?.includes(channelId)) void LocalRemuxer?.cancelLiveFrame?.(channelId)?.catch(() => {});
+  }
 }
 
 function schedule(delayMs: number): void {
@@ -221,12 +226,15 @@ function tick(): void {
   for (const channelId of viewable) {
     const item = entries.get(channelId);
     if (!item?.burst) continue;
-    // A burst that aged out mid-wait comes down; the card falls back to its placeholder.
+    // Past the display gate the cards repaint to their placeholder once; the burst itself stays
+    // for the reel, which places history by its grab time.
     if (expired(item.burst, now)) {
-      item.burst = undefined;
-      item.shownIndex = undefined;
-      item.pts = undefined;
-      notify(channelId);
+      if (!item.expiredAnnounced) {
+        item.expiredAnnounced = true;
+        item.shownIndex = undefined;
+        item.pts = undefined;
+        notify(channelId);
+      }
       continue;
     }
     if (item.burst.frames.length <= 1) continue;
@@ -268,6 +276,7 @@ async function seedFromDisk(): Promise<void> {
       // A stale burst from a past run stays off screen; the channel is due at once instead.
       if (Date.now() - at > LIVE_FRAME_EXPIRY_MS) continue;
       item.burst = burstOf(channelId, uris, at);
+      item.expiredAnnounced = false;
       item.shownIndex = undefined;
       item.lastAt = Math.max(item.lastAt, at);
       notify(channelId);
@@ -291,6 +300,7 @@ function recordFailure(item: Entry, now: number): void {
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
   let pick: { channelId: string; readyAt: number } | null = null;
   for (const channelId of viewable) {
+    if (grabbing.has(channelId)) continue;
     const item = entry(channelId);
     const readyAt = Math.max(item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS), backoffUntil(item.failure));
     if (!pick || readyAt < pick.readyAt) pick = { channelId, readyAt };
@@ -299,10 +309,10 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
 }
 
 async function pump(): Promise<void> {
-  if (!running() || grabbing) return;
+  if (!running() || grabbing.size >= MAX_INFLIGHT) return;
   if (!seeding) seeding = seedFromDisk().finally(() => (seeding = null));
   await seeding;
-  if (!running() || grabbing) return;
+  if (!running() || grabbing.size >= MAX_INFLIGHT) return;
   const now = Date.now();
   if (now < capRestUntil) {
     schedule(capRestUntil - now);
@@ -313,14 +323,13 @@ async function pump(): Promise<void> {
     if (due) schedule(due.waitMs);
     return;
   }
-  grabbing = due.channelId;
-  grabGeneration = generation;
-  try {
-    await grab(due.channelId);
-  } finally {
-    grabbing = null;
+  grabbing.set(due.channelId, generation);
+  void grab(due.channelId).finally(() => {
+    grabbing.delete(due.channelId);
     schedule(LIVE_FRAME_SPACING_MS);
-  }
+  });
+  // The next slot, a breath later, so grab starts never land as a burst of opens.
+  schedule(LIVE_FRAME_SPACING_MS);
 }
 
 interface GrabInput {
@@ -367,7 +376,7 @@ async function grab(channelId: string): Promise<void> {
       noteOpenFailure();
       return;
     }
-    const result: { uris?: string[] | null; pts?: number | null; unchanged?: boolean; cancelled?: boolean; reason?: string } = await LocalRemuxer.liveFrame({
+    const result: { uris?: string[] | null; pts?: number | null; unchanged?: boolean; cancelled?: boolean; reason?: string; failure?: string | null } = await LocalRemuxer.liveFrame({
       channelId,
       inputUrl: input.url,
       httpHeaders: input.headers ?? {},
@@ -392,6 +401,7 @@ async function grab(channelId: string): Promise<void> {
       noteChannelAlive(channelId);
     } else if (result?.uris?.length) {
       item.burst = burstOf(channelId, result.uris, now);
+      item.expiredAnnounced = false;
       item.shownIndex = 0;
       item.pts = result.pts ?? undefined;
       item.intervalMs = LIVE_FRAME_REFRESH_MS;
@@ -403,8 +413,11 @@ async function grab(channelId: string): Promise<void> {
     } else {
       recordFailure(item, now);
       // "open" is a refusal at the source, the cap's signature; "frame" opened fine.
-      if (result?.reason === "open") noteOpenFailure();
-      else openFailStreak = 0;
+      if (result?.reason === "open") {
+        noteOpenFailure();
+        // The origin's own words judge the channel, and never while the cap is suspected.
+        if (item.lane === "origin" && Date.now() >= capRestUntil) noteChannelOpenFailure(channelId, result.failure ?? undefined);
+      } else openFailStreak = 0;
     }
   } catch (error) {
     if (gen !== generation) return;
@@ -418,9 +431,8 @@ async function grab(channelId: string): Promise<void> {
 
 function applyViewable(channelIds: string[]): void {
   viewable = channelIds;
-  setHealthViewable(channelIds);
-  // A grab for a card that scrolled away frees the slot; frames it already wrote stay.
-  if (grabbing && !channelIds.includes(grabbing)) cancelGrab();
+  // Grabs for cards that scrolled away free their slots; frames they already wrote stay.
+  cancelGrabs(channelIds);
   if (running()) schedule(0);
   else stop();
 }
@@ -444,8 +456,22 @@ export function setLiveFramesActive(surface: LiveFrameSurface, active: boolean):
   activeSurface = null;
   stop();
   stopTicker();
-  // The read in flight is stopped, so its server open closes now rather than at its deadline.
-  cancelGrab();
+  // The reads in flight are stopped, so their server opens close now rather than at their deadlines.
+  cancelGrabs();
+}
+
+/** Resolves once no grab is in flight and none is due within a beat, or at the wait's cap:
+ *  bulk work (a guide file download) yields the link to the sampler's first paint. */
+export function whenSamplerQuiet(maxWaitMs: number): Promise<void> {
+  const deadline = Date.now() + maxWaitMs;
+  return new Promise((resolve) => {
+    const check = () => {
+      const idle = grabbing.size === 0 && (nextDue(Date.now())?.waitMs ?? Infinity) > 2_000;
+      if (idle || Date.now() >= deadline || !running()) resolve();
+      else setTimeout(check, 1_500);
+    };
+    check();
+  });
 }
 
 /** The channel's frame for now: the burst spread across the refresh, one picture at a time. */
@@ -454,6 +480,12 @@ export function liveFrameFor(channelId: string): LiveFrame | undefined {
   const now = Date.now();
   if (!burst || expired(burst, now)) return undefined;
   return burst.frames[frameIndex(burst, now)];
+}
+
+/** The channel's whole burst in grab order with when it was taken, for the focus reel. Expiry
+ *  does not gate it: the reel is history and places itself by the grab's time on the timeline. */
+export function liveFrameReel(channelId: string): { frames: LiveFrame[]; at: number } | undefined {
+  return entries.get(channelId)?.burst;
 }
 
 export function subscribeLiveFrame(channelId: string, listener: () => void): () => void {

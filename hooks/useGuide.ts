@@ -4,6 +4,7 @@ import { healthFor, healthGeneration, subscribeHealthGeneration } from "@/servic
 import { fetchChannels, fetchChannelsByIds, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { fetchExternalPrograms } from "@/services/externalGuide";
 import { huntPrograms } from "@/services/guideHunt";
+import { whenSamplerQuiet } from "@/services/liveFrames";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
@@ -155,7 +156,9 @@ export function useGuide(): GuideState {
       const wanted = bare.flatMap((channel) => (tvgById[channel.Id] ? [{ channelId: channel.Id, tvgId: tvgById[channel.Id], name: channel.Name ?? "" }] : []));
       if (wanted.length === 0) return;
       setPendingPrograms((count) => count + 1);
-      huntPrograms(wanted, windowMs)
+      // The country file is megabytes; the sampler's first paint owns the link until it settles.
+      whenSamplerQuiet(120_000)
+        .then(() => huntPrograms(wanted, windowMs))
         .then((late) => {
           if (late.length > 0) applyPrograms(bare, late);
         })
