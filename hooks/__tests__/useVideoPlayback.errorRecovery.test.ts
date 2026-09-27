@@ -47,20 +47,20 @@ describe("rebuildResumesPaused", () => {
   const now = 1_790_340_000_000;
 
   it("carries a JS pause into the rebuild", () => {
-    expect(rebuildResumesPaused({ jsPaused: true, lastNativePlayingAt: now - 1000, now })).toBe(true);
+    expect(rebuildResumesPaused({ jsPaused: true, nativePausedAt: 0, now })).toBe(true);
   });
 
   it("carries a native pause the JS flag never saw (paused overnight, error on wake)", () => {
-    expect(rebuildResumesPaused({ jsPaused: false, lastNativePlayingAt: now - 11 * 3600_000, now })).toBe(true);
+    expect(rebuildResumesPaused({ jsPaused: false, nativePausedAt: now - 11 * 3600_000, now })).toBe(true);
   });
 
-  it("resumes playing after a stall that erred within the carry window", () => {
-    expect(rebuildResumesPaused({ jsPaused: false, lastNativePlayingAt: now - NATIVE_PAUSE_CARRY_MS, now })).toBe(false);
-    expect(rebuildResumesPaused({ jsPaused: false, lastNativePlayingAt: now - NATIVE_PAUSE_CARRY_MS - 1, now })).toBe(true);
+  it("resumes playing after a pause that erred within the carry window", () => {
+    expect(rebuildResumesPaused({ jsPaused: false, nativePausedAt: now - NATIVE_PAUSE_CARRY_MS, now })).toBe(false);
+    expect(rebuildResumesPaused({ jsPaused: false, nativePausedAt: now - NATIVE_PAUSE_CARRY_MS - 1, now })).toBe(true);
   });
 
-  it("resumes when the native player never reported playing for this item", () => {
-    expect(rebuildResumesPaused({ jsPaused: false, lastNativePlayingAt: 0, now })).toBe(false);
+  it("resumes a player that has been playing, however long ago it started", () => {
+    expect(rebuildResumesPaused({ jsPaused: false, nativePausedAt: 0, now })).toBe(false);
   });
 });
 

@@ -389,10 +389,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
-  // Last isPlaying report from the native player; 0 = none yet for this item.
-  const lastNativePlayingAtRef = useRef(0);
+  // When the native player reported paused; 0 while it plays or before its first report.
+  const nativePausedAtRef = useRef(0);
   /** Paused intent carried into the next session: the JS flag, or a long-standing native pause. */
-  const resumePausedIntent = useCallback(() => rebuildResumesPaused({ jsPaused: pausedRef.current, lastNativePlayingAt: lastNativePlayingAtRef.current, now: Date.now() }), []);
+  const resumePausedIntent = useCallback(() => rebuildResumesPaused({ jsPaused: pausedRef.current, nativePausedAt: nativePausedAtRef.current, now: Date.now() }), []);
 
   // Audio track state (for tracking selected track)
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
@@ -2666,7 +2666,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // outlive the route, which makes resetting it here the only thing that does.
     isPlayingRef.current = false;
     autoPlayTriggeredRef.current = false;
-    lastNativePlayingAtRef.current = 0;
+    nativePausedAtRef.current = 0;
     // The reporter reads this as its live position source, without the reset a queue
     // advance would stamp the new video's first reports with the previous video's clock.
     currentTimeRef.current = 0;
@@ -2897,7 +2897,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (event: OnPlaybackStateChangedData) => {
       syncPlayManager.notePlaybackState(event);
       playerPlayingRef.current = event.isPlaying;
-      if (event.isPlaying) lastNativePlayingAtRef.current = Date.now();
+      // RNV reports only the edges, so the stamp is when the pause began.
+      nativePausedAtRef.current = event.isPlaying ? 0 : Date.now();
       reportPauseChange(!event.isPlaying);
     },
     [reportPauseChange],

@@ -29,10 +29,10 @@ export const NATIVE_PAUSE_CARRY_MS = 5 * 60_000;
 
 /**
  * Whether a rebuilt session comes back paused. The JS flag only knows JS pauses; a pause taken
- * natively (AVKit button, lock screen) shows as a long gap since the last isPlaying report.
+ * natively (AVKit button, lock screen) is the time the player reported paused, 0 while it plays.
  */
-export function rebuildResumesPaused(input: { jsPaused: boolean; lastNativePlayingAt: number; now: number }): boolean {
-  return input.jsPaused || (input.lastNativePlayingAt > 0 && input.now - input.lastNativePlayingAt > NATIVE_PAUSE_CARRY_MS);
+export function rebuildResumesPaused(input: { jsPaused: boolean; nativePausedAt: number; now: number }): boolean {
+  return input.jsPaused || (input.nativePausedAt > 0 && input.now - input.nativePausedAt > NATIVE_PAUSE_CARRY_MS);
 }
 
 export interface ErrorRecoveryInput {
