@@ -8,8 +8,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const SHOW_MS = 2600;
 
 /**
- * The toast pill, one at a time above the bottom safe area; the latest message replaces the
- * current one. Touch platforms only: services/toast.ts never emits on TV.
+ * The toast pill, one at a time in the screen's upper right, a fifth down from the top edge
+ * (TVToast.swift holds the same spot on tvOS); the latest message replaces the current one.
+ * Touch platforms only: services/toast.ts never emits on TV.
  */
 export function ToastHost() {
   const insets = useSafeAreaInsets();
@@ -29,7 +30,7 @@ export function ToastHost() {
 
   if (Platform.isTV || !toast) return null;
   return (
-    <View style={[styles.host, { bottom: insets.bottom + 24 }]} pointerEvents="none">
+    <View style={[styles.host, { paddingRight: insets.right + 16 }]} pointerEvents="none">
       <Animated.View
         key={toast.key}
         entering={FadeInDown.duration(220).easing(Easing.out(Easing.quad))}
@@ -46,9 +47,10 @@ export function ToastHost() {
 const styles = StyleSheet.create({
   host: {
     position: "absolute",
+    top: "20%",
     left: 0,
     right: 0,
-    alignItems: "center",
+    alignItems: "flex-end",
     zIndex: 9998,
   },
   pill: {
