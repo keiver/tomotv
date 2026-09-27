@@ -4,12 +4,15 @@ import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { formatClock, labelPin } from "@/utils/guide";
 import { Image } from "expo-image";
 import React, { useCallback, useEffect, useSyncExternalStore } from "react";
-import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
+import { LayoutChangeEvent, Platform, StyleSheet, View } from "react-native";
 import Animated, { Easing, SharedValue, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
-/** Per-tile entrance offset: the reel unrolls left to right. */
+/** Per-tile offset of the focus brightening: the reel unrolls left to right. */
 const STAGGER_MS = 55;
+/** A resting reel is texture; the focused one is the subject. */
+const REST_OPACITY = 0.35;
+const ACTIVE_OPACITY = 0.92;
 const TEXT_SHADOW = { textShadowColor: "rgba(0, 0, 0, 0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: IS_TV ? 4 : 3 } as const;
 /** The strip runs out through this, film trailing off the spool. */
 const TAIL_FADE = "linear-gradient(to right, rgba(28, 28, 30, 0) 70%, rgba(28, 28, 30, 0.9) 100%)";
@@ -21,18 +24,21 @@ interface GuideFocusReelProps {
   cellHeight: number;
   /** The canvas's horizontal offset; the reel rides it so it stays on the visible edge, label-style. */
   scrollX: SharedValue<number>;
+  /** The row holds focus (its cell or its channel card): full strength, caption, the one-shot drift. */
+  active: boolean;
   /** A programme cell's variant: smaller tiles, no caption, under the cell's own three lines. */
   compact?: boolean;
 }
 
-function Tile({ uri, cacheKey, index, width, height }: { uri: string; cacheKey: string; index: number; width: number; height: number }) {
-  const opacity = useSharedValue(0);
-  const drift = useSharedValue(14);
+function Tile({ uri, cacheKey, index, width, height, active }: { uri: string; cacheKey: string; index: number; width: number; height: number; active: boolean }) {
+  // Mounted at rest (or invisible when born focused); only the focus transition animates,
+  // so scrolling rows in never plays the stagger.
+  const opacity = useSharedValue(active ? 0 : REST_OPACITY);
   useEffect(() => {
-    opacity.set(withDelay(index * STAGGER_MS, withTiming(0.92, { duration: 260, easing: Easing.out(Easing.quad) })));
-    drift.set(withDelay(index * STAGGER_MS, withTiming(0, { duration: 260, easing: Easing.out(Easing.quad) })));
-  }, [opacity, drift, index]);
-  const enter = useAnimatedStyle(() => ({ opacity: opacity.value, transform: [{ translateX: drift.value }] }));
+    if (active) opacity.set(withDelay(index * STAGGER_MS, withTiming(ACTIVE_OPACITY, { duration: 220, easing: Easing.out(Easing.quad) })));
+    else opacity.set(withTiming(REST_OPACITY, { duration: 200 }));
+  }, [opacity, index, active]);
+  const enter = useAnimatedStyle(() => ({ opacity: opacity.value }));
   return (
     <Animated.View style={[styles.tile, { width, height }, enter]}>
       <Image source={{ uri, cacheKey }} style={styles.image} contentFit="cover" transition={0} cachePolicy="none" recyclingKey={cacheKey} />
@@ -41,30 +47,35 @@ function Tile({ uri, cacheKey, index, width, height }: { uri: string; cacheKey: 
 }
 
 /**
- * The channel's last burst unrolled flat while its stand-in cell is focused, dressed as the cell's
- * one programme: the cell's own title and meta type over a strip of stills. History, not "now":
- * the title says so, with the sample's clock time beside it.
+ * The channel's last burst unrolled flat on its row, dressed as the cell's one programme: resting
+ * faded as texture, brightening with its caption while the row holds focus. History, not "now":
+ * the caption says so, with the sample's clock time in it.
  */
-export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, compact = false }: GuideFocusReelProps) {
+export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, active, compact = false }: GuideFocusReelProps) {
   const subscribe = useCallback((listener: () => void) => subscribeLiveFrame(channelId, listener), [channelId]);
   const read = useCallback(() => liveFrameReel(channelId), [channelId]);
   const reel = useSyncExternalStore(subscribe, read);
   const reelWidth = useSharedValue(0);
+  const captionOpacity = useSharedValue(active ? 1 : 0);
   const handleLayout = useCallback((event: LayoutChangeEvent) => reelWidth.set(event.nativeEvent.layout.width), [reelWidth]);
   const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateX: labelPin(scrollX.value, left, width, reelWidth.value) }] }), [left, width]);
+  useEffect(() => {
+    captionOpacity.set(withTiming(active ? 1 : 0, { duration: 200 }));
+  }, [captionOpacity, active]);
+  const captionStyle = useAnimatedStyle(() => ({ opacity: captionOpacity.value }));
   if (!reel || reel.frames.length === 0) return null;
   const tileHeight = Math.round(cellHeight * (compact ? 0.42 : IS_TV ? 0.55 : 0.5));
   const tileWidth = Math.round(tileHeight * (16 / 9));
   return (
     <Animated.View style={[styles.reel, pinStyle]} onLayout={handleLayout} pointerEvents="none" testID="guide-focus-reel">
       {compact ? null : (
-        <Text style={styles.title} numberOfLines={1}>
+        <Animated.Text style={[styles.title, captionStyle]} numberOfLines={1}>
           {t("liveTv.lastSeen").replace("{time}", formatClock(reel.at))}
-        </Text>
+        </Animated.Text>
       )}
       <View style={styles.strip}>
         {reel.frames.map((frame, index) => (
-          <Tile key={frame.cacheKey} uri={frame.uri} cacheKey={frame.cacheKey} index={index} width={tileWidth} height={tileHeight} />
+          <Tile key={frame.cacheKey} uri={frame.uri} cacheKey={frame.cacheKey} index={index} width={tileWidth} height={tileHeight} active={active} />
         ))}
         <View style={styles.tailFade} />
       </View>

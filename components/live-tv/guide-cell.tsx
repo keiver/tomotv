@@ -1,4 +1,5 @@
 import { GuideFocusReel } from "@/components/live-tv/guide-focus-reel";
+import { useGuideChannelFocus } from "@/hooks/useGuideChannelFocus";
 import { GuideCellQuietLine } from "@/components/live-tv/guide-cell-quiet-line";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -74,6 +75,8 @@ function GuideCellComponent({
   // The stand-in of a channel without listings: a quiet band, one dim line, no slot times.
   const standInChannel = standInChannelId(program.Id);
   const standIn = standInChannel !== null;
+  // The reel also unrolls while the row's channel card holds focus over in the column.
+  const cardFocused = useGuideChannelFocus(standInChannel ?? program.ChannelId);
   // One line under the titles: the slot, then whatever the guide source filled in.
   const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter(Boolean).join("  ·  ");
   const art = program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
@@ -114,12 +117,16 @@ function GuideCellComponent({
           <View style={styles.artFade} />
         </View>
       ) : null}
-      {/* The stand-in's reel carries its caption; an artless programme gets the compact strip,
-          clipped to its cell so a short slot never bleeds into its neighbour. Only while the
-          programme airs: sampled history under a future slot would lie. */}
-      {focused && (standInChannel || (!art && program.ChannelId && startMs <= nowMs && nowMs < endMs)) ? (
+      {/* A stand-in row wears its reel whenever a burst exists, resting faded and brightening
+          on the row's focus. An artless programme gets the compact strip on focus alone, and
+          only while it airs: sampled history under a future slot would lie. */}
+      {standInChannel ? (
         <View style={styles.reelClip} pointerEvents="none">
-          <GuideFocusReel channelId={standInChannel ?? program.ChannelId!} left={left} width={width} cellHeight={height} scrollX={scrollX} compact={!standIn} />
+          <GuideFocusReel channelId={standInChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} active={focused || cardFocused} />
+        </View>
+      ) : (focused || cardFocused) && !art && program.ChannelId && startMs <= nowMs && nowMs < endMs ? (
+        <View style={styles.reelClip} pointerEvents="none">
+          <GuideFocusReel channelId={program.ChannelId} left={left} width={width} cellHeight={height} scrollX={scrollX} active compact />
         </View>
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}

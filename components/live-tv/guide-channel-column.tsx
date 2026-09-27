@@ -3,6 +3,7 @@ import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
+import { clearFocusedGuideChannel, setFocusedGuideChannel } from "@/services/guideChannelFocus";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
@@ -65,6 +66,15 @@ export function GuideChannelColumn({
     },
     [onFirstHandle],
   );
+  // The row's cell wears the reel while its card holds focus; the canvas hears the focus too.
+  const cardFocus = useCallback(
+    (video: JellyfinItem) => {
+      setFocusedGuideChannel(video.Id);
+      onChannelFocus?.();
+    },
+    [onChannelFocus],
+  );
+  const cardBlur = useCallback((video: JellyfinItem) => clearFocusedGuideChannel(video.Id), []);
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows.
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
@@ -79,7 +89,8 @@ export function GuideChannelColumn({
             titleIcon={favoriteMark(preferences, item)}
             onPress={onChannelPress}
             onLongPress={onChannelLongPress}
-            onItemFocus={onChannelFocus}
+            onItemFocus={cardFocus}
+            onItemBlur={cardBlur}
           />
         ) : (
           <ChannelMorph
@@ -95,7 +106,7 @@ export function GuideChannelColumn({
         )}
       </View>
     ),
-    [metrics, columnWidth, compact, preferences, onChannelPress, onChannelLongPress, onChannelFocus, firstCardRef],
+    [metrics, columnWidth, compact, preferences, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef],
   );
   const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const getItemLayout = useCallback(
