@@ -9,9 +9,11 @@ export const RULER_RED = COLORS.DESTRUCTIVE;
 export const MAJOR_MARK_WIDTH = 1;
 export const MAJOR_MARK_HEIGHT = IS_TV ? 16 : 10;
 export const HOUR_MARK_HEIGHT = IS_TV ? 26 : 16;
+const NOW_LABEL_LANE = IS_TV ? 28 : 17;
 const NOW_EDGE = IS_TV ? 3 : 2;
-/** The gold band stands as tall as a minor mark; its now edge as tall as an hour mark. */
+/** The gold band stands as tall as a minor mark; its now edge spans the ruler. */
 const NOW_HEIGHT = IS_TV ? 8 : 5;
+const LABEL_LEFT = IS_TV ? 2.5 : 2;
 
 interface GuideTimeRulerProps {
   windowStartMs: number;
@@ -46,6 +48,11 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
         ),
       )}
       {showNow ? <View style={[styles.nowEdge, { left: nowLeft - NOW_EDGE / 2 }]} /> : null}
+      {showNow ? (
+        <Text style={[styles.nowLabel, { left: nowLeft + NOW_EDGE / 2 + LABEL_LEFT }]} numberOfLines={1}>
+          {formatClock(nowMs)}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -95,7 +102,7 @@ const styles = StyleSheet.create({
   // Explicit width: the 1px tick parent would clamp an auto-sized absolute label to nothing.
   tickLabel: {
     position: "absolute",
-    left: IS_TV ? 2.5 : 2,
+    left: LABEL_LEFT,
     bottom: MAJOR_MARK_HEIGHT,
     width: IS_TV ? 120 : 70,
     color: RED,
@@ -110,8 +117,17 @@ const styles = StyleSheet.create({
   nowEdge: {
     position: "absolute",
     bottom: 0,
+    top: 0,
     width: NOW_EDGE,
-    height: HOUR_MARK_HEIGHT,
     backgroundColor: COLORS.ACCENT,
+  },
+  // The top lane of the band, above the red labels.
+  nowLabel: {
+    position: "absolute",
+    top: 0,
+    lineHeight: NOW_LABEL_LANE,
+    color: COLORS.ACCENT,
+    fontSize: IS_TV ? 24 : 14,
+    fontWeight: "700",
   },
 });
