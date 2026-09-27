@@ -69,14 +69,20 @@ describe("GuideCell", () => {
     expect(testIds(standIn)).not.toContain("guide-cell-progress");
   });
 
-  it("quiets a stand-in cell to one dim line, the hint joining it only while focused", () => {
+  it("titles a stand-in cell in the cell's own face, the hint trailing only while focused", () => {
+    const flatText = (tree: TestRenderer.ReactTestRenderer) =>
+      tree.root
+        .findAllByType(Text)
+        .flatMap((node) => React.Children.toArray(node.props.children))
+        .filter((child): child is string => typeof child === "string")
+        .join("");
     const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c1`, Name: "No listings", EpisodeTitle: "Select to watch" };
     const tree = render({ program: standIn });
-    expect(texts(tree)).toEqual(["No listings"]);
+    expect(flatText(tree)).toBe("No listings");
     const pressable = tree.root.findByProps({ accessibilityRole: "button" });
     act(() => pressable.props.onFocus());
-    expect(texts(tree)).toEqual(["No listings  ·  Select to watch"]);
+    expect(flatText(tree)).toBe("No listings  ·  Select to watch");
     act(() => pressable.props.onBlur());
-    expect(texts(tree)).toEqual(["No listings"]);
+    expect(flatText(tree)).toBe("No listings");
   });
 });
