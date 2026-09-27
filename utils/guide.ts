@@ -19,6 +19,8 @@ export interface GuideMetrics {
   /** Phone: the column's width once dragged to the left magnet, a portrait channel card per row. */
   compactColumnWidth: number;
   rulerHeight: number;
+  /** The channel card's padding inside its row slot. */
+  cardInset: { vertical: number; horizontal: number };
 }
 
 /** A row is as tall as the channel card the column draws at its width: a wide slot inside the card's padding. */
@@ -28,7 +30,12 @@ export function guideMetrics(isTV: boolean): GuideMetrics {
   const rowHeight = Math.round((channelColumnWidth - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding);
   // The compact column holds a portrait card the row's own height, capping the row: padded on the left only.
   const compactColumnWidth = isTV ? channelColumnWidth : Math.round((rowHeight - 1) * GRID.PORTRAIT_RATIO + padding);
-  return isTV ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 74 } : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 47 };
+  // TV: a centred 3:2 card 4 narrower than the row's height less 8 above and below allows.
+  const tvCardWidth = (rowHeight - 16) * GRID.LANDSCAPE_RATIO - 4;
+  const cardInset = isTV ? { vertical: (rowHeight - tvCardWidth / GRID.LANDSCAPE_RATIO) / 2, horizontal: (channelColumnWidth - tvCardWidth) / 2 } : { vertical: padding, horizontal: padding };
+  return isTV
+    ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 74, cardInset }
+    : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 47, cardInset };
 }
 
 /** The window opens on the half hour the current time falls in. */

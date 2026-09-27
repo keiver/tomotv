@@ -109,6 +109,8 @@ interface VideoGridItemProps {
   recording?: boolean;
   /** No resting depth shadow, for hosts that clip it; the focus glow stays. */
   flat?: boolean;
+  /** Overrides the card's padding, for hosts that size the slot themselves. */
+  inset?: { vertical: number; horizontal: number };
 }
 
 /**
@@ -147,6 +149,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     offline = false,
     recording = false,
     flat = false,
+    inset,
   },
   ref,
 ) {
@@ -270,6 +273,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           : cardHeight != null
             ? { width: (cardHeight - 2 * CARD_PADDING) * cardRatio + 2 * CARD_PADDING }
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
+        inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
       <View style={[styles.card, flat && styles.cardFlat, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
@@ -436,7 +440,9 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
     prevProps.offline === nextProps.offline &&
     prevProps.recording === nextProps.recording &&
-    prevProps.flat === nextProps.flat
+    prevProps.flat === nextProps.flat &&
+    prevProps.inset?.vertical === nextProps.inset?.vertical &&
+    prevProps.inset?.horizontal === nextProps.inset?.horizontal
   );
 }
 

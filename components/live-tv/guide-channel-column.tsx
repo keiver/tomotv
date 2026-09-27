@@ -94,6 +94,7 @@ export function GuideChannelColumn({
             cardWidth={metrics.channelColumnWidth}
             hideAiring
             flat
+            inset={metrics.cardInset}
             titleIcon={favoriteMark(preferences, item)}
             recording={recordingChannelIds.has(item.Id)}
             onPress={onChannelPress}
@@ -196,6 +197,7 @@ function ChannelMorph({
           cardWidth={metrics.channelColumnWidth}
           hideAiring
           flat
+          inset={metrics.cardInset}
           titleIcon={titleIcon}
           recording={recording}
           onPress={onPress}
