@@ -37,9 +37,10 @@ interface GuideFocusReelProps {
 
 function Tile({ uri, cacheKey, index, width, height, active }: { uri: string; cacheKey: string; index: number; width: number; height: number; active: boolean }) {
   // Mounted at rest (or invisible when born focused); only the focus transition animates,
-  // so scrolling rows in never plays the stagger.
-  const opacity = useSharedValue(active ? 0 : REST_OPACITY);
+  // so scrolling rows in never plays the stagger. Off TV every row shows at full strength.
+  const opacity = useSharedValue(!IS_TV ? ACTIVE_OPACITY : active ? 0 : REST_OPACITY);
   useEffect(() => {
+    if (!IS_TV) return;
     if (active) opacity.set(withDelay(index * STAGGER_MS, withTiming(ACTIVE_OPACITY, { duration: 220, easing: Easing.out(Easing.quad) })));
     else opacity.set(withTiming(REST_OPACITY, { duration: 200 }));
   }, [opacity, index, active]);
