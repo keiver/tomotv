@@ -1,4 +1,6 @@
 import { GlassButton } from "@/components/glass-button";
+import { COLORS } from "@/constants/colors";
+import { Ionicons } from "@expo/vector-icons";
 import { Platform, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
@@ -9,7 +11,7 @@ interface DurationChipsProps<V extends number> {
   onSelect: (value: V) => void;
 }
 
-/** One row of glass duration pills inside a section card; the chosen one wears the focus tint. */
+/** One row of glass duration pills inside a section card; the chosen one wears the focus tint and the settings tick. */
 export function DurationChips<V extends number>({ options, selected, onSelect }: DurationChipsProps<V>) {
   return (
     <View style={styles.row} collapsable={false}>
@@ -20,6 +22,7 @@ export function DurationChips<V extends number>({ options, selected, onSelect }:
             key={option.value}
             title={option.label}
             selected={isSelected}
+            icon={isSelected ? <Ionicons name="checkmark" size={IS_TV ? 26 : 15} color={COLORS.SUCCESS} /> : undefined}
             accessibilityState={{ selected: isSelected }}
             onPress={() => onSelect(option.value)}
             style={IS_TV ? undefined : styles.phonePill}
