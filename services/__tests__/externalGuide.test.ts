@@ -1,151 +1,237 @@
-/** The external guide: cached file per URL, one native load per window, tvg-id matching, status events, failure backoff. */
-import { fetchExternalPrograms, guideStatus, refreshExternalGuide, resetExternalGuide, subscribeGuideStatus, type GuideStatus } from "../externalGuide";
+/** External guides: asked in order, tvg-id then name, one native load per window, per-guide status and matches, failure backoff. */
+import {
+  activeGuideUrls,
+  clearDownloadedGuides,
+  fetchExternalPrograms,
+  forgetGuide,
+  guideSourcesBusy,
+  guideSourceStatuses,
+  preloadGuide,
+  refreshExternalGuide,
+  resetExternalGuide,
+  subscribeGuideSources,
+} from "../externalGuide";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
 
 jest.mock("@/services/liveSources", () => ({
   isLiveSourcesAvailable: jest.fn(() => true),
   loadGuide: jest.fn(),
+  guideChannels: jest.fn(),
   guideProgrammes: jest.fn(),
   closeGuide: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock("@/services/guideFileCache", () => ({
   cachedGuideFile: jest.fn(async (url: string) => `file:///cache/${encodeURIComponent(url)}`),
+  clearGuideFileCache: jest.fn(),
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
-const native = jest.requireMock("@/services/liveSources") as { isLiveSourcesAvailable: jest.Mock; loadGuide: jest.Mock; guideProgrammes: jest.Mock; closeGuide: jest.Mock };
-const cache = jest.requireMock("@/services/guideFileCache") as { cachedGuideFile: jest.Mock };
+const native = jest.requireMock("@/services/liveSources") as {
+  isLiveSourcesAvailable: jest.Mock;
+  loadGuide: jest.Mock;
+  guideChannels: jest.Mock;
+  guideProgrammes: jest.Mock;
+  closeGuide: jest.Mock;
+};
+const cache = jest.requireMock("@/services/guideFileCache") as { cachedGuideFile: jest.Mock; clearGuideFileCache: jest.Mock };
 
 const URL = "http://g/guide.xml.gz";
+const OTHER = "http://g/other.xml";
 const FILE = `file:///cache/${encodeURIComponent(URL)}`;
 const WINDOW = { from: 1_000_000, to: 2_000_000 };
 const DAY = 24 * 60 * 60 * 1000;
 
+const programme = (channel: string, start: number, title = "Show") => ({ channel, start, stop: start + 1000, title, subTitle: null, desc: null, categories: [], icon: null });
+
 describe("fetchExternalPrograms", () => {
+  let tokens = 0;
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useRealTimers();
     resetExternalGuide();
+    tokens = 0;
     cache.cachedGuideFile.mockImplementation(async (url: string) => `file:///cache/${encodeURIComponent(url)}`);
-    native.loadGuide.mockResolvedValue({ token: "tok-1", stats: { channels: 12, programmes: 340 } });
+    native.loadGuide.mockImplementation(async () => ({ token: `tok-${++tokens}`, stats: { channels: 12, programmes: 340 } }));
+    native.guideChannels.mockResolvedValue([]);
+    native.guideProgrammes.mockResolvedValue([]);
   });
 
-  it("reopens a guide the native store closed instead of reading the dead token again", async () => {
-    native.guideProgrammes.mockRejectedValueOnce(new Error("Guide tok-1 is not open")).mockResolvedValue([]);
-    const request = [{ channelId: "c1", tvgId: "A.us" }];
-    await expect(fetchExternalPrograms(URL, request, WINDOW)).resolves.toEqual([]);
-    native.loadGuide.mockResolvedValueOnce({ token: "tok-2", stats: null });
-    await fetchExternalPrograms(URL, request, WINDOW);
-    expect(native.loadGuide).toHaveBeenCalledTimes(2);
-    expect(native.guideProgrammes).toHaveBeenLastCalledWith("tok-2", ["A.us"], WINDOW);
-  });
-
-  it("matches tvg-ids and their @-stripped bases, shaping programmes like the server's", async () => {
+  it("pairs by tvg-id, shaping programmes like the server's", async () => {
+    native.guideChannels.mockResolvedValue([
+      { id: "A.us@SD", displayNames: ["Alpha"], icon: null },
+      { id: "A.us@HD", displayNames: ["Alpha HD"], icon: null },
+      { id: "B.us@HD", displayNames: ["Bravo"], icon: null },
+    ]);
     native.guideProgrammes.mockResolvedValue([
-      { channel: "A.us", start: 1_200_000, stop: 1_500_000, title: "Show", subTitle: "Ep", desc: "D", categories: ["News"], icon: null },
+      { channel: "A.us@SD", start: 1_200_000, stop: 1_500_000, title: "Show", subTitle: "Ep", desc: "D", categories: ["News"], icon: null },
+      { channel: "A.us@HD", start: 1_200_000, stop: 1_500_000, title: "Show", subTitle: "Ep", desc: "D", categories: ["News"], icon: null },
       { channel: "B.us@HD", start: 1_100_000, stop: null, title: "Other", subTitle: null, desc: null, categories: [], icon: null },
     ]);
     const programs = await fetchExternalPrograms(
-      URL,
+      [URL],
       [
-        { channelId: "c1", tvgId: "A.us@SD" },
-        { channelId: "c2", tvgId: "A.us@HD" },
-        { channelId: "c3", tvgId: "B.us@HD" },
+        { channelId: "c1", tvgId: "A.us@SD", name: "Alpha SD" },
+        { channelId: "c2", tvgId: "A.us@HD", name: "Alpha HD" },
+        { channelId: "c3", tvgId: "B.us@HD", name: "Bravo" },
       ],
       WINDOW,
     );
-    // The native parser reads the cached file, never the network URL.
-    expect(native.loadGuide).toHaveBeenCalledWith(FILE, { from: WINDOW.from, to: WINDOW.to + DAY }, "external");
-    expect(native.guideProgrammes).toHaveBeenCalledWith("tok-1", ["A.us@SD", "A.us", "A.us@HD", "B.us@HD", "B.us"], WINDOW);
-    // A.us serves both SD and HD channels; B.us@HD matched exactly.
+    // The native parser reads the cached file, never the network URL, and this service owns its closing.
+    expect(native.loadGuide).toHaveBeenCalledWith(FILE, { from: WINDOW.from, to: WINDOW.to + DAY }, "external", 0);
+    expect(native.guideProgrammes).toHaveBeenCalledWith("tok-1", ["A.us@SD", "A.us@HD", "B.us@HD"], WINDOW);
     expect(programs.map((program) => [program.ChannelId, program.Name])).toEqual([
       ["c1", "Show"],
       ["c2", "Show"],
       ["c3", "Other"],
     ]);
-    const first = programs[0];
-    expect(first.Id).toBe(`${EXTERNAL_GUIDE_PREFIX}c1:1200000`);
-    expect(first.StartDate).toBe(new Date(1_200_000).toISOString());
-    expect(first.EndDate).toBe(new Date(1_500_000).toISOString());
-    expect(first.Overview).toBe("D");
-    expect(first.EpisodeTitle).toBe("Ep");
-    expect(first.Genres).toEqual(["News"]);
+    expect(programs[0]).toMatchObject({
+      Id: `${EXTERNAL_GUIDE_PREFIX}c1:1200000`,
+      StartDate: new Date(1_200_000).toISOString(),
+      EndDate: new Date(1_500_000).toISOString(),
+      Overview: "D",
+      EpisodeTitle: "Ep",
+      Genres: ["News"],
+    });
     expect(programs[2].EndDate).toBeUndefined();
   });
 
-  it("loads once per URL while the window is covered, and reloads past it or on a new URL", async () => {
-    native.guideProgrammes.mockResolvedValue([]);
-    const channels = [{ channelId: "c1", tvgId: "A.us" }];
-    await fetchExternalPrograms(URL, channels, WINDOW);
-    await fetchExternalPrograms(URL, channels, { from: WINDOW.from, to: WINDOW.to + DAY });
+  it("falls back to the tvg-name, then the channel name, exactly and case aside", async () => {
+    native.guideChannels.mockResolvedValue([
+      { id: "464745", displayNames: ["ABC News Live"], icon: null },
+      { id: "x1", displayNames: ["Local 7"], icon: null },
+    ]);
+    native.guideProgrammes.mockImplementation(async (_token: string, ids: string[]) => ids.map((id) => programme(id, 1_200_000)));
+    const programs = await fetchExternalPrograms(
+      [URL],
+      [
+        { channelId: "c1", tvgId: "ABCNewsLive.us@SD", tvgName: "abc news live", name: "ABC News Live (720p)" },
+        { channelId: "c2", name: "LOCAL 7" },
+        { channelId: "c3", name: "Local 7 HD" },
+      ],
+      WINDOW,
+    );
+    expect(programs.map((program) => program.ChannelId)).toEqual(["c1", "c2"]);
+    expect(guideSourceStatuses()[URL].matched).toEqual([
+      { channelId: "c1", name: "ABC News Live (720p)", via: "tvgName" },
+      { channelId: "c2", name: "LOCAL 7", via: "name" },
+    ]);
+  });
+
+  it("asks the next guide only for the channels the earlier ones left without programmes", async () => {
+    native.guideChannels.mockImplementation(async (token: string) =>
+      token === "tok-1"
+        ? [
+            { id: "A", displayNames: [], icon: null },
+            { id: "B", displayNames: [], icon: null },
+          ]
+        : [
+            { id: "B", displayNames: [], icon: null },
+            { id: "C", displayNames: [], icon: null },
+          ],
+    );
+    // The first guide names B but lists nothing for it in the window.
+    native.guideProgrammes.mockImplementation(async (token: string, ids: string[]) => ids.filter((id) => token !== "tok-1" || id === "A").map((id) => programme(id, 1_200_000, `${token}:${id}`)));
+    const channels = ["A", "B", "C"].map((id) => ({ channelId: id.toLowerCase(), tvgId: id, name: id }));
+    const programs = await fetchExternalPrograms([URL, OTHER], channels, WINDOW);
+    expect(programs.map((program) => program.Name)).toEqual(["tok-1:A", "tok-2:B", "tok-2:C"]);
+    expect(native.guideProgrammes).toHaveBeenLastCalledWith("tok-2", ["B", "C"], WINDOW);
+    expect(guideSourceStatuses()[OTHER].asked).toBe(2);
+  });
+
+  it("keeps asking the next guide when one fails, and backs off the failed one", async () => {
+    jest.useFakeTimers();
+    native.loadGuide.mockImplementation(async (file: string) => {
+      if (file === FILE) throw new Error("404");
+      return { token: `tok-${++tokens}`, stats: null };
+    });
+    native.guideChannels.mockResolvedValue([{ id: "A", displayNames: [], icon: null }]);
+    native.guideProgrammes.mockResolvedValue([programme("A", 1_200_000)]);
+    const channels = [{ channelId: "a", tvgId: "A", name: "A" }];
+    await expect(fetchExternalPrograms([URL, OTHER], channels, WINDOW)).resolves.toHaveLength(1);
+    expect(guideSourceStatuses()[URL].state).toBe("error");
+    await fetchExternalPrograms([URL, OTHER], channels, WINDOW);
+    expect(native.loadGuide.mock.calls.filter(([file]) => file === FILE)).toHaveLength(1);
+    jest.setSystemTime(Date.now() + 6 * 60 * 1000);
+    await fetchExternalPrograms([URL, OTHER], channels, WINDOW);
+    expect(native.loadGuide.mock.calls.filter(([file]) => file === FILE)).toHaveLength(2);
+  });
+
+  it("loads once per window, reloads past it, and returns nothing without URLs, channels or the module", async () => {
+    const channels = [{ channelId: "c1", tvgId: "A.us", name: "A" }];
+    await fetchExternalPrograms([URL], channels, WINDOW);
+    await fetchExternalPrograms([URL], channels, { from: WINDOW.from, to: WINDOW.to + DAY });
     expect(native.loadGuide).toHaveBeenCalledTimes(1);
-    await fetchExternalPrograms(URL, channels, { from: WINDOW.from, to: WINDOW.to + 2 * DAY });
+    await fetchExternalPrograms([URL], channels, { from: WINDOW.from, to: WINDOW.to + 2 * DAY });
     expect(native.loadGuide).toHaveBeenCalledTimes(2);
     expect(native.closeGuide).toHaveBeenCalledWith("tok-1");
-    await fetchExternalPrograms("http://g/other.xml", channels, WINDOW);
-    expect(native.loadGuide).toHaveBeenCalledTimes(3);
-  });
-
-  it("returns nothing for no URL, no channels, no module, or a failed load", async () => {
-    await expect(fetchExternalPrograms("", [{ channelId: "c", tvgId: "A" }], WINDOW)).resolves.toEqual([]);
-    await expect(fetchExternalPrograms(URL, [], WINDOW)).resolves.toEqual([]);
+    await expect(fetchExternalPrograms([], channels, WINDOW)).resolves.toEqual([]);
+    await expect(fetchExternalPrograms([URL], [], WINDOW)).resolves.toEqual([]);
     native.isLiveSourcesAvailable.mockReturnValueOnce(false);
-    await expect(fetchExternalPrograms(URL, [{ channelId: "c", tvgId: "A" }], WINDOW)).resolves.toEqual([]);
-    native.loadGuide.mockRejectedValueOnce(new Error("404"));
-    await expect(fetchExternalPrograms(URL, [{ channelId: "c", tvgId: "A" }], WINDOW)).resolves.toEqual([]);
-    expect(native.guideProgrammes).not.toHaveBeenCalled();
+    await expect(fetchExternalPrograms([URL], channels, WINDOW)).resolves.toEqual([]);
   });
 
-  it("emits downloading, parsing and ready, with download progress as a fraction", async () => {
-    cache.cachedGuideFile.mockImplementation(async (url: string, onProgress?: (p: { bytesWritten: number; totalBytes: number }) => void) => {
+  it("reports each guide's progress, reading, counts and pairings, and the HUD's busy flag", async () => {
+    cache.cachedGuideFile.mockImplementation(async (_url: string, onProgress?: (p: { bytesWritten: number; totalBytes: number }) => void) => {
       onProgress?.({ bytesWritten: 5, totalBytes: 10 });
       return FILE;
     });
-    native.guideProgrammes.mockResolvedValue([]);
-    const seen: GuideStatus[] = [];
-    const unsubscribe = subscribeGuideStatus((status) => seen.push(status));
-    await fetchExternalPrograms(URL, [{ channelId: "c1", tvgId: "A.us" }], WINDOW);
+    native.guideChannels.mockResolvedValue([{ id: "A.us", displayNames: [], icon: null }]);
+    const seen: { state: string; progress: number | null; busy: boolean }[] = [];
+    const unsubscribe = subscribeGuideSources(() => {
+      const status = guideSourceStatuses()[URL];
+      if (status) seen.push({ state: status.state, progress: status.progress, busy: guideSourcesBusy() });
+    });
+    await fetchExternalPrograms([URL], [{ channelId: "c1", tvgId: "A.us", name: "A" }], WINDOW);
     unsubscribe();
-    expect(seen.map((status) => status.state)).toEqual(["downloading", "downloading", "parsing", "ready"]);
-    expect(seen[1]).toEqual({ state: "downloading", url: URL, progress: 0.5 });
-    const ready = seen[3] as Extract<GuideStatus, { state: "ready" }>;
-    expect(ready.channels).toBe(12);
-    expect(ready.programmes).toBe(340);
-    expect(guideStatus()).toBe(seen[3]);
+    expect(seen.slice(0, 4)).toEqual([
+      { state: "downloading", progress: null, busy: true },
+      { state: "downloading", progress: 0.5, busy: true },
+      { state: "reading", progress: null, busy: true },
+      { state: "ready", progress: null, busy: false },
+    ]);
+    expect(guideSourceStatuses()[URL]).toMatchObject({ channels: 12, programmes: 340, asked: 1, matched: [{ channelId: "c1", name: "A", via: "id" }] });
   });
 
-  it("emits error on failure and skips reloading until the backoff passes; reset clears it", async () => {
-    jest.useFakeTimers();
-    native.loadGuide.mockRejectedValue(new Error("bad file"));
-    const channels = [{ channelId: "c1", tvgId: "A.us" }];
-    await fetchExternalPrograms(URL, channels, WINDOW);
-    expect(guideStatus()).toEqual({ state: "error", url: URL });
-    await fetchExternalPrograms(URL, channels, WINDOW);
-    expect(native.loadGuide).toHaveBeenCalledTimes(1);
-    // Past the backoff the next fetch tries again.
-    jest.setSystemTime(Date.now() + 6 * 60 * 1000);
-    await fetchExternalPrograms(URL, channels, WINDOW);
-    expect(native.loadGuide).toHaveBeenCalledTimes(2);
-    // A reset retries immediately (URL corrected in settings).
-    await fetchExternalPrograms(URL, channels, WINDOW);
-    expect(native.loadGuide).toHaveBeenCalledTimes(2);
-    resetExternalGuide();
-    expect(guideStatus()).toEqual({ state: "idle" });
-    await fetchExternalPrograms(URL, channels, WINDOW);
-    expect(native.loadGuide).toHaveBeenCalledTimes(3);
-  });
-
-  it("refresh drops the open guide and forces the next open past the cache window", async () => {
-    native.guideProgrammes.mockResolvedValue([]);
-    const channels = [{ channelId: "c1", tvgId: "A.us" }];
-    await fetchExternalPrograms(URL, channels, WINDOW);
+  it("refresh forces the next open past the cache window, once", async () => {
+    const channels = [{ channelId: "c1", tvgId: "A.us", name: "A" }];
+    await fetchExternalPrograms([URL], channels, WINDOW);
     expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: false });
     refreshExternalGuide();
     expect(native.closeGuide).toHaveBeenCalledWith("tok-1");
-    await fetchExternalPrograms(URL, channels, WINDOW);
+    await fetchExternalPrograms([URL], channels, WINDOW);
     expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: true });
-    // The force is one-shot.
-    await fetchExternalPrograms(URL, channels, { from: WINDOW.from, to: WINDOW.to + 3 * DAY });
+    await fetchExternalPrograms([URL], channels, { from: WINDOW.from, to: WINDOW.to + 3 * DAY });
     expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: false });
+  });
+
+  it("closes a guide dropped from the list, forgets one at once, and clears the files on request", async () => {
+    const channels = [{ channelId: "c1", tvgId: "A.us", name: "A" }];
+    await fetchExternalPrograms([URL, OTHER], channels, WINDOW);
+    await fetchExternalPrograms([OTHER], channels, WINDOW);
+    expect(native.closeGuide).toHaveBeenCalledWith("tok-1");
+    expect(Object.keys(guideSourceStatuses())).toEqual([OTHER]);
+    forgetGuide(OTHER);
+    expect(native.closeGuide).toHaveBeenCalledWith("tok-2");
+    expect(guideSourceStatuses()).toEqual({});
+    clearDownloadedGuides();
+    expect(cache.clearGuideFileCache).toHaveBeenCalled();
+  });
+
+  it("preloads a guide so a URL just added reports what it holds, and a failure only reports", async () => {
+    await preloadGuide(URL);
+    expect(guideSourceStatuses()[URL]).toMatchObject({ state: "ready", channels: 12 });
+    native.loadGuide.mockRejectedValueOnce(new Error("not xml"));
+    await expect(preloadGuide(OTHER)).resolves.toBeUndefined();
+    expect(guideSourceStatuses()[OTHER].state).toBe("error");
+  });
+});
+
+describe("activeGuideUrls", () => {
+  it("asks the viewer's guides first, then the playlists', once each, less the switched-off ones", () => {
+    expect(activeGuideUrls({ guideUrls: ["http://mine/a.xml", "http://both.xml"], guideSourcesOff: ["http://off.xml"] }, ["http://both.xml", "http://off.xml", "http://declared.xml"])).toEqual([
+      "http://mine/a.xml",
+      "http://both.xml",
+      "http://declared.xml",
+    ]);
   });
 });

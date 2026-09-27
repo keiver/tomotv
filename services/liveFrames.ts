@@ -502,20 +502,6 @@ export function setLiveFramesActive(surface: LiveFrameSurface, active: boolean):
   cancelGrabs();
 }
 
-/** Resolves once no grab is in flight and none is due within a beat, or at the wait's cap:
- *  bulk work (a guide file download) yields the link to the sampler's first paint. */
-export function whenSamplerQuiet(maxWaitMs: number): Promise<void> {
-  const deadline = Date.now() + maxWaitMs;
-  return new Promise((resolve) => {
-    const check = () => {
-      const idle = grabbing.size === 0 && (nextDue(Date.now())?.waitMs ?? Infinity) > 2_000;
-      if (idle || Date.now() >= deadline || !running()) resolve();
-      else setTimeout(check, 1_500);
-    };
-    check();
-  });
-}
-
 /** The channel's frame for now: the burst spread across the refresh, one picture at a time. */
 export function liveFrameFor(channelId: string): LiveFrame | undefined {
   const burst = entries.get(channelId)?.burst;

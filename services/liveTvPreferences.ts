@@ -36,13 +36,13 @@ export interface LiveTvPreferences {
   sort: ChannelSort;
   favorites: ChannelFavorite[];
   groups: ChannelGroup[];
-  /** XMLTV URL for channels the server has no guide for (iptv-org/epg output ids); empty is off. */
-  guideUrl: string;
+  /** XMLTV guides the viewer added, for channels the server has no listings for; asked in order. */
+  guideUrls: string[];
+  /** Guide URLs switched off, the viewer's own or a playlist's declared ones alike. */
+  guideSourcesOff: string[];
   recordingMinutes: RecordingMinutes;
   /** Guide and wall leave out channels whose health check concluded down; unchecked ones stay. */
   hideOffline: boolean;
-  /** Bare channels hunt hosted per-country guides for their listings; on unless turned off. */
-  autoGuide: boolean;
 }
 export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber"> & { Id?: string };
 
@@ -53,10 +53,10 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   sort: "number",
   favorites: [],
   groups: [],
-  guideUrl: "",
+  guideUrls: [],
+  guideSourcesOff: [],
   recordingMinutes: 120,
   hideOffline: false,
-  autoGuide: true,
 };
 
 let current: LiveTvPreferences | null = null;
@@ -109,13 +109,20 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     sort: source.sort === "name" ? "name" : "number",
     favorites: parseChannelList(source.favorites),
     groups,
-    guideUrl: typeof source.guideUrl === "string" && /^https?:\/\//i.test(source.guideUrl) ? source.guideUrl : "",
+    // A document from before the list names its one URL as guideUrl.
+    guideUrls: parseUrlList(Array.isArray(source.guideUrls) ? source.guideUrls : [source.guideUrl]),
+    guideSourcesOff: parseUrlList(source.guideSourcesOff),
     recordingMinutes: (RECORDING_MINUTES_OPTIONS as readonly number[]).includes(source.recordingMinutes as number)
       ? (source.recordingMinutes as RecordingMinutes)
       : DEFAULT_LIVE_TV_PREFERENCES.recordingMinutes,
     hideOffline: typeof source.hideOffline === "boolean" ? source.hideOffline : DEFAULT_LIVE_TV_PREFERENCES.hideOffline,
-    autoGuide: typeof source.autoGuide === "boolean" ? source.autoGuide : DEFAULT_LIVE_TV_PREFERENCES.autoGuide,
   };
+}
+
+/** The http(s) URLs of a stored list, deduped in order; anything else is dropped. */
+function parseUrlList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((url): url is string => typeof url === "string" && /^https?:\/\//i.test(url)))];
 }
 
 function safeParse(raw: string): unknown {
@@ -226,6 +233,26 @@ export function renameGroup(groupId: string, name: string): void {
 }
 
 /** Deleting the group on screen shows everything again. */
+/** Adds a typed guide URL after the others; the saved URL, or null for one that is not http(s). */
+export function addGuideUrl(input: string): string | null {
+  const url = normalizeGuideUrl(input);
+  if (!/^https?:\/\/[^\s/]+/i.test(url)) return null;
+  const { guideUrls } = getLiveTvPreferences();
+  if (!guideUrls.includes(url)) updateLiveTvPreferences({ guideUrls: [...guideUrls, url] });
+  return url;
+}
+
+export function removeGuideUrl(url: string): void {
+  const { guideUrls, guideSourcesOff } = getLiveTvPreferences();
+  updateLiveTvPreferences({ guideUrls: guideUrls.filter((entry) => entry !== url), guideSourcesOff: guideSourcesOff.filter((entry) => entry !== url) });
+}
+
+export function setGuideSourceEnabled(url: string, enabled: boolean): void {
+  const { guideSourcesOff } = getLiveTvPreferences();
+  const off = guideSourcesOff.filter((entry) => entry !== url);
+  updateLiveTvPreferences({ guideSourcesOff: enabled ? off : [...off, url] });
+}
+
 export function deleteGroup(groupId: string): void {
   const preferences = getLiveTvPreferences();
   updateLiveTvPreferences({

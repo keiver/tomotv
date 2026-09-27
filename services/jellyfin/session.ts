@@ -365,7 +365,6 @@ export async function clearContentCaches(context: string): Promise<void> {
     // Dynamic import, like libraryManager above: nextUp imports its fetchers from this module.
     const { clearNextUpDismissals } = await import("@/services/nextUp");
     const { resetExternalGuide } = await import("@/services/externalGuide");
-    const { resetGuideHunt } = await import("@/services/guideHunt");
     const { resetTunerCache } = await import("@/services/jellyfin/tunerGroups");
     const { getLiveTvPreferences, updateLiveTvPreferences } = await import("@/services/liveTvPreferences");
     libraryManager.clearCache();
@@ -375,7 +374,6 @@ export async function clearContentCaches(context: string): Promise<void> {
     clearRequestCache();
     clearNextUpDismissals();
     resetExternalGuide();
-    resetGuideHunt();
     resetTunerCache();
     // A playlist or category filter names the last server's channels; favorites and groups themselves stay.
     if (getLiveTvPreferences().filter !== "all") updateLiveTvPreferences({ filter: "all" });

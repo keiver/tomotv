@@ -15,10 +15,11 @@ export interface TunerGroup {
   channelIds: string[];
 }
 
-/** A tuner channel's guide identity: the server's item id and the playlist's tvg-id. */
+/** A tuner channel's guide identity: the server's item id and the playlist's tvg-id and tvg-name. */
 export interface TunerChannel {
   id: string;
-  tvgId: string;
+  tvgId: string | null;
+  tvgName: string | null;
 }
 
 export interface TunerPlaylist {
@@ -70,9 +71,15 @@ export interface GuideLoadStats {
 }
 
 /** Streams the XMLTV at `url` (http(s) or file) into a native store held to the window. */
-/** `pool` scopes the native store's eviction: a load closes only the oldest guides of its own pool. */
-export async function loadGuide(url: string, windowMs: { from: number; to: number }, pool: "external" | "hunt"): Promise<{ token: string; stats: GuideLoadStats | null }> {
-  const result = (await LiveSources.loadGuide({ url, from: windowMs.from, to: windowMs.to, pool })) as { token?: unknown; stats?: { channels?: unknown; programmes?: unknown } } | null;
+/**
+ * `pool` scopes the native store's eviction: a load closes only the oldest guides of its own pool.
+ * `maxOpen` 0 leaves closing to the caller, which keeps its own use order.
+ */
+export async function loadGuide(url: string, windowMs: { from: number; to: number }, pool: "external", maxOpen?: number): Promise<{ token: string; stats: GuideLoadStats | null }> {
+  const result = (await LiveSources.loadGuide({ url, from: windowMs.from, to: windowMs.to, pool, ...(maxOpen !== undefined ? { maxOpen } : {}) })) as {
+    token?: unknown;
+    stats?: { channels?: unknown; programmes?: unknown };
+  } | null;
   if (typeof result?.token !== "string") throw new Error("The live source module returned no guide.");
   const stats = result.stats;
   return {

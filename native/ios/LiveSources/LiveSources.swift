@@ -37,6 +37,8 @@ class LiveSources: NSObject {
             return
         }
         let pool = config["pool"] as? String ?? ""
+        // 0: the caller closes its own guides, so this store never evicts one it still reads.
+        let cap = config["maxOpen"] as? Int ?? Self.maxOpen
         let window: GuideWindow?
         switch Self.window(config, required: false) {
         case let .success(value): window = value
@@ -59,7 +61,7 @@ class LiveSources: NSObject {
                     switch result {
                     case let .success(stats):
                         Self.guideOrder[pool, default: []].append(token)
-                        while let order = Self.guideOrder[pool], order.count > Self.maxOpen, let oldest = order.first { Self.closeGuide(oldest) }
+                        while cap > 0, let order = Self.guideOrder[pool], order.count > cap, let oldest = order.first { Self.closeGuide(oldest) }
                         resolve(["token": token, "stats": Self.dictionary(stats)])
                     case let .failure(error):
                         Self.closeGuide(token)
@@ -194,7 +196,7 @@ class LiveSources: NSObject {
                     case let .success(stats):
                         let entries = store.allEntries
                         let groups: [[String: Any]] = TunerGroups.groups(entries: entries, tunerUrl: text).map { ["name": $0.name, "channelIds": $0.channelIds] }
-                        let channels: [[String: Any]] = TunerGroups.channels(entries: entries, tunerUrl: text).map { ["id": $0.id, "tvgId": $0.tvgId] }
+                        let channels: [[String: Any]] = TunerGroups.channels(entries: entries, tunerUrl: text).map { ["id": $0.id, "tvgId": $0.tvgId ?? NSNull(), "tvgName": $0.tvgName ?? NSNull()] }
                         resolve(["groups": groups, "channels": channels, "tvgUrls": store.playlistHeader.tvgUrls, "stats": Self.dictionary(stats)])
                     case let .failure(error):
                         reject("load_failed", String(describing: error), error)

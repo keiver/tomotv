@@ -14,10 +14,11 @@ struct TunerGroup: Equatable {
     var channelIds: [String]
 }
 
-/// A tuner channel's guide identity: the server's item id and the playlist's tvg-id.
+/// A tuner channel's guide identity: the server's item id and the playlist's tvg-id and tvg-name.
 struct TunerChannel: Equatable {
     var id: String
-    var tvgId: String
+    var tvgId: String?
+    var tvgName: String?
 }
 
 struct PlaylistStats: Equatable {
@@ -51,12 +52,12 @@ enum TunerGroups {
         return order.map { TunerGroup(name: $0, channelIds: ids[$0] ?? []) }
     }
 
-    /// Each Jellyfin channel that carries a tvg-id, in playlist order: the key an XMLTV guide matches on.
+    /// Each Jellyfin channel that carries a tvg-id or tvg-name, in playlist order: the keys an XMLTV guide matches on.
     static func channels(entries: [M3uEntry], tunerUrl: String) -> [TunerChannel] {
         let tunerHash = JellyfinChannelId.md5Guid(tunerUrl)
         return entries.compactMap { entry in
-            guard isJellyfinChannel(entry), let tvgId = entry.tvgId else { return nil }
-            return TunerChannel(id: JellyfinChannelId.forM3u(tunerHash: tunerHash, streamUrl: entry.line), tvgId: tvgId)
+            guard isJellyfinChannel(entry), entry.tvgId != nil || entry.tvgName != nil else { return nil }
+            return TunerChannel(id: JellyfinChannelId.forM3u(tunerHash: tunerHash, streamUrl: entry.line), tvgId: entry.tvgId, tvgName: entry.tvgName)
         }
     }
 }

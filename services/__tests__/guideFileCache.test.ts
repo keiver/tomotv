@@ -2,7 +2,7 @@
 jest.mock("expo-file-system", () => require("./fakeFileSystem"));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
-import { cachedGuideFile, clearGuideFileCache } from "../guideFileCache";
+import { cachedGuideFile, clearGuideFileCache, guideCacheBytes, guideFileInfo } from "../guideFileCache";
 import { fakeFs, File } from "./fakeFileSystem";
 
 const URL = "http://g/guide.xml.gz";
@@ -73,5 +73,18 @@ describe("cachedGuideFile", () => {
     expect(second).not.toBe(first);
     // The two-day-old copy is gone; the fresh one stays.
     expect([...fakeFs.keys()].filter((key) => key.includes("guide-"))).toEqual([second.replace("file://", "file://")]);
+  });
+
+  it("reports a held copy's size and landing time, the total on disk, and nothing once cleared", async () => {
+    expect(guideFileInfo(URL)).toBeNull();
+    expect(guideCacheBytes()).toBe(0);
+    const landed = Date.now();
+    await cachedGuideFile(URL);
+    await cachedGuideFile("http://g/other.xml");
+    expect(guideFileInfo(URL)).toEqual({ bytes: "guide-bytes".length, savedAt: landed });
+    expect(guideCacheBytes()).toBe(2 * "guide-bytes".length);
+    clearGuideFileCache();
+    expect(guideFileInfo(URL)).toBeNull();
+    expect(guideCacheBytes()).toBe(0);
   });
 });

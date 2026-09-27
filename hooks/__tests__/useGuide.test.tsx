@@ -23,10 +23,11 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 const mockAuthListeners = new Set<() => void>();
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
-jest.mock("@/services/jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgUrls: [] })) }));
-jest.mock("@/services/externalGuide", () => ({ fetchExternalPrograms: jest.fn(async () => []) }));
-jest.mock("@/services/guideHunt", () => ({ huntPrograms: jest.fn(async () => []) }));
-jest.mock("@/services/liveFrames", () => ({ whenSamplerQuiet: jest.fn(async () => undefined) }));
+jest.mock("@/services/jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] })) }));
+jest.mock("@/services/externalGuide", () => ({
+  fetchExternalPrograms: jest.fn(async () => []),
+  activeGuideUrls: jest.requireActual("@/services/externalGuide").activeGuideUrls,
+}));
 let mockPreferences = {
   version: 1,
   autoUpdate: true,
@@ -164,32 +165,27 @@ describe("useGuide", () => {
     const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs)]);
-    fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgUrls: ["http://g/auto.xml.gz"] });
-    fetchExternalPrograms.mockImplementation(async (_url: string, wanted: { channelId: string }[], windowMs: { from: number }) =>
+    fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: ["http://g/auto.xml.gz"] });
+    fetchExternalPrograms.mockImplementation(async (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
       wanted.map(({ channelId }) => program(`epg:${channelId}`, channelId, 0, 30, windowMs.from)),
     );
     const ref = await mount();
-    // No guideUrl preference is set: the URL is the playlist's own, and only the bare channel is asked for.
-    expect(fetchExternalPrograms).toHaveBeenCalledWith("http://g/auto.xml.gz", [{ channelId: "c2", tvgId: "B.us@SD" }], expect.anything());
+    // No guide of the viewer's own: the playlist's declared one is asked, for the bare channel alone.
+    expect(fetchExternalPrograms).toHaveBeenCalledWith(["http://g/auto.xml.gz"], [{ channelId: "c2", tvgId: "B.us@SD", tvgName: undefined, name: "Channel 2" }], expect.anything());
     expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual(["epg:c2"]);
   });
 
-  it("drops hunted programmes that land after the load that asked for them was retried", async () => {
+  it("asks the viewer's guides by name when no tuner playlist answers", async () => {
     const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
-    const { huntPrograms } = jest.requireMock("@/services/guideHunt") as { huntPrograms: jest.Mock };
+    const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
+    const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+    updateLiveTvPreferences({ guideUrls: ["http://mine/guide.xml"] });
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
-    fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c1: "A.us" }, tvgUrls: [] });
-    let finishStaleHunt: () => void = () => {};
-    huntPrograms.mockImplementationOnce(
-      (_wanted: unknown, windowMs: { from: number }) => new Promise((resolve) => (finishStaleHunt = () => resolve([program("epg:c1:old", "c1", 0, 30, windowMs.from)]))),
-    );
-    const ref = await mount();
-    await act(async () => ref.current!.get().retry());
-    await settle();
-    await act(async () => finishStaleHunt());
-    await settle();
-    expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([]);
+    fetchTunerData.mockRejectedValueOnce(new Error("403"));
+    await mount();
+    expect(fetchExternalPrograms).toHaveBeenCalledWith(["http://mine/guide.xml"], [{ channelId: "c1", tvgId: undefined, tvgName: undefined, name: "Channel 1" }], expect.anything());
+    updateLiveTvPreferences({ guideUrls: [] });
   });
 
   it("loads the channels, the first page of programs and the timers", async () => {

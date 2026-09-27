@@ -2,17 +2,17 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { DurationChips } from "@/components/settings/DurationChips";
 import { DurationSlider } from "@/components/settings/DurationSlider";
 import { ListRow } from "@/components/settings/ListRow";
-import { RollingFieldRow } from "@/components/settings/RollingFieldRow";
 import { tick } from "@/components/settings/tick";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
-import { resetExternalGuide } from "@/services/externalGuide";
+import { activeGuideUrls } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
-import { deleteGroup, normalizeGuideUrl, RECORDING_MINUTES_OPTIONS, updateLiveTvPreferences, type ChannelGroup, type ChannelSort, type RecordingMinutes } from "@/services/liveTvPreferences";
+import { lastKnownTunerData } from "@/services/jellyfin/tunerGroups";
+import { deleteGroup, RECORDING_MINUTES_OPTIONS, updateLiveTvPreferences, type ChannelGroup, type ChannelSort, type RecordingMinutes } from "@/services/liveTvPreferences";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import React, { useCallback, useState } from "react";
+import React, { useCallback } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -32,20 +32,12 @@ export default function ChannelSettingsScreen() {
   const headerHeight = useHeaderHeight();
   const preferences = useLiveTvPreferences();
   const toggleAutoUpdate = useCallback(() => updateLiveTvPreferences({ autoUpdate: !preferences.autoUpdate }), [preferences.autoUpdate]);
-  const toggleAutoGuide = useCallback(() => updateLiveTvPreferences({ autoGuide: !preferences.autoGuide }), [preferences.autoGuide]);
   const toggleHideOffline = useCallback(() => updateLiveTvPreferences({ hideOffline: !preferences.hideOffline }), [preferences.hideOffline]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
   const pickRecordingMinutes = useCallback((recordingMinutes: RecordingMinutes) => updateLiveTvPreferences({ recordingMinutes }), []);
   const newGroup = useCallback(() => router.push("/channel-group"), [router]);
-  const [guideUrl, setGuideUrl] = useState(preferences.guideUrl);
-  // Saved on blur and Done; the guide picks it up on its next load.
-  const saveGuideUrl = useCallback(() => {
-    const url = normalizeGuideUrl(guideUrl);
-    setGuideUrl(url);
-    if (url === preferences.guideUrl) return;
-    updateLiveTvPreferences({ guideUrl: url });
-    resetExternalGuide();
-  }, [guideUrl, preferences.guideUrl]);
+  const openGuideSources = useCallback(() => router.push("/guide-sources"), [router]);
+  const activeGuides = activeGuideUrls(preferences, lastKnownTunerData()?.tvgUrls ?? []).length;
   const manageGroup = useCallback(
     (group: ChannelGroup) =>
       Alert.alert(group.name, undefined, [
@@ -76,19 +68,14 @@ export default function ChannelSettingsScreen() {
               hasTVPreferredFocus
               isFirst
             />
-            <ListRow icon="earth" title={t("liveTv.autoGuide")} subtitle={t("liveTv.autoGuideHint")} trailingIcon={preferences.autoGuide ? tick : undefined} onPress={toggleAutoGuide} />
             <ListRow icon="eye-off-outline" title={t("liveTv.hideOffline")} trailingIcon={preferences.hideOffline ? tick : undefined} onPress={toggleHideOffline} />
-            <RollingFieldRow
+            <ListRow
               icon="calendar-outline"
-              title={t("liveTv.guideUrl")}
-              subtitle={guideUrl.trim() || t("liveTv.guideUrlHint")}
-              placeholder={t("liveTv.guideUrl")}
-              accessibilityLabel={t("liveTv.guideUrlHint")}
-              keyboardType="url"
-              autoCapitalize="none"
-              value={guideUrl}
-              onChangeText={setGuideUrl}
-              onSave={saveGuideUrl}
+              title={t("liveTv.guideSources")}
+              subtitle={activeGuides > 0 ? t("liveTv.guideSourcesActive").replace("{count}", String(activeGuides)) : t("liveTv.guideSourcesHint")}
+              trailingIcon="chevron-forward"
+              onPress={openGuideSources}
+              isLast
             />
           </View>
           <View style={settingsStyles.sectionHeader}>

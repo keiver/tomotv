@@ -58,6 +58,7 @@ describe("fetchTunerGroups", () => {
         { name: "Kids", channelIds: ["d"] },
       ],
       tvgById: { a: "A.us", d: "D.us@SD" },
+      tvgNameById: {},
       // Declared guide URLs merge in order, http(s) only, deduped.
       tvgUrls: ["http://g/a.xml", "https://g/b.xml.gz"],
       complete: true,
@@ -109,6 +110,7 @@ describe("fetchTunerGroups", () => {
         { name: "News", channelIds: ["a", "b"] },
       ],
       tvgById: { s: "S.uk" },
+      tvgNameById: {},
       tvgUrls: ["http://g/busy.xml"],
       complete: false,
     });
@@ -121,6 +123,36 @@ describe("fetchTunerGroups", () => {
       .mockResolvedValueOnce({ groups: [{ name: "Sports", channelIds: ["s"] }], channels: [], tvgUrls: [] })
       .mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
     await expect(fetchTunerData()).resolves.toMatchObject({ complete: true });
+  });
+
+  it("lets a tuner that answered drop a group while another refuses", async () => {
+    jest.useFakeTimers();
+    global.fetch = jest.fn().mockResolvedValue(
+      configResponse([
+        { Type: "m3u", Url: "http://t/busy.m3u" },
+        { Type: "m3u", Url: "http://t/other.m3u" },
+      ]),
+    );
+    mockLiveSources.loadTunerPlaylist.mockResolvedValueOnce({ groups: [{ name: "Sports", channelIds: ["s"] }], channels: [], tvgUrls: [] }).mockResolvedValueOnce({
+      groups: [
+        { name: "Kids", channelIds: ["k"] },
+        { name: "News", channelIds: ["a", "x"] },
+      ],
+      channels: [],
+      tvgUrls: [],
+    });
+    await fetchTunerData();
+    clearRequestCache();
+    jest.setSystemTime(Date.now() + 6 * 60 * 1000);
+    // The other tuner dropped Kids and channel x; the busy one refuses and stands in with its own last playlist.
+    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("refused")).mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    await expect(fetchTunerData()).resolves.toMatchObject({
+      groups: [
+        { name: "Sports", channelIds: ["s"] },
+        { name: "News", channelIds: ["a"] },
+      ],
+      complete: false,
+    });
   });
 
   it("drops a read that outlived a reset instead of writing the old server's groups", async () => {

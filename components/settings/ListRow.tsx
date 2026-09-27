@@ -44,6 +44,8 @@ interface ListRowProps {
   subtitleAccent?: string;
   /** A green dot before the subtitle: a Diagnostics session from the last few minutes. */
   subtitleDot?: boolean;
+  /** 0..1: a thin bar under the labels, how much of something the row's subject covers (a guide's channels). */
+  meter?: number;
   /** Trailing mark, inked to match the fill, or a function drawing one (a green tick). Omit
    *  for a row that only states a value. */
   trailingIcon?: IoniconName | LeadingMark;
@@ -121,6 +123,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     subtitle,
     subtitleAccent,
     subtitleDot = false,
+    meter,
     titlePill,
     unread = false,
     trailingIcon,
@@ -231,6 +234,11 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                     </Text>
                   </View>
                 ) : null}
+                {meter !== undefined ? (
+                  <View style={styles.meterTrack} collapsable={false}>
+                    <View style={[styles.meterFill, { width: `${Math.round(Math.min(1, Math.max(0, meter)) * 100)}%`, backgroundColor: onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT }]} />
+                  </View>
+                ) : null}
               </View>
             </View>
             {trailingAction ? (
@@ -297,6 +305,17 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   subtitleRow: { flexDirection: "row", alignItems: "center" },
+  meterTrack: {
+    height: IS_TV ? 4 : 3,
+    marginTop: IS_TV ? 10 : 6,
+    borderRadius: 2,
+    overflow: "hidden",
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  meterFill: {
+    height: "100%",
+    borderRadius: 2,
+  },
   fresh: {
     width: FRESH_SIZE,
     height: FRESH_SIZE,

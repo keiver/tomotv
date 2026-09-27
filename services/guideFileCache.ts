@@ -106,6 +106,30 @@ export async function cachedGuideFile(url: string, onProgress?: (progress: Guide
   return download;
 }
 
+/** The cached copy of `url`: its size and when it landed, or null while none is held. */
+export function guideFileInfo(url: string): { bytes: number; savedAt: number } | null {
+  try {
+    const file = new File(cacheDir(), keyFor(url));
+    if (!file.exists) return null;
+    return { bytes: file.size, savedAt: file.info().modificationTime ?? 0 };
+  } catch (error) {
+    logger.warn("Guide cache read failed", error, { service: "GuideFileCache" });
+    return null;
+  }
+}
+
+/** Every guide file on the device, in bytes, partial downloads included. */
+export function guideCacheBytes(): number {
+  try {
+    const dir = cacheDir();
+    if (!dir.exists) return 0;
+    return dir.list().reduce((total, entry) => total + (entry instanceof File ? entry.size : 0), 0);
+  } catch (error) {
+    logger.warn("Guide cache read failed", error, { service: "GuideFileCache" });
+    return 0;
+  }
+}
+
 /** Drops every cached guide and forgets failures (storage clear, tests). */
 export function clearGuideFileCache(): void {
   failedAt.clear();

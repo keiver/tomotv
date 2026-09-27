@@ -282,6 +282,36 @@ export default function RootLayout() {
                         }
                       />
                       <Stack.Screen
+                        name="guide-sources"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.guideSources"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.channelSettings"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="guide-source"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.guideSources"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.guideSources"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
                         name="channel-groups"
                         options={
                           Platform.isTV

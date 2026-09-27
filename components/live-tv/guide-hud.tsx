@@ -1,20 +1,18 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GROUP_CELL_HEIGHT, GuideGroupCell, HUD_CELL_BACKGROUND } from "@/components/live-tv/guide-group-cell";
 import { GuideGroupPlaceholder } from "@/components/live-tv/guide-group-placeholder";
+import { ScanBand } from "@/components/live-tv/scan-band";
 import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
-import { guideStatus, subscribeGuideStatus } from "@/services/externalGuide";
+import { guideSourcesBusy, subscribeGuideSources } from "@/services/externalGuide";
 import { updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
-import React, { useCallback, useEffect, useSyncExternalStore } from "react";
-import { findNodeHandle, type LayoutChangeEvent, Platform, ScrollView, StyleSheet, View } from "react-native";
-import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import React, { useCallback, useSyncExternalStore } from "react";
+import { findNodeHandle, Platform, ScrollView, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 /** The band's full height. */
 export const HUD_BAR_HEIGHT = GROUP_CELL_HEIGHT + 1;
 
-/** An accent band, soft on both flanks; the cells' frosted floors let it glow through. */
-const SCAN_WASH = "linear-gradient(90deg, rgba(255, 195, 18, 0) 0%, rgba(255, 195, 18, 0.2) 40%, rgba(255, 195, 18, 0.38) 50%, rgba(255, 195, 18, 0.2) 60%, rgba(255, 195, 18, 0) 100%)";
 /** Contact, key and ambient layers cast onto the rows; negative spread keeps them off the sides. */
 const BAND_SHADOW = IS_TV
   ? "0 2px 2px -1px rgba(0, 0, 0, 0.45), 0 6px 10px -4px rgba(0, 0, 0, 0.4), 0 14px 24px -10px rgba(0, 0, 0, 0.35)"
@@ -28,42 +26,6 @@ interface GuideHudProps {
   onSelectedHandle?: (handle: number | undefined) => void;
   /** True while the guide's programs load behind the grid: the band wears the scan for it. */
   updating?: boolean;
-}
-
-/**
- * An accent wash sweeping back and forth over the group cells while the guide works, fading out
- * once the new values are on screen; under the cells, so it never occludes focus.
- */
-function ScanBand({ active }: { active: boolean }) {
-  const sweep = useSharedValue(0);
-  const fade = useSharedValue(0);
-  const hostW = useSharedValue(0);
-  useEffect(() => {
-    if (active) {
-      fade.value = withTiming(1, { duration: 250 });
-      // From the left edge: withRepeat's reverse leg returns to the value held at start,
-      // and the fade-out's cancelAnimation leaves the last run's mid-flight value here.
-      sweep.value = 0;
-      sweep.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.quad) }), -1, true);
-    } else {
-      fade.value = withTiming(0, { duration: 500 }, (finished) => {
-        if (finished) cancelAnimation(sweep);
-      });
-    }
-    return () => {
-      cancelAnimation(sweep);
-      cancelAnimation(fade);
-    };
-  }, [active, sweep, fade]);
-  const handleLayout = useCallback((event: LayoutChangeEvent) => hostW.set(event.nativeEvent.layout.width), [hostW]);
-  // translateX, never `left`: a layout prop animated on the UI thread commits into the shadow
-  // tree against the guide's own row commits.
-  const drift = useAnimatedStyle(() => ({ opacity: fade.value, transform: [{ translateX: (sweep.value * 0.9 - 0.05) * hostW.value }] }));
-  return (
-    <View style={styles.scanHost} pointerEvents="none" onLayout={handleLayout}>
-      <Animated.View style={[styles.scan, drift]} />
-    </View>
-  );
 }
 
 /**
@@ -82,8 +44,7 @@ export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle, updatin
     },
     [onSelectedHandle],
   );
-  const status = useSyncExternalStore(subscribeGuideStatus, guideStatus);
-  const busy = status.state === "downloading" || status.state === "parsing";
+  const busy = useSyncExternalStore(subscribeGuideSources, guideSourcesBusy);
 
   if (choices.length <= 1 && !cornerActions) return null;
   return (
@@ -138,21 +99,5 @@ const styles = StyleSheet.create({
   cells: {
     flex: 1,
     flexGrow: 1,
-  },
-  scanHost: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    overflow: "hidden",
-  },
-  scan: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    width: "20%",
-    experimental_backgroundImage: SCAN_WASH,
   },
 });

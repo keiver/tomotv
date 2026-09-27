@@ -3,7 +3,7 @@
  * so the device streams each playlist through the native module (native/ios/LiveSources), which
  * parses it and computes the item id the server gave every entry.
  */
-import { cancelTunerGroups, isLiveSourcesAvailable, loadTunerPlaylist, type TunerGroup } from "@/services/liveSources";
+import { cancelTunerGroups, isLiveSourcesAvailable, loadTunerPlaylist, type TunerGroup, type TunerPlaylist } from "@/services/liveSources";
 import { cachedRequest, invalidateRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS } from "./constants";
@@ -17,6 +17,8 @@ export interface TunerData {
   groups: TunerGroup[];
   /** tvg-id by channel item id, for matching an XMLTV guide. */
   tvgById: Record<string, string>;
+  /** tvg-name by channel item id, the guide's second matching key. */
+  tvgNameById: Record<string, string>;
   /** http(s) guide URLs the playlists declare (x-tvg-url / url-tvg), deduped in order. */
   tvgUrls: string[];
   /** Every tuner answered: only then may a group missing from `groups` be treated as gone. */
@@ -33,10 +35,12 @@ const TUNER_GROUPS_TTL_MS = 60 * 60 * 1000;
 /** A failed read is not retried before this passes, or every screen mount re-streams the playlists. */
 const TUNER_GROUPS_FAILURE_TTL_MS = 5 * 60 * 1000;
 
-const NO_DATA: TunerData = { groups: [], tvgById: {}, tvgUrls: [], complete: false };
+const NO_DATA: TunerData = { groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [], complete: false };
 const failedAt = new Map<string, number>();
 /** The last successful read per key: a failed refetch serves this instead of nothing. */
 const lastGood = new Map<string, TunerData>();
+/** Each tuner's last playlist, by read key and tuner URL: a refusing tuner stands in with its own. */
+const lastPlaylist = new Map<string, TunerPlaylist>();
 let latest: TunerData | null = null;
 let requestSeq = 0;
 /** Bumped by reset, so a read that outlived a server switch writes nothing back. */
@@ -52,24 +56,8 @@ export function resetTunerCache(): void {
   generation += 1;
   failedAt.clear();
   lastGood.clear();
+  lastPlaylist.clear();
   latest = null;
-}
-
-/** A partial read keeps what the refusing tuners contributed last time. */
-function withLastGood(fresh: TunerData, kept: TunerData | undefined): TunerData {
-  if (!kept) return fresh;
-  const groups = new Map(kept.groups.map((group) => [group.name, new Set(group.channelIds)]));
-  for (const group of fresh.groups) {
-    const ids = groups.get(group.name) ?? new Set<string>();
-    for (const id of group.channelIds) ids.add(id);
-    groups.set(group.name, ids);
-  }
-  return {
-    groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })),
-    tvgById: { ...kept.tvgById, ...fresh.tvgById },
-    tvgUrls: [...new Set([...fresh.tvgUrls, ...kept.tvgUrls])],
-    complete: false,
-  };
 }
 
 /** The server's http(s) M3U tuners read in one pass: groups and tvg-ids together. */
@@ -95,30 +83,40 @@ export async function fetchTunerData(): Promise<TunerData> {
         const tuners = (json.TunerHosts ?? []).filter((tuner) => tuner.Type?.toLowerCase() === "m3u" && /^https?:\/\//i.test(tuner.Url ?? ""));
         const groups = new Map<string, Set<string>>();
         const tvgById: Record<string, string> = {};
+        const tvgNameById: Record<string, string> = {};
         const tvgUrls: string[] = [];
         let lastFailure: unknown = null;
         let failures = 0;
         for (const tuner of tuners) {
+          const tunerKey = `${key}|${tuner.Url}`;
+          let playlist: TunerPlaylist | undefined;
           try {
-            const playlist = await loadTunerPlaylist(`tuner-${++requestSeq}`, tuner.Url!, tuner.UserAgent);
+            playlist = await loadTunerPlaylist(`tuner-${++requestSeq}`, tuner.Url!, tuner.UserAgent);
+            if (gen === generation) lastPlaylist.set(tunerKey, playlist);
+          } catch (error) {
+            logger.warn("Tuner playlist read failed", error, { service: "TunerGroups" });
+            lastFailure = error;
+            failures += 1;
+            // A refusing tuner (busy streaming) keeps what it last said; the others speak for themselves.
+            playlist = lastPlaylist.get(tunerKey);
+          }
+          if (playlist) {
             for (const group of playlist.groups) {
               const ids = groups.get(group.name) ?? new Set<string>();
               for (const id of group.channelIds) ids.add(id);
               groups.set(group.name, ids);
             }
-            for (const channel of playlist.channels) tvgById[channel.id] = channel.tvgId;
+            for (const channel of playlist.channels) {
+              if (channel.tvgId) tvgById[channel.id] = channel.tvgId;
+              if (channel.tvgName) tvgNameById[channel.id] = channel.tvgName;
+            }
             for (const url of playlist.tvgUrls) if (/^https?:\/\//i.test(url) && !tvgUrls.includes(url)) tvgUrls.push(url);
-          } catch (error) {
-            logger.warn("Tuner playlist read failed", error, { service: "TunerGroups" });
-            lastFailure = error;
-            failures += 1;
           }
         }
         // Every tuner refused (a busy single-connection tuner does, while a channel streams): a
         // failure, never an empty success that would overwrite lastGood and kill the group filter.
         if (tuners.length > 0 && failures === tuners.length) throw lastFailure;
-        const fresh: TunerData = { groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })), tvgById, tvgUrls, complete: failures === 0 };
-        const data = fresh.complete ? fresh : withLastGood(fresh, lastGood.get(key));
+        const data: TunerData = { groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })), tvgById, tvgNameById, tvgUrls, complete: failures === 0 };
         if (gen !== generation) return data;
         // A partial read is retried after the failure window, like a failed one.
         if (data.complete) failedAt.delete(key);

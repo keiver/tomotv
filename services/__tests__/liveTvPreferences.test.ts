@@ -12,7 +12,10 @@ import {
   isChannelInGroup,
   isFavoriteChannel,
   LIVE_TV_PREFERENCES_KEY,
+  addGuideUrl,
   normalizeGuideUrl,
+  removeGuideUrl,
+  setGuideSourceEnabled,
   parseLiveTvPreferences,
   renameGroup,
   subscribeLiveTvPreferences,
@@ -39,15 +42,16 @@ describe("live TV preferences", () => {
       sort: "name",
       favorites: [{ number: "9.1", name: "KQED" }, { name: "Al Jazeera English" }],
       groups: [],
-      guideUrl: "",
+      guideUrls: [],
+      guideSourcesOff: [],
       recordingMinutes: 120,
       hideOffline: false,
-      autoGuide: true,
     });
-    // The guide URL survives only as http(s); anything else falls back to off.
-    expect(parseLiveTvPreferences({ guideUrl: "https://g/guide.xml.gz" }).guideUrl).toBe("https://g/guide.xml.gz");
-    expect(parseLiveTvPreferences({ guideUrl: "file:///etc/passwd" }).guideUrl).toBe("");
-    expect(parseLiveTvPreferences({ guideUrl: 7 }).guideUrl).toBe("");
+    // Guide URLs survive only as http(s), once each; a document from before the list carries one as guideUrl.
+    expect(parseLiveTvPreferences({ guideUrls: ["https://g/a.xml", "file:///etc/passwd", 7, "https://g/a.xml", "http://g/b.xml"] }).guideUrls).toEqual(["https://g/a.xml", "http://g/b.xml"]);
+    expect(parseLiveTvPreferences({ guideUrl: "https://g/guide.xml.gz" }).guideUrls).toEqual(["https://g/guide.xml.gz"]);
+    expect(parseLiveTvPreferences({ guideUrl: "file:///etc/passwd" }).guideUrls).toEqual([]);
+    expect(parseLiveTvPreferences({ guideSourcesOff: ["http://g/off.xml", null] }).guideSourcesOff).toEqual(["http://g/off.xml"]);
     // The recording length survives only as a listed option; anything else falls back to 2h.
     expect(parseLiveTvPreferences({ recordingMinutes: 30 }).recordingMinutes).toBe(30);
     expect(parseLiveTvPreferences({ recordingMinutes: 90 }).recordingMinutes).toBe(120);
@@ -166,12 +170,35 @@ describe("live TV preferences", () => {
 describe("normalizeGuideUrl", () => {
   it("gives a bare host https so the saved URL survives the next launch's parse", () => {
     expect(normalizeGuideUrl("  iptv-org.github.io/guide.xml ")).toBe("https://iptv-org.github.io/guide.xml");
-    expect(parseLiveTvPreferences({ guideUrl: normalizeGuideUrl("epg.site/x.xml") }).guideUrl).toBe("https://epg.site/x.xml");
+    expect(parseLiveTvPreferences({ guideUrls: [normalizeGuideUrl("epg.site/x.xml")] }).guideUrls).toEqual(["https://epg.site/x.xml"]);
   });
 
   it("keeps an explicit scheme and an empty field as typed", () => {
     expect(normalizeGuideUrl("http://lan:8080/guide.xml")).toBe("http://lan:8080/guide.xml");
     expect(normalizeGuideUrl("HTTPS://g/x.xml.gz")).toBe("HTTPS://g/x.xml.gz");
     expect(normalizeGuideUrl("   ")).toBe("");
+  });
+});
+
+describe("guide URL list", () => {
+  beforeEach(() => updateLiveTvPreferences({ guideUrls: [], guideSourcesOff: [] }));
+
+  it("adds a typed URL once, after the others, and refuses one that is not http(s)", () => {
+    expect(addGuideUrl("epg.site/a.xml")).toBe("https://epg.site/a.xml");
+    expect(addGuideUrl("http://lan/b.xml")).toBe("http://lan/b.xml");
+    expect(addGuideUrl("https://epg.site/a.xml")).toBe("https://epg.site/a.xml");
+    expect(addGuideUrl("ftp://x/c.xml")).toBeNull();
+    expect(addGuideUrl("   ")).toBeNull();
+    expect(getLiveTvPreferences().guideUrls).toEqual(["https://epg.site/a.xml", "http://lan/b.xml"]);
+  });
+
+  it("switches a guide off and on, and removing one forgets its switch too", () => {
+    addGuideUrl("http://lan/b.xml");
+    setGuideSourceEnabled("http://lan/b.xml", false);
+    setGuideSourceEnabled("http://declared/x.xml", false);
+    expect(getLiveTvPreferences().guideSourcesOff).toEqual(["http://lan/b.xml", "http://declared/x.xml"]);
+    setGuideSourceEnabled("http://declared/x.xml", true);
+    removeGuideUrl("http://lan/b.xml");
+    expect(getLiveTvPreferences()).toMatchObject({ guideUrls: [], guideSourcesOff: [] });
   });
 });

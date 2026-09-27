@@ -13,8 +13,7 @@ jest.mock("@/components/live-tv/guide-corner-actions", () => ({ GuideCornerActio
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@/services/jellyfinApi", () => ({ lastKnownTunerData: () => null }));
-jest.mock("@/services/externalGuide", () => ({ refreshExternalGuide: jest.fn() }));
-jest.mock("@/services/guideHunt", () => ({ resetGuideHunt: jest.fn() }));
+jest.mock("@/services/externalGuide", () => ({ refreshExternalGuide: jest.fn(), activeGuideUrls: () => [] }));
 jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
 jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useLocalSearchParams: () => ({}), useRouter: () => ({ push: jest.fn() }) }));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
