@@ -1,6 +1,6 @@
 {
   "repository": "keiver/tomotv",
-  "tag": "ffmpeg-n8.1.2-tomo.5",
+  "tag": "ffmpeg-n8.1.3-tomo.6",
   "artifacts": {
     "Libarchive": "4048003ec8d25b860fecb2596765d13d1f5373b18600f70affc5b5d1e8e5afad",
     "Libass": "5d7ade180a300dd42e387ef22bdc40afd94c0b990b000a401e99f811892d9e56",

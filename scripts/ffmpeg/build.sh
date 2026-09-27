@@ -523,7 +523,7 @@ build_ffmpeg() {
       --enable-protocol=http,https,tls,tcp,file,crypto,udp,rtp,rtmp,rtmps,data,mmsh,mmst \
       --disable-bsfs --enable-bsf=pgs_frame_merge,dovi_rpu \
       --disable-filters \
-      --enable-filter=yadif_videotoolbox,bwdif,yadif,scale_vt,transpose_vt,scale,format,null,copy,ass,subtitles,aresample,anull,aformat,loudnorm,dynaudnorm,compand \
+      --enable-filter=yadif_videotoolbox,bwdif,yadif,scale_vt,transpose_vt,scale,format,null,copy,ass,subtitles,aresample,anull,aformat,loudnorm,dynaudnorm,compand,select,scdet,thumbnail \
       >"$BUILD/ffmpeg-configure.log" 2>&1 ) || {
         tail -60 "$BUILD/ffmpeg-configure.log"
         warn "config.log tail:"; tail -40 "$dir/ffbuild/config.log" 2>/dev/null || true

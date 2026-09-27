@@ -14,9 +14,9 @@
 #   explicit `mbedtls_version_get_number() == 0x03060000` branch; 4.x moved to
 #   PSA crypto and is not what this FFmpeg was written against.
 
-FFMPEG_VERSION="8.1.2"
+FFMPEG_VERSION="8.1.3"
 FFMPEG_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
-FFMPEG_SHA="464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
+FFMPEG_SHA="7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3"
 
 # Built under a private symbol prefix; see build_dav1d in build.sh.
 DAV1D_VERSION="1.5.4"
