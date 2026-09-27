@@ -286,6 +286,9 @@ export function LibraryGrid({
         // A channel card is landscape whatever its logo's shape: its live frame is.
         (item) => {
           if (liveChannels) return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
+          // An episode card is landscape whatever its still's shape: a portrait still is a
+          // scraper anomaly, and honoring it shrinks the card below legibility on phones.
+          if (item.Type === "Episode") return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
           const shape = itemSlotShape(item.PrimaryImageAspectRatio);
           return { ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[shape] };
         },
@@ -547,7 +550,9 @@ export function LibraryGrid({
                 nextFocusUp={nextFocusUpForRow}
                 nextFocusDown={nextFocusDown}
                 cardHeight={card.cardHeight}
-                fitArtwork
+                // Episodes take the uniform landscape slot the packer allocated them above.
+                fitArtwork={item.Type !== "Episode"}
+                slotOrientation="landscape"
                 progressPercent={cardResumeProgress(item)}
                 titleIcon={recordings ? "videocam-outline" : undefined}
               />
