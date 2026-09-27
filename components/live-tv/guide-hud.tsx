@@ -35,6 +35,9 @@ function ScanBand({ active }: { active: boolean }) {
   useEffect(() => {
     if (active) {
       fade.value = withTiming(1, { duration: 250 });
+      // From the left edge: withRepeat's reverse leg returns to the value held at start,
+      // and the fade-out's cancelAnimation leaves the last run's mid-flight value here.
+      sweep.value = 0;
       sweep.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.quad) }), -1, true);
     } else {
       fade.value = withTiming(0, { duration: 500 }, (finished) => {
