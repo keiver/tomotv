@@ -100,6 +100,9 @@ export function InfoActionRow({
   }, []);
 
   const blur = useCallback((key: ActionKey) => setFocused((current) => (current === key ? null : current)), []);
+  // A stopped recording's circle stays, spent, until focus leaves it: unmounting the focused view
+  // would throw tvOS focus off the row.
+  const stopSpent = !onStopRecording && focused === "stop";
 
   // Labels state the press, not the noun, so the caption reads the same way the row acts.
   const favoriteLabel = isFavorite ? t("info.removeFavorite") : t("info.addFavorite");
@@ -116,7 +119,9 @@ export function InfoActionRow({
           : focused === "download"
             ? download.label
             : focused === "stop"
-              ? t("liveTv.stopRecording")
+              ? stopSpent
+                ? ""
+                : t("liveTv.stopRecording")
               : (extras.find((extra) => focused === `extra:${extra.key}`)?.label ?? "");
 
   // Awaited: reporting before the write lands claims a success the server can still refuse,
@@ -138,7 +143,7 @@ export function InfoActionRow({
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        {!!onStopRecording && (
+        {(!!onStopRecording || stopSpent) && (
           // Always lit and red: one irreversible press, never a toggle. A bare glyph, since the
           // button is the circle (see the download arrow).
           <GlassButton
@@ -146,9 +151,10 @@ export function InfoActionRow({
             style={circleStyle(true, "stop")}
             icon={<Ionicons name="stop" size={ICON} color={focused === "stop" ? COLORS.TEXT_PRIMARY : COLORS.DESTRUCTIVE} />}
             accessibilityLabel={t("liveTv.stopRecording")}
+            accessibilityState={{ disabled: stopSpent }}
             onFocus={() => setFocused("stop")}
             onBlur={() => blur("stop")}
-            onPress={press(onStopRecording, t("liveTv.recordingStopped"))}
+            onPress={onStopRecording ? press(onStopRecording, t("liveTv.recordingStopped")) : undefined}
           />
         )}
         {!!onToggleFavorite && (
