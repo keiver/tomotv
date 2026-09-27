@@ -1,6 +1,5 @@
 import {
   adjacentChannelId,
-  artPin,
   cellAtEdge,
   cellGeometry,
   guideMetrics,
@@ -75,17 +74,6 @@ describe("guide geometry", () => {
     expect(labelPin(250, 100, 400, 120)).toBe(150);
     expect(labelPin(900, 100, 400, 120)).toBe(280);
     expect(labelPin(900, 100, 80, 120)).toBe(0);
-  });
-
-  it("pins the stand-in's art to the viewport's right edge without pushing it out of its cell", () => {
-    // Cell at 0, 2000 wide; viewport 800, art 200: sits at the right edge, then rides the scroll.
-    expect(artPin(0, 0, 2000, 200, 800)).toBe(600);
-    expect(artPin(500, 0, 2000, 200, 800)).toBe(1100);
-    // Clamped inside the cell at both ends.
-    expect(artPin(2000, 0, 2000, 200, 800)).toBe(1800);
-    expect(artPin(0, 700, 2000, 200, 800)).toBe(0);
-    // A cell narrower than the art never yields a negative offset.
-    expect(artPin(0, 0, 150, 200, 800)).toBe(0);
   });
 
   it("names the channel a stand-in cell stands for", () => {

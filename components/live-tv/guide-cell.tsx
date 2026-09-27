@@ -1,4 +1,4 @@
-import { GuideCellLiveArt } from "@/components/live-tv/guide-cell-live-art";
+import { GuideFocusReel } from "@/components/live-tv/guide-focus-reel";
 import { GuideCellQuietLine } from "@/components/live-tv/guide-cell-quiet-line";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -18,7 +18,8 @@ export const GRID_LINE = "rgba(255, 255, 255, 0.14)";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 /** The first half hour of a cell is text alone: the art is clipped out of it, so a short cell shows none. */
-const ART_START = guideMetrics(IS_TV).pxPerMinute * TICK_MINUTES;
+const PX_PER_MINUTE = guideMetrics(IS_TV).pxPerMinute;
+const ART_START = PX_PER_MINUTE * TICK_MINUTES;
 /** The art fades into the cell across its whole width, so the text reads over it. */
 const ART_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 44, 46, 0) 100%)";
 const TEXT_SHADOW = { textShadowColor: "rgba(0, 0, 0, 0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: IS_TV ? 4 : 3 } as const;
@@ -34,8 +35,6 @@ interface GuideCellProps {
   recording: RecordingMark;
   /** The canvas's horizontal offset; the label rides it so it stays on the visible edge. */
   scrollX: SharedValue<number>;
-  /** The canvas's visible width; the stand-in's live art rides it to the visible right edge. */
-  viewportW?: SharedValue<number>;
   onPress: (program: JellyfinProgram) => void;
   onLongPress: (program: JellyfinProgram) => void;
   onFocus?: (program: JellyfinProgram) => void;
@@ -60,7 +59,6 @@ function GuideCellComponent({
   nowMs,
   recording,
   scrollX,
-  viewportW,
   onPress,
   onLongPress,
   onFocus,
@@ -116,7 +114,7 @@ function GuideCellComponent({
           <View style={styles.artFade} />
         </View>
       ) : null}
-      {standInChannel && viewportW ? <GuideCellLiveArt channelId={standInChannel} left={left} width={width} height={height} scrollX={scrollX} viewportW={viewportW} /> : null}
+      {standInChannel && focused ? <GuideFocusReel channelId={standInChannel} windowStartMs={startMs} pxPerMinute={PX_PER_MINUTE} cellHeight={height} /> : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
       {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
       <AnimatedPressable

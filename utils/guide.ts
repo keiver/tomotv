@@ -78,12 +78,6 @@ export function labelPin(scrollX: number, cellLeft: number, cellWidth: number, l
   return Math.min(Math.max(0, scrollX - cellLeft), Math.max(0, cellWidth - labelWidth));
 }
 
-/** Holds the stand-in cell's art at the viewport's right edge, clamped inside the cell. Runs on the UI thread. */
-export function artPin(scrollX: number, cellLeft: number, cellWidth: number, artWidth: number, viewportWidth: number): number {
-  "worklet";
-  return Math.min(Math.max(0, scrollX + viewportWidth - artWidth - cellLeft), Math.max(0, cellWidth - artWidth));
-}
-
 export type ProgramCategory = "news" | "sports" | "kids" | "movie";
 
 export function programCategory(program: Pick<JellyfinProgram, "IsNews" | "IsSports" | "IsKids" | "IsMovie">): ProgramCategory | null {

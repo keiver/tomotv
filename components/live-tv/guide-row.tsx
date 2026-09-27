@@ -28,8 +28,6 @@ interface GuideRowProps {
   nowMs: number;
   timersByProgramId: Map<string, JellyfinTimer>;
   scrollX: SharedValue<number>;
-  /** The canvas's visible width, for the stand-in cell's live art pin. */
-  viewportW?: SharedValue<number>;
   rowIndex: number;
   /** Top row only: Up leaves the canvas for the screen's actions above it. */
   nextFocusUp?: number;
@@ -80,7 +78,6 @@ function GuideRowComponent({
   nowMs,
   timersByProgramId,
   scrollX,
-  viewportW,
   rowIndex,
   nextFocusUp,
   targetsFor,
@@ -134,7 +131,6 @@ function GuideRowComponent({
               nowMs={nowMs}
               recording={recordingMark(program, timersByProgramId)}
               scrollX={scrollX}
-              viewportW={viewportW}
               nextFocusUp={targets?.up ?? nextFocusUp}
               nextFocusDown={targets?.down}
               hasTVPreferredFocus={focusProgramId === program.Id}

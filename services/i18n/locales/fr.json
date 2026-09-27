@@ -55,6 +55,7 @@
   "liveTv.noManagement": "Tu n'as pas les permissions de gestion de la TV en direct sur ce serveur.",
   "liveTv.autoGuide": "Guide automatique",
   "liveTv.autoGuideHint": "Trouve les programmes des chaînes qui n'en ont pas",
+  "liveTv.lastSeen": "Vu en dernier sur cette chaîne",
   "liveTv.offline": "Hors ligne",
   "liveTv.hideOffline": "Masquer hors ligne",
   "liveTv.noGuide": "Aucun programme",

@@ -17,7 +17,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { LayoutChangeEvent, Platform, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useSharedValue } from "react-native-reanimated";
+import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
 import { claimMacEscape } from "@/services/macKeyCommands";
 import { IS_MAC } from "@/utils/hostEnvironment";
@@ -73,8 +73,6 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
     setCanvasHeight(event.nativeEvent.layout.height);
   }, []);
   const handleGuideLayout = useCallback((event: LayoutChangeEvent) => canvasW.set(event.nativeEvent.layout.width), [canvasW]);
-  // The cells' visible span, live through the column drag; the stand-in art pins to its right edge.
-  const cellsViewportW = useDerivedValue(() => Math.max(0, canvasW.value - columnW.value + SEAM_REACH));
   // The corner tracks the column's live width; the ruler band mirrors the rows' horizontal offset.
   const cornerWidthStyle = useAnimatedStyle(() => ({ width: columnW.get() }));
   const rulerShift = useAnimatedStyle(() => ({ transform: [{ translateX: -scrollX.value }] }));
@@ -213,7 +211,6 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
         nowMs={nowMs}
         timersByProgramId={timersByProgramId}
         scrollX={scrollX}
-        viewportW={cellsViewportW}
         rowIndex={index}
         nextFocusUp={index === 0 ? topFocusHandle : undefined}
         targetsFor={IS_TV ? targetsFor : undefined}
@@ -224,22 +221,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
         onCellHandle={handleCellHandle}
       />
     ),
-    [
-      windowStartMs,
-      windowEndMs,
-      spanPx,
-      nowMs,
-      timersByProgramId,
-      scrollX,
-      cellsViewportW,
-      topFocusHandle,
-      targetsFor,
-      focusProgramId,
-      onProgramPress,
-      onProgramLongPress,
-      handleCellFocus,
-      handleCellHandle,
-    ],
+    [windowStartMs, windowEndMs, spanPx, nowMs, timersByProgramId, scrollX, topFocusHandle, targetsFor, focusProgramId, onProgramPress, onProgramLongPress, handleCellFocus, handleCellHandle],
   );
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
