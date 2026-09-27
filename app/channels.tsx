@@ -9,7 +9,6 @@ import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
-import { useChannelFilterPicker } from "@/hooks/useChannelFilterPicker";
 import { useChannels } from "@/hooks/useChannels";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
@@ -112,7 +111,7 @@ export default function ChannelsScreen() {
   const recordingFor = useCallback((item: JellyfinItem) => item.Type === "TvChannel" && !!activeRecordTimer(timers, { channelId: item.Id }, Date.now()), [timers]);
   const favoriteMark = useCallback((item: JellyfinItem) => (item.Type === "TvChannel" && isFavoriteChannel(preferences, item) ? ("heart" as const) : undefined), [preferences]);
   const crumbs = useMemo<FolderStackEntry[]>(() => [{ id: "channels", name: t("liveTv.channels"), type: "livetv" }], []);
-  const openFilterPicker = useChannelFilterPicker();
+  const openFilterPicker = useCallback(() => router.push("/channel-groups"), [router]);
   // Icon-only: the cog carries it.
   const headerAction = useMemo(() => ({ icon: "settings-outline" as const, accessibilityLabel: t("settings.title"), onPress: openSettings }), [openSettings]);
   // Left of Settings, the platform's filter button: the symbol fills while a filter holds the list.
