@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 24, 2026
+**Last Updated:** September 27, 2026
 
 ## Quick Reference
 
@@ -98,21 +98,29 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.9), iOS (154 / 4000)
+### What's New (2.2.9), iOS (387 / 4000)
 
 ```text
-- Live TV: group channels with tuner playlists, and bring your own XMLTV guide for listings
-- Guide cards show fresh frames from each channel as they load
+- Live TV: filter the guide by your own groups, playlist groups and categories
+- Guide sources: add XMLTV guides for channels without listings, and see what each one matched
+- Search finds Live TV channels and programmes
+- Guide cards show live frames, and offline channels can be hidden
+- Record, favorite and group channels from the info panel
+- Admins can delete items from the server
 ```
 
-### What's New (2.2.9), tvOS (431 / 4000)
+### What's New (2.2.9), tvOS (554 / 4000)
 
 ```text
-- Record from the player: a record button on live channels records what is airing, or the next three hours when a channel has no guide
-- Favorite from the player: a heart in the playback controls for videos and live channels
-- Live TV: group channels with tuner playlists, and bring your own XMLTV guide for listings
-- Guide cards show fresh frames from each channel as they load
-- Search runs from the remote keyboard's Search key
+- Live TV has its own tab
+- Record and favorite from the playback controls
+- Live TV: filter the guide by your own groups, playlist groups and categories
+- Guide sources: add XMLTV guides for channels without listings, and see what each one matched
+- Search finds Live TV channels and programmes
+- Guide cards show live frames, and offline channels can be hidden
+- Record, favorite and group channels from the info panel
+- Admins can delete items from the server
+- A live channel that stops no longer sends the app to the background from its error screen
 ```
 
 ### What's New (2.2.8), iOS (332 / 4000)
@@ -352,21 +360,29 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.9), iOS (175 / 4000 chars)
+#### What's New (2.2.9), iOS (448 / 4000 chars)
 
 ```text
-- Live-TV: Kanäle mit Tuner-Wiedergabelisten gruppieren und eigene XMLTV-Guide für die Programmübersicht nutzen
-- Guide-Karten zeigen frische Frames von jedem Kanal beim Laden
+- Live-TV: Filtere die Programmübersicht nach deinen eigenen Gruppen, Wiedergabelistengruppen und Kategorien
+- Guide-Quellen: Füge XMLTV-Guides für Kanäle ohne Programm hinzu und sieh, was jeder zugeordnet hat
+- Suche findet Live-TV-Kanäle und -Programme
+- Guide-Karten zeigen Live-Frames, und Offline-Kanäle können ausgeblendet werden
+- Kanäle aufnehmen, favorisieren und gruppieren aus dem Info-Bereich
+- Admins können Elemente vom Server löschen
 ```
 
-#### What's New (2.2.9), tvOS (503 / 4000 chars)
+#### What's New (2.2.9), tvOS (636 / 4000 chars)
 
 ```text
-- Aufnahme vom Player: Eine Aufnahmetaste auf Live-Kanälen zeichnet das aktuelle Programm oder die nächsten drei Stunden auf, wenn ein Kanal keine Programmübersicht hat
-- Favorit vom Player: Ein Herz in den Wiedergabesteuerungen für Videos und Live-Kanäle
-- Live-TV: Kanäle mit Tuner-Wiedergabelisten gruppieren und eigene XMLTV-Guide für die Programmübersicht nutzen
-- Guide-Karten zeigen frische Frames von jedem Kanal beim Laden
-- Suche wird über die Such-Taste der Fernbedienungs-Tastatur ausgeführt
+- Live-TV hat eine eigene Registerkarte
+- Aufnahme und Favorit von den Wiedergabesteuerungen
+- Live-TV: Filtere die Programmübersicht nach deinen eigenen Gruppen, Wiedergabelistengruppen und Kategorien
+- Guide-Quellen: Füge XMLTV-Guides für Kanäle ohne Programm hinzu und sieh, was jeder zugeordnet hat
+- Suche findet Live-TV-Kanäle und Programme
+- Guide-Karten zeigen Live-Frames, und Offline-Kanäle können ausgeblendet werden
+- Kanäle aufnehmen, favorisieren und gruppieren aus dem Info-Bereich
+- Admins können Elemente vom Server löschen
+- Ein Live-Kanal, der stoppt, sendet die App nicht mehr vom Fehlerbildschirm in den Hintergrund
 ```
 
 #### What's New (2.2.8), iOS (383 / 4000 chars)
@@ -540,21 +556,29 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.9), iOS (219 / 4000 chars)
+#### What's New (2.2.9), iOS (534 / 4000 chars)
 
 ```text
-- TV en direct : regroupez les chaînes avec des listes de lecture de tuner et importez votre propre guide XMLTV pour les programmes
-- Les cartes du guide affichent de nouvelles images de chaque chaîne lors du chargement
+- TV en direct : filtrez le guide par vos propres groupes, groupes de listes de lecture et catégories
+- Sources du guide : ajoutez des guides XMLTV pour les chaînes sans programme et voyez ce que chacun a associé
+- La recherche trouve les chaînes et programmes de TV en direct
+- Les cartes du guide montrent des images en direct, et les chaînes hors ligne peuvent être masquées
+- Enregistrez, ajoutez aux favoris et regroupez les chaînes depuis le panneau d'informations
+- Les administrateurs peuvent supprimer des éléments du serveur
 ```
 
-#### What's New (2.2.9), tvOS (609 / 4000 chars)
+#### What's New (2.2.9), tvOS (745 / 4000 chars)
 
 ```text
-- Enregistrement depuis le lecteur : un bouton d'enregistrement sur les chaînes en direct permet d'enregistrer ce qui est diffusé, ou les trois prochaines heures lorsqu'une chaîne n'a pas de guide
-- Ajout aux favoris depuis le lecteur : un cœur dans les contrôles de lecture pour les vidéos et les chaînes en direct
-- TV en direct : regroupez les chaînes avec des listes de lecture de tuner et importez votre propre guide XMLTV pour les programmes
-- Les cartes du guide affichent de nouvelles images de chaque chaîne lors du chargement
-- La recherche s'exécute depuis la touche Recherche du clavier à distance
+- TV en direct a son propre onglet
+- Enregistrement et ajout aux favoris depuis les contrôles de lecture
+- TV en direct : filtrez le guide par vos propres groupes, groupes de listes de lecture et catégories
+- Sources du guide : ajoutez des guides XMLTV pour les chaînes sans programme et voyez ce que chacun a associé
+- La recherche trouve les chaînes et programmes de TV en direct
+- Les cartes du guide montrent des images en direct, et les chaînes hors ligne peuvent être masquées
+- Enregistrez, ajoutez aux favoris et regroupez les chaînes depuis le panneau d'informations
+- Les administrateurs peuvent supprimer des éléments du serveur
+- Une chaîne en direct qui s'arrête n'envoie plus l'application en arrière-plan depuis son écran d'erreur
 ```
 
 #### What's New (2.2.8), iOS (438 / 4000 chars)
@@ -728,21 +752,29 @@ Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenci
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.9), iOS (218 / 4000 chars)
+#### What's New (2.2.9), iOS (509 / 4000 chars)
 
 ```text
-- La TV en vivo: agrupa canales con listas de reproducción del sintonizador y añade tu propia guía XMLTV para las programaciones
-- Las tarjetas de la guía muestran fotogramas nuevos de cada canal a medida que se cargan
+- Televisión en vivo: filtra la guía por tus propios grupos, grupos de listas de reproducción y categorías
+- Fuentes de la guía: añade guías XMLTV para canales sin programación y mira qué asoció cada una
+- La búsqueda encuentra canales y programas de Televisión en vivo
+- Las tarjetas de la guía muestran fotogramas en vivo, y los canales fuera de línea se pueden ocultar
+- Graba, marca como favoritos y agrupa canales desde el panel de información
+- Los administradores pueden eliminar elementos del servidor
 ```
 
-#### What's New (2.2.9), tvOS (555 / 4000 chars)
+#### What's New (2.2.9), tvOS (716 / 4000 chars)
 
 ```text
-- Grabar desde el reproductor: un botón de grabación en los canales en vivo graba lo que se está emitiendo, o las próximas tres horas cuando un canal no tiene guía
-- Favorito desde el reproductor: un corazón en los controles de reproducción para vídeos y canales en vivo
-- La TV en vivo: agrupa canales con listas de reproducción del sintonizador y añade tu propia guía XMLTV para las programaciones
-- Las tarjetas de la guía muestran fotogramas nuevos de cada canal a medida que se cargan
-- La búsqueda se ejecuta desde la tecla Buscar del teclado remoto
+- Televisión en vivo tiene su propia pestaña
+- Graba y marca como favorito desde los controles de reproducción
+- Televisión en vivo: filtra la guía por tus propios grupos, grupos de listas de reproducción y categorías
+- Fuentes de la guía: añade guías XMLTV para canales sin programación y mira qué asoció cada una
+- La búsqueda encuentra canales y programas de Televisión en vivo
+- Las tarjetas de la guía muestran fotogramas en vivo, y los canales fuera de línea se pueden ocultar
+- Graba, marca como favoritos y agrupa canales desde el panel de información
+- Los administradores pueden eliminar elementos del servidor
+- Un canal en vivo que deja de funcionar ya no envía la app al fondo desde su pantalla de error
 ```
 
 #### What's New (2.2.8), iOS (411 / 4000 chars)

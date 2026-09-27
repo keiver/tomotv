@@ -2,6 +2,44 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.9]
+
+### Added
+
+- Live TV groups: a band above the guide filters it to Favorites, All, your own groups, the groups a tuner's M3U playlist declares, and the server's News, Sports, Kids, Movies and Series categories. Your own groups are made in Channel Settings or a channel's info panel, which adds the channel to them
+- Guide sources, in Channel Settings: listings for channels the server has none for, from any number of XMLTV guides you add and the guides your tuner playlists declare, asked in order. A channel is matched by its tvg-id, then its tvg-name, then its name, letter case aside. The screen shows each guide's status, how many channels it matched and which, its size on the device and when it last downloaded, turns a guide off, and clears the downloaded files. Guides refresh hourly, and Refresh guide downloads them again and reports how it went
+- Live TV search: Search lists matching channels and programmes on a Live TV shelf above the library results, channels first, then programmes by start time, ended ones left out. The channel wall has a search of its own
+- Channel health: a channel that does not answer wears Offline, and Hide offline in Channel Settings leaves those channels out of the guide and the wall
+- The guide's channel cards show live frames of their channel, and a focused channel with no listings unrolls its recent frames, each captioned with the time it was seen
+- Record from the player on Apple TV: a Record button in the playback controls records the programme on air, and a channel with no guide records for the Recording length set in Channel Settings (30 minutes to 3 hours, 2 hours by default). The button reads Stop Recording while a timer records
+- A heart in the Apple TV playback controls adds the video or live channel to favorites, or removes it
+- The guide opens the info panel for a channel or programme, which records, favorites and groups the channel. An in-progress recording's panel shows its size, its length so far and a Stop action
+- A channel card wears a red REC pill while a timer records it
+- Short confirmations appear as a one-line strip: a recording started, with its length, or stopped, and a guide refresh starting, finishing or failing
+- Server admins can delete an item and its files from the server in the info panel, after a confirmation
+- On Apple TV, Live TV is a tab of its own when the server has a Live TV library
+- On a Mac, Escape on a scrolled guide returns it to the first channel before it leaves the screen
+- A grid card's badge carries the watched eye, except on music
+
+### Changed
+
+- The info panel sits posters and logos whole on a glow of their own colours, and every action past the two main buttons is a glass circle
+- The guide ruler shows the current time in gold above its labels
+- Names written by a metadata scraper with HTML entities, such as "&amp;", read as the character they stand for wherever they are shown
+- Episode cards take the same landscape slot as the other cards in a folder grid, whatever the shape of their still
+- On-device playback runs on FFmpeg 8.1.3
+
+### Fixed
+
+- On Apple TV a live channel that dies shows its error screen with Retry focused, and Menu from it no longer sends the app to the background
+- A video paused from the playback controls stays paused when playback rebuilds after a stream error
+- A stream error after the player screen has closed ends playback instead of retrying a player that cannot return
+- Channels either side of the one playing warm up only for 30 seconds after a flip, so they no longer starve the playing channel on a slow connection
+- The guide scrolls freely again instead of pulling the focused row to the top on every move
+- After a fast scroll, the posters the engine makes for the cards on screen come first
+- A segment the engine fails to write is dropped instead of being served broken
+- Search results for an earlier query no longer replace those of the latest one when they arrive late
+
 ## [2.2.8]
 
 ### Added
