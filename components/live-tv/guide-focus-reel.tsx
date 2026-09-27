@@ -4,7 +4,7 @@ import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { formatClock, labelPin } from "@/utils/guide";
 import { Image } from "expo-image";
 import React, { useCallback, useEffect, useSyncExternalStore } from "react";
-import { LayoutChangeEvent, Platform, StyleSheet, View } from "react-native";
+import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, SharedValue, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
@@ -27,7 +27,7 @@ interface GuideFocusReelProps {
   cellHeight: number;
   /** The canvas's horizontal offset; the reel rides it so it stays on the visible edge, label-style. */
   scrollX: SharedValue<number>;
-  /** The row holds focus (its cell or its channel card): full strength, caption, the one-shot drift. */
+  /** The row holds focus (its cell or its channel card): full strength and the one-shot drift. */
   active: boolean;
   /** A programme cell's variant: smaller tiles, no caption, under the cell's own three lines. */
   compact?: boolean;
@@ -51,21 +51,16 @@ function Tile({ uri, cacheKey, index, width, height, active }: { uri: string; ca
 
 /**
  * The channel's last burst unrolled flat on its row, dressed as the cell's one programme: resting
- * faded as texture, brightening with its caption while the row holds focus. History, not "now":
- * the caption says so, with the sample's clock time in it.
+ * faded as texture, brightening while the row holds focus. History, not "now": the caption says
+ * so, with the sample's clock time in it.
  */
 export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, active, compact = false }: GuideFocusReelProps) {
   const subscribe = useCallback((listener: () => void) => subscribeLiveFrame(channelId, listener), [channelId]);
   const read = useCallback(() => liveFrameReel(channelId), [channelId]);
   const reel = useSyncExternalStore(subscribe, read);
   const reelWidth = useSharedValue(0);
-  const captionOpacity = useSharedValue(active ? 1 : 0);
   const handleLayout = useCallback((event: LayoutChangeEvent) => reelWidth.set(event.nativeEvent.layout.width), [reelWidth]);
   const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateX: labelPin(scrollX.value, left, width, reelWidth.value) }] }), [left, width]);
-  useEffect(() => {
-    captionOpacity.set(withTiming(active ? 1 : 0, { duration: 200 }));
-  }, [captionOpacity, active]);
-  const captionStyle = useAnimatedStyle(() => ({ opacity: captionOpacity.value }));
   if (!reel || reel.frames.length === 0) return null;
   const tileHeight = Math.round(cellHeight * (compact ? 0.42 : IS_TV ? 0.55 : 0.5));
   const tileWidth = Math.round(tileHeight * (16 / 9));
@@ -74,9 +69,9 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, ac
   return (
     <Animated.View style={[styles.reel, pinStyle]} onLayout={handleLayout} pointerEvents="none" testID="guide-focus-reel">
       {compact ? null : (
-        <Animated.Text style={[styles.title, captionStyle]} numberOfLines={1}>
+        <Text style={styles.title} numberOfLines={1}>
           {t("liveTv.lastSeen").replace("{time}", formatClock(reel.at))}
-        </Animated.Text>
+        </Text>
       )}
       <View style={[styles.strip, cut && { width: room, overflow: "hidden" }]}>
         {reel.frames.map((frame, index) => (
