@@ -132,9 +132,11 @@ function onLiveFrameEvent(event: { channelId?: string; uri?: string; index?: num
     item.expiredAnnounced = false;
     item.shownIndex = 0;
   } else {
-    // Appends in order only; anything missed is reconciled when the grab resolves.
+    // Appends in order only; anything missed is reconciled when the grab resolves. Replaced,
+    // never pushed: subscribers' snapshot is the burst object, and a same-object mutation
+    // renders nowhere (useSyncExternalStore bails on identity).
     if (!item.burst || item.burst.at !== item.lastAt || index !== item.burst.frames.length) return;
-    item.burst.frames.push({ uri, cacheKey: `live-${channelId}-${item.burst.at}-${index}` });
+    item.burst = { at: item.burst.at, frames: [...item.burst.frames, { uri, cacheKey: `live-${channelId}-${item.burst.at}-${index}` }] };
   }
   notify(channelId);
   startTicker();

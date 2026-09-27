@@ -72,6 +72,7 @@ import {
   LIVE_FRAME_RETRY_MS,
   LIVE_FRAME_SPACING_MS,
   liveFrameFor,
+  liveFrameReel,
   setLiveFramesActive,
   setLiveFrameViewable,
   subscribeLiveFrame,
@@ -180,6 +181,22 @@ describe("live frames", () => {
     answer?.();
     await flush();
     expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-0.jpg", cacheKey: "live-m1-1000000-0" });
+  });
+
+  it("replaces the burst on every streamed frame, so a snapshot reader repaints", async () => {
+    let answer: (() => void) | undefined;
+    mockLiveFrame.mockImplementation(() => new Promise((resolve) => (answer = () => resolve({ uris: [], cancelled: true }))));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    emitLiveFrame({ channelId: "m1", uri: "file:///pool/m1/live-1000000-0.jpg", index: 0 });
+    const first = liveFrameReel("m1");
+    emitLiveFrame({ channelId: "m1", uri: "file:///pool/m1/live-1000000-1.jpg", index: 1 });
+    const second = liveFrameReel("m1");
+    expect(second).not.toBe(first);
+    expect(second?.frames.map((frame) => frame.cacheKey)).toEqual(["live-m1-1000000-0", "live-m1-1000000-1"]);
+    answer?.();
+    await flush();
   });
 
   it("asks a channel again at the refresh floor, doubles the wait while its live edge stands still, and drops back once it moves", async () => {
