@@ -673,7 +673,9 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
             throwRequestError(response, `Failed to fetch item details: ${response.status} ${response.statusText}`);
           }
           const item: JellyfinItem = await response.json();
-          if (!PLAYABLE_ITEM_TYPES.includes(item.Type as (typeof PLAYABLE_ITEM_TYPES)[number])) return item;
+          // Recording too: /Items answers an in-progress recording with Size 0 and no
+          // bitrate, while its PlaybackInfo carries the real ones (measured, 12.0.0).
+          if (!PLAYABLE_ITEM_TYPES.includes(item.Type as (typeof PLAYABLE_ITEM_TYPES)[number]) && item.Type !== "Recording") return item;
 
           try {
             // Its own timeout: the metadata timer is already spent by here.

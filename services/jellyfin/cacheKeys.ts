@@ -71,10 +71,12 @@ export function invalidateItemRemoved(userId: string, itemId: string): void {
 /**
  * Evict cached reads whose contents change when a timer write starts or stops a recording:
  * the recordings folders (a first recording creates one) and every listing that could carry
- * the new item, then tell the recordings screens to refetch.
+ * the new item, then tell the recordings screens to refetch. `recordingItemId` is the
+ * recording an info panel stopped, whose own detail goes stale with the timer.
  */
-export function invalidateRecordingReads(userId: string): void {
+export function invalidateRecordingReads(userId: string, recordingItemId?: string): void {
   if (!userId) return;
+  if (recordingItemId) invalidateByPrefix(`details:${userId}:${recordingItemId}`);
   invalidateByPrefix("recordingFolders:");
   invalidateByPrefix(`folder:${userId}:`);
   invalidateByPrefix(`filtered:${userId}:`);

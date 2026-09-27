@@ -240,6 +240,10 @@ export interface JellyfinItem extends JellyfinVideoItem {
   ChildCount?: number;
   RecursiveItemCount?: number;
   CollectionType?: string;
+  // Recordings only; "InProgress" while the server is still writing the file,
+  // TimerId names the timer a DELETE stops.
+  Status?: JellyfinTimer["Status"];
+  TimerId?: string | null;
 }
 
 // Minimal Id/Name shape returned by the /Genres and /Artists endpoints

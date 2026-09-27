@@ -537,9 +537,9 @@ export async function fetchTimerDefaults(programId?: string): Promise<JellyfinSe
 }
 
 /** A timer write starts or stops a recording, so cached recording reads go stale at once. */
-async function invalidateAfterTimerWrite(): Promise<void> {
+async function invalidateAfterTimerWrite(recordingItemId?: string): Promise<void> {
   const config = await getConfig();
-  invalidateRecordingReads(config.userId);
+  invalidateRecordingReads(config.userId, recordingItemId);
 }
 
 export async function createTimer(defaults: JellyfinSeriesTimer): Promise<void> {
@@ -552,9 +552,10 @@ export async function createSeriesTimer(defaults: JellyfinSeriesTimer): Promise<
   await invalidateAfterTimerWrite();
 }
 
-export async function cancelTimer(timerId: string): Promise<void> {
+// recordingItemId: the in-progress recording this timer is writing, when the caller has it.
+export async function cancelTimer(timerId: string, recordingItemId?: string): Promise<void> {
   await liveTvRequest(`/LiveTv/Timers/${encodeURIComponent(timerId)}`, { method: "DELETE" });
-  await invalidateAfterTimerWrite();
+  await invalidateAfterTimerWrite(recordingItemId);
 }
 
 export async function cancelSeriesTimer(seriesTimerId: string): Promise<void> {

@@ -27,6 +27,8 @@ interface InfoActionRowProps {
   downloadState?: DownloadCircleState;
   /** Queues the item if it is not held yet; a held item stays put and reports itself. */
   onToggleDownload?: () => Promise<boolean>;
+  /** Omit unless an in-progress recording can be stopped; the write deletes its timer. */
+  onStopRecording?: () => Promise<boolean>;
 }
 
 export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" | "ready" | "failed";
@@ -55,9 +57,9 @@ const downloadCopy = (): Record<DownloadCircleState, { label: string; done: stri
  * circle's next press will do; on both platforms a press replaces it with what just happened,
  * which is the only readable confirmation a filled-vs-outline glyph swap has at TV distance.
  */
-type ActionKey = "favorite" | "watched" | "progress" | "download";
+type ActionKey = "favorite" | "watched" | "progress" | "download" | "stop";
 
-export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite, onToggleWatched, onToggleProgress, downloadState, onToggleDownload }: InfoActionRowProps) {
+export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite, onToggleWatched, onToggleProgress, downloadState, onToggleDownload, onStopRecording }: InfoActionRowProps) {
   // Which circle holds focus, never the label itself: tvOS fires the outgoing blur AFTER the
   // incoming focus, so a shared string gets wiped by the button focus just left.
   const [focused, setFocused] = useState<ActionKey | null>(null);
@@ -82,7 +84,18 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   const watchedLabel = isPlayed ? t("info.markUnwatched") : t("info.markWatched");
   const progressLabel = cleared ? t("info.restoreProgress") : t("info.clearProgress");
   const download = downloadCopy()[downloadState ?? "none"];
-  const focusLabel = focused === "favorite" ? favoriteLabel : focused === "watched" ? watchedLabel : focused === "progress" ? progressLabel : focused === "download" ? download.label : "";
+  const focusLabel =
+    focused === "favorite"
+      ? favoriteLabel
+      : focused === "watched"
+        ? watchedLabel
+        : focused === "progress"
+          ? progressLabel
+          : focused === "download"
+            ? download.label
+            : focused === "stop"
+              ? t("liveTv.stopRecording")
+              : "";
 
   // Awaited: reporting before the write lands claims a success the server can still refuse,
   // and a glyph this small cannot contradict the caption afterwards.
@@ -103,6 +116,19 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
+        {!!onStopRecording && (
+          // Always lit and red: one irreversible press, never a toggle. A bare glyph, since the
+          // button is the circle (see the download arrow).
+          <GlassButton
+            variant="link"
+            style={circleStyle(true, "stop")}
+            icon={<Ionicons name="stop" size={ICON} color={focused === "stop" ? COLORS.TEXT_PRIMARY : COLORS.DESTRUCTIVE} />}
+            accessibilityLabel={t("liveTv.stopRecording")}
+            onFocus={() => setFocused("stop")}
+            onBlur={() => blur("stop")}
+            onPress={press(onStopRecording, t("liveTv.recordingStopped"))}
+          />
+        )}
         <GlassButton
           variant="link"
           style={circleStyle(isFavorite, "favorite")}

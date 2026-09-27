@@ -9,6 +9,7 @@ import { LoadingRow } from "@/components/loading-row";
 import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
 import {
+  cancelTimer,
   clearResumePosition,
   deleteItem,
   fetchFolderMediaKinds,
@@ -109,6 +110,8 @@ export default function VideoInfoScreen() {
   };
 
   const [details, setDetails] = useState<JellyfinItem | null>(null);
+  // The clock at the moment details landed; render stays pure and the elapsed line is a snapshot.
+  const [detailsAtMs, setDetailsAtMs] = useState(0);
   const [failed, setFailed] = useState(false);
   const [plan, setPlan] = useState<{ lane: PlaybackLane; smallFeedFirst: boolean } | null>(null);
   // Whether the lane question has been answered at all, prediction failures included, so a
@@ -154,6 +157,7 @@ export default function VideoInfoScreen() {
         setFolderLeafId(path.length ? path[path.length - 1].id : null);
         setMediaKinds(kinds);
         setDetails(fetched);
+        setDetailsAtMs(Date.now());
         setIsFavorite(!!fetched.UserData?.IsFavorite);
         setIsPlayed(!!fetched.UserData?.Played);
       } catch (error) {
@@ -328,6 +332,21 @@ export default function VideoInfoScreen() {
     ]);
   }, [details, router]);
 
+  // Stop an in-progress recording: deleting its timer is the stop, the file stays. The flip
+  // is local (`stopped`) because the item's own Status lags the timer delete server-side.
+  const [stopped, setStopped] = useState(false);
+  const handleStopRecording = useCallback(async (): Promise<boolean> => {
+    if (!details?.TimerId) return false;
+    try {
+      await cancelTimer(details.TimerId, details.Id);
+      setStopped(true);
+      return true;
+    } catch (error) {
+      logger.warn("Failed to stop recording", error, { service: "VideoInfo", videoId: details.Id });
+      return false;
+    }
+  }, [details]);
+
   // dismissFirst, not a router.back() here: the panel is a ROOT route and the folder levels
   // live in the tabs' own stack, so the pushes have to be QUEUED after the dismissal reaches
   // the navigation state. The hook owns that wait (see whenRootStateSettles).
@@ -386,6 +405,10 @@ export default function VideoInfoScreen() {
   const contextLine = details ? (photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album, indexLine]) : joinMeta([details.SeriesName, indexLine])) : "";
   const year = details?.ProductionYear ? String(details.ProductionYear) : "";
   const genresLine = details?.Genres?.length ? details.Genres.join(" · ") : "";
+  const recordingNow = details?.Type === "Recording" && details.Status === "InProgress" && !stopped;
+  // An in-progress recording has no RunTimeTicks; its length so far is the time
+  // since the server began writing the file.
+  const recordingTicks = recordingNow && !details.RunTimeTicks && details.StartDate && detailsAtMs > 0 ? Math.max(0, detailsAtMs - Date.parse(details.StartDate)) * 10000 : 0;
   // A photo has none of the fields the meta line is built from. Its pixel count
   // is the one headline fact it does have, so it takes the runtime's place; the
   // dates and the rest live in the Details table.
@@ -397,7 +420,7 @@ export default function VideoInfoScreen() {
           genresLine,
           year,
           // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.
-          details.RunTimeTicks && !book ? formatDuration(details.RunTimeTicks) : "",
+          details.RunTimeTicks && !book ? formatDuration(details.RunTimeTicks) : recordingTicks ? formatDuration(recordingTicks) : "",
           details.OfficialRating,
           details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
           details.CriticRating ? t("info.percentCritics").replace("{percent}", String(Math.round(details.CriticRating))) : "",
@@ -583,6 +606,7 @@ export default function VideoInfoScreen() {
             onToggleProgress={!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0 ? toggleClearProgress : undefined}
             downloadState={book ? undefined : downloadState}
             onToggleDownload={book ? undefined : toggleDownload}
+            onStopRecording={recordingNow && details.TimerId ? handleStopRecording : undefined}
           />
         </View>
       )}
@@ -740,6 +764,12 @@ export default function VideoInfoScreen() {
       </View>
       <View style={IS_TV ? styles.tvPad : { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
+        {recordingNow && (
+          <View style={[styles.laneRow, styles.laneBlock]}>
+            <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
+            <Text style={styles.recordingNowText}>{t("liveTv.recordingNow")}</Text>
+          </View>
+        )}
         {(!!laneLabel || lanePending) && (
           <View style={[styles.laneRow, styles.laneBlock]}>
             {!!laneLabel && <View style={[styles.laneDot, { backgroundColor: laneColor }]} />}
@@ -913,6 +943,12 @@ const styles = StyleSheet.create({
     width: IS_TV ? 10 : 7,
     height: IS_TV ? 10 : 7,
     borderRadius: 999,
+  },
+  // The live-recording tag, in program-info's colors on this panel's lane-row frame.
+  recordingNowText: {
+    fontSize: IS_TV ? 21 : 13,
+    fontWeight: "700",
+    color: COLORS.DESTRUCTIVE_SOFT,
   },
   // Shrinks so a long lane label wraps inside the row instead of pushing the dot off the
   // centre axis, and centres its own lines the way the meta line above it does.
