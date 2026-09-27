@@ -7,6 +7,7 @@ import {
   isActiveTimer,
   isAiring,
   labelPin,
+  mergePrograms,
   MINUTE_MS,
   NO_GUIDE_PREFIX,
   programCategory,
@@ -122,5 +123,42 @@ describe("guide geometry", () => {
     expect(adjacentChannelId(list, "missing", 1)).toBeNull();
     expect(adjacentChannelId([{ Id: "only" }], "only", 1)).toBeNull();
     expect(adjacentChannelId([], "x", 1)).toBeNull();
+  });
+});
+
+describe("mergePrograms", () => {
+  const at = (id: string, startMin: number, endMin: number, name = id) => ({
+    Id: id,
+    Name: name,
+    ChannelId: "c1",
+    StartDate: new Date(T0 + startMin * MINUTE_MS).toISOString(),
+    EndDate: new Date(T0 + endMin * MINUTE_MS).toISOString(),
+  });
+
+  it("adds new programmes in start order and keeps one copy of an id", () => {
+    const merged = mergePrograms([at("b", 30, 60)], [at("a", 0, 30), at("b", 30, 60), at("a", 0, 30)]);
+    expect(merged.map((p) => p.Id)).toEqual(["a", "b"]);
+  });
+
+  it("takes the fresh copy of a programme it already holds", () => {
+    const merged = mergePrograms([at("s1", 0, 30, "Old title")], [at("s1", 0, 45, "New title")]);
+    expect(merged).toEqual([at("s1", 0, 45, "New title")]);
+  });
+
+  it("drops guide-file programmes a fresh file moved or removed inside its span", () => {
+    const before = [at("epg:c1:0", 0, 30), at("epg:c1:30", 30, 60), at("epg:c1:60", 60, 90), at("server", 30, 60)];
+    // The re-downloaded file starts the second show at :40 and no longer lists the third.
+    const merged = mergePrograms(before, [at("epg:c1:0", 0, 40), at("epg:c1:40", 40, 90)]);
+    expect(merged.map((p) => p.Id)).toEqual(["epg:c1:0", "server", "epg:c1:40"]);
+  });
+
+  it("keeps guide-file programmes outside a later window's span", () => {
+    const merged = mergePrograms([at("epg:c1:0", 0, 360)], [at("epg:c1:360", 360, 420)]);
+    expect(merged.map((p) => p.Id)).toEqual(["epg:c1:0", "epg:c1:360"]);
+  });
+
+  it("keeps everything when a fetch brings nothing for the channel", () => {
+    const before = [at("epg:c1:0", 0, 30)];
+    expect(mergePrograms(before, [])).toEqual(before);
   });
 });

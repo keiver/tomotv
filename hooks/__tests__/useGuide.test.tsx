@@ -25,6 +25,8 @@ const mockAuthListeners = new Set<() => void>();
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
 jest.mock("@/services/jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgUrls: [] })) }));
 jest.mock("@/services/externalGuide", () => ({ fetchExternalPrograms: jest.fn(async () => []) }));
+jest.mock("@/services/guideHunt", () => ({ huntPrograms: jest.fn(async () => []) }));
+jest.mock("@/services/liveFrames", () => ({ whenSamplerQuiet: jest.fn(async () => undefined) }));
 let mockPreferences = {
   version: 1,
   autoUpdate: true,
@@ -170,6 +172,24 @@ describe("useGuide", () => {
     // No guideUrl preference is set: the URL is the playlist's own, and only the bare channel is asked for.
     expect(fetchExternalPrograms).toHaveBeenCalledWith("http://g/auto.xml.gz", [{ channelId: "c2", tvgId: "B.us@SD" }], expect.anything());
     expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual(["epg:c2"]);
+  });
+
+  it("drops hunted programmes that land after the load that asked for them was retried", async () => {
+    const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+    const { huntPrograms } = jest.requireMock("@/services/guideHunt") as { huntPrograms: jest.Mock };
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c1: "A.us" }, tvgUrls: [] });
+    let finishStaleHunt: () => void = () => {};
+    huntPrograms.mockImplementationOnce(
+      (_wanted: unknown, windowMs: { from: number }) => new Promise((resolve) => (finishStaleHunt = () => resolve([program("epg:c1:old", "c1", 0, 30, windowMs.from)]))),
+    );
+    const ref = await mount();
+    await act(async () => ref.current!.get().retry());
+    await settle();
+    await act(async () => finishStaleHunt());
+    await settle();
+    expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([]);
   });
 
   it("loads the channels, the first page of programs and the timers", async () => {

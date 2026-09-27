@@ -162,6 +162,29 @@ export function standInChannelId(programId: string | undefined): string | null {
 export const EXTERNAL_GUIDE_PREFIX = "epg:";
 
 /**
+ * A channel's programmes after a fetch lands, sorted by start. A fresh copy replaces the one with its
+ * Id, and guide-file programmes the fresh file no longer lists across its span drop (their Id is the start).
+ */
+export function mergePrograms(existing: readonly JellyfinProgram[] | undefined, incoming: readonly JellyfinProgram[]): JellyfinProgram[] {
+  const fresh = new Map(incoming.map((program) => [program.Id, program]));
+  let spanStart = Infinity;
+  let spanEnd = -Infinity;
+  for (const program of fresh.values()) {
+    if (!program.Id?.startsWith(EXTERNAL_GUIDE_PREFIX)) continue;
+    const { startMs, endMs } = programTimes(program);
+    spanStart = Math.min(spanStart, startMs);
+    spanEnd = Math.max(spanEnd, Number.isNaN(endMs) ? startMs : endMs);
+  }
+  const kept = (existing ?? []).filter((program) => {
+    if (fresh.has(program.Id)) return false;
+    if (!program.Id?.startsWith(EXTERNAL_GUIDE_PREFIX)) return true;
+    const { startMs, endMs } = programTimes(program);
+    return (Number.isNaN(endMs) ? startMs : endMs) <= spanStart || startMs >= spanEnd;
+  });
+  return kept.concat(Array.from(fresh.values())).sort((a, b) => Date.parse(a.StartDate ?? "") - Date.parse(b.StartDate ?? ""));
+}
+
+/**
  * The channel one flip away, wrapping at the ends: +1 for the next channel, -1 for the previous.
  * Returns null when the id is not in the list or the list has fewer than two entries (nothing to
  * flip to). Pure, so the player's flip handler and its test share the one rule.

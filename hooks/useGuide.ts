@@ -9,7 +9,7 @@ import { whenSamplerQuiet } from "@/services/liveFrames";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { activeRecordTimer, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, MINUTE_MS } from "@/utils/guide";
+import { activeRecordTimer, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, mergePrograms, MINUTE_MS } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -42,14 +42,6 @@ export interface GuideState {
   /** Load the next page of channels with their programs; the list calls it as it nears the bottom. */
   loadMoreRows: () => void;
   refreshTimers: () => void;
-}
-
-function mergePrograms(existing: JellyfinProgram[] | undefined, incoming: JellyfinProgram[]): JellyfinProgram[] {
-  if (!existing || existing.length === 0) return incoming;
-  const seen = new Set(existing.map((program) => program.Id));
-  const merged = existing.concat(incoming.filter((program) => !seen.has(program.Id)));
-  merged.sort((a, b) => Date.parse(a.StartDate ?? "") - Date.parse(b.StartDate ?? ""));
-  return merged;
 }
 
 type ChannelPage = { hasMore: boolean; pageLength: number };
@@ -157,37 +149,35 @@ export function useGuide(): GuideState {
     setProgramsByChannel((current) => {
       const next = { ...current };
       for (const channel of list) if (!next[channel.Id]) next[channel.Id] = [];
+      const byChannel = new Map<string, JellyfinProgram[]>();
       for (const program of programs) {
-        if (!program.ChannelId) continue;
-        next[program.ChannelId] = mergePrograms(next[program.ChannelId], [program]);
+        if (program.ChannelId) byChannel.set(program.ChannelId, [...(byChannel.get(program.ChannelId) ?? []), program]);
       }
+      for (const [channelId, incoming] of byChannel) next[channelId] = mergePrograms(next[channelId], incoming);
       return next;
     });
   }, []);
 
-  /** Hunted programmes for channels every other lane left bare, landing as a late apply so the
-   *  page never waits on a country file download. */
-  const huntLate = useCallback(
-    (bare: JellyfinItem[], tvgById: Record<string, string>, windowMs: { from: number; to: number }) => {
-      const wanted = bare.flatMap((channel) => (tvgById[channel.Id] ? [{ channelId: channel.Id, tvgId: tvgById[channel.Id], name: channel.Name ?? "" }] : []));
-      if (wanted.length === 0) return;
-      setPendingPrograms((count) => count + 1);
-      // The country file is megabytes; the sampler's first paint owns the link until it settles.
-      whenSamplerQuiet(120_000)
-        .then(() => huntPrograms(wanted, windowMs))
-        .then((late) => {
-          if (late.length > 0) applyPrograms(bare, late);
-        })
-        .catch((err) => logger.debug("Guide hunt failed", { hook: "useGuide", error: String(err) }))
-        .finally(() => setPendingPrograms((count) => count - 1));
-    },
-    [applyPrograms],
-  );
+  /** Hunted programmes for channels every other lane left bare, landing late through the load's own
+   *  `land` so the page never waits on a country file download and a superseded load settles nothing. */
+  const huntLate = useCallback((bare: JellyfinItem[], tvgById: Record<string, string>, windowMs: { from: number; to: number }, land: PageLand["programs"]) => {
+    const wanted = bare.flatMap((channel) => (tvgById[channel.Id] ? [{ channelId: channel.Id, tvgId: tvgById[channel.Id], name: channel.Name ?? "" }] : []));
+    if (wanted.length === 0) return;
+    setPendingPrograms((count) => count + 1);
+    // The country file is megabytes; the sampler's first paint owns the link until it settles.
+    whenSamplerQuiet(120_000)
+      .then(() => huntPrograms(wanted, windowMs))
+      .then((late) => {
+        if (late.length > 0) land(bare, late);
+      })
+      .catch((err) => logger.debug("Guide hunt failed", { hook: "useGuide", error: String(err) }))
+      .finally(() => setPendingPrograms((count) => count - 1));
+  }, []);
 
   /** Server programs for the page; channels the server has none for fall back to the external guide
    *  (the viewer's URL, or the first guide the playlist itself declares), then to the hunt. */
   const fetchPrograms = useCallback(
-    async (list: JellyfinItem[], startMs: number, endMs: number) => {
+    async (list: JellyfinItem[], startMs: number, endMs: number, land: PageLand["programs"]) => {
       if (list.length === 0) return [];
       setPendingPrograms((count) => count + 1);
       try {
@@ -206,6 +196,7 @@ export function useGuide(): GuideState {
             bare.filter((channel) => !externallyCovered.has(channel.Id)),
             data.tvgById,
             { from: startMs, to: endMs },
+            land,
           );
         }
         return programs.concat(external);
@@ -217,11 +208,11 @@ export function useGuide(): GuideState {
   );
 
   const loadPrograms = useCallback(
-    async (list: JellyfinItem[], startMs: number, endMs: number) => {
+    async (list: JellyfinItem[], startMs: number, endMs: number, load: GuideLoad) => {
       if (list.length === 0) return;
-      applyPrograms(list, await fetchPrograms(list, startMs, endMs));
+      load.land.programs(list, await fetchPrograms(list, startMs, endMs, load.land.programs));
     },
-    [applyPrograms, fetchPrograms],
+    [fetchPrograms],
   );
 
   /** The channel page at `startIndex`, held to the filter's list or category. Channels land as
@@ -238,21 +229,21 @@ export function useGuide(): GuideState {
           consumed += slice.length;
         }
         land.channels(items);
-        land.programs(items, await fetchPrograms(items, windowStartMs, windowEndRef.current));
+        land.programs(items, await fetchPrograms(items, windowStartMs, windowEndRef.current, land.programs));
         return { hasMore: startIndex + consumed < playlistIds.length, pageLength: consumed };
       }
       // A list is fetched by its entries in one page: a catalog can hold thousands of channels.
       if (list) {
         const items = await fetchListedChannels(list);
         land.channels(items);
-        land.programs(items, await fetchPrograms(items, windowStartMs, windowEndRef.current));
+        land.programs(items, await fetchPrograms(items, windowStartMs, windowEndRef.current, land.programs));
         return { hasMore: false, pageLength: items.length };
       }
       const { items, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) });
       const loaded = startIndex + items.length;
       const hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
       land.channels(items);
-      land.programs(items, await fetchPrograms(items, windowStartMs, windowEndRef.current));
+      land.programs(items, await fetchPrograms(items, windowStartMs, windowEndRef.current, land.programs));
       return { hasMore, pageLength: items.length };
     },
     [windowStartMs, sort, list, category, playlistIds, fetchPrograms],
@@ -357,7 +348,7 @@ export function useGuide(): GuideState {
     const from = windowEndRef.current;
     const to = from + GUIDE_SPAN_MINUTES * MINUTE_MS;
     load.busy = "window";
-    loadPrograms(channelsRef.current, from, to)
+    loadPrograms(channelsRef.current, from, to, load)
       .then(() => {
         // A list loaded since holds programs up to the old edge only; the window stays there for it.
         if (load.retired) return;
