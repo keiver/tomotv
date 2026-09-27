@@ -37,7 +37,7 @@ const BAR_PADDING_V = IS_TV ? 10 : 8;
 const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
-/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track, and the watched checkmark. */
+/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track, and the watched eye. */
 export function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
   // A channel with something on air wears the live mark; the title bar names the programme.
   if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
@@ -56,8 +56,8 @@ export function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | n
     else if (badge.disc !== null) segments.push({ icon: "disc", label: badge.disc }, { icon: "musical-note", label: badge.label });
     else segments.push({ icon: "musical-note", label: badge.label });
   }
-  // Watched mark; music stays out (every full listen marks a track played, which is noise, not state).
-  if (video.UserData?.Played && video.Type !== "Audio" && video.Type !== "AudioBook") segments.push({ icon: "checkmark" });
+  // Watched mark, the info panel's eye; music stays out (every full listen marks a track played, which is noise, not state).
+  if (video.UserData?.Played && video.Type !== "Audio" && video.Type !== "AudioBook") segments.push({ icon: "eye" });
   return segments.length > 0 ? segments : null;
 }
 
@@ -396,7 +396,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.video.ParentIndexNumber === nextProps.video.ParentIndexNumber &&
     prevProps.video.Path === nextProps.video.Path &&
     prevProps.video.Type === nextProps.video.Type &&
-    // Played drives the checkmark segment; annotation passes flip it on same-Id items.
+    // Played drives the watched segment; annotation passes flip it on same-Id items.
     prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
     prevProps.video.CurrentProgram?.Name === nextProps.video.CurrentProgram?.Name &&
     prevProps.index === nextProps.index &&
