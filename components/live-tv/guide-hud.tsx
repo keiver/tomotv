@@ -14,6 +14,10 @@ export const HUD_BAR_HEIGHT = GROUP_CELL_HEIGHT + 1;
 
 /** An accent band, soft on both flanks; the cells' frosted floors let it glow through. */
 const SCAN_WASH = "linear-gradient(90deg, rgba(255, 195, 18, 0) 0%, rgba(255, 195, 18, 0.2) 40%, rgba(255, 195, 18, 0.38) 50%, rgba(255, 195, 18, 0.2) 60%, rgba(255, 195, 18, 0) 100%)";
+/** Contact, key and ambient layers cast onto the rows; negative spread keeps them off the sides. */
+const BAND_SHADOW = IS_TV
+  ? "0 2px 2px -1px rgba(0, 0, 0, 0.45), 0 6px 10px -4px rgba(0, 0, 0, 0.4), 0 14px 24px -10px rgba(0, 0, 0, 0.35)"
+  : "0 1px 1px -0.5px rgba(0, 0, 0, 0.45), 0 3px 6px -2px rgba(0, 0, 0, 0.4), 0 8px 14px -6px rgba(0, 0, 0, 0.35)";
 
 interface GuideHudProps {
   /** The band's leading slot: TV's corner actions over the channel column, phone's guide refresh cell. */
@@ -105,6 +109,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     height: HUD_BAR_HEIGHT,
+    // Above the rows mounted after it, or they paint over the shadow.
+    zIndex: 1,
+    boxShadow: BAND_SHADOW,
   },
   cellsContent: {
     alignItems: "center",
