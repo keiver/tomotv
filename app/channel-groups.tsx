@@ -21,7 +21,8 @@ export default function ChannelGroupsScreen() {
   const headerHeight = useHeaderHeight();
   const choices = useChannelFilterChoices();
   const { filter } = useLiveTvPreferences();
-  const [listHeight, setListHeight] = useState(0);
+  const [roomHeight, setRoomHeight] = useState(0);
+  const [titleHeight, setTitleHeight] = useState(0);
   const pick = useCallback(
     (next: ChannelFilter) => {
       updateLiveTvPreferences({ filter: next });
@@ -34,34 +35,32 @@ export default function ChannelGroupsScreen() {
     <View style={styles.container}>
       <AmbientBackground />
       <View style={[styles.page, IS_TV ? styles.pageTV : { paddingTop: headerHeight + 12, paddingBottom: 60 + insets.bottom }]}>
-        <View style={[settingsStyles.contentContainer, styles.column]}>
+        {/* The Diagnostics log's card: the list grows to its rows, capped at the room under the title, and scrolls inside. */}
+        <View style={[settingsStyles.contentContainer, styles.column, IS_TV && styles.columnTV]} onLayout={(event) => setRoomHeight(event.nativeEvent.layout.height)}>
           {/* Phone reads the title off the native bar. */}
           {IS_TV ? (
-            <View style={settingsStyles.sectionHeader}>
+            <View style={settingsStyles.sectionHeader} onLayout={(event) => setTitleHeight(event.nativeEvent.layout.height)}>
               <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
             </View>
           ) : null}
-          {/* The Diagnostics log's card: the list grows to its rows, capped at the room under the title, and scrolls inside. */}
-          <View style={[styles.body, IS_TV && styles.bodyTV]} onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}>
-            <View style={[settingsStyles.section, styles.card]}>
-              <ScrollView style={{ maxHeight: listHeight }} showsVerticalScrollIndicator={!IS_TV}>
-                {choices.map((choice, index) => {
-                  const picked = choice.filter === filter;
-                  return (
-                    <ListRow
-                      key={choice.filter}
-                      title={choice.label}
-                      trailingIcon={picked ? tick : undefined}
-                      onPress={() => pick(choice.filter)}
-                      hasTVPreferredFocus={picked}
-                      accessibilityState={{ selected: picked }}
-                      isFirst={index === 0}
-                      isLast={index === choices.length - 1}
-                    />
-                  );
-                })}
-              </ScrollView>
-            </View>
+          <View style={[settingsStyles.section, styles.card]}>
+            <ScrollView style={{ maxHeight: Math.max(0, roomHeight - titleHeight) }} showsVerticalScrollIndicator={!IS_TV}>
+              {choices.map((choice, index) => {
+                const picked = choice.filter === filter;
+                return (
+                  <ListRow
+                    key={choice.filter}
+                    title={choice.label}
+                    trailingIcon={picked ? tick : undefined}
+                    onPress={() => pick(choice.filter)}
+                    hasTVPreferredFocus={picked}
+                    accessibilityState={{ selected: picked }}
+                    isFirst={index === 0}
+                    isLast={index === choices.length - 1}
+                  />
+                );
+              })}
+            </ScrollView>
           </View>
         </View>
       </View>
@@ -83,11 +82,8 @@ const styles = StyleSheet.create({
   column: {
     flex: 1,
   },
-  body: {
-    flex: 1,
-  },
-  // TV: the card sits dead center in the room under the title.
-  bodyTV: {
+  // TV: title and card sit together, dead center.
+  columnTV: {
     justifyContent: "center",
   },
   card: {
