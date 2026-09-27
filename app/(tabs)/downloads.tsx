@@ -1,6 +1,5 @@
 import { EmptyCard } from "@/components/empty-card";
 import { AmbientBackground } from "@/components/ambient-background";
-import { SectionFooter } from "@/components/settings/SectionFooter";
 import { DownloadRow, REMOVE_ACTIONS } from "@/components/settings/DownloadRow";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
@@ -375,9 +374,7 @@ export default function DownloadsScreen() {
 
                 {/* The card runs out into the gauge rather than stopping above it: square across
                     the top, the card's own corners at the bottom. */}
-                <SectionFooter layout={PANEL_SHIFT}>
-                  <StorageBar used={stored} free={Paths.availableDiskSpace} onClear={confirmRemoveAll} />
-                </SectionFooter>
+                <StorageBar used={stored} free={Paths.availableDiskSpace} onClear={confirmRemoveAll} layout={PANEL_SHIFT} />
               </Animated.View>
             </>
           )}

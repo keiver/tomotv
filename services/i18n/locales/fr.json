@@ -79,6 +79,7 @@
   "liveTv.guideUrl": "URL du guide externe",
   "liveTv.guideUrlHint": "XMLTV pour les chaînes sans guide serveur",
   "liveTv.guideSources": "Sources du guide",
+  "liveTv.guideSourceSettings": "Réglages de la source du guide",
   "liveTv.guideSourcesHint": "Guides XMLTV pour les chaînes sans programme",
   "liveTv.guideSourcesActive": "Actifs : {count}",
   "liveTv.guideSourcesAbout": "Les guides de vos listes de lecture de tuner, et ceux que vous ajoutez, complètent le programme des chaînes pour lesquelles votre serveur n'en a pas.",

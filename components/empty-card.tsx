@@ -14,35 +14,31 @@ type IconName = React.ComponentProps<typeof Ionicons>["name"];
 export function EmptyCard({ icon, text, note, noteIcon, onPress }: { icon: IconName; text: string; note?: string; noteIcon?: IconName; onPress?: () => void }) {
   return (
     <View style={settingsStyles.section}>
-      {onPress ? (
-        // Actionable: an accent glyph at rest, the rows' gold fill on focus and press.
-        <Pressable
-          onPress={onPress}
-          accessibilityRole="button"
-          accessibilityLabel={text}
-          tvParallaxProperties={{ enabled: false }}
-          style={({ focused, pressed }) => [
-            styles.card,
-            (focused || pressed) && goldRowShadow(true, !note, false),
-            focused && !pressed && settingsStyles.listItemFocused,
-            pressed && settingsStyles.listItemPressed,
-          ]}>
-          {({ focused, pressed }) => {
-            const ink = focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : undefined;
-            return (
-              <>
-                <Ionicons name={icon} size={IS_TV ? 72 : 56} color={ink ?? COLORS.ACCENT} />
-                <Text style={[styles.text, ink != null && { color: ink }]}>{text}</Text>
-              </>
-            );
-          }}
-        </Pressable>
-      ) : (
-        <View style={styles.card}>
-          <Ionicons name={icon} size={IS_TV ? 72 : 56} color={COLORS.TEXT_QUATERNARY} />
-          <Text style={styles.text}>{text}</Text>
-        </View>
-      )}
+      {/* With onPress: an accent glyph at rest, the rows' gold fill on focus and press. */}
+      <Pressable
+        onPress={onPress}
+        disabled={!onPress}
+        isTVSelectable={!!onPress}
+        accessible={!!onPress}
+        accessibilityRole={onPress ? "button" : undefined}
+        accessibilityLabel={text}
+        tvParallaxProperties={{ enabled: false }}
+        style={({ focused, pressed }) => [
+          styles.card,
+          (focused || pressed) && goldRowShadow(true, !note, false),
+          focused && !pressed && settingsStyles.listItemFocused,
+          pressed && settingsStyles.listItemPressed,
+        ]}>
+        {({ focused, pressed }) => {
+          const ink = focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : undefined;
+          return (
+            <>
+              <Ionicons name={icon} size={IS_TV ? 72 : 56} color={ink ?? (onPress ? COLORS.ACCENT : COLORS.TEXT_QUATERNARY)} />
+              <Text style={[styles.text, ink != null && { color: ink }]}>{text}</Text>
+            </>
+          );
+        }}
+      </Pressable>
       {note ? (
         <SectionFooter>
           <View style={[settingsStyles.sectionNote, styles.note]}>

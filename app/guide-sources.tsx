@@ -17,7 +17,7 @@ import { Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -105,10 +105,11 @@ export default function GuideSourcesScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={settingsStyles.screenContainer}>
       <AmbientBackground />
       <ScrollView
-        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        style={settingsStyles.scrollView}
+        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
         showsVerticalScrollIndicator={false}
         automaticallyAdjustKeyboardInsets>
         <View style={settingsStyles.contentContainer}>
@@ -138,8 +139,7 @@ export default function GuideSourcesScreen() {
               onChangeText={setDraft}
               onSave={saveDraft}
             />
-            {/* tvOS: the footer's overlay would occlude the bar from focus. */}
-            {IS_TV ? storage : <SectionFooter>{storage}</SectionFooter>}
+            {storage}
           </View>
 
           <View style={settingsStyles.sectionHeader}>
@@ -160,12 +160,3 @@ export default function GuideSourcesScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  page: {
-    alignItems: "center",
-  },
-});

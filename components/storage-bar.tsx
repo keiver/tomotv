@@ -1,7 +1,8 @@
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { COLORS } from "@/constants/colors";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import React, { type ComponentProps } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
 
@@ -36,19 +37,21 @@ interface StorageBarProps {
   /** Replaces the downloads wording of the used part. */
   usedLabel?: string;
   hint?: string;
+  layout?: ComponentProps<typeof SectionFooter>["layout"];
 }
 
 /**
  * How much of the device the downloads hold, drawn as the band a section card ends in: a gold
  * track the used fraction fills red across its full height, the reading centred over it.
- * Square-cornered; the SectionFooter it sits in owns the shape. Pressing it clears everything.
+ * It is its card's footer: phone wraps it in SectionFooter, tvOS leaves it bare because the
+ * footer's overlay would occlude it from focus. Pressing it clears everything.
  */
-export function StorageBar({ used, free, onClear, usedLabel, hint }: StorageBarProps) {
+export function StorageBar({ used, free, onClear, usedLabel, hint, layout }: StorageBarProps) {
   const { percent, accessibleNow } = storageBarFill(used, free);
   const usedPart = usedLabel ?? (used > 0 ? t("downloads.usedDownloaded").replace("{size}", formatFileSize(used)) : t("downloads.nothingDownloaded"));
   const label = t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
 
-  return (
+  const bar = (
     <Pressable
       style={styles.track}
       onPress={onClear}
@@ -74,6 +77,7 @@ export function StorageBar({ used, free, onClear, usedLabel, hint }: StorageBarP
       )}
     </Pressable>
   );
+  return Platform.isTV ? bar : <SectionFooter layout={layout}>{bar}</SectionFooter>;
 }
 
 const styles = StyleSheet.create({
