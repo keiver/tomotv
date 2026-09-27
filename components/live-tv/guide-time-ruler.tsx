@@ -51,7 +51,7 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
       )}
       {showNow ? <View style={[styles.nowEdge, { left: nowLeft - NOW_EDGE / 2 }]} /> : null}
       {showNow ? (
-        <Text style={[styles.nowLabel, { left: nowLeft - MAJOR_MARK_WIDTH + LABEL_LEFT }]} numberOfLines={1}>
+        <Text style={[styles.nowLabel, { left: nowLeft - MAJOR_MARK_WIDTH + LABEL_LEFT + 2 }]} numberOfLines={1}>
           {formatClock(minuteMs)}
         </Text>
       ) : null}
