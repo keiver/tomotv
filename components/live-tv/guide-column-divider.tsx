@@ -1,7 +1,7 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideGrip } from "@/components/live-tv/guide-grip";
-import React, { useCallback, useMemo } from "react";
-import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
+import React, { useCallback, useMemo, useRef } from "react";
+import { type LayoutChangeEvent, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { runOnJS, type SharedValue, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
@@ -11,6 +11,8 @@ const MAX_RATIO = 0.6;
 /** Drag within this of the logo-only width and the column magnets to it, collapsing to logos alone. */
 const SNAP_ZONE = 56;
 const HIT_HEIGHT = 64;
+/** The grip opens 20% up from the screen's bottom: the one-handed thumb's natural zone, clear of the corner. */
+const REST_FROM_BOTTOM = 0.2;
 /** Movement before a seam drag commits to resizing or to sliding the grip. */
 const AXIS_LOCK = 8;
 
@@ -105,13 +107,28 @@ export function GuideColumnDivider({ columnW, topInset, bottomInset, gesture, gr
   // off the line. Follows the column's live width.
   const seatStyle = useAnimatedStyle(() => ({ left: columnW.get() - GRIP_WIDTH / 2 }));
   const gripStyle = useAnimatedStyle(() => ({ transform: [{ translateY: gripY.get() }] }));
-  const handleBandLayout = useCallback((event: LayoutChangeEvent) => bandH.set(event.nativeEvent.layout.height), [bandH]);
+  const { height: windowH } = useWindowDimensions();
+  const bandRef = useRef<View>(null);
+  const placed = useRef(false);
+  const handleBandLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const height = event.nativeEvent.layout.height;
+      bandH.set(height);
+      if (placed.current) return;
+      placed.current = true;
+      bandRef.current?.measureInWindow((_x, y) => {
+        const reach = Math.max(0, (height - HIT_HEIGHT) / 2);
+        gripY.set(clamp(windowH * (1 - REST_FROM_BOTTOM) - (y + height / 2), -reach, reach));
+      });
+    },
+    [bandH, gripY, windowH],
+  );
 
   return (
     <GestureHandlerRootView style={styles.root} pointerEvents="box-none">
       <Animated.View style={[styles.seat, seatStyle]} pointerEvents="box-none">
         <View style={styles.line} pointerEvents="none" />
-        <View style={[styles.gripWrap, { top: topInset, bottom: bottomInset }]} pointerEvents="box-none" onLayout={handleBandLayout}>
+        <View ref={bandRef} style={[styles.gripWrap, { top: topInset, bottom: bottomInset }]} pointerEvents="box-none" onLayout={handleBandLayout}>
           <GestureDetector gesture={gesture}>
             <Animated.View style={[styles.hit, gripStyle]}>
               <GuideGrip size={36} arrowSize={16} />
