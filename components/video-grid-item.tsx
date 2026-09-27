@@ -105,6 +105,8 @@ interface VideoGridItemProps {
   liveFrame?: { uri: string; cacheKey: string };
   /** Channel cards: the health check concluded down; the art dims and the corner badge says Offline. */
   offline?: boolean;
+  /** No resting depth shadow, for hosts that clip it; the focus glow stays. */
+  flat?: boolean;
 }
 
 /**
@@ -141,6 +143,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     hideAiring = false,
     liveFrame,
     offline = false,
+    flat = false,
   },
   ref,
 ) {
@@ -265,7 +268,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             ? { width: (cardHeight - 2 * CARD_PADDING) * cardRatio + 2 * CARD_PADDING }
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
       ]}>
-      <View style={[styles.card, focused && styles.cardFocused]}>
+      <View style={[styles.card, flat && styles.cardFlat, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {liveFrame || posterSource ? (
             <>
@@ -427,7 +430,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.titleIcon === nextProps.titleIcon &&
     prevProps.hideAiring === nextProps.hideAiring &&
     prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
-    prevProps.offline === nextProps.offline
+    prevProps.offline === nextProps.offline &&
+    prevProps.flat === nextProps.flat
   );
 }
 
@@ -451,6 +455,10 @@ const styles = StyleSheet.create({
     shadowOpacity: CARD_DEPTH.SHADOW_OPACITY,
     shadowRadius: IS_TV ? CARD_DEPTH.SHADOW_RADIUS.tv : CARD_DEPTH.SHADOW_RADIUS.phone,
     elevation: CARD_DEPTH.ELEVATION,
+  },
+  cardFlat: {
+    shadowOpacity: 0,
+    elevation: 0,
   },
   // Overrides every resting shadow prop — a leftover depth offset would smear the glow downward.
   cardFocused: {

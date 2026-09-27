@@ -86,6 +86,7 @@ export function GuideChannelColumn({
             index={index}
             cardWidth={metrics.channelColumnWidth}
             hideAiring
+            flat
             titleIcon={favoriteMark(preferences, item)}
             onPress={onChannelPress}
             onLongPress={onChannelLongPress}
@@ -178,7 +179,7 @@ function ChannelMorph({
   return (
     <>
       <Animated.View style={[styles.cardLayer, cardStyle]} pointerEvents={compact ? "none" : "auto"}>
-        <GuideChannelCard channel={channel} index={index} cardWidth={metrics.channelColumnWidth} hideAiring titleIcon={titleIcon} onPress={onPress} onLongPress={onLongPress} />
+        <GuideChannelCard channel={channel} index={index} cardWidth={metrics.channelColumnWidth} hideAiring flat titleIcon={titleIcon} onPress={onPress} onLongPress={onLongPress} />
       </Animated.View>
       <Animated.View style={[styles.tileLayer, { width: metrics.compactColumnWidth }, tileStyle]} pointerEvents={compact ? "auto" : "none"}>
         <GuideChannelTile channel={channel} metrics={metrics} onPress={onPress} />
