@@ -87,6 +87,24 @@ describe("fetchTunerGroups", () => {
     await expect(fetchTunerGroups()).resolves.toEqual([{ name: "News", channelIds: ["a"] }]);
   });
 
+  it("treats a read where every tuner failed as a failure, serving the last good groups", async () => {
+    global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
+    mockLiveSources.loadTunerPlaylist.mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    await fetchTunerGroups();
+    clearRequestCache();
+    // The tuner is busy serving a stream: the playlist read is refused.
+    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("connection refused"));
+    await expect(fetchTunerGroups()).resolves.toEqual([{ name: "News", channelIds: ["a"] }]);
+    expect(lastKnownTunerData()?.groups).toEqual([{ name: "News", channelIds: ["a"] }]);
+  });
+
+  it("rejects an all-tuners-failed read with no last good data instead of resolving empty", async () => {
+    global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
+    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("connection refused"));
+    await expect(fetchTunerGroups()).rejects.toThrow("connection refused");
+    expect(lastKnownTunerData()).toBeNull();
+  });
+
   it("caches a failed config read instead of re-streaming on every mount", async () => {
     jest.useFakeTimers();
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 });

@@ -73,6 +73,8 @@ export async function fetchTunerData(): Promise<TunerData> {
         const groups = new Map<string, Set<string>>();
         const tvgById: Record<string, string> = {};
         const tvgUrls: string[] = [];
+        let lastFailure: unknown = null;
+        let failures = 0;
         for (const tuner of tuners) {
           try {
             const playlist = await loadTunerPlaylist(`tuner-${++requestSeq}`, tuner.Url!, tuner.UserAgent);
@@ -85,8 +87,13 @@ export async function fetchTunerData(): Promise<TunerData> {
             for (const url of playlist.tvgUrls) if (/^https?:\/\//i.test(url) && !tvgUrls.includes(url)) tvgUrls.push(url);
           } catch (error) {
             logger.warn("Tuner playlist read failed", error, { service: "TunerGroups" });
+            lastFailure = error;
+            failures += 1;
           }
         }
+        // Every tuner refused (a busy single-connection tuner does, while a channel streams): a
+        // failure, never an empty success that would overwrite lastGood and kill the group filter.
+        if (tuners.length > 0 && failures === tuners.length) throw lastFailure;
         failedAt.delete(key);
         const data = { groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })), tvgById, tvgUrls };
         lastGood.set(key, data);
