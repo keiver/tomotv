@@ -555,6 +555,20 @@ describe("live frames", () => {
     expect(listener.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("expires a single-frame burst too, though it has nothing to walk", async () => {
+    mockOnDisk.mockResolvedValue({ m1: burst("m1", 1_000_000 - 2_000, 1) });
+    mockLiveFrame.mockRejectedValue(new Error("dead origin"));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(liveFrameFor("m1")).toBeDefined();
+    const listener = jest.fn();
+    subscribeLiveFrame("m1", listener);
+    await advance(LIVE_FRAME_EXPIRY_MS);
+    expect(liveFrameFor("m1")).toBeUndefined();
+    expect(listener).toHaveBeenCalled();
+  });
+
   it("keeps a burst alive past the expiry while the engine answers unchanged", async () => {
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1"]);

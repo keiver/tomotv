@@ -106,7 +106,7 @@ const MAX_INFLIGHT = 2;
 /** Channels grabs are reading now, each with the generation it started in. */
 const grabbing = new Map<string, number>();
 let timer: ReturnType<typeof setTimeout> | null = null;
-/** Walks every burst on screen; runs only while a surface shows one with more than one frame. */
+/** Walks every burst on screen; runs while a surface shows one still to walk or still to expire. */
 let ticker: ReturnType<typeof setInterval> | null = null;
 let wired = false;
 /** Bumped by every clear, so a grab that outlived one writes nothing back. */
@@ -233,6 +233,7 @@ function frameIndex(burst: Burst, now: number): number {
 function tick(): void {
   const now = Date.now();
   let walking = false;
+  let expiring = false;
   for (const channelId of viewable) {
     const item = entries.get(channelId);
     if (!item?.burst) continue;
@@ -247,14 +248,17 @@ function tick(): void {
       }
       continue;
     }
-    if (item.burst.frames.length <= 1) continue;
+    if (item.burst.frames.length <= 1) {
+      expiring = true;
+      continue;
+    }
     walking = true;
     const index = frameIndex(item.burst, now);
     if (index === item.shownIndex) continue;
     item.shownIndex = index;
     notify(channelId);
   }
-  if (!walking) stopTicker();
+  if (!walking && !expiring) stopTicker();
 }
 
 function startTicker(): void {
