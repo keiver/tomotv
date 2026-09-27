@@ -1,14 +1,16 @@
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
+import { healthFor, healthGeneration, subscribeHealthGeneration } from "@/services/channelHealth";
 import { fetchChannels, fetchChannelsByIds, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { fetchExternalPrograms } from "@/services/externalGuide";
+import { huntPrograms } from "@/services/guideHunt";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, MINUTE_MS } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 /** Channels per page: each page's programs load with it; the next page waits until the list nears it. */
 export const GUIDE_CHANNEL_PAGE = 40;
@@ -146,25 +148,54 @@ export function useGuide(): GuideState {
     });
   }, []);
 
-  /** Server programs for the page; channels the server has none for fall back to the external guide:
-   *  the viewer's URL, or the first guide the playlist itself declares (x-tvg-url / url-tvg). */
-  const fetchPrograms = useCallback(async (list: JellyfinItem[], startMs: number, endMs: number) => {
-    if (list.length === 0) return [];
-    setPendingPrograms((count) => count + 1);
-    try {
-      const programs = await fetchGuidePrograms({ channelIds: list.map((channel) => channel.Id), startMs, endMs });
-      const covered = new Set(programs.map((program) => program.ChannelId));
-      const bare = list.filter((channel) => !covered.has(channel.Id));
-      if (bare.length === 0) return programs;
-      const data = await fetchTunerData().catch(() => null);
-      const url = getLiveTvPreferences().guideUrl || data?.tvgUrls[0] || "";
-      if (!url || !data) return programs;
-      const wanted = bare.flatMap((channel) => (data.tvgById[channel.Id] ? [{ channelId: channel.Id, tvgId: data.tvgById[channel.Id] }] : []));
-      return programs.concat(await fetchExternalPrograms(url, wanted, { from: startMs, to: endMs }));
-    } finally {
-      setPendingPrograms((count) => count - 1);
-    }
-  }, []);
+  /** Hunted programmes for channels every other lane left bare, landing as a late apply so the
+   *  page never waits on a country file download. */
+  const huntLate = useCallback(
+    (bare: JellyfinItem[], tvgById: Record<string, string>, windowMs: { from: number; to: number }) => {
+      const wanted = bare.flatMap((channel) => (tvgById[channel.Id] ? [{ channelId: channel.Id, tvgId: tvgById[channel.Id], name: channel.Name ?? "" }] : []));
+      if (wanted.length === 0) return;
+      setPendingPrograms((count) => count + 1);
+      huntPrograms(wanted, windowMs)
+        .then((late) => {
+          if (late.length > 0) applyPrograms(bare, late);
+        })
+        .catch((err) => logger.debug("Guide hunt failed", { hook: "useGuide", error: String(err) }))
+        .finally(() => setPendingPrograms((count) => count - 1));
+    },
+    [applyPrograms],
+  );
+
+  /** Server programs for the page; channels the server has none for fall back to the external guide
+   *  (the viewer's URL, or the first guide the playlist itself declares), then to the hunt. */
+  const fetchPrograms = useCallback(
+    async (list: JellyfinItem[], startMs: number, endMs: number) => {
+      if (list.length === 0) return [];
+      setPendingPrograms((count) => count + 1);
+      try {
+        const programs = await fetchGuidePrograms({ channelIds: list.map((channel) => channel.Id), startMs, endMs });
+        const covered = new Set(programs.map((program) => program.ChannelId));
+        const bare = list.filter((channel) => !covered.has(channel.Id));
+        if (bare.length === 0) return programs;
+        const data = await fetchTunerData().catch(() => null);
+        if (!data) return programs;
+        const url = getLiveTvPreferences().guideUrl || data.tvgUrls[0] || "";
+        const wanted = bare.flatMap((channel) => (data.tvgById[channel.Id] ? [{ channelId: channel.Id, tvgId: data.tvgById[channel.Id] }] : []));
+        const external = url ? await fetchExternalPrograms(url, wanted, { from: startMs, to: endMs }) : [];
+        if (getLiveTvPreferences().autoGuide) {
+          const externallyCovered = new Set(external.map((program) => program.ChannelId));
+          huntLate(
+            bare.filter((channel) => !externallyCovered.has(channel.Id)),
+            data.tvgById,
+            { from: startMs, to: endMs },
+          );
+        }
+        return programs.concat(external);
+      } finally {
+        setPendingPrograms((count) => count - 1);
+      }
+    },
+    [huntLate],
+  );
 
   const loadPrograms = useCallback(
     async (list: JellyfinItem[], startMs: number, endMs: number) => {
@@ -314,7 +345,14 @@ export function useGuide(): GuideState {
     setAttempt((n) => n + 1);
   }, []);
 
-  const rows = useMemo<GuideRow[]>(() => channels.map((channel) => ({ channel, programs: programsByChannel[channel.Id] ?? [] })), [channels, programsByChannel]);
+  // Hide offline narrows to channels whose health check concluded down; unchecked ones stay.
+  const { hideOffline } = preferences;
+  const healthGen = useSyncExternalStore(subscribeHealthGeneration, healthGeneration);
+  const rows = useMemo<GuideRow[]>(() => {
+    const listed = hideOffline ? channels.filter((channel) => healthFor(channel.Id) !== "down") : channels;
+    return listed.map((channel) => ({ channel, programs: programsByChannel[channel.Id] ?? [] }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- healthGen re-filters when any verdict moves
+  }, [channels, programsByChannel, hideOffline, healthGen]);
 
   const timersByProgramId = useMemo(() => {
     const map = new Map<string, JellyfinTimer>();

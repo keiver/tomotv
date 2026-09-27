@@ -80,6 +80,18 @@ export async function loadGuide(url: string, windowMs: { from: number; to: numbe
   };
 }
 
+export interface GuideChannel {
+  id: string;
+  displayNames: string[];
+  icon: string | null;
+}
+
+/** The loaded guide's channels in file order, each with its display names. */
+export async function guideChannels(token: string): Promise<GuideChannel[]> {
+  const channels = (await LiveSources.guideChannels(token)) as unknown;
+  return Array.isArray(channels) ? (channels as GuideChannel[]) : [];
+}
+
 /** The loaded guide's programmes on the given XMLTV channel ids overlapping the window. */
 export async function guideProgrammes(token: string, channelIds: readonly string[], windowMs: { from: number; to: number }): Promise<GuideProgramme[]> {
   const programmes = (await LiveSources.guideProgrammes({ token, channelIds, from: windowMs.from, to: windowMs.to })) as unknown;

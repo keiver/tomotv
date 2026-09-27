@@ -10,6 +10,7 @@ import { useGuide } from "@/hooks/useGuide";
 import { lastKnownTunerData } from "@/services/jellyfinApi";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { refreshExternalGuide } from "@/services/externalGuide";
+import { resetGuideHunt } from "@/services/guideHunt";
 import { t } from "@/services/i18n";
 import { showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
@@ -49,14 +50,15 @@ export default function LiveTvScreen() {
   // The Channels pill wears the filled filter symbol while a filter holds the channels.
   const filtered = preferences.filter !== "all";
   const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
-  // The refresh circle shows only while an external guide is in play: named, or playlist-declared.
-  const hasExternalGuide = preferences.guideUrl !== "" || (lastKnownTunerData()?.tvgUrls.length ?? 0) > 0;
+  // The refresh circle shows only while an external guide is in play: named, playlist-declared, or hunted.
+  const hasExternalGuide = preferences.guideUrl !== "" || preferences.autoGuide || (lastKnownTunerData()?.tvgUrls.length ?? 0) > 0;
   const { retry } = guide;
   // The refresh press announces itself and its outcome; armed so the passive loads
   // (first open, paging, window growth) stay silent.
   const refreshToastArmed = useRef(false);
   const refreshGuide = useCallback(() => {
     refreshExternalGuide();
+    resetGuideHunt();
     retry();
     refreshToastArmed.current = true;
     showToast(t("liveTv.guideDownloading"));

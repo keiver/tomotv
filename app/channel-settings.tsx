@@ -38,6 +38,7 @@ export default function ChannelSettingsScreen() {
   const headerHeight = useHeaderHeight();
   const preferences = useLiveTvPreferences();
   const toggleAutoUpdate = useCallback(() => updateLiveTvPreferences({ autoUpdate: !preferences.autoUpdate }), [preferences.autoUpdate]);
+  const toggleAutoGuide = useCallback(() => updateLiveTvPreferences({ autoGuide: !preferences.autoGuide }), [preferences.autoGuide]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
   const pickRecordingMinutes = useCallback((recordingMinutes: RecordingMinutes) => updateLiveTvPreferences({ recordingMinutes }), []);
   const newGroup = useCallback(() => router.push("/channel-group"), [router]);
@@ -79,6 +80,7 @@ export default function ChannelSettingsScreen() {
               hasTVPreferredFocus
               isFirst
             />
+            <ListRow icon="earth" title={t("liveTv.autoGuide")} subtitle={t("liveTv.autoGuideHint")} trailingIcon={preferences.autoGuide ? tick : undefined} onPress={toggleAutoGuide} />
             <GuideUrlRow value={guideUrl} onChangeText={setGuideUrl} onSave={saveGuideUrl} />
           </View>
           <View style={settingsStyles.sectionHeader}>
