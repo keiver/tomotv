@@ -1,3 +1,4 @@
+import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GROUP_CELL_HEIGHT, GuideGroupCell, HUD_CELL_BACKGROUND } from "@/components/live-tv/guide-group-cell";
 import { GuideGroupPlaceholder } from "@/components/live-tv/guide-group-placeholder";
 import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
@@ -89,8 +90,8 @@ export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle, updatin
   if (choices.length <= 1 && !cornerActions) return null;
   return (
     <View style={styles.band}>
-      {cornerActions ? <View style={[styles.cornerBox, { width: cornerWidth }]}>{cornerActions}</View> : null}
-      <View style={styles.cellsHost}>
+      {cornerActions ? <View style={[styles.cornerBox, styles.leadingEdge, { width: cornerWidth }]}>{cornerActions}</View> : null}
+      <View style={[styles.cellsHost, !cornerActions && styles.leadingEdge]}>
         <ScanBand active={busy || updating === true} />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.cells} contentContainerStyle={styles.cellsContent}>
           {choices.map((choice) => {
@@ -111,6 +112,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     height: HUD_BAR_HEIGHT,
+    // The extra point is the band's own grid line, below every cell so no wash covers it.
+    borderBottomWidth: 1,
+    borderBottomColor: GRID_LINE,
     // Above the rows mounted after it, or they paint over the shadow.
     zIndex: 1,
     boxShadow: BAND_SHADOW,
@@ -119,6 +123,11 @@ const styles = StyleSheet.create({
   cellsContent: {
     flexGrow: 1,
     alignItems: "center",
+  },
+  // The band's left grid line, on whichever slot opens it; inside the width, so the corner stays on the column.
+  leadingEdge: {
+    borderLeftWidth: 1,
+    borderLeftColor: GRID_LINE,
   },
   cornerBox: {
     height: GROUP_CELL_HEIGHT,
