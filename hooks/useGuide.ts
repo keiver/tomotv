@@ -12,6 +12,7 @@ import { GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, MINUTE_MS } from "
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { AppState } from "react-native";
 
 /** Channels per page: each page's programs load with it; the next page waits until the list nears it. */
 export const GUIDE_CHANNEL_PAGE = 40;
@@ -305,19 +306,22 @@ export function useGuide(): GuideState {
   }, [attempt, loadChannelPage, landFor, refreshTimers, playlistIds]);
 
   // Ticks on the clock's minute boundaries, rescheduled each time so the ruler's now mark lands on :00.
+  // Timers stall while the app is suspended, so a return to the foreground resyncs at once.
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const schedule = () => {
-      timer = setTimeout(
-        () => {
-          setNowMs(Date.now());
-          schedule();
-        },
-        MINUTE_MS - (Date.now() % MINUTE_MS),
-      );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = () => {
+      clearTimeout(timer);
+      setNowMs(Date.now());
+      timer = setTimeout(tick, MINUTE_MS - (Date.now() % MINUTE_MS));
     };
-    schedule();
-    return () => clearTimeout(timer);
+    timer = setTimeout(tick, MINUTE_MS - (Date.now() % MINUTE_MS));
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") tick();
+    });
+    return () => {
+      clearTimeout(timer);
+      subscription.remove();
+    };
   }, []);
 
   // Coming back from the program panel: its record and cancel actions changed the timers.

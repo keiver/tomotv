@@ -3,6 +3,7 @@
  */
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
+import { AppState, type AppStateStatus } from "react-native";
 import { fetchChannels, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { GUIDE_CHANNEL_PAGE, useGuide } from "../useGuide";
 import { GUIDE_SPAN_MINUTES, MINUTE_MS } from "@/utils/guide";
@@ -301,5 +302,47 @@ describe("useGuide", () => {
     await settle();
     expect(ref.current!.get().rows).toHaveLength(1);
     expect(ref.current!.get().error).toBeNull();
+  });
+});
+
+describe("useGuide minute tick", () => {
+  let appStateListener: ((state: AppStateStatus) => void) | null = null;
+  const at = (h: number, m: number, sec: number) => new Date(2026, 8, 27, h, m, sec).getTime();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [] };
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [], total: 0 });
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    jest.spyOn(AppState, "addEventListener").mockImplementation((_type, handler) => {
+      appStateListener = handler as (state: AppStateStatus) => void;
+      return { remove: jest.fn() } as unknown as ReturnType<typeof AppState.addEventListener>;
+    });
+    jest.useFakeTimers({ now: at(12, 28, 31) });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it("ticks on the clock's minute boundary, not a minute after mount", async () => {
+    const ref = await mount();
+    act(() => jest.advanceTimersByTime(28_999));
+    expect(ref.current!.get().nowMs).toBe(at(12, 28, 31));
+    act(() => jest.advanceTimersByTime(1));
+    expect(ref.current!.get().nowMs).toBe(at(12, 29, 0));
+    act(() => jest.advanceTimersByTime(60_000));
+    expect(ref.current!.get().nowMs).toBe(at(12, 30, 0));
+  });
+
+  it("resyncs on a return to the foreground and keeps the boundary", async () => {
+    const ref = await mount();
+    jest.setSystemTime(at(12, 40, 12));
+    act(() => appStateListener!("active"));
+    expect(ref.current!.get().nowMs).toBe(at(12, 40, 12));
+    act(() => jest.advanceTimersByTime(48_000));
+    expect(ref.current!.get().nowMs).toBe(at(12, 41, 0));
   });
 });
