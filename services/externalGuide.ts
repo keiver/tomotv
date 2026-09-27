@@ -73,7 +73,7 @@ async function openFromUrl(url: string, target: { from: number; to: number }): P
     { force },
   );
   emit({ state: "parsing", url });
-  const { token, stats } = await loadGuide(fileUri, target);
+  const { token, stats } = await loadGuide(fileUri, target, "external");
   emit({ state: "ready", url, channels: stats?.channels ?? 0, programmes: stats?.programmes ?? 0, at: Date.now() });
   return { url, token, from: target.from, to: target.to };
 }
@@ -131,8 +131,9 @@ export function resetExternalGuide(): void {
  */
 export async function fetchExternalPrograms(url: string, channels: readonly { channelId: string; tvgId: string }[], windowMs: { from: number; to: number }): Promise<JellyfinProgram[]> {
   if (!url || channels.length === 0 || !isLiveSourcesAvailable()) return [];
+  let guide: OpenGuide | null = null;
   try {
-    const guide = await ensureOpen(url, windowMs);
+    guide = await ensureOpen(url, windowMs);
     const byGuideId = new Map<string, string[]>();
     for (const channel of channels) {
       for (const candidate of candidates(channel.tvgId)) {
@@ -157,6 +158,8 @@ export async function fetchExternalPrograms(url: string, channels: readonly { ch
     }
     return result;
   } catch (error) {
+    // A read of an open guide failed (the native store closed it): the next fetch reopens it.
+    if (guide && open === guide) open = null;
     logger.warn("External guide load failed", error, { service: "ExternalGuide" });
     return [];
   }

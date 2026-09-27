@@ -118,7 +118,9 @@ async function openCountry(file: string, windowMs: { from: number; to: number })
   const pending = opening.get(file);
   if (pending) return pending;
   const gen = epoch;
-  const task = (async (): Promise<OpenCountryGuide | null> => {
+  // Read in its own finally only after an await, by which point it is assigned.
+  let task!: Promise<OpenCountryGuide | null>;
+  task = (async (): Promise<OpenCountryGuide | null> => {
     try {
       if (held) {
         open = open.filter((guide) => guide !== held);
@@ -126,7 +128,7 @@ async function openCountry(file: string, windowMs: { from: number; to: number })
       }
       const target = { from: windowMs.from, to: windowMs.to + WINDOW_SLACK_MS };
       const fileUri = await cachedGuideFile(`${HOST}epg_ripper_${file}.xml.gz`);
-      const { token, stats } = await loadGuide(fileUri, target);
+      const { token, stats } = await loadGuide(fileUri, target, "hunt");
       if (gen !== epoch) {
         closeGuide(token).catch(() => {});
         return null;
@@ -145,7 +147,8 @@ async function openCountry(file: string, windowMs: { from: number; to: number })
       logger.debug("Country guide hunt failed", { service: "GuideHunt", file, error: String(error) });
       return null;
     } finally {
-      opening.delete(file);
+      // A reset may have handed the file to a newer open; that one clears its own entry.
+      if (opening.get(file) === task) opening.delete(file);
     }
   })();
   opening.set(file, task);

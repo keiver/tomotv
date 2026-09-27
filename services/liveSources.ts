@@ -70,8 +70,9 @@ export interface GuideLoadStats {
 }
 
 /** Streams the XMLTV at `url` (http(s) or file) into a native store held to the window. */
-export async function loadGuide(url: string, windowMs: { from: number; to: number }): Promise<{ token: string; stats: GuideLoadStats | null }> {
-  const result = (await LiveSources.loadGuide({ url, from: windowMs.from, to: windowMs.to })) as { token?: unknown; stats?: { channels?: unknown; programmes?: unknown } } | null;
+/** `pool` scopes the native store's eviction: a load closes only the oldest guides of its own pool. */
+export async function loadGuide(url: string, windowMs: { from: number; to: number }, pool: "external" | "hunt"): Promise<{ token: string; stats: GuideLoadStats | null }> {
+  const result = (await LiveSources.loadGuide({ url, from: windowMs.from, to: windowMs.to, pool })) as { token?: unknown; stats?: { channels?: unknown; programmes?: unknown } } | null;
   if (typeof result?.token !== "string") throw new Error("The live source module returned no guide.");
   const stats = result.stats;
   return {

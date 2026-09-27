@@ -30,6 +30,16 @@ describe("fetchExternalPrograms", () => {
     native.loadGuide.mockResolvedValue({ token: "tok-1", stats: { channels: 12, programmes: 340 } });
   });
 
+  it("reopens a guide the native store closed instead of reading the dead token again", async () => {
+    native.guideProgrammes.mockRejectedValueOnce(new Error("Guide tok-1 is not open")).mockResolvedValue([]);
+    const request = [{ channelId: "c1", tvgId: "A.us" }];
+    await expect(fetchExternalPrograms(URL, request, WINDOW)).resolves.toEqual([]);
+    native.loadGuide.mockResolvedValueOnce({ token: "tok-2", stats: null });
+    await fetchExternalPrograms(URL, request, WINDOW);
+    expect(native.loadGuide).toHaveBeenCalledTimes(2);
+    expect(native.guideProgrammes).toHaveBeenLastCalledWith("tok-2", ["A.us"], WINDOW);
+  });
+
   it("matches tvg-ids and their @-stripped bases, shaping programmes like the server's", async () => {
     native.guideProgrammes.mockResolvedValue([
       { channel: "A.us", start: 1_200_000, stop: 1_500_000, title: "Show", subTitle: "Ep", desc: "D", categories: ["News"], icon: null },
@@ -45,7 +55,7 @@ describe("fetchExternalPrograms", () => {
       WINDOW,
     );
     // The native parser reads the cached file, never the network URL.
-    expect(native.loadGuide).toHaveBeenCalledWith(FILE, { from: WINDOW.from, to: WINDOW.to + DAY });
+    expect(native.loadGuide).toHaveBeenCalledWith(FILE, { from: WINDOW.from, to: WINDOW.to + DAY }, "external");
     expect(native.guideProgrammes).toHaveBeenCalledWith("tok-1", ["A.us@SD", "A.us", "A.us@HD", "B.us@HD", "B.us"], WINDOW);
     // A.us serves both SD and HD channels; B.us@HD matched exactly.
     expect(programs.map((program) => [program.ChannelId, program.Name])).toEqual([

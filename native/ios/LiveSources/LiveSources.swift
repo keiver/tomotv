@@ -3,8 +3,8 @@
 //  TomoTV
 //
 //  React Native module for live TV sources: XMLTV guides and M3U playlists loaded into native
-//  stores and queried by token (the oldest of each closed when a third loads), plus a Jellyfin
-//  tuner's playlist groups mapped to the server's channel ids.
+//  stores and queried by token (the oldest closed when a third loads, guides per caller's pool),
+//  plus a Jellyfin tuner's playlist groups mapped to the server's channel ids.
 //
 
 import Foundation
@@ -15,7 +15,8 @@ class LiveSources: NSObject {
     private static let queue = DispatchQueue(label: "dev.keiver.tomotv.livesources", qos: .userInitiated)
     private static var guides: [String: GuideStore] = [:]
     private static var guideLoaders: [String: GuideLoader] = [:]
-    private static var guideOrder: [String] = []
+    /// Open guides oldest first, per pool: one caller's loads never evict another's.
+    private static var guideOrder: [String: [String]] = [:]
     private static var playlists: [String: PlaylistStore] = [:]
     private static var playlistLoaders: [String: PlaylistLoader] = [:]
     private static var playlistOrder: [String] = []
@@ -35,6 +36,7 @@ class LiveSources: NSObject {
             reject("invalid_config", "headers must be a string map", nil)
             return
         }
+        let pool = config["pool"] as? String ?? ""
         let window: GuideWindow?
         switch Self.window(config, required: false) {
         case let .success(value): window = value
@@ -56,8 +58,8 @@ class LiveSources: NSObject {
                     }
                     switch result {
                     case let .success(stats):
-                        Self.guideOrder.append(token)
-                        while Self.guideOrder.count > Self.maxOpen, let oldest = Self.guideOrder.first { Self.closeGuide(oldest) }
+                        Self.guideOrder[pool, default: []].append(token)
+                        while let order = Self.guideOrder[pool], order.count > Self.maxOpen, let oldest = order.first { Self.closeGuide(oldest) }
                         resolve(["token": token, "stats": Self.dictionary(stats)])
                     case let .failure(error):
                         Self.closeGuide(token)
@@ -218,7 +220,7 @@ class LiveSources: NSObject {
     private static func closeGuide(_ token: String) {
         guideLoaders.removeValue(forKey: token)?.cancel()
         guides[token] = nil
-        guideOrder.removeAll { $0 == token }
+        for pool in guideOrder.keys { guideOrder[pool]?.removeAll { $0 == token } }
     }
 
     private static func closePlaylist(_ token: String) {

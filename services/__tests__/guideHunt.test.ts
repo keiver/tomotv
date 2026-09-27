@@ -13,7 +13,7 @@ jest.mock("@/services/guideFileCache", () => ({
 }));
 jest.mock("@/services/liveSources", () => ({
   isLiveSourcesAvailable: () => true,
-  loadGuide: (url: string, window: unknown) => mockLoadGuide(url, window),
+  loadGuide: (url: string, window: unknown, pool: string) => mockLoadGuide(url, window, pool),
   guideChannels: (token: string) => mockGuideChannels(token),
   guideProgrammes: (token: string, ids: string[], window: unknown) => mockGuideProgrammes(token, ids, window),
   closeGuide: (token: string) => mockCloseGuide(token),
@@ -78,6 +78,8 @@ describe("huntPrograms", () => {
     expect(programs).toHaveLength(1);
     expect(programs[0]).toMatchObject({ Id: "epg:jf1:1200000", Name: "Movie", ChannelId: "jf1" });
     expect(mockCachedGuideFile).toHaveBeenCalledWith("https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz");
+    // Its own native pool: a country file never evicts the viewer's external guide.
+    expect(mockLoadGuide).toHaveBeenCalledWith("file:///guide.xml.gz", expect.anything(), "hunt");
   });
 
   it("reads at most the two most-demanded countries", async () => {
@@ -115,5 +117,29 @@ describe("huntPrograms", () => {
     await huntPrograms(request, WINDOW);
     await huntPrograms(request, WINDOW);
     expect(mockLoadGuide).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a newer open's entry when an open from before a reset settles", async () => {
+    const request = [{ channelId: "jf1", tvgId: "HallmarkChannel.us", name: "Hallmark Channel" }];
+    const loads: ((value: unknown) => void)[] = [];
+    mockLoadGuide.mockImplementation(() => new Promise((resolve) => loads.push(resolve)));
+    const flush = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+    const stale = huntPrograms(request, WINDOW);
+    await flush();
+    resetGuideHunt();
+    const fresh = huntPrograms(request, WINDOW);
+    await flush();
+    expect(loads).toHaveLength(2);
+    loads[0]({ token: "tok-old", stats: null });
+    await stale;
+    // A third ask while the newer open is still loading shares it instead of parsing the file again.
+    const third = huntPrograms(request, WINDOW);
+    await flush();
+    expect(loads).toHaveLength(2);
+    loads[1]({ token: "tok-new", stats: null });
+    await Promise.all([fresh, third]);
+    expect(mockCloseGuide).toHaveBeenCalledWith("tok-old");
   });
 });
