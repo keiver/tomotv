@@ -304,10 +304,20 @@ export function useGuide(): GuideState {
     };
   }, [attempt, loadChannelPage, landFor, refreshTimers, playlistIds]);
 
-  // A minute tick moves the airing cells' progress and the ruler's now mark.
+  // Ticks on the clock's minute boundaries, rescheduled each time so the ruler's now mark lands on :00.
   useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), MINUTE_MS);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(
+        () => {
+          setNowMs(Date.now());
+          schedule();
+        },
+        MINUTE_MS - (Date.now() % MINUTE_MS),
+      );
+    };
+    schedule();
+    return () => clearTimeout(timer);
   }, []);
 
   // Coming back from the program panel: its record and cancel actions changed the timers.

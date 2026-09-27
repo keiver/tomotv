@@ -29,7 +29,9 @@ interface GuideTimeRulerProps {
  */
 export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, nowMs }: GuideTimeRulerProps) {
   const ticks = rulerTicks(windowStartMs, windowEndMs, metrics);
-  const nowLeft = ((nowMs - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute;
+  // Floored to the minute its label reads, so at :00 and :30 the mark sits on the tick.
+  const minuteMs = nowMs - (nowMs % MINUTE_MS);
+  const nowLeft = ((minuteMs - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute;
   const showNow = nowMs >= windowStartMs && nowMs < windowEndMs;
   return (
     <View style={[styles.ruler, { height: metrics.rulerHeight, width: spanPx }]} pointerEvents="none">
@@ -49,8 +51,8 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
       )}
       {showNow ? <View style={[styles.nowEdge, { left: nowLeft - NOW_EDGE / 2 }]} /> : null}
       {showNow ? (
-        <Text style={[styles.nowLabel, { left: nowLeft + NOW_EDGE / 2 + LABEL_LEFT }]} numberOfLines={1}>
-          {formatClock(nowMs)}
+        <Text style={[styles.nowLabel, { left: nowLeft - MAJOR_MARK_WIDTH + LABEL_LEFT }]} numberOfLines={1}>
+          {formatClock(minuteMs)}
         </Text>
       ) : null}
     </View>
