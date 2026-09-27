@@ -1,4 +1,5 @@
 import { GROUP_CELL_HEIGHT, GuideGroupCell, HUD_CELL_BACKGROUND } from "@/components/live-tv/guide-group-cell";
+import { GuideGroupPlaceholder } from "@/components/live-tv/guide-group-placeholder";
 import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { guideStatus, subscribeGuideStatus } from "@/services/externalGuide";
@@ -98,6 +99,7 @@ export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle, updatin
           })}
           {/* A toggle beside the filters, not one of them: it narrows whichever filter is picked. */}
           <GuideGroupCell label={t("liveTv.hideOffline")} selected={hideOffline} onPress={toggleOffline} />
+          <GuideGroupPlaceholder />
         </ScrollView>
       </View>
     </View>
@@ -113,7 +115,9 @@ const styles = StyleSheet.create({
     zIndex: 1,
     boxShadow: BAND_SHADOW,
   },
+  // Grows to the viewport so the placeholder can take whatever width the groups leave.
   cellsContent: {
+    flexGrow: 1,
     alignItems: "center",
   },
   cornerBox: {
