@@ -5,6 +5,7 @@
 import { COLORS } from "@/constants/colors";
 import { configureToast, dismissToast, showToast as show, type ToastKind, type ToastOptions, updateToast } from "@/modules/tomo-toast";
 import { t } from "@/services/i18n";
+import { Platform } from "react-native";
 
 export type { ToastKind, ToastOptions };
 
@@ -24,9 +25,17 @@ function ensureConfigured(): void {
   });
 }
 
+// The TV's bottom edge belongs to the player's transport bar while video is on screen.
+let playerOnScreen = false;
+
+export function setToastPlayerOnScreen(visible: boolean): void {
+  playerOnScreen = visible;
+}
+
 export function showToast(input: string | ToastOptions, kind: ToastKind = "info"): string {
   ensureConfigured();
-  return show(typeof input === "string" ? { title: input, kind } : input);
+  const options = typeof input === "string" ? { title: input, kind } : input;
+  return show(Platform.isTV && playerOnScreen && !options.edge ? { ...options, edge: "top" } : options);
 }
 
 export { dismissToast, updateToast };

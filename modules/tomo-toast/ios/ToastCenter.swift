@@ -4,6 +4,19 @@ enum ToastKind: String {
   case info, success, error
 }
 
+enum ToastEdge: String {
+  case top, bottom
+
+  /// iOS hangs from the top; tvOS keeps the top for its tab bar.
+  static var platform: ToastEdge {
+    #if os(tvOS)
+      return .bottom
+    #else
+      return .top
+    #endif
+  }
+}
+
 enum ToastDismissReason: String {
   case timeout, swipe, close, replaced, api
 }
@@ -16,6 +29,7 @@ struct ToastModel {
   var icon: String?
   var progress: Bool
   var duration: TimeInterval
+  var edge: ToastEdge
 }
 
 struct ToastTheme {

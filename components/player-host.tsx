@@ -4,6 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
+import { setToastPlayerOnScreen } from "@/services/toast";
 import { isHotChannel } from "@/services/liveRing";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { STAGE_HINT_AFTER_SECONDS, stageHint, stageLabel, usePlaybackStage } from "@/hooks/usePlaybackStage";
@@ -429,6 +430,10 @@ export function PlayerHost() {
   const hostVisibleRef = useRef(false);
   useEffect(() => {
     hostVisibleRef.current = hostVisible;
+  }, [hostVisible]);
+  useEffect(() => {
+    setToastPlayerOnScreen(hostVisible);
+    return () => setToastPlayerOnScreen(false);
   }, [hostVisible]);
 
   const hostMode: HostMode = useMemo(() => {

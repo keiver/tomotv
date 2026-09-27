@@ -17,6 +17,7 @@ struct ToastRecord: Record {
   @Field var icon: String?
   @Field var progress: Bool = false
   @Field var durationMs: Double = 4000
+  @Field var edge: String?
 }
 
 public final class TomoToastModule: Module {
@@ -63,7 +64,8 @@ public final class TomoToastModule: Module {
         kind: ToastKind(rawValue: record.kind) ?? .info,
         icon: record.icon,
         progress: record.progress,
-        duration: max(1, record.durationMs / 1000)
+        duration: max(1, record.durationMs / 1000),
+        edge: record.edge.flatMap(ToastEdge.init(rawValue:)) ?? .platform
       ))
     }.runOnQueue(.main)
 

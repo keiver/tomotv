@@ -21,14 +21,16 @@ enum ToastPauseReason {
   case touch, scene, voiceOver
 }
 
-/// The gold card, flush to the side edges and its screen edge (bottom on tvOS, top on iOS): icon,
-/// title, message, and a lifetime bar on the inner edge that drains to dismissal. iOS adds a close
-/// button and swipe-up dismissal. Progress cards fill the bar instead and wait.
+/// The gold card, flush to the side edges and to its screen edge: icon, title, message, and a
+/// lifetime bar on the inner edge that drains to dismissal. iOS adds a close button and a swipe
+/// toward that edge to dismiss. Progress cards fill the bar instead and wait.
 final class ToastCardView: UIView {
   private(set) var model: ToastModel
   var onFinish: ((ToastDismissReason) -> Void)?
 
   private let theme: ToastTheme
+  /// Fixed for the card's life; an in-place update keeps the edge it entered from.
+  private let atTop: Bool
   private let surface = UIView()
   private let iconHost = UIView()
   private let iconView = UIImageView()
@@ -46,6 +48,7 @@ final class ToastCardView: UIView {
   init(model: ToastModel, theme: ToastTheme) {
     self.model = model
     self.theme = theme
+    atTop = model.edge == .top
     super.init(frame: .zero)
     build()
     render()
@@ -62,15 +65,15 @@ final class ToastCardView: UIView {
     layer.shadowColor = UIColor.black.cgColor
     layer.shadowOpacity = 0.4
     layer.shadowRadius = isTV ? 30 : 18
-    layer.shadowOffset = CGSize(width: 0, height: isTV ? -10 : 8)
+    layer.shadowOffset = CGSize(width: 0, height: atTop ? 8 : -10)
 
     surface.translatesAutoresizingMaskIntoConstraints = false
     surface.backgroundColor = theme.tint
     surface.layer.cornerRadius = Metrics.radius
     surface.layer.cornerCurve = .continuous
-    surface.layer.maskedCorners = isTV
-      ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-      : [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+    surface.layer.maskedCorners = atTop
+      ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+      : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
     surface.clipsToBounds = true
     addSubview(surface)
 
@@ -111,11 +114,11 @@ final class ToastCardView: UIView {
       surface.addSubview(closeButton)
     #endif
 
-    let outer = isTV
-      ? surface.bottomAnchor.constraint(equalTo: bottomAnchor, constant: Metrics.overscroll)
-      : surface.topAnchor.constraint(equalTo: topAnchor, constant: -Metrics.overscroll)
-    let inner = isTV ? surface.topAnchor.constraint(equalTo: topAnchor) : surface.bottomAnchor.constraint(equalTo: bottomAnchor)
-    let barEdge = isTV ? bar.topAnchor.constraint(equalTo: topAnchor) : bar.bottomAnchor.constraint(equalTo: bottomAnchor)
+    let outer = atTop
+      ? surface.topAnchor.constraint(equalTo: topAnchor, constant: -Metrics.overscroll)
+      : surface.bottomAnchor.constraint(equalTo: bottomAnchor, constant: Metrics.overscroll)
+    let inner = atTop ? surface.bottomAnchor.constraint(equalTo: bottomAnchor) : surface.topAnchor.constraint(equalTo: topAnchor)
+    let barEdge = atTop ? bar.bottomAnchor.constraint(equalTo: bottomAnchor) : bar.topAnchor.constraint(equalTo: topAnchor)
     NSLayoutConstraint.activate([
       surface.leadingAnchor.constraint(equalTo: leadingAnchor),
       surface.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -183,7 +186,9 @@ final class ToastCardView: UIView {
     var trailing = guide.trailingAnchor
     #if os(iOS)
       NSLayoutConstraint.activate([
-        closeButton.topAnchor.constraint(equalTo: band.topAnchor, constant: 4),
+        atTop
+          ? closeButton.topAnchor.constraint(equalTo: band.topAnchor, constant: 4)
+          : closeButton.bottomAnchor.constraint(equalTo: band.bottomAnchor, constant: -4),
         closeButton.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -6),
         closeButton.widthAnchor.constraint(equalToConstant: Metrics.closeSize),
         closeButton.heightAnchor.constraint(equalToConstant: Metrics.closeSize),
@@ -193,11 +198,11 @@ final class ToastCardView: UIView {
     NSLayoutConstraint.activate([
       leadingAnchor.constraint(equalTo: host.leadingAnchor),
       trailingAnchor.constraint(equalTo: host.trailingAnchor),
-      isTV ? bottomAnchor.constraint(equalTo: host.bottomAnchor) : topAnchor.constraint(equalTo: host.topAnchor),
+      atTop ? topAnchor.constraint(equalTo: host.topAnchor) : bottomAnchor.constraint(equalTo: host.bottomAnchor),
       height,
 
-      band.topAnchor.constraint(equalTo: isTV ? bar.bottomAnchor : guide.topAnchor),
-      band.bottomAnchor.constraint(equalTo: isTV ? guide.bottomAnchor : bar.topAnchor),
+      band.topAnchor.constraint(equalTo: atTop ? guide.topAnchor : bar.bottomAnchor),
+      band.bottomAnchor.constraint(equalTo: atTop ? bar.topAnchor : guide.bottomAnchor),
 
       iconHost.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: Metrics.padding),
       textStack.trailingAnchor.constraint(lessThanOrEqualTo: trailing, constant: isTV ? -Metrics.padding : -4),
@@ -247,6 +252,7 @@ final class ToastCardView: UIView {
   func apply(_ next: ToastModel) {
     let wasProgress = model.progress
     model = next
+    model.edge = atTop ? .top : .bottom
     UIView.transition(with: surface, duration: 0.25, options: [.transitionCrossDissolve, .allowUserInteraction]) {
       self.render()
     }
@@ -321,7 +327,7 @@ final class ToastCardView: UIView {
 
   private var offscreen: CGAffineTransform {
     guard let host = superview else { return .identity }
-    let distance = isTV ? host.bounds.height - frame.minY + 24 : -(frame.maxY + 24)
+    let distance = atTop ? -(frame.maxY + 24) : host.bounds.height - frame.minY + 24
     return CGAffineTransform(translationX: 0, y: distance)
   }
 
@@ -391,17 +397,18 @@ final class ToastCardView: UIView {
       setPaused(false, for: .touch)
     }
 
-    // Up follows the finger, down rubber-bands; a flick or 40% of the height up dismisses.
+    // Toward the screen edge follows the finger, away rubber-bands; a flick or 40% of the height dismisses.
     @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
-      let dy = pan.translation(in: superview).y
+      let sign: CGFloat = atTop ? -1 : 1
+      let dy = pan.translation(in: superview).y * sign
       switch pan.state {
       case .began:
         setPaused(true, for: .touch)
       case .changed:
-        transform = CGAffineTransform(translationX: 0, y: dy < 0 ? dy : dy * 0.25)
+        transform = CGAffineTransform(translationX: 0, y: (dy > 0 ? dy : dy * 0.25) * sign)
       case .ended, .cancelled, .failed:
-        let velocity = pan.velocity(in: superview).y
-        if pan.state == .ended, velocity < -500 || dy < -bounds.height * 0.4 {
+        let velocity = pan.velocity(in: superview).y * sign
+        if pan.state == .ended, velocity > 500 || dy > bounds.height * 0.4 {
           onFinish?(.swipe)
           return
         }

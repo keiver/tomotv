@@ -1,8 +1,8 @@
 import type { EventSubscription } from "expo-modules-core";
 import { AccessibilityInfo, Alert } from "react-native";
-import { type NativePayload, type NativeToastModule, nativeToast as native, type ToastDismissReason, type ToastKind, type ToastTheme } from "./native";
+import { type NativePayload, type NativeToastModule, nativeToast as native, type ToastDismissReason, type ToastEdge, type ToastKind, type ToastTheme } from "./native";
 
-export type { ToastDismissReason, ToastKind, ToastTheme };
+export type { ToastDismissReason, ToastEdge, ToastKind, ToastTheme };
 
 export interface ToastOptions {
   title: string;
@@ -15,6 +15,8 @@ export interface ToastOptions {
   /** Fills the bar and holds until an update with progress false resolves it. */
   progress?: boolean;
   durationMs?: number;
+  /** The screen edge the card enters from; defaults to top on iOS, bottom on tvOS. */
+  edge?: ToastEdge;
 }
 
 /** Reading time: 3s plus 50ms a character, capped at 7s; errors stay 2s longer. */

@@ -10,7 +10,8 @@ jest.mock("@/modules/tomo-toast", () => ({
 }));
 jest.mock("@/services/i18n", () => ({ t: jest.fn(() => "Close") }));
 
-import { showToast } from "@/services/toast";
+import { setToastPlayerOnScreen, showToast } from "@/services/toast";
+import { Platform } from "react-native";
 
 describe("toast", () => {
   beforeEach(() => jest.clearAllMocks());
@@ -43,5 +44,20 @@ describe("toast", () => {
     const options = { id: "guide-refresh", title: "Downloading guide", progress: true };
     showToast(options);
     expect(show).toHaveBeenCalledWith(options);
+  });
+
+  it("moves TV toasts to the top while the player is on screen, never on iOS", () => {
+    setToastPlayerOnScreen(true);
+    showToast("Recording started", "success");
+    expect(show).toHaveBeenLastCalledWith({ title: "Recording started", kind: "success" });
+    const isTV = jest.spyOn(Platform, "isTV", "get").mockReturnValue(true);
+    showToast("Recording started", "success");
+    expect(show).toHaveBeenLastCalledWith({ title: "Recording started", kind: "success", edge: "top" });
+    showToast({ title: "Pinned", edge: "bottom" });
+    expect(show).toHaveBeenLastCalledWith({ title: "Pinned", edge: "bottom" });
+    setToastPlayerOnScreen(false);
+    showToast("Guide updated");
+    expect(show).toHaveBeenLastCalledWith({ title: "Guide updated", kind: "info" });
+    isTV.mockRestore();
   });
 });

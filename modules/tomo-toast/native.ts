@@ -1,6 +1,7 @@
 import { type EventSubscription, requireOptionalNativeModule } from "expo-modules-core";
 
 export type ToastKind = "info" | "success" | "error";
+export type ToastEdge = "top" | "bottom";
 export type ToastDismissReason = "timeout" | "swipe" | "close" | "replaced" | "api";
 
 export interface ToastTheme {
@@ -23,6 +24,7 @@ export interface NativePayload {
   icon?: string;
   progress?: boolean;
   durationMs: number;
+  edge?: ToastEdge;
 }
 
 export interface NativeToastModule {
