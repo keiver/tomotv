@@ -10,6 +10,7 @@ import { fetchFilteredVideos, isAudioItem, isBook, isFolder, isPhoto } from "@/s
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -49,7 +50,7 @@ function FolderScreen() {
   const params = useLocalSearchParams<{ folderId: string; name?: string; type?: string; crumbs?: string; focusId?: string }>();
 
   const folderId = params.folderId;
-  const folderName = params.name ?? "";
+  const folderName = cleanLabel(params.name);
   const folderType: "folder" | "playlist" = params.type === "playlist" ? "playlist" : "folder";
 
   const { getFilters } = useLibraryFilters();
@@ -158,7 +159,7 @@ function FolderScreen() {
   //
   // A server can return an item with no Name, and a blank back title falls straight back into that
   // path. UIKit's own generic mode is the answer there: it draws the localized "Back".
-  const backTitle = crumbs.length > 1 ? crumbs[crumbs.length - 2].name : LIBRARY_ROOT_TITLE;
+  const backTitle = crumbs.length > 1 ? cleanLabel(crumbs[crumbs.length - 2].name) : LIBRARY_ROOT_TITLE;
   const hasBackTitle = backTitle.trim().length > 0;
 
   // Phone only, as a custom item: a UIBarButtonItem shows its image or its title, never both, and

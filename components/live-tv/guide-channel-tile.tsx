@@ -3,6 +3,7 @@ import { COLORS } from "@/constants/colors";
 import { serverPoster } from "@/services/itemArtwork";
 import { hasPoster } from "@/services/jellyfinApi";
 import type { JellyfinItem } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import type { GuideMetrics } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -27,7 +28,7 @@ export function GuideChannelTile({ channel, metrics, onPress }: GuideChannelTile
   const press = useCallback(() => onPress(channel), [onPress, channel]);
   const width = metrics.compactColumnWidth - PADDING;
   return (
-    <Pressable onPress={press} accessibilityRole="button" accessibilityLabel={channel.Name} style={[styles.card, { width }]}>
+    <Pressable onPress={press} accessibilityRole="button" accessibilityLabel={cleanLabel(channel.Name)} style={[styles.card, { width }]}>
       {hasPoster(channel) ? (
         <View style={styles.logoHalo} pointerEvents="none">
           <Image source={serverPoster(channel.Id, channel.ImageTags?.Primary, metrics.rowHeight * 2)} style={styles.logo} contentFit="contain" transition={150} />

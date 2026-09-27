@@ -4,6 +4,7 @@ import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { localArtworkUri } from "@/services/downloads/localSource";
 import { downloadManager, type DownloadProgress } from "@/services/downloads/manager";
 import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
@@ -97,10 +98,10 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, neste
   };
 
   return (
-    <SwipeToRemove label={entry.item.Name} onRemove={onRemove}>
+    <SwipeToRemove label={cleanLabel(entry.item.Name)} onRemove={onRemove}>
       <ListRow
         icon={() => <PosterMark uri={localArtworkUri(entry.itemId)} />}
-        title={entry.item.Name}
+        title={cleanLabel(entry.item.Name)}
         subtitle={line}
         trailingIcon={trailing}
         tone={entry.state === "failed" ? "destructive" : "default"}

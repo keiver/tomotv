@@ -16,6 +16,7 @@ import { downloadsSupported } from "@/services/downloads/paths";
 import { groupDownloads, locateDownload, totalDownloadedBytes, type DownloadGroup, type DownloadListRow } from "@/services/downloads/grouping";
 import type { DownloadEntry } from "@/services/downloads/manifest";
 import { useDownloadPlayback } from "@/hooks/useDownloadPlayback";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
@@ -189,7 +190,7 @@ export default function DownloadsScreen() {
   );
 
   const confirmRemove = useCallback((entry: DownloadEntry) => {
-    Alert.alert(entry.item.Name, t("downloads.removeOne"), [
+    Alert.alert(cleanLabel(entry.item.Name), t("downloads.removeOne"), [
       { text: t("common.cancel"), style: "cancel" },
       { text: t("common.remove"), style: "destructive", onPress: () => void downloadManager.remove(entry.itemId) },
     ]);

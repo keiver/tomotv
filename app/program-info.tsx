@@ -13,6 +13,7 @@ import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchPr
 import { serverPoster } from "@/services/itemArtwork";
 import { showToast } from "@/services/toast";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { formatClock, formatDayLabel, isActiveTimer, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -86,7 +87,7 @@ export default function ProgramInfoScreen() {
   const handleCancelSeries = useCallback(() => run("cancelSeries", async () => (timer?.SeriesTimerId ? cancelSeriesTimer(timer.SeriesTimerId) : undefined)), [run, timer]);
 
   const channelId = params.channelId || program?.ChannelId;
-  const channelName = params.channelName || program?.ChannelName || "";
+  const channelName = cleanLabel(params.channelName || program?.ChannelName);
   const handleWatch = useCallback(() => {
     if (!channelId) return;
     showGlobalLoader();
@@ -122,12 +123,12 @@ export default function ProgramInfoScreen() {
             contentFit="cover"
             transition={200}
             accessible
-            accessibilityLabel={t("a11y.poster").replace("{name}", program.Name)}
+            accessibilityLabel={t("a11y.poster").replace("{name}", cleanLabel(program.Name))}
           />
         ) : null}
         <View style={styles.headlineText}>
-          <Text style={styles.title}>{program.Name}</Text>
-          {program.EpisodeTitle ? <Text style={styles.episode}>{program.EpisodeTitle}</Text> : null}
+          <Text style={styles.title}>{cleanLabel(program.Name)}</Text>
+          {program.EpisodeTitle ? <Text style={styles.episode}>{cleanLabel(program.EpisodeTitle)}</Text> : null}
           <Text style={styles.meta}>{[channelName, when].filter(Boolean).join("  ·  ")}</Text>
           {category || program.IsRepeat || timer ? (
             <View style={styles.tags}>

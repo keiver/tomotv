@@ -9,6 +9,7 @@ import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
 import { t } from "@/services/i18n";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -123,6 +124,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
   const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
+  const folderName = cleanLabel(folder.Name);
+
   // The Live TV view counts channels, and its empty face is a set, not a folder.
   const isLiveTv = folder.CollectionType === "livetv";
   const countIcon = isLiveTv ? "tv-outline" : (COUNT_ICONS[folder.Type] ?? "folder");
@@ -181,12 +184,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             ? { width: (cardHeight - 2 * CARD_PADDING) * cardRatio + 2 * CARD_PADDING }
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
       ]}
-      accessibilityLabel={folder.Name || t("a11y.folder")}
+      accessibilityLabel={folderName || t("a11y.folder")}
       accessibilityRole="button"
       accessibilityHint={
         itemCount != null
-          ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folder.Name).replace("{count}", String(itemCount))
-          : t("a11y.folderNav").replace("{name}", folder.Name)
+          ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folderName).replace("{count}", String(itemCount))
+          : t("a11y.folderNav").replace("{name}", folderName)
       }>
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
@@ -220,13 +223,13 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           {focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameFocused])}>
-                {folder.Name}
+                {folderName}
               </MarqueeText>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameGold])}>
-                {folder.Name}
+                {folderName}
               </MarqueeText>
             </View>
           )}
@@ -237,7 +240,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               the title bar becomes a sweeping gold progress fill. Mounted only
               around a press (visible lingers past the handoff fade) — idle
               cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={folder.Name || t("a11y.folder")} /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} /> : null}
         </View>
       </View>
     </TouchableOpacity>

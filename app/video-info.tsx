@@ -44,6 +44,7 @@ import { useIsAdministrator } from "@/hooks/useIsAdministrator";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, overviewParagraphs, streamDetailLine } from "@/utils/mediaInfo";
 import { cardResumeProgress } from "@/utils/resumeProgress";
@@ -313,7 +314,7 @@ export default function VideoInfoScreen() {
   const [deleting, setDeleting] = useState(false);
   const handleDelete = useCallback(() => {
     if (!details) return;
-    Alert.alert(details.Name, t("info.deleteConfirm"), [
+    Alert.alert(cleanLabel(details.Name), t("info.deleteConfirm"), [
       { text: t("common.cancel"), style: "cancel" },
       {
         text: t("common.delete"),
@@ -324,7 +325,7 @@ export default function VideoInfoScreen() {
             .then(() => router.back())
             .catch((error) => {
               logger.warn("Failed to delete item", error, { service: "VideoInfo", videoId: details.Id });
-              Alert.alert(details.Name, t("info.deleteFailed"));
+              Alert.alert(cleanLabel(details.Name), t("info.deleteFailed"));
             })
             .finally(() => setDeleting(false));
         },
@@ -373,7 +374,7 @@ export default function VideoInfoScreen() {
     return true;
   }, [details]);
 
-  const title = details?.Name ?? params.name ?? "";
+  const title = cleanLabel(details?.Name ?? params.name);
   const audio = details ? isAudioItem(details) : false;
   const photo = details ? isPhoto(details) : false;
   const book = details ? isBook(details) : false;
@@ -402,7 +403,7 @@ export default function VideoInfoScreen() {
   // The index tail is the same string on both branches, and the same call the cards
   // badge from: an episode's "S01E05", a song's "Disc 2 · Track 5".
   const indexLine = details ? formatIndexLine(details) : "";
-  const contextLine = details ? (photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album, indexLine]) : joinMeta([details.SeriesName, indexLine])) : "";
+  const contextLine = details ? cleanLabel(photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album, indexLine]) : joinMeta([details.SeriesName, indexLine])) : "";
   const year = details?.ProductionYear ? String(details.ProductionYear) : "";
   const genresLine = details?.Genres?.length ? details.Genres.join(" · ") : "";
   const recordingNow = details?.Type === "Recording" && details.Status === "InProgress" && !stopped;
@@ -425,8 +426,8 @@ export default function VideoInfoScreen() {
           details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
           details.CriticRating ? t("info.percentCritics").replace("{percent}", String(Math.round(details.CriticRating))) : "",
         ]);
-  const tagline = details?.Taglines?.[0];
-  const studiosLine = details?.Studios?.length ? details.Studios.map((studio) => studio.Name).join(" · ") : "";
+  const tagline = cleanLabel(details?.Taglines?.[0]) || undefined;
+  const studiosLine = details?.Studios?.length ? details.Studios.map((studio) => cleanLabel(studio.Name)).join(" · ") : "";
   const people = details?.People?.slice(0, IS_TV ? 6 : 15) ?? [];
   const source = details?.MediaSources?.[0];
   const fileName = details?.Path?.split("/").pop() ?? "";
@@ -630,14 +631,14 @@ export default function VideoInfoScreen() {
             {people.map((person) => (
               <View key={person.Id} style={styles.castEntry}>
                 {person.PrimaryImageTag ? (
-                  <Image source={{ uri: getPersonImageUrl(person.Id) }} style={styles.castPhoto} contentFit="cover" transition={200} accessible accessibilityLabel={person.Name} />
+                  <Image source={{ uri: getPersonImageUrl(person.Id) }} style={styles.castPhoto} contentFit="cover" transition={200} accessible accessibilityLabel={cleanLabel(person.Name)} />
                 ) : (
                   <View style={[styles.castPhoto, styles.castPhotoEmpty]}>
                     <Ionicons name="person" size={IS_TV ? 40 : 26} color={COLORS.TEXT_SECONDARY} />
                   </View>
                 )}
                 <Text style={styles.castName} numberOfLines={1}>
-                  {person.Name}
+                  {cleanLabel(person.Name)}
                 </Text>
                 {!!(person.Role || person.Type) && (
                   <Text style={styles.castRole} numberOfLines={1}>

@@ -1,3 +1,4 @@
+import { cleanLabel } from "@/utils/cleanLabel";
 import { decodeHTML } from "entities";
 /**
  * Pure formatters for the Video Info panel. Runtime formatting lives in
@@ -183,11 +184,11 @@ export function buildDetailRows(item: JellyfinItem, options: { dimensionsShownEl
 
   const rows: DetailRow[] = [
     { label: t("detail.dimensions"), value: options.dimensionsShownElsewhere ? "" : formatPixelSize(item.Width, item.Height) },
-    { label: t("detail.album"), value: item.Album ?? "" },
-    { label: t("detail.artist"), value: item.Artists?.join(", ") ?? item.AlbumArtist ?? "" },
+    { label: t("detail.album"), value: cleanLabel(item.Album) },
+    { label: t("detail.artist"), value: cleanLabel(item.Artists?.join(", ") ?? item.AlbumArtist) },
     { label: t("detail.disc"), value: track?.disc != null ? String(track.disc) : "" },
     { label: t("detail.track"), value: track ? String(track.label) : "" },
-    { label: t("detail.studio"), value: item.SeriesStudio ?? "" },
+    { label: t("detail.studio"), value: cleanLabel(item.SeriesStudio) },
     {
       label: t("detail.contains"),
       value: childCount ? joinMeta([countLabel(childCount, contentNoun[0], contentNoun[1]), unplayed ? t("detail.unplayed").replace("{count}", String(unplayed)) : ""]) : "",

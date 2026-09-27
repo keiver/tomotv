@@ -16,6 +16,7 @@ import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/se
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
@@ -861,7 +862,7 @@ export function LibraryGrid({
       {focusHolder}
       {/* Bottom loading bar: mounted for the whole folder lifetime (outside the empty/grid branch
           switch) so its complete-then-fade handoff plays over the arriving grid. */}
-      <FolderLoadingBar active={isFolderLoading} title={crumbs?.[crumbs.length - 1]?.name ?? ""} />
+      <FolderLoadingBar active={isFolderLoading} title={cleanLabel(crumbs?.[crumbs.length - 1]?.name)} />
     </View>
   );
 }

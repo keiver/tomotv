@@ -10,6 +10,7 @@ import { STAGE_HINT_AFTER_SECONDS, stageHint, stageLabel, usePlaybackStage } fro
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { chapterFrameUrl } from "@/services/localRemux";
 import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -87,7 +88,7 @@ export function playerChapters(item: JellyfinVideoItem | null, frameBase: string
       const uri = !artwork ? "" : chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : (chapterFrameUrl(frameBase, start) ?? "");
       return {
         // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
-        title: chapter.Name?.trim() || t("player.chapterNum").replace("{num}", String(index + 1)),
+        title: cleanLabel(chapter.Name?.trim()) || t("player.chapterNum").replace("{num}", String(index + 1)),
         startTime: start,
         // A chapter ends where the next begins; the last ends at the runtime.
         endTime: position + 1 < markers.length ? markers[position + 1].start : lastEnd,
@@ -373,7 +374,7 @@ export function PlayerHost() {
   const sourceMetadata = useMemo(() => {
     if (!videoDetails) return undefined;
     return {
-      title: videoDetails.Name,
+      title: cleanLabel(videoDetails.Name),
       ...(artwork ? { imageUri: artwork.uri } : {}),
       // A channel's image is its logo: the patch bakes it onto the info panel's tile.
       ...(session?.isLive ? { logo: true } : {}),

@@ -1,6 +1,7 @@
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { formatClock, guideMetrics, labelPin, NO_GUIDE_PREFIX, programCategory, programTimes, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { Image } from "expo-image";
@@ -65,6 +66,8 @@ function GuideCellComponent({
   hasTVPreferredFocus = false,
 }: GuideCellProps) {
   const { startMs, endMs } = programTimes(program);
+  const programName = cleanLabel(program.Name);
+  const episodeTitle = cleanLabel(program.EpisodeTitle);
   // The stand-in of a channel without listings: a quiet band, one dim line, no slot times.
   const standIn = !!program.Id?.startsWith(NO_GUIDE_PREFIX);
   // One line under the titles: the slot, then whatever the guide source filled in.
@@ -122,11 +125,11 @@ function GuideCellComponent({
         nextFocusDown={nextFocusDown}
         tvParallaxProperties={{ enabled: false }}
         accessibilityRole="button"
-        accessibilityLabel={program.EpisodeTitle ? `${program.Name}, ${program.EpisodeTitle}` : program.Name}
+        accessibilityLabel={episodeTitle ? `${programName}, ${episodeTitle}` : programName}
         style={[styles.label, pinStyle]}>
         {standIn ? (
           <Text style={[styles.quiet, focused && styles.quietFocused]} numberOfLines={1}>
-            {focused && program.EpisodeTitle ? `${program.Name}  ·  ${program.EpisodeTitle}` : program.Name}
+            {focused && episodeTitle ? `${programName}  ·  ${episodeTitle}` : programName}
           </Text>
         ) : (
           <View style={styles.text}>
@@ -134,12 +137,12 @@ function GuideCellComponent({
               {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
               {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
               <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
-                {program.Name}
+                {programName}
               </Text>
             </View>
-            {program.EpisodeTitle ? (
+            {episodeTitle ? (
               <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
-                {program.EpisodeTitle}
+                {episodeTitle}
               </Text>
             ) : null}
             <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>

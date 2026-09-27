@@ -11,6 +11,7 @@ import { t } from "@/services/i18n";
 import { isAudioItem, isBook } from "@/services/jellyfinApi";
 import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { formatClock, formatDayLabel } from "@/utils/guide";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
@@ -181,7 +182,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
   // A channel card names what is on, then the channel: the logo and the badge already say which channel.
   const programChannel = video.Type === "Program" ? video.ChannelName?.trim() : undefined;
-  const cardTitle = airingName ? `${airingName} - ${video.Name}` : programChannel ? `${video.Name} - ${programChannel}` : video?.Name || t("common.unknown");
+  const videoName = cleanLabel(video.Name);
+  const cardTitle = airingName ? `${cleanLabel(airingName)} - ${videoName}` : programChannel ? `${videoName} - ${cleanLabel(programChannel)}` : videoName || t("common.unknown");
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -248,7 +250,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       // subtree): name as the label, watched progress as the VALUE — screen
       // readers announce "Name, 42% watched, button" and re-announce the value
       // if it changes, without the name/percent fused into one string.
-      accessibilityLabel={airingName ? cardTitle : video.Name || t("a11y.video")}
+      accessibilityLabel={airingName ? cardTitle : videoName || t("a11y.video")}
       accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: t("a11y.percentWatched").replace("{percent}", String(watchedPercent)) } : undefined}
       accessibilityRole="button"
       accessibilityHint={IS_TV ? (hasProgress ? t("a11y.pressToResume") : t("a11y.pressToPlay")) : hasProgress ? t("a11y.doubleTapResume") : t("a11y.doubleTapPlay")}
@@ -275,7 +277,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 cachePolicy={liveFrame ? "none" : "memory-disk"}
                 recyclingKey={video.Id} // Helps with memory recycling
                 accessible={true}
-                accessibilityLabel={t("a11y.poster").replace("{name}", video.Name || t("a11y.video"))}
+                accessibilityLabel={t("a11y.poster").replace("{name}", videoName || t("a11y.video"))}
               />
               <CardScrim />
               {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}

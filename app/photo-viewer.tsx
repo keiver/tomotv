@@ -6,6 +6,7 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { getFolderCache } from "@/services/folderContentsCache";
 import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoPreviewUrl, getPhotoUrl, isPhoto, WEBP_ACCEPT } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -303,7 +304,7 @@ export default function PhotoViewerScreen() {
         <GlassSurface style={pageViewerStyles.infoPill} radius={INFO_PILL_RADIUS} tintColor={VIEWER_CHROME_TINT} pointerEvents="none">
           {isPlaying && <Ionicons name="play" size={Platform.isTV ? 20 : 14} color={COLORS.ACCENT} />}
           <Text style={pageViewerStyles.infoName} numberOfLines={1}>
-            {current.Name}
+            {cleanLabel(current.Name)}
           </Text>
           {photos.length > 1 && (
             <Text style={pageViewerStyles.infoCounter}>
@@ -340,7 +341,7 @@ export default function PhotoViewerScreen() {
       triggerLabel={t("photos.photoActions")}
       overlay={overlay}
       zoomMode="image"
-      accessibilityLabel={current ? t("photos.photoName").replace("{name}", current.Name) : t("photos.photoViewer")}
+      accessibilityLabel={current ? t("photos.photoName").replace("{name}", cleanLabel(current.Name)) : t("photos.photoViewer")}
       accessibilityHint={isPlaying ? t("photos.pressToPause") : t("photos.pressToStart")}
       previousLabel={t("photos.previous")}
       nextLabel={t("photos.next")}

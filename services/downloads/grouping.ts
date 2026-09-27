@@ -9,6 +9,8 @@
  * is a user deleting the wrong 4GB.
  */
 
+import { cleanLabel } from "@/utils/cleanLabel";
+
 import type { DownloadEntry, DownloadState } from "./manifest";
 
 export interface DownloadGroup {
@@ -70,7 +72,7 @@ export function groupDownloads(entries: DownloadEntry[]): DownloadListRow[] {
         kind: "group",
         group: {
           id,
-          name: ordered[0].group?.name ?? "Downloads",
+          name: cleanLabel(ordered[0].group?.name) || "Downloads",
           entries: ordered,
           bytes: ordered.reduce((sum, entry) => sum + bytesOf(entry), 0),
           totalBytes: sized ? ordered.reduce((sum, entry) => sum + entry.totalBytes, 0) : null,

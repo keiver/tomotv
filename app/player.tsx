@@ -24,6 +24,7 @@ import { getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences, to
 import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { showToast } from "@/services/toast";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { adjacentChannelId, isActiveTimer, programTimes } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPlayManager";
@@ -325,7 +326,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     const neighbour = (direction: 1 | -1) => {
       const id = adjacentChannelId(channelRing, videoId, direction);
       const channel = id ? channelRing.find((entry) => entry.Id === id) : undefined;
-      return channel ? { title: channel.Name, subtitle: channel.CurrentProgram?.Name ?? "" } : undefined;
+      return channel ? { title: cleanLabel(channel.Name), subtitle: cleanLabel(channel.CurrentProgram?.Name) } : undefined;
     };
     // Present from the first render of a live session: AVKit arms its flip swipes when playback
     // starts and does not look again, so the gate must be open before the ring has loaded.
@@ -419,7 +420,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (!Platform.isTV || !isQueueMode || !nextVideo) return undefined;
     const imageUri = posterUri(nextVideo, 600, upcomingFrames[nextVideo.Id]);
     return {
-      title: nextVideo.Name,
+      title: cleanLabel(nextVideo.Name),
       ...(imageUri ? { imageUri } : {}),
       ...(proposalAt !== null ? { startTimeSeconds: proposalAt } : {}),
       ...(autoPlayNext ? { autoAcceptSeconds: 5 } : {}),
@@ -440,8 +441,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         const imageUri = posterUri(channel, 450);
         return {
           id: channel.Id,
-          title: channel.Name,
-          subtitle: channel.CurrentProgram?.Name ?? "",
+          title: cleanLabel(channel.Name),
+          subtitle: cleanLabel(channel.CurrentProgram?.Name),
           ...(imageUri ? { imageUri } : {}),
           imageAspectRatio: 16 / 9,
           logo: true,
@@ -453,8 +454,10 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       const imageUri = posterUri(item, 450, upcomingFrames[item.Id]);
       return {
         id: item.Id,
-        title: item.Name,
-        subtitle: [item.SeriesName, item.Type === "Episode" && item.IndexNumber != null ? t("player.episodeNum").replace("{num}", String(item.IndexNumber)) : null].filter(Boolean).join(" · "),
+        title: cleanLabel(item.Name),
+        subtitle: [cleanLabel(item.SeriesName), item.Type === "Episode" && item.IndexNumber != null ? t("player.episodeNum").replace("{num}", String(item.IndexNumber)) : null]
+          .filter(Boolean)
+          .join(" · "),
         ...(imageUri ? { imageUri } : {}),
         ...(item.PrimaryImageAspectRatio ? { imageAspectRatio: item.PrimaryImageAspectRatio } : {}),
       };
