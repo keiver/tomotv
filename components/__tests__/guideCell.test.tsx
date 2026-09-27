@@ -1,6 +1,6 @@
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
-import { Text } from "react-native";
+import { StyleSheet, Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
 import { guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
 
@@ -67,6 +67,26 @@ describe("GuideCell", () => {
     const withPoster = focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } } });
     expect(withPoster).toEqual(expect.arrayContaining(["guide-cell-art", "guide-focus-reel"]));
     expect(focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } }, nowMs: T0 - MINUTE_MS })).not.toContain("guide-focus-reel");
+  });
+
+  it("fades the poster down while grabbed frames show over it, and only then", () => {
+    const withPoster = { ...program, Id: "p6", ChannelId: "c1", ImageTags: { Primary: "tag" } };
+    const artOpacity = (tree: TestRenderer.ReactTestRenderer) => StyleSheet.flatten(tree.root.findByProps({ testID: "guide-cell-art" }).props.style).opacity ?? 1;
+    const focus = (tree: TestRenderer.ReactTestRenderer) => act(() => tree.root.findByProps({ accessibilityRole: "button" }).props.onFocus());
+
+    const bare = render({ program: withPoster });
+    focus(bare);
+    expect(artOpacity(bare)).toBe(1);
+
+    mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
+    const grabbed = render({ program: withPoster });
+    expect(artOpacity(grabbed)).toBe(1);
+    focus(grabbed);
+    // The mock evaluates animated styles at render; a nudge re-renders after the effect's set.
+    act(() =>
+      grabbed.update(<GuideCell program={withPoster} left={0} width={400} height={90} nowMs={T0 + 16 * MINUTE_MS} recording={null} scrollX={scrollX} onPress={jest.fn()} onLongPress={jest.fn()} />),
+    );
+    expect(artOpacity(grabbed)).toBeLessThan(0.2);
   });
 
   it("marks a recording with the dot and a series rule with the repeat glyph", () => {

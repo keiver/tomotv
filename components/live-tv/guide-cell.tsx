@@ -7,11 +7,12 @@ import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatClock, guideMetrics, labelPin, programCategory, programTimes, standInChannelId, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
+import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, { SharedValue, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import Animated, { SharedValue, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 /** The grid's line, the same the ruler and the channel column draw. */
@@ -23,6 +24,8 @@ const PX_PER_MINUTE = guideMetrics(IS_TV).pxPerMinute;
 const ART_START = PX_PER_MINUTE * TICK_MINUTES;
 /** The art fades into the cell across its whole width, so the text reads over it. */
 const ART_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 44, 46, 0) 100%)";
+/** The poster steps back while the channel's grabbed frames show over it. */
+const ART_UNDER_REEL_OPACITY = 0.12;
 const TEXT_SHADOW = { textShadowColor: "rgba(0, 0, 0, 0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: IS_TV ? 4 : 3 } as const;
 
 export type RecordingMark = "single" | "series" | null;
@@ -87,6 +90,15 @@ function GuideCellComponent({
   // On the UI thread with the pin: a measured width that re-rendered the cell doubled every mount.
   const labelWidth = useSharedValue(0);
   const [focused, setFocused] = useState(false);
+  const reelChannel = (focused || cardFocused) && !standIn && program.ChannelId && startMs <= nowMs && nowMs < endMs ? program.ChannelId : null;
+  const subscribeReel = useCallback((listener: () => void) => (reelChannel ? subscribeLiveFrame(reelChannel, listener) : () => undefined), [reelChannel]);
+  const readReel = useCallback(() => (reelChannel ? (liveFrameReel(reelChannel)?.frames.length ?? 0) > 0 : false), [reelChannel]);
+  const reelShown = useSyncExternalStore(subscribeReel, readReel);
+  const artOpacity = useSharedValue(1);
+  useEffect(() => {
+    artOpacity.set(withTiming(reelShown ? ART_UNDER_REEL_OPACITY : 1, { duration: 200 }));
+  }, [artOpacity, reelShown]);
+  const artStyle = useAnimatedStyle(() => ({ opacity: artOpacity.value }));
   const handleLabelLayout = useCallback((event: LayoutChangeEvent) => labelWidth.set(event.nativeEvent.layout.width), [labelWidth]);
   const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateX: labelPin(scrollX.value, left, width, labelWidth.value) }] }), [left, width]);
   const programId = program.Id;
@@ -112,10 +124,10 @@ function GuideCellComponent({
     <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, standIn && styles.cellQuiet, { left, width, height }]}>
       {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
       {art && artWidth > 0 ? (
-        <View style={[styles.art, { width: artWidth }]} pointerEvents="none" testID="guide-cell-art">
+        <Animated.View style={[styles.art, { width: artWidth }, artStyle]} pointerEvents="none" testID="guide-cell-art">
           <Image source={art} style={styles.artImage} contentFit="cover" contentPosition="right" transition={150} />
           <View style={styles.artFade} />
-        </View>
+        </Animated.View>
       ) : null}
       {/* A stand-in row wears its reel whenever a burst exists, resting faded and brightening
           on the row's focus. A programme, art or not, gets the compact strip on focus alone, and
@@ -124,9 +136,9 @@ function GuideCellComponent({
         <View style={styles.reelClip} pointerEvents="none">
           <GuideFocusReel channelId={standInChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} active={focused || cardFocused} />
         </View>
-      ) : (focused || cardFocused) && program.ChannelId && startMs <= nowMs && nowMs < endMs ? (
+      ) : reelChannel ? (
         <View style={styles.reelClip} pointerEvents="none">
-          <GuideFocusReel channelId={program.ChannelId} left={left} width={width} cellHeight={height} scrollX={scrollX} active compact />
+          <GuideFocusReel channelId={reelChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} active compact />
         </View>
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
