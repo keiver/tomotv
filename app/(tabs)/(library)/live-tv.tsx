@@ -78,8 +78,10 @@ export default function LiveTvScreen() {
   );
   const openProgram = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
-      if (!program.Id || program.Id.startsWith(NO_GUIDE_PREFIX) || program.Id.startsWith(EXTERNAL_GUIDE_PREFIX)) return;
-      router.push({ pathname: "/program-info", params: { programId: program.Id, channelId: channel.Id, channelName: channel.Name } });
+      // No-guide and external-guide cells are not server programs: the panel opens in
+      // channel mode and Record starts a manual timer.
+      const serverProgram = !!program.Id && !program.Id.startsWith(NO_GUIDE_PREFIX) && !program.Id.startsWith(EXTERNAL_GUIDE_PREFIX);
+      router.push({ pathname: "/program-info", params: { ...(serverProgram ? { programId: program.Id } : {}), channelId: channel.Id, channelName: channel.Name } });
     },
     [router],
   );

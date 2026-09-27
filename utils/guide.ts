@@ -108,6 +108,27 @@ export function isActiveTimer(timer: Pick<JellyfinTimer, "Status">): boolean {
   return timer.Status !== "Cancelled" && timer.Status !== "Completed";
 }
 
+/** The timer covering this target: a program's by id, else the channel's over the clock now. */
+export function activeRecordTimer(timers: JellyfinTimer[], target: { programId?: string; channelId: string }, nowMs: number): JellyfinTimer | null {
+  if (target.programId) return timers.find((candidate) => candidate.ProgramId === target.programId && isActiveTimer(candidate)) ?? null;
+  return (
+    timers.find((candidate) => {
+      if (candidate.ChannelId !== target.channelId || !isActiveTimer(candidate)) return false;
+      const { startMs, endMs } = programTimes(candidate);
+      return startMs <= nowMs && nowMs < endMs;
+    }) ?? null
+  );
+}
+
+/** "2h", "1h 12m" or "45m": the length a recording toast names. */
+export function durationLabel(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest}m`;
+  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
 export function isAiring(program: Pick<JellyfinProgram, "StartDate" | "EndDate">, nowMs: number): boolean {
   const { startMs, endMs } = programTimes(program);
   return startMs <= nowMs && nowMs < endMs;

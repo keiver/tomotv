@@ -25,7 +25,7 @@ import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { showToast } from "@/services/toast";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { adjacentChannelId, isActiveTimer, programTimes } from "@/utils/guide";
+import { activeRecordTimer, adjacentChannelId, durationLabel, programTimes } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPlayManager";
 import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
@@ -62,27 +62,6 @@ LogBox.ignoreLogs([
 /** A known credits start, or null to let AVKit present at the actual playback end. */
 function proposalTime(outroStartSeconds: number | undefined): number | null {
   return outroStartSeconds !== undefined && Number.isFinite(outroStartSeconds) && outroStartSeconds > 0 ? outroStartSeconds : null;
-}
-
-/** "2h", "1h 12m" or "45m": the length the start toast names. */
-function durationLabel(ms: number): string {
-  const minutes = Math.round(ms / 60_000);
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (hours === 0) return `${rest}m`;
-  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
-}
-
-/** The timer covering this target: a program's by id, else the channel's over the clock now. */
-function activeRecordTimer(timers: JellyfinTimer[], target: { programId?: string; channelId: string }, nowMs: number): JellyfinTimer | null {
-  if (target.programId) return timers.find((candidate) => candidate.ProgramId === target.programId && isActiveTimer(candidate)) ?? null;
-  return (
-    timers.find((candidate) => {
-      if (candidate.ChannelId !== target.channelId || !isActiveTimer(candidate)) return false;
-      const { startMs, endMs } = programTimes(candidate);
-      return startMs <= nowMs && nowMs < endMs;
-    }) ?? null
-  );
 }
 
 /**

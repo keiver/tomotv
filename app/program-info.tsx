@@ -11,10 +11,11 @@ import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { t } from "@/services/i18n";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchProgram, fetchTimerDefaults, fetchTimers, hasPoster } from "@/services/jellyfinApi";
 import { serverPoster } from "@/services/itemArtwork";
+import { getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { showToast } from "@/services/toast";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { formatClock, formatDayLabel, isActiveTimer, isAiring, programCategory, programTimes } from "@/utils/guide";
+import { activeRecordTimer, durationLabel, formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -32,11 +33,15 @@ type Busy = "record" | "series" | "cancel" | "cancelSeries" | null;
  * One program of the guide: what it is, when it airs, and the recording it has or could have.
  * A root route like video-info: TV crossfades a card, phone presents a sheet. Watch replaces the
  * sheet with the player on phone, the same way video-info plays.
+ *
+ * Without a programId (a channel with no server guide data) the panel runs in channel mode:
+ * the channel's name headlines and Record starts a manual timer for the settings length.
  */
 export default function ProgramInfoScreen() {
-  const params = useLocalSearchParams<{ programId: string; channelId?: string; channelName?: string }>();
+  const params = useLocalSearchParams<{ programId?: string; channelId?: string; channelName?: string }>();
   const router = useRouter();
   const { showGlobalLoader } = useLoadingActions();
+  const programId = params.programId || undefined;
   const [program, setProgram] = useState<JellyfinProgram | null>(null);
   const [timer, setTimer] = useState<JellyfinTimer | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -44,34 +49,37 @@ export default function ProgramInfoScreen() {
   const [nowMs] = useState(() => Date.now());
   const canManage = useLiveTvManagement();
 
+  const channelId = params.channelId || program?.ChannelId;
+  const channelName = cleanLabel(params.channelName || program?.ChannelName);
+
   const loadTimer = useCallback(async () => {
     const timers = await fetchTimers();
-    setTimer(timers.find((candidate) => candidate.ProgramId === params.programId && isActiveTimer(candidate)) ?? null);
-  }, [params.programId]);
+    setTimer(activeRecordTimer(timers, { programId, channelId: params.channelId ?? "" }, Date.now()));
+  }, [programId, params.channelId]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [fetched] = await Promise.all([fetchProgram(params.programId), loadTimer()]);
-        if (!cancelled) setProgram(fetched);
+        const [fetched] = await Promise.all([programId ? fetchProgram(programId) : null, loadTimer()]);
+        if (!cancelled && fetched) setProgram(fetched);
       } catch (err) {
-        logger.error("Program load failed", err, { screen: "ProgramInfo", programId: params.programId });
+        logger.error("Program load failed", err, { screen: "ProgramInfo", programId });
         if (!cancelled) setFailed(err instanceof Error ? err.message : String(err));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [params.programId, loadTimer]);
+  }, [programId, loadTimer]);
 
   const run = useCallback(
-    async (kind: Exclude<Busy, null>, action: () => Promise<void>) => {
+    async (kind: Exclude<Busy, null>, action: () => Promise<void>, doneToast: string) => {
       setBusy(kind);
       try {
         await action();
         await loadTimer();
-        showToast(t(kind === "record" || kind === "series" ? "liveTv.recordingScheduled" : "liveTv.recordingCanceled"));
+        showToast(doneToast);
       } catch (err) {
         logger.error("Recording action failed", err, { screen: "ProgramInfo", kind });
         showToast(t("liveTv.recordingFailed"), "error");
@@ -81,13 +89,37 @@ export default function ProgramInfoScreen() {
     },
     [loadTimer],
   );
-  const handleRecord = useCallback(() => run("record", async () => createTimer(await fetchTimerDefaults(params.programId))), [run, params.programId]);
-  const handleRecordSeries = useCallback(() => run("series", async () => createSeriesTimer(await fetchTimerDefaults(params.programId))), [run, params.programId]);
-  const handleCancel = useCallback(() => run("cancel", async () => (timer ? cancelTimer(timer.Id) : undefined)), [run, timer]);
-  const handleCancelSeries = useCallback(() => run("cancelSeries", async () => (timer?.SeriesTimerId ? cancelSeriesTimer(timer.SeriesTimerId) : undefined)), [run, timer]);
-
-  const channelId = params.channelId || program?.ChannelId;
-  const channelName = cleanLabel(params.channelName || program?.ChannelName);
+  const handleRecord = useCallback(() => {
+    // A program records to its end; a channel without one gets a manual timer for the
+    // settings length. The toast names the running length; a future program is scheduled.
+    if (programId) {
+      const remainingMs = program && isAiring(program, Date.now()) ? programTimes(program).endMs - Date.now() : 0;
+      const doneToast = remainingMs > 0 ? t("liveTv.recordingStartedFor").replace("{duration}", durationLabel(remainingMs)) : t("liveTv.recordingScheduled");
+      return run("record", async () => createTimer(await fetchTimerDefaults(programId)), doneToast);
+    }
+    if (!channelId) return;
+    const recordingMs = getLiveTvPreferences().recordingMinutes * 60_000;
+    // The timer's name becomes the recording folder; a leading dot would hide it from the
+    // server's scanner (Jellyfin ignores "**/.*").
+    const timerName = channelName.replace(/^[.\s]+/, "") || channelId;
+    return run(
+      "record",
+      async () => {
+        const defaults = await fetchTimerDefaults();
+        await createTimer({ ...defaults, ChannelId: channelId, Name: timerName, StartDate: new Date().toISOString(), EndDate: new Date(Date.now() + recordingMs).toISOString() });
+      },
+      t("liveTv.recordingStartedFor").replace("{duration}", durationLabel(recordingMs)),
+    );
+  }, [run, programId, program, channelId, channelName]);
+  const handleRecordSeries = useCallback(() => run("series", async () => createSeriesTimer(await fetchTimerDefaults(programId)), t("liveTv.recordingScheduled")), [run, programId]);
+  const handleCancel = useCallback(
+    () => run("cancel", async () => (timer ? cancelTimer(timer.Id) : undefined), t(timer?.Status === "InProgress" ? "liveTv.recordingStopped" : "liveTv.recordingCanceled")),
+    [run, timer],
+  );
+  const handleCancelSeries = useCallback(
+    () => run("cancelSeries", async () => (timer?.SeriesTimerId ? cancelSeriesTimer(timer.SeriesTimerId) : undefined), t("liveTv.recordingCanceled")),
+    [run, timer],
+  );
   const handleWatch = useCallback(() => {
     if (!channelId) return;
     showGlobalLoader();
@@ -102,6 +134,8 @@ export default function ProgramInfoScreen() {
   const category = program ? programCategory(program) : null;
   const inSeries = !!timer?.SeriesTimerId;
   const recordingNow = timer?.Status === "InProgress";
+  // Channel mode plays now, so Watch leads; with a program only its airing does.
+  const watchable = !!channelId && (airing || !programId);
 
   const content = failed ? (
     <View style={styles.status}>
@@ -109,14 +143,14 @@ export default function ProgramInfoScreen() {
       <Text style={styles.statusText}>{failed}</Text>
       <FocusableButton title={t("common.goBack")} variant="secondary" hasTVPreferredFocus onPress={() => router.back()} style={styles.button} />
     </View>
-  ) : !program ? (
+  ) : programId && !program ? (
     <View style={styles.status}>
       <LoadingRow label={t("liveTv.guide")} />
     </View>
   ) : (
     <>
       <View style={styles.headline}>
-        {program.Id && hasPoster(program) ? (
+        {program?.Id && hasPoster(program) ? (
           <Image
             source={serverPoster(program.Id, program.ImageTags?.Primary, IS_TV ? 600 : 300)}
             style={[styles.poster, { aspectRatio: program.PrimaryImageAspectRatio || 2 / 3 }]}
@@ -127,10 +161,10 @@ export default function ProgramInfoScreen() {
           />
         ) : null}
         <View style={styles.headlineText}>
-          <Text style={styles.title}>{cleanLabel(program.Name)}</Text>
-          {program.EpisodeTitle ? <Text style={styles.episode}>{cleanLabel(program.EpisodeTitle)}</Text> : null}
-          <Text style={styles.meta}>{[channelName, when].filter(Boolean).join("  ·  ")}</Text>
-          {category || program.IsRepeat || timer ? (
+          <Text style={styles.title}>{program ? cleanLabel(program.Name) : channelName}</Text>
+          {program?.EpisodeTitle ? <Text style={styles.episode}>{cleanLabel(program.EpisodeTitle)}</Text> : null}
+          {program ? <Text style={styles.meta}>{[channelName, when].filter(Boolean).join("  ·  ")}</Text> : null}
+          {category || program?.IsRepeat || timer ? (
             <View style={styles.tags}>
               {category ? <Text style={styles.tag}>{category}</Text> : null}
               {timer ? (
@@ -143,9 +177,9 @@ export default function ProgramInfoScreen() {
           ) : null}
         </View>
       </View>
-      {program.Overview ? <Text style={styles.overview}>{program.Overview}</Text> : null}
+      {program?.Overview ? <Text style={styles.overview}>{program.Overview}</Text> : null}
       <View style={styles.buttons}>
-        {airing && channelId ? (
+        {watchable ? (
           <FocusableButton
             title={t("liveTv.watch")}
             variant="primary"
@@ -159,7 +193,7 @@ export default function ProgramInfoScreen() {
           <FocusableButton
             title={recordingNow ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
             variant="secondary"
-            hasTVPreferredFocus={!airing}
+            hasTVPreferredFocus={!watchable}
             isLoading={busy === "cancel"}
             disabled={busy !== null}
             icon={<Ionicons name={recordingNow ? "stop-circle-outline" : "close-circle-outline"} size={IS_TV ? 30 : 20} color={COLORS.ACCENT} />}
@@ -169,16 +203,16 @@ export default function ProgramInfoScreen() {
         ) : (
           <FocusableButton
             title={t("liveTv.record")}
-            variant={airing ? "secondary" : "primary"}
-            hasTVPreferredFocus={!airing}
+            variant={watchable ? "secondary" : "primary"}
+            hasTVPreferredFocus={!watchable}
             isLoading={busy === "record"}
             disabled={busy !== null}
-            icon={<Ionicons name="radio-button-on" size={IS_TV ? 30 : 20} color={airing ? COLORS.ACCENT : COLORS.ON_ACCENT} />}
+            icon={<Ionicons name="radio-button-on" size={IS_TV ? 30 : 20} color={watchable ? COLORS.ACCENT : COLORS.ON_ACCENT} />}
             onPress={handleRecord}
             style={styles.button}
           />
         )}
-        {canManage && program.IsSeries ? (
+        {canManage && program?.IsSeries ? (
           inSeries ? (
             <FocusableButton
               title={t("liveTv.cancelSeries")}
