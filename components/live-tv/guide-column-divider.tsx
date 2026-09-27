@@ -114,10 +114,14 @@ export function GuideColumnDivider({ columnW, topInset, bottomInset, gesture, gr
     (event: LayoutChangeEvent) => {
       const height = event.nativeEvent.layout.height;
       bandH.set(height);
-      if (placed.current) return;
+      const reach = Math.max(0, (height - HIT_HEIGHT) / 2);
+      // A later layout (rotation) keeps the grip where it is, back inside the new band.
+      if (placed.current) {
+        gripY.set(clamp(gripY.get(), -reach, reach));
+        return;
+      }
       placed.current = true;
       bandRef.current?.measureInWindow((_x, y) => {
-        const reach = Math.max(0, (height - HIT_HEIGHT) / 2);
         gripY.set(clamp(windowH * (1 - REST_FROM_BOTTOM) - (y + height / 2), -reach, reach));
       });
     },
