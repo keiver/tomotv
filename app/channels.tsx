@@ -1,5 +1,4 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { GlassButton } from "@/components/glass-button";
 import { LibraryGrid } from "@/components/library-grid";
 import { ShowAllChannels } from "@/components/live-tv/show-all-channels";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
@@ -168,25 +167,17 @@ export default function ChannelsScreen() {
     </View>
   );
 
-  if (!searching && !isLoading && !error && wall.length === 0 && !hasMore) {
-    const favoritesEmpty = preferences.filter === "favorites";
-    return (
-      <View style={styles.container}>
-        <Stack.Screen options={screenOptions} />
-        <AmbientBackground />
-        {head}
-        <View style={styles.center}>
-          <Ionicons name={favoritesEmpty ? "heart-outline" : "tv-outline"} size={64} color={COLORS.TEXT_SECONDARY} />
-          <Text style={styles.emptyText}>{favoritesEmpty ? t("liveTv.noFavorites") : t("liveTv.noChannels")}</Text>
-          {favoritesEmpty ? <Text style={styles.hintText}>{t("liveTv.favoritesHint")}</Text> : null}
-          {filtered ? <ShowAllChannels hasTVPreferredFocus /> : null}
-          {IS_TV ? (
-            <GlassButton title={t("settings.title")} icon={<Ionicons name="settings-outline" size={26} color={COLORS.ACCENT} />} onPress={openSettings} hasTVPreferredFocus={!filtered} />
-          ) : null}
-        </View>
+  // An empty wall keeps the bar: back, search, groups and settings stay in reach.
+  const favoritesEmpty = preferences.filter === "favorites";
+  const emptyWall =
+    !searching && !hasMore ? (
+      <View style={styles.center}>
+        <Ionicons name={favoritesEmpty ? "heart-outline" : "tv-outline"} size={64} color={COLORS.TEXT_SECONDARY} />
+        <Text style={styles.emptyText}>{favoritesEmpty ? t("liveTv.noFavorites") : t("liveTv.noChannels")}</Text>
+        {favoritesEmpty ? <Text style={styles.hintText}>{t("liveTv.favoritesHint")}</Text> : null}
+        {filtered ? <ShowAllChannels /> : null}
       </View>
-    );
-  }
+    ) : undefined;
   return (
     <View style={styles.container}>
       <Stack.Screen options={screenOptions} />
@@ -214,6 +205,7 @@ export default function ChannelsScreen() {
           crumbs={crumbs}
           homeAsBack
           noAmbient={!IS_TV}
+          emptyContent={emptyWall}
         />
       </View>
     </View>
@@ -244,10 +236,7 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_PRIMARY,
   },
   center: {
-    flex: 1,
-    justifyContent: "center",
     alignItems: "center",
-    padding: 40,
     gap: 18,
   },
   emptyText: {

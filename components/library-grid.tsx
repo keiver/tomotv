@@ -97,6 +97,8 @@ interface LibraryGridProps {
   headerTrailing?: React.ReactNode;
   /** The host screen paints the ambient canvas itself (the wall's phone search head sits on it). */
   noAmbient?: boolean;
+  /** The loaded-empty body in place of the folder's own, under the same bar (the wall's no-channels state). */
+  emptyContent?: React.ReactNode;
 }
 
 /**
@@ -131,6 +133,7 @@ export function LibraryGrid({
   headerSecondaryAction,
   headerTrailing,
   noAmbient = false,
+  emptyContent,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -772,13 +775,14 @@ export function LibraryGrid({
       );
     }
 
+    if (emptyContent) return <View style={styles.centerContainer}>{emptyContent}</View>;
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>{activeFilterCount > 0 ? t("library.emptyNoMatch") : t("library.emptyFolder")}</Text>
       </View>
     );
-  }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer]);
+  }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer, emptyContent]);
 
   // TV only: the breadcrumb bar with the Filters suffix action. Phone gets the screen's native
   // navigation bar instead (app/(tabs)/(library)/[folderId].tsx). Rendered in the loaded-empty
