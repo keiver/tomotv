@@ -27,7 +27,12 @@ jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn()
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn(), hideGlobalLoader: jest.fn() }) }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/close-overlay-button", () => ({ CloseOverlayButton: () => null }));
-jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }));
+jest.mock("@/components/info-action-row", () => ({
+  InfoActionRow: ({ extras = [] }: { extras?: { key: string; label: string }[] }) => {
+    const { Text } = require("react-native");
+    return extras.map((extra) => <Text key={extra.key} testID={`circle:${extra.label}`} />);
+  },
+}));
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/live-tv/channel-group-section", () => ({ ChannelGroupSection: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
@@ -108,6 +113,7 @@ const buttons = (tree: TestRenderer.ReactTestRenderer) =>
   tree.root
     .findAll((node) => typeof node.type === "string" && typeof node.props.testID === "string" && node.props.testID.startsWith("button:"))
     .map((node) => node.props.testID.slice("button:".length));
+const circle = (tree: TestRenderer.ReactTestRenderer, label: string) => tree.root.findAll((node) => typeof node.type === "string" && node.props.testID === `circle:${label}`).length > 0;
 const press = async (tree: TestRenderer.ReactTestRenderer, title: string) => {
   await act(async () => {
     tree.root.findByProps({ testID: `button:${title}` }).props.onPress();
@@ -133,10 +139,11 @@ describe("Video info: live items", () => {
     expect(fetchTimers).not.toHaveBeenCalled();
   });
 
-  it("offers Watch, Record and Record Series for an airing series, and Watch replaces the sheet with the channel", async () => {
+  it("offers Watch and Record for an airing series, Record Series as a circle, and Watch replaces the sheet with the channel", async () => {
     (fetchTimers as jest.Mock).mockResolvedValue([]);
     const tree = await mount(airing);
-    expect(buttons(tree)).toEqual(["Watch", "Record", "Record Series"]);
+    expect(buttons(tree)).toEqual(["Watch", "Record"]);
+    expect(circle(tree, "Record Series")).toBe(true);
     await press(tree, "Watch");
     expect(mockReplace).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
   });
@@ -146,11 +153,11 @@ describe("Video info: live items", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ Id: "t1", Name: "Football Live", ProgramId: "p1", StartDate: later.StartDate, EndDate: later.EndDate, Status: "New" }]);
     const tree = await mount(later);
-    expect(buttons(tree)).toEqual(["Record", "Record Series"]);
+    expect(buttons(tree)).toEqual(["Record"]);
     await press(tree, "Record");
     expect(fetchTimerDefaults).toHaveBeenCalledWith("p1");
     expect(createTimer).toHaveBeenCalledWith({ ProgramId: "p1", Name: "Football Live" });
-    expect(buttons(tree)).toEqual(["Cancel Recording", "Record Series"]);
+    expect(buttons(tree)).toEqual(["Cancel Recording"]);
   });
 
   it("cancels a timer by its id and offers to cancel its series rule", async () => {
@@ -158,10 +165,11 @@ describe("Video info: live items", () => {
       .mockResolvedValueOnce([{ Id: "t2", Name: "Football Live", ProgramId: "p1", SeriesTimerId: "s1", StartDate: later.StartDate, EndDate: later.EndDate, Status: "New" }])
       .mockResolvedValue([]);
     const tree = await mount(later);
-    expect(buttons(tree)).toEqual(["Cancel Recording", "Cancel Series"]);
+    expect(buttons(tree)).toEqual(["Cancel Recording"]);
+    expect(circle(tree, "Cancel Series")).toBe(true);
     await press(tree, "Cancel Recording");
     expect(cancelTimer).toHaveBeenCalledWith("t2");
-    expect(buttons(tree)).toEqual(["Record", "Record Series"]);
+    expect(buttons(tree)).toEqual(["Record"]);
   });
 
   it("stops an in-progress recording", async () => {
@@ -169,10 +177,10 @@ describe("Video info: live items", () => {
       .mockResolvedValueOnce([{ Id: "t4", Name: "Football Live", ProgramId: "p1", StartDate: airing.StartDate, EndDate: airing.EndDate, Status: "InProgress" }])
       .mockResolvedValue([]);
     const tree = await mount(airing);
-    expect(buttons(tree)).toEqual(["Watch", "Stop Recording", "Record Series"]);
+    expect(buttons(tree)).toEqual(["Watch", "Stop Recording"]);
     await press(tree, "Stop Recording");
     expect(cancelTimer).toHaveBeenCalledWith("t4");
-    expect(buttons(tree)).toEqual(["Watch", "Record", "Record Series"]);
+    expect(buttons(tree)).toEqual(["Watch", "Record"]);
   });
 
   it("records a manual timer on a channel and toggles the channel favorite locally", async () => {
