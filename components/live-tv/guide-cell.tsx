@@ -1,7 +1,7 @@
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
-import { formatClock, guideMetrics, labelPin, programCategory, programTimes, TICK_MINUTES } from "@/utils/guide";
+import { formatClock, guideMetrics, labelPin, NO_GUIDE_PREFIX, programCategory, programTimes, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -65,6 +65,8 @@ function GuideCellComponent({
   hasTVPreferredFocus = false,
 }: GuideCellProps) {
   const { startMs, endMs } = programTimes(program);
+  // The stand-in of a channel without listings: a quiet band, one dim line, no slot times.
+  const standIn = !!program.Id?.startsWith(NO_GUIDE_PREFIX);
   // One line under the titles: the slot, then whatever the guide source filled in.
   const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter(Boolean).join("  ·  ");
   const art = program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
@@ -97,7 +99,7 @@ function GuideCellComponent({
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
 
   return (
-    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, { left, width, height }]}>
+    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, standIn && styles.cellQuiet, { left, width, height }]}>
       {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
       {art && artWidth > 0 ? (
         <View style={[styles.art, { width: artWidth }]} pointerEvents="none" testID="guide-cell-art">
@@ -122,23 +124,29 @@ function GuideCellComponent({
         accessibilityRole="button"
         accessibilityLabel={program.EpisodeTitle ? `${program.Name}, ${program.EpisodeTitle}` : program.Name}
         style={[styles.label, pinStyle]}>
-        <View style={styles.text}>
-          <View style={styles.titleRow}>
-            {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
-            {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
-            <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
-              {program.Name}
+        {standIn ? (
+          <Text style={[styles.quiet, focused && styles.quietFocused]} numberOfLines={1}>
+            {focused && program.EpisodeTitle ? `${program.Name}  ·  ${program.EpisodeTitle}` : program.Name}
+          </Text>
+        ) : (
+          <View style={styles.text}>
+            <View style={styles.titleRow}>
+              {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
+              {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
+              <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
+                {program.Name}
+              </Text>
+            </View>
+            {program.EpisodeTitle ? (
+              <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
+                {program.EpisodeTitle}
+              </Text>
+            ) : null}
+            <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+              {meta}
             </Text>
           </View>
-          {program.EpisodeTitle ? (
-            <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
-              {program.EpisodeTitle}
-            </Text>
-          ) : null}
-          <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
-            {meta}
-          </Text>
-        </View>
+        )}
       </AnimatedPressable>
     </Pressable>
   );
@@ -222,6 +230,16 @@ const styles = StyleSheet.create({
   },
   textPast: {
     opacity: 0.5,
+  },
+  cellQuiet: {
+    backgroundColor: COLORS.SURFACE_SUNKEN,
+  },
+  quiet: {
+    color: COLORS.TEXT_QUATERNARY,
+    fontSize: IS_TV ? 19 : 11,
+  },
+  quietFocused: {
+    color: COLORS.TEXT_SECONDARY,
   },
   recordingDot: {
     width: IS_TV ? 12 : 8,

@@ -65,7 +65,18 @@ describe("GuideCell", () => {
     expect(onPress).toHaveBeenCalledWith(program);
     expect(onLongPress).toHaveBeenCalledWith(program);
 
-    const standIn = render({ program: { ...program, Id: `${NO_GUIDE_PREFIX}c1`, Name: "No guide data" } });
+    const standIn = render({ program: { ...program, Id: `${NO_GUIDE_PREFIX}c1`, Name: "No listings" } });
     expect(testIds(standIn)).not.toContain("guide-cell-progress");
+  });
+
+  it("quiets a stand-in cell to one dim line, the hint joining it only while focused", () => {
+    const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c1`, Name: "No listings", EpisodeTitle: "Select to watch" };
+    const tree = render({ program: standIn });
+    expect(texts(tree)).toEqual(["No listings"]);
+    const pressable = tree.root.findByProps({ accessibilityRole: "button" });
+    act(() => pressable.props.onFocus());
+    expect(texts(tree)).toEqual(["No listings  ·  Select to watch"]);
+    act(() => pressable.props.onBlur());
+    expect(texts(tree)).toEqual(["No listings"]);
   });
 });
