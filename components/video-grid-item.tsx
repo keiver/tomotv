@@ -37,8 +37,8 @@ const BAR_PADDING_V = IS_TV ? 10 : 8;
 const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
-/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
-function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
+/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track, and the watched checkmark. */
+export function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
   // A channel with something on air wears the live mark; the title bar names the programme.
   if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
   // A programme from search: live while it airs, else when it starts.
@@ -49,12 +49,16 @@ function indexBadgeSegments(video: JellyfinVideoItem): BadgeSegment[] | null {
     if (startMs <= nowMs) return [{ label: t("liveTv.live") }];
     return [{ label: `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)}` }];
   }
+  const segments: BadgeSegment[] = [];
   const badge = formatIndexBadge(video);
-  if (badge === null) return null;
-  if (badge.kind !== "track") return [{ label: badge.label }];
-
-  const track: BadgeSegment = { icon: "musical-note", label: badge.label };
-  return badge.disc !== null ? [{ icon: "disc", label: badge.disc }, track] : [track];
+  if (badge !== null) {
+    if (badge.kind !== "track") segments.push({ label: badge.label });
+    else if (badge.disc !== null) segments.push({ icon: "disc", label: badge.disc }, { icon: "musical-note", label: badge.label });
+    else segments.push({ icon: "musical-note", label: badge.label });
+  }
+  // Watched mark; music stays out (every full listen marks a track played, which is noise, not state).
+  if (video.UserData?.Played && video.Type !== "Audio" && video.Type !== "AudioBook") segments.push({ icon: "checkmark" });
+  return segments.length > 0 ? segments : null;
 }
 
 interface VideoGridItemProps {
@@ -168,8 +172,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const badgeSegments = useMemo(() => indexBadgeSegments(video), [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, video.StartDate]);
+  const badgeSegments = useMemo(
+    () => indexBadgeSegments(video),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, video.StartDate, video.UserData?.Played],
+  );
   const isChannel = video.Type === "TvChannel";
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
   // A channel card names what is on, then the channel: the logo and the badge already say which channel.
@@ -389,6 +396,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.video.ParentIndexNumber === nextProps.video.ParentIndexNumber &&
     prevProps.video.Path === nextProps.video.Path &&
     prevProps.video.Type === nextProps.video.Type &&
+    // Played drives the checkmark segment; annotation passes flip it on same-Id items.
+    prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
     prevProps.video.CurrentProgram?.Name === nextProps.video.CurrentProgram?.Name &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
