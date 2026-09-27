@@ -25,6 +25,21 @@ export const LIVE_FRAME_BURST_INTERVAL_S = 3;
 export const LIVE_FRAME_BURST_COUNT = 12;
 /** Wall clock per grab, the keyframe wait included; the engine's watchdog stops the read at it. */
 export const LIVE_FRAME_DEADLINE_S = 12;
+/**
+ * A channel with no picture yet takes a short grab: the same single open, a few frames, the
+ * slot freed in half the time, so a cold wall paints in view order fast. Its full burst comes
+ * with the normal refresh; no channel is ever opened twice for one cycle.
+ */
+export const LIVE_FRAME_COLD_COUNT = 4;
+export const LIVE_FRAME_COLD_SPAN_S = 9;
+export const LIVE_FRAME_COLD_DEADLINE_S = 6;
+/**
+ * Opens refused this many times in a row read as a provider's concurrent-stream cap, not dead
+ * channels: the sampler rests instead of walking every card through a refusal. Playback is
+ * never in the contest; grabs already stand down while it holds the link.
+ */
+export const LIVE_FRAME_CAP_TRIP = 3;
+export const LIVE_FRAME_CAP_COOLDOWN_MS = 180_000;
 /** A failed channel waits this long, doubling per failure, up to the cap. */
 export const LIVE_FRAME_RETRY_MS = 120_000;
 export const LIVE_FRAME_RETRY_CAP_MS = 600_000;
@@ -89,6 +104,18 @@ let ticker: ReturnType<typeof setInterval> | null = null;
 let wired = false;
 /** Bumped by every clear, so a grab that outlived one writes nothing back. */
 let generation = 0;
+/** Consecutive refused opens; any open that succeeds resets it. */
+let openFailStreak = 0;
+/** The sampler rests until this passes once the streak trips. */
+let capRestUntil = 0;
+
+function noteOpenFailure(): void {
+  openFailStreak += 1;
+  if (openFailStreak >= LIVE_FRAME_CAP_TRIP && Date.now() >= capRestUntil) {
+    capRestUntil = Date.now() + LIVE_FRAME_CAP_COOLDOWN_MS;
+    logger.info("Live frame opens refused in a row, sampler resting", { service: "LiveFrames", streak: openFailStreak, restMs: LIVE_FRAME_CAP_COOLDOWN_MS });
+  }
+}
 
 /** A frame the running grab just wrote: it joins the channel's burst at once, ahead of the rest. */
 function onLiveFrameEvent(event: { channelId?: string; uri?: string; index?: number }): void {
@@ -276,6 +303,10 @@ async function pump(): Promise<void> {
   await seeding;
   if (!running() || grabbing) return;
   const now = Date.now();
+  if (now < capRestUntil) {
+    schedule(capRestUntil - now);
+    return;
+  }
   const due = nextDue(now);
   if (!due || due.waitMs > 0) {
     if (due) schedule(due.waitMs);
@@ -320,8 +351,11 @@ async function inputFor(channelId: string, item: Entry): Promise<GrabInput | nul
 async function grab(channelId: string): Promise<void> {
   const item = entry(channelId);
   const now = Date.now();
+  const wasDueAt = item.lastAt;
   item.lastAt = now;
   const gen = generation;
+  // No picture yet: the short first-paint profile; the refresh upgrades to the full burst.
+  const cold = !item.burst;
   let input: GrabInput | null = null;
   try {
     input = await inputFor(channelId, item);
@@ -329,38 +363,50 @@ async function grab(channelId: string): Promise<void> {
     if (gen !== generation || isPlaybackHeld() || activeSurface === null) return;
     if (!input) {
       recordFailure(item, now);
+      noteOpenFailure();
       return;
     }
     const result: { uris?: string[] | null; pts?: number | null; unchanged?: boolean; cancelled?: boolean; reason?: string } = await LocalRemuxer.liveFrame({
       channelId,
       inputUrl: input.url,
       httpHeaders: input.headers ?? {},
-      deadline: LIVE_FRAME_DEADLINE_S,
-      span: LIVE_FRAME_BURST_S,
+      deadline: cold ? LIVE_FRAME_COLD_DEADLINE_S : LIVE_FRAME_DEADLINE_S,
+      span: cold ? LIVE_FRAME_COLD_SPAN_S : LIVE_FRAME_BURST_S,
       interval: LIVE_FRAME_BURST_INTERVAL_S,
-      count: LIVE_FRAME_BURST_COUNT,
+      count: cold ? LIVE_FRAME_COLD_COUNT : LIVE_FRAME_BURST_COUNT,
       shownPts: item.burst ? item.pts : undefined,
     });
-    if (gen !== generation || result?.cancelled) return;
+    if (gen !== generation) return;
+    if (result?.cancelled) {
+      // An attempt cancelled before any frame landed leaves the channel due, not on a full wait.
+      if (!item.burst || item.burst.at !== now) item.lastAt = wasDueAt;
+      return;
+    }
     if (result?.unchanged) {
       // The live edge was just verified on these pictures, so their expiry counts from now.
       if (item.burst) item.burst.at = now;
       item.intervalMs = Math.min((item.intervalMs ?? LIVE_FRAME_REFRESH_MS) * 2, LIVE_FRAME_REFRESH_CAP_MS);
       item.failure = undefined;
+      openFailStreak = 0;
     } else if (result?.uris?.length) {
       item.burst = burstOf(channelId, result.uris, now);
       item.shownIndex = 0;
       item.pts = result.pts ?? undefined;
       item.intervalMs = LIVE_FRAME_REFRESH_MS;
       item.failure = undefined;
+      openFailStreak = 0;
       notify(channelId);
       startTicker();
     } else {
       recordFailure(item, now);
+      // "open" is a refusal at the source, the cap's signature; "frame" opened fine.
+      if (result?.reason === "open") noteOpenFailure();
+      else openFailStreak = 0;
     }
   } catch (error) {
     if (gen !== generation) return;
     recordFailure(item, now);
+    noteOpenFailure();
     logger.debug("Live frame failed", { service: "LiveFrames", channelId, error: String(error) });
   } finally {
     input?.close?.();
@@ -369,6 +415,8 @@ async function grab(channelId: string): Promise<void> {
 
 function applyViewable(channelIds: string[]): void {
   viewable = channelIds;
+  // A grab for a card that scrolled away frees the slot; frames it already wrote stay.
+  if (grabbing && !channelIds.includes(grabbing)) cancelGrab();
   if (running()) schedule(0);
   else stop();
 }
@@ -422,6 +470,8 @@ export function clearLiveFrames(): void {
   generation += 1;
   const cleared = [...entries.keys()];
   entries.clear();
+  openFailStreak = 0;
+  capRestUntil = 0;
   stopTicker();
   for (const channelId of cleared) notify(channelId);
 }
