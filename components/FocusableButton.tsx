@@ -103,11 +103,11 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       // not spoken. Falls back to the title, which is what an icon-less button usually wants.
       accessibilityLabel={pressableProps.accessibilityLabel ?? title}
       accessibilityRole="button"
-      // Caller state first: a toggle's selected/checked has to survive, and only the two the
-      // button owns are computed here.
+      // Caller state first: a toggle's selected/checked has to survive, and a caller's disabled
+      // (a spent control that keeps focus) adds to the two the button owns.
       accessibilityState={{
         ...pressableProps.accessibilityState,
-        disabled: disabled || isLoading,
+        disabled: !!pressableProps.accessibilityState?.disabled || !!disabled || !!isLoading,
         busy: isLoading,
       }}
       tvParallaxProperties={pressableProps.tvParallaxProperties ?? { magnification: 1.05, pressMagnification: 1.0 }}>
