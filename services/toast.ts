@@ -20,7 +20,7 @@ function ensureConfigured(): void {
     tint: COLORS.ACCENT,
     text: COLORS.ON_ACCENT_WARM,
     danger: COLORS.DESTRUCTIVE_DEEP,
-    heightRatio: 0.3,
+    heightRatio: 0.15,
     closeLabel,
   });
 }

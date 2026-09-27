@@ -7,8 +7,9 @@ import UIKit
 #endif
 
 private enum Metrics {
-  static let radius: CGFloat = isTV ? 40 : 30
   static let padding: CGFloat = isTV ? 44 : 20
+  /// Above and below the text; the card grows past its height ratio only when the text needs it.
+  static let breathing: CGFloat = isTV ? 20 : 12
   static let spacing: CGFloat = isTV ? 32 : 16
   static let iconSize: CGFloat = isTV ? 64 : 40
   static let barHeight: CGFloat = isTV ? 8 : 5
@@ -69,11 +70,6 @@ final class ToastCardView: UIView {
 
     surface.translatesAutoresizingMaskIntoConstraints = false
     surface.backgroundColor = theme.tint
-    surface.layer.cornerRadius = Metrics.radius
-    surface.layer.cornerCurve = .continuous
-    surface.layer.maskedCorners = atTop
-      ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-      : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
     surface.clipsToBounds = true
     addSubview(surface)
 
@@ -173,7 +169,7 @@ final class ToastCardView: UIView {
     }
   #endif
 
-  /// Edge to edge, 30% of the window tall by default; the content keeps to the safe area.
+  /// Edge to edge, 15% of the window tall by default; the content keeps to the safe area.
   func install(in host: UIView) {
     translatesAutoresizingMaskIntoConstraints = false
     host.addSubview(self)
@@ -207,8 +203,8 @@ final class ToastCardView: UIView {
       iconHost.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: Metrics.padding),
       textStack.trailingAnchor.constraint(lessThanOrEqualTo: trailing, constant: isTV ? -Metrics.padding : -4),
       textStack.centerYAnchor.constraint(equalTo: band.centerYAnchor),
-      textStack.topAnchor.constraint(greaterThanOrEqualTo: band.topAnchor, constant: Metrics.padding),
-      textStack.bottomAnchor.constraint(lessThanOrEqualTo: band.bottomAnchor, constant: -Metrics.padding),
+      textStack.topAnchor.constraint(greaterThanOrEqualTo: band.topAnchor, constant: Metrics.breathing),
+      textStack.bottomAnchor.constraint(lessThanOrEqualTo: band.bottomAnchor, constant: -Metrics.breathing),
     ])
     host.layoutIfNeeded()
     enter()

@@ -36,7 +36,7 @@ struct ToastTheme {
   var tint = UIColor(red: 1, green: 195 / 255, blue: 18 / 255, alpha: 1)
   var text = UIColor(red: 43 / 255, green: 31 / 255, blue: 5 / 255, alpha: 1)
   var danger = UIColor(red: 215 / 255, green: 0, blue: 21 / 255, alpha: 1)
-  var heightRatio: CGFloat = 0.3
+  var heightRatio: CGFloat = 0.15
   var closeLabel = "Close"
 }
 

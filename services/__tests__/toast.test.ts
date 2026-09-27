@@ -24,7 +24,7 @@ describe("toast", () => {
       tint: "#FFC312",
       text: "#2B1F05",
       danger: "#D70015",
-      heightRatio: 0.3,
+      heightRatio: 0.15,
       closeLabel: "Close",
     });
     (t as jest.Mock).mockReturnValue("Cerrar");
