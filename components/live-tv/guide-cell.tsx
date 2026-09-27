@@ -114,7 +114,14 @@ function GuideCellComponent({
           <View style={styles.artFade} />
         </View>
       ) : null}
-      {standInChannel && focused ? <GuideFocusReel channelId={standInChannel} windowStartMs={startMs} pxPerMinute={PX_PER_MINUTE} cellHeight={height} /> : null}
+      {/* The stand-in's reel carries its caption; an artless programme gets the compact strip,
+          clipped to its cell so a short slot never bleeds into its neighbour. Only while the
+          programme airs: sampled history under a future slot would lie. */}
+      {focused && (standInChannel || (!art && program.ChannelId && startMs <= nowMs && nowMs < endMs)) ? (
+        <View style={styles.reelClip} pointerEvents="none">
+          <GuideFocusReel channelId={standInChannel ?? program.ChannelId!} left={left} width={width} cellHeight={height} scrollX={scrollX} compact={!standIn} />
+        </View>
+      ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
       {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
       <AnimatedPressable
@@ -239,6 +246,14 @@ const styles = StyleSheet.create({
   },
   cellQuiet: {
     backgroundColor: COLORS.SURFACE_SUNKEN,
+  },
+  reelClip: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: "hidden",
   },
   recordingDot: {
     width: IS_TV ? 12 : 8,
