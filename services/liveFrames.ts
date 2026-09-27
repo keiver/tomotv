@@ -5,6 +5,7 @@
  * the server's disk while it lasts. Stands down while the screen is away, the app is in the
  * background or playback holds the link.
  */
+import { clearChannelHealth, noteChannelAlive, setHealthViewable } from "@/services/channelHealth";
 import { closeLiveStream, openChannel, openRecentlyFailed, resolveChannelOrigin, type ChannelOrigin } from "@/services/jellyfinApi";
 import { isLocalRemuxAvailable, nativeEmits } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "@/services/playbackHold";
@@ -388,6 +389,7 @@ async function grab(channelId: string): Promise<void> {
       item.intervalMs = Math.min((item.intervalMs ?? LIVE_FRAME_REFRESH_MS) * 2, LIVE_FRAME_REFRESH_CAP_MS);
       item.failure = undefined;
       openFailStreak = 0;
+      noteChannelAlive(channelId);
     } else if (result?.uris?.length) {
       item.burst = burstOf(channelId, result.uris, now);
       item.shownIndex = 0;
@@ -395,6 +397,7 @@ async function grab(channelId: string): Promise<void> {
       item.intervalMs = LIVE_FRAME_REFRESH_MS;
       item.failure = undefined;
       openFailStreak = 0;
+      noteChannelAlive(channelId);
       notify(channelId);
       startTicker();
     } else {
@@ -415,6 +418,7 @@ async function grab(channelId: string): Promise<void> {
 
 function applyViewable(channelIds: string[]): void {
   viewable = channelIds;
+  setHealthViewable(channelIds);
   // A grab for a card that scrolled away frees the slot; frames it already wrote stay.
   if (grabbing && !channelIds.includes(grabbing)) cancelGrab();
   if (running()) schedule(0);
@@ -473,5 +477,6 @@ export function clearLiveFrames(): void {
   openFailStreak = 0;
   capRestUntil = 0;
   stopTicker();
+  clearChannelHealth();
   for (const channelId of cleared) notify(channelId);
 }

@@ -40,6 +40,8 @@ describe("live TV preferences", () => {
       groups: [],
       guideUrl: "",
       recordingMinutes: 120,
+      hideOffline: false,
+      autoGuide: true,
     });
     // The guide URL survives only as http(s); anything else falls back to off.
     expect(parseLiveTvPreferences({ guideUrl: "https://g/guide.xml.gz" }).guideUrl).toBe("https://g/guide.xml.gz");
@@ -49,6 +51,9 @@ describe("live TV preferences", () => {
     expect(parseLiveTvPreferences({ recordingMinutes: 30 }).recordingMinutes).toBe(30);
     expect(parseLiveTvPreferences({ recordingMinutes: 90 }).recordingMinutes).toBe(120);
     expect(parseLiveTvPreferences({ recordingMinutes: "45" }).recordingMinutes).toBe(120);
+    // Hide offline survives only as a boolean; anything else falls back to off.
+    expect(parseLiveTvPreferences({ hideOffline: true }).hideOffline).toBe(true);
+    expect(parseLiveTvPreferences({ hideOffline: "yes" }).hideOffline).toBe(false);
   });
 
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {

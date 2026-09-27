@@ -1,4 +1,5 @@
 import { GuideCellLiveArt } from "@/components/live-tv/guide-cell-live-art";
+import { GuideCellQuietLine } from "@/components/live-tv/guide-cell-quiet-line";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
@@ -133,10 +134,8 @@ function GuideCellComponent({
         accessibilityRole="button"
         accessibilityLabel={episodeTitle ? `${programName}, ${episodeTitle}` : programName}
         style={[styles.label, pinStyle]}>
-        {standIn ? (
-          <Text style={[styles.quiet, focused && styles.quietFocused]} numberOfLines={1}>
-            {focused && episodeTitle ? `${programName}  ·  ${episodeTitle}` : programName}
-          </Text>
+        {standInChannel ? (
+          <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} />
         ) : (
           <View style={styles.text}>
             <View style={styles.titleRow}>
@@ -242,13 +241,6 @@ const styles = StyleSheet.create({
   },
   cellQuiet: {
     backgroundColor: COLORS.SURFACE_SUNKEN,
-  },
-  quiet: {
-    color: COLORS.TEXT_QUATERNARY,
-    fontSize: IS_TV ? 19 : 11,
-  },
-  quietFocused: {
-    color: COLORS.TEXT_SECONDARY,
   },
   recordingDot: {
     width: IS_TV ? 12 : 8,

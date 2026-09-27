@@ -14,6 +14,7 @@ import { useChannels } from "@/hooks/useChannels";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
+import { healthFor, healthGeneration, subscribeHealthGeneration } from "@/services/channelHealth";
 import { t } from "@/services/i18n";
 import { searchLiveTv } from "@/services/jellyfinApi";
 import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
@@ -21,7 +22,7 @@ import type { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter, type NativeStackNavigationOptions } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { useHeaderHeight } from "expo-router/react-navigation";
 
@@ -38,8 +39,15 @@ export default function ChannelsScreen() {
   const { showGlobalLoader } = useLoadingActions();
   const preferences = useLiveTvPreferences();
   const playlistIds = usePlaylistChannelIds(preferences.filter);
-  const { items: wall, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannels(preferences.sort, activeCategory(preferences.filter), activeChannelList(preferences), playlistIds);
+  const { items: listed, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannels(preferences.sort, activeCategory(preferences.filter), activeChannelList(preferences), playlistIds);
   const filtered = preferences.filter !== "all";
+  // Hide offline narrows to channels whose health check concluded down; unchecked ones stay.
+  const healthGen = useSyncExternalStore(subscribeHealthGeneration, healthGeneration);
+  const wall = useMemo(
+    () => (preferences.hideOffline ? listed.filter((channel) => healthFor(channel.Id) !== "down") : listed),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- healthGen re-filters when any verdict moves
+    [listed, preferences.hideOffline, healthGen],
+  );
 
   // The targeted search: channels and programmes only, debounced like the search tab. Results
   // are remembered with the term they answer, so what shows is derived and never reset in-effect.

@@ -103,6 +103,8 @@ interface VideoGridItemProps {
   hideAiring?: boolean;
   /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
   liveFrame?: { uri: string; cacheKey: string };
+  /** Channel cards: the health check concluded down; the art dims and the corner badge says Offline. */
+  offline?: boolean;
 }
 
 /**
@@ -138,6 +140,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     titleIcon,
     hideAiring = false,
     liveFrame,
+    offline = false,
   },
   ref,
 ) {
@@ -268,7 +271,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <>
               <Image
                 source={liveFrame ?? posterSource}
-                style={[styles.poster, isChannel && !liveFrame && styles.posterLogo]}
+                style={[styles.poster, isChannel && !liveFrame && styles.posterLogo, offline && styles.posterOffline]}
                 contentFit={isChannel && !liveFrame ? "contain" : "cover"}
                 // A live burst walks its frames; the fade is the only motion a grid card makes.
                 transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
@@ -360,7 +363,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
-          {badgeSegments ? (
+          {offline ? (
+            <View style={styles.indexBadge} pointerEvents="none">
+              <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} tone="live" />
+            </View>
+          ) : badgeSegments ? (
             <View style={styles.indexBadge} pointerEvents="none">
               <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
             </View>
@@ -419,7 +426,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.numColumns === nextProps.numColumns &&
     prevProps.titleIcon === nextProps.titleIcon &&
     prevProps.hideAiring === nextProps.hideAiring &&
-    prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey
+    prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
+    prevProps.offline === nextProps.offline
   );
 }
 
@@ -486,6 +494,9 @@ const styles = StyleSheet.create({
     width: "70%",
     height: "50%",
     alignSelf: "center",
+  },
+  posterOffline: {
+    opacity: 0.4,
   },
   // A channel's logo at the title's left end while its frame fills the card: flair, not identification.
   // The channel's logo over its live frame, in the corner the LIVE badge leaves free: flair, not identification.

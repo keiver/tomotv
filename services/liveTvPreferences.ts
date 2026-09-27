@@ -39,10 +39,25 @@ export interface LiveTvPreferences {
   /** XMLTV URL for channels the server has no guide for (iptv-org/epg output ids); empty is off. */
   guideUrl: string;
   recordingMinutes: RecordingMinutes;
+  /** Guide and wall leave out channels whose health check concluded down; unchecked ones stay. */
+  hideOffline: boolean;
+  /** Bare channels hunt hosted per-country guides for their listings; on unless turned off. */
+  autoGuide: boolean;
 }
 export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber"> & { Id?: string };
 
-export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], guideUrl: "", recordingMinutes: 120 };
+export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
+  version: 1,
+  autoUpdate: true,
+  filter: "all",
+  sort: "number",
+  favorites: [],
+  groups: [],
+  guideUrl: "",
+  recordingMinutes: 120,
+  hideOffline: false,
+  autoGuide: true,
+};
 
 let current: LiveTvPreferences | null = null;
 const listeners = new Set<() => void>();
@@ -91,6 +106,8 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     recordingMinutes: (RECORDING_MINUTES_OPTIONS as readonly number[]).includes(source.recordingMinutes as number)
       ? (source.recordingMinutes as RecordingMinutes)
       : DEFAULT_LIVE_TV_PREFERENCES.recordingMinutes,
+    hideOffline: typeof source.hideOffline === "boolean" ? source.hideOffline : DEFAULT_LIVE_TV_PREFERENCES.hideOffline,
+    autoGuide: typeof source.autoGuide === "boolean" ? source.autoGuide : DEFAULT_LIVE_TV_PREFERENCES.autoGuide,
   };
 }
 
