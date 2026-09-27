@@ -1,3 +1,4 @@
+import { useAuthSession } from "@/hooks/useAuthSession";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
 import { healthFor, healthGeneration, subscribeHealthGeneration } from "@/services/channelHealth";
@@ -139,6 +140,18 @@ export function useGuide(): GuideState {
   const list = activeChannelList(preferences);
   const category = activeCategory(preferences.filter);
   const playlistIds = usePlaylistChannelIds(preferences.filter);
+  // Another sign-in starts over: channel ids repeat across servers, so no program may merge into the last one's rows.
+  const session = useAuthSession();
+  const [rowsSession, setRowsSession] = useState(session);
+  if (rowsSession !== session) {
+    setRowsSession(session);
+    setChannels([]);
+    setProgramsByChannel({});
+    setTimers([]);
+    setError(null);
+    setIsLoading(true);
+    setWindowEndMs(windowStartMs + GUIDE_SPAN_MINUTES * MINUTE_MS);
+  }
 
   const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[]) => {
     setProgramsByChannel((current) => {
@@ -272,6 +285,11 @@ export function useGuide(): GuideState {
   const loadMoreRows = useCallback(() => loadNextPage(loadRef.current), []);
 
   useEffect(() => {
+    channelsRef.current = [];
+    windowEndRef.current = windowStartMs + GUIDE_SPAN_MINUTES * MINUTE_MS;
+  }, [session, windowStartMs]);
+
+  useEffect(() => {
     const load: GuideLoad = { fetchPage: loadChannelPage, land: RETIRED_LOAD.land, retired: false, loading: true, busy: null, pagePending: false, loaded: 0, hasMore: false };
     load.land = landFor(load);
     loadRef.current = load;
@@ -305,7 +323,7 @@ export function useGuide(): GuideState {
     return () => {
       load.retired = true;
     };
-  }, [attempt, loadChannelPage, landFor, refreshTimers, playlistIds]);
+  }, [attempt, session, loadChannelPage, landFor, refreshTimers, playlistIds]);
 
   // Ticks on the clock's minute boundaries, rescheduled each time so the ruler's now mark lands on :00.
   // Timers stall while the app is suspended, so a return to the foreground resyncs at once.

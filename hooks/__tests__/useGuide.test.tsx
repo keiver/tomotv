@@ -16,7 +16,12 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchTimers: jest.fn(),
   fetchTunerGroups: jest.fn().mockResolvedValue([]),
   lastKnownTunerData: jest.fn(() => null),
+  subscribeAuthChange: (cb: () => void) => {
+    mockAuthListeners.add(cb);
+    return () => mockAuthListeners.delete(cb);
+  },
 }));
+const mockAuthListeners = new Set<() => void>();
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
 jest.mock("@/services/jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgUrls: [] })) }));
 jest.mock("@/services/externalGuide", () => ({ fetchExternalPrograms: jest.fn(async () => []) }));
@@ -94,6 +99,25 @@ describe("useGuide", () => {
     expect((fetchGuidePrograms as jest.Mock).mock.calls.map(([args]) => args.channelIds)).toEqual([["c2", "c9"]]);
     await act(async () => ref.current!.get().loadMoreRows());
     expect(fetchListedChannels).toHaveBeenCalledTimes(1);
+  });
+
+  it("a sign-in elsewhere drops the last server's rows and programs before the new server's land", async () => {
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("old", "c1", 0, 30, startMs)]);
+    const ref = await mount();
+    expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["old"]);
+
+    // The next server reuses the channel id; its programs must not merge into the last one's.
+    (fetchChannels as jest.Mock).mockReturnValue(new Promise(() => {}));
+    await act(async () => mockAuthListeners.forEach((cb) => cb()));
+    expect(ref.current!.get().rows).toEqual([]);
+    expect(ref.current!.get().isLoading).toBe(true);
+
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("new", "c1", 0, 30, startMs)]);
+    await act(async () => mockAuthListeners.forEach((cb) => cb()));
+    await settle();
+    expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["new"]);
   });
 
   it("held to a category, asks the server for that flag and keeps every row it returns", async () => {

@@ -6,7 +6,15 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
 let mockLastKnown: { groups: { name: string; channelIds: string[] }[] } | null = null;
-jest.mock("@/services/jellyfinApi", () => ({ fetchTunerGroups: jest.fn(), lastKnownTunerData: () => mockLastKnown }));
+const mockAuthListeners = new Set<() => void>();
+jest.mock("@/services/jellyfinApi", () => ({
+  fetchTunerGroups: jest.fn(),
+  lastKnownTunerData: () => mockLastKnown,
+  subscribeAuthChange: (cb: () => void) => {
+    mockAuthListeners.add(cb);
+    return () => mockAuthListeners.delete(cb);
+  },
+}));
 jest.mock("@/services/liveTvPreferences", () => ({
   activePlaylistGroup: (filter: string) => (filter.startsWith("playlist:") ? filter.slice("playlist:".length) : null),
   updateLiveTvPreferences: jest.fn(),
@@ -51,6 +59,27 @@ describe("usePlaylistChannelIds", () => {
     await settle();
     expect(ref.current?.ids()).toEqual(["a", "b"]);
     expect(updateLiveTvPreferences).not.toHaveBeenCalled();
+  });
+
+  it("a sign-in elsewhere waits for the new server's groups, then reads them", async () => {
+    mockLastKnown = { groups: [{ name: "News", channelIds: ["a"] }] };
+    mockFetch.mockResolvedValue([{ name: "News", channelIds: ["a"] }]);
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} filter="playlist:News" />);
+    });
+    await settle();
+    expect(ref.current?.ids()).toEqual(["a"]);
+
+    // The switch forgot the tuner cache; the last server's ids must not answer meanwhile.
+    mockLastKnown = null;
+    let release: (groups: unknown) => void = () => {};
+    mockFetch.mockReturnValue(new Promise((resolve) => (release = resolve)));
+    await act(async () => mockAuthListeners.forEach((cb) => cb()));
+    expect(ref.current?.ids()).toBe("loading");
+    await act(async () => release([{ name: "News", channelIds: ["z"] }]));
+    await settle();
+    expect(ref.current?.ids()).toEqual(["z"]);
   });
 
   it("is null for a non-playlist filter and never resets it", async () => {

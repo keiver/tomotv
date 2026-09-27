@@ -5,6 +5,7 @@ import { GuideHud } from "@/components/live-tv/guide-hud";
 import { gridEdgePadding } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
+import { useAuthSession } from "@/hooks/useAuthSession";
 import { useGuide } from "@/hooks/useGuide";
 import { lastKnownTunerData } from "@/services/jellyfinApi";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -44,6 +45,8 @@ export default function LiveTvScreen() {
   }, []);
 
   const guide = useGuide();
+  // Another sign-in remounts the canvas cold: no scroll, focus or strip carries over from the last server.
+  const session = useAuthSession();
   const preferences = useLiveTvPreferences();
   // The Channels pill wears the filled filter symbol while a filter holds the channels.
   const filtered = preferences.filter !== "all";
@@ -132,6 +135,7 @@ export default function LiveTvScreen() {
         <AmbientBackground />
         <View style={[styles.body, { paddingLeft: edgeLeft, paddingTop: topClearance }]}>
           <GuideCanvas
+            key={session}
             guide={guide}
             topFocusHandle={stripHandle ?? topFocusHandle}
             hudRow={

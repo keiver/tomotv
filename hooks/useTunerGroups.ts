@@ -1,3 +1,4 @@
+import { useAuthSession } from "@/hooks/useAuthSession";
 import { fetchTunerGroups, lastKnownTunerData, type TunerGroup } from "@/services/jellyfinApi";
 import { activePlaylistGroup, updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
 import { logger } from "@/utils/logger";
@@ -8,6 +9,13 @@ const NO_IDS: readonly string[] = [];
 /** The server's playlist groups, read once per screen; null until they arrive. A failed read shows the last good ones. */
 export function useTunerGroups(): TunerGroup[] | null {
   const [groups, setGroups] = useState<TunerGroup[] | null>(() => lastKnownTunerData()?.groups ?? null);
+  // Another sign-in reads its own server's groups; until then the filter waits rather than judging the last server's.
+  const session = useAuthSession();
+  const [groupsSession, setGroupsSession] = useState(session);
+  if (groupsSession !== session) {
+    setGroupsSession(session);
+    setGroups(lastKnownTunerData()?.groups ?? null);
+  }
   useEffect(() => {
     let cancelled = false;
     fetchTunerGroups()
@@ -21,7 +29,7 @@ export function useTunerGroups(): TunerGroup[] | null {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [session]);
   return groups;
 }
 

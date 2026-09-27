@@ -367,6 +367,7 @@ export async function clearContentCaches(context: string): Promise<void> {
     const { resetExternalGuide } = await import("@/services/externalGuide");
     const { resetGuideHunt } = await import("@/services/guideHunt");
     const { resetTunerCache } = await import("@/services/jellyfin/tunerGroups");
+    const { getLiveTvPreferences, updateLiveTvPreferences } = await import("@/services/liveTvPreferences");
     libraryManager.clearCache();
     clearFolderContentsCache();
     clearFavoriteIdsCache();
@@ -376,6 +377,8 @@ export async function clearContentCaches(context: string): Promise<void> {
     resetExternalGuide();
     resetGuideHunt();
     resetTunerCache();
+    // A playlist or category filter names the last server's channels; favorites and groups themselves stay.
+    if (getLiveTvPreferences().filter !== "all") updateLiveTvPreferences({ filter: "all" });
   } catch (cacheError) {
     logger.warn(`Failed to clear manager caches ${context}`, cacheError, {
       service: "JellyfinAPI",
