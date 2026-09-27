@@ -1479,8 +1479,16 @@ extension RemuxSession {
         func finishSegment(_ n: Int) {
             for rendition in builtRenditions {
                 guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
-                av_write_frame(ctx, nil) // flush the open fragment
+                let flushed = av_write_frame(ctx, nil) // flush the open fragment
                 avio_flush(avio)
+                // A delay_moov muxer flushed before any packet cannot write its moov (the dac3
+                // box needs a packet), and whatever bytes the failed attempt left are header
+                // garbage, never a segment or an init.
+                if flushed < 0 {
+                    NSLog("[LocalRemuxer] segment %d flush failed on %@: %@", n, rendition.prefix.isEmpty ? "primary" : rendition.prefix, averr(flushed))
+                    _ = rendition.takePending()
+                    continue
+                }
                 var data = rendition.takePending()
 
                 // Dolby passthrough (delay_moov): this first cut carried the
