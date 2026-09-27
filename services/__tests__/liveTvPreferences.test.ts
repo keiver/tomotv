@@ -12,6 +12,7 @@ import {
   isChannelInGroup,
   isFavoriteChannel,
   LIVE_TV_PREFERENCES_KEY,
+  normalizeGuideUrl,
   parseLiveTvPreferences,
   renameGroup,
   subscribeLiveTvPreferences,
@@ -159,5 +160,18 @@ describe("live TV preferences", () => {
   it("maps the sort to the server's parameter", () => {
     expect(channelSortParam("number")).toBe("SortName");
     expect(channelSortParam("name")).toBe("Name");
+  });
+});
+
+describe("normalizeGuideUrl", () => {
+  it("gives a bare host https so the saved URL survives the next launch's parse", () => {
+    expect(normalizeGuideUrl("  iptv-org.github.io/guide.xml ")).toBe("https://iptv-org.github.io/guide.xml");
+    expect(parseLiveTvPreferences({ guideUrl: normalizeGuideUrl("epg.site/x.xml") }).guideUrl).toBe("https://epg.site/x.xml");
+  });
+
+  it("keeps an explicit scheme and an empty field as typed", () => {
+    expect(normalizeGuideUrl("http://lan:8080/guide.xml")).toBe("http://lan:8080/guide.xml");
+    expect(normalizeGuideUrl("HTTPS://g/x.xml.gz")).toBe("HTTPS://g/x.xml.gz");
+    expect(normalizeGuideUrl("   ")).toBe("");
   });
 });

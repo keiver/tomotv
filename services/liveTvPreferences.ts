@@ -90,6 +90,13 @@ function parseFilter(raw: unknown, legacyFavoritesOnly: unknown, groups: readonl
   return "all";
 }
 
+/** A typed guide URL as the loader reads it: a bare host gets https, since only http(s) survives a relaunch. */
+export function normalizeGuideUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 /** Every field falls back to its default on its own, so a document from another build still reads. */
 export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
   const doc = typeof raw === "string" ? safeParse(raw) : raw;

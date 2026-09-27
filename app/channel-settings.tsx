@@ -9,7 +9,7 @@ import { settingsStyles } from "@/components/settings/styles";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { resetExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
-import { deleteGroup, RECORDING_MINUTES_OPTIONS, updateLiveTvPreferences, type ChannelGroup, type ChannelSort, type RecordingMinutes } from "@/services/liveTvPreferences";
+import { deleteGroup, normalizeGuideUrl, RECORDING_MINUTES_OPTIONS, updateLiveTvPreferences, type ChannelGroup, type ChannelSort, type RecordingMinutes } from "@/services/liveTvPreferences";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useState } from "react";
@@ -40,9 +40,10 @@ export default function ChannelSettingsScreen() {
   const [guideUrl, setGuideUrl] = useState(preferences.guideUrl);
   // Saved on blur and Done; the guide picks it up on its next load.
   const saveGuideUrl = useCallback(() => {
-    const trimmed = guideUrl.trim();
-    if (trimmed === preferences.guideUrl) return;
-    updateLiveTvPreferences({ guideUrl: trimmed });
+    const url = normalizeGuideUrl(guideUrl);
+    setGuideUrl(url);
+    if (url === preferences.guideUrl) return;
+    updateLiveTvPreferences({ guideUrl: url });
     resetExternalGuide();
   }, [guideUrl, preferences.guideUrl]);
   const manageGroup = useCallback(
