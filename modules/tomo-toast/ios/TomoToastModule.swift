@@ -5,7 +5,6 @@ struct ToastThemeRecord: Record {
   @Field var tint: UIColor?
   @Field var text: UIColor?
   @Field var danger: UIColor?
-  @Field var heightRatio: Double?
   @Field var closeLabel: String?
 }
 
@@ -50,7 +49,6 @@ public final class TomoToastModule: Module {
       if let tint = record.tint { theme.tint = tint }
       if let text = record.text { theme.text = text }
       if let danger = record.danger { theme.danger = danger }
-      if let ratio = record.heightRatio, ratio > 0, ratio <= 1 { theme.heightRatio = CGFloat(ratio) }
       if let label = record.closeLabel { theme.closeLabel = label }
       ToastCenter.shared.theme = theme
     }.runOnQueue(.main)

@@ -8,10 +8,8 @@ export interface ToastTheme {
   /** Card color; any React Native color string. */
   tint?: string;
   text?: string;
-  /** Error icon and lifetime bar. */
+  /** Error icon and lifetime sweep. */
   danger?: string;
-  /** Card height as a fraction of the window height. */
-  heightRatio?: number;
   /** VoiceOver name of the close button and action (iOS). */
   closeLabel?: string;
 }

@@ -7,14 +7,13 @@ import UIKit
 #endif
 
 private enum Metrics {
-  static let padding: CGFloat = isTV ? 44 : 20
-  /// Above and below the text; the card grows past its height ratio only when the text needs it.
-  static let breathing: CGFloat = isTV ? 20 : 12
-  static let spacing: CGFloat = isTV ? 32 : 16
-  static let iconSize: CGFloat = isTV ? 64 : 40
-  static let barHeight: CGFloat = isTV ? 8 : 5
+  /// The folder loading bar's strip: 8pt above and below one line of its title type.
+  static let padding: CGFloat = 8
+  static let inset: CGFloat = isTV ? 16 : 12
+  static let iconGap: CGFloat = isTV ? 16 : 8
+  static let textGap: CGFloat = isTV ? 14 : 8
   static let closeSize: CGFloat = 44
-  /// Gold past the screen edge, so a spring overshoot or a downward drag never opens a gap.
+  /// Gold past the screen edge, so a spring overshoot or a drag away never opens a gap.
   static let overscroll: CGFloat = 240
 }
 
@@ -22,9 +21,10 @@ enum ToastPauseReason {
   case touch, scene, voiceOver
 }
 
-/// The gold card, flush to the side edges and to its screen edge: icon, title, message, and a
-/// lifetime bar on the inner edge that drains to dismissal. iOS adds a close button and a swipe
-/// toward that edge to dismiss. Progress cards fill the bar instead and wait.
+/// A one-line gold strip the size of the folder loading bar, flush to the side edges and its
+/// screen edge: icon, title, and a message that truncates first. A darker sweep behind the text
+/// drains to dismissal (progress cards fill it instead and wait). iOS adds a close button and
+/// a swipe toward the edge to dismiss.
 final class ToastCardView: UIView {
   private(set) var model: ToastModel
   var onFinish: ((ToastDismissReason) -> Void)?
@@ -35,10 +35,10 @@ final class ToastCardView: UIView {
   private let surface = UIView()
   private let iconHost = UIView()
   private let iconView = UIImageView()
-  private let spinner = UIActivityIndicatorView(style: isTV ? .large : .medium)
+  private let spinner = UIActivityIndicatorView(style: .medium)
   private let titleLabel = UILabel()
   private let messageLabel = UILabel()
-  private let textStack = UIStackView()
+  private let row = UIStackView()
   private let bar = ToastLifetimeBar()
   #if os(iOS)
     private lazy var closeButton = makeCloseButton()
@@ -64,48 +64,60 @@ final class ToastCardView: UIView {
 
   private func build() {
     layer.shadowColor = UIColor.black.cgColor
-    layer.shadowOpacity = 0.4
-    layer.shadowRadius = isTV ? 30 : 18
-    layer.shadowOffset = CGSize(width: 0, height: atTop ? 8 : -10)
+    layer.shadowOpacity = 0.35
+    layer.shadowRadius = isTV ? 24 : 12
+    layer.shadowOffset = CGSize(width: 0, height: atTop ? 6 : -6)
 
     surface.translatesAutoresizingMaskIntoConstraints = false
     surface.backgroundColor = theme.tint
     surface.clipsToBounds = true
     addSubview(surface)
 
+    #if os(tvOS)
+      titleLabel.font = .systemFont(ofSize: 32, weight: .bold)
+      messageLabel.font = .systemFont(ofSize: 29, weight: .medium)
+    #else
+      titleLabel.font = ToastCardView.scaled(.headline, bold: true)
+      messageLabel.font = ToastCardView.scaled(.subheadline, bold: false)
+      titleLabel.adjustsFontForContentSizeCategory = true
+      messageLabel.adjustsFontForContentSizeCategory = true
+    #endif
+    titleLabel.textColor = theme.text
+    messageLabel.textColor = theme.text.withAlphaComponent(0.72)
+    for label in [titleLabel, messageLabel] {
+      label.numberOfLines = 1
+      label.lineBreakMode = .byTruncatingTail
+    }
+    // The message gives way first; the title truncates only once the message is gone.
+    titleLabel.setContentCompressionResistancePriority(.defaultHigh + 1, for: .horizontal)
+    messageLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    titleLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+    let side = titleLabel.font.pointSize * 1.2
     iconHost.translatesAutoresizingMaskIntoConstraints = false
     iconView.translatesAutoresizingMaskIntoConstraints = false
-    iconView.contentMode = .scaleAspectFit
-    iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: Metrics.iconSize * 0.8, weight: .semibold)
+    iconView.contentMode = .center
+    iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(font: titleLabel.font)
     spinner.translatesAutoresizingMaskIntoConstraints = false
     spinner.color = theme.text
     spinner.hidesWhenStopped = true
     iconHost.addSubview(iconView)
     iconHost.addSubview(spinner)
 
-    titleLabel.textColor = theme.text
-    titleLabel.numberOfLines = 2
-    messageLabel.textColor = theme.text.withAlphaComponent(0.78)
-    messageLabel.numberOfLines = 3
-    #if os(tvOS)
-      titleLabel.font = .systemFont(ofSize: 38, weight: .bold)
-      messageLabel.font = .systemFont(ofSize: 29, weight: .medium)
-    #else
-      titleLabel.font = ToastCardView.scaled(.title3, bold: true)
-      messageLabel.font = ToastCardView.scaled(.subheadline, bold: false)
-      titleLabel.adjustsFontForContentSizeCategory = true
-      messageLabel.adjustsFontForContentSizeCategory = true
-    #endif
-    textStack.axis = .vertical
-    textStack.spacing = isTV ? 8 : 4
-    textStack.addArrangedSubview(titleLabel)
-    textStack.addArrangedSubview(messageLabel)
-    textStack.translatesAutoresizingMaskIntoConstraints = false
+    let text = UIStackView(arrangedSubviews: [titleLabel, messageLabel])
+    text.axis = .horizontal
+    text.alignment = .firstBaseline
+    text.spacing = Metrics.textGap
+    row.addArrangedSubview(iconHost)
+    row.addArrangedSubview(text)
+    row.axis = .horizontal
+    row.alignment = .center
+    row.spacing = Metrics.iconGap
+    row.translatesAutoresizingMaskIntoConstraints = false
 
     bar.translatesAutoresizingMaskIntoConstraints = false
-    surface.addSubview(iconHost)
-    surface.addSubview(textStack)
     surface.addSubview(bar)
+    surface.addSubview(row)
     #if os(iOS)
       surface.addSubview(closeButton)
     #endif
@@ -114,28 +126,24 @@ final class ToastCardView: UIView {
       ? surface.topAnchor.constraint(equalTo: topAnchor, constant: -Metrics.overscroll)
       : surface.bottomAnchor.constraint(equalTo: bottomAnchor, constant: Metrics.overscroll)
     let inner = atTop ? surface.bottomAnchor.constraint(equalTo: bottomAnchor) : surface.topAnchor.constraint(equalTo: topAnchor)
-    let barEdge = atTop ? bar.bottomAnchor.constraint(equalTo: bottomAnchor) : bar.topAnchor.constraint(equalTo: topAnchor)
     NSLayoutConstraint.activate([
       surface.leadingAnchor.constraint(equalTo: leadingAnchor),
       surface.trailingAnchor.constraint(equalTo: trailingAnchor),
       outer,
       inner,
 
-      iconHost.widthAnchor.constraint(equalToConstant: Metrics.iconSize),
-      iconHost.heightAnchor.constraint(equalToConstant: Metrics.iconSize),
-      iconHost.centerYAnchor.constraint(equalTo: textStack.centerYAnchor),
-      iconView.topAnchor.constraint(equalTo: iconHost.topAnchor),
-      iconView.bottomAnchor.constraint(equalTo: iconHost.bottomAnchor),
-      iconView.leadingAnchor.constraint(equalTo: iconHost.leadingAnchor),
-      iconView.trailingAnchor.constraint(equalTo: iconHost.trailingAnchor),
+      iconHost.widthAnchor.constraint(equalToConstant: side),
+      iconHost.heightAnchor.constraint(equalToConstant: side),
+      iconView.centerXAnchor.constraint(equalTo: iconHost.centerXAnchor),
+      iconView.centerYAnchor.constraint(equalTo: iconHost.centerYAnchor),
       spinner.centerXAnchor.constraint(equalTo: iconHost.centerXAnchor),
       spinner.centerYAnchor.constraint(equalTo: iconHost.centerYAnchor),
-      textStack.leadingAnchor.constraint(equalTo: iconHost.trailingAnchor, constant: Metrics.spacing),
 
+      // The sweep fills the strip itself, like the folder bar's fill.
       bar.leadingAnchor.constraint(equalTo: leadingAnchor),
       bar.trailingAnchor.constraint(equalTo: trailingAnchor),
-      barEdge,
-      bar.heightAnchor.constraint(equalToConstant: Metrics.barHeight),
+      bar.topAnchor.constraint(equalTo: topAnchor),
+      bar.bottomAnchor.constraint(equalTo: bottomAnchor),
     ])
 
     #if os(iOS)
@@ -169,42 +177,41 @@ final class ToastCardView: UIView {
     }
   #endif
 
-  /// Edge to edge, 15% of the window tall by default; the content keeps to the safe area.
+  /// Edge to edge and as tall as its one line. tvOS hugs the true screen edge like the folder
+  /// bar; iOS starts below the status bar. The row stays centred inside the safe area.
   func install(in host: UIView) {
     translatesAutoresizingMaskIntoConstraints = false
     host.addSubview(self)
     let guide = host.safeAreaLayoutGuide
-    // The band between the safe screen edge and the lifetime bar, where the content centres.
+    // The strip proper: between the screen edge (the safe one on iOS) and the card's inner edge.
     let band = UILayoutGuide()
     addLayoutGuide(band)
-    let height = heightAnchor.constraint(equalTo: host.heightAnchor, multiplier: theme.heightRatio)
-    height.priority = .defaultHigh
+    let screenEdge = isTV ? (atTop ? topAnchor : bottomAnchor) : (atTop ? guide.topAnchor : guide.bottomAnchor)
     var trailing = guide.trailingAnchor
     #if os(iOS)
       NSLayoutConstraint.activate([
-        atTop
-          ? closeButton.topAnchor.constraint(equalTo: band.topAnchor, constant: 4)
-          : closeButton.bottomAnchor.constraint(equalTo: band.bottomAnchor, constant: -4),
-        closeButton.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -6),
+        closeButton.centerYAnchor.constraint(equalTo: band.centerYAnchor),
+        closeButton.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -4),
         closeButton.widthAnchor.constraint(equalToConstant: Metrics.closeSize),
-        closeButton.heightAnchor.constraint(equalToConstant: Metrics.closeSize),
+        closeButton.heightAnchor.constraint(equalTo: band.heightAnchor),
       ])
       trailing = closeButton.leadingAnchor
     #endif
+    let centred = row.centerXAnchor.constraint(equalTo: guide.centerXAnchor)
+    centred.priority = .defaultHigh
     NSLayoutConstraint.activate([
       leadingAnchor.constraint(equalTo: host.leadingAnchor),
       trailingAnchor.constraint(equalTo: host.trailingAnchor),
       atTop ? topAnchor.constraint(equalTo: host.topAnchor) : bottomAnchor.constraint(equalTo: host.bottomAnchor),
-      height,
 
-      band.topAnchor.constraint(equalTo: atTop ? guide.topAnchor : bar.bottomAnchor),
-      band.bottomAnchor.constraint(equalTo: atTop ? bar.topAnchor : guide.bottomAnchor),
+      atTop ? band.topAnchor.constraint(equalTo: screenEdge) : band.bottomAnchor.constraint(equalTo: screenEdge),
+      atTop ? band.bottomAnchor.constraint(equalTo: bottomAnchor) : band.topAnchor.constraint(equalTo: topAnchor),
 
-      iconHost.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: Metrics.padding),
-      textStack.trailingAnchor.constraint(lessThanOrEqualTo: trailing, constant: isTV ? -Metrics.padding : -4),
-      textStack.centerYAnchor.constraint(equalTo: band.centerYAnchor),
-      textStack.topAnchor.constraint(greaterThanOrEqualTo: band.topAnchor, constant: Metrics.breathing),
-      textStack.bottomAnchor.constraint(lessThanOrEqualTo: band.bottomAnchor, constant: -Metrics.breathing),
+      row.topAnchor.constraint(equalTo: band.topAnchor, constant: Metrics.padding),
+      row.bottomAnchor.constraint(equalTo: band.bottomAnchor, constant: -Metrics.padding),
+      row.leadingAnchor.constraint(greaterThanOrEqualTo: guide.leadingAnchor, constant: Metrics.inset),
+      row.trailingAnchor.constraint(lessThanOrEqualTo: trailing, constant: -Metrics.inset),
+      centred,
     ])
     host.layoutIfNeeded()
     enter()
@@ -219,8 +226,7 @@ final class ToastCardView: UIView {
     let accent = model.kind == .error ? theme.danger : theme.text
     iconView.tintColor = accent
     iconView.image = ToastCardView.symbol(model.icon) ?? ToastCardView.symbol(ToastCardView.defaultIcon(model.kind))
-    bar.fillColor = model.kind == .error ? theme.danger : theme.text.withAlphaComponent(0.85)
-    bar.trackColor = theme.text.withAlphaComponent(0.12)
+    bar.fillColor = model.kind == .error ? theme.danger.withAlphaComponent(0.3) : theme.text.withAlphaComponent(0.14)
     if model.progress {
       iconView.isHidden = true
       spinner.startAnimating()
@@ -249,7 +255,7 @@ final class ToastCardView: UIView {
     let wasProgress = model.progress
     model = next
     model.edge = atTop ? .top : .bottom
-    UIView.transition(with: surface, duration: 0.25, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+    UIView.transition(with: row, duration: 0.25, options: [.transitionCrossDissolve, .allowUserInteraction]) {
       self.render()
     }
     if next.progress {
@@ -432,7 +438,7 @@ final class ToastCardView: UIView {
   #endif
 }
 
-/// A track with a left-anchored fill; the fraction is laid out as a frame so a property animator can pause it.
+/// A left-anchored fill; the fraction is laid out as a frame so a property animator can pause it.
 private final class ToastLifetimeBar: UIView {
   private let fill = UIView()
   private var fraction: CGFloat = 1
@@ -440,11 +446,6 @@ private final class ToastLifetimeBar: UIView {
   var fillColor: UIColor? {
     get { fill.backgroundColor }
     set { fill.backgroundColor = newValue }
-  }
-
-  var trackColor: UIColor? {
-    get { backgroundColor }
-    set { backgroundColor = newValue }
   }
 
   override init(frame: CGRect) {
