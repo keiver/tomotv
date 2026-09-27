@@ -30,8 +30,8 @@ export function guideMetrics(isTV: boolean): GuideMetrics {
   const rowHeight = Math.round((channelColumnWidth - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding);
   // The compact column holds a portrait card the row's own height, capping the row: padded on the left only.
   const compactColumnWidth = isTV ? channelColumnWidth : Math.round((rowHeight - 1) * GRID.PORTRAIT_RATIO + padding);
-  // TV: a centred 3:2 card 4 narrower than the row's height less 8 above and below allows.
-  const tvCardWidth = (rowHeight - 16) * GRID.LANDSCAPE_RATIO - 4;
+  // TV: a centred 3:2 card 7 narrower than the row's height less 8 above and below allows.
+  const tvCardWidth = (rowHeight - 16) * GRID.LANDSCAPE_RATIO - 7;
   const cardInset = isTV ? { vertical: (rowHeight - tvCardWidth / GRID.LANDSCAPE_RATIO) / 2, horizontal: (channelColumnWidth - tvCardWidth) / 2 } : { vertical: padding, horizontal: padding };
   return isTV
     ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 74, cardInset }
