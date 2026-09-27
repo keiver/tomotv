@@ -58,14 +58,9 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, co
   return (
     <Animated.View style={[styles.reel, pinStyle]} onLayout={handleLayout} pointerEvents="none" testID="guide-focus-reel">
       {compact ? null : (
-        <View style={styles.textRow}>
-          <Text style={styles.title} numberOfLines={1}>
-            {t("liveTv.lastSeen")}
-          </Text>
-          <Text style={styles.meta} numberOfLines={1}>
-            {formatClock(reel.at)}
-          </Text>
-        </View>
+        <Text style={styles.title} numberOfLines={1}>
+          {t("liveTv.lastSeen").replace("{time}", formatClock(reel.at))}
+        </Text>
       )}
       <View style={styles.strip}>
         {reel.frames.map((frame, index) => (
@@ -87,21 +82,11 @@ const styles = StyleSheet.create({
     paddingLeft: IS_TV ? 16 : 10,
     paddingBottom: IS_TV ? 12 : 6,
   },
-  textRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: IS_TV ? 10 : 6,
-    marginBottom: IS_TV ? 8 : 4,
-  },
-  // The programme cell's second row: its subtitle face, the clock in its meta face.
+  // The programme cell's second row: its subtitle face.
   title: {
     color: COLORS.TEXT_SECONDARY,
     fontSize: IS_TV ? 19 : 11,
-    ...TEXT_SHADOW,
-  },
-  meta: {
-    color: COLORS.TEXT_TERTIARY,
-    fontSize: IS_TV ? 17 : 10,
+    marginBottom: IS_TV ? 8 : 4,
     ...TEXT_SHADOW,
   },
   strip: {

@@ -55,7 +55,7 @@
   "liveTv.noManagement": "Du hast auf diesem Server keine Berechtigung zur Live-TV-Verwaltung.",
   "liveTv.autoGuide": "Automatischer Guide",
   "liveTv.autoGuideHint": "Findet Programme für Kanäle ohne eigene",
-  "liveTv.lastSeen": "Zuletzt auf diesem Kanal gesehen",
+  "liveTv.lastSeen": "Vorschau des Kanal-Feeds, gesehen um {time}",
   "liveTv.offline": "Offline",
   "liveTv.hideOffline": "Offline ausblenden",
   "liveTv.noGuide": "Kein Programm",

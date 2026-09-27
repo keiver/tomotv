@@ -55,7 +55,7 @@
   "liveTv.noManagement": "You don't have Live TV management permissions on this server.",
   "liveTv.autoGuide": "Auto guide",
   "liveTv.autoGuideHint": "Finds listings for channels without any",
-  "liveTv.lastSeen": "Last seen on this channel",
+  "liveTv.lastSeen": "Channel feed preview, seen at {time}",
   "liveTv.offline": "Offline",
   "liveTv.hideOffline": "Hide offline",
   "liveTv.noGuide": "No listings",
