@@ -79,7 +79,7 @@ export default function ProgramInfoScreen() {
       try {
         await action();
         await loadTimer();
-        showToast(doneToast);
+        showToast(doneToast, "success");
       } catch (err) {
         logger.error("Recording action failed", err, { screen: "ProgramInfo", kind });
         showToast(t("liveTv.recordingFailed"), "error");

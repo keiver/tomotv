@@ -1,42 +1,47 @@
-/** The toast service: pill emission on touch platforms, native window routing on TV. */
-import { AccessibilityInfo, Alert, NativeModules, Platform } from "react-native";
+/** The app adapter: string and options forms, and the app's theme sent once per language. */
+import { configureToast, showToast as show } from "@/modules/tomo-toast";
+import { t } from "@/services/i18n";
 
-jest.mock("react-native", () => ({
-  Platform: { isTV: false },
-  Alert: { alert: jest.fn() },
-  AccessibilityInfo: { announceForAccessibility: jest.fn() },
-  NativeModules: { TVToast: { show: jest.fn() } },
+jest.mock("@/modules/tomo-toast", () => ({
+  configureToast: jest.fn(),
+  showToast: jest.fn(() => "toast-1"),
+  updateToast: jest.fn(),
+  dismissToast: jest.fn(),
 }));
+jest.mock("@/services/i18n", () => ({ t: jest.fn(() => "Close") }));
 
-import { showToast, subscribeToast } from "@/services/toast";
+import { showToast } from "@/services/toast";
 
 describe("toast", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it("emits to subscribers off TV and announces every message", () => {
-    const listener = jest.fn();
-    const unsubscribe = subscribeToast(listener);
-    showToast("Recording scheduled");
-    expect(listener).toHaveBeenCalledWith({ message: "Recording scheduled", kind: "info" });
-    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith("Recording scheduled");
-    expect(Alert.alert).not.toHaveBeenCalled();
-    unsubscribe();
-    showToast("gone");
-    expect(listener).toHaveBeenCalledTimes(1);
+  it("sends the app theme before the first toast, and only once per language", () => {
+    showToast("a");
+    showToast("b");
+    expect(configureToast).toHaveBeenCalledTimes(1);
+    expect(configureToast).toHaveBeenCalledWith({
+      tint: "#FFC312",
+      text: "#2B1F05",
+      danger: "#D70015",
+      heightRatio: 0.3,
+      closeLabel: "Close",
+    });
+    (t as jest.Mock).mockReturnValue("Cerrar");
+    showToast("c");
+    expect(configureToast).toHaveBeenCalledTimes(2);
+    expect(configureToast).toHaveBeenLastCalledWith(expect.objectContaining({ closeLabel: "Cerrar" }));
   });
 
-  it("routes TV to the native window, never the RN listeners", () => {
-    (Platform as { isTV: boolean }).isTV = true;
-    const listener = jest.fn();
-    const unsubscribe = subscribeToast(listener);
-    showToast("Recording failed", "error");
-    showToast("Recording started");
-    expect(listener).not.toHaveBeenCalled();
-    expect(NativeModules.TVToast.show).toHaveBeenCalledWith("Recording failed", true);
-    expect(NativeModules.TVToast.show).toHaveBeenCalledWith("Recording started", false);
-    expect(Alert.alert).not.toHaveBeenCalled();
-    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledTimes(2);
-    unsubscribe();
-    (Platform as { isTV: boolean }).isTV = false;
+  it("maps the string form to a title and kind", () => {
+    expect(showToast("Recording scheduled", "success")).toBe("toast-1");
+    expect(show).toHaveBeenCalledWith({ title: "Recording scheduled", kind: "success" });
+    showToast("Guide updated");
+    expect(show).toHaveBeenLastCalledWith({ title: "Guide updated", kind: "info" });
+  });
+
+  it("passes the options form through untouched", () => {
+    const options = { id: "guide-refresh", title: "Downloading guide", progress: true };
+    showToast(options);
+    expect(show).toHaveBeenCalledWith(options);
   });
 });

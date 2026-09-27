@@ -28,13 +28,11 @@ const MODULE_FILES = [
   "DeviceEnvironment.swift",
   "MacKeyCommands.swift",
   "FileAttributes.swift",
-  "TVToast.swift",
   "MultiAudioResourceLoader.m",
   "NetworkInfo.m",
   "DeviceEnvironment.m",
   "MacKeyCommands.m",
   "FileAttributes.m",
-  "TVToast.m",
   "MultiAudioResourceLoader-Bridging-Header.h",
 ];
 

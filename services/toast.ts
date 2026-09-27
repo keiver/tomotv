@@ -1,34 +1,32 @@
 /**
- * Transient notifications. Touch platforms float a pill (components/toast-host.tsx). tvOS never
- * floats a React Native view over focusables, so there the pill is the TVToast native module's
- * non-interactive window, which also draws above the presented player; a binary without the
- * module falls back to a VoiceOver announcement, plus a native alert for an error.
+ * App notifications through the tomo-toast module: gold cards in their own window, above
+ * the presented player on both platforms. This file only binds the app's tokens and strings.
  */
-import { AccessibilityInfo, Alert, NativeModules, Platform } from "react-native";
+import { COLORS } from "@/constants/colors";
+import { configureToast, dismissToast, showToast as show, type ToastKind, type ToastOptions, updateToast } from "@/modules/tomo-toast";
+import { t } from "@/services/i18n";
 
-export type ToastKind = "info" | "error";
-export interface Toast {
-  message: string;
-  kind: ToastKind;
+export type { ToastKind, ToastOptions };
+
+// Re-sent when the language changes, so the close label follows it.
+let configuredLabel: string | null = null;
+
+function ensureConfigured(): void {
+  const closeLabel = t("common.close");
+  if (closeLabel === configuredLabel) return;
+  configuredLabel = closeLabel;
+  configureToast({
+    tint: COLORS.ACCENT,
+    text: COLORS.ON_ACCENT_WARM,
+    danger: COLORS.DESTRUCTIVE_DEEP,
+    heightRatio: 0.3,
+    closeLabel,
+  });
 }
 
-const listeners = new Set<(toast: Toast) => void>();
-
-export function subscribeToast(cb: (toast: Toast) => void): () => void {
-  listeners.add(cb);
-  return () => {
-    listeners.delete(cb);
-  };
+export function showToast(input: string | ToastOptions, kind: ToastKind = "info"): string {
+  ensureConfigured();
+  return show(typeof input === "string" ? { title: input, kind } : input);
 }
 
-const nativeToast: { show: (message: string, isError: boolean) => void } | undefined = NativeModules.TVToast;
-
-export function showToast(message: string, kind: ToastKind = "info"): void {
-  AccessibilityInfo.announceForAccessibility(message);
-  if (Platform.isTV) {
-    if (nativeToast?.show) nativeToast.show(message, kind === "error");
-    else if (kind === "error") Alert.alert(message);
-    return;
-  }
-  for (const listener of listeners) listener({ message, kind });
-}
+export { dismissToast, updateToast };

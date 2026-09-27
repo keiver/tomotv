@@ -61,14 +61,14 @@ export default function LiveTvScreen() {
     resetGuideHunt();
     retry();
     refreshToastArmed.current = true;
-    showToast(t("liveTv.guideDownloading"));
+    showToast({ id: "guide-refresh", title: t("liveTv.guideDownloading"), progress: true });
   }, [retry]);
   const guideWorking = guide.isLoading || guide.isUpdating;
   const guideFailed = !!guide.error;
   useEffect(() => {
     if (guideWorking || !refreshToastArmed.current) return;
     refreshToastArmed.current = false;
-    showToast(t(guideFailed ? "liveTv.guideUnavailable" : "liveTv.guideUpdated"), guideFailed ? "error" : "info");
+    showToast({ id: "guide-refresh", title: t(guideFailed ? "liveTv.guideUnavailable" : "liveTv.guideUpdated"), kind: guideFailed ? "error" : "success" });
   }, [guideWorking, guideFailed]);
 
   const tune = useCallback(

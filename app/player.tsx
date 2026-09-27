@@ -616,7 +616,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
             );
         action
           .then(() => {
-            showToast(doneToast);
+            showToast(doneToast, "success");
             return reloadTimer(key, programId, channelId);
           })
           .catch((err) => {
