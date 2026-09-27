@@ -7,10 +7,16 @@ import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /** Measured off the page sheet this replaces (1560px shot: 1413 wide, centred), so it keeps its frame. */
-export const PAD_SHEET_RATIO = 0.905;
+const PAD_SHEET_RATIO = 0.905;
+/** An 11" iPad's portrait sheet: landscape and a wide Mac window keep that reading width, centred. */
+const PAD_SHEET_MAX_WIDTH = 760;
 /** Fitted card width caps: iPad's centred card reads as a dialog, iPhone's bottom card spans the screen. */
 const FIT_MAX_WIDTH = { center: 440, bottom: 600 } as const;
 const FIT_MARGIN = 8;
+
+export function padSheetWidth(windowWidth: number): number {
+  return Math.min(Math.round(windowWidth * PAD_SHEET_RATIO), PAD_SHEET_MAX_WIDTH);
+}
 
 interface PadSheetProps {
   onClose: () => void;
@@ -36,7 +42,7 @@ export function PadSheet({ onClose, closeHint, fit, children }: PadSheetProps) {
           marginBottom: fit === "bottom" ? Math.max(insets.bottom, FIT_MARGIN) : 0,
         },
       ]
-    : [styles.sheet, { width: Math.round(width * PAD_SHEET_RATIO), marginTop: insets.top + 8 }];
+    : [styles.sheet, { width: padSheetWidth(width), marginTop: insets.top + 8 }];
   return (
     <View style={[styles.root, fit === "center" && styles.rootCenter, fit === "bottom" && styles.rootBottom]}>
       {/* iOS has no blurred presentation style of its own: UIModalPresentationBlurOverFullScreen is tvOS only. */}

@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { FolderBackdrop } from "@/components/folder-backdrop";
-import { PAD_SHEET_RATIO, PadSheet } from "@/components/pad-sheet";
+import { PadSheet, padSheetWidth } from "@/components/pad-sheet";
 
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoActionRow, InfoExtraAction } from "@/components/info-action-row";
@@ -113,7 +113,7 @@ export default function VideoInfoScreen() {
   // ratio, and the artwork covers only part of the header.
   // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV and iPad, so
   // the first paint already has the final height and onLayout only refines it.
-  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? Math.round(windowWidth * PAD_SHEET_RATIO) : windowWidth);
+  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? padSheetWidth(windowWidth) : windowWidth);
   // Source aspect of the loaded artwork, so a taller-than-box hero anchors at the top.
   const [heroAspect, setHeroAspect] = useState<number | null>(null);
   // Seeded heroWidth paints frame one; this says the measured one has landed. A cached image
