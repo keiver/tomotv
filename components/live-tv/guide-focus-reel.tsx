@@ -67,12 +67,15 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, vi
   const tileHeight = Math.round(cellHeight * (compact ? 0.42 : IS_TV ? 0.55 : 0.5));
   const tileWidth = Math.round(tileHeight * (16 / 9));
   const room = Math.max(0, (viewportWidth > 0 ? Math.min(width, viewportWidth) : width) - PAD_LEFT);
+  const [captionLead, captionTail] = t("liveTv.lastSeen").split("{time}");
   const cut = reel.frames.length * (tileWidth + GAP) - GAP > room;
   return (
     <Animated.View style={[styles.reel, pinStyle]} onLayout={handleLayout} pointerEvents="none" testID="guide-focus-reel">
       {compact ? null : (
         <Text style={styles.title} numberOfLines={1}>
-          {t("liveTv.lastSeen").replace("{time}", formatClock(reel.at))}
+          {captionLead}
+          {captionTail === undefined ? null : <Text style={styles.time}>{formatClock(reel.at)}</Text>}
+          {captionTail}
         </Text>
       )}
       <View style={[styles.strip, cut && { width: room, overflow: "hidden" }]}>
@@ -101,6 +104,10 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 19 : 11,
     marginBottom: IS_TV ? 8 : 4,
     ...TEXT_SHADOW,
+  },
+  // The ruler's now label ink.
+  time: {
+    color: COLORS.ACCENT,
   },
   strip: {
     flexDirection: "row",
