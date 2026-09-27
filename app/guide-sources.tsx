@@ -1,20 +1,22 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { GuideSourcesConsole } from "@/components/live-tv/guide-sources-console";
+import { EmptyCard } from "@/components/empty-card";
 import { ListRow } from "@/components/settings/ListRow";
-import { RollingFieldRow } from "@/components/settings/RollingFieldRow";
+import { RollingFieldRow, type RollingFieldRowHandle } from "@/components/settings/RollingFieldRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
+import { StorageBar } from "@/components/storage-bar";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
-import { clearDownloadedGuides, guideSourcesBusy, guideSourceStatuses, preloadGuide, subscribeGuideSources, type GuideSourceStatus } from "@/services/externalGuide";
+import { clearDownloadedGuides, guideSourceStatuses, preloadGuide, subscribeGuideSources } from "@/services/externalGuide";
 import { guideCacheBytes } from "@/services/guideFileCache";
 import { t } from "@/services/i18n";
 import { fetchTunerData, lastKnownTunerData } from "@/services/jellyfin/tunerGroups";
 import { addGuideUrl } from "@/services/liveTvPreferences";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { guideLabel, guideSourceSummary } from "@/utils/guideSources";
+import { Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -27,7 +29,6 @@ export default function GuideSourcesScreen() {
   const headerHeight = useHeaderHeight();
   const preferences = useLiveTvPreferences();
   const statuses = useSyncExternalStore(subscribeGuideSources, guideSourceStatuses);
-  const busy = useSyncExternalStore(subscribeGuideSources, guideSourcesBusy);
   const [declared, setDeclared] = useState<string[]>(() => lastKnownTunerData()?.tvgUrls ?? []);
   useEffect(() => {
     let cancelled = false;
@@ -47,9 +48,8 @@ export default function GuideSourcesScreen() {
   const [clears, setClears] = useState(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- statuses and clears are the triggers, not inputs
   const bytes = useMemo(() => guideCacheBytes(), [statuses, clears]);
-  const paired = useMemo(() => new Set(Object.values(statuses).flatMap((status) => status.matched.map((match) => match.channelId))).size, [statuses]);
-  const activity = useMemo(() => describeActivity(Object.values(statuses)), [statuses]);
 
+  const addRow = useRef<RollingFieldRowHandle>(null);
   const [draft, setDraft] = useState("");
   const [invalid, setInvalid] = useState(false);
   const saveDraft = useCallback(() => {
@@ -84,7 +84,9 @@ export default function GuideSourcesScreen() {
     [],
   );
 
-  const sourceRow = (url: string, index: number, count: number, trailingField: boolean) => {
+  const storage = <StorageBar used={bytes} free={Paths.availableDiskSpace} usedLabel={formatFileSize(bytes) || "0 KB"} hint={t("liveTv.clearGuides")} onClear={clearGuides} />;
+
+  const sourceRow = (url: string, isFirst: boolean, isLast: boolean, preferred: boolean) => {
     const summary = guideSourceSummary(statuses[url], !off.has(url), t);
     return (
       <ListRow
@@ -95,9 +97,9 @@ export default function GuideSourcesScreen() {
         meter={summary.meter}
         trailingIcon="chevron-forward"
         onPress={() => openGuide(url)}
-        hasTVPreferredFocus={index === 0 && trailingField}
-        isFirst={index === 0}
-        isLast={!trailingField && index === count - 1}
+        hasTVPreferredFocus={preferred}
+        isFirst={isFirst}
+        isLast={isLast}
       />
     );
   };
@@ -107,22 +109,22 @@ export default function GuideSourcesScreen() {
       <AmbientBackground />
       <ScrollView
         contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        automaticallyAdjustKeyboardInsets>
         <View style={settingsStyles.contentContainer}>
           {IS_TV ? (
             <View style={settingsStyles.sectionHeader}>
               <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSources")}</Text>
             </View>
           ) : null}
-          <GuideSourcesConsole figure={String(paired)} caption={t("liveTv.matchedChannels")} status={activity} busy={busy} />
-          <Text style={[settingsStyles.sectionNote, styles.about]}>{t("liveTv.guideSourcesAbout")}</Text>
 
           <View style={settingsStyles.sectionHeader}>
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.yourGuides")}</Text>
           </View>
           <View style={settingsStyles.section}>
-            {preferences.guideUrls.map((url, index) => sourceRow(url, index, preferences.guideUrls.length, true))}
+            {preferences.guideUrls.map((url, index) => sourceRow(url, index === 0, false, index === 0))}
             <RollingFieldRow
+              ref={addRow}
               icon="add"
               title={t("liveTv.addGuide")}
               subtitle={invalid ? t("liveTv.guideInvalid") : t("liveTv.guideUrlHint")}
@@ -131,44 +133,32 @@ export default function GuideSourcesScreen() {
               keyboardType="url"
               autoCapitalize="none"
               isFirst={preferences.guideUrls.length === 0}
+              isLast={false}
               value={draft}
               onChangeText={setDraft}
               onSave={saveDraft}
             />
+            {/* tvOS: the footer's overlay would occlude the bar from focus. */}
+            {IS_TV ? storage : <SectionFooter>{storage}</SectionFooter>}
           </View>
 
           <View style={settingsStyles.sectionHeader}>
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.playlistGuides")}</Text>
           </View>
-          <View style={settingsStyles.section}>
-            {playlistUrls.length > 0 ? (
-              playlistUrls.map((url, index) => sourceRow(url, index, playlistUrls.length, false))
-            ) : (
+          {playlistUrls.length > 0 ? (
+            <View style={settingsStyles.section}>
+              {playlistUrls.map((url, index) => sourceRow(url, index === 0, false, false))}
               <SectionFooter>
-                <Text style={settingsStyles.sectionNote}>{t("liveTv.noPlaylistGuides")}</Text>
+                <Text style={settingsStyles.sectionNote}>{t("liveTv.guideSourcesAbout")}</Text>
               </SectionFooter>
-            )}
-          </View>
-
-          <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideStorage")}</Text>
-          </View>
-          <View style={settingsStyles.section}>
-            <ListRow icon="server-outline" title={t("liveTv.guidesOnDevice")} subtitle={formatFileSize(bytes) || "0 KB"} isFirst />
-            <ListRow icon="trash-outline" tone="destructive" title={t("liveTv.clearGuides")} onPress={clearGuides} disabled={bytes === 0} isLast />
-          </View>
+            </View>
+          ) : (
+            <EmptyCard icon="add" text={t("liveTv.noPlaylistGuides")} note={t("liveTv.guideSourcesAbout")} onPress={() => addRow.current?.reveal()} />
+          )}
         </View>
       </ScrollView>
     </View>
   );
-}
-
-/** The console's status line: the first guide downloading or being read, else how many are ready. */
-function describeActivity(statuses: readonly GuideSourceStatus[]): string | undefined {
-  const working = statuses.find((status) => status.state === "downloading" || status.state === "reading");
-  if (working) return `${guideSourceSummary(working, true, t).subtitle} · ${guideLabel(working.url)}`;
-  const ready = statuses.filter((status) => status.state === "ready").length;
-  return ready > 0 ? t("liveTv.guideSourcesActive").replace("{count}", String(ready)) : undefined;
 }
 
 const styles = StyleSheet.create({
@@ -177,9 +167,5 @@ const styles = StyleSheet.create({
   },
   page: {
     alignItems: "center",
-  },
-  about: {
-    backgroundColor: "transparent",
-    marginBottom: IS_TV ? 8 : 0,
   },
 });

@@ -81,7 +81,7 @@
   "liveTv.guideSources": "Fuentes de la guía",
   "liveTv.guideSourcesHint": "Guías XMLTV para canales sin programación",
   "liveTv.guideSourcesActive": "Activas: {count}",
-  "liveTv.guideSourcesAbout": "Las guías que añades aquí, y las que declaran tus listas de reproducción del sintonizador, dan programación a los canales para los que tu servidor no tiene. Cada canal se asocia por su tvg-id, luego por su tvg-name y luego por su nombre, sin importar mayúsculas. Las guías se descargan en este dispositivo y se actualizan cada hora.",
+  "liveTv.guideSourcesAbout": "Las guías de tus listas del sintonizador, y las que añades, completan la programación de los canales para los que tu servidor no tiene.",
   "liveTv.yourGuides": "Tus guías",
   "liveTv.playlistGuides": "De tus listas de reproducción",
   "liveTv.noPlaylistGuides": "Tus listas del sintonizador no declaran ninguna guía",

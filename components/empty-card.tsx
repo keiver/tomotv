@@ -1,22 +1,48 @@
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { settingsStyles } from "@/components/settings/styles";
+import { goldRowShadow, settingsStyles } from "@/components/settings/styles";
+import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
 /** A card holding an empty state: what is missing, and in its footer, what to do about it. */
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
-export function EmptyCard({ icon, text, note, noteIcon }: { icon: IconName; text: string; note?: string; noteIcon?: IconName }) {
+export function EmptyCard({ icon, text, note, noteIcon, onPress }: { icon: IconName; text: string; note?: string; noteIcon?: IconName; onPress?: () => void }) {
   return (
     <View style={settingsStyles.section}>
-      <View style={styles.card}>
-        <Ionicons name={icon} size={IS_TV ? 72 : 56} color={COLORS.TEXT_QUATERNARY} />
-        <Text style={styles.text}>{text}</Text>
-      </View>
+      {onPress ? (
+        // Actionable: an accent glyph at rest, the rows' gold fill on focus and press.
+        <Pressable
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={text}
+          tvParallaxProperties={{ enabled: false }}
+          style={({ focused, pressed }) => [
+            styles.card,
+            (focused || pressed) && goldRowShadow(true, !note, false),
+            focused && !pressed && settingsStyles.listItemFocused,
+            pressed && settingsStyles.listItemPressed,
+          ]}>
+          {({ focused, pressed }) => {
+            const ink = focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : undefined;
+            return (
+              <>
+                <Ionicons name={icon} size={IS_TV ? 72 : 56} color={ink ?? COLORS.ACCENT} />
+                <Text style={[styles.text, ink != null && { color: ink }]}>{text}</Text>
+              </>
+            );
+          }}
+        </Pressable>
+      ) : (
+        <View style={styles.card}>
+          <Ionicons name={icon} size={IS_TV ? 72 : 56} color={COLORS.TEXT_QUATERNARY} />
+          <Text style={styles.text}>{text}</Text>
+        </View>
+      )}
       {note ? (
         <SectionFooter>
           <View style={[settingsStyles.sectionNote, styles.note]}>

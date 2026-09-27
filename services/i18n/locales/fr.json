@@ -81,7 +81,7 @@
   "liveTv.guideSources": "Sources du guide",
   "liveTv.guideSourcesHint": "Guides XMLTV pour les chaînes sans programme",
   "liveTv.guideSourcesActive": "Actifs : {count}",
-  "liveTv.guideSourcesAbout": "Les guides que vous ajoutez ici, et ceux que déclarent vos listes de lecture de tuner, donnent un programme aux chaînes pour lesquelles votre serveur n'en a pas. Chaque chaîne est associée par son tvg-id, puis son tvg-name, puis son nom, sans tenir compte de la casse. Les guides se téléchargent sur cet appareil et se mettent à jour toutes les heures.",
+  "liveTv.guideSourcesAbout": "Les guides de vos listes de lecture de tuner, et ceux que vous ajoutez, complètent le programme des chaînes pour lesquelles votre serveur n'en a pas.",
   "liveTv.yourGuides": "Vos guides",
   "liveTv.playlistGuides": "De vos listes de lecture",
   "liveTv.noPlaylistGuides": "Vos listes de lecture de tuner ne déclarent aucun guide",

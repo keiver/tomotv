@@ -81,7 +81,7 @@
   "liveTv.guideSources": "Guide sources",
   "liveTv.guideSourcesHint": "XMLTV guides for channels without listings",
   "liveTv.guideSourcesActive": "Active: {count}",
-  "liveTv.guideSourcesAbout": "Guides you add here, and the ones your tuner playlists declare, give listings to channels your server has none for. Each channel is matched by its tvg-id, then its tvg-name, then its name, letter case aside. Guides download to this device and refresh every hour.",
+  "liveTv.guideSourcesAbout": "Guides from your tuner playlists, and the ones you add, fill in listings for channels your server has none for.",
   "liveTv.yourGuides": "Your guides",
   "liveTv.playlistGuides": "From your playlists",
   "liveTv.noPlaylistGuides": "Your tuner playlists declare no guide",

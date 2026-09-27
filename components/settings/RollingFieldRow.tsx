@@ -3,7 +3,7 @@ import { ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT, settingsStyles } from "@/comp
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useRef, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Platform, StyleSheet, TextInput, TextInputProps, View } from "react-native";
 import Animated, { Easing, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
@@ -20,10 +20,17 @@ interface RollingFieldRowProps {
   keyboardType?: TextInputProps["keyboardType"];
   autoCapitalize?: TextInputProps["autoCapitalize"];
   isFirst?: boolean;
+  /** False when a footer closes the card under it. */
+  isLast?: boolean;
   value: string;
   onChangeText: (v: string) => void;
   /** Persist the typed value; called as the field gives up the caret. */
   onSave: () => void;
+}
+
+export interface RollingFieldRowHandle {
+  /** Rolls the field in, as a press on the row does. */
+  reveal: () => void;
 }
 
 /**
@@ -31,7 +38,10 @@ interface RollingFieldRowProps {
  * slot while the field drops in from above to take its place. Whichever is out of
  * the slot leaves layout (`display: none`); a clipped view is still focusable on tvOS.
  */
-export function RollingFieldRow({ icon, title, subtitle, placeholder, accessibilityLabel, keyboardType, autoCapitalize, isFirst, value, onChangeText, onSave }: RollingFieldRowProps) {
+export const RollingFieldRow = forwardRef<RollingFieldRowHandle, RollingFieldRowProps>(function RollingFieldRow(
+  { icon, title, subtitle, placeholder, accessibilityLabel, keyboardType, autoCapitalize, isFirst, isLast = true, value, onChangeText, onSave },
+  ref,
+) {
   const [open, setOpen] = useState(false);
   // True only while the roll is in flight, when both rows have to be on screen.
   const [rolling, setRolling] = useState(false);
@@ -66,6 +76,7 @@ export function RollingFieldRow({ icon, title, subtitle, placeholder, accessibil
     setOpen(true);
     setRolling(true);
   };
+  useImperativeHandle(ref, () => ({ reveal }));
 
   // Giving up the caret saves and gives the slot back. Gated on having actually held
   // the caret: the field is focused programmatically the moment the roll settles.
@@ -88,7 +99,7 @@ export function RollingFieldRow({ icon, title, subtitle, placeholder, accessibil
   return (
     <View style={styles.slot}>
       <Animated.View style={[styles.layer, ctaStyle, ctaGone && styles.gone]}>
-        <ListRow icon={icon} title={title} subtitle={subtitle} onPress={reveal} isFirst={isFirst} isLast />
+        <ListRow icon={icon} title={title} subtitle={subtitle} onPress={reveal} isFirst={isFirst} isLast={isLast} />
       </Animated.View>
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
@@ -120,7 +131,7 @@ export function RollingFieldRow({ icon, title, subtitle, placeholder, accessibil
       </Animated.View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   // Fixed at one slot: the swap happens inside it, so the rows around it never move.
