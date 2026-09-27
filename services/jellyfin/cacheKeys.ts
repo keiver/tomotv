@@ -62,7 +62,13 @@ export function invalidateItemRemoved(userId: string, itemId: string): void {
   invalidateByPrefix(`filtered:${userId}:`);
   invalidateByPrefix(`latest:${userId}:`);
   invalidateByPrefix(`recursive:${userId}:`);
+  invalidateByPrefix(`recursivesized:${userId}:`);
+  invalidateByPrefix(`recursivephotos:${userId}:`);
   invalidateByPrefix(`items:${userId}:`);
+  invalidateByPrefix(`playlistAll:${userId}:`);
+  invalidateByPrefix(`viewLeaves:${userId}:`);
+  invalidateByPrefix(`folderpreview:${userId}:`);
+  invalidateByPrefix(`viewcount:${userId}:`);
   patchFolderCacheItem(itemId, null);
   notifyItemRemoved(itemId);
   notifyResumeChange();
