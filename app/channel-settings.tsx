@@ -33,6 +33,7 @@ export default function ChannelSettingsScreen() {
   const preferences = useLiveTvPreferences();
   const toggleAutoUpdate = useCallback(() => updateLiveTvPreferences({ autoUpdate: !preferences.autoUpdate }), [preferences.autoUpdate]);
   const toggleAutoGuide = useCallback(() => updateLiveTvPreferences({ autoGuide: !preferences.autoGuide }), [preferences.autoGuide]);
+  const toggleHideOffline = useCallback(() => updateLiveTvPreferences({ hideOffline: !preferences.hideOffline }), [preferences.hideOffline]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
   const pickRecordingMinutes = useCallback((recordingMinutes: RecordingMinutes) => updateLiveTvPreferences({ recordingMinutes }), []);
   const newGroup = useCallback(() => router.push("/channel-group"), [router]);
@@ -75,6 +76,7 @@ export default function ChannelSettingsScreen() {
               isFirst
             />
             <ListRow icon="earth" title={t("liveTv.autoGuide")} subtitle={t("liveTv.autoGuideHint")} trailingIcon={preferences.autoGuide ? tick : undefined} onPress={toggleAutoGuide} />
+            <ListRow icon="eye-off-outline" title={t("liveTv.hideOffline")} trailingIcon={preferences.hideOffline ? tick : undefined} onPress={toggleHideOffline} />
             <RollingFieldRow
               icon="calendar-outline"
               title={t("liveTv.guideUrl")}

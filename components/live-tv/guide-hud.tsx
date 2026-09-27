@@ -4,7 +4,6 @@ import { GuideGroupPlaceholder } from "@/components/live-tv/guide-group-placehol
 import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { guideStatus, subscribeGuideStatus } from "@/services/externalGuide";
-import { t } from "@/services/i18n";
 import { updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
 import React, { useCallback, useEffect, useSyncExternalStore } from "react";
 import { findNodeHandle, type LayoutChangeEvent, Platform, ScrollView, StyleSheet, View } from "react-native";
@@ -74,9 +73,8 @@ function ScanBand({ active }: { active: boolean }) {
  */
 export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle, updating }: GuideHudProps) {
   const choices = useChannelFilterChoices();
-  const { filter, hideOffline } = useLiveTvPreferences();
+  const { filter } = useLiveTvPreferences();
   const select = useCallback((next: ChannelFilter) => updateLiveTvPreferences({ filter: next }), []);
-  const toggleOffline = useCallback(() => updateLiveTvPreferences({ hideOffline: !hideOffline }), [hideOffline]);
   const selectedRef = useCallback(
     (node: View | null) => {
       if (!IS_TV || !onSelectedHandle) return;
@@ -98,8 +96,6 @@ export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle, updatin
             const selected = choice.filter === filter;
             return <GuideGroupCell key={choice.filter} ref={selected ? selectedRef : undefined} label={choice.label} selected={selected} onPress={() => select(choice.filter)} />;
           })}
-          {/* A toggle beside the filters, not one of them: it narrows whichever filter is picked. */}
-          <GuideGroupCell label={t("liveTv.hideOffline")} selected={hideOffline} onPress={toggleOffline} />
           <GuideGroupPlaceholder />
         </ScrollView>
       </View>
