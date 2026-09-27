@@ -1,8 +1,9 @@
+import { GuideCellLiveArt } from "@/components/live-tv/guide-cell-live-art";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { formatClock, guideMetrics, labelPin, NO_GUIDE_PREFIX, programCategory, programTimes, TICK_MINUTES } from "@/utils/guide";
+import { formatClock, guideMetrics, labelPin, programCategory, programTimes, standInChannelId, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -32,6 +33,8 @@ interface GuideCellProps {
   recording: RecordingMark;
   /** The canvas's horizontal offset; the label rides it so it stays on the visible edge. */
   scrollX: SharedValue<number>;
+  /** The canvas's visible width; the stand-in's live art rides it to the visible right edge. */
+  viewportW?: SharedValue<number>;
   onPress: (program: JellyfinProgram) => void;
   onLongPress: (program: JellyfinProgram) => void;
   onFocus?: (program: JellyfinProgram) => void;
@@ -56,6 +59,7 @@ function GuideCellComponent({
   nowMs,
   recording,
   scrollX,
+  viewportW,
   onPress,
   onLongPress,
   onFocus,
@@ -69,7 +73,8 @@ function GuideCellComponent({
   const programName = cleanLabel(program.Name);
   const episodeTitle = cleanLabel(program.EpisodeTitle);
   // The stand-in of a channel without listings: a quiet band, one dim line, no slot times.
-  const standIn = !!program.Id?.startsWith(NO_GUIDE_PREFIX);
+  const standInChannel = standInChannelId(program.Id);
+  const standIn = standInChannel !== null;
   // One line under the titles: the slot, then whatever the guide source filled in.
   const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter(Boolean).join("  ·  ");
   const art = program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
@@ -110,6 +115,7 @@ function GuideCellComponent({
           <View style={styles.artFade} />
         </View>
       ) : null}
+      {standInChannel && viewportW ? <GuideCellLiveArt channelId={standInChannel} left={left} width={width} height={height} scrollX={scrollX} viewportW={viewportW} /> : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
       {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
       <AnimatedPressable

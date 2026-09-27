@@ -78,6 +78,12 @@ export function labelPin(scrollX: number, cellLeft: number, cellWidth: number, l
   return Math.min(Math.max(0, scrollX - cellLeft), Math.max(0, cellWidth - labelWidth));
 }
 
+/** Holds the stand-in cell's art at the viewport's right edge, clamped inside the cell. Runs on the UI thread. */
+export function artPin(scrollX: number, cellLeft: number, cellWidth: number, artWidth: number, viewportWidth: number): number {
+  "worklet";
+  return Math.min(Math.max(0, scrollX + viewportWidth - artWidth - cellLeft), Math.max(0, cellWidth - artWidth));
+}
+
 export type ProgramCategory = "news" | "sports" | "kids" | "movie";
 
 export function programCategory(program: Pick<JellyfinProgram, "IsNews" | "IsSports" | "IsKids" | "IsMovie">): ProgramCategory | null {
@@ -152,6 +158,11 @@ export function formatDayLabel(ms: number, nowMs: number, labels: { today: strin
 
 /** Id prefix of the stand-in cell a channel without guide data shows; select tunes, nothing else. */
 export const NO_GUIDE_PREFIX = "no-guide:";
+
+/** The channel a stand-in cell stands for, null for any other program id. */
+export function standInChannelId(programId: string | undefined): string | null {
+  return programId?.startsWith(NO_GUIDE_PREFIX) ? programId.slice(NO_GUIDE_PREFIX.length) : null;
+}
 
 /** Id prefix of a programme from the viewer's external XMLTV guide: not on the server, never fetched. */
 export const EXTERNAL_GUIDE_PREFIX = "epg:";
