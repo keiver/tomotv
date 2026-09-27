@@ -17,17 +17,33 @@ final class LiveFrameQueue {
     static let expiryMs: Int64 = 30 * 60 * 1000
     private static let filePrefix = "live-"
 
+    /// Grabs in flight at once, across distinct hosts; same-host jobs serialize on their host's queue.
+    static let maxConcurrent = 2
+
     private let root: URL
     let queue = DispatchQueue(label: "tv.tomo.liveframes", qos: .utility)
+    private let slots = DispatchSemaphore(value: LiveFrameQueue.maxConcurrent)
     private let lock = NSLock()
     private var cancelled = Set<String>()
     /// Channels with a request queued or running; a second request for one joins nothing and answers cancelled.
     private var pending = Set<String>()
     /// The grabber reading each channel now, so a cancel stops its read instead of waiting it out.
     private var running: [String: FrameGrabber] = [:]
+    /// One serial queue per origin host: providers refuse same-host concurrency, distinct hosts run together.
+    private var hostQueues: [String: DispatchQueue] = [:]
 
     init(root: URL = ChapterFramePool.root) {
         self.root = root
+    }
+
+    private func hostQueue(for inputUrl: String) -> DispatchQueue {
+        let host = URL(string: inputUrl)?.host ?? "-"
+        lock.lock()
+        defer { lock.unlock() }
+        if let held = hostQueues[host] { return held }
+        let made = DispatchQueue(label: "tv.tomo.liveframes.\(host)", qos: .utility)
+        hostQueues[host] = made
+        return made
     }
 
     /// One open yields a burst: a keyframe, then one per `defaultInterval` stream seconds across `defaultSpan`.
@@ -40,8 +56,8 @@ final class LiveFrameQueue {
         case frames([URL], pts: Int64?)
         /// The keyframe at the live edge is still the one `shownPts` names; nothing was written.
         case unchanged
-        /// Nothing came: `opened` false when the source would not even open.
-        case none(opened: Bool)
+        /// Nothing came: `opened` false when the source would not even open, `failure` its words.
+        case none(opened: Bool, failure: String?)
         case cancelled
     }
 
@@ -51,7 +67,7 @@ final class LiveFrameQueue {
                  span: TimeInterval = defaultSpan, interval: TimeInterval = defaultInterval, count: Int = defaultCount,
                  shownPts: Int64? = nil, frame: ((URL, Int) -> Void)? = nil, completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: channelId, in: root) else {
-            completion(.none(opened: true))
+            completion(.none(opened: true, failure: nil))
             return
         }
         lock.lock()
@@ -63,7 +79,9 @@ final class LiveFrameQueue {
             return
         }
         let epoch = ChapterFramePool.epoch
-        queue.async { [self] in
+        hostQueue(for: inputUrl).async { [self] in
+            slots.wait()
+            defer { slots.signal() }
             defer {
                 lock.lock()
                 pending.remove(channelId)
@@ -74,7 +92,7 @@ final class LiveFrameQueue {
                 return
             }
             guard let directory = ChapterFramePool.directory(for: channelId, in: root) else {
-                completion(.none(opened: true))
+                completion(.none(opened: true, failure: nil))
                 return
             }
             let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: headers, live: true)
@@ -116,7 +134,7 @@ final class LiveFrameQueue {
             case .none:
                 NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@", channelId, elapsed, grabber.sourceOpened ? 1 : 0,
                                                  grabber.openFailure ?? "no keyframe", grabber.openedUrl ?? inputUrl))
-                completion(.none(opened: grabber.sourceOpened))
+                completion(.none(opened: grabber.sourceOpened, failure: grabber.openFailure))
             }
         }
     }

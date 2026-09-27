@@ -588,7 +588,9 @@ class LocalRemuxer: RCTEventEmitter {
                 let shown: Any = pts.map { NSNumber(value: $0) } ?? NSNull()
                 resolve(["uris": urls.map(\.absoluteString), "cancelled": false, "pts": shown])
             case .unchanged: resolve(["uris": [], "cancelled": false, "unchanged": true])
-            case .none(let opened): resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open"])
+            case .none(let opened, let failure):
+                let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
+                resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed])
             case .cancelled: resolve(["uris": [], "cancelled": true])
             }
         }

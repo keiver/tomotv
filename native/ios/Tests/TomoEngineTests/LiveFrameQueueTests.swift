@@ -280,7 +280,7 @@ final class LiveFrameQueueTests: XCTestCase {
         // A non-routable address: the connect hangs until the watchdog's stop interrupts it.
         let started = Date()
         let outcome = settle(queue, "chan-dead", "http://10.255.255.1:9/live.m3u8", deadline: 1, timeout: 12)
-        guard case .none(let opened)? = outcome else { return XCTFail("a dead origin gives no frame") }
+        guard case .none(let opened, _)? = outcome else { return XCTFail("a dead origin gives no frame") }
         XCTAssertFalse(opened)
         XCTAssertLessThan(Date().timeIntervalSince(started), 6, "the deadline bounds the grab, not rw_timeout")
     }
@@ -289,7 +289,7 @@ final class LiveFrameQueueTests: XCTestCase {
         let queue = LiveFrameQueue()
         var outcome: LiveFrameQueue.Outcome?
         queue.request(channelId: "../escape", inputUrl: "file:///nowhere", headers: [:]) { outcome = $0 }
-        guard case .none(let opened)? = outcome else { return XCTFail("refused before any open") }
+        guard case .none(let opened, _)? = outcome else { return XCTFail("refused before any open") }
         XCTAssertTrue(opened)
     }
 }
