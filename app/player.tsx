@@ -20,7 +20,8 @@ import {
   setVideoFavorite,
   type ItemMediaSegments,
 } from "@/services/jellyfinApi";
-import { getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences, toggleFavoriteChannel } from "@/services/liveTvPreferences";
+import { toggleFavoriteChannel } from "@/services/channelFavorites";
+import { getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
 import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { showToast } from "@/services/toast";

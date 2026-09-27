@@ -177,7 +177,8 @@ export function isFavoriteChannel(preferences: LiveTvPreferences, channel: Chann
   return listHas(preferences.favorites, channel);
 }
 
-export function toggleFavoriteChannel(channel: ChannelIdentity): void {
+/** The device list alone; services/channelFavorites pairs it with the server's. */
+export function toggleLocalFavoriteChannel(channel: ChannelIdentity): void {
   updateLiveTvPreferences({ favorites: listToggled(getLiveTvPreferences().favorites, channel) });
 }
 

@@ -8,6 +8,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useAuthSession } from "@/hooks/useAuthSession";
+import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { useGuide } from "@/hooks/useGuide";
 import { lastKnownTunerData } from "@/services/jellyfinApi";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -55,6 +56,7 @@ function LiveTvScreen() {
   }, []);
 
   const guide = useGuide();
+  useChannelFavoritesSync();
   // Another sign-in remounts the canvas cold: no scroll, focus or strip carries over from the last server.
   const session = useAuthSession();
   const preferences = useLiveTvPreferences();

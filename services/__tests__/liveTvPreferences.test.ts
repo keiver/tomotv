@@ -17,7 +17,7 @@ import {
   renameGroup,
   subscribeLiveTvPreferences,
   toggleChannelInGroup,
-  toggleFavoriteChannel,
+  toggleLocalFavoriteChannel,
   updateLiveTvPreferences,
 } from "@/services/liveTvPreferences";
 import { Settings } from "react-native";
@@ -95,10 +95,10 @@ describe("live TV preferences", () => {
   });
 
   it("remembers the id of a channel it lists, and reads an id back, while matching by number and name only", () => {
-    toggleFavoriteChannel({ Id: "ch-9", Name: "Nine", ChannelNumber: "9" });
+    toggleLocalFavoriteChannel({ Id: "ch-9", Name: "Nine", ChannelNumber: "9" });
     expect(getLiveTvPreferences().favorites).toContainEqual({ id: "ch-9", number: "9", name: "Nine" });
     expect(isFavoriteChannel(getLiveTvPreferences(), { Id: "other-server-id", Name: "Nine", ChannelNumber: "9" })).toBe(true);
-    toggleFavoriteChannel({ Name: "Nine", ChannelNumber: "9" });
+    toggleLocalFavoriteChannel({ Name: "Nine", ChannelNumber: "9" });
     expect(
       parseLiveTvPreferences({
         favorites: [
@@ -112,11 +112,11 @@ describe("live TV preferences", () => {
   it("toggles a favorite, persists the document and tells its subscribers", () => {
     const listener = jest.fn();
     const unsubscribe = subscribeLiveTvPreferences(listener);
-    toggleFavoriteChannel(kqed);
+    toggleLocalFavoriteChannel(kqed);
     expect(getLiveTvPreferences().favorites).toEqual([{ number: "9.1", name: "KQED" }]);
     expect(JSON.parse(Settings.get(LIVE_TV_PREFERENCES_KEY) as string)).toMatchObject({ version: 1, favorites: [{ number: "9.1", name: "KQED" }] });
-    toggleFavoriteChannel(unnumbered);
-    toggleFavoriteChannel(kqed);
+    toggleLocalFavoriteChannel(unnumbered);
+    toggleLocalFavoriteChannel(kqed);
     expect(getLiveTvPreferences().favorites).toEqual([{ name: "Al Jazeera English" }]);
     expect(listener).toHaveBeenCalledTimes(3);
     unsubscribe();

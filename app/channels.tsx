@@ -8,6 +8,7 @@ import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { useChannels } from "@/hooks/useChannels";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
@@ -37,6 +38,7 @@ export default function ChannelsScreen() {
   const headerHeight = useHeaderHeight();
   const { showGlobalLoader } = useLoadingActions();
   const preferences = useLiveTvPreferences();
+  useChannelFavoritesSync();
   const playlistIds = usePlaylistChannelIds(preferences.filter);
   const { items: listed, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannels(preferences.sort, activeCategory(preferences.filter), activeChannelList(preferences), playlistIds);
   const filtered = preferences.filter !== "all";
