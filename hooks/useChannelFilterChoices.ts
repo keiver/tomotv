@@ -10,7 +10,7 @@ export interface ChannelFilterChoice {
   label: string;
 }
 
-const CATEGORY_LABELS: Record<LiveTvCategory, () => string> = {
+export const CATEGORY_LABELS: Record<LiveTvCategory, () => string> = {
   news: () => t("liveTv.catNews"),
   sports: () => t("liveTv.catSports"),
   kids: () => t("liveTv.catKids"),

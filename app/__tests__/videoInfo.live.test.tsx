@@ -1,21 +1,38 @@
+/** The info panel on a guide programme or a channel: Watch while it airs, the record controls, the channel favorite. */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
-import { cancelTimer, createSeriesTimer, createTimer, fetchLiveTvManagement, fetchProgram, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
-import ProgramInfoScreen from "@/app/program-info";
+import { useLocalSearchParams } from "expo-router";
+import VideoInfoScreen from "@/app/video-info";
+import { cancelTimer, createSeriesTimer, createTimer, fetchItemDetails, fetchLiveTvManagement, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
+import { getLiveTvPreferences, isFavoriteChannel } from "@/services/liveTvPreferences";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 jest.mock("expo-router", () => ({
-  useLocalSearchParams: () => ({ programId: "p1", channelId: "c1", channelName: "One" }),
+  useLocalSearchParams: jest.fn(),
   useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn() }),
 }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
+jest.mock("@/services/localRemux", () => ({
+  predictPlaybackLane: jest.fn(async () => null),
+  posterFrameIfCached: jest.fn(() => undefined),
+  posterFrameRevision: jest.fn(() => 0),
+  requestPosterFrame: jest.fn(async () => null),
+  cancelPosterFrame: jest.fn(),
+}));
+jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
+jest.mock("@/hooks/useFolderPlay", () => ({ useFolderPlay: () => jest.fn() }));
+jest.mock("@/hooks/useShowInFolder", () => ({ useShowInFolder: () => jest.fn() }));
+jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn(), hideGlobalLoader: jest.fn() }) }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
-jest.mock("@/components/glass-surface", () => ({ GlassSurface: ({ children }: { children: React.ReactNode }) => children }));
-jest.mock("@/components/loading-row", () => ({ LoadingRow: () => null }));
+jest.mock("@/components/close-overlay-button", () => ({ CloseOverlayButton: () => null }));
+jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }));
+jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
+jest.mock("@/components/live-tv/channel-group-section", () => ({ ChannelGroupSection: () => null }));
+jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
+jest.mock("expo-image", () => ({ Image: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
-jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock("@/components/FocusableButton", () => ({
   FocusableButton: ({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) => {
     const { Text } = require("react-native");
@@ -23,22 +40,41 @@ jest.mock("@/components/FocusableButton", () => ({
   },
 }));
 jest.mock("@/services/jellyfinApi", () => ({
-  fetchProgram: jest.fn(),
-  fetchTimers: jest.fn(),
-  fetchTimerDefaults: jest.fn(),
-  createTimer: jest.fn(),
-  createSeriesTimer: jest.fn(),
+  subscribeAuthChange: jest.fn(() => () => {}),
+  clearResumePosition: jest.fn(async () => {}),
+  deleteItem: jest.fn(async () => {}),
+  fetchIsAdministrator: jest.fn(async () => true),
+  isLiveChannel: (item: { Type?: string } | null) => item?.Type === "TvChannel",
+  fetchItemDetails: jest.fn(),
+  fetchFolderMediaKinds: jest.fn(async () => null),
+  fetchItemFolderPath: jest.fn(async () => [{ id: "channels-folder" }]),
+  formatDuration: () => "",
+  getBackdropUrl: () => null,
+  getLogoUrl: () => null,
+  getPersonImageUrl: () => null,
+  getPosterUrl: () => null,
+  hasPoster: () => false,
+  isAudioItem: () => false,
+  isFolder: () => false,
+  isPhoto: () => false,
+  isBook: () => false,
+  notifyResumeChange: jest.fn(),
+  setVideoFavorite: jest.fn(async () => {}),
+  setVideoPlayed: jest.fn(async () => {}),
   cancelTimer: jest.fn(),
   cancelSeriesTimer: jest.fn(),
+  createTimer: jest.fn(),
+  createSeriesTimer: jest.fn(),
+  fetchTimerDefaults: jest.fn(),
+  fetchTimers: jest.fn(),
   fetchLiveTvManagement: jest.fn(),
-  hasPoster: (item: { ImageTags?: { Primary?: string } }) => !!item.ImageTags?.Primary,
-  getPosterUrl: (id: string) => `poster:${id}`,
 }));
 
 const now = Date.now();
 const airing = {
   Id: "p1",
   Name: "Football Live",
+  Type: "Program",
   ChannelId: "c1",
   ChannelName: "One",
   StartDate: new Date(now - 10 * 60_000).toISOString(),
@@ -47,19 +83,22 @@ const airing = {
   IsSports: true,
 };
 const later = { ...airing, StartDate: new Date(now + 60 * 60_000).toISOString(), EndDate: new Date(now + 120 * 60_000).toISOString() };
+const channel = { Id: "c1", Name: "One", Type: "TvChannel", ChannelNumber: "7" };
 
 async function settle() {
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 6; i++) {
     await act(async () => {
       await Promise.resolve();
     });
   }
 }
 
-async function mount() {
+async function mount(item: object) {
+  (useLocalSearchParams as jest.Mock).mockReturnValue({ videoId: (item as { Id: string }).Id });
+  (fetchItemDetails as jest.Mock).mockResolvedValue(item);
   let tree: TestRenderer.ReactTestRenderer | undefined;
   await act(async () => {
-    tree = TestRenderer.create(<ProgramInfoScreen />);
+    tree = TestRenderer.create(<VideoInfoScreen />);
   });
   await settle();
   return tree!;
@@ -76,7 +115,7 @@ const press = async (tree: TestRenderer.ReactTestRenderer, title: string) => {
   await settle();
 };
 
-describe("ProgramInfoScreen", () => {
+describe("Video info: live items", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (fetchTimerDefaults as jest.Mock).mockResolvedValue({ ProgramId: "p1", Name: "Football Live" });
@@ -86,29 +125,27 @@ describe("ProgramInfoScreen", () => {
     (fetchLiveTvManagement as jest.Mock).mockResolvedValue(true);
   });
 
-  it("offers only Watch when the account may not manage recordings", async () => {
+  it("offers only Watch when the account may not manage recordings, and never Delete or Show in Folder", async () => {
     (fetchLiveTvManagement as jest.Mock).mockResolvedValue(false);
-    (fetchProgram as jest.Mock).mockResolvedValue(airing);
-    (fetchTimers as jest.Mock).mockResolvedValue([{ Id: "t3", Name: "Football Live", ProgramId: "p1", SeriesTimerId: "s1", StartDate: airing.StartDate, EndDate: airing.EndDate, Status: "New" }]);
-    const tree = await mount();
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    const tree = await mount(airing);
     expect(buttons(tree)).toEqual(["Watch"]);
+    expect(fetchTimers).not.toHaveBeenCalled();
   });
 
-  it("offers Watch, Record and Record Series for an airing series with no timer", async () => {
-    (fetchProgram as jest.Mock).mockResolvedValue(airing);
+  it("offers Watch, Record and Record Series for an airing series, and Watch replaces the sheet with the channel", async () => {
     (fetchTimers as jest.Mock).mockResolvedValue([]);
-    const tree = await mount();
+    const tree = await mount(airing);
     expect(buttons(tree)).toEqual(["Watch", "Record", "Record Series"]);
     await press(tree, "Watch");
     expect(mockReplace).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
   });
 
   it("records from the server's defaults and then offers to cancel", async () => {
-    (fetchProgram as jest.Mock).mockResolvedValue(later);
     (fetchTimers as jest.Mock)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ Id: "t1", Name: "Football Live", ProgramId: "p1", StartDate: later.StartDate, EndDate: later.EndDate, Status: "New" }]);
-    const tree = await mount();
+    const tree = await mount(later);
     expect(buttons(tree)).toEqual(["Record", "Record Series"]);
     await press(tree, "Record");
     expect(fetchTimerDefaults).toHaveBeenCalledWith("p1");
@@ -116,29 +153,44 @@ describe("ProgramInfoScreen", () => {
     expect(buttons(tree)).toEqual(["Cancel Recording", "Record Series"]);
   });
 
-  it("cancels a timer and a series rule by their ids", async () => {
-    (fetchProgram as jest.Mock).mockResolvedValue(later);
+  it("cancels a timer by its id and offers to cancel its series rule", async () => {
     (fetchTimers as jest.Mock)
       .mockResolvedValueOnce([{ Id: "t2", Name: "Football Live", ProgramId: "p1", SeriesTimerId: "s1", StartDate: later.StartDate, EndDate: later.EndDate, Status: "New" }])
       .mockResolvedValue([]);
-    const tree = await mount();
+    const tree = await mount(later);
     expect(buttons(tree)).toEqual(["Cancel Recording", "Cancel Series"]);
     await press(tree, "Cancel Recording");
     expect(cancelTimer).toHaveBeenCalledWith("t2");
     expect(buttons(tree)).toEqual(["Record", "Record Series"]);
   });
 
-  it("stops an in-progress recording, then records the program again as a fresh timer", async () => {
-    (fetchProgram as jest.Mock).mockResolvedValue(airing);
+  it("stops an in-progress recording", async () => {
     (fetchTimers as jest.Mock)
       .mockResolvedValueOnce([{ Id: "t4", Name: "Football Live", ProgramId: "p1", StartDate: airing.StartDate, EndDate: airing.EndDate, Status: "InProgress" }])
-      .mockResolvedValueOnce([{ Id: "t4", Name: "Football Live", ProgramId: "p1", StartDate: airing.StartDate, EndDate: airing.EndDate, Status: "Completed" }]);
-    const tree = await mount();
+      .mockResolvedValue([]);
+    const tree = await mount(airing);
     expect(buttons(tree)).toEqual(["Watch", "Stop Recording", "Record Series"]);
     await press(tree, "Stop Recording");
     expect(cancelTimer).toHaveBeenCalledWith("t4");
     expect(buttons(tree)).toEqual(["Watch", "Record", "Record Series"]);
+  });
+
+  it("records a manual timer on a channel and toggles the channel favorite locally", async () => {
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    (fetchTimerDefaults as jest.Mock).mockResolvedValue({ PrePaddingSeconds: 0 });
+    const tree = await mount(channel);
+    expect(buttons(tree)).toEqual(["Watch", "Record"]);
     await press(tree, "Record");
-    expect(createTimer).toHaveBeenCalledWith({ ProgramId: "p1", Name: "Football Live" });
+    expect(fetchTimerDefaults).toHaveBeenCalledWith();
+    expect(createTimer).toHaveBeenCalledWith(expect.objectContaining({ ChannelId: "c1", Name: "One", PrePaddingSeconds: 0 }));
+
+    const row = tree.root.findByType(require("@/components/info-action-row").InfoActionRow);
+    expect(row.props.onToggleWatched).toBeUndefined();
+    expect(row.props.isFavorite).toBe(false);
+    await act(async () => {
+      await row.props.onToggleFavorite();
+    });
+    expect(isFavoriteChannel(getLiveTvPreferences(), channel)).toBe(true);
+    expect(tree.root.findByType(require("@/components/info-action-row").InfoActionRow).props.isFavorite).toBe(true);
   });
 });

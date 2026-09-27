@@ -3,7 +3,7 @@ import { COLORS } from "@/constants/colors";
 import React, { forwardRef } from "react";
 import { ActivityIndicator, Platform, Pressable, PressableProps, StyleSheet, Text, TextStyle, View, ViewStyle } from "react-native";
 
-export type ButtonVariant = "primary" | "secondary" | "destructive" | "debug" | "retry" | "link";
+export type ButtonVariant = "primary" | "secondary" | "record" | "destructive" | "debug" | "retry" | "link";
 
 /** Transparent ring the pill reserves so a focus border costs no layout shift. */
 export const BUTTON_BORDER_WIDTH = Platform.isTV ? 4 : 3;
@@ -52,6 +52,8 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       variant === "primary" && focused && styles.primaryButtonFocused,
       variant === "secondary" && styles.secondaryButton,
       variant === "secondary" && focused && styles.secondaryButtonFocused,
+      variant === "record" && styles.recordButton,
+      variant === "record" && focused && styles.recordButtonFocused,
       variant === "destructive" && styles.destructiveButton,
       variant === "destructive" && focused && styles.destructiveButtonFocused,
       variant === "debug" && styles.debugButton,
@@ -75,6 +77,7 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       // Variant-specific text styles
       variant === "primary" && styles.primaryButtonText,
       variant === "secondary" && styles.secondaryButtonText,
+      variant === "record" && styles.recordButtonText,
       variant === "destructive" && styles.destructiveButtonText,
       variant === "debug" && styles.debugButtonText,
       variant === "retry" && styles.retryButtonText,
@@ -110,7 +113,7 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       tvParallaxProperties={pressableProps.tvParallaxProperties ?? { magnification: 1.05, pressMagnification: 1.0 }}>
       <View style={styles.buttonContent}>
         {isLoading ? (
-          <ActivityIndicator color={variant === "primary" ? COLORS.ON_ACCENT : COLORS.ACCENT} size={"small"} />
+          <ActivityIndicator color={variant === "primary" ? COLORS.ON_ACCENT : variant === "record" ? COLORS.DESTRUCTIVE : COLORS.ACCENT} size={"small"} />
         ) : (
           <>
             {icon}
@@ -197,6 +200,22 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: COLORS.ACCENT,
+  },
+
+  // Record variant: the secondary outline in recording red
+  recordButton: {
+    backgroundColor: "transparent",
+    borderColor: COLORS.DESTRUCTIVE,
+  },
+  recordButtonFocused: {
+    backgroundColor: "rgba(255, 59, 48, 0.15)",
+    borderColor: COLORS.DESTRUCTIVE,
+    shadowColor: COLORS.DESTRUCTIVE,
+    shadowOpacity: 0.4,
+    elevation: 6,
+  },
+  recordButtonText: {
+    color: COLORS.DESTRUCTIVE,
   },
 
   // Destructive variant (Red text)

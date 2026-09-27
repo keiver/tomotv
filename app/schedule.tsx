@@ -97,7 +97,7 @@ export default function ScheduleScreen() {
   const handleTimerPress = useCallback(
     (timer: JellyfinTimer) => {
       if (!timer.ProgramId) return;
-      router.push({ pathname: "/program-info", params: { programId: timer.ProgramId, channelId: timer.ChannelId ?? "", channelName: timer.ChannelName ?? "" } });
+      router.push({ pathname: "/video-info", params: { videoId: timer.ProgramId, name: timer.Name } });
     },
     [router],
   );

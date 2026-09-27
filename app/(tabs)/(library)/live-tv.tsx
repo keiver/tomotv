@@ -5,7 +5,6 @@ import { GuideHud } from "@/components/live-tv/guide-hud";
 import { gridEdgePadding } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
-import { useChannelFavoriteMenu } from "@/hooks/useChannelFavoriteMenu";
 import { useGuide } from "@/hooks/useGuide";
 import { lastKnownTunerData } from "@/services/jellyfinApi";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -45,7 +44,6 @@ export default function LiveTvScreen() {
   }, []);
 
   const guide = useGuide();
-  const openFavoriteMenu = useChannelFavoriteMenu();
   const preferences = useLiveTvPreferences();
   // The Channels pill wears the filled filter symbol while a filter holds the channels.
   const filtered = preferences.filter !== "all";
@@ -80,10 +78,9 @@ export default function LiveTvScreen() {
   );
   const openProgram = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
-      // No-guide and external-guide cells are not server programs: the panel opens in
-      // channel mode and Record starts a manual timer.
+      // No-guide and external-guide cells are not server programs: the panel opens on the channel.
       const serverProgram = !!program.Id && !program.Id.startsWith(NO_GUIDE_PREFIX) && !program.Id.startsWith(EXTERNAL_GUIDE_PREFIX);
-      router.push({ pathname: "/program-info", params: { ...(serverProgram ? { programId: program.Id } : {}), channelId: channel.Id, channelName: channel.Name } });
+      router.push({ pathname: "/video-info", params: serverProgram ? { videoId: program.Id, name: program.Name } : { videoId: channel.Id, name: channel.Name } });
     },
     [router],
   );
@@ -97,6 +94,7 @@ export default function LiveTvScreen() {
     [guide.nowMs, tune, openProgram],
   );
   const handleChannelPress = useCallback((channel: JellyfinItem) => tune(channel.Id, channel.Name), [tune]);
+  const openChannel = useCallback((channel: JellyfinItem) => router.push({ pathname: "/video-info", params: { videoId: channel.Id, name: channel.Name } }), [router]);
   const openRecordings = useCallback(() => router.push("/recordings"), [router]);
   const openSchedule = useCallback(() => router.push("/schedule"), [router]);
   const openChannels = useCallback(() => router.push("/channels"), [router]);
@@ -166,7 +164,7 @@ export default function LiveTvScreen() {
             onProgramPress={handleProgramPress}
             onProgramLongPress={openProgram}
             onChannelPress={handleChannelPress}
-            onChannelLongPress={openFavoriteMenu}
+            onChannelLongPress={openChannel}
           />
         </View>
       </View>

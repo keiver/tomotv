@@ -5,6 +5,7 @@ import { PAD_SHEET_RATIO, PadSheet } from "@/components/pad-sheet";
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoActionRow } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
+import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
 import { LoadingRow } from "@/components/loading-row";
 import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
@@ -42,8 +43,14 @@ import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { useIsAdministrator } from "@/hooks/useIsAdministrator";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
+import { CATEGORY_LABELS } from "@/hooks/useChannelFilterChoices";
+import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { useRecordActions } from "@/hooks/useRecordActions";
+import { isFavoriteChannel, toggleFavoriteChannel } from "@/services/liveTvPreferences";
+import { formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
-import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
+import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, overviewParagraphs, streamDetailLine } from "@/utils/mediaInfo";
@@ -170,7 +177,7 @@ export default function VideoInfoScreen() {
       // predicting would stamp "Transcoded by the server" on a photo, a series
       // folder, or an item whose sources simply failed to load: three things
       // that are not a transcode.
-      if (!fetched.MediaStreams?.length) return;
+      if (!fetched.MediaStreams?.length || isLiveChannel(fetched)) return;
       // Separate from the load: the lane is one line of the panel, so a failed
       // prediction leaves that line off rather than blanking everything above it.
       try {
@@ -383,7 +390,33 @@ export default function VideoInfoScreen() {
   // photo album never offers to download a set the downloads screen could not play.
   const canDownloadFolder = isContainer && downloadsSupported() && !!mediaKinds && (mediaKinds.video || mediaKinds.audio);
   // Admins only; a channel is a tuner's listing, not a library file the server could delete.
-  const canDelete = isAdmin && !!details && !isLiveChannel(details);
+  // A guide programme or a channel: the panel tunes the channel and records instead.
+  const liveProgram = details?.Type === "Program" ? (details as unknown as JellyfinProgram) : null;
+  const liveChannel = !!details && isLiveChannel(details);
+  const live = !!liveProgram || liveChannel;
+  const liveChannelId = (liveProgram ? details?.ChannelId : liveChannel ? details?.Id : undefined) ?? "";
+  const liveChannelName = cleanLabel(liveProgram ? details?.ChannelName : liveChannel ? details?.Name : undefined);
+  const canManage = useLiveTvManagement(live);
+  const recording = useRecordActions(
+    live && canManage && liveChannelId ? { programId: liveProgram ? details?.Id : undefined, channelId: liveChannelId, channelName: liveChannelName, program: liveProgram } : null,
+  );
+  const recordTimer = recording.timer;
+  const channelFavorite = isFavoriteChannel(useLiveTvPreferences(), { Name: details?.Name ?? "", ChannelNumber: details?.ChannelNumber, Id: details?.Id });
+  const toggleChannelFavorite = useCallback(async (): Promise<boolean> => {
+    if (!details) return false;
+    toggleFavoriteChannel(details);
+    return true;
+  }, [details]);
+  const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);
+  const watchable = !!liveChannelId && (liveChannel || programAiring);
+  const handleWatch = useCallback(() => {
+    if (!liveChannelId) return;
+    showGlobalLoader();
+    const destination = { pathname: "/player" as const, params: { videoId: liveChannelId, videoName: liveChannelName, live: "1" } };
+    if (IS_TV) router.push(destination);
+    else router.replace(destination);
+  }, [liveChannelId, liveChannelName, router, showGlobalLoader]);
+  const canDelete = isAdmin && !!details && !live;
 
   // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
   // holding several, each one names its own set. A folder with nothing playable keeps the
@@ -403,7 +436,11 @@ export default function VideoInfoScreen() {
   // The index tail is the same string on both branches, and the same call the cards
   // badge from: an episode's "S01E05", a song's "Disc 2 · Track 5".
   const indexLine = details ? formatIndexLine(details) : "";
-  const contextLine = details ? cleanLabel(photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album, indexLine]) : joinMeta([details.SeriesName, indexLine])) : "";
+  const contextLine = liveProgram
+    ? cleanLabel(liveProgram.EpisodeTitle)
+    : details
+      ? cleanLabel(photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album, indexLine]) : joinMeta([details.SeriesName, indexLine]))
+      : "";
   const year = details?.ProductionYear ? String(details.ProductionYear) : "";
   const genresLine = details?.Genres?.length ? details.Genres.join(" · ") : "";
   const recordingNow = details?.Type === "Recording" && details.Status === "InProgress" && !stopped;
@@ -413,19 +450,27 @@ export default function VideoInfoScreen() {
   // A photo has none of the fields the meta line is built from. Its pixel count
   // is the one headline fact it does have, so it takes the runtime's place; the
   // dates and the rest live in the Details table.
+  const liveCategory = liveProgram ? programCategory(liveProgram) : null;
+  const liveTimes = liveProgram ? programTimes(liveProgram) : null;
   const metaLine = !details
     ? ""
-    : photo
-      ? formatPixelSize(details.Width, details.Height)
-      : joinMeta([
-          genresLine,
-          year,
-          // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.
-          details.RunTimeTicks && !book ? formatDuration(details.RunTimeTicks) : recordingTicks ? formatDuration(recordingTicks) : "",
-          details.OfficialRating,
-          details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
-          details.CriticRating ? t("info.percentCritics").replace("{percent}", String(Math.round(details.CriticRating))) : "",
-        ]);
+    : liveProgram && liveTimes
+      ? joinMeta([
+          liveChannelName,
+          `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(liveTimes.startMs)} to ${formatClock(liveTimes.endMs)}`,
+          liveCategory ? CATEGORY_LABELS[liveCategory]() : "",
+        ])
+      : photo
+        ? formatPixelSize(details.Width, details.Height)
+        : joinMeta([
+            genresLine,
+            year,
+            // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.
+            details.RunTimeTicks && !book ? formatDuration(details.RunTimeTicks) : recordingTicks ? formatDuration(recordingTicks) : "",
+            details.OfficialRating,
+            details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
+            details.CriticRating ? t("info.percentCritics").replace("{percent}", String(Math.round(details.CriticRating))) : "",
+          ]);
   const tagline = cleanLabel(details?.Taglines?.[0]) || undefined;
   const studiosLine = details?.Studios?.length ? details.Studios.map((studio) => cleanLabel(studio.Name)).join(" · ") : "";
   const people = details?.People?.slice(0, IS_TV ? 6 : 15) ?? [];
@@ -456,7 +501,7 @@ export default function VideoInfoScreen() {
   // The lane needs SecureStore and a native probe, so it lands after the panel paints. The row
   // holds its line from the first frame and the CTAs below it never move. Streams are what the
   // load effect gates the prediction on, so nothing else reserves a line it will never use.
-  const lanePending = !laneSettled && !!details?.MediaStreams?.length;
+  const lanePending = !laneSettled && !!details?.MediaStreams?.length && !live;
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
   const poster = useItemPoster(details, IS_TV ? 600 : 300);
@@ -536,6 +581,43 @@ export default function VideoInfoScreen() {
               onPress={handleOpenFolder}
             />
           )
+        ) : live ? (
+          <>
+            {watchable && (
+              <FocusableButton title={t("liveTv.watch")} variant="primary" hasTVPreferredFocus icon={<Ionicons name="play" size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />} onPress={handleWatch} />
+            )}
+            {recordTimer === undefined ? null : recordTimer ? (
+              <FocusableButton
+                title={recordTimer.Status === "InProgress" ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
+                variant="record"
+                hasTVPreferredFocus={!watchable}
+                isLoading={recording.busy === "cancel"}
+                disabled={recording.busy !== null}
+                icon={<Ionicons name={recordTimer.Status === "InProgress" ? "stop-circle-outline" : "close-circle-outline"} size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+                onPress={recording.cancel}
+              />
+            ) : (
+              <FocusableButton
+                title={t("liveTv.record")}
+                variant="record"
+                hasTVPreferredFocus={!watchable}
+                isLoading={recording.busy === "record"}
+                disabled={recording.busy !== null}
+                icon={<Ionicons name="radio-button-on" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+                onPress={recording.record}
+              />
+            )}
+            {recordTimer !== undefined && liveProgram?.IsSeries && (
+              <FocusableButton
+                title={recordTimer?.SeriesTimerId ? t("liveTv.cancelSeries") : t("liveTv.recordSeries")}
+                variant="secondary"
+                isLoading={recording.busy === (recordTimer?.SeriesTimerId ? "cancelSeries" : "series")}
+                disabled={recording.busy !== null}
+                icon={<Ionicons name="repeat" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
+                onPress={recordTimer?.SeriesTimerId ? recording.cancelSeries : recording.recordSeries}
+              />
+            )}
+          </>
         ) : (
           <ProgressButton
             title={
@@ -568,7 +650,7 @@ export default function VideoInfoScreen() {
             isLoading={sharing}
           />
         )}
-        {!!folderLeafId && folderLeafId !== params.inFolderId && (
+        {!live && !!folderLeafId && folderLeafId !== params.inFolderId && (
           <FocusableButton title={t("info.showInFolder")} variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
         )}
         {/* Containers only: a leaf has the download circle in the action row below. "All" in
@@ -594,7 +676,14 @@ export default function VideoInfoScreen() {
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
           is not a flag either: Folder.MarkPlayed sweeps every descendant and resets each
           resume position, which no card here could state. */}
-      {!isContainer && !photo && (
+      {liveChannel && (
+        <View style={styles.actionRow}>
+          <InfoActionRow isFavorite={channelFavorite} cleared={false} onToggleFavorite={toggleChannelFavorite} />
+          <Text style={styles.sectionHeading}>{t("liveTv.groups")}</Text>
+          <ChannelGroupSection channel={details} />
+        </View>
+      )}
+      {!isContainer && !photo && !live && (
         <View style={styles.actionRow}>
           <InfoActionRow
             isFavorite={isFavorite}
@@ -765,10 +854,12 @@ export default function VideoInfoScreen() {
       </View>
       <View style={IS_TV ? styles.tvPad : { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
-        {recordingNow && (
+        {(recordingNow || !!recordTimer) && (
           <View style={[styles.laneRow, styles.laneBlock]}>
             <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
-            <Text style={styles.recordingNowText}>{t("liveTv.recordingNow")}</Text>
+            <Text style={styles.recordingNowText}>
+              {recordingNow || recordTimer?.Status === "InProgress" ? t("liveTv.recordingNow") : recordTimer?.SeriesTimerId ? t("liveTv.seriesRules") : t("liveTv.record")}
+            </Text>
           </View>
         )}
         {(!!laneLabel || lanePending) && (
@@ -945,7 +1036,7 @@ const styles = StyleSheet.create({
     height: IS_TV ? 10 : 7,
     borderRadius: 999,
   },
-  // The live-recording tag, in program-info's colors on this panel's lane-row frame.
+  // The live-recording tag on the lane-row frame.
   recordingNowText: {
     fontSize: IS_TV ? 21 : 13,
     fontWeight: "700",

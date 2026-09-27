@@ -15,12 +15,13 @@ const MESSAGE_MS = 2200;
 
 interface InfoActionRowProps {
   isFavorite: boolean;
-  isPlayed: boolean;
+  isPlayed?: boolean;
   /** Progress was cleared while this panel has been open, so the snapshot is still restorable. */
   cleared: boolean;
   /** Resolve false when the write did not land, so the caption reports what happened. */
   onToggleFavorite: () => Promise<boolean>;
-  onToggleWatched: () => Promise<boolean>;
+  /** Omit where an item has no watched state (live channels); the circle goes with it. */
+  onToggleWatched?: () => Promise<boolean>;
   /** Omit when the item has nothing to clear, the third circle disappears with it. */
   onToggleProgress?: () => boolean;
   /** Omit where a download cannot exist (Apple TV, containers, photos); the circle goes with it. */
@@ -59,7 +60,7 @@ const downloadCopy = (): Record<DownloadCircleState, { label: string; done: stri
  */
 type ActionKey = "favorite" | "watched" | "progress" | "download" | "stop";
 
-export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite, onToggleWatched, onToggleProgress, downloadState, onToggleDownload, onStopRecording }: InfoActionRowProps) {
+export function InfoActionRow({ isFavorite, isPlayed = false, cleared, onToggleFavorite, onToggleWatched, onToggleProgress, downloadState, onToggleDownload, onStopRecording }: InfoActionRowProps) {
   // Which circle holds focus, never the label itself: tvOS fires the outgoing blur AFTER the
   // incoming focus, so a shared string gets wiped by the button focus just left.
   const [focused, setFocused] = useState<ActionKey | null>(null);
@@ -139,16 +140,18 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
           onBlur={() => blur("favorite")}
           onPress={press(onToggleFavorite, isFavorite ? t("info.removedFavorite") : t("info.addedFavorite"))}
         />
-        <GlassButton
-          variant="link"
-          style={circleStyle(isPlayed, "watched")}
-          icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={ICON} color={iconColor(isPlayed, "watched")} />}
-          accessibilityLabel={watchedLabel}
-          accessibilityState={{ selected: isPlayed }}
-          onFocus={() => setFocused("watched")}
-          onBlur={() => blur("watched")}
-          onPress={press(onToggleWatched, isPlayed ? t("info.markedUnwatched") : t("info.markedWatched"))}
-        />
+        {!!onToggleWatched && (
+          <GlassButton
+            variant="link"
+            style={circleStyle(isPlayed, "watched")}
+            icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={ICON} color={iconColor(isPlayed, "watched")} />}
+            accessibilityLabel={watchedLabel}
+            accessibilityState={{ selected: isPlayed }}
+            onFocus={() => setFocused("watched")}
+            onBlur={() => blur("watched")}
+            onPress={press(onToggleWatched, isPlayed ? t("info.markedUnwatched") : t("info.markedWatched"))}
+          />
+        )}
         {!!onToggleProgress && (
           // Always lit: this circle renders only when there is progress to act on, so a dim rest
           // state would read as disabled. The fill is the mark, standing until the position goes.

@@ -8,7 +8,7 @@ import { settingsStyles } from "@/components/settings/styles";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
-import { useChannelFavoriteMenu } from "@/hooks/useChannelFavoriteMenu";
+import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useChannelFilterPicker } from "@/hooks/useChannelFilterPicker";
 import { useChannels } from "@/hooks/useChannels";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -94,11 +94,9 @@ export default function ChannelsScreen() {
   // A search result follows the guide's rule: a channel or airing programme tunes, a later one opens its panel.
   const openResult = useOpenShelfItem();
   const openSettings = useCallback(() => router.push("/channel-settings"), [router]);
-  const openFavoriteMenu = useChannelFavoriteMenu();
-  // A held search result: channels get the same favorite menu as the wall; programmes carry
-  // no channel identity the favorites list could match, so a hold on one does nothing.
-  const openResultMenu = useCallback((item: JellyfinItem) => (item.Type === "TvChannel" ? openFavoriteMenu(item) : undefined), [openFavoriteMenu]);
-  // Reread on every return: the program panel and the player start and stop recordings.
+  // A held channel or search result opens the info panel.
+  const openInfoPanel = useItemLongPress();
+  // Reread on every return: the info panel and the player start and stop recordings.
   const isFocused = useIsFocused();
   const [timers, setTimers] = useState<JellyfinTimer[]>([]);
   useEffect(() => {
@@ -211,7 +209,7 @@ export default function ChannelsScreen() {
           hasMoreResults={!searching && hasMore}
           error={searching ? null : error}
           onItemPress={searching ? openResult : tune}
-          onItemLongPress={searching ? openResultMenu : openFavoriteMenu}
+          onItemLongPress={openInfoPanel}
           onLoadMore={loadMore}
           onRetry={retry}
           crumbs={crumbs}

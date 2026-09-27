@@ -112,7 +112,7 @@ export default function RootLayout() {
     return navigationRef.addListener("state", () => {
       // Cast: no ReactNavigation.RootParamList is declared, so the return type is `never`.
       const route = (navigationRef.getCurrentRoute() as { name?: string } | undefined)?.name;
-      if (route === "player" || route === "audio-player" || route === "video-info" || route === "program-info") return;
+      if (route === "player" || route === "audio-player" || route === "video-info") return;
       nudgeBitrateMemory();
     });
   }, [navigationRef]);
@@ -234,17 +234,7 @@ export default function RootLayout() {
                               : { headerShown: false, presentation: "modal" }
                         }
                       />
-                      {/* The guide's program panel: a card sized to its content over the screen's own backdrop
-                      (centred on iPad, on the bottom edge on iPhone), a floating card on TV. */}
-                      <Stack.Screen
-                        name="program-info"
-                        options={
-                          Platform.isTV
-                            ? { headerShown: false, animation: "fade" }
-                            : { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
-                        }
-                      />
-                      {/* The guide's Recordings, Channels and Schedule: TV crossfades like program-info, phone
+                      {/* The guide's Recordings, Channels and Schedule: TV crossfades like video-info, phone
                       pushes under a transparent native bar whose back chevron returns to the guide. */}
                       <Stack.Screen
                         name="recordings"

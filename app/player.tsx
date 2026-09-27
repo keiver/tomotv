@@ -497,7 +497,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     return subscribeLiveTvPreferences(compute);
   }, [isLiveChannel, channelRing, videoId]);
 
-  // tvOS transport bar record button, program-info's flow on the airing program:
+  // tvOS transport bar record button, the info panel's flow on the airing program:
   // record the channel's CurrentProgram, or cancel/stop its active timer. Shown
   // only with the recording permission and a known timer state.
   const [canRecord, setCanRecord] = useState(false);
