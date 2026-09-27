@@ -1,4 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { DurationChips } from "@/components/settings/DurationChips";
+import { DurationSlider } from "@/components/settings/DurationSlider";
 import { GuideUrlRow } from "@/components/settings/GuideUrlRow";
 import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
@@ -26,6 +28,8 @@ function tick({ color }: { color: string }) {
 function minutesLabel(minutes: number): string {
   return minutes < 60 ? `${minutes}m` : `${minutes / 60}h`;
 }
+
+const recordingOptions = RECORDING_MINUTES_OPTIONS.map((minutes) => ({ value: minutes, label: minutesLabel(minutes) }));
 
 /** The channel wall's choices, sunken lists of large rows. A root route: Menu pops it, every press applies at once. */
 export default function ChannelSettingsScreen() {
@@ -97,16 +101,11 @@ export default function ChannelSettingsScreen() {
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.recordingLength")}</Text>
           </View>
           <View style={settingsStyles.section}>
-            {RECORDING_MINUTES_OPTIONS.map((minutes, index) => (
-              <ListRow
-                key={minutes}
-                icon="recording-outline"
-                title={minutesLabel(minutes)}
-                trailingIcon={preferences.recordingMinutes === minutes ? tick : undefined}
-                onPress={() => pickRecordingMinutes(minutes)}
-                isFirst={index === 0}
-              />
-            ))}
+            {IS_TV ? (
+              <DurationChips options={recordingOptions} selected={preferences.recordingMinutes} onSelect={pickRecordingMinutes} />
+            ) : (
+              <DurationSlider options={recordingOptions} selected={preferences.recordingMinutes} onSelect={pickRecordingMinutes} />
+            )}
             <SectionFooter>
               <Text style={settingsStyles.sectionNote}>{t("liveTv.recordingLengthHint")}</Text>
             </SectionFooter>

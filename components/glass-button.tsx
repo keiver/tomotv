@@ -13,10 +13,13 @@ const TINT_FOCUSED = "rgba(255, 195, 18, 0.4)";
 /** No focus lift inside glass: a scaled pill grows with its width, so the rim stops being concentric. */
 export const GLASS_PILL_PARALLAX = { magnification: 1.0, pressMagnification: 1.0 };
 
-type GlassButtonProps = Omit<ComponentProps<typeof FocusableButton>, "ref" | "tvParallaxProperties">;
+type GlassButtonProps = Omit<ComponentProps<typeof FocusableButton>, "ref" | "tvParallaxProperties"> & {
+  /** A chosen toggle wears the focus tint at rest (the duration chips). */
+  selected?: boolean;
+};
 
 /** CTA: a compact FocusableButton pill inside a glass capsule, the tab bar's shape. */
-export const GlassButton = forwardRef<View, GlassButtonProps>(function GlassButton({ variant = "link", style, textStyle, icon, onFocus, onBlur, ...buttonProps }, ref) {
+export const GlassButton = forwardRef<View, GlassButtonProps>(function GlassButton({ variant = "link", style, textStyle, icon, onFocus, onBlur, selected = false, ...buttonProps }, ref) {
   const [focused, setFocused] = useState(false);
   // Focus turns the glyph white; the icon carries its own resting color prop.
   const focusedIcon = focused && React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<{ color?: string }>, { color: "#FFFFFF" }) : icon;
@@ -32,7 +35,7 @@ export const GlassButton = forwardRef<View, GlassButtonProps>(function GlassButt
     onBlur?.(e);
   };
   return (
-    <GlassSurface style={styles.capsule} radius={pillHeight / 2 + CAPSULE_PADDING} tintColor={focused ? TINT_FOCUSED : TINT_REST}>
+    <GlassSurface style={styles.capsule} radius={pillHeight / 2 + CAPSULE_PADDING} tintColor={focused || selected ? TINT_FOCUSED : TINT_REST}>
       <FocusableButton
         ref={ref}
         variant={variant}
@@ -61,6 +64,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 22,
+    fontWeight: "700",
   },
   textFocused: {
     color: "#FFFFFF",
