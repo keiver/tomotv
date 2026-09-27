@@ -244,34 +244,6 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
 
-  // The HUD stays mounted through every branch: an empty pick must keep the group cells (and the
-  // focus sitting on one) so the viewer can pick their way back out.
-  if (error && rows.length === 0) {
-    return (
-      <View style={styles.canvas}>
-        {hudRow}
-        <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
-          <Text style={styles.errorText}>{error}</Text>
-          <FocusableButton title={t("common.retry")} variant="primary" onPress={retry} hasTVPreferredFocus icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} />
-        </View>
-      </View>
-    );
-  }
-  // While loading, the empty grid renders as the skeleton the arriving rows fill in.
-  if (!isLoading && rows.length === 0) {
-    return (
-      <View style={styles.canvas}>
-        {hudRow}
-        <View style={styles.center}>
-          <Ionicons name="tv-outline" size={64} color={COLORS.TEXT_SECONDARY} />
-          <Text style={styles.emptyText}>{t("liveTv.noChannels")}</Text>
-        </View>
-      </View>
-    );
-  }
-
-  const listHeight = Math.max(0, canvasHeight);
   const corner = (
     <Animated.View style={[styles.corner, { height: METRICS.rulerHeight }, cornerWidthStyle]}>
       <Text style={styles.cornerLabel} numberOfLines={1}>
@@ -279,23 +251,60 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       </Text>
     </Animated.View>
   );
+  // The ruler band: the corner cell, then the ruler mirroring the rows' horizontal scroll.
+  const rulerRow = (
+    <View style={[styles.topRow, { height: METRICS.rulerHeight }]}>
+      {IS_TV ? (
+        corner
+      ) : (
+        <GestureHandlerRootView style={styles.cornerHost}>
+          <GestureDetector gesture={resize.corner}>{corner}</GestureDetector>
+        </GestureHandlerRootView>
+      )}
+      <View style={styles.rulerClip}>
+        <Animated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
+          <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
+        </Animated.View>
+      </View>
+    </View>
+  );
+  const seamMark = <GuideSeamMark columnW={columnW} scrollX={scrollX} isHour={new Date(windowStartMs).getMinutes() === 0} height={METRICS.rulerHeight - 1} />;
+
+  // The ruler and HUD stay mounted through every branch: an empty pick must keep the group cells (and
+  // the focus sitting on one) so the viewer can pick their way back out, and the band must not reflow.
+  if (error && rows.length === 0) {
+    return (
+      <View style={styles.canvas}>
+        {rulerRow}
+        {hudRow}
+        <View style={styles.center}>
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
+          <Text style={styles.errorText}>{error}</Text>
+          <FocusableButton title={t("common.retry")} variant="primary" onPress={retry} hasTVPreferredFocus icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} />
+        </View>
+        {seamMark}
+      </View>
+    );
+  }
+  // While loading, the empty grid renders as the skeleton the arriving rows fill in.
+  if (!isLoading && rows.length === 0) {
+    return (
+      <View style={styles.canvas}>
+        {rulerRow}
+        {hudRow}
+        <View style={styles.center}>
+          <Ionicons name="tv-outline" size={64} color={COLORS.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>{t("liveTv.noChannels")}</Text>
+        </View>
+        {seamMark}
+      </View>
+    );
+  }
+
+  const listHeight = Math.max(0, canvasHeight);
   return (
     <View style={styles.canvas} onLayout={handleGuideLayout}>
-      {/* The ruler band: the corner cell, then the ruler mirroring the rows' horizontal scroll. */}
-      <View style={[styles.topRow, { height: METRICS.rulerHeight }]}>
-        {IS_TV ? (
-          corner
-        ) : (
-          <GestureHandlerRootView style={styles.cornerHost}>
-            <GestureDetector gesture={resize.corner}>{corner}</GestureDetector>
-          </GestureHandlerRootView>
-        )}
-        <View style={styles.rulerClip}>
-          <Animated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
-            <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
-          </Animated.View>
-        </View>
-      </View>
+      {rulerRow}
       {hudRow}
       {/* Only over the cells, so Up from the channel column still reaches the corner actions;
           only with a destination, an empty guide would catch presses and trap them. */}
@@ -366,7 +375,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
         />
       )}
       {/* After the divider: the red mark sits on top of the seam line. */}
-      <GuideSeamMark columnW={columnW} scrollX={scrollX} isHour={new Date(windowStartMs).getMinutes() === 0} height={METRICS.rulerHeight - 1} />
+      {seamMark}
     </View>
   );
 }
