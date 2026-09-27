@@ -16,6 +16,12 @@ const ACTIVE_OPACITY = 0.92;
 const TEXT_SHADOW = { textShadowColor: "rgba(0, 0, 0, 0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: IS_TV ? 4 : 3 } as const;
 /** The strip runs out through this, film trailing off the spool. */
 const TAIL_FADE = "linear-gradient(to right, rgba(28, 28, 30, 0) 70%, rgba(28, 28, 30, 0.9) 100%)";
+const TAIL_FADE_COMPACT = "linear-gradient(to right, rgba(44, 44, 46, 0) 70%, rgba(44, 44, 46, 0.9) 100%)";
+/** A strip longer than its cell runs out at the cell's edge, into the cell's own colour. */
+const CUT_FADE = "linear-gradient(to right, rgba(28, 28, 30, 0) 0%, " + COLORS.SURFACE_SUNKEN + " 100%)";
+const CUT_FADE_COMPACT = "linear-gradient(to right, rgba(44, 44, 46, 0) 0%, " + COLORS.SURFACE + " 100%)";
+const PAD_LEFT = IS_TV ? 16 : 10;
+const GAP = 2;
 
 interface GuideFocusReelProps {
   channelId: string;
@@ -66,6 +72,8 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, ac
   if (!reel || reel.frames.length === 0) return null;
   const tileHeight = Math.round(cellHeight * (compact ? 0.42 : IS_TV ? 0.55 : 0.5));
   const tileWidth = Math.round(tileHeight * (16 / 9));
+  const room = Math.max(0, width - PAD_LEFT);
+  const cut = reel.frames.length * (tileWidth + GAP) - GAP > room;
   return (
     <Animated.View style={[styles.reel, pinStyle]} onLayout={handleLayout} pointerEvents="none" testID="guide-focus-reel">
       {compact ? null : (
@@ -73,11 +81,17 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, ac
           {t("liveTv.lastSeen").replace("{time}", formatClock(reel.at))}
         </Animated.Text>
       )}
-      <View style={styles.strip}>
+      <View style={[styles.strip, cut && { width: room, overflow: "hidden" }]}>
         {reel.frames.map((frame, index) => (
           <Tile key={frame.cacheKey} uri={frame.uri} cacheKey={frame.cacheKey} index={index} width={tileWidth} height={tileHeight} active={active} />
         ))}
-        <View style={styles.tailFade} />
+        <View
+          style={
+            cut
+              ? [styles.cutFade, { width: Math.min(tileWidth, room), experimental_backgroundImage: compact ? CUT_FADE_COMPACT : CUT_FADE }]
+              : [styles.tailFade, compact && { experimental_backgroundImage: TAIL_FADE_COMPACT }]
+          }
+        />
       </View>
     </Animated.View>
   );
@@ -90,7 +104,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignSelf: "flex-start",
     justifyContent: "flex-end",
-    paddingLeft: IS_TV ? 16 : 10,
+    paddingLeft: PAD_LEFT,
     paddingBottom: IS_TV ? 12 : 6,
   },
   // The programme cell's second row: its subtitle face.
@@ -102,7 +116,7 @@ const styles = StyleSheet.create({
   },
   strip: {
     flexDirection: "row",
-    gap: 2,
+    gap: GAP,
   },
   tile: {
     overflow: "hidden",
@@ -120,5 +134,11 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: "22%",
     experimental_backgroundImage: TAIL_FADE,
+  },
+  cutFade: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
   },
 });
