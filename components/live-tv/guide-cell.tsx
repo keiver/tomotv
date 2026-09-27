@@ -118,13 +118,13 @@ function GuideCellComponent({
         </View>
       ) : null}
       {/* A stand-in row wears its reel whenever a burst exists, resting faded and brightening
-          on the row's focus. An artless programme gets the compact strip on focus alone, and
+          on the row's focus. A programme, art or not, gets the compact strip on focus alone, and
           only while it airs: sampled history under a future slot would lie. */}
       {standInChannel ? (
         <View style={styles.reelClip} pointerEvents="none">
           <GuideFocusReel channelId={standInChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} active={focused || cardFocused} />
         </View>
-      ) : (focused || cardFocused) && !art && program.ChannelId && startMs <= nowMs && nowMs < endMs ? (
+      ) : (focused || cardFocused) && program.ChannelId && startMs <= nowMs && nowMs < endMs ? (
         <View style={styles.reelClip} pointerEvents="none">
           <GuideFocusReel channelId={program.ChannelId} left={left} width={width} cellHeight={height} scrollX={scrollX} active compact />
         </View>

@@ -6,6 +6,8 @@ import { guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `poster:${id}`, getCachedConfig: () => ({ server: "http://jf" }) }));
+let mockReel: { frames: { uri: string; cacheKey: string }[]; at: number } | undefined;
+jest.mock("@/services/liveFrames", () => ({ liveFrameReel: () => mockReel, subscribeLiveFrame: () => () => undefined }));
 jest.mock("expo-image", () => ({ Image: (props: { testID?: string }) => require("react").createElement("Image", props) }));
 
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -26,6 +28,10 @@ const texts = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByType(
 const testIds = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => typeof node.props.testID === "string").map((node) => node.props.testID as string);
 
 describe("GuideCell", () => {
+  afterEach(() => {
+    mockReel = undefined;
+  });
+
   it("shows the title, episode and the slot line", () => {
     const shown = texts(render());
     expect(shown).toEqual(expect.arrayContaining(["Evening News", "Episode 9"]));
@@ -47,6 +53,20 @@ describe("GuideCell", () => {
   it("keys the art by its image tag, so a refreshed guide image replaces the cached one", () => {
     const artKey = (tag: string) => render({ program: { ...program, Id: "p4", ImageTags: { Primary: tag } } }).root.findByType("Image" as never).props.source.cacheKey;
     expect(artKey("old")).not.toEqual(artKey("new"));
+  });
+
+  it("unrolls the reel on focus of an airing programme, poster or not, and never under a future slot", () => {
+    mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
+    const focusedIds = (overrides: Partial<React.ComponentProps<typeof GuideCell>>) => {
+      const tree = render(overrides);
+      act(() => tree.root.findByProps({ accessibilityRole: "button" }).props.onFocus());
+      return testIds(tree);
+    };
+    const airing = { ...program, Id: "p5", ChannelId: "c1" };
+    expect(focusedIds({ program: airing })).toContain("guide-focus-reel");
+    const withPoster = focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } } });
+    expect(withPoster).toEqual(expect.arrayContaining(["guide-cell-art", "guide-focus-reel"]));
+    expect(focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } }, nowMs: T0 - MINUTE_MS })).not.toContain("guide-focus-reel");
   });
 
   it("marks a recording with the dot and a series rule with the repeat glyph", () => {
