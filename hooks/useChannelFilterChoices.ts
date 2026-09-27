@@ -2,6 +2,7 @@ import { useLiveTvCategories } from "@/hooks/useLiveTvCategories";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useTunerGroups } from "@/hooks/useTunerGroups";
 import { t } from "@/services/i18n";
+import { lastKnownTunerData } from "@/services/jellyfinApi";
 import { activePlaylistGroup, type ChannelFilter, type LiveTvCategory } from "@/services/liveTvPreferences";
 import { useMemo } from "react";
 
@@ -31,9 +32,10 @@ export function useChannelFilterChoices(): ChannelFilterChoice[] {
     if (favorites.length > 0 || filter === "favorites") choices.push({ filter: "favorites", label: t("library.favorites") });
     choices.push({ filter: "all", label: t("liveTv.groupAll") });
     for (const group of groups) choices.push({ filter: `group:${group.id}`, label: group.name });
-    // The picked group holds its slot until the groups arrive; a dead pick then resets to All (usePlaylistChannelIds).
+    // The picked group holds its slot until a read of every tuner drops it; a dead pick then resets to All (usePlaylistChannelIds).
     const picked = activePlaylistGroup(filter);
-    if (picked !== null && playlistGroups === null) choices.push({ filter, label: picked });
+    const unconfirmed = playlistGroups === null || (lastKnownTunerData()?.complete !== true && !playlistGroups.some((group) => group.name === picked));
+    if (picked !== null && unconfirmed) choices.push({ filter, label: picked });
     for (const group of playlistGroups ?? []) choices.push({ filter: `playlist:${group.name}`, label: group.name });
     for (const category of categories) choices.push({ filter: `category:${category}`, label: CATEGORY_LABELS[category]() });
     return choices;

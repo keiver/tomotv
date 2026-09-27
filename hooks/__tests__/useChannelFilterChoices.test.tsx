@@ -9,7 +9,9 @@ let mockTunerGroups: { name: string; channelIds: string[] }[] | null = null;
 
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => mockPreferences }));
 jest.mock("@/hooks/useLiveTvCategories", () => ({ useLiveTvCategories: () => mockCategories }));
+let mockComplete = true;
 jest.mock("@/hooks/useTunerGroups", () => ({ useTunerGroups: () => mockTunerGroups }));
+jest.mock("@/services/jellyfinApi", () => ({ lastKnownTunerData: () => (mockTunerGroups ? { complete: mockComplete } : null) }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 
 type Choices = ReturnType<typeof useChannelFilterChoices>;
@@ -35,6 +37,7 @@ describe("useChannelFilterChoices", () => {
     mockPreferences = { favorites: [], groups: [], filter: "all" };
     mockCategories = [];
     mockTunerGroups = null;
+    mockComplete = true;
   });
 
   it("lists custom groups, then playlist groups, then categories after All", () => {
@@ -56,6 +59,9 @@ describe("useChannelFilterChoices", () => {
     // Loaded without it: the dead pick is gone (usePlaylistChannelIds resets the filter).
     mockTunerGroups = [];
     expect(render().map((choice) => choice.filter)).toEqual(["all"]);
+    // A partial read without it proves nothing: the pick keeps its slot.
+    mockComplete = false;
+    expect(render().map((choice) => choice.filter)).toEqual(["all", "playlist:News"]);
   });
 
   it("shows Favorites while it is picked even with no favorite left", () => {

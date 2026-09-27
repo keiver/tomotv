@@ -4,7 +4,7 @@
  * parses it and computes the item id the server gave every entry.
  */
 import { cancelTunerGroups, isLiveSourcesAvailable, loadTunerPlaylist, type TunerGroup } from "@/services/liveSources";
-import { cachedRequest } from "@/services/requestCache";
+import { cachedRequest, invalidateRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
@@ -19,6 +19,8 @@ export interface TunerData {
   tvgById: Record<string, string>;
   /** http(s) guide URLs the playlists declare (x-tvg-url / url-tvg), deduped in order. */
   tvgUrls: string[];
+  /** Every tuner answered: only then may a group missing from `groups` be treated as gone. */
+  complete: boolean;
 }
 
 interface TunerHost {
@@ -31,12 +33,14 @@ const TUNER_GROUPS_TTL_MS = 60 * 60 * 1000;
 /** A failed read is not retried before this passes, or every screen mount re-streams the playlists. */
 const TUNER_GROUPS_FAILURE_TTL_MS = 5 * 60 * 1000;
 
-const NO_DATA: TunerData = { groups: [], tvgById: {}, tvgUrls: [] };
+const NO_DATA: TunerData = { groups: [], tvgById: {}, tvgUrls: [], complete: false };
 const failedAt = new Map<string, number>();
 /** The last successful read per key: a failed refetch serves this instead of nothing. */
 const lastGood = new Map<string, TunerData>();
 let latest: TunerData | null = null;
 let requestSeq = 0;
+/** Bumped by reset, so a read that outlived a server switch writes nothing back. */
+let generation = 0;
 
 /** The most recent successful read, if any: what a screen shows while a refetch fails. */
 export function lastKnownTunerData(): TunerData | null {
@@ -45,9 +49,27 @@ export function lastKnownTunerData(): TunerData | null {
 
 /** Forgets every read; sign-out and server switches call it so nothing crosses servers. */
 export function resetTunerCache(): void {
+  generation += 1;
   failedAt.clear();
   lastGood.clear();
   latest = null;
+}
+
+/** A partial read keeps what the refusing tuners contributed last time. */
+function withLastGood(fresh: TunerData, kept: TunerData | undefined): TunerData {
+  if (!kept) return fresh;
+  const groups = new Map(kept.groups.map((group) => [group.name, new Set(group.channelIds)]));
+  for (const group of fresh.groups) {
+    const ids = groups.get(group.name) ?? new Set<string>();
+    for (const id of group.channelIds) ids.add(id);
+    groups.set(group.name, ids);
+  }
+  return {
+    groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })),
+    tvgById: { ...kept.tvgById, ...fresh.tvgById },
+    tvgUrls: [...new Set([...fresh.tvgUrls, ...kept.tvgUrls])],
+    complete: false,
+  };
 }
 
 /** The server's http(s) M3U tuners read in one pass: groups and tvg-ids together. */
@@ -58,8 +80,9 @@ export async function fetchTunerData(): Promise<TunerData> {
   const key = `tunerGroups:${config.server}:${config.userId}`;
   const failed = failedAt.get(key);
   if (failed !== undefined && Date.now() - failed < TUNER_GROUPS_FAILURE_TTL_MS) return lastGood.get(key) ?? NO_DATA;
+  const gen = generation;
   try {
-    return await cachedRequest(
+    const data = await cachedRequest(
       key,
       async () => {
         const response = await fetchWithTimeout(
@@ -94,15 +117,22 @@ export async function fetchTunerData(): Promise<TunerData> {
         // Every tuner refused (a busy single-connection tuner does, while a channel streams): a
         // failure, never an empty success that would overwrite lastGood and kill the group filter.
         if (tuners.length > 0 && failures === tuners.length) throw lastFailure;
-        failedAt.delete(key);
-        const data = { groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })), tvgById, tvgUrls };
+        const fresh: TunerData = { groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })), tvgById, tvgUrls, complete: failures === 0 };
+        const data = fresh.complete ? fresh : withLastGood(fresh, lastGood.get(key));
+        if (gen !== generation) return data;
+        // A partial read is retried after the failure window, like a failed one.
+        if (data.complete) failedAt.delete(key);
+        else failedAt.set(key, Date.now());
         lastGood.set(key, data);
         latest = data;
         return data;
       },
       TUNER_GROUPS_TTL_MS,
     );
+    if (!data.complete) invalidateRequest(key);
+    return data;
   } catch (error) {
+    if (gen !== generation) throw error;
     failedAt.set(key, Date.now());
     const kept = lastGood.get(key);
     if (kept) {

@@ -5,7 +5,7 @@ import { updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPr
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
-let mockLastKnown: { groups: { name: string; channelIds: string[] }[] } | null = null;
+let mockLastKnown: { groups: { name: string; channelIds: string[] }[]; complete: boolean } | null = null;
 const mockAuthListeners = new Set<() => void>();
 jest.mock("@/services/jellyfinApi", () => ({
   fetchTunerGroups: jest.fn(),
@@ -62,7 +62,7 @@ describe("usePlaylistChannelIds", () => {
   });
 
   it("a sign-in elsewhere waits for the new server's groups, then reads them", async () => {
-    mockLastKnown = { groups: [{ name: "News", channelIds: ["a"] }] };
+    mockLastKnown = { groups: [{ name: "News", channelIds: ["a"] }], complete: true };
     mockFetch.mockResolvedValue([{ name: "News", channelIds: ["a"] }]);
     const ref = React.createRef<HookRef>();
     await act(async () => {
@@ -94,7 +94,7 @@ describe("usePlaylistChannelIds", () => {
   });
 
   it("resets a filter whose group a successful load does not name", async () => {
-    mockLastKnown = { groups: [{ name: "Kids", channelIds: ["k"] }] };
+    mockLastKnown = { groups: [{ name: "Kids", channelIds: ["k"] }], complete: true };
     mockFetch.mockResolvedValue([{ name: "Kids", channelIds: ["k"] }]);
     const ref = React.createRef<HookRef>();
     await act(async () => {
@@ -118,7 +118,7 @@ describe("usePlaylistChannelIds", () => {
   });
 
   it("serves the last good groups when a refetch fails, and never resets the filter", async () => {
-    mockLastKnown = { groups: [{ name: "News", channelIds: ["a"] }] };
+    mockLastKnown = { groups: [{ name: "News", channelIds: ["a"] }], complete: true };
     mockFetch.mockRejectedValue(new Error("offline"));
     const ref = React.createRef<HookRef>();
     await act(async () => {
@@ -127,6 +127,18 @@ describe("usePlaylistChannelIds", () => {
     await settle();
     expect(ref.current?.groups()).toEqual([{ name: "News", channelIds: ["a"] }]);
     expect(ref.current?.ids()).toEqual(["a"]);
+    expect(updateLiveTvPreferences).not.toHaveBeenCalled();
+  });
+
+  it("keeps a filter a partial read does not name: the refusing tuner may still have it", async () => {
+    mockLastKnown = { groups: [{ name: "Kids", channelIds: ["k"] }], complete: false };
+    mockFetch.mockResolvedValue([{ name: "Kids", channelIds: ["k"] }]);
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} filter="playlist:News" />);
+    });
+    await settle();
+    expect(ref.current?.ids()).toEqual([]);
     expect(updateLiveTvPreferences).not.toHaveBeenCalled();
   });
 });

@@ -60,6 +60,7 @@ describe("fetchTunerGroups", () => {
       tvgById: { a: "A.us", d: "D.us@SD" },
       // Declared guide URLs merge in order, http(s) only, deduped.
       tvgUrls: ["http://g/a.xml", "https://g/b.xml.gz"],
+      complete: true,
     });
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledTimes(2);
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledWith(expect.any(String), "http://t/one.m3u", "UA/1");
@@ -76,7 +77,7 @@ describe("fetchTunerGroups", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it("keeps the other tuners when one playlist fails", async () => {
+  it("keeps the other tuners when one playlist fails, marking the read partial", async () => {
     global.fetch = jest.fn().mockResolvedValue(
       configResponse([
         { Type: "m3u", Url: "http://t/bad.m3u" },
@@ -84,7 +85,56 @@ describe("fetchTunerGroups", () => {
       ]),
     );
     mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("403")).mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
-    await expect(fetchTunerGroups()).resolves.toEqual([{ name: "News", channelIds: ["a"] }]);
+    await expect(fetchTunerData()).resolves.toMatchObject({ groups: [{ name: "News", channelIds: ["a"] }], complete: false });
+  });
+
+  it("merges a partial read with the last good one, and retries it after the failure window", async () => {
+    jest.useFakeTimers();
+    const tuners = configResponse([
+      { Type: "m3u", Url: "http://t/busy.m3u" },
+      { Type: "m3u", Url: "http://t/other.m3u" },
+    ]);
+    global.fetch = jest.fn().mockResolvedValue(tuners);
+    mockLiveSources.loadTunerPlaylist
+      .mockResolvedValueOnce({ groups: [{ name: "Sports", channelIds: ["s"] }], channels: [{ id: "s", tvgId: "S.uk" }], tvgUrls: ["http://g/busy.xml"] })
+      .mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    await fetchTunerData();
+    clearRequestCache();
+    // The busy tuner refuses while it streams; its group and tvg-ids survive from the last good read.
+    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("refused")).mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a", "b"] }], channels: [], tvgUrls: [] });
+    const partial = await fetchTunerData();
+    expect(partial).toEqual({
+      groups: [
+        { name: "Sports", channelIds: ["s"] },
+        { name: "News", channelIds: ["a", "b"] },
+      ],
+      tvgById: { s: "S.uk" },
+      tvgUrls: ["http://g/busy.xml"],
+      complete: false,
+    });
+    expect(lastKnownTunerData()).toEqual(partial);
+    // Within the failure window the partial read is served without re-streaming.
+    await fetchTunerData();
+    expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledTimes(4);
+    jest.setSystemTime(Date.now() + 6 * 60 * 1000);
+    mockLiveSources.loadTunerPlaylist
+      .mockResolvedValueOnce({ groups: [{ name: "Sports", channelIds: ["s"] }], channels: [], tvgUrls: [] })
+      .mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    await expect(fetchTunerData()).resolves.toMatchObject({ complete: true });
+  });
+
+  it("drops a read that outlived a reset instead of writing the old server's groups", async () => {
+    global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
+    let release: (value: unknown) => void = () => {};
+    mockLiveSources.loadTunerPlaylist.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
+    const pending = fetchTunerData();
+    await Promise.resolve();
+    await Promise.resolve();
+    resetTunerCache();
+    clearRequestCache();
+    release({ groups: [{ name: "Old", channelIds: ["o"] }], channels: [], tvgUrls: [] });
+    await pending;
+    expect(lastKnownTunerData()).toBeNull();
   });
 
   it("treats a read where every tuner failed as a failure, serving the last good groups", async () => {

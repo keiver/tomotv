@@ -37,9 +37,9 @@ export function useTunerGroups(): TunerGroup[] | null {
 export function usePlaylistChannelIds(filter: ChannelFilter): readonly string[] | "loading" | null {
   const groups = useTunerGroups();
   const name = activePlaylistGroup(filter);
-  // A group a SUCCESSFUL load does not name is gone (server switch, tuner removed): show everything
-  // again. A failed load never resets: the tuner may still have the group.
-  const dead = name !== null && groups !== null && lastKnownTunerData() !== null && !groups.some((group) => group.name === name);
+  // A group a read of EVERY tuner does not name is gone (server switch, tuner removed): show everything
+  // again. A failed or partial read never resets: the refusing tuner may still have the group.
+  const dead = name !== null && groups !== null && lastKnownTunerData()?.complete === true && !groups.some((group) => group.name === name);
   useEffect(() => {
     if (dead) updateLiveTvPreferences({ filter: "all" });
   }, [dead]);
