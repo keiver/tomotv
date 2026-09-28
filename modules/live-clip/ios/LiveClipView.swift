@@ -2,7 +2,7 @@ import ExpoModulesCore
 import UIKit
 
 /// A channel card's preview: a host for the one shared preview player (SharedPreviewPlayer), holding its layer
-/// while this card is the last to show one. A local clip loops; the engine's live session URL plays live.
+/// while this card is the last to show one. Its clip loops.
 final class LiveClipView: ExpoView {
   private var url: URL?
 

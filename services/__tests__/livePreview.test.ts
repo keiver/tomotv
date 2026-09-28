@@ -1,5 +1,5 @@
 /**
- * The focused card's live preview: one engine session without a server open, ended the moment focus moves on,
+ * The focused card's warm session: one engine session without a server open, ended the moment focus moves on,
  * held briefly when focus leaves so the player can adopt it, and ranked as playback once adopted.
  */
 const mockResolveWithoutOpen = jest.fn();
@@ -25,7 +25,7 @@ jest.mock("@/services/localRemux", () => ({
   subscribeEngineFailure: () => () => {},
 }));
 
-import { livePreviewFor, showLivePreview, stopLivePreview, takeLivePreview } from "../livePreview";
+import { showLivePreview, stopLivePreview, takeLivePreview } from "../livePreview";
 
 const flush = async () => {
   for (let i = 0; i < 6; i++) await Promise.resolve();
@@ -45,14 +45,10 @@ describe("live preview", () => {
 
   afterEach(() => jest.useRealTimers());
 
-  it("starts a preview-ranked session and shows it once a segment is cut", async () => {
+  it("starts a preview-ranked session on the channel's origin", async () => {
     showLivePreview("c1");
     await flush();
     expect(mockStart.mock.calls[0][3]).toMatchObject({ prewarm: true, livePriority: "preview" });
-    expect(livePreviewFor("c1")).toBeUndefined();
-    mockThroughput.get("tok-c1")!();
-    expect(livePreviewFor("c1")).toEqual({ uri: "http://127.0.0.1:9999/tok-c1/master.m3u8", cacheKey: "live-preview-tok-c1" });
-    expect(livePreviewFor("c1")).toBe(livePreviewFor("c1"));
   });
 
   it("never previews a channel only a server open reads", async () => {

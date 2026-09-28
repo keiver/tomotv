@@ -395,7 +395,7 @@ export function LibraryGrid({
       focusHolderIdRef.current = item.Id;
       lastFocusedIdRef.current = item.Id;
       setHandoffDone(true);
-      // A channel card focused past the dwell is promoted and plays live, as in the guide's column.
+      // A channel card focused past the dwell is promoted, as in the guide's column.
       if (liveChannels) setLiveFrameFocus(item.Id);
     },
     [liveChannels],

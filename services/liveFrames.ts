@@ -331,7 +331,7 @@ export function setLiveFrameFocus(channelId: string | null): void {
     priority = channelId;
     if (!running()) return;
     schedule(0);
-    // The card promoted past its dwell plays live, where the channel is read without a server open.
+    // The card promoted past its dwell warms an engine session on its origin, so a play press binds to it.
     showLivePreview(channelId);
   }, LIVE_FRAME_FOCUS_DWELL_MS);
 }
