@@ -755,22 +755,29 @@ export type EngineStage = { token: string; stage: string; elapsed: number };
 
 type StageListener = (stage: EngineStage) => void;
 const stageListeners = new Map<string, Set<StageListener>>();
+/** Every step a session has reported, so a subscriber arriving after startRemux resolves misses none. */
+const stageReports = new Map<string, EngineStage[]>();
 let stageSubscription: { remove: () => void } | null = null;
 
 function watchEngineStage(): void {
   if (stageSubscription || !isLocalRemuxAvailable() || !nativeEmits("onEngineStage")) return;
   const emitter = new NativeEventEmitter(LocalRemuxer);
   stageSubscription = emitter.addListener("onEngineStage", (stage: EngineStage) => {
+    const seen = stageReports.get(stage.token) ?? [];
+    stageReports.delete(stage.token);
+    stageReports.set(stage.token, [...seen, stage]);
+    if (stageReports.size > 32) stageReports.delete(stageReports.keys().next().value!);
     stageListeners.get(stage.token)?.forEach((listener) => listener(stage));
   });
 }
 
-/** One session's startup steps, until the returned function runs. Never fires on a native build without the event. */
+/** One session's startup steps, the ones already reported first, until the returned function runs. Never fires on a native build without the event. */
 export function subscribeEngineStage(token: string, listener: StageListener): () => void {
   watchEngineStage();
   const listeners = stageListeners.get(token) ?? new Set<StageListener>();
   listeners.add(listener);
   stageListeners.set(token, listeners);
+  stageReports.get(token)?.forEach(listener);
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) stageListeners.delete(token);
@@ -1554,6 +1561,7 @@ export async function startLocalRemux(
   if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierOffered });
 
   watchEngineLink();
+  watchEngineStage();
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
     itemId: videoItem.Id,
@@ -1768,6 +1776,7 @@ export async function stopLocalRemux(token: string | null): Promise<void> {
   if (!isLocalRemuxAvailable() || !token) return;
   rememberLink(token, null);
   linkListeners.delete(token);
+  stageReports.delete(token);
   try {
     await LocalRemuxer.stopRemux(token);
   } catch (error) {

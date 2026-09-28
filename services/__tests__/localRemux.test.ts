@@ -20,6 +20,7 @@ import {
   stopLocalRemux,
   subscribeEngineFailure,
   subscribeEngineLink,
+  subscribeEngineStage,
   subscribeEngineTier,
   subtitleRenditions,
   videoCodecTag,
@@ -39,7 +40,7 @@ const mockDecodeSupport = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
 const mockListeners = new Map<string, (payload: unknown) => void>();
 /** The events the mocked binary declares; a shorter list is an older build. */
-const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineLink"];
+const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineLink", "onEngineStage"];
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -145,6 +146,33 @@ describe("engine link ownership", () => {
     expect(listener).not.toHaveBeenCalled();
     stop();
     stopAgain();
+  });
+});
+
+describe("engine stage replay", () => {
+  it("hands a late subscriber every step its session reported before it subscribed, in order", async () => {
+    const token = "early-stage-session";
+    const opened = { token, stage: "open_input", elapsed: 0.2 };
+    const probed = { token, stage: "find_stream_info", elapsed: 0.4 };
+    mockStartRemux.mockImplementationOnce(async () => {
+      mockListeners.get("onEngineStage")!(opened);
+      mockListeners.get("onEngineStage")!(probed);
+      return `http://127.0.0.1:5000/${token}/master.m3u8`;
+    });
+    await startLocalRemux(item());
+    const seen: string[] = [];
+    const other = jest.fn();
+    const stop = subscribeEngineStage(token, ({ stage }) => seen.push(stage));
+    const stopOther = subscribeEngineStage("another-session", other);
+    expect(seen).toEqual(["open_input", "find_stream_info"]);
+    expect(other).not.toHaveBeenCalled();
+    stop();
+    stopOther();
+    await stopLocalRemux(token);
+    const afterStop = jest.fn();
+    const stopAfter = subscribeEngineStage(token, afterStop);
+    expect(afterStop).not.toHaveBeenCalled();
+    stopAfter();
   });
 });
 
