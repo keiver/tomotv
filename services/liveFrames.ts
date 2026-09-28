@@ -50,6 +50,8 @@ export const LIVE_FRAME_TRANSITION_MS = 400;
 export const LIVE_FRAME_CLIP_S = 5;
 /** A row focused this long promotes its channel to the front of the sampler. */
 export const LIVE_FRAME_FOCUS_DWELL_MS = 2_000;
+/** A clip whose focus lands this soon after the last one's is mid-scroll, and waits this long for focus to settle. */
+export const LIVE_CLIP_SCROLL_SETTLE_MS = 500;
 /** The promoted channel's own refresh floor, well under the ordinary one. */
 export const LIVE_FRAME_FOCUS_REFRESH_MS = 30_000;
 /**
