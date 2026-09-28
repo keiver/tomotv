@@ -45,6 +45,8 @@ export interface PlayerSessionRequest {
   adopt?: boolean;
   /** A Live TV channel: the player keeps one AVKit instance across channel flips. */
   isLive?: boolean;
+  /** A queue advance: under a PiP window the item swaps inside the one player. */
+  advance?: boolean;
 }
 
 /** Which session a route believes it owns. */

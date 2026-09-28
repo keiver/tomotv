@@ -119,6 +119,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     probe?: string; // "1" from regression-suite deep links: record playback events (dev-only)
     adopt?: string; // "1" when PlayerHost re-pushed this route to restore a PiP window
     live?: string; // "1" for a Live TV channel: one player across channel flips
+    advance?: string; // "1" on a queue advance: a PiP window carries into this item
   }>();
   const router = useRouter();
   // Pops go through THIS screen's navigator, never the router's. router.back()
@@ -171,63 +172,6 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // eject whatever screen is beneath this one.
   const dismissedRef = useRef(false);
 
-  // Handle playback end. Queue mode with a next episode: phone shows the RN Up Next
-  // interstitial (its countdown/CTAs decide what happens — the presented player is
-  // already dismissed by the onEnd wrapper, so the RN layer is visible). TV does
-  // NOTHING here: the native content proposal owns the advance (it presents at the
-  // outro/end and auto-accepts 5s after playback ends; mounting the RN card on top
-  // would double up, and an RN overlay above AVKit is banned by the focus lesson).
-  // End of queue and legacy playlist keep their immediate behavior.
-  const handlePlaybackEnd = useCallback(() => {
-    if (isQueueMode) {
-      if (hasNext && nextVideo) {
-        if (Platform.isTV) {
-          logger.info("Queue: video ended, native proposal owns the advance", { service: "VideoPlayer", nextVideoName: nextVideo.Name });
-          return;
-        }
-        logger.info("Queue: video ended, announcing next", { service: "VideoPlayer", nextVideoName: nextVideo.Name });
-        setUpNext(nextVideo);
-        return;
-      }
-      // End of queue
-      if (dismissedRef.current) return;
-      dismissedRef.current = true;
-      logger.info("Queue: end of queue, returning to library", { service: "VideoPlayer" });
-      clear();
-      stopSession();
-      // Scoped for the same reason as handleBack below.
-      if (navigation.canGoBack()) navigation.goBack();
-      return;
-    }
-
-    // Legacy playlist mode. Event-time read from the singleton, NOT useLibrary(): a context
-    // subscription here re-renders the player (and churns handlePlaybackEnd into
-    // useVideoPlayback) on every library notify during playback.
-    const videos = libraryManager.getState().videos;
-    if (currentPlaylistIndex >= 0 && currentPlaylistIndex < videos.length - 1) {
-      const nextVid = videos[currentPlaylistIndex + 1];
-      if (nextVid) {
-        logger.info("Auto-playing next video", { service: "VideoPlayer", videoName: nextVid.Name });
-        showGlobalLoader();
-        router.replace({
-          pathname: "/player" as const,
-          params: {
-            videoId: nextVid.Id,
-            videoName: nextVid.Name,
-            playlistIndex: (currentPlaylistIndex + 1).toString(),
-          },
-        });
-      }
-    } else {
-      if (dismissedRef.current) return;
-      dismissedRef.current = true;
-      logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
-      stopSession();
-      // Scoped for the same reason as handleBack below.
-      if (navigation.canGoBack()) navigation.goBack();
-    }
-  }, [isQueueMode, hasNext, nextVideo, clear, stopSession, currentPlaylistIndex, router, navigation, showGlobalLoader]);
-
   // Media segment markers (Intro/Outro) for this item: the Intro times the
   // tvOS Skip Intro pill, the Outro the Up Next proposal and Skip Credits pill.
   // Fire-and-forget — nulls just mean no skip affordances.
@@ -265,8 +209,9 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       sessionKey,
       adopt: params.adopt === "1",
       isLive: isLiveChannel,
+      advance: params.advance === "1",
     });
-  }, [requestSession, sessionKey, videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel]);
+  }, [requestSession, sessionKey, videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel, params.advance]);
 
   // tvOS channel flipping rides AVKit's own swipe: the channel ring in tuner order names the
   // neighbours for the interstitial, and a flip swaps the channel under the one player.
@@ -725,6 +670,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         videoId: next.Id,
         videoName: next.Name,
         queueMode: "true",
+        advance: "1",
       },
     });
   }, [advanceToNext, handleBack, router, showGlobalLoader]);
@@ -735,6 +681,71 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     setUpNext(null);
     handleBack();
   }, [handleBack]);
+
+  // Handle playback end. Queue mode with a next episode: phone shows the RN Up Next
+  // interstitial (its countdown/CTAs decide what happens — the presented player is
+  // already dismissed by the onEnd wrapper, so the RN layer is visible). TV does
+  // NOTHING here: the native content proposal owns the advance (it presents at the
+  // outro/end and auto-accepts 5s after playback ends; mounting the RN card on top
+  // would double up, and an RN overlay above AVKit is banned by the focus lesson).
+  // End of queue and legacy playlist keep their immediate behavior.
+  const handlePlaybackEnd = useCallback(() => {
+    if (isQueueMode) {
+      if (hasNext && nextVideo) {
+        // The PiP window is what the viewer is watching, so autoplay advances into it rather than
+        // counting down on a card or proposal behind it.
+        if (hostMode === "pip-active" && autoPlayNext) {
+          logger.info("Queue: video ended in PiP, advancing", { service: "VideoPlayer", nextVideoName: nextVideo.Name });
+          handleInterstitialPlay();
+          return;
+        }
+        if (Platform.isTV) {
+          logger.info("Queue: video ended, native proposal owns the advance", { service: "VideoPlayer", nextVideoName: nextVideo.Name });
+          return;
+        }
+        logger.info("Queue: video ended, announcing next", { service: "VideoPlayer", nextVideoName: nextVideo.Name });
+        setUpNext(nextVideo);
+        return;
+      }
+      // End of queue
+      if (dismissedRef.current) return;
+      dismissedRef.current = true;
+      logger.info("Queue: end of queue, returning to library", { service: "VideoPlayer" });
+      clear();
+      stopSession();
+      // Scoped for the same reason as handleBack above.
+      if (navigation.canGoBack()) navigation.goBack();
+      return;
+    }
+
+    // Legacy playlist mode. Event-time read from the singleton, NOT useLibrary(): a context
+    // subscription here re-renders the player (and churns handlePlaybackEnd into
+    // useVideoPlayback) on every library notify during playback.
+    const videos = libraryManager.getState().videos;
+    if (currentPlaylistIndex >= 0 && currentPlaylistIndex < videos.length - 1) {
+      const nextVid = videos[currentPlaylistIndex + 1];
+      if (nextVid) {
+        logger.info("Auto-playing next video", { service: "VideoPlayer", videoName: nextVid.Name });
+        showGlobalLoader();
+        router.replace({
+          pathname: "/player" as const,
+          params: {
+            videoId: nextVid.Id,
+            videoName: nextVid.Name,
+            playlistIndex: (currentPlaylistIndex + 1).toString(),
+            advance: "1",
+          },
+        });
+      }
+    } else {
+      if (dismissedRef.current) return;
+      dismissedRef.current = true;
+      logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
+      stopSession();
+      // Scoped for the same reason as handleBack above.
+      if (navigation.canGoBack()) navigation.goBack();
+    }
+  }, [isQueueMode, hasNext, nextVideo, hostMode, autoPlayNext, handleInterstitialPlay, clear, stopSession, currentPlaylistIndex, router, navigation, showGlobalLoader]);
 
   // Info-panel Up Next selection (tvOS): jump the queue to the picked item and
   // restart the player on it — the mid-video equivalent of a Continue Watching

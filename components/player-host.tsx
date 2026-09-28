@@ -156,7 +156,7 @@ export function PlayerHost() {
   // source stays on it until the new one lands, so AVKit keeps its player and replaces the item
   // in place (RCTVideo.setSrc) under its own channel interstitial.
   const [liveSwitching, setLiveSwitching] = useState(false);
-  const [heldLiveSource, setHeldLiveSource] = useState<PlayerSource | null>(null);
+  const [heldSource, setHeldSource] = useState<PlayerSource | null>(null);
   // The flip commit still reads the outgoing channel's PLAYING; the flag may only clear once the
   // hook has restarted for the new one.
   const liveFlipRestartedRef = useRef(false);
@@ -181,6 +181,9 @@ export function PlayerHost() {
     pipRef.current = next;
     setPipState(next);
   }, []);
+  // A player a PiP window has shown is never remounted for the rest of its session: the window
+  // shares its AVPlayer. Pinned to the key it had, since any change to the key remounts.
+  const [pinnedKey, setPinnedKey] = useState<string | null>(null);
 
   // Closing curtain: opaque black over the inline video. A user ✕/swipe dismissal only
   // reaches native code AFTER the slide-down finished (viewDidDisappear), and the lib
@@ -274,6 +277,7 @@ export function PlayerHost() {
     applySession(null);
     setTvConfig({});
     setPip("none");
+    setPinnedKey(null);
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = null;
     setLiveSettling(false);
@@ -401,8 +405,8 @@ export function PlayerHost() {
   // Deliberate cascades: the held source and the flip flag follow the stream and the session.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (streamSource !== null && !showLoadingOverlay) setHeldLiveSource(streamSource);
-    else if (session === null) setHeldLiveSource(null);
+    if (streamSource !== null && !showLoadingOverlay) setHeldSource(streamSource);
+    else if (session === null) setHeldSource(null);
   }, [streamSource, session, showLoadingOverlay]);
   // The flip ends when the new channel plays, fails with no rung left, or the session goes.
   const failedForGood = state.type === "ERROR" && !state.canRetryWithTranscode;
@@ -413,9 +417,15 @@ export function PlayerHost() {
   }, [liveSwitching, session, state.type, failedForGood]);
   // A live session keeps its player on stage through every reload, retry and flip, so AVKit holds
   // focus and the channel swipe. The channel on screen failing with no rung left parks it: its error shows.
-  const liveHeld = session?.isLive === true && heldLiveSource !== null && !failedForGood;
-  const shownSource = streamSource ?? (liveHeld ? heldLiveSource : null);
+  const liveHeld = session?.isLive === true && heldSource !== null && !failedForGood;
+  // Same for a player a PiP window is showing, so an advance or a retry never unmounts it.
+  const pipHeld = pinnedKey !== null && heldSource !== null && !failedForGood;
+  const shownSource = streamSource ?? (liveHeld || pipHeld ? heldSource : null);
   const shownUri = shownSource?.uri ?? null;
+  const shownUriRef = useRef<string | null>(null);
+  useEffect(() => {
+    shownUriRef.current = shownUri;
+  }, [shownUri]);
   // What AVKit's channel interstitial says under the channel's name once a flip runs long: the
   // status line, and what the current stage waits on on its own line after that.
   const flipStage = usePlaybackStage();
@@ -536,7 +546,8 @@ export function PlayerHost() {
       },
       onLoad: (data: OnLoadData) => {
         attemptCallbacks.onLoad(data);
-        if (sessionRef.current) {
+        // Never over a PiP window: this item was swapped inside the player the window shows.
+        if (sessionRef.current && pipRef.current === "none") {
           programmaticDismissRef.current = false;
           presentationRef.current = "pending";
           videoRef.current?.setFullScreen(true);
@@ -683,6 +694,7 @@ export function PlayerHost() {
       pipHandoffArmedRef.current = isActive;
       if (isActive) {
         setPip("active");
+        setPinnedKey((pinned) => pinned ?? shownUriRef.current);
         return;
       }
       // The window closed on its own (the viewer pressed its ✕) with no route
@@ -756,6 +768,7 @@ export function PlayerHost() {
       setCurtainUp(false);
       setEnded(false);
       setPip("none");
+      setPinnedKey(null);
       pipHandoffArmedRef.current = false;
       programmaticDismissRef.current = false;
       presentationRef.current = "none";
@@ -795,6 +808,26 @@ export function PlayerHost() {
           // Coming back from a detached window: clear the flag before AVKit
           // reports the stop, or that report reads as "closed with no route".
           setPip("none");
+          return;
+        }
+        // A queue advance under a PiP window swaps the item inside the player the window shows.
+        // The outgoing route's release may land first and leave it "detached"; the window is up either way.
+        if (current !== null && request.advance === true && !current.isLive && pipRef.current !== "none") {
+          logger.info("Player host: advancing inside the PiP window", { service: "PlayerHost", to: request.videoName });
+          applyPending(null);
+          applySession({
+            ...current,
+            videoId: request.videoId,
+            videoName: request.videoName,
+            startPositionTicks: request.startPositionTicks,
+            playedAtStart: request.playedAtStart,
+            probe: request.probe,
+            sessionKey: request.sessionKey,
+          });
+          setEnded(false);
+          clearPresentationWait();
+          setPinnedKey((pinned) => pinned ?? shownUriRef.current);
+          setPip("active");
           return;
         }
         applyPending({
@@ -888,8 +921,8 @@ export function PlayerHost() {
       {session !== null && shownSource && (
         <Video
           // Remount on every stream change (direct play to transcoding), except a live channel,
-          // whose flips replace the item inside the one player.
-          key={session.isLive ? "live" : shownSource.uri}
+          // whose flips replace the item inside the one player, and a player a PiP window has shown.
+          key={session.isLive ? "live" : (pinnedKey ?? shownSource.uri)}
           ref={videoRef}
           source={shownSource}
           style={styles.video}

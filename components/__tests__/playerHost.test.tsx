@@ -39,6 +39,20 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({
 
 jest.mock("@/hooks/useVideoPlayback", () => ({ useVideoPlayback: jest.fn() }));
 
+/** Counts <Video> mounts: a remount is what takes a PiP window's AVPlayer down. */
+const mockVideoMounts = { count: 0 };
+jest.mock("react-native-video", () => {
+  const React = require("react");
+  const MockVideo = React.forwardRef(() => {
+    React.useEffect(() => {
+      mockVideoMounts.count += 1;
+    }, []);
+    return null;
+  });
+  MockVideo.displayName = "Video";
+  return MockVideo;
+});
+
 const mockUseVideoPlayback = useVideoPlayback as jest.Mock;
 
 /** What the hook hands back; sourceUri is the flag the host reads as "a player exists". */
@@ -123,6 +137,7 @@ describe("PlayerHost", () => {
     stateType = null;
     canRetry = false;
     details = null;
+    mockVideoMounts.count = 0;
     mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
       hookCalls.push({ videoId: config.videoId, skip: config.skip });
       return hookResult();
@@ -510,5 +525,78 @@ describe("PlayerHost", () => {
 
     expect(videoCallbacks.onError).not.toHaveBeenCalled();
     expect(requestedVideoId()).toBeNull();
+  });
+
+  it("carries a PiP window into the next queue item instead of remounting its player", async () => {
+    await playWithPipUp();
+    // The outgoing route's release can land before the incoming request.
+    await act(async () => {
+      bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+      bridge().requestSession({ videoId: "movie-2", sessionKey: "key-1", advance: true });
+    });
+    expect(requestedVideoId()).toBe("movie-2");
+
+    sourceUri = null;
+    stateType = "IDLE";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/1");
+    renderer.root.findByType(Video).props.onEnd();
+    expect(videoCallbacks.onEnd).not.toHaveBeenCalled();
+
+    sourceUri = "http://stream/2";
+    stateType = "PLAYING";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/2");
+    expect(mockVideoMounts.count).toBe(1);
+
+    // The window stays owned by the route that advanced into it.
+    await act(async () => {
+      bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+    expect(requestedVideoId()).toBe("movie-2");
+  });
+
+  it("never presents the next item over a PiP window", async () => {
+    const videoRef = { current: { setFullScreen: jest.fn() } };
+    mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+      hookCalls.push({ videoId: config.videoId, skip: config.skip });
+      return { ...hookResult(), videoRef };
+    });
+    await playWithPipUp();
+    await act(async () => {
+      bridge().requestSession({ videoId: "movie-2", sessionKey: "key-1", advance: true });
+    });
+    sourceUri = "http://stream/2";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+
+    await act(async () => {
+      renderer.root.findByType(Video).props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+    });
+
+    expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+  });
+
+  it("tears down as usual for an advance with no PiP window up", async () => {
+    await act(async () => {
+      bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+    sourceUri = "http://stream/1";
+
+    await act(async () => {
+      bridge().requestSession({ videoId: "movie-2", sessionKey: "key-1", advance: true });
+    });
+    expect(requestedVideoId()).toBeNull();
+
+    sourceUri = null;
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(requestedVideoId()).toBe("movie-2");
   });
 });
