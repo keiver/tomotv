@@ -365,9 +365,18 @@ final class VideoTranscoder {
     /// comparison), so EAGAIN here is the steady state, not an error.
     private func drainFilter(emit: (UnsafeMutablePointer<AVPacket>) -> Void) {
         guard let filterSink, let filtered else { return }
+        // bwdif declares its own output time base (half the input's, pts doubled); the encoder
+        // runs on encoderTimeBase, so every frame is read back onto it, as fftools does.
+        let sinkTimeBase = av_buffersink_get_time_base(filterSink)
         while av_buffersink_get_frame(filterSink, filtered) >= 0 {
             defer { av_frame_unref(filtered) }
-            encode(frame: filtered, pts: filtered.pointee.pts, emit: emit)
+            let pts = filtered.pointee.pts == SWIFT_AV_NOPTS_VALUE_VT
+                ? SWIFT_AV_NOPTS_VALUE_VT
+                : av_rescale_q(filtered.pointee.pts, sinkTimeBase, encoderTimeBase)
+            if filtered.pointee.duration > 0 {
+                filtered.pointee.duration = av_rescale_q(filtered.pointee.duration, sinkTimeBase, encoderTimeBase)
+            }
+            encode(frame: filtered, pts: pts, emit: emit)
             if failed { return }
         }
     }
