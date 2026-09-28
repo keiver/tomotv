@@ -148,6 +148,9 @@ export interface JellyfinVideoItem {
   LiveStreamId?: string;
   liveStreamUrl?: string;
   liveHttpHeaders?: Record<string, string>;
+  // A raw TS channel read without a server open: its provider's connection budget, and the server's pass-through.
+  liveOriginKey?: string;
+  liveFallbackUrl?: string;
   // The server's HLS transcode of the channel, the rung below the engine.
   liveTranscodeUrl?: string;
   ChannelNumber?: string;

@@ -15,6 +15,7 @@ import * as SecureStore from "expo-secure-store";
 import { getSavedAccounts } from "./accounts";
 import { accountTokenKey, API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
+import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
 import { didConfigReadFail, getAuthHeader, getConfig, throwRequestError } from "./session";
 
@@ -283,15 +284,29 @@ export async function fetchListedChannels(list: readonly ChannelFavorite[]): Pro
 }
 
 /**
- * A channel described for playback. A manifest origin comes off the read-only PlaybackInfo and goes
- * to the engine as it is, with no server open; any other source is opened on the server.
- * `info` is that PlaybackInfo when the caller already holds it.
+ * A channel described for playback. A manifest origin, or a raw TS stream the server lets clients read directly,
+ * comes off the read-only PlaybackInfo and goes to the engine with no server open; any other source is opened on
+ * the server. `info` is that PlaybackInfo when the caller already holds it.
  */
 export async function resolveChannel(
   channelId: string,
   item?: JellyfinVideoItem,
   options: { quiet?: boolean; info?: { MediaSources?: JellyfinMediaSource[]; PlaySessionId?: string } } = {},
 ): Promise<JellyfinVideoItem> {
+  const described = await describeChannel(channelId, item, options);
+  return described.playable ?? openChannel(channelId, described.channel, { quiet: options.quiet });
+}
+
+/** The channel as the engine reads it without a server open, or null when only an open reads it (a preview's terms). */
+export async function resolveChannelWithoutOpen(channelId: string): Promise<JellyfinVideoItem | null> {
+  return (await describeChannel(channelId, undefined, { quiet: true })).playable;
+}
+
+async function describeChannel(
+  channelId: string,
+  item: JellyfinVideoItem | undefined,
+  options: { quiet?: boolean; info?: { MediaSources?: JellyfinMediaSource[]; PlaySessionId?: string } },
+): Promise<{ channel: JellyfinVideoItem; playable: JellyfinVideoItem | null }> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
@@ -304,25 +319,37 @@ export async function resolveChannel(
   const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
   const info = options.info ?? (await infoResponse!.json());
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
-  if (!source || !isManifestSource(source)) return openChannel(channelId, channel, { quiet: options.quiet });
+  const described = { ...channel, MediaSources: info.MediaSources, MediaStreams: source?.MediaStreams ?? [], PlaySessionId: info.PlaySessionId };
+  if (source && !isManifestSource(source)) {
+    const raw = await rawLiveInput(config.server, config.apiKey, channelId, source);
+    if (!raw) return { channel, playable: null };
+    logger.info("Live channel resolved without a server open", { service: "LiveTv", channel: channel.Name, via: raw.via });
+    return {
+      channel,
+      playable: {
+        ...described,
+        liveStreamUrl: raw.url,
+        liveOriginKey: raw.originKey,
+        ...(raw.headers ? { liveHttpHeaders: raw.headers } : {}),
+        ...(raw.fallbackUrl ? { liveFallbackUrl: raw.fallbackUrl } : {}),
+      },
+    };
+  }
+  if (!source) return { channel, playable: null };
 
   if (!options.quiet) setPlaybackStage("opening");
   const origin = await manifestOrigin(source);
   logger.info("Live channel resolved to its origin", { service: "LiveTv", channel: channel.Name, variant: origin.url !== source.Path });
-  return {
-    ...channel,
-    MediaSources: info.MediaSources,
-    MediaStreams: source.MediaStreams ?? [],
-    PlaySessionId: info.PlaySessionId,
-    liveStreamUrl: origin.url,
-    ...(origin.headers ? { liveHttpHeaders: origin.headers } : {}),
-  };
+  return { channel, playable: { ...described, liveStreamUrl: origin.url, ...(origin.headers ? { liveHttpHeaders: origin.headers } : {}) } };
 }
 
 /** What the engine reads for a manifest channel: the origin's variant, with the headers it requires. */
 export interface ChannelOrigin {
   url: string;
   headers?: Record<string, string>;
+  /** A raw TS channel: the provider whose connection budget a grab spends, and the server's pass-through. */
+  originKey?: string;
+  fallbackUrl?: string;
 }
 
 async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigin> {
@@ -343,7 +370,11 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   if (!response.ok) throwRequestError(response, `Failed to fetch channel playback info: ${response.status}`);
   const info = await response.json();
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
-  if (!source || !isManifestSource(source)) return null;
+  if (source && !isManifestSource(source)) {
+    const raw = await rawLiveInput(config.server, config.apiKey, channelId, source);
+    return raw ? { url: raw.url, originKey: raw.originKey, ...(raw.headers ? { headers: raw.headers } : {}), ...(raw.fallbackUrl ? { fallbackUrl: raw.fallbackUrl } : {}) } : null;
+  }
+  if (!source) return null;
   return { url: source.Path!, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
 }
 

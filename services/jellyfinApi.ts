@@ -71,6 +71,7 @@ export {
   openRecentlyFailed,
   resolveChannel,
   resolveChannelOrigin,
+  resolveChannelWithoutOpen,
 } from "./jellyfin/liveTv";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
 export type { ChannelOrigin } from "./jellyfin/liveTv";

@@ -362,6 +362,9 @@ interface GrabInput {
   headers?: Record<string, string>;
   /** Releases the server's open once the burst is read; nothing for an origin read. */
   close?: () => void;
+  /** A raw TS origin: the provider budget the grab spends, and the server's pass-through read when it will not open. */
+  originKey?: string;
+  fallbackUrl?: string;
 }
 
 /** The stream a grab reads for the channel, or null when nothing can be read now. */
@@ -415,6 +418,8 @@ async function grab(channelId: string): Promise<void> {
       channelId,
       inputUrl: input.url,
       httpHeaders: input.headers ?? {},
+      ...(input.originKey ? { originKey: input.originKey } : {}),
+      ...(input.fallbackUrl ? { fallbackUrl: input.fallbackUrl } : {}),
       deadline: cold ? LIVE_FRAME_COLD_DEADLINE_S : LIVE_FRAME_DEADLINE_S,
       span: cold ? LIVE_FRAME_COLD_SPAN_S : LIVE_FRAME_BURST_S,
       interval: LIVE_FRAME_BURST_INTERVAL_S,
@@ -460,6 +465,8 @@ async function grab(channelId: string): Promise<void> {
         noteOpenFailure();
         // The origin's own words judge the channel, and never while the cap is suspected.
         if (item.lane === "origin" && Date.now() >= capRestUntil) noteChannelOpenFailure(channelId, result.failure ?? undefined);
+        // Where a raw origin is read from follows this device's network: the next grab asks again.
+        if (item.origin?.originKey) item.lane = undefined;
       } else openFailStreak = 0;
     }
   } catch (error) {

@@ -2281,6 +2281,14 @@ describe("startLocalRemux on a live channel", () => {
     expect(mockStartRemux.mock.calls[0][0].probeOrigin).toBe(true);
   });
 
+  it("ranks a ring neighbour's origin connection below the channel playing", async () => {
+    await startLocalRemux(live(), undefined, 120, { prewarm: true });
+    expect(mockStartRemux.mock.calls[0][0].livePriority).toBe("ring");
+    mockStartRemux.mockClear();
+    await startLocalRemux(live(), undefined, 120);
+    expect(mockStartRemux.mock.calls[0][0].livePriority).toBeUndefined();
+  });
+
   it("carries no text subtitle on a live channel: the engine has no sliding WebVTT window for it", async () => {
     const channel = live();
     channel.MediaStreams = [...(channel.MediaStreams ?? []).filter((stream) => stream.Type !== "Subtitle"), { Type: "Subtitle", Codec: "subrip", Index: 2 } as never];

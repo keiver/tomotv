@@ -1,5 +1,5 @@
 import { closeLiveStream, noteOpenFailed, openRecentlyFailed, resolveChannel } from "@/services/jellyfinApi";
-import { canRemuxLocally, localRemuxToken, setLiveWindow, startLocalRemux, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@/services/localRemux";
+import { canRemuxLocally, localRemuxToken, setLiveSessionPriority, setLiveWindow, startLocalRemux, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { adjacentChannelId } from "@/utils/guide";
 import { logger } from "@/utils/logger";
@@ -179,6 +179,7 @@ async function heat(channelId: string): Promise<void> {
     if (claim) {
       claims.delete(channelId);
       void setLiveWindow(token, PLAYING_WINDOW_SECONDS);
+      void setLiveSessionPriority(token, "playback");
       claim({ channelId, details, url, token, ready: false });
       logger.info("Live ring: flip took a neighbour still starting", { service: "LiveRing", channel: details.Name });
       return;
@@ -237,6 +238,7 @@ export function takeRingSession(channelId: string): Promise<RingSession | null> 
     hot.delete(channelId);
     entry.unsubscribe();
     void setLiveWindow(entry.token, PLAYING_WINDOW_SECONDS);
+    void setLiveSessionPriority(entry.token, "playback");
     logger.info(entry.ready ? "Live ring: flip bound a hot session" : "Live ring: flip took a neighbour still cutting its first segments", { service: "LiveRing", channel: entry.details.Name });
     return Promise.resolve({ channelId: entry.channelId, details: entry.details, url: entry.url, token: entry.token, ready: entry.ready });
   }

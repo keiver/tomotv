@@ -366,6 +366,7 @@ export async function clearContentCaches(context: string): Promise<void> {
     const { clearNextUpDismissals } = await import("@/services/nextUp");
     const { resetExternalGuide } = await import("@/services/externalGuide");
     const { resetTunerCache } = await import("@/services/jellyfin/tunerGroups");
+    const { resetLiveInput } = await import("@/services/jellyfin/liveInput");
     const { getLiveTvPreferences, updateLiveTvPreferences } = await import("@/services/liveTvPreferences");
     libraryManager.clearCache();
     clearFolderContentsCache();
@@ -375,6 +376,7 @@ export async function clearContentCaches(context: string): Promise<void> {
     clearNextUpDismissals();
     resetExternalGuide();
     resetTunerCache();
+    resetLiveInput();
     // A playlist or category filter names the last server's channels; favorites and groups themselves stay.
     if (getLiveTvPreferences().filter !== "all") updateLiveTvPreferences({ filter: "all" });
   } catch (cacheError) {

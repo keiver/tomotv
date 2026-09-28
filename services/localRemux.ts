@@ -1418,7 +1418,7 @@ export async function startLocalRemux(
   preferredAudioStreamIndex?: number,
   startOffsetSeconds?: number,
   // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
-  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean } = {},
+  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring" } = {},
 ): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
@@ -1589,8 +1589,13 @@ export async function startLocalRemux(
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
     ...(live && options.liveWindowSeconds ? { liveWindowSeconds: options.liveWindowSeconds } : {}),
     ...(live && videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
-    // Read straight from its origin, never through a server open: the engine checks it answers.
-    ...(live && videoItem.liveStreamUrl && !videoItem.LiveStreamId ? { probeOrigin: true } : {}),
+    // Read straight from its origin, never through a server open: the engine checks a manifest answers. A raw TS
+    // origin is not probed, since a probe costs a second provider connection.
+    ...(live && videoItem.liveStreamUrl && !videoItem.LiveStreamId && !videoItem.liveOriginKey ? { probeOrigin: true } : {}),
+    ...(live && videoItem.liveOriginKey ? { liveOriginKey: videoItem.liveOriginKey } : {}),
+    ...(live && videoItem.liveFallbackUrl ? { fallbackInputUrl: videoItem.liveFallbackUrl } : {}),
+    // A neighbour or a card preview yields its origin connection to the channel playing (the engine's connection budget).
+    ...(live && (options.livePriority || options.prewarm) ? { livePriority: options.livePriority ?? "ring" } : {}),
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).
@@ -1791,6 +1796,16 @@ export async function setLiveWindow(token: string | null, seconds: number): Prom
     await LocalRemuxer.setLiveWindow(token, seconds);
   } catch (error) {
     logger.warn("Failed to resize a live window", error, { service: "LocalRemux", token });
+  }
+}
+
+/** A session changing hands (a ring neighbour or a card preview adopted by the player) takes the player's rank. */
+export async function setLiveSessionPriority(token: string | null, priority: "playback" | "ring" | "preview"): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token || typeof LocalRemuxer.setLivePriority !== "function") return;
+  try {
+    await LocalRemuxer.setLivePriority(token, priority);
+  } catch (error) {
+    logger.warn("Failed to rank a live session", error, { service: "LocalRemux", token });
   }
 }
 

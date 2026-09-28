@@ -4,7 +4,7 @@
  */
 import { closeLiveStream, noteOpenFailed, resolveChannel } from "@/services/jellyfinApi";
 import { isHotChannel, recenterLiveRing, releaseLiveRing, retainLiveSession, ringAround, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
-import { setLiveWindow, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
+import { setLiveSessionPriority, setLiveWindow, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
@@ -23,6 +23,7 @@ jest.mock("@/services/localRemux", () => ({
   stopLocalRemux: jest.fn(() => Promise.resolve()),
   localRemuxToken: (url: string | null) => url?.split("/").at(-2) ?? null,
   setLiveWindow: jest.fn(() => Promise.resolve()),
+  setLiveSessionPriority: jest.fn(() => Promise.resolve()),
   subscribeEngineThroughput: jest.fn((token: string, listener: () => void) => {
     mockThroughput.set(token, listener);
     return jest.fn();
@@ -74,6 +75,7 @@ describe("liveRing", () => {
       ready: true,
     });
     expect(setLiveWindow).toHaveBeenCalledWith("c6-s", 300);
+    expect(setLiveSessionPriority).toHaveBeenCalledWith("c6-s", "playback");
     expect(isHotChannel("c6")).toBe(false);
   });
 
@@ -87,6 +89,7 @@ describe("liveRing", () => {
     await flush();
     expect(stopLocalRemux).not.toHaveBeenCalledWith("c6-s");
     expect(setLiveWindow).toHaveBeenCalledWith("c6-s", 300);
+    expect(setLiveSessionPriority).toHaveBeenCalledWith("c6-s", "playback");
   });
 
   it("hands a start still in flight to the flip waiting on it instead of stopping it", async () => {
@@ -102,6 +105,7 @@ describe("liveRing", () => {
     await flush();
     expect(stopLocalRemux).not.toHaveBeenCalledWith("c6-s");
     expect(setLiveWindow).toHaveBeenCalledWith("c6-s", 300);
+    expect(setLiveSessionPriority).toHaveBeenCalledWith("c6-s", "playback");
     expect(isHotChannel("c6")).toBe(false);
   });
 
@@ -119,6 +123,7 @@ describe("liveRing", () => {
 
     await expect(takeRingSession("c6")).resolves.toMatchObject({ channelId: "c6", token: "c6-s", ready: false });
     expect(setLiveWindow).toHaveBeenCalledWith("c6-s", 300);
+    expect(setLiveSessionPriority).toHaveBeenCalledWith("c6-s", "playback");
   });
 
   it("stops that start once the ring moves on without its player taking it", async () => {
