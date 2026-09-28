@@ -10,7 +10,8 @@ All notable changes to Tomo TV are documented here.
 - Guide sources, in Channel Settings: listings for channels the server has none for, from any number of XMLTV guides you add and the guides your tuner playlists declare, asked in order. A channel is matched by its tvg-id, then its tvg-name, then its name, letter case aside. The screen shows each guide's status, how many channels it matched and which, its size on the device and when it last downloaded, turns a guide off, and clears the downloaded files. Guides refresh hourly, and Refresh guide downloads them again and reports how it went
 - Live TV search: Search lists matching channels and programmes on a Live TV shelf above the library results, channels first, then programmes by start time, ended ones left out. The channel wall has a search of its own
 - Channel health: a channel that does not answer wears Offline, and Hide offline in Channel Settings leaves those channels out of the guide and the wall
-- The guide's channel cards show live frames of their channel, and a focused channel with no listings unrolls its recent frames, each captioned with the time it was seen
+- Channel cards rest on their channel's newest frame and loop a five-second clip recorded on the device while they or their guide row hold focus; a focused channel with no listings unrolls its recent frames, each captioned with the time it was seen
+- Dragging the guide's time ruler scrolls the grid, with a fling on release
 - Record from the player on Apple TV: a Record button in the playback controls records the programme on air, and a channel with no guide records for the Recording length set in Channel Settings (30 minutes to 3 hours, 2 hours by default). The button reads Stop Recording while a timer records
 - A heart in the Apple TV playback controls adds the video or live channel to favorites, or removes it
 - The guide opens the info panel for a channel or programme, which records, favorites and groups the channel. An in-progress recording's panel shows its size, its length so far and a Stop action
@@ -28,6 +29,12 @@ All notable changes to Tomo TV are documented here.
 - Names written by a metadata scraper with HTML entities, such as "&amp;", read as the character they stand for wherever they are shown
 - Episode cards take the same landscape slot as the other cards in a folder grid, whatever the shape of their still
 - On-device playback runs on FFmpeg 8.1.3
+- A channel the tuner lets clients read directly is read by the device from its source, with no stream held open on the server; the server relays only what the device cannot reach
+- Previews, warm-ups and playback share one budget of connections to a provider, learned from the provider itself, and playback always wins
+- A focused channel is already being read when Play is pressed, so playback starts from that instead of opening the channel again
+- Player loading shows a bare spinner for eight seconds, then a status line, and at twelve seconds what it waits on; the error screen says where playback stopped
+- Every wait is a small gold spinner with its label centred beneath it
+- On iOS, toasts reach down past the navigation bar
 
 ### Fixed
 
@@ -39,6 +46,15 @@ All notable changes to Tomo TV are documented here.
 - After a fast scroll, the posters the engine makes for the cards on screen come first
 - A segment the engine fails to write is dropped instead of being served broken
 - Search results for an earlier query no longer replace those of the latest one when they arrive late
+- A live stream stayed open on the server after a preview or an ended playback; every open is closed by the app that made it, on the server that made it, and retried from the next launch until the server takes it
+- Two viewers of one channel no longer end each other's stream when one leaves
+- Servers on a plain http address outside the home network connect again; App Transport Security had been left on since the first build
+- Menu out of the player pops only the player, never the folder beneath it
+- A queue advance under Picture in Picture swaps the next item inside the window's player, and autoplay advances straight into it
+- The guide window restarts at the current half hour on a new sign-in, and grows until it fills a viewport wider than it
+- Picking another channel group opens the guide at its first channel
+- An account whose token is gone or rejected leaves the saved list
+- A deinterlaced transcode keeps the input's clock
 
 ## [2.2.8]
 
