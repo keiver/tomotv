@@ -33,8 +33,6 @@ interface ReporterSession {
   playedAtStart: boolean;
   /** Live TV: no position is ever persisted and nothing is marked played. */
   live: boolean;
-  /** The server open this session consumes, when the channel was opened on the server. */
-  liveStreamId: string | null;
   closed: boolean;
 }
 
@@ -67,8 +65,6 @@ interface UsePlaybackReporterConfig {
   pendingSeekTargetRef: React.RefObject<number | null>;
   /** Live TV: reports never write a resume position. */
   isLiveRef?: React.RefObject<boolean>;
-  /** The channel's server open, which reports carry. */
-  liveStreamIdRef?: React.RefObject<string | null>;
 }
 
 interface UsePlaybackReporterResult {
@@ -129,7 +125,6 @@ export function usePlaybackReporter({
   positionSecondsRef,
   pendingSeekTargetRef,
   isLiveRef,
-  liveStreamIdRef,
 }: UsePlaybackReporterConfig): UsePlaybackReporterResult {
   const lastReportedPositionRef = useRef(0);
   const lastSampledPositionRef = useRef(0);
@@ -185,7 +180,7 @@ export function usePlaybackReporter({
       PlayMethod: currentModeRef.current === "transcode" ? "Transcode" : "DirectStream",
       AudioStreamIndex: audioStreamIndexRef.current ?? undefined,
       CanSeek: !session.live,
-      ...(session.liveStreamId ? { LiveStreamId: session.liveStreamId } : {}),
+      // No LiveStreamId: a Stopped carrying it closes the open too, and the player's own close would then end another viewer's share.
     }),
     [currentModeRef, audioStreamIndexRef],
   );
@@ -353,7 +348,6 @@ export function usePlaybackReporter({
         playSessionId: playSessionIdRef.current,
         playedAtStart: wasPlayedAtStartRef.current ?? false,
         live: isLiveRef?.current === true,
-        liveStreamId: liveStreamIdRef?.current ?? null,
         closed: false,
       };
       sessionRef.current = session;
@@ -369,7 +363,7 @@ export function usePlaybackReporter({
         await reportPlaybackStart({ ...buildBody(session, 0, false), PositionTicks: session.live ? 0 : Math.round(positionTicks) });
       });
     },
-    [buildBody, enqueueWrite, mediaSourceIdRef, playSessionIdRef, wasPlayedAtStartRef, isLiveRef, liveStreamIdRef],
+    [buildBody, enqueueWrite, mediaSourceIdRef, playSessionIdRef, wasPlayedAtStartRef, isLiveRef],
   );
 
   const reportPauseChange = useCallback(

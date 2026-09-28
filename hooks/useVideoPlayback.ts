@@ -1627,7 +1627,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     positionSecondsRef: currentTimeRef,
     pendingSeekTargetRef,
     isLiveRef,
-    liveStreamIdRef,
   });
   // Synced post-commit; safe because every reader (stream-rotation effect,
   // unmount cleanup) runs at least one commit after mount, and CREATING_STREAM

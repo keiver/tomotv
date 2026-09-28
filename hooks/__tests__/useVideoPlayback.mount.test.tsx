@@ -54,9 +54,9 @@ jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn()
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { stop: jest.fn(() => Promise.resolve()) } }));
 const mockResetSession = jest.fn();
 /** What the hook hands the reporter: the refs its reports read identity from. */
-const mockReporterArgs: { current: { liveStreamIdRef?: { current: string | null }; isLiveRef?: { current: boolean } } | null } = { current: null };
+const mockReporterArgs: { current: { isLiveRef?: { current: boolean } } | null } = { current: null };
 jest.mock("@/hooks/usePlaybackReporter", () => ({
-  usePlaybackReporter: (args: { liveStreamIdRef?: { current: string | null }; isLiveRef?: { current: boolean } }) => {
+  usePlaybackReporter: (args: { isLiveRef?: { current: boolean } }) => {
     mockReporterArgs.current = args;
     return { markStarted: jest.fn(), markEnded: jest.fn(), reportPauseChange: jest.fn(), resetSession: mockResetSession };
   },
@@ -251,6 +251,8 @@ const Harness = forwardRef<HookRef, VideoPlaybackConfig>(function Harness(config
   return null;
 });
 
+const mounted = new Set<TestRenderer.ReactTestRenderer>();
+
 /** Mounts the hook and flushes the metadata fetch plus the stream-creation effect. */
 async function mount(config: VideoPlaybackConfig) {
   const ref = React.createRef<HookRef>();
@@ -258,6 +260,7 @@ async function mount(config: VideoPlaybackConfig) {
   await act(async () => {
     renderer = TestRenderer.create(<Harness ref={ref} {...config} />);
   });
+  mounted.add(renderer);
   await act(async () => {
     // The engine lane awaits its segment-0 sample after startLocalRemux, a few microtasks deep;
     // microtask hops rather than a timer, since some tests run under fake timers.
@@ -267,6 +270,12 @@ async function mount(config: VideoPlaybackConfig) {
 }
 
 describe("useVideoPlayback (mounted)", () => {
+  // A player left mounted keeps its open deadline armed past the run.
+  afterEach(async () => {
+    for (const renderer of mounted) await act(async () => renderer.unmount());
+    mounted.clear();
+  });
+
   beforeEach(() => {
     mockTierDeclared = false;
     jest.clearAllMocks();
@@ -891,7 +900,7 @@ describe("useVideoPlayback (mounted)", () => {
       expect(closeLiveStream).not.toHaveBeenCalledWith("ls-2");
     });
 
-    it("reports the server's open as the session's live stream once the channel is on the server lane", async () => {
+    it("plays a channel on the server lane as a live session", async () => {
       mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
       (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined, LiveStreamId: "ls-2" }));
       mockPreflight = () => null;
@@ -901,7 +910,6 @@ describe("useVideoPlayback (mounted)", () => {
 
       expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
       expect(mockReporterArgs.current?.isLiveRef?.current).toBe(true);
-      expect(mockReporterArgs.current?.liveStreamIdRef?.current).toBe("ls-2");
     });
 
     it("fails a server-lane channel frozen past the stall deadline and closes its report session", async () => {
@@ -979,7 +987,6 @@ describe("useVideoPlayback (mounted)", () => {
       await dropAndRetry();
       expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
       expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
-      expect(mockReporterArgs.current?.liveStreamIdRef?.current).toBe("ls-1");
     });
 
     it("fails a warming ring session that already ended at once, instead of waiting out the pre-flight", async () => {

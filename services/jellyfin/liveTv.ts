@@ -11,7 +11,9 @@ import { setPlaybackStage } from "@/services/playbackStage";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import { invalidateRecordingReads } from "./cacheKeys";
-import { API_TIMEOUTS } from "./constants";
+import * as SecureStore from "expo-secure-store";
+import { getSavedAccounts } from "./accounts";
+import { accountTokenKey, API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
 import { didConfigReadFail, getAuthHeader, getConfig, throwRequestError } from "./session";
@@ -455,7 +457,7 @@ const openOrigins = new Map<string, LiveOrigin>();
 
 /**
  * Release the tuner on the server that opened it; the server holds it for every open that never closes.
- * An answer of any kind ends the record of the open; a close that never reached the server is retried on the next launch.
+ * A 2xx or 4xx ends the record of the open; a 5xx or no answer keeps it, so the close is retried at the next launch or foreground.
  */
 export async function closeLiveStream(liveStreamId: string | null | undefined, origin?: LiveOrigin): Promise<void> {
   if (!liveStreamId) return;
@@ -467,6 +469,10 @@ export async function closeLiveStream(liveStreamId: string | null | undefined, o
       { method: "POST", headers: { Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
       API_TIMEOUTS.SHORT,
     );
+    if (response.status >= 500) {
+      logger.warn("Live stream close not taken", { service: "LiveTv", status: response.status, liveStreamId });
+      return;
+    }
     openOrigins.delete(liveStreamId);
     recordClose(liveStreamId);
     if (!response.ok) logger.warn("Live stream close refused", { service: "LiveTv", status: response.status, liveStreamId });
@@ -475,16 +481,29 @@ export async function closeLiveStream(liveStreamId: string | null | undefined, o
   }
 }
 
-/** Opens a previous run left on the signed-in server are closed; those on another server are forgotten. */
+/**
+ * Recorded opens this run does not hold are closed: on the signed-in server with its token, on another server with
+ * that account's saved token, and forgotten only when no saved account can reach them. Run at launch and on foreground.
+ */
 export async function closeLeftoverOpens(): Promise<void> {
   const held = recordedOpens();
-  const ids = Object.keys(held);
+  const ids = Object.keys(held).filter((liveStreamId) => !openOrigins.has(liveStreamId));
   if (ids.length === 0) return;
   const config = await getConfig();
   // Credentials that could not be read are not credentials for another server: the records wait.
   if (didConfigReadFail()) return;
+  let accounts: Awaited<ReturnType<typeof getSavedAccounts>> | null = null;
   for (const liveStreamId of ids) {
-    if (held[liveStreamId].server === config.server && config.apiKey) await closeLiveStream(liveStreamId, { ...held[liveStreamId], apiKey: config.apiKey });
+    const open = held[liveStreamId];
+    if (open.server === config.server && config.apiKey) {
+      await closeLiveStream(liveStreamId, { ...open, apiKey: config.apiKey });
+      continue;
+    }
+    accounts ??= await getSavedAccounts().catch(() => []);
+    const trimmed = open.server.replace(/\/+$/, "");
+    const account = accounts.find((a) => a.deviceId === open.deviceId && a.serverUrl.replace(/\/+$/, "") === trimmed);
+    const token = account ? await SecureStore.getItemAsync(accountTokenKey(account.serverId, account.userId)).catch(() => null) : null;
+    if (token) await closeLiveStream(liveStreamId, { ...open, apiKey: token });
     else recordClose(liveStreamId);
   }
   logger.info("Live opens left by a previous run closed", { service: "LiveTv", count: ids.length });

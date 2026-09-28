@@ -102,6 +102,8 @@ export default function RootLayout() {
     warmBitrateMemory();
     resetPlaybackReportBackoff();
     void flushOfflinePositions();
+    // A close the last session could not deliver (the link was down, the server answered 5xx) goes out again.
+    void closeLeftoverOpens();
   }, []);
   useAppStateRefresh(warmOnForeground, "BitrateWarmup");
 

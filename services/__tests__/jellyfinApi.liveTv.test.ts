@@ -28,6 +28,9 @@ jest.mock("../jellyfin/liveOpens", () => {
 });
 const resetLiveOpens = (jest.requireMock("../jellyfin/liveOpens") as { __reset: () => void }).__reset;
 
+const mockAccounts: { serverUrl: string; serverId: string; userId: string; deviceId: string }[] = [];
+jest.mock("../jellyfin/accounts", () => ({ getSavedAccounts: jest.fn(async () => mockAccounts) }));
+
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
   setItemAsync: jest.fn().mockResolvedValue(undefined),
@@ -656,13 +659,55 @@ describe("live TV client", () => {
     expect(recordedOpens()).toEqual({ "ls-72": { server: SERVER, deviceId: "test-device-id" } });
   });
 
-  it("closes the opens a previous run left on the signed-in server and forgets the rest", async () => {
+  it("closes the opens a previous run left on the signed-in server and forgets those no saved account reaches", async () => {
     recordOpen("ls-70", { server: SERVER, deviceId: "test-device-id" });
     recordOpen("ls-71", { server: "http://elsewhere:8096", deviceId: "other" });
     (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
     await closeLeftoverOpens();
     const closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
     expect(closes).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-70`]);
+    expect(recordedOpens()).toEqual({});
+  });
+
+  it("keeps the record of an open the server answered 5xx for, and sends the close again from the next launch", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ MediaSources: [{ Id: "ms-80", Container: "ts", SupportsDirectPlay: true, LiveStreamId: "ls-80", Path: "/LiveTv/LiveStreamFiles/ls-80/stream.ts" }] }),
+    });
+    await openChannel("c80", { Id: "c80", Name: "Eighty", Type: "TvChannel", Path: "" });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 503 });
+    await closeLiveStream("ls-80");
+    expect(recordClose).not.toHaveBeenCalledWith("ls-80");
+    // This run still holds the open, so a foreground pass leaves it alone.
+    (global.fetch as jest.Mock).mockClear();
+    await closeLeftoverOpens();
+    expect(global.fetch).not.toHaveBeenCalled();
+    // A close that reaches the server ends the record; a later pass has nothing left.
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 });
+    await closeLiveStream("ls-80");
+    expect(recordClose).toHaveBeenCalledWith("ls-80");
+  });
+
+  it("closes an open left on another server with that account's saved token", async () => {
+    recordOpen("ls-90", { server: "http://elsewhere:8096", deviceId: "other-device" });
+    mockAccounts.splice(0, mockAccounts.length, { serverUrl: "http://elsewhere:8096/", serverId: "srv2", userId: "u2", deviceId: "other-device" });
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+      const values: Record<string, string> = {
+        jellyfin_server_url: SERVER,
+        jellyfin_api_key: "test-api-key",
+        jellyfin_user_id: "test-user-id",
+        jellyfin_device_id: "test-device-id",
+        jellyfin_account_token_srv2_u2: "tok-2",
+      };
+      return Promise.resolve(values[key] || null);
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 204 });
+    await closeLeftoverOpens();
+    mockAccounts.length = 0;
+    const [url, init] = (global.fetch as jest.Mock).mock.calls.find(([u]) => String(u).includes("/LiveStreams/Close"))!;
+    expect(url).toBe("http://elsewhere:8096/LiveStreams/Close?liveStreamId=ls-90");
+    expect(init.headers.Authorization).toContain('DeviceId="other-device"');
+    expect(init.headers.Authorization).toContain('Token="tok-2"');
     expect(recordedOpens()).toEqual({});
   });
 
