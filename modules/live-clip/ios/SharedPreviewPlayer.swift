@@ -34,6 +34,8 @@ final class SharedPreviewPlayer {
   func show(_ url: URL?, in view: UIView) {
     if host !== view {
       host = view
+      // Hidden before it moves, so the new card never shows the last card's frame or an empty player.
+      hide()
       playerLayer.removeFromSuperlayer()
       view.layer.addSublayer(playerLayer)
       layout(in: view)
@@ -52,8 +54,17 @@ final class SharedPreviewPlayer {
   func release(from view: UIView) {
     guard host === view else { return }
     host = nil
+    hide()
     start(nil)
     playerLayer.removeFromSuperlayer()
+  }
+
+  /// A hide is never animated: an implicit fade would paint the empty player black over the card.
+  private func hide() {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    playerLayer.isHidden = true
+    CATransaction.commit()
   }
 
   func layout(in view: UIView) {
@@ -71,9 +82,11 @@ final class SharedPreviewPlayer {
     player.removeAllItems()
     current = url
     pending = nil
-    playerLayer.isHidden = true
-    // A clip the sweep already took leaves the card on its frame.
-    guard let url, FileManager.default.fileExists(atPath: url.path) else { return }
+    // A clip the sweep already took leaves the card on its frame. A swap on the same card stays visible: a hard cut.
+    guard let url, FileManager.default.fileExists(atPath: url.path) else {
+      hide()
+      return
+    }
     let next = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
     loopObservation = next.observe(\.loopCount, options: [.new]) { [weak self] _, _ in
       DispatchQueue.main.async {
