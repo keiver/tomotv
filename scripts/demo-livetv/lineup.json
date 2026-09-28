@@ -38,7 +38,14 @@
       "name": "Veguitas",
       "colour": "#1B5E9E",
       "port": 9104,
-      "sources": ["Live TV/Welcome to Veguitas.mp4"],
+      "sources": [
+        "Shows/Veguitas/Season 1/Veguitas S01E01.mp4",
+        "Shows/Veguitas/Season 1/Veguitas S01E02.mp4",
+        "Shows/Veguitas/Season 1/Veguitas S01E03.mp4",
+        "Shows/Veguitas/Season 1/Veguitas S01E04.mp4",
+        "Shows/Veguitas/Season 1/Veguitas S01E05.mp4",
+        "Shows/Veguitas/Season 1/Veguitas S01E06.mp4"
+      ],
       "category": "Series",
       "slots": [60, 60, 30, 90, 60, 30, 30]
     },
@@ -102,12 +109,12 @@
     },
     {
       "number": 10,
-      "id": "sunny",
-      "name": "Sunny",
-      "colour": "#D99100",
+      "id": "elephants",
+      "name": "Elephants Dream",
+      "colour": "#5C6B73",
       "port": 9111,
-      "sources": ["Live TV/Sunny.mp4"],
-      "category": "Kids",
+      "sources": ["Films/Elephants Dream/Elephants Dream.mov"],
+      "category": "Movie",
       "slots": [30, 90, 30, 60]
     }
   ]

@@ -37,12 +37,12 @@ Jellyfin writes every open tuner stream to `/cache/transcodes/<id>.ts` for as lo
 
 From here: `npm run demo:livetv:audit` prints the same report (exit 2 on a leak); `npm run demo:livetv:audit -- --restart` runs the restart.
 
-Logos are hand-drawn SVGs in `logos/<id>.svg`, rendered to 512 px PNGs by `rsvg-convert`: a silhouette in the channel colour with white only inside it, since the app draws a white halo round the logo's alpha. A redrawn logo gets a new `?v=` hash in the M3U, and `configure.py` deletes every channel's held image before Refresh Guide so Jellyfin fetches it again.
+Logos are SVGs in `logos/<id>.svg`, rendered to 512 px PNGs by `rsvg-convert`: the title's own logo where one exists (Blender Studio's, embedded as PNG; Veguitas' vector mark from veguitas.com), drawn for Classics and Utopia. A redrawn logo gets a new `?v=` hash in the M3U, and `configure.py` deletes every channel's held image before Refresh Guide so Jellyfin fetches it again.
 
-Sources are paths under `/opt/tomotv/media`. Files outside every library root (`Live TV/`: Veguitas' full story, since the library's Veguitas episodes are placeholder clips of a branded ad, and 480p H.264 encodes of Blender open movies and Sunny) have no Jellyfin item, so the guide titles them by file name; they are copied to the box by hand, e.g.
+Sources are paths under `/opt/tomotv/media`. Veguitas loops the library's six episodes, the studio's assembled full stories re-encoded to one format (1080p30 H.264, AAC 48 kHz stereo) so they stream-copy back to back. Files outside every library root (`Live TV/`: 480p H.264 encodes of Blender open movies) have no Jellyfin item, so the guide titles them by file name; they are copied to the box by hand, e.g.
 
 ```
-scp -i ~/.ssh/tomotv_deploy "../veguitas.com/public/generated/ep001-welcome-to-veguitas/social/full-story-1772836477502.mp4" "$DEMO_SSH:/opt/tomotv/media/Live TV/Welcome to Veguitas.mp4"
+scp -i ~/.ssh/tomotv_deploy "Spring.mp4" "$DEMO_SSH:/opt/tomotv/media/Live TV/Spring.mp4"
 ```
 
 Add a channel: append to `lineup.json` (unique `id`, `number`, `port` 91NN but never 9109, the guide's, codec-uniform sources, `category` Movie / Series / Kids / Sports / News for Jellyfin's genre rows) and draw `logos/<id>.svg`, rerun.

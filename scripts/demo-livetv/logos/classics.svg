@@ -1,20 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <g fill="#4A2B5C">
-    <path d="M40,300 A216,216 0 0 1 472,300 Z"/>
-    <rect x="80" y="300" width="352" height="44"/>
-    <rect x="28" y="344" width="456" height="136" rx="8"/>
+  <defs>
+    <linearGradient id="brass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F3E3B5"/><stop offset="0.55" stop-color="#D4B06A"/><stop offset="1" stop-color="#A9823E"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#brass)">
+    <path d="M86 196 V150 A170 110 0 0 1 426 150 V196" stroke-width="6"/>
+    <path d="M104 196 V156 A152 94 0 0 1 408 156 V196" stroke-width="2"/>
   </g>
-  <g stroke="#FFFFFF" stroke-width="7" stroke-linecap="round">
-    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(20 256 300)"/>
-    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(40 256 300)"/>
-    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(60 256 300)"/>
-    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(80 256 300)"/>
-    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(100 256 300)"/>
-    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(120 256 300)"/>
-    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(140 256 300)"/>
-    <line x1="256" y1="300" x2="72" y2="300" transform="rotate(160 256 300)"/>
+  <g fill="url(#brass)">
+    <circle cx="256" cy="72" r="5"/><circle cx="192" cy="80" r="4"/><circle cx="320" cy="80" r="4"/>
+    <circle cx="136" cy="100" r="3.5"/><circle cx="376" cy="100" r="3.5"/>
   </g>
-  <path d="M200,300 A56,56 0 0 1 312,300 Z" fill="#FFFFFF"/>
-  <rect x="80" y="318" width="352" height="6" fill="#FFFFFF"/>
-  <text x="256" y="454" font-family="Bodoni 72" font-weight="bold" font-size="132" letter-spacing="4" text-anchor="middle" fill="#FFFFFF">CM</text>
+  <text x="256" y="292" text-anchor="middle" font-family="Didot" font-weight="700" font-size="104" letter-spacing="2" fill="#F6EEDC">CLASSIC</text>
+  <rect x="86" y="318" width="340" height="3" fill="url(#brass)"/>
+  <rect x="86" y="327" width="340" height="1.5" fill="url(#brass)"/>
+  <text x="256" y="388" text-anchor="middle" font-family="DIN Condensed" font-weight="700" font-size="58" letter-spacing="24" fill="url(#brass)">MOVIES</text>
+  <path d="M86 420 H214 M298 420 H426" stroke="url(#brass)" stroke-width="2"/>
+  <path d="M256 406 L260.5 416 L271 417 L263 424 L265.5 434 L256 428.5 L246.5 434 L249 424 L241 417 L251.5 416 Z" fill="url(#brass)"/>
 </svg>
