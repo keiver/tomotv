@@ -55,13 +55,9 @@ describe("GuideCell", () => {
     expect(artKey("old")).not.toEqual(artKey("new"));
   });
 
-  it("unrolls the reel on focus of an airing programme, poster or not, and never under a future slot", () => {
+  it("unrolls the reel on an airing programme without focus, poster or not, and never under a future slot", () => {
     mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
-    const focusedIds = (overrides: Partial<React.ComponentProps<typeof GuideCell>>) => {
-      const tree = render(overrides);
-      act(() => tree.root.findByProps({ accessibilityRole: "button" }).props.onFocus());
-      return testIds(tree);
-    };
+    const focusedIds = (overrides: Partial<React.ComponentProps<typeof GuideCell>>) => testIds(render(overrides));
     const airing = { ...program, Id: "p5", ChannelId: "c1" };
     expect(focusedIds({ program: airing })).toContain("guide-focus-reel");
     const withPoster = focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } } });
@@ -69,7 +65,7 @@ describe("GuideCell", () => {
     expect(focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } }, nowMs: T0 - MINUTE_MS })).not.toContain("guide-focus-reel");
   });
 
-  it("fades the poster down while grabbed frames show over it, and only then", () => {
+  it("fades the poster down while grabbed frames show over it, focused or not, and only then", () => {
     const withPoster = { ...program, Id: "p6", ChannelId: "c1", ImageTags: { Primary: "tag" } };
     const artOpacity = (tree: TestRenderer.ReactTestRenderer) => StyleSheet.flatten(tree.root.findByProps({ testID: "guide-cell-art" }).props.style).opacity ?? 1;
     const focus = (tree: TestRenderer.ReactTestRenderer) => act(() => tree.root.findByProps({ accessibilityRole: "button" }).props.onFocus());
@@ -80,8 +76,6 @@ describe("GuideCell", () => {
 
     mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
     const grabbed = render({ program: withPoster });
-    expect(artOpacity(grabbed)).toBe(1);
-    focus(grabbed);
     // The mock evaluates animated styles at render; a nudge re-renders after the effect's set.
     act(() =>
       grabbed.update(<GuideCell program={withPoster} left={0} width={400} height={90} nowMs={T0 + 16 * MINUTE_MS} recording={null} scrollX={scrollX} onPress={jest.fn()} onLongPress={jest.fn()} />),

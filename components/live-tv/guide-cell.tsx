@@ -94,7 +94,7 @@ function GuideCellComponent({
   // On the UI thread with the pin: a measured width that re-rendered the cell doubled every mount.
   const labelWidth = useSharedValue(0);
   const [focused, setFocused] = useState(false);
-  const reelChannel = (focused || cardFocused) && !standIn && program.ChannelId && startMs <= nowMs && nowMs < endMs ? program.ChannelId : null;
+  const reelChannel = !standIn && program.ChannelId && startMs <= nowMs && nowMs < endMs ? program.ChannelId : null;
   const subscribeReel = useCallback((listener: () => void) => (reelChannel ? subscribeLiveFrame(reelChannel, listener) : () => undefined), [reelChannel]);
   const readReel = useCallback(() => (reelChannel ? (liveFrameReel(reelChannel)?.frames.length ?? 0) > 0 : false), [reelChannel]);
   const reelShown = useSyncExternalStore(subscribeReel, readReel);
@@ -133,16 +133,15 @@ function GuideCellComponent({
           <View style={styles.artFade} />
         </Animated.View>
       ) : null}
-      {/* A stand-in row wears its reel whenever a burst exists, resting faded and brightening
-          on the row's focus. A programme, art or not, gets the compact strip on focus alone, and
-          only while it airs: sampled history under a future slot would lie. */}
+      {/* Any row wears its reel whenever a burst exists, resting faded and brightening on the row's
+          focus. A programme gets the compact strip only while it airs: history under a future slot would lie. */}
       {standInChannel ? (
         <View style={styles.reelClip} pointerEvents="none">
           <GuideFocusReel channelId={standInChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} />
         </View>
       ) : reelChannel ? (
         <View style={styles.reelClip} pointerEvents="none">
-          <GuideFocusReel channelId={reelChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active compact />
+          <GuideFocusReel channelId={reelChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} compact />
         </View>
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
