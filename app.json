@@ -24,9 +24,7 @@
         "UIBackgroundModes": ["audio"],
         "UIViewControllerBasedStatusBarAppearance": true,
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true,
-          "NSAllowsArbitraryLoadsForMedia": true,
-          "NSAllowsLocalNetworking": true
+          "NSAllowsArbitraryLoads": true
         },
         "NSLocalNetworkUsageDescription": "Tomo TV needs access to your local network to find and connect to your Jellyfin media server and stream your videos."
       }
