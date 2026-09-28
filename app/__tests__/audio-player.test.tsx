@@ -17,8 +17,8 @@ jest.mock("react-native", () => {
 
 const mockNavigation = {
   addListener: jest.fn(() => jest.fn()),
-  canGoBack: jest.fn(() => true),
-  goBack: jest.fn(),
+  dispatch: jest.fn(),
+  getState: () => ({ key: "root" }),
   setOptions: jest.fn(),
 };
 
@@ -92,9 +92,10 @@ describe("AudioPlayerScreen", () => {
     expect(renderer.root.findAllByProps({ isTVSelectable: true, hasTVPreferredFocus: true })).toHaveLength(1);
 
     await act(async () => audioStateListener?.(audioState(true)));
-    expect(mockNavigation.goBack).not.toHaveBeenCalled();
+    expect(mockNavigation.dispatch).not.toHaveBeenCalled();
 
     await act(async () => audioStateListener?.(audioState(false)));
-    expect(mockNavigation.goBack).toHaveBeenCalledTimes(1);
+    expect(mockNavigation.dispatch).toHaveBeenCalledTimes(1);
+    expect(mockNavigation.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: "POP", target: "root" }));
   });
 });

@@ -38,6 +38,7 @@ import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { StackActions } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
@@ -122,10 +123,10 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     advance?: string; // "1" on a queue advance: a PiP window carries into this item
   }>();
   const router = useRouter();
-  // Pops go through THIS screen's navigator, never the router's. router.back()
-  // dispatches from whatever is focused, so a press UIKit already handled lands
-  // in the (library) stack and takes the folder with it.
+  // Pops go through THIS screen's navigator and target its stack, never the router's: a press UIKit
+  // already handled would otherwise pop the folder beneath (see handleBack).
   const navigation = useNavigation();
+  const popThisScreen = useCallback(() => navigation.dispatch({ ...StackActions.pop(), target: navigation.getState()?.key }), [navigation]);
   const { hideGlobalLoader, showGlobalLoader } = useLoadingActions();
   const { queue, currentIndex, hasNext, nextVideo, advanceToNext, jumpTo, clear } = usePlayQueue();
   const {
@@ -630,13 +631,10 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       clear();
     }
     stopSession();
-    // THIS screen's navigator, never the router. router.back() dispatches through whatever is
-    // FOCUSED, so a duplicate arrival (the same Menu press reaching the host handler twice, a
-    // phone presentation dismissal landing after the pop) hits the (library) stack and takes the
-    // folder with it. A screen-scoped GO_BACK carries `source`, and React Navigation delegates to
-    // child navigators only for `target`, so this pops this screen or nothing.
-    if (navigation.canGoBack()) navigation.goBack();
-  }, [pause, navigation, isQueueMode, clear, stopSession]);
+    // UIKit can pop this route natively on the same Menu press, and an untargeted pop then takes
+    // the folder beneath. Targeted at the root stack with this route as source, it pops this screen or nothing.
+    popThisScreen();
+  }, [pause, popThisScreen, isQueueMode, clear, stopSession]);
 
   // Interstitial CTAs, and the tvOS content proposal's Play Now / Close. Play Now
   // (and the countdown expiring) advances the queue — the router.replace updates
@@ -714,7 +712,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       clear();
       stopSession();
       // Scoped for the same reason as handleBack above.
-      if (navigation.canGoBack()) navigation.goBack();
+      popThisScreen();
       return;
     }
 
@@ -743,9 +741,9 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       logger.info("End of playlist, going back to library", { service: "VideoPlayer" });
       stopSession();
       // Scoped for the same reason as handleBack above.
-      if (navigation.canGoBack()) navigation.goBack();
+      popThisScreen();
     }
-  }, [isQueueMode, hasNext, nextVideo, hostMode, autoPlayNext, handleInterstitialPlay, clear, stopSession, currentPlaylistIndex, router, navigation, showGlobalLoader]);
+  }, [isQueueMode, hasNext, nextVideo, hostMode, autoPlayNext, handleInterstitialPlay, clear, stopSession, currentPlaylistIndex, router, popThisScreen, showGlobalLoader]);
 
   // Info-panel Up Next selection (tvOS): jump the queue to the picked item and
   // restart the player on it — the mid-video equivalent of a Continue Watching

@@ -11,7 +11,7 @@ jest.mock("react-native", () => {
 });
 let mockParams: Record<string, string> = { videoId: "one", videoName: "First" };
 const mockRouter = { replace: jest.fn(), setParams: jest.fn() };
-const mockNavigation = { canGoBack: jest.fn(() => true), goBack: jest.fn() };
+const mockNavigation = { dispatch: jest.fn(), getState: () => ({ key: "root" }) };
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useRouter: () => mockRouter, useNavigation: () => mockNavigation }));
 jest.mock("expo-linking", () => ({ addEventListener: jest.fn(() => ({ remove: jest.fn() })) }));
 jest.mock("@/components/dismiss-pan", () => ({ DismissPan: () => null }));

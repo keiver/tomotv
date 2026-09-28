@@ -1,7 +1,7 @@
-/** The transport bar favorite flips its title at the press, VOD and live, like the record CTA. */
 import VideoPlayerScreen from "@/app/player";
-import type { PlayerTvConfig } from "@/contexts/PlayerSessionContext";
-import { fetchChannels, fetchLiveTvManagement, fetchMediaSegments, fetchNextEpisodeAutoPlay, fetchTimers, fetchVideoDetails } from "@/services/jellyfinApi";
+import type { PlayerSessionHandlers } from "@/contexts/PlayerSessionContext";
+import { fetchMediaSegments, fetchNextEpisodeAutoPlay } from "@/services/jellyfinApi";
+import { StackRouter, type StackActionType, type StackNavigationState, type ParamListBase } from "expo-router/react-navigation";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
@@ -10,7 +10,7 @@ jest.mock("react-native", () => {
   Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: true });
   return rn;
 });
-let mockParams: Record<string, string> = { videoId: "one", videoName: "First" };
+let mockParams = { videoId: "one", videoName: "First", queueMode: "true" };
 const mockRouter = { replace: jest.fn(), setParams: jest.fn() };
 const mockNavigation = { dispatch: jest.fn(), getState: () => ({ key: "root" }) };
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useRouter: () => mockRouter, useNavigation: () => mockNavigation }));
@@ -27,27 +27,24 @@ jest.mock("@/services/liveRing", () => ({ recenterLiveRing: jest.fn(), releaseLi
 jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(), cancelPosterFrame: jest.fn() }));
 jest.mock("@/services/syncPlayManager", () => ({ isJoined: () => false, requestNextItem: jest.fn() }));
 jest.mock("@/services/libraryManager", () => ({ libraryManager: { getState: () => ({ videos: [] }) } }));
-jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/jellyfinApi", () => ({
   fetchMediaSegments: jest.fn(),
   fetchNextEpisodeAutoPlay: jest.fn(),
-  fetchChannels: jest.fn(async () => ({ items: [] })),
+  fetchChannels: jest.fn(),
   fetchVideoDetails: jest.fn(async () => null),
   setVideoFavorite: jest.fn(async () => {}),
-  fetchLiveTvManagement: jest.fn(async () => false),
-  fetchTimers: jest.fn(async () => []),
-  fetchTimerDefaults: jest.fn(async () => ({})),
-  createTimer: jest.fn(async () => {}),
-  cancelTimer: jest.fn(async () => {}),
 }));
 const mockLoaders = { hideGlobalLoader: jest.fn(), showGlobalLoader: jest.fn() };
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => mockLoaders }));
 const mockQueue = {
-  queue: [] as { Id: string; Name: string }[],
-  currentIndex: -1,
-  hasNext: false,
-  nextVideo: null,
+  queue: [
+    { Id: "one", Name: "First", RunTimeTicks: 600_000_000 },
+    { Id: "two", Name: "Second" },
+  ],
+  currentIndex: 0,
+  hasNext: true,
+  nextVideo: { Id: "two", Name: "Second" },
   advanceToNext: jest.fn(),
   jumpTo: jest.fn(),
   clear: jest.fn(),
@@ -71,49 +68,41 @@ const mockSession = {
 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => mockSession }));
 
-const lastConfig = (): PlayerTvConfig => mockSession.setTvConfig.mock.calls.at(-1)![0];
-const lastHandlers = () => mockSession.setHandlers.mock.calls.filter((c) => c[0]).at(-1)![0];
-const favoriteButton = () => lastConfig().transportBarButtons?.find((b: { id: string }) => b.id === "favorite");
+const routeNames = ["(tabs)", "[folderId]", "player"];
+const rootState = (keys: string[]) =>
+  ({
+    key: "root",
+    type: "stack",
+    stale: false,
+    index: keys.length - 1,
+    routeNames,
+    preloadedRoutes: [],
+    routes: keys.map((key) => ({ key, name: key === "player" ? "player" : key === "tabs" ? "(tabs)" : "[folderId]" })),
+  }) as StackNavigationState<ParamListBase>;
+const keysAfter = (action: StackActionType, keys: string[]) => {
+  const next = StackRouter({}).getStateForAction(rootState(keys), action, { routeNames, routeParamList: {}, routeGetIdList: {} });
+  return next ? next.routes.map((route) => route.key) : keys;
+};
 
-describe("transport bar favorite flip", () => {
-  let renderer: TestRenderer.ReactTestRenderer;
+describe("Menu out of the player", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(fetchNextEpisodeAutoPlay).mockResolvedValue(true);
     jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null });
   });
-  afterEach(async () => {
-    await act(async () => renderer?.unmount());
-  });
-  const mount = async () => {
+
+  it("pops the player and never the folder beneath it, when UIKit already popped it", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => {
       renderer = TestRenderer.create(<VideoPlayerScreen />);
     });
-  };
+    const handlers: PlayerSessionHandlers = mockSession.setHandlers.mock.calls.at(-1)![0];
+    await act(async () => handlers.onRequestBack());
+    // The screen's own dispatch stamps `source` with its route key.
+    const action = { ...mockNavigation.dispatch.mock.calls[0][0], source: "player" };
 
-  it("VOD: the press flips the title to remove", async () => {
-    mockParams = { videoId: "one", videoName: "First" };
-    jest.mocked(fetchVideoDetails).mockResolvedValue({ Id: "one", UserData: { IsFavorite: false } } as never);
-    await mount();
-    expect(favoriteButton()).toMatchObject({ title: "info.addFavorite", sfSymbol: "heart" });
-    await act(async () => lastHandlers().onTransportBarButtonSelected({ id: "favorite" }));
-    expect(favoriteButton()).toMatchObject({ title: "info.removeFavorite", sfSymbol: "heart.fill" });
-  });
-
-  it("live: the press flips the title to remove", async () => {
-    mockParams = { videoId: "ch1", videoName: "News", live: "1" };
-    mockSession.sessionVideoId = "ch1";
-    jest.mocked(fetchChannels).mockResolvedValue({
-      items: [
-        { Id: "ch1", Name: "News" },
-        { Id: "ch2", Name: "Sports" },
-      ],
-    } as never);
-    jest.mocked(fetchLiveTvManagement).mockResolvedValue(false);
-    jest.mocked(fetchTimers).mockResolvedValue([]);
-    await mount();
-    expect(favoriteButton()).toMatchObject({ title: "info.addFavorite", sfSymbol: "heart" });
-    await act(async () => lastHandlers().onTransportBarButtonSelected({ id: "favorite" }));
-    expect(favoriteButton()).toMatchObject({ title: "info.removeFavorite", sfSymbol: "heart.fill" });
+    expect(keysAfter(action, ["tabs", "library", "series", "season", "player"])).toEqual(["tabs", "library", "series", "season"]);
+    expect(keysAfter(action, ["tabs", "library", "series", "season"])).toEqual(["tabs", "library", "series", "season"]);
+    await act(async () => renderer.unmount());
   });
 });

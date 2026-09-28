@@ -6,6 +6,7 @@ import { fetchVideoDetails, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { playQueueManager } from "@/services/playQueueManager";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams, useNavigation } from "expo-router";
+import { StackActions } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useRef } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 
@@ -23,9 +24,8 @@ export default function AudioPlayerScreen() {
     queueMode?: string;
     startTicks?: string; // Resume position the launching screen already displayed
   }>();
-  // This screen's own navigator, not the router: the tvOS Menu press that dismisses
-  // the native player can also have popped this route already, and a router.back()
-  // then pops whatever is focused underneath (see app/player.tsx).
+  // This screen's own navigator, targeted at its stack: the tvOS Menu press can also have popped
+  // this route natively, and any other pop then takes the folder beneath (see app/player.tsx).
   const navigation = useNavigation();
   const { hideGlobalLoader } = useLoadingActions();
 
@@ -38,7 +38,7 @@ export default function AudioPlayerScreen() {
   const pop = useCallback(() => {
     if (poppedRef.current) return;
     poppedRef.current = true;
-    if (navigation.canGoBack()) navigation.goBack();
+    navigation.dispatch({ ...StackActions.pop(), target: navigation.getState()?.key });
   }, [navigation]);
 
   // Unmount tracking lives in its own []-effect, NOT in the cleanup of the start
