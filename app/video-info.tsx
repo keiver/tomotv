@@ -431,7 +431,7 @@ export default function VideoInfoScreen() {
     if (IS_TV) router.push(destination);
     else router.replace(destination);
   }, [liveChannelId, liveChannelName, router, showGlobalLoader]);
-  const canDelete = isAdmin && !!details && !live;
+  const canDelete = isAdmin && details?.CanDelete === true && !live;
 
   // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
   // holding several, each one names its own set. A folder with nothing playable keeps the

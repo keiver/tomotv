@@ -21,6 +21,7 @@ jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: (...args: unkno
 jest.mock("@/services/jellyfin/cacheKeys", () => ({ invalidateItemRemoved: jest.fn() }));
 
 import { invalidateItemRemoved } from "@/services/jellyfin/cacheKeys";
+import { throwRequestError } from "@/services/jellyfin/session";
 import { deleteItem, fetchIsAdministrator } from "@/services/jellyfin/items";
 
 beforeEach(() => {
@@ -40,9 +41,17 @@ describe("deleteItem", () => {
     expect(invalidateItemRemoved).toHaveBeenCalledWith("u", "abc");
   });
 
-  it("throws on a refused delete and evicts nothing", async () => {
+  it("throws on a refused delete (401) without treating it as an expired session", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 401 });
     await expect(deleteItem("abc")).rejects.toThrow("Failed to delete item: 401");
+    expect(throwRequestError).not.toHaveBeenCalled();
+    expect(invalidateItemRemoved).not.toHaveBeenCalled();
+  });
+
+  it("routes other failures through the shared request error", async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 500 });
+    await expect(deleteItem("abc")).rejects.toThrow("Failed to delete item: 500");
+    expect(throwRequestError).toHaveBeenCalled();
     expect(invalidateItemRemoved).not.toHaveBeenCalled();
   });
 });

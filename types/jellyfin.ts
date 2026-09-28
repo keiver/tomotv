@@ -244,6 +244,8 @@ export interface JellyfinItem extends JellyfinVideoItem {
   // TimerId names the timer a DELETE stops.
   Status?: JellyfinTimer["Status"];
   TimerId?: string | null;
+  // False for items with no file on disk (a recording's placeholder season); DELETE on those 401s.
+  CanDelete?: boolean;
 }
 
 // Minimal Id/Name shape returned by the /Genres and /Artists endpoints
