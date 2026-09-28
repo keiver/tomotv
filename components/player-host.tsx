@@ -7,7 +7,7 @@ import { setPlaybackHold } from "@/services/playbackHold";
 import { setToastPlayerOnScreen } from "@/services/toast";
 import { isHotChannel } from "@/services/liveRing";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { STAGE_HINT_AFTER_SECONDS, stageHint, stageLabel, usePlaybackStage } from "@/hooks/usePlaybackStage";
+import { stageReason, stageStatus, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { chapterFrameUrl } from "@/services/localRemux";
 import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
@@ -416,14 +416,14 @@ export function PlayerHost() {
   const liveHeld = session?.isLive === true && heldLiveSource !== null && !failedForGood;
   const shownSource = streamSource ?? (liveHeld ? heldLiveSource : null);
   const shownUri = shownSource?.uri ?? null;
-  // What AVKit's channel interstitial says under the channel's name while the flip loads: the
-  // stage, its clock, and the stage's hint on its own line once it has run long.
+  // What AVKit's channel interstitial says under the channel's name once a flip runs long: the
+  // status line, and what the current stage waits on on its own line after that.
   const flipStage = usePlaybackStage();
   const liveChannelStage = useMemo(() => {
-    if (!liveSwitching || !flipStage.stage) return undefined;
-    const line = `${stageLabel(flipStage.stage)}${flipStage.elapsedSeconds >= 2 ? `  ${flipStage.elapsedSeconds}s` : ""}`;
-    return flipStage.elapsedSeconds >= STAGE_HINT_AFTER_SECONDS ? `${line}\n${stageHint(flipStage.stage)}` : line;
-  }, [liveSwitching, flipStage.stage, flipStage.elapsedSeconds]);
+    if (!liveSwitching || !flipStage.stage || flipStage.phase === "quiet") return undefined;
+    const reason = flipStage.phase === "reason" ? stageReason(flipStage.stage, { live: true }) : null;
+    return reason ? `${stageStatus(true)}\n${reason}` : stageStatus(true);
+  }, [liveSwitching, flipStage.stage, flipStage.phase]);
   const hostVisible =
     session !== null && shownUri !== null && (!showLoadingOverlay || liveHeld) && !ended && (state.type !== "ERROR" || liveHeld) && (pip === "none" || (!Platform.isTV && pip === "active"));
   // For the Menu handler, which always arrives after the commit that set this.

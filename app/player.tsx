@@ -28,6 +28,9 @@ import { showToast } from "@/services/toast";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { activeRecordTimer, adjacentChannelId, durationLabel, programTimes } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
+import { playsFromDisk } from "@/services/downloads/localSource";
+import { stageStopped } from "@/hooks/usePlaybackStage";
+import { currentPlaybackStage } from "@/services/playbackStage";
 import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPlayManager";
 import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
@@ -38,8 +41,6 @@ import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, BackHandler, LogBox, Platform, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
-import { stageLabel } from "@/hooks/usePlaybackStage";
-import { currentPlaybackStage } from "@/services/playbackStage";
 
 /** Upcoming queue items whose keyframe is asked for ahead of the Up Next surfaces. */
 const UPCOMING_FRAMES = 5;
@@ -849,20 +850,20 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (playbackState.canRetryWithTranscode) {
       return (
         <View style={styles.container}>
-          <PlayerLoadingOverlay />
+          <PlayerLoadingOverlay live={isLiveChannel} local={playsFromDisk(videoId)} />
         </View>
       );
     }
 
-    // Only show error UI if retry is not possible or has already failed. The stage the attempt
-    // died in stays on the store (a reset comes with the next attempt), so it can be named here.
+    // Only show error UI if retry is not possible or has already failed. The failing stage stays
+    // on the store until the next attempt, so the screen can say where it stopped.
     const failedStage = currentPlaybackStage().stage;
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
         <Text style={styles.errorTitle}>{t("player.unableToPlay")}</Text>
         <Text style={styles.errorText}>{playbackState.error}</Text>
-        {failedStage ? <Text style={styles.errorStage}>{`${t("player.failedWhile")}: ${stageLabel(failedStage).toLocaleLowerCase()}`}</Text> : null}
+        {failedStage ? <Text style={styles.errorStage}>{stageStopped(failedStage, { live: isLiveChannel, local: playsFromDisk(videoId) })}</Text> : null}
 
         <View style={styles.buttonGroup}>
           <FocusableButton
@@ -892,7 +893,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
           Menu needs one to pop from (see the component). Also rendered before the stream
           resolves — the IDLE first pass is not part of showLoadingOverlay, and that gap is a
           stranded-focus window too. */}
-      {(showLoadingOverlay || !hasStream || sessionVideoId !== videoId) && !liveOnStage && <PlayerLoadingOverlay />}
+      {(showLoadingOverlay || !hasStream || sessionVideoId !== videoId) && !liveOnStage && <PlayerLoadingOverlay live={isLiveChannel} local={playsFromDisk(videoId)} />}
 
       {/* Between-episodes Up Next screen (phone queue mode). MOUNTED FOR THE WHOLE EPISODE,
           hidden behind the presented player, so its poster and backdrop are already fetched

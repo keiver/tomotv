@@ -28,6 +28,20 @@ describe("playback stage store", () => {
     setPlaybackStage("opening");
     expect(currentPlaybackStage().stage).toBe("opening");
     resetPlaybackStages();
-    expect(currentPlaybackStage()).toEqual({ stage: null, since: 0, passed: [] });
+    expect(currentPlaybackStage()).toEqual({ stage: null, since: 0, startedAt: 0, passed: [] });
+  });
+
+  it("keeps the attempt's start across its stages and takes a new one after a reset", () => {
+    jest.useFakeTimers();
+    setPlaybackStage("details");
+    const first = currentPlaybackStage().startedAt;
+    jest.advanceTimersByTime(5000);
+    setPlaybackStage("engine");
+    expect(currentPlaybackStage()).toMatchObject({ startedAt: first, since: first + 5000 });
+    resetPlaybackStages();
+    jest.advanceTimersByTime(1000);
+    setPlaybackStage("details");
+    expect(currentPlaybackStage().startedAt).toBe(first + 6000);
+    jest.useRealTimers();
   });
 });

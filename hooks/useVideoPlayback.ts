@@ -1523,7 +1523,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           setForwardBufferSeconds(null);
         }
         retryProgressStartRef.current = null;
-        setPlaybackStage("player");
+        // The player's wait belongs to what feeds it: the server's stream, the file itself, or the engine.
+        setPlaybackStage(preparedTransport === "server" ? "server" : preparedTransport === "direct" ? "reading" : "player");
         // A new stream remounts the player, which starts paused; a live reload keeps the one player.
         if (!isLiveRef.current) playerPlayingRef.current = false;
         streamGenerationRef.current += 1;
@@ -1704,7 +1705,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // callback, and dispatching synchronously there re-enters render from it.
       // (RN 0.85's InteractionManager, which this replaced, was already a
       // setImmediate stub, it never moved work off the JS thread either.)
-      setPlaybackStage("buffering");
+      setPlaybackStage(transportRef.current === "server" ? "server" : transportRef.current === "direct" ? "reading" : "buffering");
       setImmediate(() => {
         if (!isMountedRef.current || requestIdRef.current !== attempt) return;
         dispatch({ type: "PLAYER_READY" });

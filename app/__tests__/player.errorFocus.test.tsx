@@ -29,8 +29,6 @@ jest.mock("@/components/player-loading-overlay", () => ({ PlayerLoadingOverlay: 
 jest.mock("@/components/up-next-interstitial", () => ({ UpNextInterstitial: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
-jest.mock("@/hooks/usePlaybackStage", () => ({ stageLabel: () => "" }));
-jest.mock("@/services/playbackStage", () => ({ currentPlaybackStage: () => ({ stage: null }) }));
 jest.mock("@/services/playbackProbe", () => ({ probeEmit: jest.fn() }));
 jest.mock("@/services/itemArtwork", () => ({ posterUri: () => undefined, wantsPosterFrame: () => false }));
 jest.mock("@/services/liveRing", () => ({ recenterLiveRing: jest.fn(), releaseLiveRing: jest.fn() }));
