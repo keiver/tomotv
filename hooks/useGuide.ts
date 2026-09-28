@@ -113,7 +113,7 @@ export function useGuide(): GuideState {
   const [channels, setChannels] = useState<JellyfinItem[]>([]);
   const [programsByChannel, setProgramsByChannel] = useState<Record<string, JellyfinProgram[]>>({});
   const [timers, setTimers] = useState<JellyfinTimer[]>([]);
-  const [windowStartMs] = useState(() => guideWindowStart(Date.now()));
+  const [windowStartMs, setWindowStartMs] = useState(() => guideWindowStart(Date.now()));
   const [windowEndMs, setWindowEndMs] = useState(() => windowStartMs + GUIDE_SPAN_MINUTES * MINUTE_MS);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isLoading, setIsLoading] = useState(true);
@@ -140,7 +140,9 @@ export function useGuide(): GuideState {
     setTimers([]);
     setError(null);
     setIsLoading(true);
-    setWindowEndMs(windowStartMs + GUIDE_SPAN_MINUTES * MINUTE_MS);
+    const start = guideWindowStart(nowMs);
+    setWindowStartMs(start);
+    setWindowEndMs(start + GUIDE_SPAN_MINUTES * MINUTE_MS);
   }
 
   const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[]) => {
