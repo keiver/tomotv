@@ -37,6 +37,8 @@ Jellyfin writes every open tuner stream to `/cache/transcodes/<id>.ts` for as lo
 
 From here: `npm run demo:livetv:audit` prints the same report (exit 2 on a leak); `npm run demo:livetv:audit -- --restart` runs the restart.
 
+`lanes.mjs` measures every input a channel preview can read (the origin, the server's `static=true` pass-through, a counted open) with the engine's own grab, counting the box's opens and buffers around each, then checks the server's close rules the app relies on; it exits 1 on a failed expectation. `rig.mjs <jellyfin tag>` stands up a throwaway Jellyfin in Docker fed by `relay.py` (`RELAY_MAX_READERS` with `RELAY_CAP_MODE refuse|kick` plays a provider's connection cap) and prints the `RIG_*` variables `lanes.mjs` reads to measure the rig instead of the demo.
+
 Logos are SVGs in `logos/<id>.svg`, their viewBox cropped to the mark so the app's contain-fit boxes fill with it, rendered by `rsvg-convert` into 1024 px at their own aspect: the title's own logo where one exists (Blender Studio's, embedded as PNG; Veguitas' vector mark from veguitas.com), drawn for Classics and Utopia. A redrawn logo gets a new `?v=` hash in the M3U, and `configure.py` deletes every channel's held image before Refresh Guide so Jellyfin fetches it again.
 
 Sources are paths under `/opt/tomotv/media`. Veguitas loops the library's six episodes, the studio's assembled full stories re-encoded to one format (1080p30 H.264, AAC 48 kHz stereo) so they stream-copy back to back. Files outside every library root (`Live TV/`: 480p H.264 encodes of Blender open movies) have no Jellyfin item, so the guide titles them by file name; they are copied to the box by hand, e.g.
