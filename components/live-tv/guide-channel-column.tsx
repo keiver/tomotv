@@ -140,6 +140,8 @@ export function GuideChannelColumn({
         getItemLayout={getItemLayout}
         snapToAlignment={IS_TV ? "item" : undefined}
         snapToInterval={IS_TV ? metrics.rowHeight : undefined}
+        // The interval snap rests a list past its content end; the mirror must reach the same offset.
+        scrollToOverflowEnabled={IS_TV}
         onScroll={onScroll}
         scrollEventThrottle={16}
         onEndReached={onEndReached}

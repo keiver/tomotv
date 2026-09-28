@@ -408,6 +408,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
               getItemLayout={getItemLayout}
               snapToAlignment={IS_TV ? "item" : undefined}
               snapToInterval={IS_TV ? METRICS.rowHeight : undefined}
+              scrollToOverflowEnabled={IS_TV}
               onScroll={verticalHandler}
               scrollEventThrottle={16}
               onEndReached={loadMoreRows}
