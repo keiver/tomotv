@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Network
 
 enum EndpointProbe {
     /// What one request learned.
@@ -126,6 +127,41 @@ enum EndpointProbe {
             urls.append(url)
         }
         return urls
+    }
+
+    enum Reach: String { case reachable, refused, silent }
+
+    /// Whether this device can open a TCP connection to the URL's host and port within `timeout`: a bare
+    /// handshake closed at once, no request sent, so it spends none of a provider's stream connections.
+    static func tcpReach(_ urlString: String, timeout: TimeInterval) -> Reach {
+        guard let url = URL(string: urlString), let host = url.host, !host.isEmpty else { return .refused }
+        let port = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+        guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)) else { return .refused }
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .tcp)
+        let lock = NSLock()
+        let done = DispatchSemaphore(value: 0)
+        var answer: Reach?
+        let settle: (Reach) -> Void = { reach in
+            lock.lock()
+            let first = answer == nil
+            if first { answer = reach }
+            lock.unlock()
+            if first { done.signal() }
+        }
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready: settle(.reachable)
+            // A refused or unroutable connect parks in waiting with its error; it will not become ready unaided.
+            case .waiting, .failed: settle(.refused)
+            default: break
+            }
+        }
+        connection.start(queue: DispatchQueue.global(qos: .userInitiated))
+        let timedOut = done.wait(timeout: .now() + timeout) == .timedOut
+        connection.cancel()
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut ? .silent : (answer ?? .silent)
     }
 }
 

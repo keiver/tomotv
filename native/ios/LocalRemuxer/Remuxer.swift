@@ -90,6 +90,8 @@ final class RemuxSession {
     /// Live: segments listed and kept on disk, under stateLock. A hot neighbour starts short and
     /// widens when a player adopts it.
     var liveKeepSegments: Int
+    /// The live input's connection lease while the input is open; guarded by stateLock.
+    var inputLease: LiveConnectionBroker.Lease?
 
     let token = UUID().uuidString
     let config: RemuxConfig

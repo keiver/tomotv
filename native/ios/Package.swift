@@ -97,6 +97,7 @@ let package = Package(
                 "ImageWriter.swift",
                 "PosterQueue.swift",
                 "LiveFrameQueue.swift",
+                "LiveConnectionBroker.swift",
                 "LiveVariantPicker.swift",
             ],
             swiftSettings: [.swiftLanguageMode(.v5)],

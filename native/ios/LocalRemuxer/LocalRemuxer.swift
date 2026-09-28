@@ -218,6 +218,9 @@ class LocalRemuxer: RCTEventEmitter {
     ///   liveSegmentSeconds: Double? : live segment target (default 6)
     ///   httpHeaders: [String: String]? : headers the input origin requires (a live manifest's User-Agent)
     ///   probeOrigin: Bool?         : live input is an origin's HLS playlist; a refusal fails the session
+    ///   liveOriginKey: String?     : the provider whose connection budget a live input spends (its host when absent)
+    ///   fallbackInputUrl: String?  : the channel through the server, opened once when the input itself will not open
+    ///   livePriority: String?      : "playback" (default), "ring" or "preview"; a higher one takes a full budget's slot from a lower
     ///
     /// Everything after durationSeconds comes from Jellyfin's metadata rather
     /// than from the file, because the master playlist is written before FFmpeg
@@ -338,6 +341,9 @@ class LocalRemuxer: RCTEventEmitter {
                 liveWindowSeconds: (config["liveWindowSeconds"] as? Double) ?? 300.0,
                 httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:],
                 probeOrigin: (config["probeOrigin"] as? Bool) ?? false,
+                liveOriginKey: config["liveOriginKey"] as? String,
+                fallbackInputUrl: config["fallbackInputUrl"] as? String,
+                livePriority: LiveConnectionBroker.Priority(name: (config["livePriority"] as? String) ?? "playback"),
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
                 primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
                 sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,
@@ -582,6 +588,8 @@ class LocalRemuxer: RCTEventEmitter {
         let shownFile = (config["shownUri"] as? String).flatMap(URL.init(string:))
         Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline,
                                 span: span, interval: interval, count: count, clipSpan: clipSpan,
+                                originKey: config["originKey"] as? String, priority: LiveConnectionBroker.Priority(name: config["priority"] as? String),
+                                fallbackUrl: config["fallbackUrl"] as? String,
                                 shownPts: shownPts, shownFile: shownFile,
                                 frame: { [weak self] url, index in
                                     self?.publish(liveFrame: ["channelId": channelId, "uri": url.absoluteString, "index": index])
@@ -597,6 +605,18 @@ class LocalRemuxer: RCTEventEmitter {
                 resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed])
             case .cancelled: resolve(["uris": [], "cancelled": true])
             }
+        }
+    }
+
+    /// Whether this device reaches a live origin's host at all: "reachable", "refused" or "silent".
+    @objc func probeOriginReach(
+        _ url: NSString,
+        timeoutMs: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            resolve(EndpointProbe.tcpReach(url as String, timeout: max(0.1, timeoutMs.doubleValue / 1000)).rawValue)
         }
     }
 
@@ -666,6 +686,20 @@ class LocalRemuxer: RCTEventEmitter {
         let session = Self.sessions[token as String]
         Self.lock.unlock()
         session?.setLiveWindow(seconds: seconds.doubleValue)
+        resolve(session != nil)
+    }
+
+    /// A session changing hands (a ring neighbour or a preview adopted by the player) takes the new owner's rank.
+    @objc func setLivePriority(
+        _ token: NSString,
+        priority: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        session?.setLivePriority(LiveConnectionBroker.Priority(name: priority as String))
         resolve(session != nil)
     }
 

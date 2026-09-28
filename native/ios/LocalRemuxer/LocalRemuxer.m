@@ -73,6 +73,18 @@ RCT_EXTERN_METHOD(liveFrame
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(probeOriginReach
+                  : (nonnull NSString *)url timeoutMs
+                  : (nonnull NSNumber *)timeoutMs resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(setLivePriority
+                  : (nonnull NSString *)token priority
+                  : (nonnull NSString *)priority resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(cancelLiveFrame
                   : (nonnull NSString *)channelId resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

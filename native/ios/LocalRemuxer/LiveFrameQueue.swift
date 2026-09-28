@@ -42,8 +42,7 @@ final class LiveFrameQueue {
         queue.async { [weak self] in self?.sweep() }
     }
 
-    private func hostQueue(for inputUrl: String) -> DispatchQueue {
-        let host = URL(string: inputUrl)?.host ?? "-"
+    private func hostQueue(for host: String) -> DispatchQueue {
         lock.lock()
         defer { lock.unlock() }
         if let held = hostQueues[host] { return held }
@@ -71,9 +70,12 @@ final class LiveFrameQueue {
     /// The channel's burst now, decoded in turn, with a `clipSpan` preview clip when over zero.
     /// `shownFile` names a frame of the burst on screen, the one an unchanged answer re-verifies.
     /// `frame` announces each burst file as it is written; it and the completion run on the queue's thread.
+    /// `originKey` names the provider whose connection budget the read spends (the URL's host when nil); no free
+    /// slot answers cancelled, so the channel stays due. `fallbackUrl` (the channel through the server) is read once
+    /// when the input itself does not open, in the time the deadline has left.
     func request(channelId: String, inputUrl: String, headers: [String: String], deadline: TimeInterval = defaultDeadline,
                  span: TimeInterval = defaultSpan, interval: TimeInterval = defaultInterval, count: Int = defaultCount,
-                 clipSpan: TimeInterval = 0,
+                 clipSpan: TimeInterval = 0, originKey: String? = nil, priority: LiveConnectionBroker.Priority = .sweep, fallbackUrl: String? = nil,
                  shownPts: Int64? = nil, shownFile: URL? = nil, frame: ((URL, Int) -> Void)? = nil, completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: channelId, in: root) else {
             completion(.none(opened: true, failure: nil))
@@ -88,7 +90,8 @@ final class LiveFrameQueue {
             return
         }
         let epoch = ChapterFramePool.epoch
-        hostQueue(for: inputUrl).async { [self] in
+        let key = originKey ?? URL(string: inputUrl)?.host ?? "-"
+        hostQueue(for: key).async { [self] in
             slots.wait()
             defer { slots.signal() }
             defer {
@@ -104,7 +107,14 @@ final class LiveFrameQueue {
                 completion(.none(opened: true, failure: nil))
                 return
             }
-            let grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: headers, live: true)
+            guard let lease = LiveConnectionBroker.shared.tryAcquire(key: key, priority: priority, onRevoke: { [weak self] in self?.cancel(channelId: channelId) }) else {
+                completion(.cancelled)
+                return
+            }
+            defer { lease.release() }
+            var grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: headers, live: true)
+            let shared = LiveConnectionBroker.shared.sharesUnknownOrigin(lease)
+            grabber.reconnects = !shared
             lock.lock()
             let stopped = cancelled.contains(channelId)
             if !stopped { running[channelId] = grabber }
@@ -117,11 +127,29 @@ final class LiveFrameQueue {
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: watchdog)
             let started = Date()
             let base = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000))"
-            let result = grabber.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: deadline,
+            var result = grabber.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: deadline,
                                            clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
+            let left = deadline - Date().timeIntervalSince(started)
+            if case .none = result, !grabber.sourceOpened, let fallbackUrl, !fallbackUrl.isEmpty, fallbackUrl != inputUrl, left > 1, !isCancelled(channelId) {
+                grabber.stop()
+                let fallback = FrameGrabber(inputUrl: fallbackUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: [:], live: true)
+                fallback.reconnects = !shared
+                lock.lock()
+                running[channelId] = fallback
+                lock.unlock()
+                grabber = fallback
+                result = fallback.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: left,
+                                            clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
+            }
             watchdog.cancel()
             grabber.stop()
             let elapsed = Date().timeIntervalSince(started)
+            // A read beside another on an unknown origin that broke off before its deadline was kicked.
+            if shared, grabber.sourceOpened, elapsed < deadline - 1, !isCancelled(channelId) {
+                var short = true
+                if case .frames(let files, _, _) = result { short = files.count < max(1, count) }
+                if short { LiveConnectionBroker.shared.noteLost(lease) }
+            }
             lock.lock()
             running[channelId] = nil
             let stoppedMidway = cancelled.contains(channelId)
@@ -152,6 +180,7 @@ final class LiveFrameQueue {
                 NSLog("[LiveFrame] %@", String(format: "%@ unchanged %.2fs %lld bytes onDisk=%d", channelId, elapsed, grabber.bytesRead, onDisk ? 1 : 0))
                 completion(.unchanged(onDisk: onDisk))
             case .none:
+                if !grabber.sourceOpened, grabber.openFailure?.contains("Server returned 4") == true { LiveConnectionBroker.shared.noteRefusal(of: lease) }
                 NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@", channelId, elapsed, grabber.sourceOpened ? 1 : 0,
                                                  grabber.openFailure ?? "no keyframe", grabber.openedUrl ?? inputUrl))
                 completion(.none(opened: grabber.sourceOpened, failure: grabber.openFailure))

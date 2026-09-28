@@ -589,6 +589,14 @@ extension RemuxSession {
         stateLock.unlock()
     }
 
+    /// A player adopting this session ranks its input connection with its own.
+    func setLivePriority(_ priority: LiveConnectionBroker.Priority) {
+        stateLock.lock()
+        let lease = inputLease
+        stateLock.unlock()
+        if let lease { LiveConnectionBroker.shared.setPriority(priority, of: lease) }
+    }
+
     func liveWindowSecondsNow() -> Double {
         stateLock.lock()
         defer { stateLock.unlock() }

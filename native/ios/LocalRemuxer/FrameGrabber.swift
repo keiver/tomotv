@@ -71,6 +71,8 @@ final class FrameGrabber {
     private var openFailed = false
     /// The container and its streams were read, whether or not a video stream was in them.
     private(set) var sourceOpened = false
+    /// Off for a live read opened beside another on an origin whose limit is unknown: a kick then ends the read.
+    var reconnects = true
     /// Bytes the last live grab read through the container's own I/O: the whole pull for a raw stream, the playlist alone for HLS.
     private(set) var bytesRead: Int64 = 0
     /// Why the source would not open, for the live grab's log line.
@@ -478,8 +480,8 @@ final class FrameGrabber {
     /// a bounded wait per I/O call, no trust store to verify against, and the origin's headers.
     private func httpOptions() -> OpaquePointer? {
         var opts: OpaquePointer? = nil
-        av_dict_set(&opts, "reconnect", "1", 0)
-        av_dict_set(&opts, "reconnect_streamed", "1", 0)
+        av_dict_set(&opts, "reconnect", reconnects ? "1" : "0", 0)
+        av_dict_set(&opts, "reconnect_streamed", reconnects ? "1" : "0", 0)
         av_dict_set(&opts, "reconnect_delay_max", "5", 0)
         av_dict_set(&opts, "rw_timeout", "15000000", 0)
         av_dict_set(&opts, "tls_verify", "0", 0)

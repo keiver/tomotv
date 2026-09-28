@@ -39,6 +39,20 @@ extension RemuxSession {
 
     static func isPermanentInputError(_ code: Int32) -> Bool { permanentInputErrors.contains(code) }
 
+    /// A live input that dropped may have been kicked by its origin for another read this device just opened.
+    func noteLiveInputLost() {
+        stateLock.lock()
+        let lease = inputLease
+        stateLock.unlock()
+        if let lease { LiveConnectionBroker.shared.noteLost(lease) }
+    }
+
+    /// The HTTP answers a provider gives a connection over its cap (401, 403, and 429/458 as 4XX).
+    static let refusalErrors: Set<Int32> = Set(["401", "403", "4XX"].map { tag in
+        let bytes = Array(tag.utf8)
+        return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
+    })
+
     /// Interrupt callback: aborts blocking network I/O when the session dies.
     static let interruptCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
         guard let opaque else { return 0 }
@@ -980,47 +994,92 @@ extension RemuxSession {
 
         // ---- Input: opened once; seeks reuse the same context ----
         EngineLog.configure()
-        var inputCtx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
-        guard inputCtx != nil else { return fail("avformat_alloc_context") }
-        inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
+        // A live input holds one of its provider's connections for the session; it goes back once the input closes.
+        var lease: LiveConnectionBroker.Lease?
+        let originKey = config.liveOriginKey ?? URL(string: config.inputUrl)?.host ?? "-"
+        if config.isLive {
+            let key = originKey
+            let yielded: () -> Void = { [weak self] in self?.fail("live input yielded its connection to a higher-priority read") }
+            guard let held = LiveConnectionBroker.shared.acquire(key: key, priority: config.livePriority, timeout: 10, onRevoke: yielded) else {
+                return fail("no connection left on the live origin")
+            }
+            lease = held
+            stateLock.lock()
+            inputLease = held
+            stateLock.unlock()
+        }
+        defer {
+            stateLock.lock()
+            inputLease = nil
+            stateLock.unlock()
+            lease?.release()
+        }
+        var inputCtx: UnsafeMutablePointer<AVFormatContext>?
+        var ret: Int32 = 0
+        var attempt = 0
+        var inputUrl = config.inputUrl
+        var inputHeaders = config.httpHeaders
+        while true {
+            inputCtx = avformat_alloc_context()
+            guard inputCtx != nil else { return fail("avformat_alloc_context") }
+            inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
 
-        var openOpts: OpaquePointer? = nil
-        av_dict_set(&openOpts, "reconnect", "1", 0)
-        av_dict_set(&openOpts, "reconnect_streamed", "1", 0)
-        av_dict_set(&openOpts, "reconnect_delay_max", "5", 0)
-        // A silently wedged read (TCP stall with no RST) otherwise blocks
-        // av_read_frame forever: the interrupt callback only fires on session
-        // cancel, `failed` never gets set, and every segment request starves
-        // out its 20s deadline with the producer looking alive. 15s per I/O
-        // operation turns the stall into an error the reconnect options above
-        // can retry, or a clean fail() the player recovers from.
-        av_dict_set(&openOpts, "rw_timeout", "15000000", 0)
-        // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
-        // tvOS has no trust store to verify against until we ship a CA file.
-        av_dict_set(&openOpts, "tls_verify", "0", 0)
-        for (name, value) in config.httpHeaders {
-            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
-                av_dict_set(&openOpts, "user_agent", value, 0)
-            } else {
-                av_dict_set(&openOpts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+            var openOpts: OpaquePointer? = nil
+            let reconnects = lease.map { !LiveConnectionBroker.shared.sharesUnknownOrigin($0) } ?? true
+            av_dict_set(&openOpts, "reconnect", reconnects ? "1" : "0", 0)
+            av_dict_set(&openOpts, "reconnect_streamed", reconnects ? "1" : "0", 0)
+            av_dict_set(&openOpts, "reconnect_delay_max", "5", 0)
+            // A silently wedged read (TCP stall with no RST) otherwise blocks
+            // av_read_frame forever: the interrupt callback only fires on session
+            // cancel, `failed` never gets set, and every segment request starves
+            // out its 20s deadline with the producer looking alive. 15s per I/O
+            // operation turns the stall into an error the reconnect options above
+            // can retry, or a clean fail() the player recovers from.
+            av_dict_set(&openOpts, "rw_timeout", "15000000", 0)
+            // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
+            // tvOS has no trust store to verify against until we ship a CA file.
+            av_dict_set(&openOpts, "tls_verify", "0", 0)
+            for (name, value) in inputHeaders {
+                if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
+                    av_dict_set(&openOpts, "user_agent", value, 0)
+                } else {
+                    av_dict_set(&openOpts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+                }
             }
-        }
-        // FAST channels serve segments from extension-less URLs (measured on amagi.tv);
-        // the HLS demuxer refuses those unless told not to be picky.
-        if config.isLive { av_dict_set(&openOpts, "extension_picky", "0", 0) }
-        // An origin refusing its segments answers in milliseconds while the open sits on it (measured:
-        // CBC held a session 49s). The check runs beside the open, so a live origin costs no startup.
-        if config.isLive && config.probeOrigin {
-            let inputUrl = config.inputUrl
-            let headers = config.httpHeaders
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let stopped = { [weak self] in self?.isCancelled ?? true }
-                guard let refusal = EndpointProbe.hlsOriginRefusal(inputUrl, headers: headers, timeout: 5, cancelled: stopped) else { return }
-                self?.fail(refusal)
+            // FAST channels serve segments from extension-less URLs (measured on amagi.tv);
+            // the HLS demuxer refuses those unless told not to be picky.
+            if config.isLive { av_dict_set(&openOpts, "extension_picky", "0", 0) }
+            // An origin refusing its segments answers in milliseconds while the open sits on it (measured:
+            // CBC held a session 49s). The check runs beside the open, so a live origin costs no startup.
+            if config.isLive && config.probeOrigin && attempt == 0 && inputUrl == config.inputUrl {
+                let probedUrl = config.inputUrl
+                let headers = config.httpHeaders
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let stopped = { [weak self] in self?.isCancelled ?? true }
+                    guard let refusal = EndpointProbe.hlsOriginRefusal(probedUrl, headers: headers, timeout: 5, cancelled: stopped) else { return }
+                    self?.fail(refusal)
+                }
             }
+            ret = avformat_open_input(&inputCtx, inputUrl, nil, &openOpts)
+            av_dict_free(&openOpts)
+            if ret >= 0 || !config.isLive || isCancelled { break }
+            // A refusal while this device holds other connections to the origin shows its limit: the reads below
+            // this one yield. Just after a yield it is the origin still counting the closed one. Either way, retry.
+            if Self.refusalErrors.contains(ret), attempt < 4, let held = lease,
+               LiveConnectionBroker.shared.noteRefusal(of: held) || LiveConnectionBroker.shared.recentlyYielded(key: originKey, within: 15) {
+                Thread.sleep(forTimeInterval: 0.5 * pow(2, Double(attempt)))
+                attempt += 1
+                continue
+            }
+            if let fallback = config.fallbackInputUrl, !fallback.isEmpty, inputUrl != fallback {
+                NSLog("[LocalRemuxer] Live input unopenable (%@), reading it through the server", averr(ret))
+                inputUrl = fallback
+                inputHeaders = [:]
+                attempt = 0
+                continue
+            }
+            break
         }
-        var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
-        av_dict_free(&openOpts)
         guard ret >= 0, let input = inputCtx else { return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret)) }
         mark("open_input")
         defer {
@@ -1852,6 +1911,7 @@ extension RemuxSession {
             if ret == SWIFT_AVERROR_EOF && config.isLive {
                 // The http layer reconnects on its own (reconnect_streamed). An EOF that reaches
                 // the demuxer means the server closed the live stream; only a new open restores it.
+                noteLiveInputLost()
                 fail("live input ended")
                 break
             }
@@ -1958,6 +2018,7 @@ extension RemuxSession {
                 if allowRecovery {
                     retrySource(because: "read_frame: \(averr(ret))")
                 } else {
+                    if config.isLive { noteLiveInputLost() }
                     fail("read_frame: \(averr(ret))")
                 }
                 break
