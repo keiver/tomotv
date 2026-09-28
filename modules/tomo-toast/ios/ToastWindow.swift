@@ -27,7 +27,34 @@ final class ToastWindow: UIWindow {
 
   func present(_ card: ToastCardView) {
     guard let host = rootViewController?.view else { return }
-    card.install(in: host)
+    card.install(in: host, cover: navigationBarBottom())
+  }
+
+  /// The bottom edge of the navigation bar at the top of the app's frontmost screen, if one shows.
+  private func navigationBarBottom() -> CGFloat? {
+    #if os(iOS)
+      guard let scene = windowScene,
+        let app = scene.windows.first(where: { $0 !== self && $0.isKeyWindow }) ?? scene.windows.first(where: { $0 !== self && !$0.isHidden }),
+        var top = app.rootViewController
+      else { return nil }
+      while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+      guard let root = top.viewIfLoaded else { return nil }
+      let edge = app.safeAreaInsets.top + 1
+      var bottom: CGFloat?
+      func visit(_ view: UIView) {
+        guard !view.isHidden, view.alpha > 0.01 else { return }
+        if let bar = view as? UINavigationBar {
+          let frame = bar.convert(bar.bounds, to: app)
+          if frame.minY <= edge, frame.height > 0 { bottom = max(bottom ?? 0, frame.maxY) }
+          return
+        }
+        view.subviews.forEach(visit)
+      }
+      visit(root)
+      return bottom
+    #else
+      return nil
+    #endif
   }
 }
 

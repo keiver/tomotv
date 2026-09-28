@@ -177,9 +177,9 @@ final class ToastCardView: UIView {
     }
   #endif
 
-  /// Edge to edge and as tall as its one line. tvOS hugs the true screen edge like the folder
-  /// bar; iOS starts below the status bar. The row stays centred inside the safe area.
-  func install(in host: UIView) {
+  /// Edge to edge and as tall as its one line, or down to `cover` (a top navigation bar's bottom)
+  /// so the bar's buttons stay hidden. tvOS hugs the true screen edge; iOS starts below the status bar.
+  func install(in host: UIView, cover: CGFloat? = nil) {
     translatesAutoresizingMaskIntoConstraints = false
     host.addSubview(self)
     let guide = host.safeAreaLayoutGuide
@@ -199,6 +199,11 @@ final class ToastCardView: UIView {
     #endif
     let centred = row.centerXAnchor.constraint(equalTo: guide.centerXAnchor)
     centred.priority = .defaultHigh
+    let snug = row.topAnchor.constraint(equalTo: band.topAnchor, constant: Metrics.padding)
+    snug.priority = .defaultHigh
+    if atTop, let cover {
+      bottomAnchor.constraint(greaterThanOrEqualTo: host.topAnchor, constant: cover).isActive = true
+    }
     NSLayoutConstraint.activate([
       leadingAnchor.constraint(equalTo: host.leadingAnchor),
       trailingAnchor.constraint(equalTo: host.trailingAnchor),
@@ -207,8 +212,10 @@ final class ToastCardView: UIView {
       atTop ? band.topAnchor.constraint(equalTo: screenEdge) : band.bottomAnchor.constraint(equalTo: screenEdge),
       atTop ? band.bottomAnchor.constraint(equalTo: bottomAnchor) : band.topAnchor.constraint(equalTo: topAnchor),
 
-      row.topAnchor.constraint(equalTo: band.topAnchor, constant: Metrics.padding),
-      row.bottomAnchor.constraint(equalTo: band.bottomAnchor, constant: -Metrics.padding),
+      snug,
+      row.topAnchor.constraint(greaterThanOrEqualTo: band.topAnchor, constant: Metrics.padding),
+      row.bottomAnchor.constraint(lessThanOrEqualTo: band.bottomAnchor, constant: -Metrics.padding),
+      row.centerYAnchor.constraint(equalTo: band.centerYAnchor),
       row.leadingAnchor.constraint(greaterThanOrEqualTo: guide.leadingAnchor, constant: Metrics.inset),
       row.trailingAnchor.constraint(lessThanOrEqualTo: trailing, constant: -Metrics.inset),
       centred,
