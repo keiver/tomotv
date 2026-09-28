@@ -5,7 +5,7 @@ import { HUD_BAR_HEIGHT } from "@/components/live-tv/guide-hud";
 import { GuideColumnDivider, useColumnResize } from "@/components/live-tv/guide-column-divider";
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
 import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
-import { GuideTimeRuler } from "@/components/live-tv/guide-time-ruler";
+import { GuideTimeRuler, useRulerScrub } from "@/components/live-tv/guide-time-ruler";
 import { COLORS } from "@/constants/colors";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
@@ -62,6 +62,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
   const scrollX = useSharedValue(0);
   const columnRef = useAnimatedRef<Animated.FlatList<JellyfinItem>>();
   const rowsRef = useAnimatedRef<Animated.FlatList<GuideRowData>>();
+  const gridRef = useAnimatedRef<Animated.ScrollView>();
   // The channel column's live width and the whole guide's width, both driven from the UI thread
   // so the resize drag never re-renders the two lists.
   const columnW = useSharedValue(METRICS.channelColumnWidth);
@@ -77,11 +78,15 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
   // The corner tracks the column's live width; the ruler band mirrors the rows' horizontal offset.
   const cornerWidthStyle = useAnimatedStyle(() => ({ width: columnW.get() }));
   const rulerShift = useAnimatedStyle(() => ({ transform: [{ translateX: -scrollX.value }] }));
+  const { gesture: scrubGesture, stop: stopScrub } = useRulerScrub(gridRef, scrollX, Math.max(0, spanPx + SEAM_REACH - viewportWidth));
 
   // Within a viewport of the loaded edge: grow the window before the viewer reaches it.
   const horizontalHandler = useAnimatedScrollHandler({
+    onBeginDrag: () => {
+      stopScrub();
+    },
     onScroll: (event) => {
-      scrollX.value = event.contentOffset.x;
+      scrollX.set(event.contentOffset.x);
       if (viewportWidth > 0 && event.contentOffset.x + 2 * viewportWidth > spanPx) runOnJS(extendWindow)();
     },
   });
@@ -207,6 +212,8 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
 
   const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
   const dayLabel = formatDayLabel(windowStartMs, nowMs, { today: t("liveTv.now"), tomorrow: t("liveTv.tomorrow") });
+  // TV: the focused row lands as the lowest whole row, so every focus scroll rests on a row edge.
+  const rowSnapOffset = IS_TV ? Math.max(0, Math.floor((canvasHeight - METRICS.rowHeight) / METRICS.rowHeight)) * METRICS.rowHeight : undefined;
 
   const renderRow = useCallback(
     ({ item, index }: { item: GuideRowData; index: number }) => (
@@ -222,6 +229,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
         scrollX={scrollX}
         viewportWidth={viewportWidth}
         rowIndex={index}
+        snapOffset={rowSnapOffset}
         nextFocusUp={index === 0 ? topFocusHandle : undefined}
         targetsFor={IS_TV ? targetsFor : undefined}
         focusProgramId={index === 0 ? focusProgramId : undefined}
@@ -239,6 +247,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       timersByProgramId,
       scrollX,
       viewportWidth,
+      rowSnapOffset,
       topFocusHandle,
       targetsFor,
       focusProgramId,
@@ -258,6 +267,13 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       </Text>
     </Animated.View>
   );
+  const rulerClip = (
+    <View style={styles.rulerClip}>
+      <Animated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
+        <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
+      </Animated.View>
+    </View>
+  );
   // The ruler band: the corner cell, then the ruler mirroring the rows' horizontal scroll.
   const rulerRow = (
     <View style={[styles.topRow, { height: METRICS.rulerHeight }]}>
@@ -268,11 +284,13 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
           <GestureDetector gesture={resize.corner}>{corner}</GestureDetector>
         </GestureHandlerRootView>
       )}
-      <View style={styles.rulerClip}>
-        <Animated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
-          <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
-        </Animated.View>
-      </View>
+      {IS_TV ? (
+        rulerClip
+      ) : (
+        <GestureHandlerRootView style={styles.rulerClip}>
+          <GestureDetector gesture={scrubGesture}>{rulerClip}</GestureDetector>
+        </GestureHandlerRootView>
+      )}
     </View>
   );
   const seamMark = <GuideSeamMark columnW={columnW} scrollX={scrollX} isHour={new Date(windowStartMs).getMinutes() === 0} height={METRICS.rulerHeight - 1} />;
@@ -329,6 +347,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
           listRef={columnRef}
           onScroll={columnHandler}
           listHeight={listHeight}
+          rowSnapOffset={rowSnapOffset}
           contentBottomPad={LIST_BOTTOM_PAD}
           columnWidth={columnW}
           compact={compact}
@@ -340,6 +359,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
         />
         <TVFocusGuideView style={styles.scrollHost} onLayout={handleCanvasLayout} onFocusEnter={IS_TV ? handleCellsEnter : undefined} onFocusLeave={IS_TV ? handleCellsLeave : undefined}>
           <Animated.ScrollView
+            ref={gridRef}
             horizontal
             onScroll={horizontalHandler}
             scrollEventThrottle={16}
@@ -353,6 +373,8 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
               renderItem={renderRow}
               keyExtractor={keyExtractor}
               getItemLayout={getItemLayout}
+              snapToAlignment={IS_TV ? "item" : undefined}
+              snapToInterval={IS_TV ? METRICS.rowHeight : undefined}
               onScroll={verticalHandler}
               scrollEventThrottle={16}
               onEndReached={loadMoreRows}

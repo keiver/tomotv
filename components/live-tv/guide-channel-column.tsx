@@ -26,6 +26,8 @@ interface GuideChannelColumnProps {
   onScroll: ScrollHandlerProcessed;
   /** The grid list's measured height, so both lists scroll the same span. */
   listHeight: number;
+  /** TV: where a focus scroll lands the focused channel's top, the same as the grid's rows. */
+  rowSnapOffset?: number;
   /** Bottom padding under the last channel so the tab bar never covers it. */
   contentBottomPad: number;
   /** The column's live width, driven by the resize handle; fixed at the metric on TV. */
@@ -53,6 +55,7 @@ export function GuideChannelColumn({
   listRef,
   onScroll,
   listHeight,
+  rowSnapOffset,
   contentBottomPad,
   columnWidth,
   compact,
@@ -85,7 +88,7 @@ export function GuideChannelColumn({
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows.
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
-      <View style={{ height: metrics.rowHeight, justifyContent: "center" }}>
+      <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapOffset={rowSnapOffset}>
         {IS_TV ? (
           <GuideChannelCard
             ref={index === 0 ? firstCardRef : undefined}
@@ -117,7 +120,7 @@ export function GuideChannelColumn({
         )}
       </View>
     ),
-    [metrics, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef],
+    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef],
   );
   const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const getItemLayout = useCallback(
@@ -135,6 +138,8 @@ export function GuideChannelColumn({
         renderItem={renderItem}
         keyExtractor={(item) => item.Id}
         getItemLayout={getItemLayout}
+        snapToAlignment={IS_TV ? "item" : undefined}
+        snapToInterval={IS_TV ? metrics.rowHeight : undefined}
         onScroll={onScroll}
         scrollEventThrottle={16}
         onEndReached={onEndReached}

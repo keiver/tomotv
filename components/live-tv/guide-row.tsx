@@ -31,6 +31,8 @@ interface GuideRowProps {
   /** The rows' visible width: a reel longer than the screen fades at its edge. */
   viewportWidth: number;
   rowIndex: number;
+  /** TV: where a focus scroll lands this row's top in the list (react-native-tvos item snap). */
+  snapOffset?: number;
   /** Top row only: Up leaves the canvas for the screen's actions above it. */
   nextFocusUp?: number;
   /** TV: asked on a cell's focus; the answer rides that cell until it blurs. */
@@ -82,6 +84,7 @@ function GuideRowComponent({
   scrollX,
   viewportWidth,
   rowIndex,
+  snapOffset,
   nextFocusUp,
   targetsFor,
   focusProgramId,
@@ -116,7 +119,7 @@ function GuideRowComponent({
     setFocusTargets((current) => (current?.programId === program.Id ? undefined : current));
   }, []);
   return (
-    <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]}>
+    <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapOffset={snapOffset}>
       <View style={styles.line} pointerEvents="none" />
       {(() => {
         return rowCells(channel, programs, windowStartMs, windowEndMs, metrics).map((program) => {

@@ -1,8 +1,11 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
 import { formatClock, MINUTE_MS, rulerTicks, type GuideMetrics } from "@/utils/guide";
-import React from "react";
+import React, { useMemo } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
+import { Gesture } from "react-native-gesture-handler";
+import { type AnimatedRef, cancelAnimation, type SharedValue, scrollTo, useAnimatedReaction, useSharedValue, withDecay } from "react-native-reanimated";
+import type Animated from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 export const RULER_RED = COLORS.DESTRUCTIVE;
@@ -21,6 +24,43 @@ interface GuideTimeRulerProps {
   metrics: GuideMetrics;
   spanPx: number;
   nowMs: number;
+}
+
+/** Phone: dragging the ruler scrolls the grid under it, a release flings it on with native-like decay. */
+export function useRulerScrub(scrollRef: AnimatedRef<Animated.ScrollView>, scrollX: SharedValue<number>, maxX: number) {
+  const start = useSharedValue(0);
+  const target = useSharedValue(0);
+  useAnimatedReaction(
+    () => target.get(),
+    (x, previous) => {
+      if (previous !== null && x !== previous) scrollTo(scrollRef, x, 0, false);
+    },
+  );
+  const gesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .onBegin(() => {
+          "worklet";
+          cancelAnimation(target);
+          start.set(scrollX.get());
+          target.set(scrollX.get());
+        })
+        .onUpdate((event) => {
+          "worklet";
+          target.set(Math.min(maxX, Math.max(0, start.get() - event.translationX)));
+        })
+        .onEnd((event) => {
+          "worklet";
+          target.set(withDecay({ velocity: -event.velocityX, clamp: [0, maxX] }));
+        }),
+    [start, target, scrollX, maxX],
+  );
+  // The grid's own drag takes over from a fling still in flight.
+  const stop = () => {
+    "worklet";
+    cancelAnimation(target);
+  };
+  return { gesture, stop };
 }
 
 /**
