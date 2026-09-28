@@ -196,10 +196,13 @@ final class LiveFrameQueue {
                     nextDue = min(nextDue ?? due, due)
                 }
             }
-            // Only a directory this pass emptied goes: an empty one found may be awaiting its first frame.
-            if removed, (try? fm.contentsOfDirectory(atPath: item.path))?.isEmpty == true {
+            // Only a directory this pass emptied goes, and never one a grab is about to write into.
+            guard removed else { continue }
+            lock.lock()
+            if !pending.contains(item.lastPathComponent), (try? fm.contentsOfDirectory(atPath: item.path))?.isEmpty == true {
                 try? fm.removeItem(at: item)
             }
+            lock.unlock()
         }
         sweepItem?.cancel()
         sweepItem = nil
