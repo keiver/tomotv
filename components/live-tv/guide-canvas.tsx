@@ -19,6 +19,7 @@ import { LayoutChangeEvent, Platform, Animated as RNAnimated, StyleSheet, Text, 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
+import { setFocusedGuideRow } from "@/services/guideChannelFocus";
 import { setLiveFrameFocus } from "@/services/liveFrames";
 import type { ChannelFilter } from "@/services/liveTvPreferences";
 import { claimMacEscape } from "@/services/macKeyCommands";
@@ -217,8 +218,9 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       if (!IS_TV) return;
       driver.set("grid");
       setFocusLatched(true);
-      // A dwell on the row promotes its channel to the sampler's front.
+      // A dwell on the row promotes its channel to the sampler's front; its card plays its clip.
       setLiveFrameFocus(channel.Id);
+      setFocusedGuideRow(channel.Id);
     },
     [driver],
   );
@@ -229,7 +231,9 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const handleCellsLeave = useCallback(() => {
     setCellsFocused(false);
     setLiveFrameFocus(null);
+    setFocusedGuideRow(null);
   }, []);
+  useEffect(() => () => setFocusedGuideRow(null), []);
   const handleChannelFocus = useCallback(() => {
     if (!IS_TV) return;
     driver.set("column");

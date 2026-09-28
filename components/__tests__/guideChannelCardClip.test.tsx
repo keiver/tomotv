@@ -1,0 +1,39 @@
+/** A channel card plays its clip while its guide row holds focus, and only its own row's. */
+import React from "react";
+import TestRenderer, { act } from "react-test-renderer";
+
+const mockClip = { uri: "file:///pool/c1/live-1-clip.mp4", cacheKey: "live-c1-1-clip" };
+jest.mock("@/components/video-grid-item", () => ({
+  VideoGridItem: (props: object) => require("react").createElement("VideoGridItem", props),
+}));
+jest.mock("@/hooks/useLiveFrame", () => ({
+  useLiveFrame: () => ({ uri: "file:///pool/c1/live-1-11.jpg", cacheKey: "live-c1-1-11" }),
+  useLiveClip: () => mockClip,
+}));
+jest.mock("@/hooks/useChannelHealth", () => ({ useChannelHealth: () => "up" }));
+
+import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
+import { setFocusedGuideRow } from "@/services/guideChannelFocus";
+import type { JellyfinItem } from "@/types/jellyfin";
+
+const channel = { Id: "c1", Name: "One", Type: "TvChannel" } as JellyfinItem;
+
+describe("GuideChannelCard", () => {
+  afterEach(() => act(() => setFocusedGuideRow(null)));
+
+  it("hands the card its clip and turns it on while its own row holds focus", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<GuideChannelCard channel={channel} index={0} onPress={() => undefined} />);
+    });
+    const card = () => tree.root.findByType("VideoGridItem" as never).props as { liveClip?: object; clipActive?: boolean };
+    expect(card().liveClip).toBe(mockClip);
+    expect(card().clipActive).toBe(false);
+    act(() => setFocusedGuideRow("c2"));
+    expect(card().clipActive).toBe(false);
+    act(() => setFocusedGuideRow("c1"));
+    expect(card().clipActive).toBe(true);
+    act(() => setFocusedGuideRow(null));
+    expect(card().clipActive).toBe(false);
+  });
+});

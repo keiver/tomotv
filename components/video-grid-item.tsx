@@ -106,6 +106,8 @@ interface VideoGridItemProps {
   liveFrame?: { uri: string; cacheKey: string };
   /** Channel cards: the channel's preview clip file, looped over the frame while the card holds focus. */
   liveClip?: LiveFrame;
+  /** Channel cards: plays the clip without the card's own focus, as when its guide row holds focus. */
+  clipActive?: boolean;
   /** Channel cards: the health check concluded down; the art dims and the corner badge says Offline. */
   offline?: boolean;
   /** Channel cards: the server is recording this channel; a REC pill joins the corner badge. */
@@ -150,6 +152,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     hideAiring = false,
     liveFrame,
     liveClip,
+    clipActive = false,
     offline = false,
     recording = false,
     flat = false,
@@ -296,7 +299,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 accessible={true}
                 accessibilityLabel={t("a11y.poster").replace("{name}", videoName || t("a11y.video"))}
               />
-              {focused && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
+              {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
               <CardScrim />
               {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
               {liveFrame && posterSource ? (
@@ -444,6 +447,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.hideAiring === nextProps.hideAiring &&
     prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
     prevProps.liveClip?.uri === nextProps.liveClip?.uri &&
+    prevProps.clipActive === nextProps.clipActive &&
     prevProps.offline === nextProps.offline &&
     prevProps.recording === nextProps.recording &&
     prevProps.flat === nextProps.flat &&
