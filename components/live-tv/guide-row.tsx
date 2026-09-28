@@ -4,8 +4,7 @@ import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { cellGeometry, NO_GUIDE_PREFIX, programTimes, type GuideMetrics } from "@/utils/guide";
 import React, { useCallback, useRef, useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
-import type { SharedValue } from "react-native-reanimated";
+import { Platform, type Animated, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
@@ -27,7 +26,8 @@ interface GuideRowProps {
   spanPx: number;
   nowMs: number;
   timersByProgramId: Map<string, JellyfinTimer>;
-  scrollX: SharedValue<number>;
+  /** The grid's native-driven horizontal offset, for the cells' pins. */
+  scrollX: Animated.Value;
   /** The rows' visible width: a reel longer than the screen fades at its edge. */
   viewportWidth: number;
   rowIndex: number;

@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import { LayoutChangeEvent, Platform, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
+import { LayoutChangeEvent, Platform, Animated as RNAnimated, StyleSheet, Text, TVFocusGuideView, useAnimatedValue, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
@@ -29,6 +29,8 @@ const METRICS = guideMetrics(IS_TV);
 const LIST_BOTTOM_PAD = IS_TV ? 0 : 200;
 /** The floating tab bar the phone list scrolls under; matches home-shelves. */
 const TAB_BAR_HEIGHT = 49;
+/** Public in Animated's Flow exports (AnimatedExports.js.flow), missing from its TypeScript types. */
+const attachNativeEvent = (RNAnimated as unknown as { attachNativeEvent: (view: unknown, eventName: string, mapping: unknown[]) => { detach: () => void } }).attachNativeEvent;
 /** The grid reaches this far under the channel column, the width of the grid line on the seam. */
 const SEAM_REACH = 1;
 
@@ -63,6 +65,9 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
   const columnRef = useAnimatedRef<Animated.FlatList<JellyfinItem>>();
   const rowsRef = useAnimatedRef<Animated.FlatList<GuideRowData>>();
   const gridRef = useAnimatedRef<Animated.ScrollView>();
+  // The pins, ruler and seam mark ride this: the native driver moves them inside the grid's own scroll event.
+  const nativeScrollX = useAnimatedValue(0);
+  const rulerShift = useMemo(() => ({ transform: [{ translateX: RNAnimated.multiply(nativeScrollX, -1) }] }), [nativeScrollX]);
   // The channel column's live width and the whole guide's width, both driven from the UI thread
   // so the resize drag never re-renders the two lists.
   const columnW = useSharedValue(METRICS.channelColumnWidth);
@@ -75,9 +80,8 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
     setCanvasHeight(event.nativeEvent.layout.height);
   }, []);
   const handleGuideLayout = useCallback((event: LayoutChangeEvent) => canvasW.set(event.nativeEvent.layout.width), [canvasW]);
-  // The corner tracks the column's live width; the ruler band mirrors the rows' horizontal offset.
+  // The corner tracks the column's live width.
   const cornerWidthStyle = useAnimatedStyle(() => ({ width: columnW.get() }));
-  const rulerShift = useAnimatedStyle(() => ({ transform: [{ translateX: -scrollX.value }] }));
   const { gesture: scrubGesture, stop: stopScrub } = useRulerScrub(gridRef, scrollX, Math.max(0, spanPx + SEAM_REACH - viewportWidth));
 
   // Within a viewport of the loaded edge: grow the window before the viewer reaches it.
@@ -90,6 +94,18 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       if (viewportWidth > 0 && event.contentOffset.x + 2 * viewportWidth > spanPx) runOnJS(extendWindow)();
     },
   });
+  // Feeds nativeScrollX while the grid is mounted; the listener keeps its JS value current for re-renders.
+  const gridShown = rows.length > 0 || (isLoading && !error);
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!gridShown || !grid) return;
+    const event = attachNativeEvent(grid, "onScroll", [{ nativeEvent: { contentOffset: { x: nativeScrollX } } }]);
+    const listener = nativeScrollX.addListener(() => undefined);
+    return () => {
+      nativeScrollX.removeListener(listener);
+      event.detach();
+    };
+  }, [gridShown, gridRef, nativeScrollX]);
   // A viewport wider than the window never scrolls, so the loaded edge grows until it clears two viewports.
   useEffect(() => {
     if (!isLoading && viewportWidth > 0 && 2 * viewportWidth > spanPx) extendWindow();
@@ -230,7 +246,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
         spanPx={spanPx}
         nowMs={nowMs}
         timersByProgramId={timersByProgramId}
-        scrollX={scrollX}
+        scrollX={nativeScrollX}
         viewportWidth={viewportWidth}
         rowIndex={index}
         snapOffset={rowSnapOffset}
@@ -249,7 +265,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       spanPx,
       nowMs,
       timersByProgramId,
-      scrollX,
+      nativeScrollX,
       viewportWidth,
       rowSnapOffset,
       topFocusHandle,
@@ -273,9 +289,9 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
   );
   const rulerClip = (
     <View style={styles.rulerClip}>
-      <Animated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
+      <RNAnimated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
         <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} />
-      </Animated.View>
+      </RNAnimated.View>
     </View>
   );
   // The ruler band: the corner cell, then the ruler mirroring the rows' horizontal scroll.
@@ -297,7 +313,7 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       )}
     </View>
   );
-  const seamMark = <GuideSeamMark columnW={columnW} scrollX={scrollX} isHour={new Date(windowStartMs).getMinutes() === 0} height={METRICS.rulerHeight - 1} />;
+  const seamMark = <GuideSeamMark columnW={columnW} scrollX={nativeScrollX} isHour={new Date(windowStartMs).getMinutes() === 0} height={METRICS.rulerHeight - 1} />;
 
   // The ruler and HUD stay mounted through every branch: an empty pick must keep the group cells (and
   // the focus sitting on one) so the viewer can pick their way back out, and the band must not reflow.

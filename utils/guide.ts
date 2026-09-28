@@ -79,12 +79,6 @@ export function rulerTicks(windowStartMs: number, windowEndMs: number, metrics: 
   return ticks;
 }
 
-/** How far a cell's label slides right so it stays on the visible edge as the canvas scrolls. Runs on the UI thread. */
-export function labelPin(scrollX: number, cellLeft: number, cellWidth: number, labelWidth: number): number {
-  "worklet";
-  return Math.min(Math.max(0, scrollX - cellLeft), Math.max(0, cellWidth - labelWidth));
-}
-
 export type ProgramCategory = "news" | "sports" | "kids" | "movie";
 
 export function programCategory(program: Pick<JellyfinProgram, "IsNews" | "IsSports" | "IsKids" | "IsMovie">): ProgramCategory | null {

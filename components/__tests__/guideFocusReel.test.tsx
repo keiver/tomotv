@@ -1,6 +1,6 @@
 /** A resting reel follows its channel's bursts: a replaced burst repaints without any focus. */
 import React from "react";
-import { StyleSheet } from "react-native";
+import { Animated, StyleSheet } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 const mockListeners = new Map<string, Set<() => void>>();
@@ -19,7 +19,7 @@ jest.mock("expo-image", () => ({ Image: (props: { source?: { cacheKey?: string }
 
 import { GuideFocusReel } from "@/components/live-tv/guide-focus-reel";
 
-const scrollX = { value: 0 } as unknown as import("react-native-reanimated").SharedValue<number>;
+const scrollX = new Animated.Value(0);
 
 function frames(at: number, count: number) {
   return { at, frames: Array.from({ length: count }, (_, i) => ({ uri: `file:///f-${at}-${i}.jpg`, cacheKey: `k-${at}-${i}` })) };

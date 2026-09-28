@@ -1,11 +1,12 @@
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
-import { formatClock, labelPin } from "@/utils/guide";
+import { pinOffset } from "@/components/live-tv/guide-pin";
+import { formatClock } from "@/utils/guide";
 import { Image } from "expo-image";
-import React, { useCallback, useEffect, useSyncExternalStore } from "react";
-import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
-import Animated, { Easing, SharedValue, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
+import React, { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { LayoutChangeEvent, Platform, Animated as RNAnimated, StyleSheet, Text, useAnimatedValue, View } from "react-native";
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 /** Per-tile offset of the focus brightening: the reel unrolls left to right. */
@@ -25,8 +26,8 @@ interface GuideFocusReelProps {
   left: number;
   width: number;
   cellHeight: number;
-  /** The canvas's horizontal offset; the reel rides it so it stays on the visible edge, label-style. */
-  scrollX: SharedValue<number>;
+  /** The canvas's native-driven horizontal offset; the reel rides it so it stays on the visible edge, label-style. */
+  scrollX: RNAnimated.Value;
   /** The rows' visible width: the pinned strip runs out at the screen's edge when the cell runs past it. */
   viewportWidth?: number;
   /** The row holds focus (its cell or its channel card): full strength and the one-shot drift. */
@@ -61,9 +62,9 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, vi
   const subscribe = useCallback((listener: () => void) => subscribeLiveFrame(channelId, listener), [channelId]);
   const read = useCallback(() => liveFrameReel(channelId), [channelId]);
   const reel = useSyncExternalStore(subscribe, read);
-  const reelWidth = useSharedValue(0);
-  const handleLayout = useCallback((event: LayoutChangeEvent) => reelWidth.set(event.nativeEvent.layout.width), [reelWidth]);
-  const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateX: labelPin(scrollX.value, left, width, reelWidth.value) }] }), [left, width]);
+  const reelWidth = useAnimatedValue(0);
+  const handleLayout = useCallback((event: LayoutChangeEvent) => reelWidth.setValue(event.nativeEvent.layout.width), [reelWidth]);
+  const pinStyle = useMemo(() => ({ transform: [{ translateX: pinOffset(scrollX, left, width, reelWidth) }] }), [scrollX, left, width, reelWidth]);
   if (!reel || reel.frames.length === 0) return null;
   const tileHeight = Math.round(cellHeight * (compact ? 0.42 : IS_TV ? 0.55 : 0.5));
   const tileWidth = Math.round(tileHeight * (16 / 9));
@@ -71,7 +72,7 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, vi
   const [captionLead, captionTail] = t("liveTv.lastSeen").split("{time}");
   const cut = reel.frames.length * (tileWidth + GAP) - GAP > room;
   return (
-    <Animated.View style={[styles.reel, pinStyle]} onLayout={handleLayout} pointerEvents="none" testID="guide-focus-reel">
+    <RNAnimated.View style={[styles.reel, pinStyle]} onLayout={handleLayout} pointerEvents="none" testID="guide-focus-reel">
       {compact ? null : (
         <Text style={styles.title} numberOfLines={1}>
           {captionLead}
@@ -85,7 +86,7 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, vi
         ))}
         {cut ? <View style={[styles.cutFade, { width: Math.min(tileWidth, room), experimental_backgroundImage: compact ? CUT_FADE_COMPACT : CUT_FADE }]} /> : null}
       </View>
-    </Animated.View>
+    </RNAnimated.View>
   );
 }
 

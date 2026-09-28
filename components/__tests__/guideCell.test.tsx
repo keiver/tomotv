@@ -1,6 +1,6 @@
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
-import { StyleSheet, Text } from "react-native";
+import { Animated, StyleSheet, Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
 import { guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
 
@@ -12,7 +12,7 @@ jest.mock("expo-image", () => ({ Image: (props: { testID?: string }) => require(
 
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
 const program = { Id: "p1", Name: "Evening News", EpisodeTitle: "Episode 9", StartDate: new Date(T0).toISOString(), EndDate: new Date(T0 + 60 * MINUTE_MS).toISOString(), IsNews: true };
-const scrollX = { value: 0 } as unknown as import("react-native-reanimated").SharedValue<number>;
+const scrollX = new Animated.Value(0);
 
 function render(overrides: Partial<React.ComponentProps<typeof GuideCell>> = {}) {
   let tree: TestRenderer.ReactTestRenderer | undefined;

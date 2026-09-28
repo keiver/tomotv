@@ -5,21 +5,22 @@ import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { formatClock, guideMetrics, labelPin, programCategory, programTimes, standInChannelId, TICK_MINUTES } from "@/utils/guide";
+import { pinOffset } from "@/components/live-tv/guide-pin";
+import { formatClock, guideMetrics, programCategory, programTimes, standInChannelId, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, { SharedValue, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, Animated as RNAnimated, StyleSheet, Text, useAnimatedValue, View } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 const NO_INFO = /^\s*no info(rmation)?( available)?\s*$/i;
 /** The grid's line, the same the ruler and the channel column draw. */
 export const GRID_LINE = "rgba(255, 255, 255, 0.14)";
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const AnimatedPressable = RNAnimated.createAnimatedComponent(Pressable);
 /** The first half hour of a cell is text alone: the art is clipped out of it, so a short cell shows none. */
 const PX_PER_MINUTE = guideMetrics(IS_TV).pxPerMinute;
 const ART_START = PX_PER_MINUTE * TICK_MINUTES;
@@ -38,8 +39,8 @@ interface GuideCellProps {
   height: number;
   nowMs: number;
   recording: RecordingMark;
-  /** The canvas's horizontal offset; the label rides it so it stays on the visible edge. */
-  scrollX: SharedValue<number>;
+  /** The canvas's native-driven horizontal offset; the label rides it so it stays on the visible edge. */
+  scrollX: RNAnimated.Value;
   viewportWidth?: number;
   onPress: (program: JellyfinProgram) => void;
   onLongPress: (program: JellyfinProgram) => void;
@@ -91,8 +92,8 @@ function GuideCellComponent({
   // text; the picture keeps its right end, and the fade spans the box so the bleed starts at its edge.
   const artWidth = Math.min(Math.round(height * (program.PrimaryImageAspectRatio || 16 / 9)), Math.max(0, width - ART_START));
   const past = endMs <= nowMs;
-  // On the UI thread with the pin: a measured width that re-rendered the cell doubled every mount.
-  const labelWidth = useSharedValue(0);
+  // A node, not state: a measured width that re-rendered the cell doubled every mount.
+  const labelWidth = useAnimatedValue(0);
   const [focused, setFocused] = useState(false);
   const reelChannel = !standIn && program.ChannelId && startMs <= nowMs && nowMs < endMs ? program.ChannelId : null;
   const subscribeReel = useCallback((listener: () => void) => (reelChannel ? subscribeLiveFrame(reelChannel, listener) : () => undefined), [reelChannel]);
@@ -103,8 +104,8 @@ function GuideCellComponent({
     artOpacity.set(withTiming(reelShown ? ART_UNDER_REEL_OPACITY : 1, { duration: 200 }));
   }, [artOpacity, reelShown]);
   const artStyle = useAnimatedStyle(() => ({ opacity: artOpacity.value }));
-  const handleLabelLayout = useCallback((event: LayoutChangeEvent) => labelWidth.set(event.nativeEvent.layout.width), [labelWidth]);
-  const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateX: labelPin(scrollX.value, left, width, labelWidth.value) }] }), [left, width]);
+  const handleLabelLayout = useCallback((event: LayoutChangeEvent) => labelWidth.setValue(event.nativeEvent.layout.width), [labelWidth]);
+  const pinStyle = useMemo(() => ({ transform: [{ translateX: pinOffset(scrollX, left, width, labelWidth) }] }), [scrollX, left, width, labelWidth]);
   const programId = program.Id;
   const handleRef = useCallback(
     (node: View | null) => {

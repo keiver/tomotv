@@ -6,7 +6,6 @@ import {
   guideWindowStart,
   isActiveTimer,
   isAiring,
-  labelPin,
   mergePrograms,
   MINUTE_MS,
   NO_GUIDE_PREFIX,
@@ -68,13 +67,6 @@ describe("guide geometry", () => {
     const majors = ticks.filter((tick) => !tick.isMinor);
     expect(majors.map((tick) => tick.left)).toEqual([0, 240, 480]);
     expect(majors.map((tick) => tick.isHour)).toEqual([true, false, true]);
-  });
-
-  it("pins a label to the visible edge without pushing it out of its cell", () => {
-    expect(labelPin(0, 100, 400, 120)).toBe(0);
-    expect(labelPin(250, 100, 400, 120)).toBe(150);
-    expect(labelPin(900, 100, 400, 120)).toBe(280);
-    expect(labelPin(900, 100, 80, 120)).toBe(0);
   });
 
   it("names the channel a stand-in cell stands for", () => {
