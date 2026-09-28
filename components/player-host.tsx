@@ -163,6 +163,8 @@ export function PlayerHost() {
   // A burst of swipes changes the channel at once but opens only the one it settles on.
   const [liveSettling, setLiveSettling] = useState(false);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // AVKit's channel interstitial is on screen: up from the swipe until the channel plays or the skip is abandoned.
+  const [liveInterstitialUp, setLiveInterstitialUp] = useState(false);
 
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
 
@@ -408,15 +410,17 @@ export function PlayerHost() {
     if (streamSource !== null && !showLoadingOverlay) setHeldSource(streamSource);
     else if (session === null) setHeldSource(null);
   }, [streamSource, session, showLoadingOverlay]);
-  // The flip ends when the new channel plays, fails with no rung left, or the session goes. On tvOS a
-  // failure keeps it: the interstitial stays up to say so, and the next swipe flips on from there.
+  // The flip ends when the new channel plays, fails with no rung left, or the session goes. A failure
+  // under the interstitial holds it instead: AVKit only arms the swipe on a playing item, the interstitial's own swipe always.
   const failedForGood = state.type === "ERROR" && !state.canRetryWithTranscode;
+  const liveFlipFailed = Platform.isTV && liveSwitching && liveInterstitialUp && failedForGood;
   useEffect(() => {
     if (!liveSwitching) return;
     if (state.type !== "PLAYING" && state.type !== "ERROR") liveFlipRestartedRef.current = true;
-    if (session === null || (liveFlipRestartedRef.current && (state.type === "PLAYING" || (failedForGood && !Platform.isTV)))) setLiveSwitching(false);
-  }, [liveSwitching, session, state.type, failedForGood]);
-  const liveFlipFailed = Platform.isTV && liveSwitching && failedForGood;
+    const played = liveFlipRestartedRef.current && state.type === "PLAYING";
+    if (played) setLiveInterstitialUp(false);
+    if (session === null || played || (liveFlipRestartedRef.current && failedForGood && !liveFlipFailed)) setLiveSwitching(false);
+  }, [liveSwitching, session, state.type, failedForGood, liveFlipFailed]);
   // A live session keeps its player on stage through every reload, retry and flip, so AVKit holds
   // focus and the channel swipe. The channel on screen failing with no rung left parks it: its error shows.
   const liveHeld = session?.isLive === true && heldSource !== null && (!failedForGood || liveFlipFailed);
@@ -772,6 +776,7 @@ export function PlayerHost() {
       setEnded(false);
       setPip("none");
       setPinnedKey(null);
+      setLiveInterstitialUp(false);
       pipHandoffArmedRef.current = false;
       programmaticDismissRef.current = false;
       presentationRef.current = "none";
@@ -967,8 +972,20 @@ export function PlayerHost() {
           // tvOS live channel flipping: AVKit's own swipe and interstitial, gated on a live session.
           liveChannelFlip={session.isLive ? tvConfig.liveChannelFlip : undefined}
           liveChannelStage={session.isLive ? liveChannelStage : undefined}
-          onSkipToNextChannel={() => handlersRef.current?.onSkipChannel(1)}
-          onSkipToPreviousChannel={() => handlersRef.current?.onSkipChannel(-1)}
+          liveChannelFailed={session.isLive ? liveFlipFailed : undefined}
+          onSkipToNextChannel={() => {
+            setLiveInterstitialUp(true);
+            handlersRef.current?.onSkipChannel(1);
+          }}
+          onSkipToPreviousChannel={() => {
+            setLiveInterstitialUp(true);
+            handlersRef.current?.onSkipChannel(-1);
+          }}
+          // Menu on the interstitial leaves the player paused under it, so it leaves the player.
+          onChannelSkipAbandoned={(event) => {
+            setLiveInterstitialUp(false);
+            if (event.reason === "menu") handlersRef.current?.onRequestBack();
+          }}
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
           // onEnd/onError dismissals — the DID handler closes only for the first two. Will is
           // observed and never acted on; it fires for transitions that get cancelled.

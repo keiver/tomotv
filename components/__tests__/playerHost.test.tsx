@@ -299,7 +299,7 @@ describe("PlayerHost", () => {
     expect(held.uri).toBe("http://stream/ch1");
   });
 
-  it("off tvOS, parks the player when the channel flipped to fails for good, so its error shows", async () => {
+  it("parks the player when the channel flipped to fails for good, so its error shows", async () => {
     await flipFromPlayingChannel();
     stateType = "ERROR";
     canRetry = false;
@@ -309,44 +309,82 @@ describe("PlayerHost", () => {
     expect(renderer.root.findAllByType(Video)).toHaveLength(0);
   });
 
-  describe("on tvOS", () => {
+  describe("tvOS channel swipe onto a dead channel", () => {
     const rn = require("react-native");
-    beforeEach(() => Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: true }));
+    const onRequestBack = jest.fn();
+    beforeEach(() => {
+      Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: true });
+      onRequestBack.mockClear();
+    });
     afterEach(() => Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: false }));
 
-    it("keeps AVKit and its interstitial up when the channel flipped to fails for good, and flips on from there", async () => {
-      await flipFromPlayingChannel();
+    /** Play ch-1, swipe (AVKit's interstitial goes up), flip to ch-2 and let it fail for good. */
+    async function swipeOntoDeadChannel() {
+      await act(async () => {
+        bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+      });
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onSkipChannel: () => bridge().switchLiveChannel({ videoId: "ch-2" }), onRequestBack } as never;
+      sourceUri = "http://stream/ch1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      mockHotChannels.add("ch-2");
+      await act(async () => {
+        renderer.root.findByType(Video).props.onSkipToNextChannel();
+      });
+      sourceUri = null;
+      stateType = "IDLE";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
       stateType = "ERROR";
       canRetry = false;
       await act(async () => {
         renderer.update(<PlayerHost />);
       });
+    }
+
+    afterEach(() => mockHotChannels.clear());
+
+    it("holds AVKit and its interstitial, which says why and stops loading", async () => {
+      await swipeOntoDeadChannel();
       const video = renderer.root.findByType(Video);
       expect(video.props.source.uri).toBe("http://stream/ch1");
+      expect(video.props.liveChannelFailed).toBe(true);
       expect(video.props.liveChannelStage).toBe(t("player.unableToPlay"));
-
-      mockHotChannels.add("ch-3");
-      try {
-        stateType = "IDLE";
-        await act(async () => {
-          bridge().switchLiveChannel({ videoId: "ch-3" });
-        });
-        expect(requestedVideoId()).toBe("ch-3");
-        expect(renderer.root.findByType(Video).props.liveChannelStage).toBeUndefined();
-      } finally {
-        mockHotChannels.clear();
-      }
     });
 
-    it("parks the player when the channel on screen fails for good outside a flip, so its error shows", async () => {
+    it("a swipe from the held interstitial flips on to the next channel", async () => {
+      await swipeOntoDeadChannel();
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onSkipChannel: () => bridge().switchLiveChannel({ videoId: "ch-3" }), onRequestBack } as never;
+      mockHotChannels.add("ch-3");
+      stateType = "IDLE";
       await act(async () => {
-        bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+        renderer.root.findByType(Video).props.onSkipToNextChannel();
       });
-      sourceUri = "http://stream/ch1";
+      expect(requestedVideoId()).toBe("ch-3");
+      expect(renderer.root.findByType(Video).props.liveChannelFailed).toBe(false);
+    });
+
+    it("Menu on the held interstitial leaves the player", async () => {
+      await swipeOntoDeadChannel();
       await act(async () => {
-        renderer.update(<PlayerHost />);
+        renderer.root.findByType(Video).props.onChannelSkipAbandoned({ reason: "menu" });
       });
-      sourceUri = null;
+      expect(onRequestBack).toHaveBeenCalledTimes(1);
+    });
+
+    it("parks the player once the interstitial is gone, so its error shows", async () => {
+      await swipeOntoDeadChannel();
+      await act(async () => {
+        renderer.root.findByType(Video).props.onChannelSkipAbandoned({ reason: "timeout" });
+      });
+      expect(renderer.root.findAllByType(Video)).toHaveLength(0);
+      expect(onRequestBack).not.toHaveBeenCalled();
+    });
+
+    it("parks a channel picked from the info panel that fails, as no interstitial is up", async () => {
+      await flipFromPlayingChannel();
       stateType = "ERROR";
       canRetry = false;
       await act(async () => {
