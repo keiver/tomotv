@@ -232,7 +232,6 @@ export function renameGroup(groupId: string, name: string): void {
   updateLiveTvPreferences({ groups: getLiveTvPreferences().groups.map((group) => (group.id === groupId ? { ...group, name: name.trim() } : group)) });
 }
 
-/** Deleting the group on screen shows everything again. */
 /** Adds a typed guide URL after the others; the saved URL, or null for one that is not http(s). */
 export function addGuideUrl(input: string): string | null {
   const url = normalizeGuideUrl(input);
