@@ -598,6 +598,24 @@ describe("live TV client", () => {
     expect(recordClose).not.toHaveBeenCalledWith("ls-61");
   });
 
+  it("closes an open on the server that made it after a switch to another", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ MediaSources: [{ Id: "ms-64", Container: "ts", SupportsDirectPlay: true, LiveStreamId: "ls-64", Path: "/LiveTv/LiveStreamFiles/ls-64/stream.ts" }] }),
+    });
+    await openChannel("c64", { Id: "c64", Name: "Sixty-four", Type: "TvChannel", Path: "" });
+    const switched: Record<string, string> = { jellyfin_server_url: "http://127.0.0.1:18096", jellyfin_api_key: "other-key", jellyfin_user_id: "other-user", jellyfin_device_id: "test-device-id" };
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => Promise.resolve(switched[key] || null));
+    await refreshConfig();
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
+    await closeLiveStream("ls-64");
+    const [url, init] = (global.fetch as jest.Mock).mock.calls.at(-1);
+    expect(url).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-64`);
+    expect(init.headers.Authorization).toContain('Token="test-api-key"');
+    expect(recordedOpens()).toEqual({});
+  });
+
   it("releases the open that went through beside a channel fetch that failed", async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({

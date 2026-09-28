@@ -354,6 +354,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const headers = { Accept: "application/json", "Content-Type": "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
+  const origin: LiveOrigin = { server: config.server, deviceId: config.deviceId, apiKey: config.apiKey };
   const body = {
     UserId: config.userId,
     DeviceProfile: liveDeviceProfile(),
@@ -374,7 +375,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     options.serverOnly ? API_TIMEOUTS.NORMAL : API_TIMEOUTS.EXTENDED,
   );
   // The item's failure surfaces at once; an open that still goes through beside it is released as it lands.
-  const releaseOpenWhenItLands = () => void infoRequest.then((response) => (response.ok ? closeOpenedStream(response) : undefined)).catch(() => {});
+  const releaseOpenWhenItLands = () => void infoRequest.then((response) => (response.ok ? closeOpenedStream(response, origin) : undefined)).catch(() => {});
   let itemResponse: Response | null = null;
   try {
     itemResponse = item ? null : await fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL);
@@ -398,7 +399,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   const engineInput = !!source?.Path && (raw || manifest);
   if (!source || (!engineInput && !liveTranscodeUrl)) {
     // An open that answered with a stream nobody can play still holds the tuner.
-    void closeLiveStream(source?.LiveStreamId);
+    void closeLiveStream(source?.LiveStreamId, origin);
     throw new Error(`The server did not open ${channel.Name}${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
   }
   let liveStreamUrl: string | undefined;
@@ -406,11 +407,14 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     liveStreamUrl = !engineInput ? undefined : manifest ? await originVariantUrl(source.Path!, source.RequiredHttpHeaders) : liveStreamUrlFor(config.server, config.apiKey, source.Path!);
   } catch (error) {
     // The server holds the tuner for an open nobody will play.
-    void closeLiveStream(source.LiveStreamId);
+    void closeLiveStream(source.LiveStreamId, origin);
     throw error;
   }
   openFailedAt.delete(channelId);
-  if (source.LiveStreamId) recordOpen(source.LiveStreamId, { server: config.server, deviceId: config.deviceId });
+  if (source.LiveStreamId) {
+    openOrigins.set(source.LiveStreamId, origin);
+    recordOpen(source.LiveStreamId, { server: config.server, deviceId: config.deviceId });
+  }
   logger.info("Live channel opened", {
     service: "LiveTv",
     channel: channel.Name,
@@ -435,29 +439,35 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
 }
 
 /** The live stream an open's PlaybackInfo answer names, closed; nothing when it named none. */
-async function closeOpenedStream(infoResponse: Response): Promise<void> {
+async function closeOpenedStream(infoResponse: Response, origin: LiveOrigin): Promise<void> {
   try {
     const info = (await infoResponse.json()) as { MediaSources?: JellyfinMediaSource[] };
-    await closeLiveStream(info.MediaSources?.[0]?.LiveStreamId);
+    await closeLiveStream(info.MediaSources?.[0]?.LiveStreamId, origin);
   } catch (error) {
     logger.warn("Live open could not be read back for its close", error, { service: "LiveTv" });
   }
 }
 
+type LiveOrigin = { server: string; deviceId: string; apiKey: string };
+
+/** The server and credentials each open this run made went out on; a switch must not redirect its close. */
+const openOrigins = new Map<string, LiveOrigin>();
+
 /**
- * Release the tuner; the server holds it for every open that never closes. An answer of any kind
- * ends the record of the open; a close that never reached the server is retried on the next launch.
+ * Release the tuner on the server that opened it; the server holds it for every open that never closes.
+ * An answer of any kind ends the record of the open; a close that never reached the server is retried on the next launch.
  */
-export async function closeLiveStream(liveStreamId: string | null | undefined, origin?: { server: string; deviceId: string; apiKey: string }): Promise<void> {
+export async function closeLiveStream(liveStreamId: string | null | undefined, origin?: LiveOrigin): Promise<void> {
   if (!liveStreamId) return;
   try {
-    const config = origin ?? (await getConfig());
+    const config = origin ?? openOrigins.get(liveStreamId) ?? (await getConfig());
     if (!config.server || !config.apiKey) return;
     const response = await fetchWithTimeout(
       `${config.server}/LiveStreams/Close?liveStreamId=${encodeURIComponent(liveStreamId)}`,
       { method: "POST", headers: { Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
       API_TIMEOUTS.SHORT,
     );
+    openOrigins.delete(liveStreamId);
     recordClose(liveStreamId);
     if (!response.ok) logger.warn("Live stream close refused", { service: "LiveTv", status: response.status, liveStreamId });
   } catch (error) {
