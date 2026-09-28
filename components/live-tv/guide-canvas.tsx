@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
 import { setLiveFrameFocus } from "@/services/liveFrames";
+import type { ChannelFilter } from "@/services/liveTvPreferences";
 import { claimMacEscape } from "@/services/macKeyCommands";
 import { IS_MAC } from "@/utils/hostEnvironment";
 
@@ -36,6 +37,8 @@ const SEAM_REACH = 1;
 
 interface GuideCanvasProps {
   guide: GuideState;
+  /** The picked channel group: a change rewinds the rows to the top. */
+  filter: ChannelFilter;
   /** Native node the top row's Up lands on: the screen's first action above the guide. */
   topFocusHandle?: number;
   /** TV: reports the first channel card's node, the way down into the guide from above. */
@@ -53,7 +56,7 @@ interface GuideCanvasProps {
  * with the channel column beside it kept level with the rows. Cells and channels are the
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
-export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
+export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudRow, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, extendWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
@@ -131,20 +134,30 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       if (driver.value === "column") scrollTo(rowsRef, 0, event.contentOffset.y, false);
     },
   });
-  const rewindToTop = useCallback(() => {
-    driver.set("grid");
-    runOnUI(() => {
-      "worklet";
-      scrollTo(rowsRef, 0, 0, true);
-    })();
-  }, [driver, rowsRef]);
+  const rewindToTop = useCallback(
+    (animated: boolean) => {
+      driver.set("grid");
+      runOnUI(() => {
+        "worklet";
+        scrollTo(rowsRef, 0, 0, animated);
+      })();
+    },
+    [driver, rowsRef],
+  );
+  // Another group opens at its first channel; the old rows hold until its first page replaces them.
+  const lastFilterRef = useRef(filter);
+  useEffect(() => {
+    if (lastFilterRef.current === filter) return;
+    lastFilterRef.current = filter;
+    if (gridShown) rewindToTop(false);
+  }, [filter, gridShown, rewindToTop]);
 
   // Mac: Escape from a scrolled guide rewinds it to the top; the next press pops as usual.
   useEffect(() => {
     if (!IS_MAC || !isScreenFocused) return;
     return claimMacEscape("guide", () => {
       if (scrollY.get() < 1) return false;
-      rewindToTop();
+      rewindToTop(true);
       return true;
     });
   }, [isScreenFocused, scrollY, rewindToTop]);

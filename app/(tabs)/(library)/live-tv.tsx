@@ -147,6 +147,7 @@ function LiveTvScreen() {
           <GuideCanvas
             key={session}
             guide={guide}
+            filter={preferences.filter}
             topFocusHandle={stripHandle ?? topFocusHandle}
             hudRow={
               <GuideHud
