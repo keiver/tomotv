@@ -79,7 +79,7 @@
   "liveTv.guideUrl": "URL de guía externa",
   "liveTv.guideUrlHint": "XMLTV para canales sin guía del servidor",
   "liveTv.guideSources": "Fuentes de la guía",
-  "liveTv.guideSourceSettings": "Ajustes de la fuente de guía",
+  "liveTv.guideSourceSettings": "Ajustes de la fuente",
   "liveTv.guideSourcesHint": "Guías XMLTV para canales sin programación",
   "liveTv.guideSourcesActive": "Activas: {count}",
   "liveTv.guideSourcesAbout": "Las guías de tus listas del sintonizador, y las que añades, completan la programación de los canales para los que tu servidor no tiene.",
