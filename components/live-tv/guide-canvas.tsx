@@ -90,6 +90,10 @@ export function GuideCanvas({ guide, topFocusHandle, onEntryHandle, hudRow, onPr
       if (viewportWidth > 0 && event.contentOffset.x + 2 * viewportWidth > spanPx) runOnJS(extendWindow)();
     },
   });
+  // A viewport wider than the window never scrolls, so the loaded edge grows until it clears two viewports.
+  useEffect(() => {
+    if (!isLoading && viewportWidth > 0 && 2 * viewportWidth > spanPx) extendWindow();
+  }, [isLoading, rows, viewportWidth, spanPx, extendWindow]);
   // Only the list the viewer is moving scrolls the other, so the two never chase each other.
   // A drag picks it on phone; on TV focus picks it, since a focus scroll fires no drag.
   const driver = useSharedValue<"grid" | "column">("grid");
