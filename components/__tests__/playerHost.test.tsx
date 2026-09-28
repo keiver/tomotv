@@ -12,6 +12,7 @@ import Video from "react-native-video";
 import { PlayerHost } from "@/components/player-host";
 import type { PlayerHostBridge } from "@/contexts/PlayerSessionContext";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
+import { t } from "@/services/i18n";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn() }));
@@ -298,7 +299,7 @@ describe("PlayerHost", () => {
     expect(held.uri).toBe("http://stream/ch1");
   });
 
-  it("parks the player when the channel flipped to fails for good, so its error shows", async () => {
+  it("off tvOS, parks the player when the channel flipped to fails for good, so its error shows", async () => {
     await flipFromPlayingChannel();
     stateType = "ERROR";
     canRetry = false;
@@ -306,6 +307,53 @@ describe("PlayerHost", () => {
       renderer.update(<PlayerHost />);
     });
     expect(renderer.root.findAllByType(Video)).toHaveLength(0);
+  });
+
+  describe("on tvOS", () => {
+    const rn = require("react-native");
+    beforeEach(() => Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: true }));
+    afterEach(() => Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: false }));
+
+    it("keeps AVKit and its interstitial up when the channel flipped to fails for good, and flips on from there", async () => {
+      await flipFromPlayingChannel();
+      stateType = "ERROR";
+      canRetry = false;
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      const video = renderer.root.findByType(Video);
+      expect(video.props.source.uri).toBe("http://stream/ch1");
+      expect(video.props.liveChannelStage).toBe(t("player.unableToPlay"));
+
+      mockHotChannels.add("ch-3");
+      try {
+        stateType = "IDLE";
+        await act(async () => {
+          bridge().switchLiveChannel({ videoId: "ch-3" });
+        });
+        expect(requestedVideoId()).toBe("ch-3");
+        expect(renderer.root.findByType(Video).props.liveChannelStage).toBeUndefined();
+      } finally {
+        mockHotChannels.clear();
+      }
+    });
+
+    it("parks the player when the channel on screen fails for good outside a flip, so its error shows", async () => {
+      await act(async () => {
+        bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+      });
+      sourceUri = "http://stream/ch1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      sourceUri = null;
+      stateType = "ERROR";
+      canRetry = false;
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      expect(renderer.root.findAllByType(Video)).toHaveLength(0);
+    });
   });
 
   it("starts the requested item", async () => {

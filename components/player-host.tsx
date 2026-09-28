@@ -7,7 +7,7 @@ import { setPlaybackHold } from "@/services/playbackHold";
 import { setToastPlayerOnScreen } from "@/services/toast";
 import { isHotChannel } from "@/services/liveRing";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { stageReason, stageStatus, usePlaybackStage } from "@/hooks/usePlaybackStage";
+import { stageReason, stageStatus, stageStopped, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { chapterFrameUrl } from "@/services/localRemux";
 import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
@@ -408,16 +408,18 @@ export function PlayerHost() {
     if (streamSource !== null && !showLoadingOverlay) setHeldSource(streamSource);
     else if (session === null) setHeldSource(null);
   }, [streamSource, session, showLoadingOverlay]);
-  // The flip ends when the new channel plays, fails with no rung left, or the session goes.
+  // The flip ends when the new channel plays, fails with no rung left, or the session goes. On tvOS a
+  // failure keeps it: the interstitial stays up to say so, and the next swipe flips on from there.
   const failedForGood = state.type === "ERROR" && !state.canRetryWithTranscode;
   useEffect(() => {
     if (!liveSwitching) return;
     if (state.type !== "PLAYING" && state.type !== "ERROR") liveFlipRestartedRef.current = true;
-    if (session === null || (liveFlipRestartedRef.current && (state.type === "PLAYING" || failedForGood))) setLiveSwitching(false);
+    if (session === null || (liveFlipRestartedRef.current && (state.type === "PLAYING" || (failedForGood && !Platform.isTV)))) setLiveSwitching(false);
   }, [liveSwitching, session, state.type, failedForGood]);
+  const liveFlipFailed = Platform.isTV && liveSwitching && failedForGood;
   // A live session keeps its player on stage through every reload, retry and flip, so AVKit holds
   // focus and the channel swipe. The channel on screen failing with no rung left parks it: its error shows.
-  const liveHeld = session?.isLive === true && heldSource !== null && !failedForGood;
+  const liveHeld = session?.isLive === true && heldSource !== null && (!failedForGood || liveFlipFailed);
   // Same for a player a PiP window is showing, so an advance or a retry never unmounts it.
   const pipHeld = pinnedKey !== null && heldSource !== null && !failedForGood;
   const shownSource = streamSource ?? (liveHeld || pipHeld ? heldSource : null);
@@ -430,10 +432,11 @@ export function PlayerHost() {
   // status line, and what the current stage waits on on its own line after that.
   const flipStage = usePlaybackStage();
   const liveChannelStage = useMemo(() => {
+    if (liveFlipFailed) return flipStage.stage ? `${t("player.unableToPlay")}\n${stageStopped(flipStage.stage, { live: true })}` : t("player.unableToPlay");
     if (!liveSwitching || !flipStage.stage || flipStage.phase === "quiet") return undefined;
     const reason = flipStage.phase === "reason" ? stageReason(flipStage.stage, { live: true }) : null;
     return reason ? `${stageStatus(true)}\n${reason}` : stageStatus(true);
-  }, [liveSwitching, flipStage.stage, flipStage.phase]);
+  }, [liveFlipFailed, liveSwitching, flipStage.stage, flipStage.phase]);
   const hostVisible =
     session !== null && shownUri !== null && (!showLoadingOverlay || liveHeld) && !ended && (state.type !== "ERROR" || liveHeld) && (pip === "none" || (!Platform.isTV && pip === "active"));
   // For the Menu handler, which always arrives after the commit that set this.
