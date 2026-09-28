@@ -202,6 +202,18 @@ describe("getAccountsForServer", () => {
   });
 });
 
+describe("dropped tokens", () => {
+  it("removes an account whose token is gone from the index", async () => {
+    mockStore.set("jellyfin_accounts", "[]");
+    await upsertAccount(makeAccount(), "tok");
+    await upsertAccount(makeAccount({ userId: "user-2", userName: "second" }), "tok-2");
+    mockStore.delete("jellyfin_account_token_srv-1_user-1");
+
+    expect((await getSavedAccounts()).map((a) => a.userId)).toEqual(["user-2"]);
+    expect(JSON.parse(mockStore.get("jellyfin_accounts")!).map((a: SavedAccount) => a.userId)).toEqual(["user-2"]);
+  });
+});
+
 describe("removal", () => {
   it("removeAccount deletes the token and the index entry", async () => {
     mockStore.set("jellyfin_accounts", "[]");
@@ -268,7 +280,7 @@ describe("activateAccount", () => {
     expect(meCall?.[1].headers.Authorization).toContain('Token="tok-a"');
   });
 
-  it("drops a rejected token but keeps the account metadata", async () => {
+  it("removes the account when the server rejects its token", async () => {
     mockStore.set("jellyfin_accounts", "[]");
     await upsertAccount(makeAccount(), "tok-dead");
     mockServer({ tokenStatus: 401 });
@@ -277,7 +289,7 @@ describe("activateAccount", () => {
 
     expect(result).toBe("needs_login");
     expect(mockStore.has("jellyfin_account_token_srv-1_user-1")).toBe(false);
-    expect(await getSavedAccounts()).toHaveLength(1);
+    expect(await getSavedAccounts()).toEqual([]);
   });
 
   it("deletes nothing when the server does not answer", async () => {
@@ -341,7 +353,8 @@ describe("relocateAccounts", () => {
   });
 
   it("writes nothing when no account is saved on that server", async () => {
-    mockStore.set("jellyfin_accounts", JSON.stringify([makeAccount()]));
+    mockStore.set("jellyfin_accounts", "[]");
+    await upsertAccount(makeAccount(), "tok");
     const before = mockStore.get("jellyfin_accounts");
 
     await relocateAccounts("srv-unknown", "http://192.168.40.89:8096");

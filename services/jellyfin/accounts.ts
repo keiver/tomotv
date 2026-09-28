@@ -53,7 +53,13 @@ export async function getSavedAccounts(): Promise<SavedAccount[]> {
     accounts = [];
   }
 
-  return accounts.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+  // An account whose token was dropped (server rejected it) can only fail, so it leaves the index.
+  // A throwing read (locked device) is not a missing token and keeps the account.
+  const tokens = await Promise.all(accounts.map((a) => SecureStore.getItemAsync(accountTokenKey(a.serverId, a.userId)).catch(() => "")));
+  const live = accounts.filter((_, i) => tokens[i] !== null);
+  if (live.length !== accounts.length) await writeIndex(live);
+
+  return live.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 }
 
 async function seedFromActiveSession(): Promise<SavedAccount[]> {
@@ -134,8 +140,7 @@ export type ActivateAccountResult = "connected" | "needs_login" | "unreachable";
  * Adopt a saved account as the active session, validating its token first.
  *
  * - "connected": token confirmed live, active slot rewritten, caches cleared.
- * - "needs_login": no stored token, or the server rejected it (the dead token is
- *   deleted; the metadata stays so the login can be prefilled).
+ * - "needs_login": no stored token, or the server rejected it (the account is removed).
  * - "unreachable": the server didn't answer — nothing is deleted, mirroring the
  *   recovery ladder's rule that a network failure must never destroy credentials.
  */
@@ -165,8 +170,8 @@ export async function activateAccount(account: SavedAccount): Promise<ActivateAc
   const verdict = await validateAccessToken(workingUrl, token, account.deviceId);
   if (verdict === "unreachable") return "unreachable";
   if (verdict === "invalid") {
-    logger.warn("Saved token rejected by server, dropping it", { service: "JellyfinAPI", serverName: account.serverName, userName: account.userName });
-    await SecureStore.deleteItemAsync(accountTokenKey(account.serverId, account.userId)).catch(() => {});
+    logger.warn("Saved token rejected by server, removing the account", { service: "JellyfinAPI", serverName: account.serverName, userName: account.userName });
+    await removeAccount(account.serverId, account.userId);
     return "needs_login";
   }
 
