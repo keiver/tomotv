@@ -65,6 +65,7 @@ import {
   type ThroughputSample,
 } from "@/services/localRemux";
 import { retainLiveSession, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
+import { takeLivePreview } from "@/services/livePreview";
 import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
 import { downloadManager } from "@/services/downloads/manager";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
@@ -546,7 +547,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // or an optional chain inside a try block, and bails out of memoizing the hook if it finds one.
     const readDetails = async () => {
       // The ring's session for this channel, ready or still starting, is taken rather than opened twice.
-      const ringSession = await takeRingSession(videoId);
+      const ringSession = (await takeRingSession(videoId)) ?? takeLivePreview(videoId);
       if (ringSession && requestIdRef.current !== currentRequestId) {
         void stopLocalRemux(ringSession.token);
         void closeLiveStream(ringSession.details.LiveStreamId);

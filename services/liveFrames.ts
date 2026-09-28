@@ -7,6 +7,7 @@
  */
 import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 import { closeLiveStream, openChannel, openRecentlyFailed, resolveChannelOrigin, type ChannelOrigin } from "@/services/jellyfinApi";
+import { showLivePreview, stopLivePreview } from "@/services/livePreview";
 import { isLocalRemuxAvailable, nativeEmits } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
@@ -159,7 +160,10 @@ function wire(): void {
   }
   AppState.addEventListener("change", (state) => {
     if (state === "active") schedule(0);
-    else stop();
+    else {
+      stop();
+      stopLivePreview();
+    }
   });
   onPlaybackHoldReleased(() => schedule(0));
   // A channel opening needs the whole link: the grab reading now is stopped, not waited out.
@@ -320,11 +324,15 @@ export function setLiveFrameFocus(channelId: string | null): void {
   priority = null;
   if (focusTimer) clearTimeout(focusTimer);
   focusTimer = null;
+  showLivePreview(null);
   if (!channelId) return;
   focusTimer = setTimeout(() => {
     focusTimer = null;
     priority = channelId;
-    if (running()) schedule(0);
+    if (!running()) return;
+    schedule(0);
+    // The card promoted past its dwell plays live, where the channel is read without a server open.
+    showLivePreview(channelId);
   }, LIVE_FRAME_FOCUS_DWELL_MS);
 }
 

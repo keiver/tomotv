@@ -50,6 +50,8 @@ jest.mock("react-native", () => {
     },
   };
 });
+const mockShowLivePreview = jest.fn();
+jest.mock("@/services/livePreview", () => ({ showLivePreview: (id: string | null) => mockShowLivePreview(id), stopLivePreview: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true, nativeEmits: (event: string) => event === "onLiveFrame" }));
 jest.mock("@/services/jellyfinApi", () => ({
@@ -525,6 +527,19 @@ describe("live frames", () => {
     await flush();
     expect(grabs()).toEqual([]);
     expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t1");
+  });
+
+  it("promotes the card focused past its dwell to a live preview while it samples, and drops it when focus moves", async () => {
+    mockShowLivePreview.mockClear();
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
+    await advance(0);
+    setLiveFrameFocus("m1");
+    expect(mockShowLivePreview).toHaveBeenLastCalledWith(null);
+    await advance(LIVE_FRAME_FOCUS_DWELL_MS);
+    expect(mockShowLivePreview).toHaveBeenLastCalledWith("m1");
+    setLiveFrameFocus("m2");
+    expect(mockShowLivePreview).toHaveBeenLastCalledWith(null);
   });
 
   it("upgrades a cold grab to the full burst on the refresh, one open per cycle", async () => {

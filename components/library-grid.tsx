@@ -11,6 +11,7 @@ import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
+import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { COLORS } from "@/constants/colors";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
@@ -388,20 +389,29 @@ export function LibraryGrid({
   // TV only: the latch exists to retire mount-time focus claims, which phone doesn't have.
   // On phone this same handler is the press-in path, where a state flip would re-render the
   // grid under the finger of a press that is about to navigate.
-  const handleItemFocus = useCallback((item: JellyfinItem) => {
-    if (!IS_TV) return;
-    focusHolderIdRef.current = item.Id;
-    lastFocusedIdRef.current = item.Id;
-    setHandoffDone(true);
-  }, []);
+  const handleItemFocus = useCallback(
+    (item: JellyfinItem) => {
+      if (!IS_TV) return;
+      focusHolderIdRef.current = item.Id;
+      lastFocusedIdRef.current = item.Id;
+      setHandoffDone(true);
+      // A channel card focused past the dwell is promoted and plays live, as in the guide's column.
+      if (liveChannels) setLiveFrameFocus(item.Id);
+    },
+    [liveChannels],
+  );
 
   // TV only, like the latch above: holder bookkeeping for the focus recovery. The loss timestamp
   // is what tells a watched pop-reveal apart from a deliberate tab-bar return.
-  const handleItemBlur = useCallback((item: JellyfinItem) => {
-    if (!IS_TV) return;
-    if (focusHolderIdRef.current === item.Id) focusHolderIdRef.current = null;
-    lastFocusLossAt = Date.now();
-  }, []);
+  const handleItemBlur = useCallback(
+    (item: JellyfinItem) => {
+      if (!IS_TV) return;
+      if (focusHolderIdRef.current === item.Id) focusHolderIdRef.current = null;
+      lastFocusLossAt = Date.now();
+      if (liveChannels) clearLiveFrameFocus(item.Id);
+    },
+    [liveChannels],
+  );
 
   const handleFiltersFocusChange = useCallback((focused: boolean) => {
     if (!IS_TV) return;

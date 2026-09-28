@@ -9,6 +9,7 @@ jest.mock("@/components/video-grid-item", () => ({
 jest.mock("@/hooks/useLiveFrame", () => ({
   useLiveFrame: () => ({ uri: "file:///pool/c1/live-1-11.jpg", cacheKey: "live-c1-1-11" }),
   useLiveClip: () => mockClip,
+  useLivePreview: () => undefined,
 }));
 jest.mock("@/hooks/useChannelHealth", () => ({ useChannelHealth: () => "up" }));
 
