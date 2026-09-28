@@ -97,6 +97,8 @@ const emitLiveFrame = (body: { channelId: string; uri: string; index: number }) 
 };
 /** A burst of `count` files under one stamp, the shape the engine answers with. */
 const burst = (channelId: string, stamp: number, count = LIVE_FRAME_BURST_COUNT) => Array.from({ length: count }, (_, i) => `file:///pool/${channelId}/live-${stamp}-${i}.jpg`);
+/** The pool's answer for a channel: its newest burst and when its validity counts from. */
+const onDisk = (channelId: string, at: number, count = LIVE_FRAME_BURST_COUNT) => ({ uris: burst(channelId, at, count), at });
 
 describe("live frames", () => {
   beforeEach(() => {
@@ -407,7 +409,7 @@ describe("live frames", () => {
   });
 
   it("shows the newest burst on disk before any grab and counts the refresh from its time", async () => {
-    mockOnDisk.mockResolvedValue({ m1: burst("m1", 1_000_000 - 2_000, 2) });
+    mockOnDisk.mockResolvedValue({ m1: onDisk("m1", 1_000_000 - 2_000, 2) });
     const listener = jest.fn();
     subscribeLiveFrame("m1", listener);
     setLiveFramesActive("guide", true);
@@ -532,7 +534,7 @@ describe("live frames", () => {
   });
 
   it("leaves a stale burst on disk off screen and asks that channel at once", async () => {
-    mockOnDisk.mockResolvedValue({ m1: burst("m1", 1_000_000 - LIVE_FRAME_EXPIRY_MS - 60_000, 2) });
+    mockOnDisk.mockResolvedValue({ m1: onDisk("m1", 1_000_000 - LIVE_FRAME_EXPIRY_MS - 60_000, 2) });
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
@@ -542,7 +544,7 @@ describe("live frames", () => {
   });
 
   it("expires a burst whose channel keeps failing, so the card lets its old picture go", async () => {
-    mockOnDisk.mockResolvedValue({ m1: burst("m1", 1_000_000 - 2_000, 2) });
+    mockOnDisk.mockResolvedValue({ m1: onDisk("m1", 1_000_000 - 2_000, 2) });
     mockLiveFrame.mockRejectedValue(new Error("dead origin"));
     const listener = jest.fn();
     subscribeLiveFrame("m1", listener);
@@ -556,7 +558,7 @@ describe("live frames", () => {
   });
 
   it("expires a single-frame burst too, though it has nothing to walk", async () => {
-    mockOnDisk.mockResolvedValue({ m1: burst("m1", 1_000_000 - 2_000, 1) });
+    mockOnDisk.mockResolvedValue({ m1: onDisk("m1", 1_000_000 - 2_000, 1) });
     mockLiveFrame.mockRejectedValue(new Error("dead origin"));
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1"]);
@@ -574,12 +576,66 @@ describe("live frames", () => {
     setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
     expect(liveFrameFor("m1")).toBeDefined();
-    mockLiveFrame.mockImplementation(async () => ({ unchanged: true }));
+    mockLiveFrame.mockImplementation(async () => ({ unchanged: true, missing: false }));
     // Stepped so each unchanged grab lands before the next stretch of ticks ages the burst.
     for (let stepped = 0; stepped < LIVE_FRAME_EXPIRY_MS + LIVE_FRAME_REFRESH_MS; stepped += LIVE_FRAME_REFRESH_CAP_MS) {
       await advance(LIVE_FRAME_REFRESH_CAP_MS);
     }
     expect(liveFrameFor("m1")).toBeDefined();
+    expect(liveFrameReel("m1")?.frames).toHaveLength(LIVE_FRAME_BURST_COUNT);
+  });
+
+  it("shows the reel while its frames are valid and lets them go the moment they expire", async () => {
+    mockOnDisk.mockResolvedValue({ m1: onDisk("m1", 1_000_000 - 2_000, 3) });
+    mockLiveFrame.mockRejectedValue(new Error("dead origin"));
+    const listener = jest.fn();
+    subscribeLiveFrame("m1", listener);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(liveFrameReel("m1")?.frames).toHaveLength(3);
+    await advance(LIVE_FRAME_EXPIRY_MS - 2_000 - 1_000);
+    expect(liveFrameReel("m1")?.frames).toHaveLength(3);
+    const told = listener.mock.calls.length;
+    await advance(2_000);
+    expect(liveFrameReel("m1")).toBeUndefined();
+    expect(liveFrameFor("m1")).toBeUndefined();
+    expect(listener.mock.calls.length).toBeGreaterThan(told);
+  });
+
+  it("lets an off-screen channel's frames go at their expiry too, and asks for a full burst when it returns", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(liveFrameReel("m1")).toBeDefined();
+    setLiveFrameViewable("guide", ["m2"]);
+    await advance(LIVE_FRAME_EXPIRY_MS + 1_000);
+    expect(liveFrameReel("m1")).toBeUndefined();
+    const before = grabs().length;
+    setLiveFrameViewable("guide", ["m1", "m2"]);
+    await advance(0);
+    expect(grabs().slice(before)).toContain("m1");
+    const call = mockLiveFrame.mock.calls.find(([config], index) => index >= before && (config as { channelId: string }).channelId === "m1");
+    expect(call?.[0]).toMatchObject({ shownPts: undefined, count: LIVE_FRAME_COLD_COUNT });
+  });
+
+  it("drops a burst whose files the engine no longer holds and asks the channel again", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(liveFrameReel("m1")).toBeDefined();
+    const listener = jest.fn();
+    subscribeLiveFrame("m1", listener);
+    mockLiveFrame.mockResolvedValueOnce({ unchanged: true, missing: true });
+    await advance(LIVE_FRAME_REFRESH_MS);
+    expect(liveFrameReel("m1")).toBeUndefined();
+    expect(liveFrameFor("m1")).toBeUndefined();
+    expect(listener).toHaveBeenCalled();
+    const before = grabs().length;
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs().length).toBeGreaterThan(before);
+    expect(liveFrameReel("m1")).toBeDefined();
   });
 
   it("tells a channel's subscribers about its frame and drops every frame on a clear", async () => {

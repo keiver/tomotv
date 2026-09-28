@@ -166,33 +166,80 @@ final class LiveFrameQueueTests: XCTestCase {
             try Data([0xFF, 0xD8]).write(to: dir.appendingPathComponent(name))
         }
         let queue = LiveFrameQueue(root: root)
-        let found = queue.latest(channelIds: ["chan-a", "chan-none", "../escape"])
+        let found = queue.queue.sync { queue.latest(channelIds: ["chan-a", "chan-none", "../escape"]) }
         XCTAssertEqual(found.keys.sorted(), ["chan-a"])
-        XCTAssertEqual(found["chan-a"]?.map(\.lastPathComponent), ["live-\(newest)-0.jpg", "live-\(newest)-1.jpg"])
-        XCTAssertEqual(LiveFrameQueue.stamp(found["chan-a"]![0]), newest)
+        XCTAssertEqual(found["chan-a"]?.urls.map(\.lastPathComponent), ["live-\(newest)-0.jpg", "live-\(newest)-1.jpg"])
+        XCTAssertEqual(LiveFrameQueue.stamp(found["chan-a"]!.urls[0]), newest)
         XCTAssertEqual(LiveFrameQueue.stamp(dir.appendingPathComponent("live-1000.jpg")), 1000)
     }
 
-    func testABurstPastTheExpiryAnswersNothingAndComesOffDisk() throws {
+    /// Writes a burst whose files were last written or verified at `at`.
+    private func writeBurst(_ dir: URL, stamp: Int64, count: Int, at: Date) throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for index in 0 ..< count {
+            let url = dir.appendingPathComponent("live-\(stamp)-\(index).jpg")
+            try Data([0xFF, 0xD8]).write(to: url)
+            try FileManager.default.setAttributes([.modificationDate: at], ofItemAtPath: url.path)
+        }
+    }
+
+    private func names(_ dir: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).sorted()
+    }
+
+    func testABurstPastItsValidityAnswersNothingAndItsDateIsItsFilesNotItsName() throws {
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let now = Date()
-        let nowMs = Int64(now.timeIntervalSince1970 * 1000)
-        let stale = root.appendingPathComponent("chan-old", isDirectory: true)
-        try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
-        let old = nowMs - LiveFrameQueue.expiryMs - 60_000
-        for name in ["live-\(old)-0.jpg", "live-\(old)-1.jpg", "poster.jpg"] {
-            try Data([0xFF, 0xD8]).write(to: stale.appendingPathComponent(name))
-        }
-        let fresh = root.appendingPathComponent("chan-new", isDirectory: true)
-        try FileManager.default.createDirectory(at: fresh, withIntermediateDirectories: true)
-        try Data([0xFF, 0xD8]).write(to: fresh.appendingPathComponent("live-\(nowMs)-0.jpg"))
+        let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let expiry = TimeInterval(LiveFrameQueue.expiryMs) / 1000
+        // Named long ago but verified a minute ago: valid, dated by the verification.
+        let verified = root.appendingPathComponent("chan-verified", isDirectory: true)
+        try writeBurst(verified, stamp: 1000, count: 2, at: now.addingTimeInterval(-60))
+        let stale = root.appendingPathComponent("chan-stale", isDirectory: true)
+        try writeBurst(stale, stamp: Int64(now.timeIntervalSince1970 * 1000), count: 2, at: now.addingTimeInterval(-expiry - 1))
 
         let queue = LiveFrameQueue(root: root)
-        let found = queue.latest(channelIds: ["chan-old", "chan-new"], now: now)
-        XCTAssertEqual(found.keys.sorted(), ["chan-new"])
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: stale.path), ["poster.jpg"], "the expired frames are gone, the poster stays")
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fresh.path), ["live-\(nowMs)-0.jpg"])
+        let found = queue.queue.sync { queue.latest(channelIds: ["chan-verified", "chan-stale"], now: now) }
+        XCTAssertEqual(found.keys.sorted(), ["chan-verified"])
+        XCTAssertEqual(found["chan-verified"]?.at, Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1000))
+    }
+
+    func testTheSweepTakesEveryExpiredBurstOffDiskAndArmsTheNextOne() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let life = TimeInterval(LiveFrameQueue.expiryMs + LiveFrameQueue.diskGraceMs) / 1000
+        let gone = root.appendingPathComponent("chan-gone", isDirectory: true)
+        try writeBurst(gone, stamp: 1, count: 3, at: now.addingTimeInterval(-life - 1))
+        let mixed = root.appendingPathComponent("chan-mixed", isDirectory: true)
+        try writeBurst(mixed, stamp: 1, count: 2, at: now.addingTimeInterval(-life - 1))
+        try writeBurst(mixed, stamp: 2, count: 2, at: now.addingTimeInterval(-600))
+        try Data([0xFF, 0xD8]).write(to: mixed.appendingPathComponent("poster.jpg"))
+        // Expired for the screen but still inside the grace: its files stay a moment longer.
+        let grace = root.appendingPathComponent("chan-grace", isDirectory: true)
+        try writeBurst(grace, stamp: 1, count: 1, at: now.addingTimeInterval(-TimeInterval(LiveFrameQueue.expiryMs) / 1000 - 10))
+
+        let queue = LiveFrameQueue(root: root)
+        let next = queue.queue.sync { queue.sweep(now: now) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: gone.path), "a directory the sweep emptied goes")
+        XCTAssertEqual(names(mixed), ["live-2-0.jpg", "live-2-1.jpg", "poster.jpg"])
+        XCTAssertEqual(names(grace), ["live-1-0.jpg"])
+        let graceDue = Int64(now.timeIntervalSince1970 * 1000) - LiveFrameQueue.expiryMs - 10_000 + LiveFrameQueue.expiryMs + LiveFrameQueue.diskGraceMs
+        XCTAssertEqual(next, graceDue, "the next sweep is due when the oldest burst left runs out")
+    }
+
+    func testReverifyingRestartsTheNewestBurstsValidityAndReportsAMissingOne() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let dir = root.appendingPathComponent("chan-a", isDirectory: true)
+        try writeBurst(dir, stamp: 1, count: 2, at: now.addingTimeInterval(-3000))
+        try writeBurst(dir, stamp: 2, count: 2, at: now.addingTimeInterval(-1500))
+
+        XCTAssertTrue(LiveFrameQueue.touchNewest(in: dir, now: now))
+        let bursts = LiveFrameQueue.bursts(in: dir).sorted { $0.stamp < $1.stamp }
+        XCTAssertEqual(bursts.map(\.at), [Int64(now.addingTimeInterval(-3000).timeIntervalSince1970 * 1000), Int64(now.timeIntervalSince1970 * 1000)])
+        XCTAssertFalse(LiveFrameQueue.touchNewest(in: root.appendingPathComponent("chan-none", isDirectory: true), now: now))
     }
 
     func testTheKeyframeAlreadyShownWritesNothing() throws {
@@ -203,6 +250,8 @@ final class LiveFrameQueueTests: XCTestCase {
 
         guard case .frames(let burst, let pts)? = settle(queue, "chan-a", stream.absoluteString), let first = burst.first else { return XCTFail("no first frame") }
         let shown = try XCTUnwrap(pts)
+        let written = Date(timeIntervalSinceNow: -600)
+        for url in burst { try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: url.path) }
         let done = XCTestExpectation(description: "second")
         var outcome: LiveFrameQueue.Outcome?
         queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:], shownPts: shown) {
@@ -210,8 +259,11 @@ final class LiveFrameQueueTests: XCTestCase {
             done.fulfill()
         }
         wait(for: [done], timeout: 15)
-        guard case .unchanged? = outcome else { return XCTFail("the same keyframe is not written again") }
+        guard case .unchanged(let onDisk)? = outcome else { return XCTFail("the same keyframe is not written again") }
+        XCTAssertTrue(onDisk)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: first.deletingLastPathComponent().path).sorted(), burst.map(\.lastPathComponent).sorted())
+        let verifiedAt = LiveFrameQueue.bursts(in: first.deletingLastPathComponent()).first?.at ?? 0
+        XCTAssertGreaterThan(verifiedAt, Int64(written.timeIntervalSince1970 * 1000) + 300_000, "the verified burst's validity restarts on disk")
         guard case .frames? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("a grab with nothing shown writes its burst") }
     }
 

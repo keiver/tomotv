@@ -12,9 +12,11 @@ import Foundation
 
 final class LiveFrameQueue {
     static let defaultDeadline: TimeInterval = 8
-    /// A burst older than this never answers for a channel again; its files come off disk.
-    /// Mirrored by LIVE_FRAME_EXPIRY_MS in services/liveFrames.ts, the display's own gate.
+    /// A burst is valid this long after its files were written or last re-verified (their
+    /// modification date). Mirrored by LIVE_FRAME_EXPIRY_MS in services/liveFrames.ts.
     static let expiryMs: Int64 = 30 * 60 * 1000
+    /// Files outlive their validity by this much, so a card never paints a file already gone.
+    static let diskGraceMs: Int64 = 60 * 1000
     private static let filePrefix = "live-"
 
     /// Grabs in flight at once, across distinct hosts; same-host jobs serialize on their host's queue.
@@ -31,9 +33,13 @@ final class LiveFrameQueue {
     private var running: [String: FrameGrabber] = [:]
     /// One serial queue per origin host: providers refuse same-host concurrency, distinct hosts run together.
     private var hostQueues: [String: DispatchQueue] = [:]
+    /// The next sweep, due when the oldest burst left on disk expires. Touched on `queue` only.
+    private var sweepItem: DispatchWorkItem?
+    private var sweepDueMs: Int64?
 
     init(root: URL = ChapterFramePool.root) {
         self.root = root
+        queue.async { [weak self] in self?.sweep() }
     }
 
     private func hostQueue(for inputUrl: String) -> DispatchQueue {
@@ -55,7 +61,8 @@ final class LiveFrameQueue {
         /// The burst in order, the first keyframe's pts with it.
         case frames([URL], pts: Int64?)
         /// The keyframe at the live edge is still the one `shownPts` names; nothing was written.
-        case unchanged
+        /// `onDisk` false when the shown burst's files are gone, so there is nothing to re-verify.
+        case unchanged(onDisk: Bool)
         /// Nothing came: `opened` false when the source would not even open, `failure` its words.
         case none(opened: Bool, failure: String?)
         case cancelled
@@ -125,12 +132,21 @@ final class LiveFrameQueue {
             }
             switch result {
             case .frames(let files, let pts):
-                Self.removeOthers(in: location, keeping: files)
+                queue.sync {
+                    Self.removeOthers(in: location, keeping: files)
+                    sweepNoLaterThan(Self.nowMs() + Self.expiryMs + Self.diskGraceMs)
+                }
                 NSLog("[LiveFrame] %@", String(format: "%@ %d frames %.2fs %lld bytes", channelId, files.count, elapsed, grabber.bytesRead))
                 completion(.frames(files, pts: pts))
             case .unchanged:
-                NSLog("[LiveFrame] %@", String(format: "%@ unchanged %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
-                completion(.unchanged)
+                // The shown burst was just verified live: its files restart their validity.
+                let onDisk = queue.sync { () -> Bool in
+                    let touched = Self.touchNewest(in: location)
+                    if touched { sweepNoLaterThan(Self.nowMs() + Self.expiryMs + Self.diskGraceMs) }
+                    return touched
+                }
+                NSLog("[LiveFrame] %@", String(format: "%@ unchanged %.2fs %lld bytes onDisk=%d", channelId, elapsed, grabber.bytesRead, onDisk ? 1 : 0))
+                completion(.unchanged(onDisk: onDisk))
             case .none:
                 NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@", channelId, elapsed, grabber.sourceOpened ? 1 : 0,
                                                  grabber.openFailure ?? "no keyframe", grabber.openedUrl ?? inputUrl))
@@ -139,24 +155,98 @@ final class LiveFrameQueue {
         }
     }
 
-    /// The newest fresh burst on disk for each channel that has one, by the time in its names, in
-    /// order. A reload or a relaunch reads these before any grab, so a card never loses the picture
-    /// it had; a channel whose newest burst aged out answers nothing and its frames come off disk.
-    func latest(channelIds: [String], now: Date = Date()) -> [String: [URL]] {
-        var found: [String: [URL]] = [:]
-        let oldest = Int64(now.timeIntervalSince1970 * 1000) - Self.expiryMs
+    /// The newest burst on disk for each channel whose burst is still valid, in order, with the time
+    /// its validity counts from. A reload or a relaunch reads these before any grab, so a card never
+    /// loses the picture it had.
+    func latest(channelIds: [String], now: Date = Date()) -> [String: (urls: [URL], at: Int64)] {
+        var found: [String: (urls: [URL], at: Int64)] = [:]
+        let nowMs = Self.ms(now)
         for channelId in channelIds {
             guard let location = ChapterFramePool.location(for: channelId, in: root),
-                  let entries = try? FileManager.default.contentsOfDirectory(at: location, includingPropertiesForKeys: nil) else { continue }
-            let frames = entries.filter { $0.lastPathComponent.hasPrefix(Self.filePrefix) }
-            guard let newest = frames.map(Self.stamp).max() else { continue }
-            if newest < oldest {
-                for frame in frames { try? FileManager.default.removeItem(at: frame) }
-                continue
-            }
-            found[channelId] = frames.filter { Self.stamp($0) == newest }.sorted { Self.index($0) < Self.index($1) }
+                  let newest = Self.bursts(in: location).max(by: { $0.stamp < $1.stamp }),
+                  nowMs - newest.at <= Self.expiryMs else { continue }
+            found[channelId] = (newest.urls.sorted { Self.index($0) < Self.index($1) }, newest.at)
         }
         return found
+    }
+
+    /// Takes every burst past its validity and the grace off disk, in every channel, and schedules
+    /// the next pass for when the oldest one left expires. Runs on `queue`.
+    @discardableResult
+    func sweep(now: Date = Date()) -> Int64? {
+        let fm = FileManager.default
+        let nowMs = Self.ms(now)
+        var nextDue: Int64?
+        let items = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        for item in items {
+            let bursts = Self.bursts(in: item)
+            guard !bursts.isEmpty else { continue }
+            var removed = false
+            for burst in bursts {
+                let due = burst.at + Self.expiryMs + Self.diskGraceMs
+                if due <= nowMs {
+                    for url in burst.urls { try? fm.removeItem(at: url) }
+                    removed = true
+                } else {
+                    nextDue = min(nextDue ?? due, due)
+                }
+            }
+            // Only a directory this pass emptied goes: an empty one found may be awaiting its first frame.
+            if removed, (try? fm.contentsOfDirectory(atPath: item.path))?.isEmpty == true {
+                try? fm.removeItem(at: item)
+            }
+        }
+        sweepItem?.cancel()
+        sweepItem = nil
+        sweepDueMs = nil
+        if let nextDue { sweepNoLaterThan(nextDue) }
+        return nextDue
+    }
+
+    /// Arms the sweep for `dueMs` unless one is already due sooner. Runs on `queue`.
+    private func sweepNoLaterThan(_ dueMs: Int64) {
+        if let armed = sweepDueMs, armed <= dueMs { return }
+        sweepItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.sweep() }
+        sweepItem = item
+        sweepDueMs = dueMs
+        // Wall clock: the deadline holds across device sleep, which uptime-based timers skip.
+        let delay = max(0, Double(dueMs - Self.nowMs()) / 1000)
+        queue.asyncAfter(wallDeadline: .now() + delay, execute: item)
+    }
+
+    /// Restarts the validity of the channel's newest burst; false when it has no burst on disk.
+    static func touchNewest(in location: URL, now: Date = Date()) -> Bool {
+        guard let newest = bursts(in: location).max(by: { $0.stamp < $1.stamp }) else { return false }
+        var touched = true
+        for url in newest.urls where (try? FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: url.path)) == nil {
+            touched = false
+        }
+        return touched
+    }
+
+    /// The channel directory's bursts: files grouped by the grab stamp in their names, each dated by
+    /// its earliest modification date, the moment its validity counts from.
+    static func bursts(in location: URL) -> [(stamp: Int64, urls: [URL], at: Int64)] {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let entries = try? FileManager.default.contentsOfDirectory(at: location, includingPropertiesForKeys: keys) else { return [] }
+        var grouped: [Int64: (urls: [URL], at: Int64)] = [:]
+        for url in entries where url.lastPathComponent.hasPrefix(filePrefix) {
+            let modified = (try? url.resourceValues(forKeys: Set(keys)))?.contentModificationDate
+            let at = modified.map(ms) ?? stamp(url)
+            let key = stamp(url)
+            let held = grouped[key]
+            grouped[key] = ((held?.urls ?? []) + [url], min(held?.at ?? at, at))
+        }
+        return grouped.map { (stamp: $0.key, urls: $0.value.urls, at: $0.value.at) }
+    }
+
+    private static func ms(_ date: Date) -> Int64 {
+        Int64(date.timeIntervalSince1970 * 1000)
+    }
+
+    private static func nowMs() -> Int64 {
+        ms(Date())
     }
 
     /// The grab time a frame's name carries (`live-<ms>-<i>.jpg`, or the older `live-<ms>.jpg`), 0 for a name without one.

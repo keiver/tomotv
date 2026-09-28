@@ -53,9 +53,8 @@ export const LIVE_FRAME_FOCUS_DWELL_MS = 2_000;
 /** The promoted channel's own refresh floor, well under the ordinary one. */
 export const LIVE_FRAME_FOCUS_REFRESH_MS = 30_000;
 /**
- * A burst older than this no longer shows: a healthy channel refreshes within minutes, so
- * past it the pictures are stale, not live. An `unchanged` answer re-dates the burst, so a
- * genuinely still live edge never expires while it keeps being verified.
+ * A burst's validity: past it no surface shows it and the engine takes its files off disk (a
+ * minute later). An `unchanged` answer re-verifies the burst, on disk and here alike.
  */
 export const LIVE_FRAME_EXPIRY_MS = 30 * 60_000;
 
@@ -76,8 +75,6 @@ interface Entry {
   /** How long after `lastAt` the channel is due; the refresh floor until its picture stands still. */
   intervalMs?: number;
   burst?: Burst;
-  /** The burst aged past the display gate and the cards were told once; the reel keeps it. */
-  expiredAnnounced?: boolean;
   /** The frame of the burst the card was last told about. */
   shownIndex?: number;
   /** The shown burst's keyframe timestamp: the engine answers unchanged while the live edge is still on it. */
@@ -137,7 +134,6 @@ function onLiveFrameEvent(event: { channelId?: string; uri?: string; index?: num
   if (!item) return;
   if (index === 0) {
     item.burst = burstOf(channelId, [uri], item.lastAt);
-    item.expiredAnnounced = false;
     item.shownIndex = 0;
   } else {
     // Appends in order only; anything missed is reconciled when the grab resolves. Replaced,
@@ -210,18 +206,26 @@ function notify(channelId: string): void {
   for (const listener of listeners.get(channelId) ?? []) listener();
 }
 
-/** The grab time a frame file's name carries (`live-<ms>-<i>.jpg`), 0 for a name without one. */
-function stampOf(uri: string): number {
-  const match = /live-(\d+)(?:-\d+)?\.jpg$/.exec(uri);
-  return match ? Number(match[1]) : 0;
-}
-
 function burstOf(channelId: string, uris: string[], at: number): Burst {
   return { at, frames: uris.map((uri, index) => ({ uri, cacheKey: `live-${channelId}-${at}-${index}` })) };
 }
 
 function expired(burst: Burst, now: number): boolean {
   return now - burst.at > LIVE_FRAME_EXPIRY_MS;
+}
+
+/** The channel's burst while it is valid; every surface reads through this. */
+function validBurst(channelId: string, now: number): Burst | undefined {
+  const burst = entries.get(channelId)?.burst;
+  return burst && !expired(burst, now) ? burst : undefined;
+}
+
+/** An expired or vanished burst leaves memory, so nothing keeps a path the engine deletes. */
+function dropBurst(channelId: string, item: Entry): void {
+  item.burst = undefined;
+  item.shownIndex = undefined;
+  item.pts = undefined;
+  notify(channelId);
 }
 
 /** Which frame of a burst the card shows now: one per dwell, looping until the next grab. */
@@ -232,33 +236,21 @@ function frameIndex(burst: Burst, now: number): number {
 
 function tick(): void {
   const now = Date.now();
-  let walking = false;
-  let expiring = false;
-  for (const channelId of viewable) {
-    const item = entries.get(channelId);
-    if (!item?.burst) continue;
-    // Past the display gate the cards repaint to their placeholder once; the burst itself stays
-    // for the reel, which places history by its grab time.
+  let holding = false;
+  for (const [channelId, item] of entries) {
+    if (!item.burst) continue;
     if (expired(item.burst, now)) {
-      if (!item.expiredAnnounced) {
-        item.expiredAnnounced = true;
-        item.shownIndex = undefined;
-        item.pts = undefined;
-        notify(channelId);
-      }
+      dropBurst(channelId, item);
       continue;
     }
-    if (item.burst.frames.length <= 1) {
-      expiring = true;
-      continue;
-    }
-    walking = true;
+    holding = true;
+    if (item.burst.frames.length <= 1 || !viewable.includes(channelId)) continue;
     const index = frameIndex(item.burst, now);
     if (index === item.shownIndex) continue;
     item.shownIndex = index;
     notify(channelId);
   }
-  if (!walking && !expiring) stopTicker();
+  if (!holding) stopTicker();
 }
 
 function startTicker(): void {
@@ -281,16 +273,14 @@ async function seedFromDisk(): Promise<void> {
   for (const channelId of asking) entry(channelId).seeded = true;
   const gen = generation;
   try {
-    const found: Record<string, string[]> = (await LocalRemuxer.liveFramesOnDisk(asking)) ?? {};
+    const found: Record<string, { uris: string[]; at: number }> = (await LocalRemuxer.liveFramesOnDisk(asking)) ?? {};
     if (gen !== generation) return;
-    for (const [channelId, uris] of Object.entries(found)) {
+    for (const [channelId, { uris, at }] of Object.entries(found)) {
       const item = entry(channelId);
       if (item.burst || uris.length === 0) continue;
-      const at = stampOf(uris[0]);
-      // A stale burst from a past run stays off screen; the channel is due at once instead.
+      // An expired burst stays off screen; the channel is due at once instead.
       if (Date.now() - at > LIVE_FRAME_EXPIRY_MS) continue;
       item.burst = burstOf(channelId, uris, at);
-      item.expiredAnnounced = false;
       item.shownIndex = undefined;
       item.lastAt = Math.max(item.lastAt, at);
       notify(channelId);
@@ -406,7 +396,8 @@ async function grab(channelId: string): Promise<void> {
   item.lastAt = now;
   const gen = generation;
   // No picture yet: the short first-paint profile; the refresh upgrades to the full burst.
-  const cold = !item.burst;
+  const shown = validBurst(channelId, now);
+  const cold = !shown;
   let input: GrabInput | null = null;
   try {
     input = await inputFor(channelId, item);
@@ -417,32 +408,40 @@ async function grab(channelId: string): Promise<void> {
       noteOpenFailure();
       return;
     }
-    const result: { uris?: string[] | null; pts?: number | null; unchanged?: boolean; cancelled?: boolean; reason?: string; failure?: string | null } = await LocalRemuxer.liveFrame({
-      channelId,
-      inputUrl: input.url,
-      httpHeaders: input.headers ?? {},
-      deadline: cold ? LIVE_FRAME_COLD_DEADLINE_S : LIVE_FRAME_DEADLINE_S,
-      span: cold ? LIVE_FRAME_COLD_SPAN_S : LIVE_FRAME_BURST_S,
-      interval: LIVE_FRAME_BURST_INTERVAL_S,
-      count: cold ? LIVE_FRAME_COLD_COUNT : LIVE_FRAME_BURST_COUNT,
-      shownPts: item.burst ? item.pts : undefined,
-    });
+    const result: { uris?: string[] | null; pts?: number | null; unchanged?: boolean; missing?: boolean; cancelled?: boolean; reason?: string; failure?: string | null } = await LocalRemuxer.liveFrame(
+      {
+        channelId,
+        inputUrl: input.url,
+        httpHeaders: input.headers ?? {},
+        deadline: cold ? LIVE_FRAME_COLD_DEADLINE_S : LIVE_FRAME_DEADLINE_S,
+        span: cold ? LIVE_FRAME_COLD_SPAN_S : LIVE_FRAME_BURST_S,
+        interval: LIVE_FRAME_BURST_INTERVAL_S,
+        count: cold ? LIVE_FRAME_COLD_COUNT : LIVE_FRAME_BURST_COUNT,
+        shownPts: shown ? item.pts : undefined,
+      },
+    );
     if (gen !== generation) return;
     if (result?.cancelled) {
       // An attempt cancelled before any frame landed leaves the channel due, not on a full wait.
       if (!item.burst || item.burst.at !== now) item.lastAt = wasDueAt;
       return;
     }
-    if (result?.unchanged) {
-      // The live edge was just verified on these pictures, so their expiry counts from now.
-      if (item.burst) item.burst.at = now;
+    if (result?.unchanged && result.missing) {
+      // The shown files are gone from disk: the burst goes and the channel is due for a fresh one.
+      if (item.burst) dropBurst(channelId, item);
+      item.lastAt = wasDueAt;
+      item.failure = undefined;
+      noteChannelAlive(channelId);
+    } else if (result?.unchanged) {
+      // The live edge was just verified on these pictures, so their validity counts from now.
+      const still = validBurst(channelId, Date.now());
+      if (still) still.at = now;
       item.intervalMs = Math.min((item.intervalMs ?? LIVE_FRAME_REFRESH_MS) * 2, LIVE_FRAME_REFRESH_CAP_MS);
       item.failure = undefined;
       openFailStreak = 0;
       noteChannelAlive(channelId);
     } else if (result?.uris?.length) {
       item.burst = burstOf(channelId, result.uris, now);
-      item.expiredAnnounced = false;
       item.shownIndex = 0;
       item.pts = result.pts ?? undefined;
       item.intervalMs = LIVE_FRAME_REFRESH_MS;
@@ -504,16 +503,14 @@ export function setLiveFramesActive(surface: LiveFrameSurface, active: boolean):
 
 /** The channel's frame for now: the burst spread across the refresh, one picture at a time. */
 export function liveFrameFor(channelId: string): LiveFrame | undefined {
-  const burst = entries.get(channelId)?.burst;
   const now = Date.now();
-  if (!burst || expired(burst, now)) return undefined;
-  return burst.frames[frameIndex(burst, now)];
+  const burst = validBurst(channelId, now);
+  return burst ? burst.frames[frameIndex(burst, now)] : undefined;
 }
 
-/** The channel's whole burst in grab order with when it was taken, for the focus reel. Expiry
- *  does not gate it: the reel is history and places itself by the grab's time on the timeline. */
+/** The channel's whole valid burst in grab order with when it was taken, for the focus reel. */
 export function liveFrameReel(channelId: string): { frames: LiveFrame[]; at: number } | undefined {
-  return entries.get(channelId)?.burst;
+  return validBurst(channelId, Date.now());
 }
 
 export function subscribeLiveFrame(channelId: string, listener: () => void): () => void {
