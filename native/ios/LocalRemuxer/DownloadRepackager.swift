@@ -436,7 +436,7 @@ final class DownloadRepackager {
         guard wrote >= 0 else { throw Failure.failed("write_frame (placeholder): \(repackErr(wrote))") }
     }
 
-    private static func tag(_ value: String) -> UInt32 {
+    static func tag(_ value: String) -> UInt32 {
         let bytes = Array(value.utf8)
         guard bytes.count == 4 else { return 0 }
         return UInt32(bytes[0]) | UInt32(bytes[1]) << 8 | UInt32(bytes[2]) << 16 | UInt32(bytes[3]) << 24

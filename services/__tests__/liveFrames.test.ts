@@ -65,12 +65,13 @@ import {
   LIVE_FRAME_CAP_COOLDOWN_MS,
   LIVE_FRAME_COLD_COUNT,
   LIVE_FRAME_COLD_DEADLINE_S,
-  LIVE_FRAME_DWELL_MS,
+  LIVE_FRAME_CLIP_S,
   LIVE_FRAME_EXPIRY_MS,
   LIVE_FRAME_REFRESH_CAP_MS,
   LIVE_FRAME_REFRESH_MS,
   LIVE_FRAME_RETRY_MS,
   LIVE_FRAME_SPACING_MS,
+  liveClipFor,
   liveFrameFor,
   liveFrameReel,
   setLiveFrameFocus,
@@ -135,33 +136,76 @@ describe("live frames", () => {
       httpHeaders: { "User-Agent": "Tuner" },
       count: LIVE_FRAME_COLD_COUNT,
       deadline: LIVE_FRAME_COLD_DEADLINE_S,
+      clipSpan: 0,
     });
-    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-0.jpg", cacheKey: "live-m1-1000000-0" });
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-11.jpg", cacheKey: "live-m1-1000000-11" });
     expect(mockOnDisk).toHaveBeenCalledWith(["m1", "m2"]);
     await advance(LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["m1", "m2"]);
     expect(mockOpenChannel).not.toHaveBeenCalled();
   });
 
-  it("walks a burst one frame per dwell, telling the card at each step", async () => {
+  it("holds the newest frame at rest and moves only when a grab brings a newer one", async () => {
     const listener = jest.fn();
     subscribeLiveFrame("m1", listener);
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
     expect(listener).toHaveBeenCalledTimes(1);
-    await advance(LIVE_FRAME_DWELL_MS - 1_000);
-    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-0.jpg");
-    // The ticker walks once a second; the dwell edge is noticed on the tick after it.
-    await advance(1_500);
-    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-1.jpg");
+    const resting = liveFrameFor("m1");
+    expect(resting?.uri).toBe("file:///pool/m1/live-1000000-11.jpg");
+    await advance(LIVE_FRAME_REFRESH_MS - 1);
+    expect(liveFrameFor("m1")).toBe(resting);
+    expect(listener).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(liveFrameFor("m1")?.uri).toBe(`file:///pool/m1/live-${1_000_000 + LIVE_FRAME_REFRESH_MS}-11.jpg`);
     expect(listener).toHaveBeenCalledTimes(2);
-    await advance(LIVE_FRAME_DWELL_MS * 6);
-    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-7.jpg");
-    expect(listener).toHaveBeenCalledTimes(8);
-    // The burst loops: a full lap lands back on the same frame.
-    await advance(LIVE_FRAME_DWELL_MS * LIVE_FRAME_BURST_COUNT);
-    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-7.jpg");
+  });
+
+  it("asks every grab after the first paint for a preview clip and hands the file to the card", async () => {
+    mockLiveFrame.mockImplementation(async ({ channelId, clipSpan }: { channelId: string; clipSpan: number }) => ({
+      uris: burst(channelId, Date.now()),
+      clip: clipSpan > 0 ? `file:///pool/${channelId}/live-${Date.now()}-clip.mp4` : null,
+      pts: Date.now(),
+      cancelled: false,
+    }));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ clipSpan: 0 });
+    expect(liveClipFor("m1")).toBeUndefined();
+    await advance(LIVE_FRAME_REFRESH_MS);
+    expect(mockLiveFrame.mock.calls[1][0]).toMatchObject({ clipSpan: LIVE_FRAME_CLIP_S, shownUri: "file:///pool/m1/live-1000000-0.jpg" });
+    const clip = liveClipFor("m1");
+    const at = 1_000_000 + LIVE_FRAME_REFRESH_MS;
+    expect(clip).toEqual({ uri: `file:///pool/m1/live-${at}-clip.mp4`, cacheKey: `live-m1-${at}-clip` });
+    expect(liveClipFor("m1")).toBe(clip);
+  });
+
+  it("carries the clip a burst had on disk, and lets it go with the burst", async () => {
+    mockOnDisk.mockResolvedValue({ m1: { ...onDisk("m1", 1_000_000 - 2_000, 2), clip: "file:///pool/m1/live-998000-clip.mp4" } });
+    mockLiveFrame.mockRejectedValue(new Error("dead origin"));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(liveClipFor("m1")?.uri).toBe("file:///pool/m1/live-998000-clip.mp4");
+    await advance(LIVE_FRAME_EXPIRY_MS);
+    expect(liveClipFor("m1")).toBeUndefined();
+  });
+
+  it("keeps a card's picture while a grab streams, and shows the grab once it lands whole", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    const resting = liveFrameFor("m1");
+    let answer: (() => void) | undefined;
+    mockLiveFrame.mockImplementation(({ channelId }: { channelId: string }) => new Promise((resolve) => (answer = () => resolve({ uris: burst(channelId, Date.now(), 2), pts: 9, cancelled: false }))));
+    await advance(LIVE_FRAME_REFRESH_MS);
+    emitLiveFrame({ channelId: "m1", uri: `file:///pool/m1/live-${Date.now()}-0.jpg`, index: 0 });
+    expect(liveFrameFor("m1")).toBe(resting);
+    answer?.();
+    await flush();
+    expect(liveFrameFor("m1")?.uri).toBe(`file:///pool/m1/live-${1_000_000 + LIVE_FRAME_REFRESH_MS}-1.jpg`);
   });
 
   it("shows each frame the grab streams before its burst resolves", async () => {
@@ -180,13 +224,14 @@ describe("live frames", () => {
     expect(listener).toHaveBeenCalledTimes(1);
     emitLiveFrame({ channelId: "m1", uri: "file:///pool/m1/live-1000000-1.jpg", index: 1 });
     expect(listener).toHaveBeenCalledTimes(2);
+    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-1.jpg");
     // A frame for a channel no grab is reading is dropped.
     emitLiveFrame({ channelId: "m9", uri: "file:///pool/m9/live-1000000-0.jpg", index: 0 });
     expect(liveFrameFor("m9")).toBeUndefined();
 
     answer?.();
     await flush();
-    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-0.jpg", cacheKey: "live-m1-1000000-0" });
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-1.jpg", cacheKey: "live-m1-1000000-1" });
   });
 
   it("replaces the burst on every streamed frame, so a snapshot reader repaints", async () => {
@@ -415,7 +460,7 @@ describe("live frames", () => {
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1", "m2"]);
     await advance(0);
-    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-998000-0.jpg", cacheKey: "live-m1-998000-0" });
+    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-998000-1.jpg", cacheKey: "live-m1-998000-1" });
     expect(listener).toHaveBeenCalledTimes(1);
     expect(grabs()).toEqual(["m2"]);
     await advance(LIVE_FRAME_REFRESH_MS - 2_000 - 1);
@@ -540,7 +585,7 @@ describe("live frames", () => {
     await advance(0);
     // The day-old pictures never show; the first grab replaces nothing but a placeholder.
     expect(grabs()).toEqual(["m1"]);
-    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-0.jpg");
+    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-11.jpg");
   });
 
   it("expires a burst whose channel keeps failing, so the card lets its old picture go", async () => {

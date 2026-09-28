@@ -1,6 +1,7 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
+import { LiveClip } from "@/components/live-tv/live-clip";
 import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -9,7 +10,7 @@ import { useItemPoster } from "@/hooks/useItemPoster";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
 import { t } from "@/services/i18n";
 import { isAudioItem, isBook } from "@/services/jellyfinApi";
-import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
+import { LIVE_FRAME_TRANSITION_MS, type LiveFrame } from "@/services/liveFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatClock, formatDayLabel } from "@/utils/guide";
@@ -103,6 +104,8 @@ interface VideoGridItemProps {
   hideAiring?: boolean;
   /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
   liveFrame?: { uri: string; cacheKey: string };
+  /** Channel cards: the channel's preview clip file, looped over the frame while the card holds focus. */
+  liveClip?: LiveFrame;
   /** Channel cards: the health check concluded down; the art dims and the corner badge says Offline. */
   offline?: boolean;
   /** Channel cards: the server is recording this channel; a REC pill joins the corner badge. */
@@ -146,6 +149,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     titleIcon,
     hideAiring = false,
     liveFrame,
+    liveClip,
     offline = false,
     recording = false,
     flat = false,
@@ -283,15 +287,16 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 source={liveFrame ?? posterSource}
                 style={[styles.poster, isChannel && !liveFrame && styles.posterLogo, offline && styles.posterOffline]}
                 contentFit={isChannel && !liveFrame ? "contain" : "cover"}
-                // A live burst walks its frames; the fade is the only motion a grid card makes.
+                // A newer grab's frame fades in; at rest the card holds still.
                 transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
                 priority={index < 10 ? "high" : "normal"}
-                // A live frame is a local file replaced every minute; nothing to keep on disk.
+                // A live frame is a local file a later grab replaces; nothing to keep on disk.
                 cachePolicy={liveFrame ? "none" : "memory-disk"}
                 recyclingKey={video.Id} // Helps with memory recycling
                 accessible={true}
                 accessibilityLabel={t("a11y.poster").replace("{name}", videoName || t("a11y.video"))}
               />
+              {focused && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
               <CardScrim />
               {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
               {liveFrame && posterSource ? (
@@ -438,6 +443,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.titleIcon === nextProps.titleIcon &&
     prevProps.hideAiring === nextProps.hideAiring &&
     prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
+    prevProps.liveClip?.uri === nextProps.liveClip?.uri &&
     prevProps.offline === nextProps.offline &&
     prevProps.recording === nextProps.recording &&
     prevProps.flat === nextProps.flat &&

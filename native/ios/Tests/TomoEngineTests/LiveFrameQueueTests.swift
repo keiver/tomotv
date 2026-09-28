@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import ImageIO
 import XCTest
@@ -92,7 +93,7 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .frames(let urls, _)? = settle(queue, "chan-a", stream.absoluteString), let url = urls.first else { return XCTFail("no frame") }
+        guard case .frames(let urls, _, _)? = settle(queue, "chan-a", stream.absoluteString), let url = urls.first else { return XCTFail("no frame") }
         XCTAssertTrue(url.lastPathComponent.hasPrefix("live-"))
         XCTAssertTrue(url.lastPathComponent.hasSuffix("-0.jpg"))
         XCTAssertEqual(url.deletingLastPathComponent().lastPathComponent, "chan-a")
@@ -106,7 +107,7 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .frames(let urls, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no burst") }
+        guard case .frames(let urls, _, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no burst") }
         XCTAssertEqual(urls.count, LiveFrameQueue.defaultCount)
         XCTAssertEqual(urls.map(LiveFrameQueue.index), Array(0 ..< LiveFrameQueue.defaultCount))
         XCTAssertEqual(Set(urls.map(LiveFrameQueue.stamp)).count, 1, "one burst shares one stamp")
@@ -133,7 +134,7 @@ final class LiveFrameQueueTests: XCTestCase {
             done.fulfill()
         }
         wait(for: [done], timeout: 15)
-        guard case .frames(let urls, _)? = outcome else { return XCTFail("no burst") }
+        guard case .frames(let urls, _, _)? = outcome else { return XCTFail("no burst") }
         XCTAssertTrue(onDiskWhenAnnounced, "an announced frame is already readable")
         XCTAssertEqual(streamed.map(\.0), urls)
         XCTAssertEqual(streamed.map(\.1), Array(0 ..< urls.count))
@@ -145,14 +146,14 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .frames(let first, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no first burst") }
+        guard case .frames(let first, _, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no first burst") }
         Thread.sleep(forTimeInterval: 0.01)
-        guard case .frames(let second, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no second burst") }
+        guard case .frames(let second, _, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no second burst") }
         XCTAssertNotEqual(first, second, "a live grab is never served from the directory")
         let directory = first[0].deletingLastPathComponent().path
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory).sorted(), (first + second).map(\.lastPathComponent).sorted(), "the burst a card may still be loading stays")
         Thread.sleep(forTimeInterval: 0.01)
-        guard case .frames(let third, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no third burst") }
+        guard case .frames(let third, _, _)? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("no third burst") }
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory).sorted(), (second + third).map(\.lastPathComponent).sorted())
     }
 
@@ -228,18 +229,137 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(next, graceDue, "the next sweep is due when the oldest burst left runs out")
     }
 
-    func testReverifyingRestartsTheNewestBurstsValidityAndReportsAMissingOne() throws {
+    func testReverifyingRestartsTheShownBurstsValidityClipIncludedAndReportsAMissingOne() throws {
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let ms = { (date: Date) in Int64(date.timeIntervalSince1970 * 1000) }
         let dir = root.appendingPathComponent("chan-a", isDirectory: true)
+        // The shown burst is the older one: a cancelled grab left a newer partial beside it.
         try writeBurst(dir, stamp: 1, count: 2, at: now.addingTimeInterval(-3000))
-        try writeBurst(dir, stamp: 2, count: 2, at: now.addingTimeInterval(-1500))
+        let clipFile = dir.appendingPathComponent("live-1-clip.mp4")
+        try Data([0xFF, 0xD8]).write(to: clipFile)
+        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-3000)], ofItemAtPath: clipFile.path)
+        try writeBurst(dir, stamp: 2, count: 1, at: now.addingTimeInterval(-1500))
 
-        XCTAssertTrue(LiveFrameQueue.touchNewest(in: dir, now: now))
+        XCTAssertTrue(LiveFrameQueue.touch(burstOf: dir.appendingPathComponent("live-1-0.jpg"), in: dir, now: now))
         let bursts = LiveFrameQueue.bursts(in: dir).sorted { $0.stamp < $1.stamp }
-        XCTAssertEqual(bursts.map(\.at), [Int64(now.addingTimeInterval(-3000).timeIntervalSince1970 * 1000), Int64(now.timeIntervalSince1970 * 1000)])
-        XCTAssertFalse(LiveFrameQueue.touchNewest(in: root.appendingPathComponent("chan-none", isDirectory: true), now: now))
+        XCTAssertEqual(bursts.map(\.at), [ms(now), ms(now.addingTimeInterval(-1500))])
+        XCTAssertEqual(bursts[0].urls.count, 3, "the clip shares its burst's validity")
+        XCTAssertFalse(LiveFrameQueue.touch(burstOf: dir.appendingPathComponent("live-9-0.jpg"), in: dir, now: now))
+        XCTAssertFalse(LiveFrameQueue.touch(burstOf: nil, in: root.appendingPathComponent("chan-none", isDirectory: true), now: now))
+    }
+
+    /// The clip as AVFoundation opens it: its one video track's codec and its duration in seconds.
+    private func playable(_ url: URL) throws -> (tracks: Int, codec: String, seconds: Double) {
+        let asset = AVURLAsset(url: url)
+        let tracks = asset.tracks(withMediaType: .video)
+        let format = tracks.first?.formatDescriptions.first.map { $0 as! CMFormatDescription }
+        let fourcc = format.map { CMFormatDescriptionGetMediaSubType($0) } ?? 0
+        let codec = String(bytes: [24, 16, 8, 0].map { UInt8((fourcc >> $0) & 0xFF) }, encoding: .ascii) ?? ""
+        return (asset.tracks.count, codec, CMTimeGetSeconds(asset.duration))
+    }
+
+    private func grab(_ queue: LiveFrameQueue, _ stream: URL, clipSpan: TimeInterval) -> LiveFrameQueue.Outcome? {
+        let done = XCTestExpectation(description: "burst with clip")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:], deadline: 12, clipSpan: clipSpan) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 20)
+        return outcome
+    }
+
+    func testAFullGrabCopiesAFiveSecondVideoClipBesideItsBurst() throws {
+        // 60 s of one-second GOPs: the clip is the stream itself, the burst still gets its keyframes.
+        let stream = try shortGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(let urls, let clip?, _)? = grab(queue, stream, clipSpan: 5) else { return XCTFail("no burst with a clip") }
+        XCTAssertEqual(urls.count, LiveFrameQueue.defaultCount)
+        XCTAssertEqual(clip.lastPathComponent, "live-\(LiveFrameQueue.stamp(urls[0]))-clip.mp4")
+        let opened = try playable(clip)
+        XCTAssertEqual(opened.tracks, 1, "video only, no audio")
+        XCTAssertEqual(opened.codec, "avc1")
+        XCTAssertEqual(opened.seconds, 5, accuracy: 0.1)
+
+        let found = queue.queue.sync { queue.latest(channelIds: ["chan-a"]) }
+        XCTAssertEqual(found["chan-a"]?.urls.map(\.lastPathComponent), urls.map(\.lastPathComponent))
+        XCTAssertEqual(found["chan-a"]?.clip?.lastPathComponent, clip.lastPathComponent)
+    }
+
+    func testAClipFromAStreamJoinedMidGopStartsOnItsFirstKeyframe() throws {
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(_, let clip?, _)? = grab(queue, stream, clipSpan: 2) else { return XCTFail("no clip") }
+        let opened = try playable(clip)
+        XCTAssertEqual(opened.codec, "avc1")
+        // B-frames hold presentation a few frames behind decode; the clip carries that delay.
+        XCTAssertEqual(opened.seconds, 2, accuracy: 0.25)
+    }
+
+    func testAnHevcClipCarriesTheSampleEntryAVFoundationPlays() throws {
+        let stream = try fixture("hevc-shortgop.ts", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
+            "-c:v", "libx265", "-x265-params", "keyint=25:min-keyint=25:log-level=error", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(_, let clip?, _)? = grab(queue, stream, clipSpan: 3) else { return XCTFail("no clip") }
+        let opened = try playable(clip)
+        XCTAssertEqual(opened.codec, "hvc1")
+        XCTAssertEqual(opened.seconds, 3, accuracy: 0.25)
+    }
+
+    func testAnMpeg2ChannelIsTranscodedOnTheDeviceIntoAClipAVFoundationPlays() throws {
+        // A broadcast tuner's codec: AVPlayer cannot play it, so the engine's VideoTranscoder makes the clip.
+        let stream = try fixture("mpeg2-progressive.ts", [
+            "-f", "lavfi", "-i", "testsrc2=size=720x480:rate=30:duration=12",
+            "-c:v", "mpeg2video", "-b:v", "4M", "-g", "15", "-an",
+        ])
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(let urls, let clip?, _)? = grab(queue, stream, clipSpan: 5) else { return XCTFail("no clip") }
+        XCTAssertFalse(urls.isEmpty)
+        let opened = try playable(clip)
+        XCTAssertEqual(opened.tracks, 1)
+        XCTAssertEqual(opened.codec, "avc1")
+        XCTAssertEqual(opened.seconds, 5, accuracy: 0.25)
+    }
+
+    func testAnInterlacedMpeg2ChannelIsDeinterlacedIntoItsClip() throws {
+        let stream = try fixture("mpeg2-interlaced.ts", [
+            "-f", "lavfi", "-i", "testsrc2=size=720x480:rate=30000/1001:duration=12",
+            "-vf", "tinterlace=interleave_top,setfield=tff",
+            "-c:v", "mpeg2video", "-flags", "+ildct+ilme", "-top", "1", "-b:v", "4M", "-g", "15", "-an",
+        ])
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(_, let clip?, _)? = grab(queue, stream, clipSpan: 5) else { return XCTFail("no clip") }
+        let opened = try playable(clip)
+        XCTAssertEqual(opened.codec, "avc1")
+        XCTAssertEqual(opened.seconds, 5, accuracy: 0.25)
+    }
+
+    func testAGrabWithoutAClipSpanWritesNoClip() throws {
+        let stream = try shortGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        guard case .frames(_, let clip, _)? = grab(queue, stream, clipSpan: 0) else { return XCTFail("no burst") }
+        XCTAssertNil(clip)
     }
 
     func testTheKeyframeAlreadyShownWritesNothing() throws {
@@ -248,7 +368,7 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .frames(let burst, let pts)? = settle(queue, "chan-a", stream.absoluteString), let first = burst.first else { return XCTFail("no first frame") }
+        guard case .frames(let burst, _, let pts)? = settle(queue, "chan-a", stream.absoluteString), let first = burst.first else { return XCTFail("no first frame") }
         let shown = try XCTUnwrap(pts)
         let written = Date(timeIntervalSinceNow: -600)
         for url in burst { try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: url.path) }

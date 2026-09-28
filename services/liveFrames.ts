@@ -14,7 +14,7 @@ import { AppState, NativeEventEmitter, NativeModules } from "react-native";
 
 const { LocalRemuxer } = NativeModules;
 
-/** A channel is asked again this soon after its picture moved; its burst loops across the wait. */
+/** A channel is asked again this soon after its picture moved. */
 export const LIVE_FRAME_REFRESH_MS = 120_000;
 /** A channel whose live edge has not moved waits twice as long each time, up to this. */
 export const LIVE_FRAME_REFRESH_CAP_MS = 300_000;
@@ -44,10 +44,10 @@ export const LIVE_FRAME_CAP_COOLDOWN_MS = 180_000;
 /** A failed channel waits this long, doubling per failure, up to the cap. */
 export const LIVE_FRAME_RETRY_MS = 120_000;
 export const LIVE_FRAME_RETRY_CAP_MS = 600_000;
-/** The card holds each frame of a burst this long, looping until the next grab. */
-export const LIVE_FRAME_DWELL_MS = 3_000;
-/** The card's crossfade between two frames of a burst. */
+/** The card's crossfade from its picture to the newer one a grab brings. */
 export const LIVE_FRAME_TRANSITION_MS = 400;
+/** A full grab also copies this much stream into the focused card's preview clip, a video file. */
+export const LIVE_FRAME_CLIP_S = 5;
 /** A row focused this long promotes its channel to the front of the sampler. */
 export const LIVE_FRAME_FOCUS_DWELL_MS = 2_000;
 /** The promoted channel's own refresh floor, well under the ordinary one. */
@@ -63,9 +63,10 @@ export interface LiveFrame {
   cacheKey: string;
 }
 
-/** One grab's pictures in order and when they were taken; the card walks them until the next grab. */
+/** One grab's pictures in order, its preview clip when it has one, and when its validity counts from. */
 interface Burst {
   frames: LiveFrame[];
+  clip?: LiveFrame;
   at: number;
 }
 
@@ -75,8 +76,6 @@ interface Entry {
   /** How long after `lastAt` the channel is due; the refresh floor until its picture stands still. */
   intervalMs?: number;
   burst?: Burst;
-  /** The frame of the burst the card was last told about. */
-  shownIndex?: number;
   /** The shown burst's keyframe timestamp: the engine answers unchanged while the live edge is still on it. */
   pts?: number;
   /** The frame pool was asked for this channel's last burst: a reload keeps the pictures it had. */
@@ -125,7 +124,10 @@ function noteOpenFailure(): void {
   }
 }
 
-/** A frame the running grab just wrote: it joins the channel's burst at once, ahead of the rest. */
+/**
+ * A frame the running grab just wrote. A card with no valid picture paints it at once; one that
+ * has a picture keeps it until the grab lands whole, so it never steps back to an older frame.
+ */
 function onLiveFrameEvent(event: { channelId?: string; uri?: string; index?: number }): void {
   const { channelId, uri, index } = event;
   if (!channelId || !uri || typeof index !== "number") return;
@@ -133,14 +135,15 @@ function onLiveFrameEvent(event: { channelId?: string; uri?: string; index?: num
   const item = entries.get(channelId);
   if (!item) return;
   if (index === 0) {
+    const shown = validBurst(channelId, Date.now());
+    if (shown && shown.at !== item.lastAt) return;
     item.burst = burstOf(channelId, [uri], item.lastAt);
-    item.shownIndex = 0;
   } else {
     // Appends in order only; anything missed is reconciled when the grab resolves. Replaced,
     // never pushed: subscribers' snapshot is the burst object, and a same-object mutation
     // renders nowhere (useSyncExternalStore bails on identity).
     if (!item.burst || item.burst.at !== item.lastAt || index !== item.burst.frames.length) return;
-    item.burst = { at: item.burst.at, frames: [...item.burst.frames, { uri, cacheKey: `live-${channelId}-${item.burst.at}-${index}` }] };
+    item.burst = { at: item.burst.at, clip: item.burst.clip, frames: [...item.burst.frames, { uri, cacheKey: `live-${channelId}-${item.burst.at}-${index}` }] };
   }
   notify(channelId);
   startTicker();
@@ -206,8 +209,12 @@ function notify(channelId: string): void {
   for (const listener of listeners.get(channelId) ?? []) listener();
 }
 
-function burstOf(channelId: string, uris: string[], at: number): Burst {
-  return { at, frames: uris.map((uri, index) => ({ uri, cacheKey: `live-${channelId}-${at}-${index}` })) };
+function burstOf(channelId: string, uris: string[], at: number, clip?: string | null): Burst {
+  return {
+    at,
+    frames: uris.map((uri, index) => ({ uri, cacheKey: `live-${channelId}-${at}-${index}` })),
+    clip: clip ? { uri: clip, cacheKey: `live-${channelId}-${at}-clip` } : undefined,
+  };
 }
 
 function expired(burst: Burst, now: number): boolean {
@@ -223,32 +230,18 @@ function validBurst(channelId: string, now: number): Burst | undefined {
 /** An expired or vanished burst leaves memory, so nothing keeps a path the engine deletes. */
 function dropBurst(channelId: string, item: Entry): void {
   item.burst = undefined;
-  item.shownIndex = undefined;
   item.pts = undefined;
   notify(channelId);
 }
 
-/** Which frame of a burst the card shows now: one per dwell, looping until the next grab. */
-function frameIndex(burst: Burst, now: number): number {
-  if (burst.frames.length <= 1) return 0;
-  return Math.floor(Math.max(0, now - burst.at) / LIVE_FRAME_DWELL_MS) % burst.frames.length;
-}
-
+/** Lets every burst go the moment it expires; runs while a surface shows any. */
 function tick(): void {
   const now = Date.now();
   let holding = false;
   for (const [channelId, item] of entries) {
     if (!item.burst) continue;
-    if (expired(item.burst, now)) {
-      dropBurst(channelId, item);
-      continue;
-    }
-    holding = true;
-    if (item.burst.frames.length <= 1 || !viewable.includes(channelId)) continue;
-    const index = frameIndex(item.burst, now);
-    if (index === item.shownIndex) continue;
-    item.shownIndex = index;
-    notify(channelId);
+    if (expired(item.burst, now)) dropBurst(channelId, item);
+    else holding = true;
   }
   if (!holding) stopTicker();
 }
@@ -273,15 +266,14 @@ async function seedFromDisk(): Promise<void> {
   for (const channelId of asking) entry(channelId).seeded = true;
   const gen = generation;
   try {
-    const found: Record<string, { uris: string[]; at: number }> = (await LocalRemuxer.liveFramesOnDisk(asking)) ?? {};
+    const found: Record<string, { uris: string[]; clip?: string | null; at: number }> = (await LocalRemuxer.liveFramesOnDisk(asking)) ?? {};
     if (gen !== generation) return;
-    for (const [channelId, { uris, at }] of Object.entries(found)) {
+    for (const [channelId, { uris, clip, at }] of Object.entries(found)) {
       const item = entry(channelId);
       if (item.burst || uris.length === 0) continue;
       // An expired burst stays off screen; the channel is due at once instead.
       if (Date.now() - at > LIVE_FRAME_EXPIRY_MS) continue;
-      item.burst = burstOf(channelId, uris, at);
-      item.shownIndex = undefined;
+      item.burst = burstOf(channelId, uris, at, clip);
       item.lastAt = Math.max(item.lastAt, at);
       notify(channelId);
     }
@@ -408,18 +400,28 @@ async function grab(channelId: string): Promise<void> {
       noteOpenFailure();
       return;
     }
-    const result: { uris?: string[] | null; pts?: number | null; unchanged?: boolean; missing?: boolean; cancelled?: boolean; reason?: string; failure?: string | null } = await LocalRemuxer.liveFrame(
-      {
-        channelId,
-        inputUrl: input.url,
-        httpHeaders: input.headers ?? {},
-        deadline: cold ? LIVE_FRAME_COLD_DEADLINE_S : LIVE_FRAME_DEADLINE_S,
-        span: cold ? LIVE_FRAME_COLD_SPAN_S : LIVE_FRAME_BURST_S,
-        interval: LIVE_FRAME_BURST_INTERVAL_S,
-        count: cold ? LIVE_FRAME_COLD_COUNT : LIVE_FRAME_BURST_COUNT,
-        shownPts: shown ? item.pts : undefined,
-      },
-    );
+    const result: {
+      uris?: string[] | null;
+      clip?: string | null;
+      pts?: number | null;
+      unchanged?: boolean;
+      missing?: boolean;
+      cancelled?: boolean;
+      reason?: string;
+      failure?: string | null;
+    } = await LocalRemuxer.liveFrame({
+      channelId,
+      inputUrl: input.url,
+      httpHeaders: input.headers ?? {},
+      deadline: cold ? LIVE_FRAME_COLD_DEADLINE_S : LIVE_FRAME_DEADLINE_S,
+      span: cold ? LIVE_FRAME_COLD_SPAN_S : LIVE_FRAME_BURST_S,
+      interval: LIVE_FRAME_BURST_INTERVAL_S,
+      count: cold ? LIVE_FRAME_COLD_COUNT : LIVE_FRAME_BURST_COUNT,
+      // The first paint stays light; every later grab copies the focused card's preview clip.
+      clipSpan: cold ? 0 : LIVE_FRAME_CLIP_S,
+      shownPts: shown ? item.pts : undefined,
+      shownUri: shown?.frames[0]?.uri,
+    });
     if (gen !== generation) return;
     if (result?.cancelled) {
       // An attempt cancelled before any frame landed leaves the channel due, not on a full wait.
@@ -441,8 +443,7 @@ async function grab(channelId: string): Promise<void> {
       openFailStreak = 0;
       noteChannelAlive(channelId);
     } else if (result?.uris?.length) {
-      item.burst = burstOf(channelId, result.uris, now);
-      item.shownIndex = 0;
+      item.burst = burstOf(channelId, result.uris, now, result.clip);
       item.pts = result.pts ?? undefined;
       item.intervalMs = LIVE_FRAME_REFRESH_MS;
       item.failure = undefined;
@@ -501,11 +502,14 @@ export function setLiveFramesActive(surface: LiveFrameSurface, active: boolean):
   cancelGrabs();
 }
 
-/** The channel's frame for now: the burst spread across the refresh, one picture at a time. */
+/** The card's picture: the newest valid frame, held until a grab brings a newer one. */
 export function liveFrameFor(channelId: string): LiveFrame | undefined {
-  const now = Date.now();
-  const burst = validBurst(channelId, now);
-  return burst ? burst.frames[frameIndex(burst, now)] : undefined;
+  return validBurst(channelId, Date.now())?.frames.at(-1);
+}
+
+/** The newest valid burst's preview clip, a video file, for the focused card; undefined when it has none. */
+export function liveClipFor(channelId: string): LiveFrame | undefined {
+  return validBurst(channelId, Date.now())?.clip;
 }
 
 /** The channel's whole valid burst in grab order with when it was taken, for the focus reel. */

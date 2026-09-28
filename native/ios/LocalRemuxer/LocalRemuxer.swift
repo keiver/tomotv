@@ -559,9 +559,9 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval (seconds), count, shownPts.
-    /// Each frame is announced as `onLiveFrame` while the burst is read.
-    /// Resolves `{uris, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
+    /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval, clipSpan (seconds),
+    /// count, shownPts, shownUri. Each burst frame is announced as `onLiveFrame` while the burst is read.
+    /// Resolves `{uris, clip, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
     @objc func liveFrame(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -577,16 +577,20 @@ class LocalRemuxer: RCTEventEmitter {
         let span = max(1, (config["span"] as? Double) ?? LiveFrameQueue.defaultSpan)
         let interval = max(0.1, (config["interval"] as? Double) ?? LiveFrameQueue.defaultInterval)
         let count = max(1, (config["count"] as? Int) ?? LiveFrameQueue.defaultCount)
+        let clipSpan = max(0, (config["clipSpan"] as? Double) ?? 0)
         let shownPts = (config["shownPts"] as? NSNumber)?.int64Value
+        let shownFile = (config["shownUri"] as? String).flatMap(URL.init(string:))
         Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline,
-                                span: span, interval: interval, count: count, shownPts: shownPts,
+                                span: span, interval: interval, count: count, clipSpan: clipSpan,
+                                shownPts: shownPts, shownFile: shownFile,
                                 frame: { [weak self] url, index in
                                     self?.publish(liveFrame: ["channelId": channelId, "uri": url.absoluteString, "index": index])
                                 }) { outcome in
             switch outcome {
-            case .frames(let urls, let pts):
+            case .frames(let urls, let clip, let pts):
                 let shown: Any = pts.map { NSNumber(value: $0) } ?? NSNull()
-                resolve(["uris": urls.map(\.absoluteString), "cancelled": false, "pts": shown])
+                let clipUri: Any = clip?.absoluteString ?? NSNull()
+                resolve(["uris": urls.map(\.absoluteString), "clip": clipUri, "cancelled": false, "pts": shown])
             case .unchanged(let onDisk): resolve(["uris": [], "cancelled": false, "unchanged": true, "missing": !onDisk])
             case .none(let opened, let failure):
                 let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
@@ -605,7 +609,7 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// The newest valid burst on disk per channel: `{ channelId: { uris, at } }`, `at` the ms its validity counts from.
+    /// The newest valid burst on disk per channel: `{ channelId: { uris, clip, at } }`, `at` the ms its validity counts from.
     @objc func liveFramesOnDisk(
         _ channelIds: NSArray,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -614,7 +618,9 @@ class LocalRemuxer: RCTEventEmitter {
         let ids = (channelIds as? [String]) ?? []
         Self.liveFrames.queue.async {
             let found = Self.liveFrames.latest(channelIds: ids)
-            resolve(found.mapValues { ["uris": $0.urls.map(\.absoluteString), "at": NSNumber(value: $0.at)] as [String: Any] })
+            resolve(found.mapValues {
+                ["uris": $0.urls.map(\.absoluteString), "clip": $0.clip?.absoluteString ?? NSNull(), "at": NSNumber(value: $0.at)] as [String: Any]
+            })
         }
     }
 

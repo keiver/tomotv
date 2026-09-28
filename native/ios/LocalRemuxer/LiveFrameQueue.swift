@@ -58,8 +58,8 @@ final class LiveFrameQueue {
     static let defaultCount = 12
 
     enum Outcome {
-        /// The burst in order, the first keyframe's pts with it.
-        case frames([URL], pts: Int64?)
+        /// The burst in order, its preview clip when one was written, the first keyframe's pts.
+        case frames([URL], clip: URL?, pts: Int64?)
         /// The keyframe at the live edge is still the one `shownPts` names; nothing was written.
         /// `onDisk` false when the shown burst's files are gone, so there is nothing to re-verify.
         case unchanged(onDisk: Bool)
@@ -68,11 +68,13 @@ final class LiveFrameQueue {
         case cancelled
     }
 
-    /// The channel's burst now, decoded in turn. `frame` announces each file as it is written;
-    /// it and the completion run on the queue's thread.
+    /// The channel's burst now, decoded in turn, with a `clipSpan` preview clip when over zero.
+    /// `shownFile` names a frame of the burst on screen, the one an unchanged answer re-verifies.
+    /// `frame` announces each burst file as it is written; it and the completion run on the queue's thread.
     func request(channelId: String, inputUrl: String, headers: [String: String], deadline: TimeInterval = defaultDeadline,
                  span: TimeInterval = defaultSpan, interval: TimeInterval = defaultInterval, count: Int = defaultCount,
-                 shownPts: Int64? = nil, frame: ((URL, Int) -> Void)? = nil, completion: @escaping (Outcome) -> Void) {
+                 clipSpan: TimeInterval = 0,
+                 shownPts: Int64? = nil, shownFile: URL? = nil, frame: ((URL, Int) -> Void)? = nil, completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: channelId, in: root) else {
             completion(.none(opened: true, failure: nil))
             return
@@ -115,8 +117,8 @@ final class LiveFrameQueue {
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: watchdog)
             let started = Date()
             let base = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000))"
-            let result = grabber.liveBurst(named: base, span: span, interval: interval, count: max(1, count),
-                                           wall: deadline, unlessPts: shownPts, onFrame: frame)
+            let result = grabber.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: deadline,
+                                           clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
             watchdog.cancel()
             grabber.stop()
             let elapsed = Date().timeIntervalSince(started)
@@ -131,17 +133,19 @@ final class LiveFrameQueue {
                 return
             }
             switch result {
-            case .frames(let files, let pts):
+            case .frames(let files, let clip, let pts):
                 queue.sync {
                     Self.removeOthers(in: location, keeping: files)
                     sweepNoLaterThan(Self.nowMs() + Self.expiryMs + Self.diskGraceMs)
                 }
-                NSLog("[LiveFrame] %@", String(format: "%@ %d frames %.2fs %lld bytes", channelId, files.count, elapsed, grabber.bytesRead))
-                completion(.frames(files, pts: pts))
+                let clipBytes = clip.flatMap { (try? FileManager.default.attributesOfItem(atPath: $0.path))?[.size] as? Int } ?? 0
+                NSLog("[LiveFrame] %@", String(format: "%@ %d frames clip %@ %d packets %d bytes %.0fms %.2fs %lld bytes", channelId, files.count,
+                                                 grabber.clipMode, grabber.clipPackets, clipBytes, grabber.clipMs, elapsed, grabber.bytesRead))
+                completion(.frames(files, clip: clip, pts: pts))
             case .unchanged:
                 // The shown burst was just verified live: its files restart their validity.
                 let onDisk = queue.sync { () -> Bool in
-                    let touched = Self.touchNewest(in: location)
+                    let touched = Self.touch(burstOf: shownFile, in: location)
                     if touched { sweepNoLaterThan(Self.nowMs() + Self.expiryMs + Self.diskGraceMs) }
                     return touched
                 }
@@ -155,17 +159,18 @@ final class LiveFrameQueue {
         }
     }
 
-    /// The newest burst on disk for each channel whose burst is still valid, in order, with the time
-    /// its validity counts from. A reload or a relaunch reads these before any grab, so a card never
-    /// loses the picture it had.
-    func latest(channelIds: [String], now: Date = Date()) -> [String: (urls: [URL], at: Int64)] {
-        var found: [String: (urls: [URL], at: Int64)] = [:]
+    /// The newest burst on disk for each channel whose burst is still valid, in order, its clip, and
+    /// the time its validity counts from. A reload or a relaunch reads these before any grab, so a
+    /// card never loses the picture it had.
+    func latest(channelIds: [String], now: Date = Date()) -> [String: (urls: [URL], clip: URL?, at: Int64)] {
+        var found: [String: (urls: [URL], clip: URL?, at: Int64)] = [:]
         let nowMs = Self.ms(now)
         for channelId in channelIds {
             guard let location = ChapterFramePool.location(for: channelId, in: root),
                   let newest = Self.bursts(in: location).max(by: { $0.stamp < $1.stamp }),
                   nowMs - newest.at <= Self.expiryMs else { continue }
-            found[channelId] = (newest.urls.sorted { Self.index($0) < Self.index($1) }, newest.at)
+            let ordered = newest.urls.sorted { Self.index($0) < Self.index($1) }
+            found[channelId] = (ordered.filter { !Self.isClip($0) }, ordered.first(where: Self.isClip), newest.at)
         }
         return found
     }
@@ -215,11 +220,14 @@ final class LiveFrameQueue {
         queue.asyncAfter(wallDeadline: .now() + delay, execute: item)
     }
 
-    /// Restarts the validity of the channel's newest burst; false when it has no burst on disk.
-    static func touchNewest(in location: URL, now: Date = Date()) -> Bool {
-        guard let newest = bursts(in: location).max(by: { $0.stamp < $1.stamp }) else { return false }
+    /// Restarts the validity of the burst `file` belongs to (its clip included), else the channel's
+    /// newest; false when that burst is not on disk.
+    static func touch(burstOf file: URL?, in location: URL, now: Date = Date()) -> Bool {
+        let all = bursts(in: location)
+        let target = if let file { all.first { $0.stamp == stamp(file) } } else { all.max { $0.stamp < $1.stamp } }
+        guard let target else { return false }
         var touched = true
-        for url in newest.urls where (try? FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: url.path)) == nil {
+        for url in target.urls where (try? FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: url.path)) == nil {
             touched = false
         }
         return touched
@@ -259,6 +267,11 @@ final class LiveFrameQueue {
     static func index(_ url: URL) -> Int {
         let parts = url.deletingPathExtension().lastPathComponent.dropFirst(filePrefix.count).split(separator: "-")
         return parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+    }
+
+    /// The burst's preview clip (`live-<ms>-clip.mp4`) rather than one of its frames.
+    static func isClip(_ url: URL) -> Bool {
+        url.pathExtension == "mp4"
     }
 
     /// A pending job for the channel completes cancelled without opening its source; one already
