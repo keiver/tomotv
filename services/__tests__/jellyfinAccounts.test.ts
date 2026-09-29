@@ -214,6 +214,36 @@ describe("dropped tokens", () => {
   });
 });
 
+describe("index writes", () => {
+  it("a pruning read that overlaps a save keeps the saved account", async () => {
+    mockStore.set("jellyfin_accounts", "[]");
+    await upsertAccount(makeAccount(), "tok");
+    await upsertAccount(makeAccount({ userId: "user-2", userName: "second" }), "tok-2");
+    mockStore.delete("jellyfin_account_token_srv-1_user-1");
+    const secureStore = jest.requireMock("expo-secure-store") as { getItemAsync: jest.Mock };
+    const read = secureStore.getItemAsync.getMockImplementation()!;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let gated = false;
+    secureStore.getItemAsync.mockImplementation(async (key: string) => {
+      // Only the pruning read's token lookup stalls, so the save lands inside it.
+      if (key === "jellyfin_account_token_srv-1_user-1" && !gated) {
+        gated = true;
+        await gate;
+      }
+      return read(key);
+    });
+
+    const pruning = getSavedAccounts();
+    const saving = upsertAccount(makeAccount({ userId: "user-3", userName: "third" }), "tok-3");
+    await new Promise((resolve) => setImmediate(resolve));
+    release();
+    await Promise.all([pruning, saving]);
+    secureStore.getItemAsync.mockImplementation(read);
+    expect(JSON.parse(mockStore.get("jellyfin_accounts")!).map((a: SavedAccount) => a.userId)).toEqual(["user-2", "user-3"]);
+  });
+});
+
 describe("removal", () => {
   it("removeAccount deletes the token and the index entry", async () => {
     mockStore.set("jellyfin_accounts", "[]");
