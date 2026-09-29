@@ -1,36 +1,27 @@
 /**
  * bitrateTest.ts
  *
- * Bandwidth measurement against the configured server via Jellyfin's own
- * /Playback/BitrateTest endpoint (the jellyfin-web pattern: it downloads junk
- * bytes and times them). Staged like jellyfin-apiclient: a small probe first,
- * a larger one only when the link looks fast enough for the small one to be
- * timer-noise.
+ * Bandwidth measurement against the configured server: the engine's own probe
+ * (native RateProbe) times Jellyfin's /Playback/BitrateTest body until its rate
+ * holds steady or the budget runs out.
  *
  * A reading is keyed to the server and to the subnet it was taken on: it stands at
  * any age on that subnet, is void on another, and age only drives re-measurement.
  */
 
 import * as SecureStore from "expo-secure-store";
+import { NativeModules } from "react-native";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
 import { isPlaybackHeld } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
-import { API_TIMEOUTS, STORAGE_KEYS } from "./constants";
-import { fetchWithTimeout } from "./http";
+import { STORAGE_KEYS } from "./constants";
 import { getAuthHeader, getConfig, type JellyfinConfig } from "./session";
 
-/** Probe sizes in bytes: quick first stage, refining second stage, confirming third stage. */
-const STAGE_SIZES = [500_000, 2_000_000, 10_000_000];
-/** A refine stage faster than this is timer-noise too: on a ~230 Mb/s Apple TV link 2 MB read
- *  100 to 202 Mb/s in 0.08 to 0.17s, and 10 MB read 219 to 244 in about 0.6s. */
-const CONFIRM_BELOW_SEC = 0.3;
-/** A first stage faster than this (seconds) is timer-noise; run the big stage. */
-const REFINE_THRESHOLD_SEC = 0.7;
-/** A first-stage reading below this refines too, whatever its time: a 500 KB probe cannot
- * overcome TCP slow-start and connection setup, so it UNDER-reads a fast link (a 30 Mbps link
- * measured 3.5 in a 1.2s cold sample and was misjudged too slow for direct play). Above this the
- * link is unambiguously fast enough for any realistic source, so the small sample is trusted. */
-const REFINE_BELOW_BPS = 15_000_000;
+/** Bytes per request (the server rounds up to a power of two: 10 MB came back as 16 MiB).
+ *  The probe asks again when a body ends first. */
+const PROBE_SIZE = 50_000_000;
+/** The probe stops as soon as its rate holds steady; this bounds a link that never settles. */
+const PROBE_BUDGET_MS = 3_000;
 /** Backstop for a reading with no network identity: age is all that is left to judge it by. */
 const UNKNOWN_NETWORK_TTL_MS = 24 * 60 * 60 * 1000;
 /** Past this a trigger re-measures. The reading keeps answering until the new one lands. */
@@ -140,72 +131,40 @@ async function remember(server: string, bps: number, net: string | null): Promis
   }
 }
 
-/** One timed download: the rate plus the two numbers behind it, so a reading can be read back. */
-interface Stage {
+/** What the native probe read: the rate, whether it held steady, and over how long. */
+interface LinkReading {
   bps: number;
-  bytes: number;
+  kind: "steady" | "unsettled" | "short";
   seconds: number;
 }
 
-async function timeStage(server: string, deviceId: string, apiKey: string | undefined, size: number): Promise<Stage | null> {
-  const started = Date.now();
-  const url = `${server}/Playback/BitrateTest?Size=${size}&_probe=${Date.now()}-${probeNonce++}`;
-  const response = await fetchWithTimeout(url, { method: "GET", headers: { Authorization: getAuthHeader(deviceId, apiKey) } }, API_TIMEOUTS.NORMAL);
-  if (!response.ok) return null;
-  // blob() keeps the body native. arrayBuffer() round-trips it through base64 in JS, which
-  // capped a 230 Mb/s Apple TV link at 38 Mb/s.
-  const body = await response.blob();
-  const seconds = (Date.now() - started) / 1000;
-  const bytes = body.size;
-  (body as Blob & { close?: () => void }).close?.();
-  if (seconds <= 0 || bytes === 0) return null;
-  return { bps: (bytes * 8) / seconds, bytes, seconds };
+const engine = () => NativeModules.LocalRemuxer as { measureLink?: (url: string, headers: Record<string, string>, budgetMs: number) => Promise<LinkReading | null> } | undefined;
+
+async function measureLink(config: JellyfinConfig): Promise<LinkReading | null> {
+  const measure = engine()?.measureLink;
+  if (typeof measure !== "function") return null;
+  const url = `${config.server}/Playback/BitrateTest?Size=${PROBE_SIZE}&_probe=${Date.now()}-${probeNonce++}`;
+  const reading = await measure(url, { Authorization: getAuthHeader(config.deviceId, config.apiKey) }, PROBE_BUDGET_MS);
+  return reading != null && Number.isFinite(reading.bps) && reading.bps > 0 ? reading : null;
 }
 
 async function runProbe(config: JellyfinConfig, host: string, shouldRemember: boolean): Promise<number | null> {
   try {
-    const stageStart = Date.now();
-    let stage = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[0]);
-    if (stage == null) {
+    const reading = await measureLink(config);
+    if (reading == null) {
       if (shouldRemember) failedAt.set(host, Date.now());
       logger.warn("Bitrate test returned nothing usable", { service: "BitrateTest", host });
       return null;
     }
-    let refined = false;
-    if ((Date.now() - stageStart) / 1000 < REFINE_THRESHOLD_SEC || stage.bps < REFINE_BELOW_BPS) {
-      // A refine that dies keeps the first stage: it measured the same link.
-      try {
-        const bigger = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[1]);
-        if (bigger != null) {
-          stage = bigger;
-          refined = true;
-        }
-      } catch (error) {
-        logger.warn("Bitrate refine stage failed, keeping the small-stage reading", error, { service: "BitrateTest" });
-      }
-    }
-    let confirmed = false;
-    if (refined && stage.seconds < CONFIRM_BELOW_SEC) {
-      try {
-        const biggest = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[2]);
-        if (biggest != null) {
-          stage = biggest;
-          confirmed = true;
-        }
-      } catch (error) {
-        logger.warn("Bitrate confirm stage failed, keeping the refine reading", error, { service: "BitrateTest" });
-      }
-    }
-    const bps = stage.bps;
+    const bps = reading.bps;
     const net = shouldRemember ? await currentNetworkId() : null;
     failedAt.delete(host);
     logger.info("Server bitrate measured", {
       service: "BitrateTest",
       host,
       mbps: Math.round(bps / 100_000) / 10,
-      bytes: stage.bytes,
-      seconds: Math.round(stage.seconds * 1000) / 1000,
-      stage: confirmed ? "confirm" : refined ? "refine" : "first",
+      kind: reading.kind,
+      seconds: Math.round(reading.seconds * 1000) / 1000,
       net,
       remembered: shouldRemember,
     });
