@@ -45,7 +45,8 @@ final class ToastWindow: UIWindow {
         guard !view.isHidden, view.alpha > 0.01 else { return }
         if let bar = view as? UINavigationBar {
           let frame = bar.convert(bar.bounds, to: app)
-          if frame.minY <= edge, frame.height > 0 { bottom = max(bottom ?? 0, frame.maxY) }
+          // Landscape iPhone hides the status bar yet keeps a gap above the bar (safe top 0, bar at 24).
+          if frame.height > 0, frame.minY < edge + frame.height { bottom = max(bottom ?? 0, frame.maxY) }
           return
         }
         view.subviews.forEach(visit)
