@@ -500,14 +500,16 @@ export async function closeLiveStream(liveStreamId: string | null | undefined, o
       { method: "POST", headers: { Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
       API_TIMEOUTS.SHORT,
     );
+    // Once closed, the run no longer holds the open, so a record a 5xx keeps is the foreground sweep's to resend.
+    openOrigins.delete(liveStreamId);
     if (response.status >= 500) {
       logger.warn("Live stream close not taken", { service: "LiveTv", status: response.status, liveStreamId });
       return;
     }
-    openOrigins.delete(liveStreamId);
     recordClose(liveStreamId);
     if (!response.ok) logger.warn("Live stream close refused", { service: "LiveTv", status: response.status, liveStreamId });
   } catch (error) {
+    openOrigins.delete(liveStreamId);
     logger.warn("Live stream close failed", error, { service: "LiveTv", liveStreamId });
   }
 }

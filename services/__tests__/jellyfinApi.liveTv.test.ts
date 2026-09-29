@@ -669,22 +669,24 @@ describe("live TV client", () => {
     expect(recordedOpens()).toEqual({});
   });
 
-  it("keeps the record of an open the server answered 5xx for, and sends the close again from the next launch", async () => {
+  it("keeps the record of an open the server answered 5xx for, and sends the close again from the next foreground", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ MediaSources: [{ Id: "ms-80", Container: "ts", SupportsDirectPlay: true, LiveStreamId: "ls-80", Path: "/LiveTv/LiveStreamFiles/ls-80/stream.ts" }] }),
     });
     await openChannel("c80", { Id: "c80", Name: "Eighty", Type: "TvChannel", Path: "" });
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 503 });
-    await closeLiveStream("ls-80");
-    expect(recordClose).not.toHaveBeenCalledWith("ls-80");
-    // This run still holds the open, so a foreground pass leaves it alone.
+    // An open this run still plays is never swept.
     (global.fetch as jest.Mock).mockClear();
     await closeLeftoverOpens();
     expect(global.fetch).not.toHaveBeenCalled();
-    // A close that reaches the server ends the record; a later pass has nothing left.
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 503 });
     await closeLiveStream("ls-80");
+    expect(recordClose).not.toHaveBeenCalledWith("ls-80");
+    // The refused close leaves the record; the foreground pass sends it again and a 204 ends it.
+    (global.fetch as jest.Mock).mockClear();
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 });
+    await closeLeftoverOpens();
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain("/LiveStreams/Close?liveStreamId=ls-80");
     expect(recordClose).toHaveBeenCalledWith("ls-80");
   });
 
