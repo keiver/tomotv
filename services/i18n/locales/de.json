@@ -57,7 +57,7 @@
   "liveTv.lastSeen": "Feed-Vorschau von {time}",
   "liveTv.offline": "Offline",
   "liveTv.hideOffline": "Offline ausblenden",
-  "liveTv.noGuide": "Kein Programm",
+  "liveTv.noGuide": "Kein Programm für {channel}",
   "liveTv.noGuideHint": "Einschalten",
   "liveTv.noChannels": "Keine Kanäle",
   "liveTv.now": "Jetzt",

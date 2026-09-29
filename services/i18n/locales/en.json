@@ -57,7 +57,7 @@
   "liveTv.lastSeen": "Feed preview seen at {time}",
   "liveTv.offline": "Offline",
   "liveTv.hideOffline": "Hide offline",
-  "liveTv.noGuide": "No listings",
+  "liveTv.noGuide": "No listings for {channel}",
   "liveTv.noGuideHint": "Tune in",
   "liveTv.noChannels": "No channels",
   "liveTv.now": "Now",

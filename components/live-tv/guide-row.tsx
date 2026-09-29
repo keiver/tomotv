@@ -46,11 +46,11 @@ interface GuideRowProps {
 }
 
 /** A window-wide stand-in cell; select tunes the channel, and it has no program panel. */
-function noGuideProgram(channelId: string, windowStartMs: number, windowEndMs: number): JellyfinProgram {
+function noGuideProgram(channel: JellyfinItem, windowStartMs: number, windowEndMs: number): JellyfinProgram {
   return {
-    Id: `${NO_GUIDE_PREFIX}${channelId}`,
-    Name: t("liveTv.noGuide"),
-    EpisodeTitle: t("liveTv.noGuideHint"),
+    Id: `${NO_GUIDE_PREFIX}${channel.Id}`,
+    Name: t("liveTv.noGuide").replace("{channel}", channel.Name ?? ""),
+    EpisodeTitle: IS_TV ? t("liveTv.noGuideHint") : undefined,
     StartDate: new Date(windowStartMs).toISOString(),
     EndDate: new Date(windowEndMs).toISOString(),
   };
@@ -62,7 +62,7 @@ export function rowCells(channel: JellyfinItem, programs: JellyfinProgram[], win
     const { startMs, endMs } = programTimes(program);
     return !!program.Id && cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics) !== null;
   });
-  return placed.length > 0 ? placed : [noGuideProgram(channel.Id, windowStartMs, windowEndMs)];
+  return placed.length > 0 ? placed : [noGuideProgram(channel, windowStartMs, windowEndMs)];
 }
 
 function recordingMark(program: JellyfinProgram, timers: Map<string, JellyfinTimer>): RecordingMark {

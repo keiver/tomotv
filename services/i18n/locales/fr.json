@@ -57,7 +57,7 @@
   "liveTv.lastSeen": "Aperçu du flux de {time}",
   "liveTv.offline": "Hors ligne",
   "liveTv.hideOffline": "Masquer hors ligne",
-  "liveTv.noGuide": "Aucun programme",
+  "liveTv.noGuide": "Aucun programme pour {channel}",
   "liveTv.noGuideHint": "Regarder la chaîne",
   "liveTv.noChannels": "Aucune chaîne",
   "liveTv.now": "Maintenant",

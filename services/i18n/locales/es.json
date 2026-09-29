@@ -57,7 +57,7 @@
   "liveTv.lastSeen": "Vista previa del feed de las {time}",
   "liveTv.offline": "Sin señal",
   "liveTv.hideOffline": "Ocultar sin señal",
-  "liveTv.noGuide": "Sin programación",
+  "liveTv.noGuide": "Sin programación para {channel}",
   "liveTv.noGuideHint": "Sintonizar",
   "liveTv.noChannels": "Sin canales",
   "liveTv.now": "Ahora",
