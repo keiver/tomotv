@@ -1,10 +1,9 @@
-/** The info panel on a guide programme or a channel: Watch while it airs, the record controls, the channel favorite. */
+/** The info panel on a guide programme or a channel: Watch while it airs, the record controls, the channel's Groups. */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useLocalSearchParams } from "expo-router";
 import VideoInfoScreen from "@/app/video-info";
 import { cancelTimer, createSeriesTimer, createTimer, fetchItemDetails, fetchLiveTvManagement, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
-import { getLiveTvPreferences, isFavoriteChannel } from "@/services/liveTvPreferences";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -34,7 +33,6 @@ jest.mock("@/components/info-action-row", () => ({
   },
 }));
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
-jest.mock("@/components/live-tv/channel-group-section", () => ({ ChannelGroupSection: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
 jest.mock("expo-image", () => ({ Image: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
@@ -190,22 +188,16 @@ describe("Video info: live items", () => {
     expect(buttons(tree)).toEqual(["Watch", "Record"]);
   });
 
-  it("records a manual timer on a channel and toggles the channel favorite locally", async () => {
+  it("records a manual timer on a channel and opens its Groups with the channel", async () => {
     (fetchTimers as jest.Mock).mockResolvedValue([]);
     (fetchTimerDefaults as jest.Mock).mockResolvedValue({ PrePaddingSeconds: 0 });
     const tree = await mount(channel);
-    expect(buttons(tree)).toEqual(["Watch", "Record"]);
+    expect(buttons(tree)).toEqual(["Watch", "Record", "Groups"]);
     await press(tree, "Record");
     expect(fetchTimerDefaults).toHaveBeenCalledWith();
     expect(createTimer).toHaveBeenCalledWith(expect.objectContaining({ ChannelId: "c1", Name: "One", PrePaddingSeconds: 0 }));
 
-    const row = tree.root.findByType(require("@/components/info-action-row").InfoActionRow);
-    expect(row.props.onToggleWatched).toBeUndefined();
-    expect(row.props.isFavorite).toBe(false);
-    await act(async () => {
-      await row.props.onToggleFavorite();
-    });
-    expect(isFavoriteChannel(getLiveTvPreferences(), channel)).toBe(true);
-    expect(tree.root.findByType(require("@/components/info-action-row").InfoActionRow).props.isFavorite).toBe(true);
+    await press(tree, "Groups");
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/channel-groups", params: { channelId: "c1", channelName: "One", channelNumber: "7" } });
   });
 });

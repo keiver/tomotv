@@ -1,8 +1,8 @@
-/** Group rows: a press toggles membership in place, a change elsewhere redraws, the rolling row names a new group. */
+/** Favorite and group rows: a press toggles membership in place, a change elsewhere redraws, the rolling row names a new group. */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
-import { createGroup, getLiveTvPreferences, isChannelInGroup, toggleChannelInGroup, updateLiveTvPreferences } from "@/services/liveTvPreferences";
+import { createGroup, getLiveTvPreferences, isChannelInGroup, isFavoriteChannel, toggleChannelInGroup, updateLiveTvPreferences } from "@/services/liveTvPreferences";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/components/settings/ListRow", () => ({
@@ -11,6 +11,9 @@ jest.mock("@/components/settings/ListRow", () => ({
     const { Text } = require("react-native");
     return <Text testID={`row:${title}`} accessibilityState={{ checked: !!trailingIcon }} onPress={onPress} />;
   },
+}));
+jest.mock("@/services/channelFavorites", () => ({
+  toggleFavoriteChannel: (channel: object) => require("@/services/liveTvPreferences").toggleLocalFavoriteChannel(channel),
 }));
 jest.mock("@/components/settings/RollingFieldRow", () => ({
   RollingFieldRow: (props: { value: string; onChangeText: (v: string) => void; onSave: () => void }) => {
@@ -33,7 +36,15 @@ function mount() {
 
 describe("ChannelGroupSection", () => {
   beforeEach(() => {
-    act(() => updateLiveTvPreferences({ groups: [] }));
+    act(() => updateLiveTvPreferences({ groups: [], favorites: [] }));
+  });
+
+  it("toggles the channel's favorite in place", () => {
+    const tree = mount();
+    expect(checked(tree, "Favorites")).toBe(false);
+    act(() => row(tree, "Favorites").props.onPress());
+    expect(checked(tree, "Favorites")).toBe(true);
+    expect(isFavoriteChannel(getLiveTvPreferences(), channel)).toBe(true);
   });
 
   it("toggles the channel in and out of a group without leaving", () => {

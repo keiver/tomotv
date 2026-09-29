@@ -5,7 +5,6 @@ import { PadSheet, padSheetWidth } from "@/components/pad-sheet";
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoActionRow, InfoExtraAction } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
-import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
 import { LoadingRow } from "@/components/loading-row";
 import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
@@ -46,10 +45,7 @@ import { useIsAdministrator } from "@/hooks/useIsAdministrator";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { CATEGORY_LABELS } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
-import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useRecordActions } from "@/hooks/useRecordActions";
-import { toggleFavoriteChannel } from "@/services/channelFavorites";
-import { isFavoriteChannel } from "@/services/liveTvPreferences";
 import { formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
@@ -409,12 +405,6 @@ export default function VideoInfoScreen() {
     live && canManage && liveChannelId ? { programId: liveProgram ? details?.Id : undefined, channelId: liveChannelId, channelName: liveChannelName, program: liveProgram } : null,
   );
   const recordTimer = recording.timer;
-  const channelFavorite = isFavoriteChannel(useLiveTvPreferences(), { Name: details?.Name ?? "", ChannelNumber: details?.ChannelNumber, Id: details?.Id });
-  const toggleChannelFavorite = useCallback(async (): Promise<boolean> => {
-    if (!details) return false;
-    toggleFavoriteChannel(details);
-    return true;
-  }, [details]);
   const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);
   const programEnded = !!liveProgram && detailsAtMs > 0 && programTimes(liveProgram).endMs <= detailsAtMs;
   const watchable = !!liveChannelId && (liveChannel || programAiring);
@@ -425,6 +415,10 @@ export default function VideoInfoScreen() {
     if (IS_TV) router.push(destination);
     else router.replace(destination);
   }, [liveChannelId, liveChannelName, router, showGlobalLoader]);
+  const handleChannelGroups = useCallback(() => {
+    if (!details) return;
+    router.push({ pathname: "/channel-groups", params: { channelId: details.Id, channelName: details.Name, channelNumber: details.ChannelNumber ?? "" } });
+  }, [details, router]);
   const canDelete = isAdmin && details?.CanDelete === true && !live;
 
   // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
@@ -661,7 +655,18 @@ export default function VideoInfoScreen() {
             />
           )
         ) : live ? (
-          <>{stackCtas ? <View style={styles.livePair}>{livePair}</View> : livePair}</>
+          <>
+            {stackCtas ? <View style={styles.livePair}>{livePair}</View> : livePair}
+            {liveChannel && (
+              <FocusableButton
+                title={t("liveTv.groups")}
+                variant="secondary"
+                hasTVPreferredFocus={!watchable && !recordShown}
+                icon={<Ionicons name="albums-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
+                onPress={handleChannelGroups}
+              />
+            )}
+          </>
         ) : (
           <ProgressButton
             title={
@@ -705,13 +710,7 @@ export default function VideoInfoScreen() {
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
           is not a flag either: Folder.MarkPlayed sweeps every descendant and resets each
           resume position, which no card here could state. */}
-      {liveChannel ? (
-        <View style={styles.actionRow}>
-          <InfoActionRow isFavorite={channelFavorite} onToggleFavorite={toggleChannelFavorite} extras={extras} />
-          <Text style={styles.sectionHeading}>{t("liveTv.groups")}</Text>
-          <ChannelGroupSection channel={details} />
-        </View>
-      ) : !isContainer && !photo && !live ? (
+      {!isContainer && !photo && !live ? (
         <View style={styles.actionRow}>
           <InfoActionRow
             isFavorite={isFavorite}
