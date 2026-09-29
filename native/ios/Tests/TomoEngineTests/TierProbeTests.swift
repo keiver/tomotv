@@ -1413,6 +1413,21 @@ final class TierProbeTests: XCTestCase {
         XCTAssertLessThan(session.wireLinkBps ?? 0, 200_000_000, "a player that stopped reporting leaves the reads in charge")
     }
 
+    /// Riding a rung, the producer's reads never lower the link: T106 read 95 Mb/s two seconds after
+    /// a 165.8 Mb/s probe, and the cap that followed kept AVPlayer off a 110 Mb/s copy for the session.
+    func testRidingARungTheProbeNotTheReadsSetsTheLink() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.finishLinkProbe(165_800_000, reporting: false)
+        session.lastTierDemandAt = Date()
+        session.lastPrimaryDemandAt = Date().addingTimeInterval(-20)
+        session.notePlayerBuffer(aheadSeconds: 30, sinceSeek: false)
+        session.noteLinkSample(bytes: 600_000, seconds: 0.05)
+        XCTAssertEqual(session.wireLinkBps, 165_800_000)
+        session.finishLinkProbe(40_000_000, reporting: false)
+        XCTAssertEqual(session.wireLinkBps, 40_000_000, "a probe still lowers it")
+    }
+
     /// A copy AVPlayer holds a full reservoir of is served whatever the link reads, and its
     /// declared bandwidth is the floor of the app's cap; once the buffer drains the link decides.
     func testTheBufferNotTheLinkAdmitsACopyInPlay() throws {

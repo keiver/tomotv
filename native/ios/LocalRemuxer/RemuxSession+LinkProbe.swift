@@ -284,8 +284,9 @@ extension RemuxSession {
 
     /// Whether the producer's reads may lower the link. On the copy they may not until its buffer has
     /// filled and drained back into the reservoir: before it fills the probe decides, above it the buffer.
+    /// Riding a rung the probe decides (T106: reads of 92 to 141 Mb/s beside probes of 165 to 284 capped the copy out).
     private func sourceReadsLowerLinkLocked() -> Bool {
-        guard !ridingTierLocked() else { return true }
+        guard !ridingTierLocked() else { return false }
         // No report yet is the start of a ladder session: the player has not loaded, the probe decides.
         guard playerAheadSeconds != nil else { return config.tiers.isEmpty || config.isLive }
         guard let ahead = freshPlayerAheadLocked() else { return true }
