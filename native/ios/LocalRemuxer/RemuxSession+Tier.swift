@@ -118,7 +118,7 @@ extension RemuxSession {
         guard tierActive else { return }
         awaitLinkProbe()
         stateLock.lock()
-        let copyLeads = copyLeadsLocked(linkBps: testLinkBps ?? measuredLinkBps ?? 0)
+        let copyLeads = copyLeadsLocked(linkBps: testLinkBps ?? wireLinkBps ?? 0)
         let canonicalRung = tierSegments.keys.sorted().first { !rungsUnavailable.contains($0) }
         stateLock.unlock()
         guard !copyLeads, let canonicalRung else { return }

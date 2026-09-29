@@ -54,6 +54,7 @@ const REMUXER_FILES = [
   "RemuxSession+ServerSubtitles.swift",
   "RemuxSession+LinkProbe.swift",
   "RateMeter.swift",
+  "RateProbe.swift",
   "RemuxSession+Pipeline.swift",
   "AudioTranscoder.swift",
   "VideoTranscoder.swift",

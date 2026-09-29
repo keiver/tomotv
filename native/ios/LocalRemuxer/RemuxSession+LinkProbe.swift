@@ -24,13 +24,21 @@ enum LinkProbeFailure: Equatable {
     }
 }
 
+/// The session's one link rate, with what read it and when.
+struct LinkEstimate {
+    enum Source: String { case probe, reads, rungs, playlist }
+    let bps: Double
+    let source: Source
+    /// The probe's RateMeter verdict; nil for the other sources.
+    let confidence: RateMeter.Kind?
+    let at: Date
+}
+
 /// The link rate the master orders its variants by: a timed read of the source itself, since
 /// AVPlayer measures only the loopback and the engine's own read loop starts after the grid.
 extension RemuxSession {
-    /// A probe runs this long after its first byte while the rate is still climbing, and may stop at
-    /// the settled mark once it is level: a link-bound read is level from the start, a TCP ramp is not.
+    /// A probe runs this long after its first byte unless its RateMeter reads steady first.
     static let linkProbeSeconds = 1.5
-    static let linkProbeSettledSeconds = 0.75
     /// How long a first byte may take before the link reads as slow.
     static let linkProbeStartSeconds = 3.0
 
@@ -40,10 +48,6 @@ extension RemuxSession {
     static let linkRepeatSeconds = 30.0
     /// The shortest gap between two probes, however many slow deliveries ask for one.
     static let linkReprobeGapSeconds = 8.0
-    /// A mid-session probe shorter than this timed mostly the producer's bytes beside it
-    /// (measured: 0.01 to 0.26s probes read 275 to 752 Mb/s on a 150 to 237 Mb/s link).
-    static let linkProbeMinimumSeconds = 0.1
-
     /// Buffer AVPlayer holds on the copy before a link reading may take the copy from it: a rung
     /// took 3.1 to 4.55s to start (measured), plus the 6s copy segment already in flight.
     static let copyReservoirSeconds = 12.0
@@ -52,32 +56,27 @@ extension RemuxSession {
 
     func probeLink(reporting: Bool = false) {
         guard let url = URL(string: config.inputUrl) else { return finishLinkProbe(nil, reporting: reporting) }
-        // Four seconds of source: enough on a fast link to leave TCP slow start behind.
-        let wanted = max(512 * 1024, sourceBandwidth / 2)
         var request = URLRequest(url: url, timeoutInterval: Self.linkProbeStartSeconds + Self.linkProbeSeconds)
         for (name, value) in config.httpHeaders { request.setValue(value, forHTTPHeaderField: name) }
-        request.setValue("bytes=0-\(wanted - 1)", forHTTPHeaderField: "Range")
-        // A link already reading what the copy needs to LEAD the master has answered the last
-        // question a fast link is asked, and every further probe byte is one the first copy
-        // segment waits behind.
-        let plenty = sourceBandwidth > 0 ? Double(sourceBandwidth) * Self.copyLeadsMargin : 0
-        let meter = LinkMeter(wanted: wanted, window: Self.linkProbeSeconds, settled: Self.linkProbeSettledSeconds, plentyBps: plenty, beside: transfers)
-        let session = URLSession(configuration: .ephemeral, delegate: meter, delegateQueue: nil)
+        request.setValue("bytes=0-", forHTTPHeaderField: "Range")
+        let probe = RateProbe(request: request, budget: Self.linkProbeSeconds, firstByteWithin: Self.linkProbeStartSeconds,
+                              beside: { [transfers] in transfers.carried() })
         transfers.probeStarted()
-        session.dataTask(with: request).resume()
-        _ = meter.done.wait(timeout: .now() + Self.linkProbeStartSeconds + Self.linkProbeSeconds + 0.5)
-        session.invalidateAndCancel()
+        let outcome = probe.run()
         transfers.probeEnded()
-        let reading = meter.reading()
-        if let reading {
-            NSLog("[LocalRemuxer] Slipstream: link probe read %.2f Mb/s alone, %.2f Mb/s with the %lld bytes carried beside it, over %.2fs",
-                  reading.ownBps / 1_000_000, reading.linkBps / 1_000_000, reading.besideBytes, reading.seconds)
+        if let reading = outcome.reading {
+            NSLog("[LocalRemuxer] Slipstream: link probe read %.2f Mb/s (%@, %.2f to %.2f) over %.2fs",
+                  reading.bps / 1_000_000, "\(reading.kind)", reading.lowBps / 1_000_000, reading.highBps / 1_000_000, reading.seconds)
         }
-        if reporting, let reading, reading.seconds < Self.linkProbeMinimumSeconds {
+        // Under a window a mid-session probe timed mostly the producer's bytes beside it
+        // (measured: 0.01 to 0.26s probes read 275 to 752 Mb/s on a 150 to 237 Mb/s link).
+        if reporting, outcome.reading?.kind == .short {
             NSLog("[LocalRemuxer] Slipstream: link probe too short to read, the link reading stands")
             return discardLinkProbe()
         }
-        finishLinkProbe(reading?.linkBps, reporting: reporting, failure: meter.failure ?? (reading == nil ? .transient(0) : nil))
+        let reading = outcome.reading.flatMap { $0.bps > 0 ? $0 : nil }
+        finishLinkProbe(reading?.bps, reporting: reporting, failure: outcome.failure ?? (reading == nil ? .transient(0) : nil),
+                        confidence: reading?.kind ?? .steady)
     }
 
     /// A probe that measured nothing usable: the reading stands, only the probe clock moves.
@@ -87,20 +86,20 @@ extension RemuxSession {
         stateLock.unlock()
     }
 
-    func finishLinkProbe(_ bps: Double?, reporting: Bool, failure: LinkProbeFailure? = nil) {
+    func finishLinkProbe(_ bps: Double?, reporting: Bool, failure: LinkProbeFailure? = nil, confidence: RateMeter.Kind = .steady) {
         stateLock.lock()
         guard !cancelled, !failed else { return stateLock.unlock() }
         sourceProbeFailure = failure
         linkProbeDone = true
         lastLinkProbeAt = Date()
         if let bps {
-            setWireCapacityLocked(bps)
+            setLinkLocked(bps, .probe, confidence: confidence)
             linkWindowBytes = 0
             linkWindowBusySeconds = 0
             linkWindowStart = Date()
         } else if usesServerCapacityLocked,
-                  let fallback = floorLinkBps ?? playlistLinkBps {
-            setWireCapacityLocked(fallback)
+                  let fallback = floorLinkBps.map({ ($0, LinkEstimate.Source.rungs) }) ?? playlistLinkBps.map({ ($0, .playlist) }) {
+            setLinkLocked(fallback.0, fallback.1)
         }
         let listedCopy = copyAnnounced
         let rate = wireLinkBps
@@ -119,11 +118,9 @@ extension RemuxSession {
         sourceUnusable || sourceState == .retryWait || sourceProbeFailure?.usesServerTransferFallback == true
     }
 
-    private func setWireCapacityLocked(_ bps: Double) {
+    private func setLinkLocked(_ bps: Double, _ source: LinkEstimate.Source, confidence: RateMeter.Kind? = nil) {
         guard bps.isFinite, bps > 0 else { return }
-        wireLinkBps = bps
-        measuredLinkBps = bps
-        pacedLinkBps = bps
+        link = LinkEstimate(bps: bps, source: source, confidence: confidence, at: Date())
     }
 
     func notePlaylistTransfer(bytes: Int64, from start: Date, to end: Date) {
@@ -132,7 +129,7 @@ extension RemuxSession {
         stateLock.lock()
         guard !cancelled, !failed else { return stateLock.unlock() }
         if playlistLinkBps == nil { playlistLinkBps = rate }
-        if usesServerCapacityLocked, wireLinkBps == nil { setWireCapacityLocked(rate) }
+        if usesServerCapacityLocked, wireLinkBps == nil { setLinkLocked(rate, .playlist) }
         reportLinkLocked()
     }
 
@@ -205,7 +202,7 @@ extension RemuxSession {
         stateLock.lock()
         defer { stateLock.unlock() }
         if copyVerdict == .undecided {
-            let linkBps = testLinkBps ?? measuredLinkBps ?? 0
+            let linkBps = testLinkBps ?? wireLinkBps ?? 0
             let fits = linkBps > 0 && (sourceBandwidth <= 0 || Double(sourceBandwidth) * 1.2 <= linkBps)
             copyVerdict = fits ? .listed : .withheld
         }
@@ -314,7 +311,7 @@ extension RemuxSession {
         // as true as a slow link's long ones.
         if linkWindowBytes > 512 * 1024, linkWindowBusySeconds > 0.05 {
             let rate = Double(linkWindowBytes) * 8 / linkWindowBusySeconds
-            if wireLinkBps == nil || (rate < wireLinkBps! && sourceReadsLowerLinkLocked()) { setWireCapacityLocked(rate) }
+            if wireLinkBps == nil || (rate < wireLinkBps! && sourceReadsLowerLinkLocked()) { setLinkLocked(rate, .reads) }
             let outran = rate > (wireLinkBps ?? .infinity) * 1.25
             reportLinkLocked()
             if outran { requestLinkReprobe() }
@@ -343,7 +340,7 @@ extension RemuxSession {
             let floor = Double(total) * 8 / busy
             floorLinkBps = floor
             floorSeenAt = end
-            if serverTransfer, usesServerCapacityLocked { setWireCapacityLocked(floor) }
+            if serverTransfer, usesServerCapacityLocked { setLinkLocked(floor, .rungs) }
             outran = asksReprobe && (wireLinkBps == nil || floor > (wireLinkBps ?? .infinity) * 1.25)
         }
         reportLinkLocked()
@@ -452,108 +449,5 @@ final class TransferMeter: NSObject, URLSessionTaskDelegate {
         defer { lock.unlock() }
         guard let started, let ended, bytes > 0, ended > started else { return nil }
         return (bytes, started, ended)
-    }
-}
-
-/// Times a range read of the source from its first byte and ends it at the byte target, at a rate
-/// that already settles the question, or at the window.
-final class LinkMeter: NSObject, URLSessionDataDelegate {
-    let done = DispatchSemaphore(value: 0)
-    private let wanted: Int
-    private let window: Double
-    private let settled: Double
-    private let plentyBps: Double
-    private let beside: TransferLedger
-    private let lock = NSLock()
-    private var firstByteAt: Date?
-    private var lastByteAt: Date?
-    private var bytes = 0
-    private var marks: [(elapsed: Double, link: Int)] = []
-    private var besideAtFirst: Int64 = 0
-    private var besideAtLast: Int64 = 0
-    private var finished = false
-    private var probeFailure: LinkProbeFailure?
-
-    var failure: LinkProbeFailure? {
-        lock.lock()
-        defer { lock.unlock() }
-        return probeFailure
-    }
-
-    /// Bytes that make a rate and not a burst, before a fast link may end the probe early.
-    private static let plentyBytes = 1024 * 1024
-
-    init(wanted: Int, window: Double, settled: Double, plentyBps: Double, beside: TransferLedger) {
-        self.wanted = wanted
-        self.window = window
-        self.settled = settled
-        self.plentyBps = plentyBps
-        self.beside = beside
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 200
-        guard !(200..<300).contains(status) else { return completionHandler(.allow) }
-        lock.lock()
-        probeFailure = LinkProbeFailure.classify(status: status)
-        let first = !finished
-        finished = true
-        lock.unlock()
-        completionHandler(.cancel)
-        if first { done.signal() }
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        let carried = beside.carried()
-        lock.lock()
-        let now = Date()
-        // The first chunk's time is the server's response, not the link: rate counts what follows it.
-        if firstByteAt == nil {
-            firstByteAt = now
-            besideAtFirst = carried
-        } else {
-            bytes += data.count
-        }
-        lastByteAt = now
-        besideAtLast = carried
-        let elapsed = now.timeIntervalSince(firstByteAt ?? now)
-        // The link is this read plus what ran beside it; the read alone is a share that grows as
-        // its neighbours finish, which reads as a ramp when the wire is level.
-        let link = bytes + Int(besideAtLast - besideAtFirst)
-        marks.append((elapsed, link))
-        let plenty = plentyBps > 0 && link >= Self.plentyBytes && elapsed > 0 && Double(link) * 8 / elapsed >= plentyBps
-        // Level means the second half of the span so far carried no more than half again the
-        // first: a TCP ramp doubles, a link-bound read does not. A thin link delivers a chunk every
-        // half second, so the halfway mark is the last one at or before it, not a clock tick.
-        let atHalf = marks.last { $0.elapsed <= elapsed / 2 }?.link ?? 0
-        let level = elapsed >= settled && atHalf > 0 && Double(link - atHalf) <= Double(atHalf) * 1.5
-        let enough = bytes >= wanted || plenty || level || elapsed >= window
-        let shouldFinish = enough && !finished
-        if shouldFinish { finished = true }
-        lock.unlock()
-        if shouldFinish {
-            dataTask.cancel()
-            done.signal()
-        }
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        lock.lock()
-        let first = !finished
-        if first, error != nil { probeFailure = .transient(0) }
-        finished = true
-        lock.unlock()
-        if first { done.signal() }
-    }
-
-    /// The link over the time bytes flowed: this read plus what every other transfer carried
-    /// beside it. nil when too little arrived to say (reads as slow).
-    func reading() -> (linkBps: Double, ownBps: Double, besideBytes: Int64, seconds: Double)? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let first = firstByteAt, let last = lastByteAt, bytes > 0, last > first else { return nil }
-        let seconds = last.timeIntervalSince(first)
-        let besideBytes = max(0, besideAtLast - besideAtFirst)
-        return (Double(Int64(bytes) + besideBytes) * 8 / seconds, Double(bytes) * 8 / seconds, besideBytes, seconds)
     }
 }

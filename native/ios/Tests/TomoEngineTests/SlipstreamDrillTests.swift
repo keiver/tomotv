@@ -202,14 +202,14 @@ final class SlipstreamDrillTests: XCTestCase {
                 "status": player.timeControlStatus.rawValue,
                 "waiting": player.reasonForWaitingToPlay?.rawValue ?? "",
                 "advanced": position > lastPosition + 0.05,
-                "linkMbps": (session.pacedLinkBps ?? 0) / 1_000_000,
+                "linkMbps": (session.wireLinkBps ?? 0) / 1_000_000,
                 "width": item.presentationSize.width,
                 "height": item.presentationSize.height,
             ])
             lastPosition = position
             // What the app does with the engine's measurement: cap the variant choice to the
             // measured link, so AVPlayer picks from what the link carries instead of the loopback.
-            if env["TOMO_DRILL_CAP"] == "1", let bps = session.pacedLinkBps {
+            if env["TOMO_DRILL_CAP"] == "1", let bps = session.wireLinkBps {
                 // Same floor as the app: a cap under every variant leaves AVPlayer nothing to play.
                 let floor = Double(session.config.tiers.map(\.bandwidth).min() ?? 0)
                 let cap = max(bps * 0.8, floor)

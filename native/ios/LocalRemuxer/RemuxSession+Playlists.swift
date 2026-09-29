@@ -450,7 +450,7 @@ extension RemuxSession {
         }
         // A source that cannot be read leaves the probe nothing to time; the ladder is then sized by
         // the canonical playlist's own transfer, the one other body that moves at the wire's pace.
-        let linkBps = testLinkBps ?? measuredLinkBps ?? playlistLinkBps ?? 0
+        let linkBps = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         let rungs = (0..<config.tiers.count).filter { !rungsUnavailable.contains($0) }
         stateLock.unlock()
         let startRung = chooseOpeningRung(linkBps: linkBps)

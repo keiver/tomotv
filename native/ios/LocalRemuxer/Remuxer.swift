@@ -159,11 +159,8 @@ final class RemuxSession {
     /// The pull since the pipeline started, for the app's pre-flight (progress(); under stateLock).
     var pulledBytes: Int64 = 0
     var pulledReadSeconds: Double = 0
-    /// The source link rate probeLink measured (nil = nothing flowed), and whether it has answered.
-    var measuredLinkBps: Double?
+    /// Whether the startup link probe has answered.
     var linkProbeDone = false
-    /// Link rate as the current window measured it, the pacing rate for served media.
-    var pacedLinkBps: Double?
     var linkWindowBytes: Int64 = 0
     var linkWindowBusySeconds: Double = 0
     var linkWindowStart = Date()
@@ -373,9 +370,10 @@ final class RemuxSession {
     let transfers = TransferLedger()
     /// Server rendition transfers inside the link window, as the spans they arrived over.
     var floorSamples: [(start: Date, end: Date, bytes: Int64)] = []
-    /// The last reading of the wire itself (a probe, or the source read), and the newest floor
-    /// the server renditions put under it, with when that floor was seen.
-    var wireLinkBps: Double?
+    /// The link rate every decision reads (under stateLock), and the newest floor the server
+    /// renditions put under it, with when that floor was seen.
+    var link: LinkEstimate?
+    var wireLinkBps: Double? { link?.bps }
     var floorLinkBps: Double?
     var floorSeenAt = Date.distantPast
     var lastLinkProbeAt = Date.distantPast

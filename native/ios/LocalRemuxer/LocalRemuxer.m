@@ -79,6 +79,13 @@ RCT_EXTERN_METHOD(probeOriginReach
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(measureLink
+                  : (nonnull NSString *)url headers
+                  : (nonnull NSDictionary *)headers budgetMs
+                  : (nonnull NSNumber *)budgetMs resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(setLivePriority
                   : (nonnull NSString *)token priority
                   : (nonnull NSString *)priority resolver

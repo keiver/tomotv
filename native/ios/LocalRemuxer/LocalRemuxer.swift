@@ -620,6 +620,33 @@ class LocalRemuxer: RCTEventEmitter {
         }
     }
 
+    /// Times the link to a URL with the engine's own probe: {bps, kind, seconds, low, high}, or null when nothing flowed.
+    @objc func measureLink(
+        _ url: NSString,
+        headers: NSDictionary,
+        budgetMs: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let target = URL(string: url as String) else { return resolve(NSNull()) }
+            let budget = max(0.5, budgetMs.doubleValue / 1000)
+            var request = URLRequest(url: target, timeoutInterval: RemuxSession.linkProbeStartSeconds + budget)
+            for (name, value) in headers {
+                if let name = name as? String, let value = value as? String { request.setValue(value, forHTTPHeaderField: name) }
+            }
+            let outcome = RateProbe(request: request, budget: budget, firstByteWithin: RemuxSession.linkProbeStartSeconds, repeats: true).run()
+            guard outcome.failure == nil || outcome.failure == .transient(0), let reading = outcome.reading, reading.bps > 0 else { return resolve(NSNull()) }
+            let kind: String
+            switch reading.kind {
+            case .steady: kind = "steady"
+            case .unsettled: kind = "unsettled"
+            case .short: kind = "short"
+            }
+            resolve(["bps": reading.bps, "kind": kind, "seconds": reading.seconds, "low": reading.lowBps, "high": reading.highBps])
+        }
+    }
+
     @objc func cancelLiveFrame(
         _ channelId: NSString,
         resolver resolve: @escaping RCTPromiseResolveBlock,

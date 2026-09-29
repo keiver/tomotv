@@ -81,6 +81,8 @@ final class RawHTTPStub {
         case cutShort(Data, sent: Int)
         /// Answers 200, sends the first `sent` bytes, and then nothing more, the connection left open.
         case stalls(Data, sent: Int)
+        /// Answers with this status line and an empty body.
+        case status(String)
     }
 
     private let listener: NWListener
@@ -149,6 +151,8 @@ final class RawHTTPStub {
                 connection.send(content: head("200 OK", body.count) + body.prefix(sent), completion: .contentProcessed { _ in connection.cancel() })
             case .stalls(let body, let sent):
                 connection.send(content: head("200 OK", body.count) + body.prefix(sent), completion: .contentProcessed { _ in })
+            case .status(let line):
+                connection.send(content: head(line, 0), completion: .contentProcessed { _ in connection.cancel() })
             case nil:
                 connection.send(content: head("404 Not Found", 0), completion: .contentProcessed { _ in connection.cancel() })
             }
@@ -854,7 +858,6 @@ final class TierProbeTests: XCTestCase {
         s.noteSourceRead(bytes: 600_000, seconds: 0.5, now: t0.addingTimeInterval(1))
         XCTAssertEqual(s.floorLinkBps ?? 0, 9_600_000, accuracy: 1, "1.2 MB over one shared second")
         XCTAssertNil(s.wireLinkBps)
-        XCTAssertNil(s.pacedLinkBps)
     }
 
     /// A producer that sat out a minute under a rung starts its next sample when it wakes: the
@@ -1233,7 +1236,7 @@ final class TierProbeTests: XCTestCase {
         session.copyAnnounced = true
         session.lastRequestedSegment = 1
         session.lastTierRung = 0
-        session.wireLinkBps = 5_000_000
+        session.link = LinkEstimate(bps: 5_000_000, source: .probe, confidence: .steady, at: Date())
         let token = session.token
 
         XCTAssertTrue(session.wakeSourceIfAffordable())
@@ -1364,7 +1367,7 @@ final class TierProbeTests: XCTestCase {
             try media.mediaSegment.write(to: session.dir.appendingPathComponent(rendition.segmentName(0)))
         }
         session.sourceState = .unavailable
-        session.wireLinkBps = 600_000
+        session.link = LinkEstimate(bps: 600_000, source: .probe, confidence: .steady, at: Date())
 
         XCTAssertTrue(isFile(session.initResponse()))
         XCTAssertTrue(isFile(session.segmentResponse(0)))
@@ -1547,7 +1550,7 @@ final class TierProbeTests: XCTestCase {
         let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))
         defer { session.stop() }
-        session.wireLinkBps = 1
+        session.link = LinkEstimate(bps: 1, source: .probe, confidence: .steady, at: Date())
         session.sourceState = .unavailable
         session.audioLoSegments[0] = [TierSegment(duration: 6, url: "a-seg0.mp4")]
         session.recordSupplierFailure(.audio(0), failure: .http(503))
@@ -1803,16 +1806,14 @@ final class TierProbeTests: XCTestCase {
     }
 
     func testTheProbeDistinguishesTemporaryErrorsFromUnavailableSources() throws {
-        let meter = LinkMeter(wanted: 1024, window: 1.5, settled: 0.75, plentyBps: 0, beside: TransferLedger())
-        let url = try XCTUnwrap(URL(string: "http://tier.test/source"))
-        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 503, httpVersion: nil, headerFields: nil))
-        let task = URLSession.shared.dataTask(with: url)
-        var disposition: URLSession.ResponseDisposition?
-        meter.urlSession(URLSession.shared, dataTask: task, didReceive: response) { disposition = $0 }
-        XCTAssertEqual(meter.failure, .transient(503))
-        XCTAssertFalse(try XCTUnwrap(meter.failure).usesServerTransferFallback)
-        XCTAssertEqual(disposition, .cancel)
-        XCTAssertEqual(meter.done.wait(timeout: .now()), .success)
+        let raw = try RawHTTPStub()
+        defer { raw.stop() }
+        raw.answer("/source", .status("503 Service Unavailable"))
+        let request = URLRequest(url: try XCTUnwrap(URL(string: "\(raw.base)/source")))
+        let outcome = RateProbe(request: request, budget: 1.5, firstByteWithin: 3).run()
+        XCTAssertEqual(outcome.failure, .transient(503))
+        XCTAssertNil(outcome.reading)
+        XCTAssertFalse(try XCTUnwrap(outcome.failure).usesServerTransferFallback)
         XCTAssertEqual(LinkProbeFailure.classify(status: 403), .authentication(403))
         XCTAssertEqual(LinkProbeFailure.classify(status: 404), .unavailable(404))
         XCTAssertEqual(LinkProbeFailure.classify(status: 410), .unavailable(410))
@@ -1841,16 +1842,14 @@ final class TierProbeTests: XCTestCase {
         s.noteFloorSample(bytes: 300_000, from: t0, to: t0.addingTimeInterval(2))
         s.noteFloorSample(bytes: 300_000, from: t0, to: t0.addingTimeInterval(2))
         XCTAssertEqual(s.floorLinkBps ?? 0, 2_400_000, accuracy: 1, "600 KB over a shared 2s, not over 4s")
-        XCTAssertEqual(s.pacedLinkBps, 2_000_000)
+        XCTAssertEqual(s.wireLinkBps, 2_000_000)
         s.noteFloorSample(bytes: 1_000_000, from: t0.addingTimeInterval(3), to: t0.addingTimeInterval(4))
         XCTAssertTrue(s.reprobeAsked)
         XCTAssertEqual(s.wireLinkBps, 2_000_000)
         s.noteFloorSample(bytes: 600_000, from: t0.addingTimeInterval(10), to: t0.addingTimeInterval(16))
-        XCTAssertEqual(s.pacedLinkBps, 2_000_000)
+        XCTAssertEqual(s.wireLinkBps, 2_000_000)
         s.noteLinkSample(bytes: 600_000, seconds: 4)
-        XCTAssertEqual(s.pacedLinkBps ?? 0, 1_200_000, accuracy: 1)
-        XCTAssertEqual(s.wireLinkBps, s.pacedLinkBps)
-        XCTAssertEqual(s.measuredLinkBps, s.wireLinkBps)
+        XCTAssertEqual(s.wireLinkBps ?? 0, 1_200_000, accuracy: 1)
     }
 
     func testProbeCapacityIsTheSameSnapshotReportedToTheApp() throws {
@@ -1861,8 +1860,6 @@ final class TierProbeTests: XCTestCase {
         session.copyAnnounced = true
         session.finishLinkProbe(1_500_000, reporting: true)
         XCTAssertEqual(reports.last?["bps"] as? Double, session.wireLinkBps)
-        XCTAssertEqual(session.wireLinkBps, session.pacedLinkBps)
-        XCTAssertEqual(session.wireLinkBps, session.measuredLinkBps)
         XCTAssertEqual(reports.last?["copyListed"] as? Bool, true)
 
         session.noteLinkSample(bytes: 2_000_000, seconds: 1)
@@ -1870,8 +1867,6 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(session.reprobeAsked)
         session.finishLinkProbe(30_000_000, reporting: true)
         XCTAssertEqual(reports.last?["bps"] as? Double, 30_000_000)
-        XCTAssertEqual(session.wireLinkBps, session.measuredLinkBps)
-        XCTAssertEqual(session.wireLinkBps, session.pacedLinkBps)
 
         session.cancelled = true
         let count = reports.count
@@ -1893,13 +1888,12 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(session.wireLinkBps ?? 0, 4_800_000, accuracy: 1)
         session.noteFloorSample(bytes: 600_000, from: now.addingTimeInterval(10), to: now.addingTimeInterval(18))
         XCTAssertEqual(session.wireLinkBps ?? 0, 600_000, accuracy: 1)
-        XCTAssertEqual(session.wireLinkBps, session.pacedLinkBps)
 
         session.finishLinkProbe(2_000_000, reporting: true)
         XCTAssertNil(session.sourceProbeFailure)
         session.noteFloorSample(bytes: 2_000_000, from: now.addingTimeInterval(30), to: now.addingTimeInterval(31))
         XCTAssertEqual(session.wireLinkBps, 2_000_000)
-        XCTAssertEqual(session.pacedLinkBps, 2_000_000)
+        XCTAssertEqual(session.wireLinkBps, 2_000_000)
     }
 
     func testRetryingSourceUsesServerCapacityWithoutBeingMarkedUnsupported() throws {
@@ -1908,7 +1902,6 @@ final class TierProbeTests: XCTestCase {
         session.retrySource(because: "connection reset")
         session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-2), to: Date())
         XCTAssertNotNil(session.wireLinkBps)
-        XCTAssertEqual(session.wireLinkBps, session.measuredLinkBps)
         XCTAssertFalse(session.sourceUnusable)
     }
 
