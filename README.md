@@ -62,10 +62,11 @@ server for 30 minutes.
   tracks become WebVTT on the device, sidecar text files arrive as the server's
   WebVTT and sidecar image files as they are, and image tracks (PGS, VobSub,
   DVB, XSUB) are decoded to bitmaps drawn over the native player.
-- **Quality.** Auto plays the original when the connection can carry it, and
-  otherwise a smaller server stream (stereo AAC), if the account is allowed to
-  transcode. Both can sit in one playlist, so AVPlayer switches between them
-  without a restart. Fixed presets cap either path.
+- **Quality.** Auto plays the original alone when the connection can carry it,
+  and the server transcodes nothing. On a slower connection the playlist adds
+  smaller server streams (stereo AAC), if the account is allowed to transcode,
+  and AVPlayer switches between them and the original without a restart. Fixed
+  presets cap either path.
 - **Live TV** uses the same engine. HLS and DASH origins are read directly, tuner
   streams are read from their source when the device can reach it, otherwise
   through the server untouched, and the server's live transcode is the fallback.

@@ -21,6 +21,7 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV, Live TV is a tab of its own when the server has a Live TV library
 - On a Mac, Escape on a scrolled guide returns it to the first channel before it leaves the screen
 - A grid card's badge carries the watched eye, except on music
+- On Apple TV the speed above Streaming Quality in Settings takes focus, and selecting it measures again
 
 ### Changed
 
@@ -35,6 +36,8 @@ All notable changes to Tomo TV are documented here.
 - Player loading shows a bare spinner for eight seconds, then a status line, and at twelve seconds what it waits on; the error screen says where playback stopped
 - Loading rows are a small gold spinner with its label centred beneath it
 - On iOS, toasts reach down past the navigation bar
+- On a connection that carries a file, playback offers only the device's own copy: the server starts no lower-quality version, audio or transcode for it. The server's versions are offered only on a connection too slow for the original
+- The connection speed, in Settings and before playback, is measured by the engine: it reads the server in tenth-of-a-second samples until they hold steady or the time runs out, and a reading that never settles is the average of the whole read, stalls included
 
 ### Fixed
 
@@ -55,9 +58,12 @@ All notable changes to Tomo TV are documented here.
 - Picking another channel group opens the guide at its first channel
 - An account whose token is gone or rejected leaves the saved list
 - A deinterlaced transcode keeps the input's clock
-- A 4K copy on a link fast enough for it stays on the copy instead of falling to the server's 1080p version
+- 4K on a fast connection starts on the device's copy instead of on the server's lower-quality versions first
+- One speed reading that caught a Wi-Fi stall no longer lowers the playback ceiling; the speed moves only when the next reading agrees
+- A server disk waking from sleep no longer makes a fast connection read as slow at the start of playback
+- Show in Folder opens the folder already holding the item, instead of drawing the folder's top first
+- A play queue still being built no longer replaces a newer one started from another folder
 - High-bitrate files no longer run the Apple TV out of memory: the player's forward buffer is held to about 200 MB, and the engine writes each segment without a second full copy
-- The bitrate test in Settings reads fast links in full: the download is timed without a JavaScript copy of its body, and a stage too quick to time is measured again with a larger one
 
 ## [2.2.8]
 

@@ -111,10 +111,10 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Settings shows the real speed of a fast connection
 ```
 
-### What's New (2.2.9), tvOS (727 / 4000)
+### What's New (2.2.9), tvOS (781 / 4000)
 
 ```text
-- 4K remuxes play at full quality on a fast network, and no longer close the app mid-movie
+- 4K remuxes start sooner, play at full quality on a fast network, and no longer close the app mid-movie
 - Live TV has its own tab
 - Record what is on, and add to favorites, from the playback controls
 - Filter the Live TV guide by favorites, your own groups, playlist groups and categories
@@ -123,7 +123,7 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Channel cards show live frames, and offline channels can be hidden
 - Record, favorite and group a channel from its info panel
 - Admins can delete items from the server
-- Settings shows the real speed of a fast connection
+- Settings shows the real speed of your connection, and measures it again when you select it
 - A live channel that stops no longer sends the app to the background from its error screen
 ```
 
@@ -377,10 +377,10 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Die Einstellungen zeigen die echte Geschwindigkeit einer schnellen Verbindung
 ```
 
-#### What's New (2.2.9), tvOS (898 / 4000 chars)
+#### What's New (2.2.9), tvOS (950 / 4000 chars)
 
 ```text
-- 4K-Remuxe laufen bei schnellem Netzwerk in voller Qualität und schließen die App nicht mehr mitten im Film
+- 4K-Remuxe starten schneller, laufen bei schnellem Netzwerk in voller Qualität und schließen die App nicht mehr mitten im Film
 - Live-TV hat eine eigene Registerkarte
 - Nimm auf, was gerade läuft, und füge es über die Wiedergabesteuerung zu den Favoriten hinzu
 - Filtere den Live-TV-Guide nach Favoriten, deinen eigenen Gruppen, Wiedergabelistengruppen und Kategorien
@@ -389,7 +389,7 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Kanalkarten zeigen Live-Bilder, und Offline-Kanäle lassen sich ausblenden
 - Nimm einen Kanal auf, markiere ihn als Favoriten und ordne ihn Gruppen zu, direkt im Info-Bereich
 - Admins können Elemente vom Server löschen
-- Die Einstellungen zeigen die echte Geschwindigkeit einer schnellen Verbindung
+- Die Einstellungen zeigen die echte Geschwindigkeit deiner Verbindung und messen sie neu, wenn du sie auswählst
 - Ein Live-Kanal, der stoppt, schickt die App von seinem Fehlerbildschirm nicht mehr in den Hintergrund
 ```
 
@@ -577,10 +577,10 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Réglages affiche la vraie vitesse d'une connexion rapide
 ```
 
-#### What's New (2.2.9), tvOS (939 / 4000 chars)
+#### What's New (2.2.9), tvOS (1006 / 4000 chars)
 
 ```text
-- Les remux 4K sont lus en pleine qualité sur un réseau rapide et ne ferment plus l'application en plein film
+- Les remux 4K démarrent plus vite, sont lus en pleine qualité sur un réseau rapide et ne ferment plus l'application en plein film
 - TV en direct a son propre onglet
 - Enregistrez ce qui passe et ajoutez aux favoris depuis les contrôles de lecture
 - Filtrez le guide de TV en direct par favoris, vos propres groupes, groupes de listes de lecture et catégories
@@ -589,7 +589,7 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Les cartes des chaînes montrent des images en direct, et les chaînes hors ligne peuvent être masquées
 - Enregistrez une chaîne, ajoutez-la aux favoris et à des groupes depuis son panneau d'informations
 - Les administrateurs peuvent supprimer des éléments du serveur
-- Réglages affiche la vraie vitesse d'une connexion rapide
+- Réglages affiche la vraie vitesse de votre connexion et la mesure à nouveau quand vous la sélectionnez
 - Une chaîne en direct qui s'arrête n'envoie plus l'application en arrière-plan depuis son écran d'erreur
 ```
 
@@ -777,10 +777,10 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Ajustes muestra la velocidad real de una conexión rápida
 ```
 
-#### What's New (2.2.9), tvOS (930 / 4000 chars)
+#### What's New (2.2.9), tvOS (980 / 4000 chars)
 
 ```text
-- Los remux 4K se reproducen con calidad completa en una red rápida y ya no cierran la app a mitad de la película
+- Los remux 4K empiezan antes, se reproducen con calidad completa en una red rápida y ya no cierran la app a mitad de la película
 - Televisión en vivo tiene su propia pestaña
 - Graba lo que se está emitiendo y añádelo a favoritos desde los controles de reproducción
 - Filtra la guía de Televisión en vivo por favoritos, tus propios grupos, grupos de listas de reproducción y categorías
@@ -789,7 +789,7 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Las tarjetas de los canales muestran fotogramas en vivo, y los canales fuera de línea se pueden ocultar
 - Graba un canal, márcalo como favorito y agrúpalo desde su panel de información
 - Los administradores pueden eliminar elementos del servidor
-- Ajustes muestra la velocidad real de una conexión rápida
+- Ajustes muestra la velocidad real de tu conexión y la vuelve a medir cuando la seleccionas
 - Un canal en vivo que deja de funcionar ya no envía la app al fondo desde su pantalla de error
 ```
 
