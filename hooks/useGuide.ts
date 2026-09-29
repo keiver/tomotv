@@ -8,7 +8,7 @@ import { activeGuideUrls, fetchExternalPrograms } from "@/services/externalGuide
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { activeRecordTimer, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, mergePrograms, MINUTE_MS } from "@/utils/guide";
+import { activeRecordTimer, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, mergePrograms, MINUTE_MS, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -230,7 +230,10 @@ export function useGuide(): GuideState {
   const refreshTimers = useCallback(() => {
     fetchTimers()
       .then((timers) => {
-        if (sessionRef.current === session) setTimers(timers);
+        if (sessionRef.current !== session) return;
+        // The clock moves with the timers: a recording started since the last minute tick is on already.
+        setNowMs(Date.now());
+        setTimers(timers);
       })
       .catch((err) => logger.warn("Timers refresh failed", err, { hook: "useGuide" }));
   }, [session]);
@@ -365,11 +368,20 @@ export function useGuide(): GuideState {
   const timersByProgramId = useMemo(() => {
     const map = new Map<string, JellyfinTimer>();
     for (const timer of timers) {
-      if (!timer.ProgramId || !isActiveTimer(timer)) continue;
-      map.set(timer.ProgramId, timer);
+      if (!isActiveTimer(timer)) continue;
+      if (timer.ProgramId) {
+        map.set(timer.ProgramId, timer);
+        continue;
+      }
+      // A channel recording names no program: it marks every cell its span overlaps.
+      const { startMs, endMs } = programTimes(timer);
+      for (const program of programsByChannel[timer.ChannelId ?? ""] ?? []) {
+        const cell = programTimes(program);
+        if (program.Id && !map.has(program.Id) && cell.startMs < endMs && startMs < cell.endMs) map.set(program.Id, timer);
+      }
     }
     return map;
-  }, [timers]);
+  }, [timers, programsByChannel]);
   const recordingChannelIds = useMemo(() => new Set(channels.filter((channel) => activeRecordTimer(timers, { channelId: channel.Id }, nowMs)).map((channel) => channel.Id)), [channels, timers, nowMs]);
 
   return {

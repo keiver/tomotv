@@ -410,6 +410,26 @@ describe("useGuide minute tick", () => {
     expect(ref.current!.get().nowMs).toBe(at(12, 30, 0));
   });
 
+  it("a channel recording started after the last tick wears REC and marks the cells its span overlaps", async () => {
+    const recorded = { Id: "t1", Name: "Channel 1", ChannelId: "c1", StartDate: new Date(at(12, 28, 45)).toISOString(), EndDate: new Date(at(13, 28, 45)).toISOString(), Status: "InProgress" };
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [
+      program("a", "c1", 0, 30, startMs),
+      program("b", "c1", 30, 60, startMs),
+      program("c", "c1", 60, 90, startMs),
+      program("d", "c2", 0, 60, startMs),
+    ]);
+    const ref = await mount();
+    jest.setSystemTime(at(12, 28, 55));
+    (fetchTimers as jest.Mock).mockResolvedValue([recorded]);
+    await act(async () => ref.current!.get().refreshTimers());
+    await settle();
+    const state = ref.current!.get();
+    expect(state.nowMs).toBe(at(12, 28, 55));
+    expect([...state.recordingChannelIds]).toEqual(["c1"]);
+    expect([...state.timersByProgramId.keys()]).toEqual(["a", "b", "c"]);
+  });
+
   it("resyncs on a return to the foreground and keeps the boundary", async () => {
     const ref = await mount();
     jest.setSystemTime(at(12, 40, 12));
