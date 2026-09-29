@@ -100,7 +100,11 @@ final class LiveConnectionBroker {
         while !hasRoomLocked(key) {
             let waitingOn = (active[key] ?? []).contains { $0.revoking }
             if !waitingOn {
-                guard let victim = (active[key] ?? []).filter({ $0.priority < priority }).min(by: { $0.priority < $1.priority }) else { return nil }
+                guard let victim = (active[key] ?? []).filter({ $0.priority < priority }).min(by: { $0.priority < $1.priority }) else {
+                    // Playback waits out the session it replaces, whose lease frees only once its thread exits.
+                    if priority == .playback, cond.wait(until: deadline) { continue }
+                    return nil
+                }
                 victim.revoking = true
                 cond.unlock()
                 victim.onRevoke()

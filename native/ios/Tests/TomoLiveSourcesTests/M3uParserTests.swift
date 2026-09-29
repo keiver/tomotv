@@ -143,6 +143,11 @@ final class M3uParserTests: XCTestCase {
         XCTAssertNil(entries[2].catchup)
     }
 
+    func testAnOutOfRangeCatchupDaysIsIgnored() {
+        let (_, entries) = parse("#EXTINF:-1 catchup-days=\"1e300\",A\nhttp://s/a\n")
+        XCTAssertNil(entries[0].catchup)
+    }
+
     func testEmptyAndHeaderlessInput() {
         XCTAssertEqual(parse("").entries, [])
         let (header, entries) = parse("http://s/only\n")

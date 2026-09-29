@@ -38,6 +38,15 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertEqual(broker.activeCount(for: "k"), 1)
     }
 
+    func testPlaybackWaitsOutThePlaybackItReplaces() {
+        let broker = LiveConnectionBroker()
+        broker.setBudget(1, for: "k")
+        let previous = broker.tryAcquire(key: "k", priority: .playback, onRevoke: {})
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { previous?.release() }
+        XCTAssertNotNil(broker.acquire(key: "k", priority: .playback, timeout: 5, onRevoke: {}))
+        XCTAssertEqual(broker.activeCount(for: "k"), 1)
+    }
+
     func testNothingTakesPlaybacksSlot() {
         let broker = LiveConnectionBroker()
         broker.setBudget(1, for: "k")

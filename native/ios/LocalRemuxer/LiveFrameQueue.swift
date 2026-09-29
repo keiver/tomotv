@@ -180,7 +180,10 @@ final class LiveFrameQueue {
                 NSLog("[LiveFrame] %@", String(format: "%@ unchanged %.2fs %lld bytes onDisk=%d", channelId, elapsed, grabber.bytesRead, onDisk ? 1 : 0))
                 completion(.unchanged(onDisk: onDisk))
             case .none:
-                if !grabber.sourceOpened, grabber.openFailure?.contains("Server returned 4") == true { LiveConnectionBroker.shared.noteRefusal(of: lease) }
+                // The pipeline's refusal set: a 404 is a dead channel, not the provider's connection cap.
+                if !grabber.sourceOpened, let failure = grabber.openFailure, ["Server returned 401", "Server returned 403", "Server returned 4XX"].contains(where: failure.contains) {
+                    LiveConnectionBroker.shared.noteRefusal(of: lease)
+                }
                 NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@", channelId, elapsed, grabber.sourceOpened ? 1 : 0,
                                                  grabber.openFailure ?? "no keyframe", grabber.openedUrl ?? inputUrl))
                 completion(.none(opened: grabber.sourceOpened, failure: grabber.openFailure))

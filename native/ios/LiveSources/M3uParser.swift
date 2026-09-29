@@ -240,7 +240,7 @@ final class M3uParser: StreamSink {
     private static func catchup(_ attrs: [String: String]) -> M3uCatchup? {
         let type = value(attrs["catchup"]) ?? value(attrs["catchup-type"]) ?? (value(attrs["timeshift"]) != nil ? "shift" : nil)
         let source = value(attrs["catchup-source"])
-        let days = (value(attrs["catchup-days"]) ?? value(attrs["timeshift"]) ?? value(attrs["tvg-rec"])).flatMap(Double.init).flatMap { $0.isFinite ? Int($0) : nil }
+        let days = (value(attrs["catchup-days"]) ?? value(attrs["timeshift"]) ?? value(attrs["tvg-rec"])).flatMap(Double.init).flatMap { abs($0) < 100_000 ? Int($0) : nil }
         guard type != nil || source != nil || (days ?? 0) > 0 else { return nil }
         return M3uCatchup(type: type, source: source, days: (days ?? 0) > 0 ? days : nil)
     }
