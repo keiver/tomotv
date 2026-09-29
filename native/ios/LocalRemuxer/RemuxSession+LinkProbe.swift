@@ -39,6 +39,9 @@ struct LinkEstimate {
 extension RemuxSession {
     /// A probe runs this long after its first byte unless its RateMeter reads steady first.
     static let linkProbeSeconds = 1.5
+    /// Probe readings the link is the median of (ExoPlayer's sliding median): one probe that caught
+    /// a stall (95 Mb/s between 209 and 225, measured) moves nothing until the next one agrees.
+    static let linkProbeReadingsKept = 3
     /// How long a first byte may take before the link reads as slow.
     static let linkProbeStartSeconds = 3.0
 
@@ -92,8 +95,15 @@ extension RemuxSession {
         sourceProbeFailure = failure
         linkProbeDone = true
         lastLinkProbeAt = Date()
+        var median: Double?
+        var confirm = false
         if let bps {
-            setLinkLocked(bps, .probe, confidence: confidence)
+            probeReadings = Array((probeReadings + [bps]).suffix(Self.linkProbeReadingsKept))
+            // Two readings have no median: the held one stands until a third decides.
+            let held = probeReadings.count == 2 ? probeReadings[0] : probeReadings.sorted()[probeReadings.count / 2]
+            median = held
+            confirm = abs(bps - held) > held * 0.25
+            setLinkLocked(held, .probe, confidence: confidence)
             linkWindowBytes = 0
             linkWindowBusySeconds = 0
             linkWindowStart = Date()
@@ -102,14 +112,18 @@ extension RemuxSession {
             setLinkLocked(fallback.0, fallback.1)
         }
         let listedCopy = copyAnnounced
+        let readings = probeReadings.count
         let rate = wireLinkBps
         let moved = reporting && rate != nil && (reportedLinkBps == nil || abs(rate! - reportedLinkBps!) > (reportedLinkBps! * 0.15))
         if moved { reportedLinkBps = rate }
         stateLock.unlock()
-        if !reporting || bps != nil {
-            NSLog("[LocalRemuxer] Slipstream: link measured %@", bps.map { String(format: "%.1f Mb/s", $0 / 1_000_000) } ?? "nothing (reads as slow)")
+        if let bps, let median {
+            NSLog("[LocalRemuxer] Slipstream: link measured %.1f Mb/s, the link is %.1f Mb/s (median of %d)", bps / 1_000_000, median / 1_000_000, readings)
+        } else if !reporting {
+            NSLog("[LocalRemuxer] Slipstream: link measured nothing (reads as slow)")
         }
         if moved, let rate { onLink?(["token": token, "bps": rate, "copyListed": listedCopy]) }
+        if confirm { requestLinkReprobe() }
         // The opening rung's server transcode starts the moment the link is known, not at the master.
         if !reporting, let rate, !config.isLive { chooseOpeningRung(linkBps: testLinkBps ?? rate) }
     }
@@ -311,7 +325,11 @@ extension RemuxSession {
         // as true as a slow link's long ones.
         if linkWindowBytes > 512 * 1024, linkWindowBusySeconds > 0.05 {
             let rate = Double(linkWindowBytes) * 8 / linkWindowBusySeconds
-            if wireLinkBps == nil || (rate < wireLinkBps! && sourceReadsLowerLinkLocked()) { setLinkLocked(rate, .reads) }
+            if wireLinkBps == nil || (rate < wireLinkBps! && sourceReadsLowerLinkLocked()) {
+                setLinkLocked(rate, .reads)
+                // A drained buffer is the link now: older probes must not outvote it.
+                probeReadings = []
+            }
             let outran = rate > (wireLinkBps ?? .infinity) * 1.25
             reportLinkLocked()
             if outran { requestLinkReprobe() }

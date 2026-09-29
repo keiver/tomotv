@@ -1272,6 +1272,9 @@ final class TierProbeTests: XCTestCase {
         session.sourceState = .dormant
         session.testLinkBps = 12_000_000
         session.finishLinkProbe(12_000_000, reporting: true)
+        XCTAssertEqual(session.wireLinkBps, 6_000_000, "one reading moves nothing")
+        XCTAssertTrue(session.reprobeAsked, "it asks for the probe that decides")
+        session.finishLinkProbe(12_000_000, reporting: true)
         XCTAssertTrue(session.wakeSourceIfAffordable())
         XCTAssertTrue(session.awaitCopyAdmission(until: Date()))
         XCTAssertTrue(session.copyFollowsLocked())
@@ -1428,7 +1431,8 @@ final class TierProbeTests: XCTestCase {
         session.noteLinkSample(bytes: 600_000, seconds: 0.05)
         XCTAssertEqual(session.wireLinkBps, 165_800_000)
         session.finishLinkProbe(40_000_000, reporting: false)
-        XCTAssertEqual(session.wireLinkBps, 40_000_000, "a probe still lowers it")
+        session.finishLinkProbe(40_000_000, reporting: false)
+        XCTAssertEqual(session.wireLinkBps, 40_000_000, "probes that agree still lower it")
     }
 
     /// A copy AVPlayer holds a full reservoir of is served whatever the link reads, and its
@@ -1866,6 +1870,7 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(session.wireLinkBps, 1_500_000)
         XCTAssertTrue(session.reprobeAsked)
         session.finishLinkProbe(30_000_000, reporting: true)
+        session.finishLinkProbe(30_000_000, reporting: true)
         XCTAssertEqual(reports.last?["bps"] as? Double, 30_000_000)
 
         session.cancelled = true
@@ -1875,6 +1880,47 @@ final class TierProbeTests: XCTestCase {
         session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-4), to: Date())
         XCTAssertEqual(reports.count, count)
         XCTAssertEqual(session.wireLinkBps, 30_000_000)
+    }
+
+    /// One probe that caught a stall moves nothing (T105: 95 Mb/s between 209 and 225); the next decides.
+    func testALoneOutlyingProbeMovesNothingAndAsksForTheOneThatDecides() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.finishLinkProbe(209_000_000, reporting: true)
+        session.finishLinkProbe(95_000_000, reporting: true)
+        XCTAssertEqual(session.wireLinkBps, 209_000_000)
+        XCTAssertTrue(session.reprobeAsked)
+        session.reprobeAsked = false
+        session.finishLinkProbe(225_000_000, reporting: true)
+        XCTAssertEqual(session.wireLinkBps, 209_000_000, "the median of 209, 95 and 225")
+        XCTAssertFalse(session.reprobeAsked, "a reading within a quarter of the link confirms it")
+    }
+
+    func testTwoAgreeingProbesMoveTheLinkEitherWay() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.finishLinkProbe(200_000_000, reporting: true)
+        session.finishLinkProbe(20_000_000, reporting: true)
+        session.finishLinkProbe(22_000_000, reporting: true)
+        XCTAssertEqual(session.wireLinkBps, 22_000_000)
+        session.finishLinkProbe(180_000_000, reporting: true)
+        session.finishLinkProbe(190_000_000, reporting: true)
+        XCTAssertEqual(session.wireLinkBps, 180_000_000)
+    }
+
+    /// A buffer drained into the reservoir is the link now: probes from before it do not vote it back up.
+    func testADrainedBufferClearsTheProbesItOverrules() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.finishLinkProbe(200_000_000, reporting: false)
+        session.finishLinkProbe(210_000_000, reporting: true)
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds - 4, sinceSeek: false)
+        session.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(session.wireLinkBps ?? 0, 48_000_000, accuracy: 1)
+        XCTAssertEqual(session.link?.source, .reads)
+        session.finishLinkProbe(50_000_000, reporting: true)
+        XCTAssertEqual(session.wireLinkBps, 50_000_000)
     }
 
     func testUnavailableOriginalUsesMeasuredServerTransfersInBothDirections() throws {

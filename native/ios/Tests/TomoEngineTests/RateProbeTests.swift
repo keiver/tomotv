@@ -202,6 +202,7 @@ final class LinkEstimateTests: XCTestCase {
         defer { s.stop() }
         s.finishLinkProbe(200_000_000, reporting: false)
         s.finishLinkProbe(60_000_000, reporting: true, confidence: .unsettled)
+        s.finishLinkProbe(60_000_000, reporting: true, confidence: .unsettled)
         XCTAssertEqual(s.wireLinkBps, 60_000_000)
         XCTAssertEqual(s.link?.confidence, .unsettled)
     }

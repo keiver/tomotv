@@ -373,6 +373,8 @@ final class RemuxSession {
     /// The link rate every decision reads (under stateLock), and the newest floor the server
     /// renditions put under it, with when that floor was seen.
     var link: LinkEstimate?
+    /// The latest probe readings, oldest first (under stateLock).
+    var probeReadings: [Double] = []
     var wireLinkBps: Double? { link?.bps }
     var floorLinkBps: Double?
     var floorSeenAt = Date.distantPast
