@@ -100,6 +100,7 @@ import {
   createPreflightGate,
   dropThroughputWatch,
   EngineInputMissingError,
+  forwardBufferFor,
   keptForReason,
   nextLinkCap,
   linkAffordsChapterFrames,
@@ -325,6 +326,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const lastLinkBpsRef = useRef(0);
   // When AVPlayer's buffer was last reported to the engine, and whether a seek emptied it since.
   const bufferReportRef = useRef({ at: 0, sinceSeek: true });
+  // The playing variant's declared bitrate (0 = none yet). RNV reports only changes and never
+  // resets its last value per source, so neither does this.
+  const variantBpsRef = useRef(0);
   // True while the session rides the Slipstream tier as its survival floor: the
   // engine primary is unproducible on this link by design, so primary-starvation
   // teardowns (stall restart, engineStarving handover) are suppressed. The plain
@@ -1860,10 +1864,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 logger.debug("Stable playback detected, hiding spinner", { service: "useVideoPlayback" });
                 hasStablePlaybackRef.current = true;
                 resetPlaybackStages();
-                // The short forward buffer is a startup device only: once the picture is up
-                // AVPlayer goes back to building the deep buffer a link drop is survived on
-                // (measured with 6s held: the 30 -> 1.5 Mb/s drop stalled 37s).
-                setForwardBufferSeconds(null);
+                // Past startup AVPlayer builds the deep buffer a link drop is survived on (6s held
+                // stalled 37s on 30 -> 1.5 Mb/s), bounded in bytes for a variant rate that exhausts memory.
+                setForwardBufferSeconds(forwardBufferFor(variantBpsRef.current));
                 setImmediate(() => {
                   if (!isMountedRef.current) return;
                   setHasStablePlayback(true);
@@ -2944,7 +2947,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onBandwidthUpdate = useCallback((event: OnBandwidthUpdateData) => {
     if (!isMountedRef.current || Platform.OS !== "ios" || !Number.isFinite(event.bitrate) || event.bitrate <= 0) return;
     probeEmit("access", { indicated: event.bitrate, position: currentTimeRef.current });
+    variantBpsRef.current = event.bitrate;
+    logger.info("Variant bitrate", { service: "useVideoPlayback", bps: event.bitrate, stable: hasStablePlaybackRef.current });
+    if (hasStablePlaybackRef.current) setForwardBufferSeconds(forwardBufferFor(event.bitrate));
   }, []);
+
+  useEffect(() => {
+    logger.info("Forward buffer", { service: "useVideoPlayback", seconds: forwardBufferSeconds });
+  }, [forwardBufferSeconds]);
 
   const onReadyForDisplay = useCallback(() => {
     if (!isMountedRef.current) return;

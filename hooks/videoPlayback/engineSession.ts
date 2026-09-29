@@ -3,7 +3,7 @@
  * engine service, so every decision here is testable without the native module.
  */
 import type { ThroughputSample } from "@/services/localRemux";
-import { LINK_CAP_HYSTERESIS, LINK_CAP_SHARE, LINK_CLIMB_MARGIN } from "./constants";
+import { FORWARD_BUFFER_AUTOMATIC_SECONDS, FORWARD_BUFFER_BYTES, LINK_CAP_HYSTERESIS, LINK_CAP_SHARE, LINK_CLIMB_MARGIN, SLIPSTREAM_FORWARD_BUFFER_SECONDS } from "./constants";
 
 /** One session's throughput samples and the subscription feeding them. */
 export type ThroughputWatch = { samples: ThroughputSample[]; unsubscribe: (() => void) | null; handedOver: boolean };
@@ -100,6 +100,17 @@ export function nextLinkCap(input: { bps: number; currentCap: number; floorBps: 
   const liftsToCopy = copyFloor > input.currentCap;
   if (input.currentCap > 0 && !liftsToCopy && Math.abs(cap - input.currentCap) < input.currentCap * LINK_CAP_HYSTERESIS) return null;
   return cap;
+}
+
+/**
+ * Forward buffer for the variant playing at `bps`: the byte budget in seconds, never under the
+ * startup depth. Null (automatic) when the variant is unknown or the budget reaches automatic.
+ */
+export function forwardBufferFor(bps: number): number | null {
+  if (!Number.isFinite(bps) || bps <= 0) return null;
+  const seconds = (FORWARD_BUFFER_BYTES * 8) / bps;
+  if (seconds >= FORWARD_BUFFER_AUTOMATIC_SECONDS) return null;
+  return Math.max(SLIPSTREAM_FORWARD_BUFFER_SECONDS, Math.round(seconds));
 }
 
 /**

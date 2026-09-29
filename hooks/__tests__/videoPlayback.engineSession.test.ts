@@ -2,7 +2,16 @@
  * The engine session's startup measurement and link steering: the pre-flight gate, the cap
  * AVPlayer picks variants under, the climb back to the copy, and the keep-or-hand-over verdict.
  */
-import { createPreflightGate, dropThroughputWatch, keptForReason, linkAffordsChapterFrames, nextLinkCap, stillPullingInput, type ThroughputWatch } from "../videoPlayback/engineSession";
+import {
+  createPreflightGate,
+  dropThroughputWatch,
+  forwardBufferFor,
+  keptForReason,
+  linkAffordsChapterFrames,
+  nextLinkCap,
+  stillPullingInput,
+  type ThroughputWatch,
+} from "../videoPlayback/engineSession";
 
 describe("createPreflightGate", () => {
   jest.useFakeTimers();
@@ -63,6 +72,23 @@ describe("stillPullingInput", () => {
 
   it("stops waiting when the engine answers nothing at all", () => {
     expect(stillPullingInput(null, 1_000, 0.5)).toBe(false);
+  });
+});
+
+describe("forwardBufferFor", () => {
+  it("bounds a 110 Mb/s copy to its byte budget", () => {
+    expect(forwardBufferFor(109_572_662)).toBe(15);
+  });
+
+  it("never goes under the startup depth", () => {
+    expect(forwardBufferFor(400_000_000)).toBe(12);
+  });
+
+  it("leaves automatic in place for a variant the budget covers, and for an unknown one", () => {
+    expect(forwardBufferFor(20_000_000)).toBeNull();
+    expect(forwardBufferFor(6_120_000)).toBeNull();
+    expect(forwardBufferFor(0)).toBeNull();
+    expect(forwardBufferFor(Number.NaN)).toBeNull();
   });
 });
 
