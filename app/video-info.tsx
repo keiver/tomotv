@@ -590,8 +590,11 @@ export default function VideoInfoScreen() {
     ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), destructive: true, onPress: handleDelete }] : []),
   ];
 
+  const recordShown = recordTimer !== undefined && (!!recordTimer || !programEnded);
   // Portrait phone puts Watch and Record side by side, as the TV row does, splitting the gutter width.
-  const pairButton = stackCtas ? styles.livePairButton : undefined;
+  // A lone button stays content-sized like every other CTA.
+  const livePaired = stackCtas && watchable && recordShown;
+  const pairButton = livePaired ? styles.livePairButton : undefined;
   const livePair = (
     <>
       {watchable && (
@@ -604,7 +607,7 @@ export default function VideoInfoScreen() {
           onPress={handleWatch}
         />
       )}
-      {recordTimer === undefined || (!recordTimer && programEnded) ? null : recordTimer ? (
+      {!recordShown ? null : recordTimer ? (
         <FocusableButton
           title={recordTimer.Status === "InProgress" ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
           variant="record"
@@ -633,7 +636,7 @@ export default function VideoInfoScreen() {
   // CTA row through File: one fragment, hosted by both platform layouts.
   const sections = details ? (
     <>
-      <View style={[styles.ctaRow, stackCtas && styles.ctaColumn, stackCtas && live && styles.ctaColumnFull]}>
+      <View style={[styles.ctaRow, stackCtas && styles.ctaColumn, livePaired && styles.ctaColumnFull]}>
         {isContainer ? (
           folderCtas.length > 0 ? (
             folderCtas
