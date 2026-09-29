@@ -16,7 +16,7 @@ interface TimerRowProps {
 function TimerRowComponent({ timer, nowMs, onPress, isLast = false }: TimerRowProps) {
   const startMs = Date.parse(timer.StartDate);
   const endMs = Date.parse(timer.EndDate);
-  const when = `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)} to ${formatClock(endMs)}`;
+  const when = `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", formatClock(startMs)).replace("{end}", formatClock(endMs))}`;
   const subtitle = [when, cleanLabel(timer.EpisodeTitle), cleanLabel(timer.ChannelName)].filter(Boolean).join("  ·  ");
   // A timer with no program has no panel to open: it takes focus to be readable, nothing more.
   const opens = Boolean(timer.ProgramId);

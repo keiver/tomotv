@@ -472,7 +472,7 @@ export default function VideoInfoScreen() {
     : liveProgram && liveTimes
       ? joinMeta([
           liveChannelName,
-          `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(liveTimes.startMs)} to ${formatClock(liveTimes.endMs)}`,
+          `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", formatClock(liveTimes.startMs)).replace("{end}", formatClock(liveTimes.endMs))}`,
           liveCategory ? CATEGORY_LABELS[liveCategory]() : "",
         ])
       : photo

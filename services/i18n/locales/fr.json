@@ -63,6 +63,7 @@
   "liveTv.now": "Maintenant",
   "liveTv.today": "Aujourd'hui",
   "liveTv.tomorrow": "Demain",
+  "liveTv.timeRange": "{start} à {end}",
   "liveTv.loadingGuide": "Chargement du guide",
   "liveTv.channelSettings": "Réglages des chaînes",
   "liveTv.autoUpdate": "Actualiser les aperçus",
