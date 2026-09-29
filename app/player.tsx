@@ -53,6 +53,9 @@ const CHANNEL_SKIP_WATCHDOG_MS = 20_000;
 const ERROR_FOCUS_CLAIM_EVERY_MS = 300;
 const ERROR_FOCUS_CLAIM_WINDOW_MS = 5_000;
 
+/** Past the playing channel's airing end before its lineup is read again, so the server names the next programme. */
+const AIRING_END_SLACK_MS = 5_000;
+
 // Suppress known warnings
 LogBox.ignoreLogs([
   "JS object is no longer associated",
@@ -466,6 +469,13 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // timer (ChannelId + the recordingMinutes window; the server names this path IsManual).
   const liveChannel = Platform.isTV && isLiveChannel ? channelRing.find((entry) => entry.Id === videoId) : undefined;
   const currentProgramId = liveChannel?.CurrentProgram?.Id;
+  // The ring's CurrentProgram is what aired when it loaded: the lineup is read again once it ends.
+  const airingEndMs = Date.parse(liveChannel?.CurrentProgram?.EndDate ?? "");
+  useEffect(() => {
+    if (!Number.isFinite(airingEndMs)) return;
+    const timer = setTimeout(() => setRingAttempt((n) => n + 1), Math.max(0, airingEndMs - Date.now()) + AIRING_END_SLACK_MS);
+    return () => clearTimeout(timer);
+  }, [airingEndMs]);
   const recordKey = liveChannel ? (currentProgramId ?? `channel:${videoId}`) : undefined;
   // Keyed by target: a channel flip must not show the previous target's timer.
   const [timerResult, setTimerResult] = useState<{ key: string; timer: JellyfinTimer | null } | null>(null);
