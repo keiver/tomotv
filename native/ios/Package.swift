@@ -78,6 +78,7 @@ let package = Package(
                 "RemuxSession+Routes.swift",
                 "RemuxSession+ServerSubtitles.swift",
                 "RemuxSession+LinkProbe.swift",
+                "RateMeter.swift",
                 "RemuxSession+Pipeline.swift",
                 "AudioTranscoder.swift",
                 "VideoTranscoder.swift",
