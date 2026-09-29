@@ -185,6 +185,30 @@ final class LinkEstimateTests: XCTestCase {
         XCTAssertNil(s.sourceProbeFailure)
     }
 
+    /// A server disk waking from sleep answers late; the startup probe waits for it and reads the link.
+    func testTheStartupProbeWaitsOutASlowFirstByte() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000, firstByteAfter: 5))
+        defer { server.stop() }
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString))
+        defer { s.stop() }
+        s.probeLink()
+        XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 40, accuracy: 1.2)
+        XCTAssertNil(s.sourceProbeFailure)
+    }
+
+    /// Mid-session the first byte keeps its 3s: a late answer then is the link.
+    func testAMidSessionProbeStillGivesUpOnASlowFirstByte() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000, firstByteAfter: 5))
+        defer { server.stop() }
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString))
+        defer { s.stop() }
+        s.finishLinkProbe(200_000_000, reporting: false)
+        let started = Date()
+        s.probeLink(reporting: true)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4.5)
+        XCTAssertEqual(s.wireLinkBps, 200_000_000)
+    }
+
     func testAMidSessionProbeUnderAWindowLeavesTheLinkStanding() throws {
         let server = try PacedServer(.init(bps: 40 * mbps, length: 1_000_000))
         defer { server.stop() }

@@ -42,7 +42,9 @@ extension RemuxSession {
     /// Probe readings the link is the median of (ExoPlayer's sliding median): one probe that caught
     /// a stall (95 Mb/s between 209 and 225, measured) moves nothing until the next one agrees.
     static let linkProbeReadingsKept = 3
-    /// How long a first byte may take before the link reads as slow.
+    /// How long a mid-session probe's first byte may take before the link reads as slow. The startup
+    /// probe waits out the master's budget: a server disk waking from sleep answered after 3s on a
+    /// 260 Mb/s link (measured), and reading that as the link put the session on the rungs.
     static let linkProbeStartSeconds = 3.0
 
     /// How often the link is re-read while the session rides a rung. A rung's body is small and
@@ -59,10 +61,11 @@ extension RemuxSession {
 
     func probeLink(reporting: Bool = false) {
         guard let url = URL(string: config.inputUrl) else { return finishLinkProbe(nil, reporting: reporting) }
-        var request = URLRequest(url: url, timeoutInterval: Self.linkProbeStartSeconds + Self.linkProbeSeconds)
+        let firstByteWithin = reporting ? Self.linkProbeStartSeconds : max(Self.linkProbeStartSeconds, masterBudgetLeft() - Self.linkProbeSeconds)
+        var request = URLRequest(url: url, timeoutInterval: firstByteWithin + Self.linkProbeSeconds)
         for (name, value) in config.httpHeaders { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("bytes=0-", forHTTPHeaderField: "Range")
-        let probe = RateProbe(request: request, budget: Self.linkProbeSeconds, firstByteWithin: Self.linkProbeStartSeconds,
+        let probe = RateProbe(request: request, budget: Self.linkProbeSeconds, firstByteWithin: firstByteWithin,
                               beside: { [transfers] in transfers.carried() })
         transfers.probeStarted()
         let outcome = probe.run()
