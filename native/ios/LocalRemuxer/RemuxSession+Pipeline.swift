@@ -70,6 +70,16 @@ extension RemuxSession {
         return size
     }
 
+    /// This process's phys_footprint, what jetsam weighs it by; -1 when the kernel declines.
+    static func footprintMB() -> Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return result == KERN_SUCCESS ? Int(info.phys_footprint / 1_048_576) : -1
+    }
+
     /// Byte offset of the first `moof` box, walking the ISO-BMFF box chain
     /// rather than scanning for the literal, so payload bytes can never be
     /// mistaken for a box header. Returns 0 when the data already starts with
@@ -1649,7 +1659,11 @@ extension RemuxSession {
             let elapsed = Date().timeIntervalSince(lastThroughputLog)
             if elapsed >= 5 {
                 let mbps = Double(inputBytesSinceLog) * 8 / elapsed / 1_000_000
-                NSLog("[LocalRemuxer] segment %d done: cushion %d/%d segs, input %.1f Mb/s", n, max(0, n - playhead), aheadWindow, mbps)
+                stateLock.lock()
+                let playerAhead = playerAheadSeconds ?? -1
+                stateLock.unlock()
+                NSLog("[LocalRemuxer] segment %d done: cushion %d/%d segs, input %.1f Mb/s, footprint %d MB, player ahead %.1fs",
+                      n, max(0, n - playhead), aheadWindow, mbps, Self.footprintMB(), playerAhead)
                 inputBytesSinceLog = 0
                 lastThroughputLog = Date()
             }

@@ -192,7 +192,7 @@ final class SlipstreamDrillTests: XCTestCase {
                 emit("firstFrame", ["position": position])
                 // As the app does: the short forward buffer gets the picture up, then AVPlayer
                 // builds its own depth, which is what a link drop is survived on.
-                item.preferredForwardBufferDuration = 0
+                item.preferredForwardBufferDuration = env["TOMO_DRILL_HOLD_BUFFER"].flatMap(Double.init) ?? 0
             }
             let buffered = item.loadedTimeRanges.map { $0.timeRangeValue }.first { CMTimeRangeContainsTime($0, time: player.currentTime()) }
             let ahead = buffered.map { CMTimeGetSeconds(CMTimeRangeGetEnd($0)) - position } ?? 0
