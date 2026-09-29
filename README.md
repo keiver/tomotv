@@ -59,16 +59,16 @@ server for 30 minutes.
   the receiver untouched. TrueHD, DTS-HD, PCM, MP3, Opus and the rest are decoded
   to lossless FLAC, up to 7.1. Switching audio tracks does not restart playback.
 - **Subtitles** never send a file to the server's transcoder. Embedded text
-  tracks become WebVTT on the device, sidecar files are read from the server as
-  they are, and image tracks (PGS, VobSub, DVB, XSUB) are decoded to bitmaps
-  drawn over the native player.
+  tracks become WebVTT on the device, sidecar text files arrive as the server's
+  WebVTT and sidecar image files as they are, and image tracks (PGS, VobSub,
+  DVB, XSUB) are decoded to bitmaps drawn over the native player.
 - **Quality.** Auto plays the original when the connection can carry it, and
   otherwise a smaller server stream (stereo AAC), if the account is allowed to
   transcode. Both can sit in one playlist, so AVPlayer switches between them
   without a restart. Fixed presets cap either path.
 - **Live TV** uses the same engine. HLS and DASH origins are read directly, tuner
-  streams arrive through the server untouched, and the server's live transcode
-  is the fallback.
+  streams are read from their source when the device can reach it, otherwise
+  through the server untouched, and the server's live transcode is the fallback.
 - **FFmpeg** is built in this repo from pinned sources, with every native decoder
   enabled, published by CI and fetched on `npm install`. DivX 3, RealVideo,
   Theora, DV and Cinepak all play on the device; the measured list is in
@@ -78,9 +78,10 @@ server for 30 minutes.
 
 - **Live TV.** A guide by time and channel, a wall of every channel with live
   previews, and Recordings with filters. Accounts allowed to manage recordings
-  also get the schedule and record controls. Hold a channel to make it a
-  favorite. On Apple TV, the remote's channel-skip gesture flips channels, and
-  the channels on either side keep running, ready for the flip.
+  also get the schedule and record controls. Hold a channel for its info
+  panel, to record, favorite or group it. On Apple TV, the remote's channel-skip
+  gesture flips channels, and for 30 seconds after a flip the channels on either
+  side keep running.
 - **Books.** PDF, comics (CBZ, CBR, CBT, CB7), EPUB, MOBI and Kindle AZW/AZW3 in a
   full-screen reader, with the reading position saved to the server.
 - **Downloads** on iPhone and iPad: an item or a whole folder, playable with no
@@ -137,12 +138,13 @@ services/
   localRemux.ts         lane choice, engine codec allowlists, engine sessions
   jellyfin/             API client, split by concern
   syncPlayManager.ts    SyncPlay groups and command scheduling
-  liveRing.ts           Live TV channels kept running for flips
+  liveRing.ts           Live TV neighbours kept running after a flip
   downloads/            offline store
   books/                book formats and reading position
   i18n/                 strings: en, de, fr, es
 native/ios/
   LocalRemuxer/         the engine: remux, transcode, loopback server, subtitles, Dolby Vision, live
+  LiveSources/          XMLTV guides and M3U playlists, loaded and parsed natively
   MultiAudioResourceLoader/   HLS manifests, audio track switching
   AudioQueuePlayer/     music queue, Now Playing, tvOS Up Next panel
   BookRenderer/         PDF, comic, EPUB and MOBI pages

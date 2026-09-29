@@ -7,14 +7,14 @@ All notable changes to Tomo TV are documented here.
 ### Added
 
 - Live TV groups: a band above the guide filters it to Favorites, All, your own groups, the groups a tuner's M3U playlist declares, and the server's News, Sports, Kids, Movies and Series categories. Your own groups are made in Channel Settings, or from the Groups button on a channel's info panel, which adds the channel to them and holds its favorite
-- Guide sources, in Channel Settings: listings for channels the server has none for, from any number of XMLTV guides you add and the guides your tuner playlists declare, asked in order. A channel is matched by its tvg-id, then its tvg-name, then its name, letter case aside. The screen shows each guide's status, how many channels it matched and which, its size on the device and when it last downloaded, turns a guide off, and clears the downloaded files. Guides refresh hourly, and Refresh guide downloads them again and reports how it went
+- Guide sources, in Channel Settings: listings for channels the server has none for, from any number of XMLTV guides you add and the guides your tuner playlists declare, asked in order. A channel is matched by its tvg-id, then its tvg-name, then its name, letter case aside. The screen shows each guide's status, how many channels it matched and which, its size on the device and when it last downloaded, turns a guide off, and clears the downloaded files. A downloaded guide is reused for an hour, and Refresh guide downloads the guides again and reports how it went
 - Live TV search: Search lists matching channels and programmes on a Live TV shelf above the library results, channels first, then programmes by start time, ended ones left out. The channel wall has a search of its own
-- Channel health: a channel that does not answer wears Offline, and Hide offline in Channel Settings leaves those channels out of the guide and the wall
-- Channel cards rest on their channel's newest frame and loop a five-second clip recorded on the device: on Apple TV while they or their guide row hold focus, on iPhone, iPad and Mac every card in the guide at once. A channel with no listings reads "No listings for" its name in the guide, and when focused unrolls its recent frames, each captioned "Seen at" the time it was seen
+- Channel health: a channel whose source refuses it twice wears Offline, and Hide offline in Channel Settings leaves those channels out of the guide and the wall
+- Channel cards rest on their channel's newest frame and loop a five-second clip recorded on the device: on Apple TV while they or their guide row hold focus, on iPhone, iPad and Mac every card on screen while the channel column is at full width. A channel with no listings reads "No listings for" its name in the guide, and shows its recent frames under one "Seen at" caption
 - Dragging the guide's time ruler scrolls the grid, with a fling on release
 - Record from the player on Apple TV: a Record button in the playback controls records the programme on air, and a channel with no guide records for the Recording length set in Channel Settings (30 minutes to 3 hours, 2 hours by default). The button reads Stop Recording while a timer records
 - A heart in the Apple TV playback controls adds the video or live channel to favorites, or removes it
-- The guide opens the info panel for a channel or programme, which records, favorites and groups the channel. An in-progress recording's panel shows its size, its length so far and a Stop action
+- The guide opens the info panel for a channel or programme: a programme's panel records it, and a channel's also favorites and groups it. An in-progress recording's panel shows its size, its length so far and a Stop action
 - A channel card wears a red REC pill while a timer records it
 - Short confirmations appear as a one-line strip: a recording started, with its length, or stopped, and a guide refresh starting, finishing or failing
 - Server admins can delete an item and its files from the server in the info panel, after a confirmation
@@ -26,27 +26,27 @@ All notable changes to Tomo TV are documented here.
 
 - The info panel's secondary actions are glass circles beneath its main buttons
 - The guide ruler shows the current time in gold above its labels
-- Names written by a metadata scraper with HTML entities, such as "&amp;", read as the character they stand for wherever they are shown
+- Names written by a metadata scraper with HTML entities, such as "&amp;", read as the character they stand for in the app's screens
 - Episode cards take the same landscape slot as the other cards in a folder grid, whatever the shape of their still
 - On-device playback runs on FFmpeg 8.1.3
 - A channel the tuner lets clients read directly is read by the device from its source, with no stream held open on the server; the server relays only what the device cannot reach
 - Previews, warm-ups and playback share one budget of connections to a provider, learned from the provider itself, and playback always wins
-- A focused channel is already being read when Play is pressed, so playback starts from that instead of opening the channel again
+- A channel focused for two seconds is already being read when Play is pressed, so playback starts from that instead of opening the channel again
 - Player loading shows a bare spinner for eight seconds, then a status line, and at twelve seconds what it waits on; the error screen says where playback stopped
-- Every wait is a small gold spinner with its label centred beneath it
+- Loading rows are a small gold spinner with its label centred beneath it
 - On iOS, toasts reach down past the navigation bar
 
 ### Fixed
 
-- On Apple TV a live channel that dies shows its error screen with Retry focused, and Menu from it no longer sends the app to the background
-- A video paused from the playback controls stays paused when playback rebuilds after a stream error
+- On Apple TV a live channel on screen that dies shows its error screen with Retry focused, and Menu from it no longer sends the app to the background
+- A video paused from the playback controls for more than five minutes stays paused when playback rebuilds after a stream error
 - A stream error after the player screen has closed ends playback instead of retrying a player that cannot return
 - Channels either side of the one playing warm up only for 30 seconds after a flip, so they no longer starve the playing channel on a slow connection
-- The guide scrolls freely again instead of pulling the focused row to the top on every move
+- The guide no longer pulls the focused row to the top on every move
 - After a fast scroll, the posters the engine makes for the cards on screen come first
 - A segment the engine fails to write is dropped instead of being served broken
 - Search results for an earlier query no longer replace those of the latest one when they arrive late
-- A live stream stayed open on the server after a preview or an ended playback; every open is closed by the app that made it, on the server that made it, and sent again at the next launch or return to the app until the server takes it
+- A live stream stayed open on the server after a preview or an ended playback; every open is closed by the app that made it, on the server that made it, and sent again at the next launch or return to the app until the server answers it
 - Two viewers of one channel no longer end each other's stream when one leaves
 - Servers on a plain http address outside the home network connect again, in the app and the Apple TV Top Shelf; App Transport Security had been left on since 1.5.0
 - Menu out of the player pops only the player, never the folder beneath it
