@@ -108,7 +108,7 @@ describe("measurement", () => {
 
   it("stays unique across both stages of one probe", async () => {
     // Fast first stage, so the refine runs and both URLs come from the same probe.
-    mockFetch.mockResolvedValueOnce(stage(500_000, 100)).mockResolvedValueOnce(stage(2_000_000, 200));
+    mockFetch.mockResolvedValueOnce(stage(500_000, 100)).mockResolvedValueOnce(stage(2_000_000, 400));
     await measureServerBitrate();
 
     const urls = mockFetch.mock.calls.map((call) => String(call[0]));
@@ -139,6 +139,21 @@ describe("measurement", () => {
 
     await expect(measureServerBitrate()).resolves.toBe(32_000_000);
     expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("confirms a refine stage that is itself timer noise with the 10 MB stage", async () => {
+    // 2 MB in 0.1s read anywhere from 100 to 202 Mb/s on one Apple TV link; 10 MB read it steadily.
+    mockFetch.mockResolvedValueOnce(stage(500_000, 20)).mockResolvedValueOnce(stage(2_000_000, 100)).mockResolvedValueOnce(stage(10_000_000, 400));
+
+    await expect(measureServerBitrate()).resolves.toBe(200_000_000);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch.mock.calls[2][0]).toContain("Size=10000000");
+  });
+
+  it("keeps the refine reading when the confirm stage dies", async () => {
+    mockFetch.mockResolvedValueOnce(stage(500_000, 20)).mockResolvedValueOnce(stage(2_000_000, 100)).mockRejectedValueOnce(new Error("aborted"));
+
+    await expect(measureServerBitrate()).resolves.toBe(160_000_000);
   });
 
   it("refines a low first-stage reading to rule out a slow-start under-read", async () => {

@@ -19,8 +19,11 @@ import { API_TIMEOUTS, STORAGE_KEYS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { getAuthHeader, getConfig, type JellyfinConfig } from "./session";
 
-/** Probe sizes in bytes: quick first stage, refining second stage. */
-const STAGE_SIZES = [500_000, 2_000_000];
+/** Probe sizes in bytes: quick first stage, refining second stage, confirming third stage. */
+const STAGE_SIZES = [500_000, 2_000_000, 10_000_000];
+/** A refine stage faster than this is timer-noise too: on a ~230 Mb/s Apple TV link 2 MB read
+ *  100 to 202 Mb/s in 0.08 to 0.17s, and 10 MB read 219 to 244 in about 0.6s. */
+const CONFIRM_BELOW_SEC = 0.3;
 /** A first stage faster than this (seconds) is timer-noise; run the big stage. */
 const REFINE_THRESHOLD_SEC = 0.7;
 /** A first-stage reading below this refines too, whatever its time: a 500 KB probe cannot
@@ -181,6 +184,18 @@ async function runProbe(config: JellyfinConfig, host: string, shouldRemember: bo
         logger.warn("Bitrate refine stage failed, keeping the small-stage reading", error, { service: "BitrateTest" });
       }
     }
+    let confirmed = false;
+    if (refined && stage.seconds < CONFIRM_BELOW_SEC) {
+      try {
+        const biggest = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[2]);
+        if (biggest != null) {
+          stage = biggest;
+          confirmed = true;
+        }
+      } catch (error) {
+        logger.warn("Bitrate confirm stage failed, keeping the refine reading", error, { service: "BitrateTest" });
+      }
+    }
     const bps = stage.bps;
     const net = shouldRemember ? await currentNetworkId() : null;
     failedAt.delete(host);
@@ -190,7 +205,7 @@ async function runProbe(config: JellyfinConfig, host: string, shouldRemember: bo
       mbps: Math.round(bps / 100_000) / 10,
       bytes: stage.bytes,
       seconds: Math.round(stage.seconds * 1000) / 1000,
-      stage: refined ? "refine" : "first",
+      stage: confirmed ? "confirm" : refined ? "refine" : "first",
       net,
       remembered: shouldRemember,
     });
