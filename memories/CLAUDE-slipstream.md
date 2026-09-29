@@ -37,10 +37,12 @@ We are the only client architecture that IS the HLS server. That is the moat.
 - **The first variant listed is where AVPlayer starts**, and `startsOnFirstEligibleVariant` makes
   that ours to decide (RNV patch; since tvOS 13 AVPlayer otherwise picks its own).
   - The copy stays listed on thin links unless its producer is permanently unavailable.
-  - The copy LEADS only when `source * 3 <= measured link` (`copyLeadsMargin`), the link on which
-    its first 6s segment lands in 2s. Leading at 12 Mb/s (1.9x) its 4.7 MB opening segment took
-    3.7s, AVPlayer hedged onto the bottom rung and showed a frame at 8.6s; it then climbed to the
-    copy on the same item by itself. Under 3x a rung leads and the copy stays listed.
+  - **A link that carries the copy never touches a server rung.** At `source * 1.2 <= measured link`
+    (`copyLeadsMargin`) the master names the copy alone: no rung, no `audio-lo`, no opening-rung or
+    `probeTier` transcode, and the tier report says `copy`. The server is the file host there. The
+    old 3x lead with the rungs listed beside the copy let AVPlayer drop to them: on a 200+ Mb/s
+    link T105 (91 Mb/s) opened on rung 6, fell to t1 at 15.9s and played at 23.5s.
+  - Under 1.2x a rung leads and the copy stays listed for AVPlayer to climb to.
   - The rung that leads is the biggest whose segment lands in about a second: `bandwidth * 6 <=
 link` (`openingRungShare`, `chooseOpeningRung`), so t0 up to 2 Mb/s and 480p at 12 Mb/s.
     Opening on the biggest rung that FIT cost 12.7s at 1.5 Mb/s. Opening everyone on t0 showed
@@ -51,9 +53,12 @@ link` (`openingRungShare`, `chooseOpeningRung`), so t0 up to 2 Mb/s and 480p at 
     transcode is a second or two of spin-up. NEVER beside a copy that leads: at 30 Mb/s the 3 MB
     of t5 took the link from the copy's first segment and AVPlayer opened on t0.
 - The initial producer decision remains measured (`decideCopy`). An unknown rate is slow.
-- The master now lists the full eligible ladder. Admission defers unaffordable routes with
-  HTTP 503 before sending media headers; a permanently unavailable copy returns 410.
-  Link changes do not prune the master or rebuild the player.
+- A ladder master lists the full eligible ladder. Admission defers unaffordable routes with
+  HTTP 503 before sending media headers; a permanently unavailable copy returns 410. A copy-only
+  master never defers its copy (`copyOnlyMaster`): there is no other variant.
+- A copy-only session that starves on the link hands over to the server lane at the playhead
+  (`handOverToServer` takes a read-bound sample only under `copyOnlyRef`); a source lost under it
+  fails the session instead of handing over to rungs it never listed.
 - Rungs ride `audio-lo`; the copy has both `audio` and `audio-lo` associations: the ladder is the degraded
   path, and 96 kb/s stereo is what a link in trouble can spare. Subtitles are
   one group for every variant, so no switch moves the viewer's track.
@@ -206,10 +211,10 @@ engine measures it itself. Two kinds of evidence, kept apart:
   UNION of overlapping transfers in the last 8s.
 - **A probe counts what ran beside it** (`TransferLedger`): alone it reads its share of a busy
   link. Measured on 0.6 Mb/s: 0.20 alone, 0.59 with the bytes beside it; on 1.5: 0.75 and 1.50.
-- A probe reads up to four seconds of source (`max(512 KB, source / 2)` bytes) and ends early on a
-  link already reading 3x the source (`copyLeadsMargin`) over a megabyte, bytes beside it included
-  (every further byte is one the first copy segment waits behind), at 0.75s once the rate is level,
-  and at 1.5s while it is still climbing. A first byte may take 3s.
+- A probe (`RateProbe`, `RateMeter`) reads the source from its first byte in 100ms samples, bytes
+  beside it included, and stops when ten in a row sit within 3% (fast.com's rule) or at 1.5s. A
+  run that never settles reads as its whole average, stalls included. A first byte may take 3s.
+  The link is the median of the last three probes; a drained player buffer overrules them.
 - **While a rung plays** the wire is re-read every 30s, except while rungs arrive at the pace it
   last read (they ARE the wire then, and a probe takes half a thin link for its length: at
   750 kb/s the segment beside it ran past 6s and AVPlayer stepped down). A probe is asked for at

@@ -166,9 +166,9 @@ final class MasterPlaylistTests: XCTestCase {
         session.renditionBitrates["", default: SegmentBitrates()].record(index: 0, bytes: 7_500_000, duration: 6)
         session.renditionBitrates["a0", default: SegmentBitrates()].record(index: 0, bytes: 600_000, duration: 6)
         session.renditionBitrates["a1", default: SegmentBitrates()].record(index: 0, bytes: 720_000, duration: 6)
-        let variants = session.masterPlaylist().split(separator: "\n").filter { $0.hasPrefix("#EXT-X-STREAM-INF") }
-        XCTAssertTrue(variants[0].contains(":BANDWIDTH=10960000,AVERAGE-BANDWIDTH=6640000,"))
-        XCTAssertTrue(variants[1].contains(":BANDWIDTH=10120000,AVERAGE-BANDWIDTH=6120000,"))
+        let originals = variants(session.masterPlaylist(), uri: "media.m3u8")
+        XCTAssertTrue(originals[0].contains(":BANDWIDTH=10960000,AVERAGE-BANDWIDTH=6640000,"))
+        XCTAssertTrue(originals[1].contains(":BANDWIDTH=10120000,AVERAGE-BANDWIDTH=6120000,"))
     }
 
     func testMuxedAudioIsNotAddedToMeasuredPrimaryTwice() throws {
@@ -244,7 +244,8 @@ final class MasterPlaylistTests: XCTestCase {
         XCTAssertFalse(out.contains("http://x/"))
     }
 
-    private func gateway(audio: [RemuxAudioTrack], videoRange: String = "SDR", link: Double = 30_000_000) throws -> RemuxSession {
+    /// A ladder session: its default link is under the carry margin (6.64 Mb/s x 1.2), or the master names the copy alone.
+    private func gateway(audio: [RemuxAudioTrack], videoRange: String = "SDR", link: Double = 6_000_000) throws -> RemuxSession {
         var config = makeConfig(
             durationSeconds: 18, audioTracks: audio, videoRange: videoRange,
             codecs: "hvc1.2.4.L150.B0,ec-3", supplementalCodecs: videoRange == "PQ" ? "dvh1.08.06/db1p" : "",
@@ -413,15 +414,53 @@ final class MasterPlaylistTests: XCTestCase {
         XCTAssertTrue(master.components(separatedBy: "\n").first { $0.contains("GROUP-ID=\"audio-lo\"") }?.contains("CHANNELS=\"2\"") == true)
     }
 
-    func testOriginalLeadingMarginDoesNotChangeForTheAacAssociation() throws {
-        XCTAssertEqual(RemuxSession.copyLeadsMargin, 3)
+    /// A link that carries the copy never reaches a server rung: the master names the copy alone, with
+    /// no rung, no server audio group and no bridge, and says so to the app. Under the margin the ladder opens it.
+    func testALinkThatCarriesTheCopyGetsTheCopyAlone() throws {
+        XCTAssertEqual(RemuxSession.copyLeadsMargin, 1.2)
         XCTAssertEqual(RemuxSession.openingRungShare, 6)
-        for multiplier in [2.9, 3.0] {
+        for multiplier in [1.19, 1.2, 30.0] {
             let session = try gateway(audio: [serverAudio(1)], link: 6_640_000 * multiplier)
             defer { session.stop() }
-            let firstUri = session.masterPlaylist().components(separatedBy: "\n").first { !$0.isEmpty && !$0.hasPrefix("#") }
-            XCTAssertEqual(firstUri, multiplier < 3 ? "t0.m3u8" : "media.m3u8")
+            var reports: [[String: Any]] = []
+            session.onTier = { reports.append($0) }
+            let master = session.masterPlaylist()
+            let uris = master.components(separatedBy: "\n").filter { !$0.isEmpty && !$0.hasPrefix("#") }
+            if multiplier < 1.2 {
+                XCTAssertEqual(uris.first, "t0.m3u8", "\(multiplier)x")
+                XCTAssertEqual(reports.last?["state"] as? String, "listed")
+                XCTAssertFalse(session.copyOnlyMaster)
+            } else {
+                XCTAssertEqual(uris, ["media.m3u8"], "\(multiplier)x")
+                XCTAssertFalse(master.contains("audio-lo"), "\(multiplier)x")
+                XCTAssertFalse(master.contains("a0s.m3u8"), "\(multiplier)x")
+                XCTAssertFalse(master.contains("SCORE="), "\(multiplier)x")
+                XCTAssertEqual(reports.last?["state"] as? String, "copy")
+                XCTAssertNil(reports.last?["reason"])
+                XCTAssertTrue(session.copyOnlyMaster)
+            }
         }
+    }
+
+    /// A link that carries the copy latches no opening rung, so no server transcode starts.
+    func testALinkThatCarriesTheCopyStartsNoOpeningRung() throws {
+        let session = try gateway(audio: [serverAudio(1)], link: 200_000_000)
+        defer { session.stop() }
+        session.openingRung = nil
+        session.chooseOpeningRung(linkBps: 200_000_000)
+        XCTAssertNil(session.openingRung)
+        session.chooseOpeningRung(linkBps: 6_000_000)
+        XCTAssertNotNil(session.openingRung, "under the margin the ladder opens the session")
+    }
+
+    /// With the copy as the only variant, a link reading under the margin cannot defer it: there is nowhere else to go.
+    func testACopyOnlySessionNeverDefersItsCopyOnTheLink() throws {
+        let session = try gateway(audio: [serverAudio(1)], link: 200_000_000)
+        defer { session.stop() }
+        _ = session.masterPlaylist()
+        XCTAssertTrue(session.copyOnlyMaster)
+        session.testLinkBps = 1_000_000
+        XCTAssertNil(session.copyResponseDeferral())
     }
 
     func testRetryWaitingSourceWithoutALadderRemainsListedAndRecoverable() throws {

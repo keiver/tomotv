@@ -512,10 +512,11 @@ function watchEnginePlan(): void {
   });
 }
 
-/** What the session did with its Slipstream tier: the master's verdict once, then a drop if the server stops delivering. */
+/** What the session did with its Slipstream tier: the master's verdict once, then a drop if the server stops delivering.
+ *  "copy" is a ladder left out because the link carries the copy alone. */
 export interface EngineTierReport {
   token: string;
-  state: "listed" | "declined" | "dropped";
+  state: "listed" | "declined" | "dropped" | "copy";
   reason?: string;
   /** How long the opening segment took to fetch and rewrap. */
   probeSeconds?: number;

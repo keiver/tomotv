@@ -117,13 +117,13 @@ extension RemuxSession {
         return true
     }
 
-    /// A source lost after the master named the copy. That master lists the rungs too, so the
-    /// copy's routes answer 410 from here and AVPlayer carries on with them: the session lives
-    /// where it used to end and leave for the server's single stream. Same test as releaseSource.
+    /// A source lost after the master named the copy beside the rungs: the copy's routes answer 410
+    /// from here and AVPlayer carries on with the rungs. A copy-only master has none, so it fails
+    /// and the app moves to the server. Same test as releaseSource.
     func handOverToRungs(because message: String) -> Bool {
         guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks, tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
         stateLock.lock()
-        let free = copyAnnounced && !sourceReleased && !cancelled && !failed
+        let free = copyAnnounced && !copyOnlyMaster && !sourceReleased && !cancelled && !failed
         if free {
             copyVerdict = .withheld
             sourceState = .unavailable
@@ -174,6 +174,7 @@ extension RemuxSession {
         if sourceState == .unavailable { return .gone }
         guard !config.tiers.isEmpty, !adoptedStarts.isEmpty else { return nil }
         if sourceState == .dormant || sourceState == .retryWait || !sourceReady { return .temporarilyUnavailable }
+        if copyOnlyMaster { return nil }
         let wire = testLinkBps ?? wireLinkBps ?? 0
         if sourceBandwidth > 0 && wire < Double(sourceBandwidth) * 1.2 && !copyBufferHoldsLocked() { return .temporarilyUnavailable }
         return nil

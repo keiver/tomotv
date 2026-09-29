@@ -39,6 +39,7 @@ import {
   stopPlaylistShim,
   slipstreamEligible,
   subscribeEngineLink,
+  subscribeEngineTier,
 } from "@/services/localRemux";
 import { getQualitySettings } from "@/services/jellyfin/session";
 import { Platform } from "react-native";
@@ -1452,6 +1453,57 @@ describe("useVideoPlayback (mounted)", () => {
       });
 
       expect(mockStopLocalRemux).toHaveBeenCalledWith(null);
+    });
+  });
+
+  describe("copy-only master", () => {
+    const token = "token:http://127.0.0.1:9999/s/abc/master.m3u8";
+    // Read-bound (8 of 9s reading) and below realtime (9s for 6s), with nothing ahead of the player.
+    const starving = { token, generation: 0, produceSeconds: 9, segmentSeconds: 6, readSeconds: 8, cushion: 0, throttled: false, thermal: "nominal" };
+
+    async function laddered(state: "copy" | "declined") {
+      (isLocalRemuxAvailable as jest.Mock).mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      mockTierDeclared = true;
+      const mounted = await mount({ videoId: "video-1" });
+      const tier = (subscribeEngineTier as jest.Mock).mock.calls.at(-1)![1];
+      const link = (subscribeEngineLink as jest.Mock).mock.calls.at(-1)![1];
+      await act(async () => link({ bps: 1_500_000 }));
+      await act(async () => tier({ token, state }));
+      return { ...mounted, link };
+    }
+
+    it("takes the cap off, and no later link reading puts one under the only variant", async () => {
+      const { ref, renderer, link } = await laddered("copy");
+      expect(ref.current!.get().maxBitRate).toBeNull();
+      await act(async () => link({ bps: 100_000 }));
+      expect(ref.current!.get().maxBitRate).toBeNull();
+      await act(async () => renderer.unmount());
+    });
+
+    it("hands a link-bound starvation to the server, the one other route, without a verdict on the device", async () => {
+      const { ref, renderer } = await laddered("copy");
+      ref.current!.get().currentTimeRef.current = 42;
+      await act(async () => {
+        throughputListener!({ ...starving, segment: 1 });
+        throughputListener!({ ...starving, segment: 2 });
+      });
+      expect(mockStopLocalRemux).toHaveBeenCalledWith(token);
+      expect(mockProbeEmit).toHaveBeenCalledWith("fallback", expect.objectContaining({ from: "localRemux", to: "transcode" }));
+      expect(mockRecordVerdict).not.toHaveBeenCalled();
+      await act(async () => renderer.unmount());
+    });
+
+    it("keeps a link-bound starvation on the engine when the ladder was declined for another reason", async () => {
+      const { ref, renderer } = await laddered("declined");
+      ref.current!.get().currentTimeRef.current = 42;
+      await act(async () => {
+        throughputListener!({ ...starving, segment: 1 });
+        throughputListener!({ ...starving, segment: 2 });
+      });
+      expect(mockStopLocalRemux).not.toHaveBeenCalled();
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
+      await act(async () => renderer.unmount());
     });
   });
 

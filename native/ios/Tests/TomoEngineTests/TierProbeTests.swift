@@ -313,7 +313,7 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(actualCodec.hasPrefix("avc1.42"))
         XCTAssertTrue(master.contains("CODECS=\"\(actualCodec),mp4a.40.2\""))
         XCTAssertEqual(session.resolvedAudioCodecs["a0"], "mp4a.40.2")
-        XCTAssertLessThan(try XCTUnwrap(master.range(of: "media.m3u8")).lowerBound, try XCTUnwrap(master.range(of: "t0.m3u8")).lowerBound)
+        XCTAssertFalse(master.contains("t0.m3u8"), "a link that carries the copy lists no rung")
         XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg0.ts"), 0)
         XCTAssertEqual(TierServerStub.hitCount("/Audio/x/main.m3u8"), 0)
         XCTAssertEqual(session.probeSeconds, 0)
@@ -524,8 +524,8 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNil(s.tierPlaylist(rung: 0))
     }
 
-    /// A link three times the source starts on the copy; the rungs stay listed after it for a later drop.
-    func testALinkThatCarriesThePrimaryStartsOnIt() throws {
+    /// A link that carries the copy gets the copy alone: no rung is listed and no rung segment is fetched.
+    func testALinkThatCarriesThePrimaryGetsItAlone() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         let (s, reports) = try session(inputUrl: fixtureUrl.absoluteString, linkCeilingBps: 30_000_000)
@@ -533,9 +533,9 @@ final class TierProbeTests: XCTestCase {
         waitForProbe(s)
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("media.m3u8"))
-        XCTAssertTrue(master.contains("t0.m3u8"), "the rung stays listed for a later drop")
-        XCTAssertLessThan(master.range(of: "media.m3u8")!.lowerBound, master.range(of: "t0.m3u8")!.lowerBound, "the copy is the startup variant")
-        XCTAssertEqual(states(reports()), ["listed"])
+        XCTAssertFalse(master.contains("t0.m3u8"))
+        XCTAssertEqual(states(reports()), ["copy"])
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg0.ts"), 0, "no server transcode starts")
     }
 
     // MARK: - The ladder
@@ -716,6 +716,28 @@ final class TierProbeTests: XCTestCase {
 
     // MARK: - A source lost mid-play
 
+    /// A copy-only master has no rung to hand over to: losing the source fails the session, so the app moves to the server.
+    func testASourceLostUnderACopyOnlyMasterFailsTheSession() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                inputUrl: fixtureUrl.absoluteString,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+                tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
+        s.testLinkBps = 30_000_000
+        var failures = 0
+        s.onFailed = { _ in failures += 1 }
+        s.start()
+        defer { s.stop() }
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertFalse(master.contains("t0.m3u8"))
+        s.fail("read_frame: the source went away")
+        XCTAssertTrue(s.hasFailed)
+        XCTAssertEqual(failures, 1, "the app is told, and leaves for the server")
+    }
+
     private func isGone(_ response: LocalHTTPResponse) -> Bool {
         if case .gone = response { return true }
         return false
@@ -730,7 +752,9 @@ final class TierProbeTests: XCTestCase {
                 inputUrl: fixtureUrl.absoluteString,
                 audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
                 tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
-        s.testLinkBps = 30_000_000
+        // Under the carry margin with the copy already admitted: the master lists it beside the rungs.
+        s.testLinkBps = 9_000_000
+        s.copyVerdict = .listed
         var failures = 0
         s.onFailed = { _ in failures += 1 }
         s.start()

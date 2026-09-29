@@ -335,6 +335,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // server transcode floor is a HIGHER bitrate than the lowest rung, so falling
   // to it would regress, not recover; the tier + native producer-hold recover.
   const onTierLaneRef = useRef(false);
+  /** The master named the copy alone (the link carries it): no cap may sit under it, and a link that
+   *  then cannot feed it hands the session to the server, the one other route. */
+  const copyOnlyRef = useRef(false);
   /** The provider this run owns on the non-engine lanes; the engine lane serves its own frames. */
   const frameProviderTokenRef = useRef<string | null>(null);
   const [chapterFrameBaseUrl, setChapterFrameBaseUrl] = useState<string | null>(null);
@@ -865,7 +868,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (details: JellyfinVideoItem, sample: ThroughputSample) => {
       const watch = throughputRef.current;
       // A live channel has no server lane to hand over to.
-      if (!isMountedRef.current || transportRef.current !== "gateway" || watch.handedOver || isLiveRef.current || onTierLaneRef.current || readBound(sample)) return;
+      // A read-bound sample is the link, which the rungs answer; a copy-only master has none, so the server does.
+      if (!isMountedRef.current || transportRef.current !== "gateway" || watch.handedOver || isLiveRef.current || onTierLaneRef.current || (readBound(sample) && !copyOnlyRef.current)) return;
       if (!playsFromDisk(details.Id) && !isAudioOnly(details) && !serverVideoTranscodingAllowed(details)) return;
       watch.handedOver = true;
       const position = currentTimeRef.current;
@@ -1095,7 +1099,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             if (!isMountedRef.current || requestIdRef.current !== currentRequestId || localRemuxTokenRef.current !== token) return;
             probeEmit("link", { bps: Math.round(bps), copyListed: copyListed ?? null });
             setLinkAffordsFrames(!serverVideoOnly && linkAffordsChapterFrames(bps, slipstreamInputBandwidth(details)));
-            if (serverVideoDenied || pinnedCapRef.current != null || transportRef.current !== "gateway") return;
+            if (serverVideoDenied || pinnedCapRef.current != null || transportRef.current !== "gateway" || copyOnlyRef.current) return;
             // Never below the smallest variant in the master: a cap under all of them leaves
             // AVPlayer nothing it may play, and it wanders between every one of them without
             // ever showing a frame (drill S5 at 0.6 Mb/s).
@@ -1124,6 +1128,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           const stopTier = subscribeEngineTier(token, (report) => {
             if (!ownsAttempt() || localRemuxTokenRef.current !== token) return;
             onTierLaneRef.current = report.state === "listed";
+            copyOnlyRef.current = report.state === "copy";
+            if (copyOnlyRef.current && linkCapRef.current > 0) {
+              linkCapRef.current = 0;
+              setVideoMaxBitRate(pinnedCapRef.current);
+            }
           });
           throughputRef.current.unsubscribe = () => {
             stopThroughput();
@@ -1263,6 +1272,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           bufferReportRef.current = { at: 0, sinceSeek: true };
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
+          copyOnlyRef.current = false;
           if (!serverVideoDenied && !isLiveRef.current && (serverVideoOnly || slipstreamEligible(details)) && !playsFromDisk(videoId)) {
             const quality = await getQualitySettings();
             if (requestIdRef.current !== currentRequestId) return false;
@@ -1538,6 +1548,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           bufferReportRef.current = { at: 0, sinceSeek: true };
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
+          copyOnlyRef.current = false;
           setVideoMaxBitRate(null);
           setForwardBufferSeconds(null);
         }
@@ -2689,6 +2700,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     bufferReportRef.current = { at: 0, sinceSeek: true };
     setForwardBufferSeconds(null);
     onTierLaneRef.current = false;
+    copyOnlyRef.current = false;
     stopFrameProvider(frameProviderTokenRef.current);
     frameProviderTokenRef.current = null;
     setChapterFrameBaseUrl(null);
