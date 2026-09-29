@@ -258,6 +258,8 @@ export function retainLiveSession(channel: HotChannel): boolean {
   trim();
   if (hot.get(channel.channelId) !== entry) return true;
   void setLiveWindow(channel.token, HOT_WINDOW_SECONDS);
+  // A neighbour again: the next channel's playback may take its origin connection.
+  void setLiveSessionPriority(channel.token, "ring");
   return true;
 }
 

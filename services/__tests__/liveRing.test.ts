@@ -191,6 +191,7 @@ describe("liveRing", () => {
 
     expect(retainLiveSession(left)).toBe(true);
     expect(setLiveWindow).toHaveBeenCalledWith("c10-s", 20);
+    expect(setLiveSessionPriority).toHaveBeenCalledWith("c10-s", "ring");
     recenterLiveRing(RING, "c11", true);
     await flush();
     expect(stopLocalRemux).not.toHaveBeenCalledWith("c10-s");
