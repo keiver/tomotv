@@ -142,6 +142,29 @@ function LiveTvScreen() {
           },
     [params.name, openRecordings, openChannels, openSchedule],
   );
+  // Built apart from the canvas so the compiler keys it on the band's own inputs, not every guide render.
+  const hudRow = (
+    <GuideHud
+      cornerWidth={IS_TV ? COLUMN_WIDTH : PHONE_REFRESH_CELL_WIDTH}
+      cornerActions={
+        IS_TV ? (
+          <GuideCornerActions
+            filtered={filtered}
+            onChannels={openChannels}
+            onRecordings={openRecordings}
+            onSchedule={openSchedule}
+            onRefreshGuide={hasExternalGuide ? refreshGuide : undefined}
+            refreshing={guide.isUpdating}
+            onFirstRef={handleFirstActionRef}
+          />
+        ) : hasExternalGuide ? (
+          <HudAction label={t("liveTv.guideRefresh")} onPress={refreshGuide} disabled={guide.isUpdating} icon={<Ionicons name="refresh-outline" size={HUD_ACTION_ICON} color={COLORS.ACCENT} />} />
+        ) : undefined
+      }
+      onSelectedHandle={setStripHandle}
+      updating={guideWorking}
+    />
+  );
 
   return (
     <>
@@ -155,33 +178,7 @@ function LiveTvScreen() {
               guide={guide}
               filter={preferences.filter}
               topFocusHandle={stripHandle ?? topFocusHandle}
-              hudRow={
-                <GuideHud
-                  cornerWidth={IS_TV ? COLUMN_WIDTH : PHONE_REFRESH_CELL_WIDTH}
-                  cornerActions={
-                    IS_TV ? (
-                      <GuideCornerActions
-                        filtered={filtered}
-                        onChannels={openChannels}
-                        onRecordings={openRecordings}
-                        onSchedule={openSchedule}
-                        onRefreshGuide={hasExternalGuide ? refreshGuide : undefined}
-                        refreshing={guide.isUpdating}
-                        onFirstRef={handleFirstActionRef}
-                      />
-                    ) : hasExternalGuide ? (
-                      <HudAction
-                        label={t("liveTv.guideRefresh")}
-                        onPress={refreshGuide}
-                        disabled={guide.isUpdating}
-                        icon={<Ionicons name="refresh-outline" size={HUD_ACTION_ICON} color={COLORS.ACCENT} />}
-                      />
-                    ) : undefined
-                  }
-                  onSelectedHandle={setStripHandle}
-                  updating={guide.isUpdating || guide.isLoading}
-                />
-              }
+              hudRow={hudRow}
               onProgramPress={handleProgramPress}
               onProgramLongPress={openProgram}
               onChannelPress={handleChannelPress}
