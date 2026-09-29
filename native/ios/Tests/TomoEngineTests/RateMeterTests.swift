@@ -137,13 +137,13 @@ final class RateMeterTests: XCTestCase {
         XCTAssertEqual(straddling.kind, .unsettled)
         XCTAssertEqual(straddling.lowBps / mbps, 50, accuracy: 0.05)
         XCTAssertEqual(straddling.highBps / mbps, 200, accuracy: 0.2)
-        XCTAssertEqual(straddling.bps / mbps, (5 * 200 + 5 * 50) / 10, accuracy: 0.1)
+        XCTAssertEqual(straddling.bps / mbps, 200, accuracy: 0.2, "the slow tail is under a quarter of the volume, so it is trimmed")
         let settled = trace.read(at: 1.71)
         XCTAssertEqual(settled.kind, .steady)
         XCTAssertEqual(settled.bps / mbps, 50, accuracy: 0.05)
     }
 
-    func testJitterNeverSettlesAndReadsTheExactWindowMean() {
+    func testJitterNeverSettlesAndReadsTheTrimmedRun() {
         var random = Lcg(state: 42)
         let factors = (0..<200).map { _ in 0.7 + random.next() * 0.6 }
         let rate: (Double) -> Double = { t in 100 * mbps * factors[min(factors.count - 1, Int(t / 0.03))] }
@@ -156,7 +156,9 @@ final class RateMeterTests: XCTestCase {
         windowed.transfer(1, from: 0, to: 3, rate: rate)
         let reading = windowed.read(at: 1.52)
         XCTAssertEqual(reading.kind, .unsettled)
-        XCTAssertEqual(reading.bps, integral(rate, 0.5, 1.5), accuracy: reading.bps * 0.000_1)
+        let bins = (0..<15).map { integral(rate, Double($0) * 0.1, Double($0 + 1) * 0.1) / 8 }
+        XCTAssertEqual(reading.bps, RateMeter.trimmedBps(bins, interval: 0.1), accuracy: reading.bps * 0.000_1)
+        XCTAssertEqual(reading.bps / mbps, 100, accuracy: 10, "±30% jitter reads near its mean")
         XCTAssertLessThan(reading.lowBps, reading.bps)
         XCTAssertGreaterThan(reading.highBps, reading.bps)
     }
@@ -262,5 +264,44 @@ final class RateMeterTests: XCTestCase {
         XCTAssertEqual(reading.kind, .steady)
         XCTAssertEqual(reading.bps / mbps, 50, accuracy: 0.05)
         XCTAssertLessThanOrEqual(trace.meter.retainedSamples, 6 * trace.meter.span + 1)
+    }
+
+    // MARK: - Speedtest's trimmed estimate
+
+    private func trimmed(_ rates: [Double]) -> Double {
+        RateMeter.trimmedBps(rates.map { $0 * mbps * 0.1 / 8 }, interval: 0.1) / mbps
+    }
+
+    func testTrimmedReadsAFlatRunExactly() {
+        XCTAssertEqual(trimmed(Array(repeating: 200, count: 30)), 200, accuracy: 0.001)
+        XCTAssertEqual(trimmed([7]), 7, accuracy: 0.001)
+    }
+
+    func testTrimmedDropsTheStallsAWifiRunHas() {
+        // Shape of the TV runs: ~200 with 100ms stalls down to 1 Mb/s and bursts to 300 and 400.
+        let run: [Double] = [180, 210, 1, 205, 300, 190, 1, 215, 400, 200, 195, 1, 210, 205, 220, 190, 200, 210, 185, 205,
+                             200, 1, 215, 195, 210, 300, 190, 205, 200, 210]
+        XCTAssertEqual(trimmed(run), 200, accuracy: 10)
+        let lastWindow = run.suffix(10).reduce(0, +) / 10
+        XCTAssertLessThan(abs(trimmed(run) - 200), abs(lastWindow - 200) + 0.001)
+    }
+
+    func testTrimmedDropsTheRamp() {
+        let ramp: [Double] = [20, 45, 90, 160] + Array(repeating: 240, count: 16)
+        XCTAssertEqual(trimmed(ramp), 240, accuracy: 0.5)
+    }
+
+    func testTrimmedIsZeroForNothing() {
+        XCTAssertEqual(trimmed([]), 0)
+        XCTAssertEqual(trimmed([0, 0, 0]), 0)
+    }
+
+    func testSamplesAreTheSettledRates() {
+        var trace = Trace()
+        trace.transfer(1, from: 0, to: 1.5) { _ in 100 * mbps }
+        _ = trace.read(at: 2)
+        let samples = trace.meter.samples()
+        XCTAssertEqual(samples.count, 15)
+        for rate in samples { XCTAssertEqual(rate / mbps, 100, accuracy: 0.1) }
     }
 }

@@ -7,7 +7,7 @@ struct RateMeter {
     enum Kind: Equatable {
         /// The last window's samples lie within the tolerance of their mean (fast.com's stop rule).
         case steady
-        /// A full window that has not settled, read as its mean.
+        /// A full window that has not settled, read by Speedtest's trimmed estimate over the whole run.
         case unsettled
         /// Less than one window of flowing time, read as its average.
         case short
@@ -86,8 +86,35 @@ struct RateMeter {
         let mean = rates.reduce(0, +) / Double(span)
         let low = rates.min() ?? 0
         let high = rates.max() ?? 0
-        let steady = mean > 0 && high - low <= tolerance * mean
-        return Reading(kind: steady ? .steady : .unsettled, bps: mean, lowBps: low, highBps: high, seconds: seconds)
+        guard mean > 0, high - low <= tolerance * mean else {
+            let run = (firstBin..<settledBins).map { bytes(in: $0) }
+            return Reading(kind: .unsettled, bps: Self.trimmedBps(run, interval: interval), lowBps: low, highBps: high, seconds: seconds)
+        }
+        return Reading(kind: .steady, bps: mean, lowBps: low, highBps: high, seconds: seconds)
+    }
+
+    /// Every settled sample's rate, oldest first.
+    func samples() -> [Double] {
+        (firstBin..<settledBins).map { bytes(in: $0) * 8 / interval }
+    }
+
+    /// Speedtest's estimate (FastBTS, NSDI '21, §2): the run cut into 20 slices of equal volume, the 5
+    /// slowest and 2 fastest dropped, the rest averaged. A ramp and a stall fall among the slowest.
+    static func trimmedBps(_ bins: [Double], interval: Double) -> Double {
+        let total = bins.reduce(0, +)
+        guard total > 0 else { return 0 }
+        func time(reaching volume: Double) -> Double {
+            var sum = 0.0
+            for (index, bytes) in bins.enumerated() where bytes > 0 {
+                if sum + bytes >= volume { return (Double(index) + (volume - sum) / bytes) * interval }
+                sum += bytes
+            }
+            return Double(bins.count) * interval
+        }
+        let slice = total / 20
+        let durations = (0..<20).map { time(reaching: slice * Double($0 + 1)) - time(reaching: slice * Double($0)) }.sorted()
+        let kept = durations.dropFirst(2).dropLast(5).reduce(0, +)
+        return kept > 0 ? slice * 13 * 8 / kept : 0
     }
 
     private var flowingSeconds: Double {

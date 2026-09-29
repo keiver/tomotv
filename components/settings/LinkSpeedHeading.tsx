@@ -1,5 +1,5 @@
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
-import { settingsStyles } from "@/components/settings/styles";
+import { goldRowShadow, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { carriedRungs } from "@/services/adaptiveQuality";
@@ -17,6 +17,9 @@ interface LinkSpeedHeadingProps {
   measuring: boolean;
   /** A press on the heading asks for a fresh measurement. */
   onRemeasure?: () => void;
+  /** TV focus, so the card below can take the gold heading as its top edge. */
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 /**
@@ -25,7 +28,7 @@ interface LinkSpeedHeadingProps {
  * the rows scroll under it and the per-row "needs N Mbps" marks keep a
  * reference. What that speed buys is the Auto row's meter, not this line.
  */
-export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSpeedHeadingProps) {
+export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure, onFocus, onBlur }: LinkSpeedHeadingProps) {
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
   const measured = mbps != null && !measuring;
   // Short on purpose: the pending strings share the header line with the title.
@@ -57,7 +60,7 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSp
       </View>
     );
   }
-  // On TV focus fills the heading with the rows' gold, so the select press has a visible target.
+  // On TV focus fills the heading with the rows' gold as the card's top edge, the way a focused first row fills it.
   return (
     <Pressable
       style={({ focused, pressed }) => [
@@ -66,9 +69,12 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSp
         Platform.isTV && styles.tvHeading,
         Platform.isTV && focused && !pressed && settingsStyles.listItemFocused,
         Platform.isTV && pressed && settingsStyles.listItemPressed,
+        Platform.isTV && (focused || pressed) && goldRowShadow(true, false, false),
         !Platform.isTV && pressed && styles.pressed,
       ]}
       onPress={onRemeasure}
+      onFocus={onFocus}
+      onBlur={onBlur}
       disabled={measuring}
       isTVSelectable
       tvParallaxProperties={{ enabled: false }}
@@ -102,6 +108,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   tvHeading: {
-    borderRadius: 32,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
   },
 });

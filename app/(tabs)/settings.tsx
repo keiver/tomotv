@@ -118,6 +118,7 @@ export default function SettingsScreen() {
   // capacity marks. On focus, not on mount: the tab stays mounted across a server switch.
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [measuring, setMeasuring] = useState(false);
+  const [headingFocused, setHeadingFocused] = useState(false);
   const [syncPlay, setSyncPlay] = useState<SyncPlaySnapshot | null>(null);
 
   useEffect(() => subscribeSyncPlay(setSyncPlay), []);
@@ -329,14 +330,14 @@ export default function SettingsScreen() {
 
           {screenState === "CONNECTED" && (
             <>
-              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} />
+              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} onFocus={() => setHeadingFocused(true)} onBlur={() => setHeadingFocused(false)} />
 
               {/* The preset list is taller than the space left under the server card, so it
                   scrolls inside the section instead of running off the bottom of the screen.
                   The wrapper carries the section's radius + overflow: hidden (clipping rows to
                   the card corners) and its inset shadow, which stays pinned to the card edges
                   while the transparent rows scroll over it. */}
-              <View style={styles.section}>
+              <View style={[styles.section, headingFocused && styles.sectionCapped]}>
                 <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
                   {QUALITY_PRESETS.map((preset, index) => {
                     const selected = videoQuality === preset.value;

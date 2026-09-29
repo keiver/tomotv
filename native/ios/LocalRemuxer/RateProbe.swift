@@ -6,6 +6,8 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
     struct Outcome {
         let reading: RateMeter.Reading?
         let failure: LinkProbeFailure?
+        /// Each settled 100ms sample's rate, for reading a run back.
+        var samples: [Double] = []
     }
 
     private let request: URLRequest
@@ -50,7 +52,7 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
         }
         lock.lock()
         finished = true
-        let outcome = Outcome(reading: firstByteAt == nil ? nil : meter.reading(), failure: failure)
+        let outcome = Outcome(reading: firstByteAt == nil ? nil : meter.reading(), failure: failure, samples: meter.samples())
         lock.unlock()
         session.invalidateAndCancel()
         return outcome

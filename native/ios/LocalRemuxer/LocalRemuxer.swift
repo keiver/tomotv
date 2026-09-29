@@ -620,7 +620,7 @@ class LocalRemuxer: RCTEventEmitter {
         }
     }
 
-    /// Times the link to a URL with the engine's own probe: {bps, kind, seconds, low, high}, or null when nothing flowed.
+    /// Times the link to a URL with the engine's own probe: {bps, kind, seconds, low, high, samples}, or null when nothing flowed.
     @objc func measureLink(
         _ url: NSString,
         headers: NSDictionary,
@@ -643,7 +643,7 @@ class LocalRemuxer: RCTEventEmitter {
             case .unsettled: kind = "unsettled"
             case .short: kind = "short"
             }
-            resolve(["bps": reading.bps, "kind": kind, "seconds": reading.seconds, "low": reading.lowBps, "high": reading.highBps])
+            resolve(["bps": reading.bps, "kind": kind, "seconds": reading.seconds, "low": reading.lowBps, "high": reading.highBps, "samples": outcome.samples])
         }
     }
 
