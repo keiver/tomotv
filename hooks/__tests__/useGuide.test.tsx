@@ -125,6 +125,19 @@ describe("useGuide", () => {
     expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["new"]);
   });
 
+  it("drops the last sign-in's timers when they land after the switch", async () => {
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    let landOld: (timers: unknown[]) => void = () => {};
+    (fetchTimers as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (landOld = resolve)));
+    const ref = await mount();
+
+    await act(async () => mockAuthListeners.forEach((cb) => cb()));
+    await settle();
+    await act(async () => landOld([{ Id: "t-old", Name: "a", ProgramId: "a", StartDate: "", EndDate: "", Status: "New" }]));
+    expect(ref.current!.get().timersByProgramId.size).toBe(0);
+  });
+
   it("held to a category, asks the server for that flag and keeps every row it returns", async () => {
     mockPreferences = { ...mockPreferences, filter: "category:kids" };
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(7)], total: 1 });

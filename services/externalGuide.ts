@@ -55,6 +55,8 @@ interface Source {
   failedAt: number | null;
   /** Set by a refresh: the next open re-downloads past the cache's freshness window. */
   force: boolean;
+  /** Bumped by a refresh, so an open that started before it lands closed instead of kept. */
+  epoch: number;
   asked: Set<string>;
   matched: Map<string, GuideMatch>;
   status: GuideSourceStatus;
@@ -64,6 +66,10 @@ const sources = new Map<string, Source>();
 let snapshot: Readonly<Record<string, GuideSourceStatus>> = {};
 let busy = false;
 const listeners = new Set<() => void>();
+/** The guides the last fetch asked, whose cached files the download sweep keeps. */
+let activeUrls: readonly string[] = [];
+
+class StaleOpenError extends Error {}
 
 function publish(): void {
   const next: Record<string, GuideSourceStatus> = {};
@@ -87,6 +93,7 @@ function sourceFor(url: string): Source {
       opening: null,
       failedAt: null,
       force: false,
+      epoch: 0,
       asked: new Set(),
       matched: new Map(),
       status: { url, state: "waiting", progress: null, channels: null, programmes: null, loadedAt: null, asked: 0, matched: [] },
@@ -131,7 +138,7 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
   const fileUri = await cachedGuideFile(
     source.url,
     ({ bytesWritten, totalBytes }) => setStatus(source, { state: "downloading", progress: totalBytes > 0 ? Math.min(1, bytesWritten / totalBytes) : null }),
-    { force },
+    { force, keep: activeUrls },
   );
   setStatus(source, { state: "reading", progress: null });
   // 0: this service closes its own guides, so the native store never evicts one still asked.
@@ -149,25 +156,31 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
 async function ensureOpen(source: Source, windowMs: { from: number; to: number }): Promise<OpenGuide> {
   const covers = (guide: OpenGuide | null): guide is OpenGuide => !!guide && guide.from <= windowMs.from && guide.to >= windowMs.to;
   if (covers(source.open)) return source.open;
-  if (source.opening) {
-    const pending = await source.opening.catch(() => null);
-    if (covers(pending)) return pending;
+  // Waits out every open in flight, so two callers never each open one and orphan the other's handle.
+  let pending = source.opening;
+  while (pending) {
+    const landed = await pending.catch(() => null);
+    if (covers(landed)) return landed;
+    if (covers(source.open)) return source.open;
+    pending = source.opening !== pending ? source.opening : null;
   }
   if (source.failedAt !== null && Date.now() - source.failedAt < FAILURE_TTL_MS) throw new Error("Guide open skipped after a recent failure.");
   const target = { from: windowMs.from, to: windowMs.to + WINDOW_SLACK_MS };
+  const epoch = source.epoch;
   const opening = (async () => {
     close(source);
     try {
       const guide = await openFromUrl(source, target);
-      // A reset or removal while this loaded dropped the source: its guide goes with it.
-      if (sources.get(source.url) !== source) {
+      // A reset, removal or refresh while this loaded retired it: its guide goes with it.
+      if (sources.get(source.url) !== source || source.epoch !== epoch) {
         closeGuide(guide.token).catch(() => {});
-        throw new Error("Guide source was removed while it loaded.");
+        throw new StaleOpenError("Guide open was retired while it loaded.");
       }
       source.open = guide;
       source.failedAt = null;
       return guide;
     } catch (error) {
+      if (error instanceof StaleOpenError) throw error;
       source.failedAt = Date.now();
       if (sources.get(source.url) === source) setStatus(source, { state: "error", progress: null });
       throw error;
@@ -183,6 +196,7 @@ async function ensureOpen(source: Source, windowMs: { from: number; to: number }
 
 /** Closes and forgets the guides no longer in `urls` (removed or switched off). */
 function prune(urls: readonly string[]): void {
+  activeUrls = urls;
   const keep = new Set(urls);
   let changed = false;
   for (const [url, source] of sources) {
@@ -216,6 +230,7 @@ export function refreshExternalGuide(): void {
     close(source);
     source.failedAt = null;
     source.force = true;
+    source.epoch++;
   }
 }
 

@@ -195,13 +195,44 @@ describe("fetchExternalPrograms", () => {
   it("refresh forces the next open past the cache window, once", async () => {
     const channels = [{ channelId: "c1", tvgId: "A.us", name: "A" }];
     await fetchExternalPrograms([URL], channels, WINDOW);
-    expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: false });
+    expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: false, keep: [URL] });
     refreshExternalGuide();
     expect(native.closeGuide).toHaveBeenCalledWith("tok-1");
     await fetchExternalPrograms([URL], channels, WINDOW);
-    expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: true });
+    expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: true, keep: [URL] });
     await fetchExternalPrograms([URL], channels, { from: WINDOW.from, to: WINDOW.to + 3 * DAY });
-    expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: false });
+    expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: false, keep: [URL] });
+  });
+
+  it("two callers queued behind an open that fits neither share one new open, leaving no handle unclosed", async () => {
+    const channels = [{ channelId: "c1", tvgId: "A.us", name: "A" }];
+    let land: () => void = () => {};
+    native.loadGuide.mockImplementationOnce(() => new Promise((resolve) => (land = () => resolve({ token: `tok-${++tokens}`, stats: null }))));
+    const first = fetchExternalPrograms([URL], channels, WINDOW);
+    await new Promise((resolve) => setImmediate(resolve));
+    const later = { from: WINDOW.from, to: WINDOW.to + 3 * DAY };
+    const both = Promise.all([fetchExternalPrograms([URL], channels, later), fetchExternalPrograms([URL], channels, later)]);
+    land();
+    await Promise.all([first, both]);
+    expect(native.loadGuide).toHaveBeenCalledTimes(2);
+    expect(native.closeGuide).toHaveBeenCalledWith("tok-1");
+    expect(native.closeGuide).not.toHaveBeenCalledWith("tok-2");
+  });
+
+  it("a refresh during an open closes what it lands and the next open re-downloads", async () => {
+    const channels = [{ channelId: "c1", tvgId: "A.us", name: "A" }];
+    let land: () => void = () => {};
+    native.loadGuide.mockImplementationOnce(() => new Promise((resolve) => (land = () => resolve({ token: `tok-${++tokens}`, stats: null }))));
+    const first = fetchExternalPrograms([URL], channels, WINDOW);
+    await new Promise((resolve) => setImmediate(resolve));
+    refreshExternalGuide();
+    land();
+    await first;
+    expect(native.closeGuide).toHaveBeenCalledWith("tok-1");
+    expect(guideSourceStatuses()[URL].state).not.toBe("error");
+    await fetchExternalPrograms([URL], channels, WINDOW);
+    expect(cache.cachedGuideFile).toHaveBeenLastCalledWith(URL, expect.any(Function), { force: true, keep: [URL] });
+    expect(native.loadGuide).toHaveBeenCalledTimes(2);
   });
 
   it("closes a guide dropped from the list, forgets one at once, and clears the files on request", async () => {

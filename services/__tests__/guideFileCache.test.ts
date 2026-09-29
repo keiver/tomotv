@@ -75,6 +75,13 @@ describe("cachedGuideFile", () => {
     expect([...fakeFs.keys()].filter((key) => key.includes("guide-"))).toEqual([second.replace("file://", "file://")]);
   });
 
+  it("spares the stale copy of a guide still in use", async () => {
+    const first = await cachedGuideFile(URL);
+    jest.setSystemTime(Date.now() + 49 * HOUR);
+    const second = await cachedGuideFile("http://g/other.xml", undefined, { keep: [URL] });
+    expect([...fakeFs.keys()].filter((key) => key.includes("guide-")).sort()).toEqual([first, second].sort());
+  });
+
   it("reports a held copy's size and landing time, the total on disk, and nothing once cleared", async () => {
     expect(guideFileInfo(URL)).toBeNull();
     expect(guideCacheBytes()).toBe(0);

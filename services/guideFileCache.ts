@@ -1,7 +1,7 @@
 /**
  * guideFileCache.ts
  *
- * Downloaded XMLTV guides on disk, keyed by URL — Jellyfin's XmlTvListingsProvider scheme:
+ * Downloaded XMLTV guides on disk, keyed by URL, Jellyfin's XmlTvListingsProvider scheme:
  * a fresh copy is served without touching the network, a download lands in a temp file and
  * replaces the cached one atomically, and a recent failure skips the network and serves the
  * stale copy when one exists. Guides regenerate at most daily, so the 1 hour freshness
@@ -14,7 +14,7 @@ import { Directory, File, Paths } from "expo-file-system";
 const FRESH_TTL_MS = 60 * 60 * 1000;
 /** A failed download is not retried before this passes; the stale copy serves meanwhile. */
 const FAILURE_TTL_MS = 5 * 60 * 1000;
-/** Copies nobody asked for in two days are swept on the next open. */
+/** Copies of guides no longer in use, untouched for two days, are swept on the next open. */
 const SWEEP_AGE_MS = 48 * 60 * 60 * 1000;
 
 export type GuideDownloadProgress = { bytesWritten: number; totalBytes: number };
@@ -39,10 +39,10 @@ function ageMs(file: File): number {
   return modified ? Date.now() - modified : Number.POSITIVE_INFINITY;
 }
 
-function sweep(dir: Directory, keep: string): void {
+function sweep(dir: Directory, keep: ReadonlySet<string>): void {
   try {
     for (const entry of dir.list()) {
-      if (entry instanceof File && entry.name !== keep && ageMs(entry) > SWEEP_AGE_MS) entry.delete();
+      if (entry instanceof File && !keep.has(entry.name) && ageMs(entry) > SWEEP_AGE_MS) entry.delete();
     }
   } catch (error) {
     logger.warn("Guide cache sweep failed", error, { service: "GuideFileCache" });
@@ -63,9 +63,9 @@ async function fetchToCache(url: string, dir: Directory, file: File, onProgress?
  * The guide at `url` as a local file URI: the cached copy while it is fresh, otherwise a new
  * download (progress reported), and the stale copy when the network fails or failed recently.
  * `force` (the HUD's refresh) skips the freshness window and the failure backoff, never the
- * stale fallback.
+ * stale fallback. `keep` names the other guides in use, whose stale copies the sweep spares.
  */
-export async function cachedGuideFile(url: string, onProgress?: (progress: GuideDownloadProgress) => void, options?: { force?: boolean }): Promise<string> {
+export async function cachedGuideFile(url: string, onProgress?: (progress: GuideDownloadProgress) => void, options?: { force?: boolean; keep?: readonly string[] }): Promise<string> {
   const pending = inFlight.get(url);
   if (pending) {
     if (onProgress) pending.listeners.add(onProgress);
@@ -75,7 +75,7 @@ export async function cachedGuideFile(url: string, onProgress?: (progress: Guide
   if (!dir.exists) dir.create({ intermediates: true });
   const name = keyFor(url);
   const file = new File(dir, name);
-  sweep(dir, name);
+  sweep(dir, new Set([name, ...(options?.keep ?? []).map(keyFor)]));
   if (!options?.force) {
     if (file.exists && ageMs(file) < FRESH_TTL_MS) return file.uri;
     const failed = failedAt.get(url);

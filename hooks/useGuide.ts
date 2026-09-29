@@ -222,11 +222,18 @@ export function useGuide(): GuideState {
     [windowStartMs, sort, list, category, playlistIds, fetchPrograms],
   );
 
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+  // The last sign-in's timers landing late would put REC on this server's channels of the same id.
   const refreshTimers = useCallback(() => {
     fetchTimers()
-      .then(setTimers)
+      .then((timers) => {
+        if (sessionRef.current === session) setTimers(timers);
+      })
       .catch((err) => logger.warn("Timers refresh failed", err, { hook: "useGuide" }));
-  }, []);
+  }, [session]);
 
   /** A load's landings: its first page replaces the list, later pages append the new channels. */
   const landFor = useCallback(
