@@ -143,6 +143,10 @@ final class RemuxSession {
     /// Time the segment spent in the Dolby Vision rewrite and the audio encoder, beside the reads.
     var doviSecondsInSegment: Double = 0
     var audioSecondsInSegment: Double = 0
+    /// The muxer's per-packet writes, the fragment flush at the cut, and the segment file write.
+    var muxSecondsInSegment: Double = 0
+    var flushSecondsInSegment: Double = 0
+    var fileSecondsInSegment: Double = 0
     var bytesInSegment: Int64 = 0
     /// Bytes and read time since the last link sample (one every 512KB; pipeline thread).
     var bytesSinceLinkSample: Int64 = 0

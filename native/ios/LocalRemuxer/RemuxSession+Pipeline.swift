@@ -598,13 +598,17 @@ extension RemuxSession {
             sample["produceSeconds"] = produced
             sample["readSeconds"] = readSecondsInSegment
         }
-        NSLog("[LocalRemuxer] segment %d took %.2fs for %.2fs (read %.2fs of %.1f MB, dolby vision %.2fs, audio %.2fs)%@",
+        NSLog("[LocalRemuxer] segment %d took %.2fs for %.2fs (read %.2fs of %.1f MB, dolby vision %.2fs, audio %.2fs, mux %.2fs, flush %.2fs, file %.2fs)%@",
               n, produced, segmentDurationSeconds(n), readSecondsInSegment, Double(bytesInSegment) / 1_000_000,
-              doviSecondsInSegment, audioSecondsInSegment, sleptOnCap ? ", held" : first ? ", after a restart" : "")
+              doviSecondsInSegment, audioSecondsInSegment, muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment,
+              sleptOnCap ? ", held" : first ? ", after a restart" : "")
         bytesInSegment = 0
         readSecondsInSegment = 0
         doviSecondsInSegment = 0
         audioSecondsInSegment = 0
+        muxSecondsInSegment = 0
+        flushSecondsInSegment = 0
+        fileSecondsInSegment = 0
         sleptOnCap = false
         onThroughput?(sample)
     }
@@ -1577,6 +1581,9 @@ extension RemuxSession {
         func finishSegment(_ n: Int) {
             for rendition in builtRenditions {
                 guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
+                let flushStarted = Date()
+                var fileSecondsSpent = 0.0
+                defer { flushSecondsInSegment += Date().timeIntervalSince(flushStarted) - fileSecondsSpent }
                 let flushed = av_write_frame(ctx, nil) // flush the open fragment
                 avio_flush(avio)
                 // A delay_moov muxer flushed before any packet cannot write its moov (the dac3
@@ -1645,7 +1652,10 @@ extension RemuxSession {
                 let segmentBytes = Self.stypBox.count + data.count
 
                 do {
+                    let fileStarted = Date()
                     try Self.writeSegment(data, lead: Self.stypBox, to: dir.appendingPathComponent(rendition.segmentName(n)))
+                    fileSecondsSpent = Date().timeIntervalSince(fileStarted)
+                    fileSecondsInSegment += fileSecondsSpent
                 } catch {
                     return fail("write \(rendition.segmentName(n)): \(error.localizedDescription)")
                 }
@@ -1805,6 +1815,7 @@ extension RemuxSession {
             segmentClock = Date()
             sleptOnCap = false
             (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment) = (0, 0, 0, 0)
+            (muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment) = (0, 0, 0)
             return true
         }
 
@@ -1858,6 +1869,7 @@ extension RemuxSession {
             segmentClock = Date()
             sleptOnCap = false
             (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment) = (0, 0, 0, 0)
+            (muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment) = (0, 0, 0)
             return true
         }
 
@@ -2407,7 +2419,9 @@ extension RemuxSession {
             rendition.repairTimestamps(pkt, streamIndex: outIndex)
             rendition.noteBaseDts(streamIndex: outIndex, dts: pkt.pointee.dts)
 
+            let muxStarted = Date()
             ret = av_write_frame(ctx, pkt)
+            muxSecondsInSegment += Date().timeIntervalSince(muxStarted)
             if ret < 0 {
                 fail("write_frame: \(averr(ret))")
                 break
