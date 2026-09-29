@@ -204,6 +204,30 @@ extension RemuxSession {
         return box
     }()
 
+    /// Writes `lead` then `body` to a temporary file renamed over `url`, so a reader sees the whole
+    /// segment or none, and a 67 MB body is never copied to be prefixed.
+    static func writeSegment(_ body: Data, lead: Data, to url: URL) throws {
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: temporary.path])
+        }
+        do {
+            let handle = try FileHandle(forWritingTo: temporary)
+            do {
+                try handle.write(contentsOf: lead)
+                try handle.write(contentsOf: body)
+            } catch {
+                try? handle.close()
+                throw error
+            }
+            try handle.close()
+            guard rename(temporary.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+    }
+
     /// An empty free box: legal anywhere between a segment's boxes, and skipped by every parser.
     static let freeBox = Data([0, 0, 0, 8] + Array("free".utf8))
 
@@ -1610,13 +1634,13 @@ extension RemuxSession {
                         offsets[UInt32(outIndex) + 1] = base
                     }
                 }
-                var segment = Self.stypBox + data
                 if !offsets.isEmpty {
-                    Self.patchTfdtToAbsolute(in: &segment, offsets: offsets)
+                    Self.patchTfdtToAbsolute(in: &data, offsets: offsets)
                 }
+                let segmentBytes = Self.stypBox.count + data.count
 
                 do {
-                    try segment.write(to: dir.appendingPathComponent(rendition.segmentName(n)), options: .atomic)
+                    try Self.writeSegment(data, lead: Self.stypBox, to: dir.appendingPathComponent(rendition.segmentName(n)))
                 } catch {
                     return fail("write \(rendition.segmentName(n)): \(error.localizedDescription)")
                 }
@@ -1625,7 +1649,7 @@ extension RemuxSession {
                 stateLock.lock()
                 rendition.completed.insert(n)
                 if !config.isLive {
-                    renditionBitrates[rendition.prefix, default: SegmentBitrates()].record(index: n, bytes: segment.count, duration: duration)
+                    renditionBitrates[rendition.prefix, default: SegmentBitrates()].record(index: n, bytes: segmentBytes, duration: duration)
                 }
                 sourceRetryAttempts = 0
                 recovering = false

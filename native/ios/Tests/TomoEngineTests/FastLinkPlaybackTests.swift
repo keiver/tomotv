@@ -4,6 +4,19 @@ import XCTest
 @testable import TomoEngine
 
 final class FastLinkPlaybackTests: XCTestCase {
+    /// A segment is the styp box then the muxer's bytes, whole or absent, with no copy made to prefix it.
+    func testSegmentWriteIsTheLeadThenTheBodyAndReplacesTheFile() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("seg3.m4s")
+        try Data("stale".utf8).write(to: url)
+        let body = Data((0..<4096).map { UInt8($0 & 0xFF) })
+        try RemuxSession.writeSegment(body, lead: RemuxSession.stypBox, to: url)
+        XCTAssertEqual(try Data(contentsOf: url), RemuxSession.stypBox + body)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), ["seg3.m4s"])
+    }
+
     func testPreparingOriginalVideoDoesNotSendPlaceholderBytes() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 6))
         defer { session.stop() }
