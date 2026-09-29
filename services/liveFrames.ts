@@ -8,6 +8,7 @@
 import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 import { closeLiveStream, openChannel, openRecentlyFailed, resolveChannelOrigin, type ChannelOrigin } from "@/services/jellyfinApi";
 import { showLivePreview, stopLivePreview } from "@/services/livePreview";
+import { getLiveTvPreferences, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
 import { isLocalRemuxAvailable, nativeEmits } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
@@ -104,6 +105,8 @@ let activeSurface: LiveFrameSurface | null = null;
 const MAX_INFLIGHT = 2;
 /** Channels grabs are reading now, each with the generation it started in. */
 const grabbing = new Map<string, number>();
+/** Grabs a cancel reached, a server open still in flight included: their read never starts. */
+const stopped = new Set<string>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 /** Walks every burst on screen; runs while a surface shows one still to walk or still to expire. */
 let ticker: ReturnType<typeof setInterval> | null = null;
@@ -171,6 +174,14 @@ function wire(): void {
     stop();
     cancelGrabs();
   });
+  // A group pick replaces the rows: the grabs reading the old group stop and free the link at once.
+  let filter = getLiveTvPreferences().filter;
+  subscribeLiveTvPreferences(() => {
+    const next = getLiveTvPreferences().filter;
+    if (next === filter) return;
+    filter = next;
+    cancelGrabs();
+  });
 }
 
 /** Read live: a release bundle evaluates this module while launch is still "inactive", before any listener is wired. */
@@ -189,7 +200,9 @@ function stop(): void {
 
 function cancelGrabs(keep?: readonly string[]): void {
   for (const channelId of grabbing.keys()) {
-    if (!keep?.includes(channelId)) void LocalRemuxer?.cancelLiveFrame?.(channelId)?.catch(() => {});
+    if (keep?.includes(channelId)) continue;
+    stopped.add(channelId);
+    void LocalRemuxer?.cancelLiveFrame?.(channelId)?.catch(() => {});
   }
 }
 
@@ -357,6 +370,7 @@ async function pump(): Promise<void> {
     return;
   }
   grabbing.set(due.channelId, generation);
+  stopped.delete(due.channelId);
   void grab(due.channelId).finally(() => {
     grabbing.delete(due.channelId);
     schedule(LIVE_FRAME_SPACING_MS);
@@ -406,8 +420,11 @@ async function grab(channelId: string): Promise<void> {
   let input: GrabInput | null = null;
   try {
     input = await inputFor(channelId, item);
-    // A surface left while the open ran: a cancel sent then met no read, so the open closes here.
-    if (gen !== generation || isPlaybackHeld() || activeSurface === null) return;
+    // A cancel sent while the open ran met no read: the open closes here and the channel stays due.
+    if (gen !== generation || isPlaybackHeld() || activeSurface === null || stopped.has(channelId)) {
+      item.lastAt = wasDueAt;
+      return;
+    }
     if (!input) {
       recordFailure(item, now);
       noteOpenFailure();

@@ -12,6 +12,8 @@ const mockResolveOrigin = jest.fn();
 const mockOpenChannel = jest.fn();
 const mockCloseLiveStream = jest.fn();
 const mockOpenRecentlyFailed = jest.fn((_id: string) => false);
+const mockPreferences = { filter: "all" as string };
+const mockPreferenceListeners = new Set<() => void>();
 let appStateListener: ((state: string) => void) | null = null;
 
 jest.mock("react-native", () => {
@@ -54,6 +56,17 @@ const mockShowLivePreview = jest.fn();
 jest.mock("@/services/livePreview", () => ({ showLivePreview: (id: string | null) => mockShowLivePreview(id), stopLivePreview: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true, nativeEmits: (event: string) => event === "onLiveFrame" }));
+jest.mock("@/services/liveTvPreferences", () => ({
+  getLiveTvPreferences: () => mockPreferences,
+  subscribeLiveTvPreferences: (listener: () => void) => {
+    mockPreferenceListeners.add(listener);
+    return () => mockPreferenceListeners.delete(listener);
+  },
+}));
+const pickGroup = (filter: string) => {
+  mockPreferences.filter = filter;
+  for (const listener of mockPreferenceListeners) listener();
+};
 jest.mock("@/services/jellyfinApi", () => ({
   resolveChannelOrigin: (id: string) => mockResolveOrigin(id),
   openChannel: (id: string, item: unknown, options: unknown) => mockOpenChannel(id, item, options),
@@ -527,6 +540,53 @@ describe("live frames", () => {
     await flush();
     expect(grabs()).toEqual([]);
     expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t1");
+  });
+
+  it("starts no read for a grab whose card scrolled away while its server open ran, and asks it again when it returns", async () => {
+    let opened: (() => void) | undefined;
+    mockOpenChannel.mockImplementation((id: string) => new Promise((resolve) => (opened = () => resolve({ Id: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://jf/${id}.ts` }))));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["t1"]);
+    await advance(0);
+
+    setLiveFrameViewable("guide", ["m2"]);
+    expect(mockCancel.mock.calls).toEqual([["t1"]]);
+    opened?.();
+    await flush();
+    expect(grabs()).toEqual([]);
+    expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t1");
+
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m2"]);
+    mockOpenChannel.mockImplementation(async (id: string) => ({ Id: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://jf/${id}.ts` }));
+    setLiveFrameViewable("guide", ["t1"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m2", "t1"]);
+  });
+
+  it("stops every grab on a group pick, the one still opening included", async () => {
+    let opened: (() => void) | undefined;
+    mockOpenChannel.mockImplementation((id: string) => new Promise((resolve) => (opened = () => resolve({ Id: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://jf/${id}.ts` }))));
+    let answer: ((result: unknown) => void) | undefined;
+    mockLiveFrame.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "t2"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1"]);
+    expect(mockOpenChannel).toHaveBeenCalledWith("t2", undefined, { quiet: true });
+
+    pickGroup("favorites");
+    expect(mockCancel.mock.calls).toEqual([["m1"], ["t2"]]);
+    opened?.();
+    await flush();
+    expect(grabs()).toEqual(["m1"]);
+    expect(mockCloseLiveStream).toHaveBeenCalledWith("ls-t2");
+    pickGroup("favorites");
+    expect(mockCancel).toHaveBeenCalledTimes(2);
+    answer?.({ uris: [], cancelled: true });
+    await flush();
+    pickGroup("all");
   });
 
   it("promotes the card focused past its dwell to a live preview while it samples, and drops it when focus moves", async () => {
