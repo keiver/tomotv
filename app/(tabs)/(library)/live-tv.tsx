@@ -22,7 +22,7 @@ import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptio
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaListener, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 const COLUMN_WIDTH = guideMetrics(IS_TV).channelColumnWidth;
@@ -43,7 +43,12 @@ export default function LiveTvRoute() {
 
 function LiveTvScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const contextInsets = useSafeAreaInsets();
+  // TV: the tab's SafeAreaProvider first renders with the window's insets, then the tab bar's;
+  // the body waits for this view's own native measurement so it never lays out twice.
+  const [measuredInsets, setMeasuredInsets] = useState<EdgeInsets | null>(null);
+  const handleInsets = useCallback(({ insets: next }: { insets: EdgeInsets }) => IS_TV && setMeasuredInsets(next), []);
+  const insets = IS_TV ? measuredInsets : contextInsets;
   const headerHeight = useHeaderHeight();
   const { showGlobalLoader } = useLoadingActions();
   const params = useLocalSearchParams<{ name?: string }>();
@@ -113,9 +118,9 @@ function LiveTvScreen() {
   const openChannels = useCallback(() => router.push("/channels"), [router]);
 
   // TV frames the column half a grid edge in; phone runs it flush to the screen edge.
-  const edgeLeft = IS_TV ? gridEdgePadding(insets.left, IS_TV) / 2 : insets.left;
+  const edgeLeft = IS_TV ? gridEdgePadding(insets?.left ?? 0, IS_TV) / 2 : (insets?.left ?? 0);
   // Phone: the transparent native header floats over the content, so the body starts under it.
-  const topClearance = IS_TV ? 10 + insets.top : headerHeight + 8;
+  const topClearance = IS_TV ? 10 + (insets?.top ?? 0) : headerHeight + 8;
   // Phone: Channels, Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
@@ -141,48 +146,50 @@ function LiveTvScreen() {
   return (
     <>
       <Stack.Screen options={screenOptions} />
-      <View style={styles.container}>
+      <SafeAreaListener style={styles.container} onChange={handleInsets}>
         <AmbientBackground />
-        <View style={[styles.body, { paddingLeft: edgeLeft, paddingTop: topClearance }]}>
-          <GuideCanvas
-            key={session}
-            guide={guide}
-            filter={preferences.filter}
-            topFocusHandle={stripHandle ?? topFocusHandle}
-            hudRow={
-              <GuideHud
-                cornerWidth={IS_TV ? COLUMN_WIDTH : PHONE_REFRESH_CELL_WIDTH}
-                cornerActions={
-                  IS_TV ? (
-                    <GuideCornerActions
-                      filtered={filtered}
-                      onChannels={openChannels}
-                      onRecordings={openRecordings}
-                      onSchedule={openSchedule}
-                      onRefreshGuide={hasExternalGuide ? refreshGuide : undefined}
-                      refreshing={guide.isUpdating}
-                      onFirstRef={handleFirstActionRef}
-                    />
-                  ) : hasExternalGuide ? (
-                    <HudAction
-                      label={t("liveTv.guideRefresh")}
-                      onPress={refreshGuide}
-                      disabled={guide.isUpdating}
-                      icon={<Ionicons name="refresh-outline" size={HUD_ACTION_ICON} color={COLORS.ACCENT} />}
-                    />
-                  ) : undefined
-                }
-                onSelectedHandle={setStripHandle}
-                updating={guide.isUpdating || guide.isLoading}
-              />
-            }
-            onProgramPress={handleProgramPress}
-            onProgramLongPress={openProgram}
-            onChannelPress={handleChannelPress}
-            onChannelLongPress={openChannel}
-          />
-        </View>
-      </View>
+        {insets && (
+          <View style={[styles.body, { paddingLeft: edgeLeft, paddingTop: topClearance }]}>
+            <GuideCanvas
+              key={session}
+              guide={guide}
+              filter={preferences.filter}
+              topFocusHandle={stripHandle ?? topFocusHandle}
+              hudRow={
+                <GuideHud
+                  cornerWidth={IS_TV ? COLUMN_WIDTH : PHONE_REFRESH_CELL_WIDTH}
+                  cornerActions={
+                    IS_TV ? (
+                      <GuideCornerActions
+                        filtered={filtered}
+                        onChannels={openChannels}
+                        onRecordings={openRecordings}
+                        onSchedule={openSchedule}
+                        onRefreshGuide={hasExternalGuide ? refreshGuide : undefined}
+                        refreshing={guide.isUpdating}
+                        onFirstRef={handleFirstActionRef}
+                      />
+                    ) : hasExternalGuide ? (
+                      <HudAction
+                        label={t("liveTv.guideRefresh")}
+                        onPress={refreshGuide}
+                        disabled={guide.isUpdating}
+                        icon={<Ionicons name="refresh-outline" size={HUD_ACTION_ICON} color={COLORS.ACCENT} />}
+                      />
+                    ) : undefined
+                  }
+                  onSelectedHandle={setStripHandle}
+                  updating={guide.isUpdating || guide.isLoading}
+                />
+              }
+              onProgramPress={handleProgramPress}
+              onProgramLongPress={openProgram}
+              onChannelPress={handleChannelPress}
+              onChannelLongPress={openChannel}
+            />
+          </View>
+        )}
+      </SafeAreaListener>
     </>
   );
 }
