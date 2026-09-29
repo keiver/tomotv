@@ -1,4 +1,4 @@
-/** A channel card plays its clip while its guide row holds focus, and only its own row's. */
+/** A channel card plays its clip while its guide row holds focus (only its own row), or in view on touch while playback is not holding the link. */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
@@ -14,6 +14,7 @@ jest.mock("@/hooks/useChannelHealth", () => ({ useChannelHealth: () => "up" }));
 
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { setFocusedGuideRow } from "@/services/guideChannelFocus";
+import { setPlaybackHold } from "@/services/playbackHold";
 import type { JellyfinItem } from "@/types/jellyfin";
 
 const channel = { Id: "c1", Name: "One", Type: "TvChannel" } as JellyfinItem;
@@ -34,6 +35,22 @@ describe("GuideChannelCard", () => {
     act(() => setFocusedGuideRow("c1"));
     expect(card().clipActive).toBe(true);
     act(() => setFocusedGuideRow(null));
+    expect(card().clipActive).toBe(false);
+  });
+
+  it("plays in view on touch, and stops while playback holds the link", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    const render = (playsClipInView: boolean) => <GuideChannelCard channel={channel} index={0} onPress={() => undefined} playsClipInView={playsClipInView} />;
+    act(() => {
+      tree = TestRenderer.create(render(true));
+    });
+    const card = () => tree.root.findByType("VideoGridItem" as never).props as { clipActive?: boolean };
+    expect(card().clipActive).toBe(true);
+    act(() => setPlaybackHold("video", true));
+    expect(card().clipActive).toBe(false);
+    act(() => setPlaybackHold("video", false));
+    expect(card().clipActive).toBe(true);
+    act(() => tree.update(render(false)));
     expect(card().clipActive).toBe(false);
   });
 });

@@ -209,6 +209,7 @@ function ChannelMorph({
           recording={recording}
           onPress={onPress}
           onLongPress={onLongPress}
+          playsClipInView={!compact}
         />
       </Animated.View>
       <Animated.View style={[styles.tileLayer, { width: metrics.compactColumnWidth }, tileStyle]} pointerEvents={compact ? "auto" : "none"}>
