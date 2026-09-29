@@ -48,7 +48,7 @@ All notable changes to Tomo TV are documented here.
 - Search results for an earlier query no longer replace those of the latest one when they arrive late
 - A live stream stayed open on the server after a preview or an ended playback; every open is closed by the app that made it, on the server that made it, and retried from the next launch until the server takes it
 - Two viewers of one channel no longer end each other's stream when one leaves
-- Servers on a plain http address outside the home network connect again; App Transport Security had been left on since the first build
+- Servers on a plain http address outside the home network connect again; App Transport Security had been left on since 1.5.0
 - Menu out of the player pops only the player, never the folder beneath it
 - A queue advance under Picture in Picture swaps the next item inside the window's player, and autoplay advances straight into it
 - The guide window restarts at the current half hour on a new sign-in, and grows until it fills a viewport wider than it
