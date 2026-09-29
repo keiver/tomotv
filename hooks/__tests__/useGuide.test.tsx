@@ -7,6 +7,7 @@ import { AppState, type AppStateStatus } from "react-native";
 import { fetchChannels, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { GUIDE_CHANNEL_PAGE, useGuide } from "../useGuide";
 import { GUIDE_SPAN_MINUTES, MINUTE_MS } from "@/utils/guide";
+import { noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchChannels: jest.fn(),
@@ -35,6 +36,7 @@ let mockPreferences = {
   sort: "number",
   favorites: [] as { id?: string; number?: string; name: string }[],
   groups: [] as { id: string; name: string; channels: { number?: string; name: string }[] }[],
+  hideOffline: false,
 };
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => mockPreferences }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
@@ -86,7 +88,7 @@ const program = (id: string, channelId: string, startMin: number, endMin: number
 describe("useGuide", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [] };
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
   });
 
@@ -330,6 +332,24 @@ describe("useGuide", () => {
     expect(fetchChannels).toHaveBeenCalledTimes(calls);
   });
 
+  it("a channel's health verdict leaves the rows untouched while Hide offline is off, and drops a down channel once it is on", async () => {
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(41), channel(42)], total: 2 });
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    const ref = await mount();
+    const rows = ref.current!.get().rows;
+    await act(async () => {
+      noteChannelAlive("c41");
+      noteChannelOpenFailure("c42", "HTTP 404");
+      noteChannelOpenFailure("c42", "HTTP 404");
+    });
+    expect(ref.current!.get().rows).toBe(rows);
+
+    await changePreferences(ref, { hideOffline: true });
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c41"]);
+    await act(async () => noteChannelAlive("c42"));
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c41", "c42"]);
+  });
+
   it("reports a failed load and retries on request", async () => {
     (fetchChannels as jest.Mock).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ items: [channel(1)], total: 1 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
@@ -351,7 +371,7 @@ describe("useGuide minute tick", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [] };
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [], total: 0 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);

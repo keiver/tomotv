@@ -1,7 +1,8 @@
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
-import { healthFor, healthGeneration, subscribeHealthGeneration } from "@/services/channelHealth";
+import { useHealthGeneration } from "@/hooks/useChannelHealth";
+import { healthFor } from "@/services/channelHealth";
 import { fetchChannels, fetchChannelsByIds, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { activeGuideUrls, fetchExternalPrograms } from "@/services/externalGuide";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences } from "@/services/liveTvPreferences";
@@ -10,7 +11,7 @@ import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jelly
 import { activeRecordTimer, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, mergePrograms, MINUTE_MS } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 
 /** Channels per page: each page's programs load with it; the next page waits until the list nears it. */
@@ -347,7 +348,7 @@ export function useGuide(): GuideState {
 
   // Hide offline narrows to channels whose health check concluded down; unchecked ones stay.
   const { hideOffline } = preferences;
-  const healthGen = useSyncExternalStore(subscribeHealthGeneration, healthGeneration);
+  const healthGen = useHealthGeneration(hideOffline);
   const rows = useMemo<GuideRow[]>(() => {
     const listed = hideOffline ? channels.filter((channel) => healthFor(channel.Id) !== "down") : channels;
     return listed.map((channel) => ({ channel, programs: programsByChannel[channel.Id] ?? [] }));

@@ -13,7 +13,8 @@ import { useChannels } from "@/hooks/useChannels";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
-import { healthFor, healthGeneration, subscribeHealthGeneration } from "@/services/channelHealth";
+import { useHealthGeneration } from "@/hooks/useChannelHealth";
+import { healthFor } from "@/services/channelHealth";
 import { t } from "@/services/i18n";
 import { fetchTimers, searchLiveTv } from "@/services/jellyfinApi";
 import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
@@ -22,7 +23,7 @@ import { activeRecordTimer } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useIsFocused, useRouter, type NativeStackNavigationOptions } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { useHeaderHeight } from "expo-router/react-navigation";
 
@@ -43,7 +44,7 @@ export default function ChannelsScreen() {
   const { items: listed, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannels(preferences.sort, activeCategory(preferences.filter), activeChannelList(preferences), playlistIds);
   const filtered = preferences.filter !== "all";
   // Hide offline narrows to channels whose health check concluded down; unchecked ones stay.
-  const healthGen = useSyncExternalStore(subscribeHealthGeneration, healthGeneration);
+  const healthGen = useHealthGeneration(preferences.hideOffline);
   const wall = useMemo(
     () => (preferences.hideOffline ? listed.filter((channel) => healthFor(channel.Id) !== "down") : listed),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- healthGen re-filters when any verdict moves
