@@ -1788,6 +1788,8 @@ extension RemuxSession {
                 return false
             }
             guard rebuildRenditions() else { return false }
+            // The seek opened a new connection: a sample begun on the old one would span both.
+            restartLinkSample()
 
             // Provisional: the keyframe block below moves currentSegment back
             // to wherever the seek actually landed. producingSegment keeps
@@ -1894,11 +1896,13 @@ extension RemuxSession {
             if heldThisPass { restartLinkSample() }
 
             let readStarted = Date()
+            var fromQueue = false
             if let queued = queuedPacket {
                 av_packet_move_ref(pkt, queued)
                 var freeing: UnsafeMutablePointer<AVPacket>? = queued
                 av_packet_free(&freeing)
                 queuedPacket = nil
+                fromQueue = true
                 ret = 0
             } else {
                 ret = av_read_frame(input, pkt)
@@ -2026,7 +2030,8 @@ extension RemuxSession {
             defer { av_packet_unref(pkt) }
             inputBytesSinceLog += Int64(pkt.pointee.size)
             bytesInSegment += Int64(pkt.pointee.size)
-            noteSourceRead(bytes: Int64(pkt.pointee.size), seconds: readTook)
+            // The queued packet crossed the wire before the loop; handing it over took no read time.
+            if fromQueue { transfers.note(bytes: Int64(pkt.pointee.size)) } else { noteSourceRead(bytes: Int64(pkt.pointee.size), seconds: readTook) }
             stateLock.lock()
             pulledBytes += Int64(pkt.pointee.size)
             stateLock.unlock()

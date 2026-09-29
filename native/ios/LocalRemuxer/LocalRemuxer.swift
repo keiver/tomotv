@@ -703,6 +703,22 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(session != nil)
     }
 
+    /// AVPlayer's buffer past the playhead. Resolves the variant-cap floor the copy needs (0 = none).
+    @objc func setPlayerBuffer(
+        _ token: NSString,
+        aheadSeconds: NSNumber,
+        sinceSeek: Bool,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        guard let session else { return resolve(0) }
+        session.notePlayerBuffer(aheadSeconds: aheadSeconds.doubleValue, sinceSeek: sinceSeek)
+        resolve(session.copyCapFloor())
+    }
+
     /// Cancellation flags for repackages in flight, keyed by item id.
     private static var repackCancels: Set<String> = []
 

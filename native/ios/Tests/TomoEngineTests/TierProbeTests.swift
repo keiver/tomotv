@@ -870,6 +870,62 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(s.wireLinkBps ?? 0, 4_800_000, accuracy: 1, "600 KB read alone in one second is the wire")
     }
 
+    /// A producer read made while a probe runs shared the link with it: a floor, never the wire.
+    func testASourceReadBesideAProbeIsAShareNotTheWire() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        s.finishLinkProbe(200_000_000, reporting: false)
+        let t0 = Date()
+        s.restartLinkSample(now: t0)
+        s.transfers.probeStarted()
+        s.noteSourceRead(bytes: 600_000, seconds: 0.5, now: t0.addingTimeInterval(0.5))
+        XCTAssertEqual(s.wireLinkBps, 200_000_000)
+        XCTAssertEqual(s.floorLinkBps ?? 0, 9_600_000, accuracy: 1)
+        XCTAssertFalse(s.reprobeAsked, "a share of a probed link asks for no probe")
+        s.restartLinkSample(now: t0.addingTimeInterval(0.5))
+        s.transfers.probeEnded()
+        s.noteSourceRead(bytes: 600_000, seconds: 0.5, now: t0.addingTimeInterval(1))
+        XCTAssertEqual(s.wireLinkBps, 200_000_000, "the sample that saw the probe end overlapped it")
+    }
+
+    /// Above the reservoir the buffer keeps the copy: a slow read does not take the link down.
+    func testABufferAboveTheReservoirKeepsTheLink() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        s.finishLinkProbe(200_000_000, reporting: false)
+        s.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps, 200_000_000)
+        s.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds - 4, sinceSeek: false)
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps ?? 0, 48_000_000, accuracy: 1, "a buffer draining into the reservoir lets the link fall")
+    }
+
+    /// Until the buffer first fills, and again after a seek, the probe decides.
+    func testBeforeTheBufferFillsTheProbeDecides() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        s.finishLinkProbe(200_000_000, reporting: false)
+        s.notePlayerBuffer(aheadSeconds: 2, sinceSeek: true)
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps, 200_000_000, "an empty buffer at the start is not a drain")
+        s.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds, sinceSeek: false)
+        s.notePlayerBuffer(aheadSeconds: 1, sinceSeek: true)
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps, 200_000_000, "a seek empties the buffer, it does not drain it")
+    }
+
+    /// A player that stopped reporting leaves the reads in charge.
+    func testAStaleBufferReportLeavesTheReadsInCharge() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        s.finishLinkProbe(200_000_000, reporting: false)
+        s.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        s.playerAheadAt = Date().addingTimeInterval(-(RemuxSession.playerReportStaleSeconds + 1))
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps ?? 0, 48_000_000, accuracy: 1)
+    }
+
     /// The server's audio arrives beside a 64px picture (the one route that maps the track asked
     /// for): the rendition AVPlayer gets is the audio alone, on the session's clock.
     func testTheAudioCarrierIsRewrappedToItsAudioAlone() throws {
@@ -1341,6 +1397,51 @@ final class TierProbeTests: XCTestCase {
         guard case .temporarilyUnavailable = session.route("t1-seg0.m4s") else { return XCTFail("cold rung media must defer before headers") }
         guard case .streamed = session.initResponse(prefix: "a0") else { return XCTFail("audio init does not require capacity for the whole video") }
         guard case .segment = session.segmentResponse(0, prefix: "a0") else { return XCTFail("audio media does not require capacity for the whole video") }
+    }
+
+    /// Before the player reports at all (T105: the reads took 209 Mb/s to 61 at 2.8s, before the
+    /// player loaded, and the copy's next segment got a 503), the probe decides.
+    func testBeforeThePlayerReportsTheProbeDecides() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.finishLinkProbe(200_000_000, reporting: false)
+        session.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(session.wireLinkBps, 200_000_000)
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        session.playerAheadAt = Date().addingTimeInterval(-(RemuxSession.playerReportStaleSeconds + 1))
+        session.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertLessThan(session.wireLinkBps ?? 0, 200_000_000, "a player that stopped reporting leaves the reads in charge")
+    }
+
+    /// A copy AVPlayer holds a full reservoir of is served whatever the link reads, and its
+    /// declared bandwidth is the floor of the app's cap; once the buffer drains the link decides.
+    func testTheBufferNotTheLinkAdmitsACopyInPlay() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.adoptedStarts = [0, 6, 12]
+        session.adoptedDurations = [6, 6, 6]
+        session.sourceState = .ready
+        session.sourceReady = true
+        session.copyAnnounced = true
+        session.announcedCopyBandwidth = 9_600_000
+        session.testLinkBps = 600_000
+        session.lastPrimaryDemandAt = Date()
+        XCTAssertNotNil(session.copyResponseDeferral())
+        XCTAssertEqual(session.copyCapFloor(), 0)
+
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        XCTAssertNil(session.copyResponseDeferral())
+        XCTAssertTrue(session.awaitCopyAdmission(until: Date()))
+        XCTAssertEqual(session.copyCapFloor(), 9_600_000)
+
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds - 4, sinceSeek: false)
+        XCTAssertNotNil(session.copyResponseDeferral())
+        XCTAssertEqual(session.copyCapFloor(), 0)
+
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        session.lastTierDemandAt = Date()
+        session.lastPrimaryDemandAt = Date().addingTimeInterval(-20)
+        XCTAssertNotNil(session.copyResponseDeferral(), "a buffer on a rung is not the copy's")
     }
 
     func testSegmentWaiterFollowsTheRenditionAfterProducerRecovery() throws {

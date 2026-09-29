@@ -1810,6 +1810,21 @@ export async function setLiveSessionPriority(token: string | null, priority: "pl
 }
 
 /**
+ * AVPlayer's buffer past the playhead, for the engine's copy reservoir. Resolves the floor the
+ * variant cap keeps while the engine admits the copy, in bits per second (0 = none).
+ */
+export async function reportPlayerBuffer(token: string, aheadSeconds: number, sinceSeek: boolean): Promise<number> {
+  if (!isLocalRemuxAvailable() || typeof LocalRemuxer.setPlayerBuffer !== "function" || !Number.isFinite(aheadSeconds)) return 0;
+  try {
+    const floor: unknown = await LocalRemuxer.setPlayerBuffer(token, aheadSeconds, sinceSeek);
+    return typeof floor === "number" && Number.isFinite(floor) && floor > 0 ? floor : 0;
+  } catch (error) {
+    logger.debug("Player buffer report failed", { service: "LocalRemux", token, error: String(error) });
+    return 0;
+  }
+}
+
+/**
  * Playlist shim for the server lane: the transcode's playlists re-served through the loopback,
  * with EXT-X-START injected for a resume and, with `sdrInit`, every avc1 init segment retagged
  * BT.709 (PlaylistShim.swift). Null when the module is missing or the shim fails; callers use

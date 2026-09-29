@@ -175,7 +175,7 @@ extension RemuxSession {
         guard !config.tiers.isEmpty, !adoptedStarts.isEmpty else { return nil }
         if sourceState == .dormant || sourceState == .retryWait || !sourceReady { return .temporarilyUnavailable }
         let wire = testLinkBps ?? wireLinkBps ?? 0
-        if sourceBandwidth > 0 && wire < Double(sourceBandwidth) * 1.2 { return .temporarilyUnavailable }
+        if sourceBandwidth > 0 && wire < Double(sourceBandwidth) * 1.2 && !copyBufferHoldsLocked() { return .temporarilyUnavailable }
         return nil
     }
 

@@ -129,6 +129,7 @@ jest.mock("@/services/localRemux", () => ({
   }),
   offeredTierBandwidths: jest.fn(() => [496_000, 896_000]),
   subscribeEngineLink: jest.fn(() => jest.fn()),
+  reportPlayerBuffer: jest.fn(async () => 0),
   subscribeEngineStage: jest.fn(() => jest.fn()),
   subscribeEngineTier: jest.fn(() => jest.fn()),
   subscribeEngineFailure: jest.fn((_token: string, listener: (failure: unknown) => void) => {

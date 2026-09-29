@@ -147,6 +147,15 @@ final class RemuxSession {
     var besideAtLinkSample: Int64 = 0
     var linkSampleStartedAt = Date()
     var readSecondsSinceLinkSample: Double = 0
+    /// The probe mark (TransferLedger.probeMark) the running source sample began under.
+    var probeMarkAtLinkSample = 0
+    /// Seconds AVPlayer holds past its playhead, as the app last reported them, and whether that
+    /// buffer has reached the reservoir since the last seek (under stateLock).
+    var playerAheadSeconds: Double?
+    var playerAheadAt = Date.distantPast
+    var playerBufferFilled = false
+    /// The copy's declared BANDWIDTH once a master names it (under stateLock).
+    var announcedCopyBandwidth: Int?
     /// The pull since the pipeline started, for the app's pre-flight (progress(); under stateLock).
     var pulledBytes: Int64 = 0
     var pulledReadSeconds: Double = 0

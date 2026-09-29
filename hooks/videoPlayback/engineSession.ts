@@ -90,12 +90,15 @@ export function stillPullingInput<T extends EngineProgressReading>(progress: T |
 /**
  * The ceiling AVPlayer picks its variant under. Never below the smallest variant the master
  * lists: a cap under all of them leaves AVPlayer nothing it may play and it wanders between
- * every one without showing a frame (drill S5 at 0.6 Mb/s). Null when the move is too small
- * to be worth re-evaluating the variant for.
+ * every one without showing a frame (drill S5 at 0.6 Mb/s). Never below the copy while the engine
+ * admits it (`copyFloorBps`). Null when the move is too small to be worth re-evaluating the variant for.
  */
-export function nextLinkCap(input: { bps: number; currentCap: number; floorBps: number }): number | null {
-  const cap = Math.max(Math.round(input.bps * LINK_CAP_SHARE), input.floorBps);
-  if (input.currentCap > 0 && Math.abs(cap - input.currentCap) < input.currentCap * LINK_CAP_HYSTERESIS) return null;
+export function nextLinkCap(input: { bps: number; currentCap: number; floorBps: number; copyFloorBps?: number }): number | null {
+  const copyFloor = input.copyFloorBps ?? 0;
+  const cap = Math.max(Math.round(input.bps * LINK_CAP_SHARE), input.floorBps, copyFloor);
+  // A cap below the copy the engine admits is lifted however small the move.
+  const liftsToCopy = copyFloor > input.currentCap;
+  if (input.currentCap > 0 && !liftsToCopy && Math.abs(cap - input.currentCap) < input.currentCap * LINK_CAP_HYSTERESIS) return null;
   return cap;
 }
 

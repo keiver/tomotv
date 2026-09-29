@@ -83,6 +83,19 @@ describe("nextLinkCap", () => {
   it("follows a material drop", () => {
     expect(nextLinkCap({ bps: 4_000_000, currentCap: 8_000_000, floorBps: 0 })).toBe(3_200_000);
   });
+
+  it("never caps below a copy the engine admits", () => {
+    // T105: a 122.4 Mb/s reading capped AVPlayer at 97.9 under the copy's declared 109.4.
+    expect(nextLinkCap({ bps: 122_400_000, currentCap: 0, floorBps: 0, copyFloorBps: 109_371_970 })).toBe(109_371_970);
+  });
+
+  it("lifts a cap to the copy however small the move", () => {
+    expect(nextLinkCap({ bps: 130_000_000, currentCap: 104_000_000, floorBps: 0, copyFloorBps: 109_371_970 })).toBe(109_371_970);
+  });
+
+  it("follows the link down once the engine stops admitting the copy", () => {
+    expect(nextLinkCap({ bps: 60_000_000, currentCap: 109_371_970, floorBps: 0, copyFloorBps: 0 })).toBe(48_000_000);
+  });
 });
 
 describe("keptForReason", () => {

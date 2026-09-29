@@ -47,6 +47,7 @@ import {
   posterFrameWorkInFlight,
   resolveSubtitlePick,
   offeredTierBandwidths,
+  reportPlayerBuffer,
   slipstreamEligible,
   slipstreamInputBandwidth,
   startLocalRemux,
@@ -112,6 +113,7 @@ import {
   ENGINE_SEGMENT_DEADLINE_MS,
   LIVE_START_DEADLINE_MS,
   LIVE_STALL_DEADLINE_MS,
+  PLAYER_BUFFER_REPORT_MS,
   PLAYHEAD_EPSILON_SEC,
   SLIPSTREAM_FORWARD_BUFFER_SECONDS,
   SUBTITLE_CAPTURE_SETTLE_MS,
@@ -318,6 +320,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const pinnedCapRef = useRef<number | null>(null);
   // Smallest variant the master lists, the floor every measured cap is held above.
   const capFloorRef = useRef(0);
+  // The copy's declared bandwidth while the engine admits it (0 = none), and the last link reading.
+  const copyFloorRef = useRef(0);
+  const lastLinkBpsRef = useRef(0);
+  // When AVPlayer's buffer was last reported to the engine, and whether a seek emptied it since.
+  const bufferReportRef = useRef({ at: 0, sinceSeek: true });
   // True while the session rides the Slipstream tier as its survival floor: the
   // engine primary is unproducible on this link by design, so primary-starvation
   // teardowns (stall restart, engineStarving handover) are suppressed. The plain
@@ -1088,7 +1095,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // Never below the smallest variant in the master: a cap under all of them leaves
             // AVPlayer nothing it may play, and it wanders between every one of them without
             // ever showing a frame (drill S5 at 0.6 Mb/s).
-            const cap = nextLinkCap({ bps, currentCap: linkCapRef.current, floorBps: capFloorRef.current });
+            lastLinkBpsRef.current = bps;
+            const cap = nextLinkCap({ bps, currentCap: linkCapRef.current, floorBps: capFloorRef.current, copyFloorBps: copyFloorRef.current });
             if (cap === null) return;
             linkCapRef.current = cap;
             setVideoMaxBitRate(cap);
@@ -1246,6 +1254,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           if (serverVideoOnly) preparedMode = "transcode";
           linkCapRef.current = 0;
           capFloorRef.current = 0;
+          copyFloorRef.current = 0;
+          lastLinkBpsRef.current = 0;
+          bufferReportRef.current = { at: 0, sinceSeek: true };
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
           if (!serverVideoDenied && !isLiveRef.current && (serverVideoOnly || slipstreamEligible(details)) && !playsFromDisk(videoId)) {
@@ -1518,6 +1529,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           dropThroughputWatch(throughputRef.current);
           linkCapRef.current = 0;
           capFloorRef.current = 0;
+          copyFloorRef.current = 0;
+          lastLinkBpsRef.current = 0;
+          bufferReportRef.current = { at: 0, sinceSeek: true };
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
           setVideoMaxBitRate(null);
@@ -1795,6 +1809,23 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
       syncPlayManager.notePosition(data.currentTime);
       probeProgress(data.currentTime);
+
+      // AVPlayer's buffer feeds the engine's copy reservoir; its answer is the cap's copy floor.
+      const bufferToken = localRemuxTokenRef.current;
+      if (bufferToken && transportRef.current === "gateway" && !isLiveRef.current && Date.now() - bufferReportRef.current.at >= PLAYER_BUFFER_REPORT_MS) {
+        const sinceSeek = bufferReportRef.current.sinceSeek;
+        bufferReportRef.current = { at: Date.now(), sinceSeek: false };
+        void reportPlayerBuffer(bufferToken, Math.max(0, data.playableDuration - data.currentTime), sinceSeek).then((copyFloor) => {
+          if (localRemuxTokenRef.current !== bufferToken || copyFloor === copyFloorRef.current) return;
+          copyFloorRef.current = copyFloor;
+          if (linkCapRef.current <= 0 || pinnedCapRef.current != null) return;
+          const cap = nextLinkCap({ bps: lastLinkBpsRef.current, currentCap: linkCapRef.current, floorBps: capFloorRef.current, copyFloorBps: copyFloor });
+          if (cap === null) return;
+          linkCapRef.current = cap;
+          setVideoMaxBitRate(cap);
+          logger.info("Slipstream cap follows the copy's buffer", { service: "useVideoPlayback", copyFloorMbps: Math.round(copyFloor / 100_000) / 10, capMbps: Math.round(cap / 100_000) / 10 });
+        });
+      }
 
       // A playhead advance disarms the direct-lane stall watchdog (safety
       // for a missed isBuffering:false edge).
@@ -2650,6 +2681,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     linkCapRef.current = 0;
     pinnedCapRef.current = null;
     capFloorRef.current = 0;
+    copyFloorRef.current = 0;
+    lastLinkBpsRef.current = 0;
+    bufferReportRef.current = { at: 0, sinceSeek: true };
     setForwardBufferSeconds(null);
     onTierLaneRef.current = false;
     stopFrameProvider(frameProviderTokenRef.current);
@@ -2886,6 +2920,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onSeek = useCallback(() => {
     // Seek completed, the player clock is trustworthy again for the reporter.
     pendingSeekTargetRef.current = null;
+    // A seek empties AVPlayer's buffer; it is not a drain the engine should step down on.
+    bufferReportRef.current = { at: 0, sinceSeek: true };
     syncPlayManager.noteSeekCompleted(currentTimeRef.current);
     if (!pausedRef.current) {
       videoRef.current?.resume();

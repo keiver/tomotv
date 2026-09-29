@@ -40,6 +40,15 @@ extension RemuxSession {
     static let linkRepeatSeconds = 30.0
     /// The shortest gap between two probes, however many slow deliveries ask for one.
     static let linkReprobeGapSeconds = 8.0
+    /// A mid-session probe shorter than this timed mostly the producer's bytes beside it
+    /// (measured: 0.01 to 0.26s probes read 275 to 752 Mb/s on a 150 to 237 Mb/s link).
+    static let linkProbeMinimumSeconds = 0.1
+
+    /// Buffer AVPlayer holds on the copy before a link reading may take the copy from it: a rung
+    /// took 3.1 to 4.55s to start (measured), plus the 6s copy segment already in flight.
+    static let copyReservoirSeconds = 12.0
+    /// A buffer report older than this no longer describes the player.
+    static let playerReportStaleSeconds = 3.0
 
     func probeLink(reporting: Bool = false) {
         guard let url = URL(string: config.inputUrl) else { return finishLinkProbe(nil, reporting: reporting) }
@@ -54,15 +63,28 @@ extension RemuxSession {
         let plenty = sourceBandwidth > 0 ? Double(sourceBandwidth) * Self.copyLeadsMargin : 0
         let meter = LinkMeter(wanted: wanted, window: Self.linkProbeSeconds, settled: Self.linkProbeSettledSeconds, plentyBps: plenty, beside: transfers)
         let session = URLSession(configuration: .ephemeral, delegate: meter, delegateQueue: nil)
+        transfers.probeStarted()
         session.dataTask(with: request).resume()
         _ = meter.done.wait(timeout: .now() + Self.linkProbeStartSeconds + Self.linkProbeSeconds + 0.5)
         session.invalidateAndCancel()
+        transfers.probeEnded()
         let reading = meter.reading()
         if let reading {
             NSLog("[LocalRemuxer] Slipstream: link probe read %.2f Mb/s alone, %.2f Mb/s with the %lld bytes carried beside it, over %.2fs",
                   reading.ownBps / 1_000_000, reading.linkBps / 1_000_000, reading.besideBytes, reading.seconds)
         }
+        if reporting, let reading, reading.seconds < Self.linkProbeMinimumSeconds {
+            NSLog("[LocalRemuxer] Slipstream: link probe too short to read, the link reading stands")
+            return discardLinkProbe()
+        }
         finishLinkProbe(reading?.linkBps, reporting: reporting, failure: meter.failure ?? (reading == nil ? .transient(0) : nil))
+    }
+
+    /// A probe that measured nothing usable: the reading stands, only the probe clock moves.
+    func discardLinkProbe() {
+        stateLock.lock()
+        lastLinkProbeAt = Date()
+        stateLock.unlock()
     }
 
     func finishLinkProbe(_ bps: Double?, reporting: Bool, failure: LinkProbeFailure? = nil) {
@@ -207,20 +229,67 @@ extension RemuxSession {
         transfers.note(bytes: bytes)
         guard bytesSinceLinkSample >= 512 * 1024 else { return }
         let beside = transfers.carried() - besideAtLinkSample - bytesSinceLinkSample
-        if beside > 0 {
-            noteFloorSample(bytes: bytesSinceLinkSample, from: linkSampleStartedAt, to: now, serverTransfer: false)
+        // A probe is not in the ledger's bytes, so its overlap is read off the probe mark.
+        let mark = transfers.probeMark()
+        let besideProbe = mark != probeMarkAtLinkSample || mark % 2 == 1
+        if beside > 0 || besideProbe {
+            noteFloorSample(bytes: bytesSinceLinkSample, from: linkSampleStartedAt, to: now, serverTransfer: false, asksReprobe: !besideProbe)
         } else {
             noteLinkSample(bytes: bytesSinceLinkSample, seconds: readSecondsSinceLinkSample)
         }
         restartLinkSample(now: now)
     }
 
-    /// Starts the next sample from here: after one is taken, and after the producer sat out a hold.
+    /// Starts the next sample from here: after one is taken, after the producer sat out a hold, and
+    /// after a restart moved the read to a new connection.
     func restartLinkSample(now: Date = Date()) {
         besideAtLinkSample = transfers.carried()
+        probeMarkAtLinkSample = transfers.probeMark()
         linkSampleStartedAt = now
         bytesSinceLinkSample = 0
         readSecondsSinceLinkSample = 0
+    }
+
+    /// AVPlayer's buffer past the playhead, from the app; a report after a seek starts filling again.
+    func notePlayerBuffer(aheadSeconds: Double, sinceSeek: Bool) {
+        stateLock.lock()
+        playerAheadSeconds = max(0, aheadSeconds)
+        playerAheadAt = Date()
+        if sinceSeek { playerBufferFilled = false }
+        if aheadSeconds >= Self.copyReservoirSeconds { playerBufferFilled = true }
+        stateLock.unlock()
+    }
+
+    /// The copy's declared bandwidth while the copy may be served, else 0: the app keeps its
+    /// variant cap at or above it so AVPlayer is never capped off a copy the engine admits.
+    func copyCapFloor() -> Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard let bandwidth = announcedCopyBandwidth, copyAnnounced, !sourceReleased, !sourceUnusable else { return 0 }
+        let wire = testLinkBps ?? wireLinkBps ?? 0
+        let affordable = sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2
+        return affordable || copyBufferHoldsLocked() ? bandwidth : 0
+    }
+
+    private func freshPlayerAheadLocked() -> Double? {
+        guard let ahead = playerAheadSeconds, Date().timeIntervalSince(playerAheadAt) <= Self.playerReportStaleSeconds else { return nil }
+        return ahead
+    }
+
+    /// AVPlayer plays the copy with the reservoir full: the buffer keeps the copy, not a link reading.
+    func copyBufferHoldsLocked() -> Bool {
+        guard !ridingTierLocked(), let ahead = freshPlayerAheadLocked() else { return false }
+        return ahead >= Self.copyReservoirSeconds
+    }
+
+    /// Whether the producer's reads may lower the link. On the copy they may not until its buffer has
+    /// filled and drained back into the reservoir: before it fills the probe decides, above it the buffer.
+    private func sourceReadsLowerLinkLocked() -> Bool {
+        guard !ridingTierLocked() else { return true }
+        // No report yet is the start of a ladder session: the player has not loaded, the probe decides.
+        guard playerAheadSeconds != nil else { return config.tiers.isEmpty || config.isLive }
+        guard let ahead = freshPlayerAheadLocked() else { return true }
+        return playerBufferFilled && ahead < Self.copyReservoirSeconds
     }
 
     /// Folds one read of the SOURCE into the link rate. The source is paced by nothing but the
@@ -244,7 +313,7 @@ extension RemuxSession {
         // as true as a slow link's long ones.
         if linkWindowBytes > 512 * 1024, linkWindowBusySeconds > 0.05 {
             let rate = Double(linkWindowBytes) * 8 / linkWindowBusySeconds
-            if wireLinkBps == nil || rate < wireLinkBps! { setWireCapacityLocked(rate) }
+            if wireLinkBps == nil || (rate < wireLinkBps! && sourceReadsLowerLinkLocked()) { setWireCapacityLocked(rate) }
             let outran = rate > (wireLinkBps ?? .infinity) * 1.25
             reportLinkLocked()
             if outran { requestLinkReprobe() }
@@ -253,7 +322,7 @@ extension RemuxSession {
         reportLinkLocked()
     }
 
-    func noteFloorSample(bytes: Int64, from start: Date, to end: Date, serverTransfer: Bool = true) {
+    func noteFloorSample(bytes: Int64, from start: Date, to end: Date, serverTransfer: Bool = true, asksReprobe: Bool = true) {
         guard bytes > 0, end > start else { return }
         stateLock.lock()
         guard !cancelled, !failed else { return stateLock.unlock() }
@@ -274,7 +343,7 @@ extension RemuxSession {
             floorLinkBps = floor
             floorSeenAt = end
             if serverTransfer, usesServerCapacityLocked { setWireCapacityLocked(floor) }
-            outran = wireLinkBps == nil || floor > (wireLinkBps ?? .infinity) * 1.25
+            outran = asksReprobe && (wireLinkBps == nil || floor > (wireLinkBps ?? .infinity) * 1.25)
         }
         reportLinkLocked()
         if outran { requestLinkReprobe() }
@@ -298,6 +367,27 @@ final class TransferLedger {
     private var inFlight: [ObjectIdentifier: URLSessionTask] = [:]
     private var settled: Int64 = 0
     private var closed = false
+    /// Bumped as each source probe starts and ends, so odd means one is running.
+    private var probes = 0
+
+    func probeStarted() {
+        lock.lock()
+        probes += 1
+        lock.unlock()
+    }
+
+    func probeEnded() {
+        lock.lock()
+        probes += 1
+        lock.unlock()
+    }
+
+    /// Compared with the mark a sample began under, it says whether a probe overlapped the sample.
+    func probeMark() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return probes
+    }
 
     /// A closed ledger cancels the task before it can resume: a stopped session starts nothing on the server.
     func begin(_ task: URLSessionTask) {

@@ -85,6 +85,13 @@ RCT_EXTERN_METHOD(setLivePriority
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(setPlayerBuffer
+                  : (nonnull NSString *)token aheadSeconds
+                  : (nonnull NSNumber *)aheadSeconds sinceSeek
+                  : (BOOL)sinceSeek resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(cancelLiveFrame
                   : (nonnull NSString *)channelId resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

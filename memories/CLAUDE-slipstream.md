@@ -179,35 +179,53 @@ AVPlayer measures the loopback, which says nothing about the wire, so the
 engine measures it itself. Two kinds of evidence, kept apart:
 
 - **The wire**: a range read of the source (the probe), and the copy pipeline's own reads WHILE
-  NOTHING ELSE TRANSFERS. These may move the rate either way. A source read beside a rung or an
-  audio transfer is that read's share of the link: its own bytes over the wall clock, as a floor
-  (each transfer beside it notes itself, so counting them here too counted them twice). The
-  producer's bytes go in the `TransferLedger` as they are read, so a probe beside it counts them.
-- **A floor**: rung and server audio transfers. The server sends a segment whole once it is encoded
+  NOTHING ELSE TRANSFERS. Reads only lower the rate; one over 1.25x it asks for a probe. A source read
+  beside a rung, an audio transfer or a probe is that read's share of the link: its own bytes over
+  the wall clock, as a floor (a probe is marked in the `TransferLedger`, not counted in it). A
+  restart or a hold starts a fresh sample. The producer's bytes go in the ledger as they are read,
+  so a probe beside it counts them. A mid-session probe under 0.1s is discarded: it timed mostly the
+  producer's bytes (0.01 to 0.26s probes read 275 to 752 Mb/s on a 150 to 237 Mb/s link, T105).
+- **The copy's buffer** (Netflix's buffer-based rule, SIGCOMM 2014): the app reports AVPlayer's
+  seconds past the playhead each second (`setPlayerBuffer`). While AVPlayer plays the copy (not
+  riding a rung), the producer's reads may not lower the rate until that buffer has reached the 12s
+  reservoir and drained back under it; before it fills (startup, before the first report, or a
+  seek: the app's onSeek or a copy request outside the producer's window) the probe decides. A
+  report older than 3s leaves the reads in charge. A full reservoir admits the copy whatever the rate reads, and the reply
+  to each report is the cap floor: the copy's declared BANDWIDTH while the copy is admitted (rate
+  at least 1.2x the source, or a full reservoir), else 0. The reservoir is a rung's measured start
+  (3.1 to 4.55s) plus the 6s copy segment in flight. Measured before this: T105 (91 Mb/s DV) whole
+  segments read at about 200 Mb/s while single ~50 ms windows set the rate to 37-96, and 46 of 55
+  media requests went to the server's 1080p rung.
+- **A floor**: rung and server audio transfers (`fetchTier`, the opening `TierSegmentFetch`). The server sends a segment whole once it is encoded
   (measured: 3.2 MB in 2 ms after a 1.06 s wait) and only the body is timed, so delivery is never
   encoder-paced; a short body still reads under a fast wire on TCP's ramp (a recovered 30 Mb/s
   link read 2.59 Mb/s from rungs). So a recovery shows as rungs outrunning the last wire reading.
-  A floor requests a confirming probe. It supplies capacity directly only while the source
-  cannot be probed or is unavailable/retrying. Its time is the UNION of overlapping transfers.
+  A floor over 1.25x the rate requests a confirming probe. It supplies capacity directly only
+  while the source is unusable, retrying, or refused the probe (401/403, 404/410, 405/416); the
+  canonical playlist's transfer does the same when nothing else has set the rate. Its time is the
+  UNION of overlapping transfers in the last 8s.
 - **A probe counts what ran beside it** (`TransferLedger`): alone it reads its share of a busy
   link. Measured on 0.6 Mb/s: 0.20 alone, 0.59 with the bytes beside it; on 1.5: 0.75 and 1.50.
-- The startup probe ends early on a link already reading 2.4x the source over a megabyte (every
-  further byte is one the first copy segment waits behind), at 0.75s once the rate is level, and
-  at 1.5s while it is still climbing. A first byte may take 3s.
+- A probe reads up to four seconds of source (`max(512 KB, source / 2)` bytes) and ends early on a
+  link already reading 3x the source (`copyLeadsMargin`) over a megabyte, bytes beside it included
+  (every further byte is one the first copy segment waits behind), at 0.75s once the rate is level,
+  and at 1.5s while it is still climbing. A first byte may take 3s.
 - **While a rung plays** the wire is re-read every 30s, except while rungs arrive at the pace it
   last read (they ARE the wire then, and a probe takes half a thin link for its length: at
   750 kb/s the segment beside it ran past 6s and AVPlayer stepped down). A probe is asked for at
-  once when rungs outrun the last reading (a recovery) or a segment takes 80% of its own length to
-  arrive (a drop), never closer than 8s apart.
+  once, rung or copy, when a floor or a source read outruns the last reading by 1.25x (a
+  recovery) or a rung segment AVPlayer asked for takes over 80% of its own length to arrive (a
+  drop), never closer than 8s apart.
 - A move of more than 15% is reported to the app (`onEngineLink`), carrying the
   rate and whether this session's master lists the copy.
 
 ## What the app does with it (hooks/useVideoPlayback.ts)
 
-- **Cap**: `max(measured * 0.8, smallest listed variant)` applied live through
+- **Cap**: `max(measured * 0.8, smallest listed variant, copy floor)` applied live through
   RNV's `maxBitRate` (preferredPeakBitRate). The floor matters: a cap under
   every variant leaves AVPlayer nothing it may play and it shows no frame at
-  all. A pinned quality preset is the cap instead, and no report moves it.
+  all. The copy floor is the engine's reply to each buffer report (above); a rise to it ignores
+  the 15% hysteresis. A pinned quality preset is the cap instead, and no report moves it.
 - **Climb**: the native producer wakes in the existing gateway; the app only changes the cap.
   Quality settings are read before engine startup, so they cannot erase an early link report.
   Link reports are cached per token and replayed to the first subscriber; stopped sessions
