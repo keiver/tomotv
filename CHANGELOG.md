@@ -6,11 +6,11 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- Live TV groups: a band above the guide filters it to Favorites, All, your own groups, the groups a tuner's M3U playlist declares, and the server's News, Sports, Kids, Movies and Series categories. Your own groups are made in Channel Settings or a channel's info panel, which adds the channel to them
+- Live TV groups: a band above the guide filters it to Favorites, All, your own groups, the groups a tuner's M3U playlist declares, and the server's News, Sports, Kids, Movies and Series categories. Your own groups are made in Channel Settings, or from the Groups button on a channel's info panel, which adds the channel to them and holds its favorite
 - Guide sources, in Channel Settings: listings for channels the server has none for, from any number of XMLTV guides you add and the guides your tuner playlists declare, asked in order. A channel is matched by its tvg-id, then its tvg-name, then its name, letter case aside. The screen shows each guide's status, how many channels it matched and which, its size on the device and when it last downloaded, turns a guide off, and clears the downloaded files. Guides refresh hourly, and Refresh guide downloads them again and reports how it went
 - Live TV search: Search lists matching channels and programmes on a Live TV shelf above the library results, channels first, then programmes by start time, ended ones left out. The channel wall has a search of its own
 - Channel health: a channel that does not answer wears Offline, and Hide offline in Channel Settings leaves those channels out of the guide and the wall
-- Channel cards rest on their channel's newest frame and loop a five-second clip recorded on the device while they or their guide row hold focus; a focused channel with no listings unrolls its recent frames, each captioned with the time it was seen
+- Channel cards rest on their channel's newest frame and loop a five-second clip recorded on the device: on Apple TV while they or their guide row hold focus, on iPhone, iPad and Mac every card in the guide at once. A focused channel with no listings unrolls its recent frames, each captioned with the time it was seen
 - Dragging the guide's time ruler scrolls the grid, with a fling on release
 - Record from the player on Apple TV: a Record button in the playback controls records the programme on air, and a channel with no guide records for the Recording length set in Channel Settings (30 minutes to 3 hours, 2 hours by default). The button reads Stop Recording while a timer records
 - A heart in the Apple TV playback controls adds the video or live channel to favorites, or removes it
@@ -24,7 +24,7 @@ All notable changes to Tomo TV are documented here.
 
 ### Changed
 
-- The info panel sits posters and logos whole on a glow of their own colours, and every action past the two main buttons is a glass circle
+- The info panel's secondary actions are glass circles beneath its main buttons
 - The guide ruler shows the current time in gold above its labels
 - Names written by a metadata scraper with HTML entities, such as "&amp;", read as the character they stand for wherever they are shown
 - Episode cards take the same landscape slot as the other cards in a folder grid, whatever the shape of their still
@@ -46,15 +46,18 @@ All notable changes to Tomo TV are documented here.
 - After a fast scroll, the posters the engine makes for the cards on screen come first
 - A segment the engine fails to write is dropped instead of being served broken
 - Search results for an earlier query no longer replace those of the latest one when they arrive late
-- A live stream stayed open on the server after a preview or an ended playback; every open is closed by the app that made it, on the server that made it, and retried from the next launch until the server takes it
+- A live stream stayed open on the server after a preview or an ended playback; every open is closed by the app that made it, on the server that made it, and sent again at the next launch or return to the app until the server takes it
 - Two viewers of one channel no longer end each other's stream when one leaves
-- Servers on a plain http address outside the home network connect again; App Transport Security had been left on since 1.5.0
+- Servers on a plain http address outside the home network connect again, in the app and the Apple TV Top Shelf; App Transport Security had been left on since 1.5.0
 - Menu out of the player pops only the player, never the folder beneath it
 - A queue advance under Picture in Picture swaps the next item inside the window's player, and autoplay advances straight into it
 - The guide window restarts at the current half hour on a new sign-in, and grows until it fills a viewport wider than it
 - Picking another channel group opens the guide at its first channel
 - An account whose token is gone or rejected leaves the saved list
 - A deinterlaced transcode keeps the input's clock
+- A 4K copy on a link fast enough for it stays on the copy instead of falling to the server's 1080p version
+- High-bitrate files no longer run the Apple TV out of memory: the player's forward buffer is held to about 200 MB, and the engine writes each segment without a second full copy
+- The bitrate test in Settings reads fast links in full: the download is timed without a JavaScript copy of its body, and a stage too quick to time is measured again with a larger one
 
 ## [2.2.8]
 
