@@ -681,7 +681,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   }, [handleBack]);
 
   // Handle playback end. Queue mode with a next episode: phone shows the RN Up Next
-  // interstitial (its countdown/CTAs decide what happens — the presented player is
+  // interstitial (its countdown/CTAs decide what happens; the presented player is
   // already dismissed by the onEnd wrapper, so the RN layer is visible). TV does
   // NOTHING here: the native content proposal owns the advance (it presents at the
   // outro/end and auto-accepts 5s after playback ends; mounting the RN card on top

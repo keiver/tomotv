@@ -417,7 +417,7 @@ export async function requestLibraryItems(
   },
 ): Promise<{ items: JellyfinVideoItem[]; total?: number }> {
   // includeAllTypes (search): every playable and readable kind across all libraries,
-  // minus TvChannel — channel matches ride the search screens' Live TV shelf
+  // minus TvChannel: channel matches ride the search screens' Live TV shelf
   // (searchLiveTv), so listing them here duplicated every channel into the grid.
   // Default (flat library list): standalone videos only.
   // Series: only when includeSeries=true (expanded to episodes by the caller).
