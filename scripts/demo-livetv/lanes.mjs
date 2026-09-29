@@ -9,22 +9,23 @@
  * With rig.mjs's RIG_URL, RIG_CONTAINER, RIG_USER_TOKEN in the environment it measures that rig instead, as its non-admin user.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "../..");
+// The rig lane reads no .env.demo; only the demo server's ssh needs it.
+const ENV_FILE = join(ROOT, ".env.demo");
 const env = Object.fromEntries(
-  readFileSync(join(ROOT, ".env.demo"), "utf8")
+  (existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8") : "")
     .split("\n")
     .filter((line) => line.includes("=") && !line.startsWith("#"))
     .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1).trim()]),
 );
 const RIG = process.env.RIG_URL ? { url: process.env.RIG_URL, container: process.env.RIG_CONTAINER, token: process.env.RIG_USER_TOKEN } : null;
 const BASE = RIG?.url ?? process.env.DEMO_URL ?? env.DEMO_URL ?? "https://tomotv.cubita.studio";
-const KEY = env.DEMO_SSH_KEY.replace(/^~/, homedir());
 const CHANNEL = process.argv[2] ?? (RIG ? "Rig One" : "Sintel");
 const RUNS = process.argv[3] ?? "2";
 const FIXTURE = join(homedir(), "Movies/development-videos/T01 DIRECT H264 AAC.mp4");
@@ -32,7 +33,8 @@ const LOCAL_PORT = 19102;
 const DEVELOPER_DIR = "/Applications/Xcode.app/Contents/Developer";
 
 const ssh = (command) => {
-  const result = spawnSync("ssh", ["-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "ConnectTimeout=20", env.DEMO_SSH, command], { encoding: "utf8" });
+  if (!env.DEMO_SSH_KEY || !env.DEMO_SSH) throw new Error(".env.demo needs DEMO_SSH and DEMO_SSH_KEY");
+  const result = spawnSync("ssh", ["-i", env.DEMO_SSH_KEY.replace(/^~/, homedir()), "-o", "IdentitiesOnly=yes", "-o", "ConnectTimeout=20", env.DEMO_SSH, command], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(`ssh failed: ${result.stderr}`);
   return result.stdout.trim();
 };

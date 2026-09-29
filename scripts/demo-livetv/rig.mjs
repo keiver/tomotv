@@ -35,6 +35,14 @@ process.on("SIGINT", () => {
   stop();
   process.exit(0);
 });
+// Before anything is spawned, so a failure below still stops the relay and ffmpeg.
+const fail = (error) => {
+  console.error(String(error?.message ?? error).slice(0, 300));
+  stop();
+  process.exit(1);
+};
+process.on("uncaughtException", fail);
+process.on("unhandledRejection", fail);
 
 // The origin: relay.py on every interface, so the container and this Mac both reach it at the LAN address.
 const relayDir = mkdtempSync(join(tmpdir(), "rig-relay-"));
@@ -48,7 +56,7 @@ const m3uServer = createServer((_, response) => response.writeHead(200, { "Conte
 
 spawnSync("docker", ["stop", NAME], { stdio: "ignore" });
 const run = spawnSync("docker", ["run", "-d", "--rm", "--name", NAME, "-p", `${PORT}:8096`, `jellyfin/jellyfin:${TAG}`], { encoding: "utf8" });
-if (run.status !== 0) throw new Error(run.stderr);
+if (run.status !== 0) fail(run.stderr);
 
 const call = async (path, { method = "GET", body, token } = {}) => {
   const response = await fetch(`${URL_BASE}${path}`, {
@@ -60,13 +68,6 @@ const call = async (path, { method = "GET", body, token } = {}) => {
   const text = await response.text();
   return text ? JSON.parse(text) : null;
 };
-const fail = (error) => {
-  console.error(String(error?.message ?? error).slice(0, 300));
-  stop();
-  process.exit(1);
-};
-process.on("uncaughtException", fail);
-process.on("unhandledRejection", fail);
 // Jellyfin 12 answers a 503 startup page until it is up; the wizard's own endpoint answering JSON is the signal.
 for (let i = 0; ; i++) {
   try {
