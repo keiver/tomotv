@@ -59,7 +59,7 @@ export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Dat
     else segments.push({ icon: "musical-note", label: badge.label });
   }
   // Watched mark, the info panel's eye; music stays out (every full listen marks a track played, which is noise, not state).
-  if (video.UserData?.Played && video.Type !== "Audio" && video.Type !== "AudioBook") segments.push({ icon: "eye" });
+  if (video.UserData?.Played && video.Type !== "Audio") segments.push({ icon: "eye" });
   return segments.length > 0 ? segments : null;
 }
 

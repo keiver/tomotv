@@ -21,6 +21,11 @@ describe("indexBadgeSegments", () => {
     expect(indexBadgeSegments(item({ Type: "Episode", ParentIndexNumber: 1, IndexNumber: 5 }))).toEqual([{ label: "S01E05" }]);
   });
 
+  it("marks an audiobook the server holds finished", () => {
+    expect(indexBadgeSegments(item({ Type: "AudioBook", UserData: { Played: true } }))).toEqual([{ icon: "eye" }]);
+    expect(indexBadgeSegments(item({ Type: "AudioBook", UserData: { Played: false } }))).toBeNull();
+  });
+
   it("never marks music tracks or live cards", () => {
     const track = item({ Type: "Audio", IndexNumber: 5, UserData: { Played: true } });
     expect(indexBadgeSegments(track)).toEqual([{ icon: "musical-note", label: 5 }]);
