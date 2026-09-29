@@ -54,7 +54,7 @@
   "liveTv.recordingCanceled": "Grabación cancelada",
   "liveTv.recordingFailed": "La acción de grabación falló",
   "liveTv.noManagement": "No tienes permisos de gestión de Televisión en vivo en este servidor.",
-  "liveTv.lastSeen": "Vista previa del feed de las {time}",
+  "liveTv.lastSeen": "Visto a las {time}",
   "liveTv.offline": "Sin señal",
   "liveTv.hideOffline": "Ocultar sin señal",
   "liveTv.noGuide": "Sin programación para {channel}",

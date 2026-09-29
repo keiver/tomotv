@@ -54,7 +54,7 @@
   "liveTv.recordingCanceled": "Aufnahme abgebrochen",
   "liveTv.recordingFailed": "Aufnahmeaktion fehlgeschlagen",
   "liveTv.noManagement": "Du hast auf diesem Server keine Berechtigung zur Live-TV-Verwaltung.",
-  "liveTv.lastSeen": "Feed-Vorschau von {time}",
+  "liveTv.lastSeen": "Gesehen um {time}",
   "liveTv.offline": "Offline",
   "liveTv.hideOffline": "Offline ausblenden",
   "liveTv.noGuide": "Kein Programm für {channel}",

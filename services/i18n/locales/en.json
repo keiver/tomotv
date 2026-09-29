@@ -54,7 +54,7 @@
   "liveTv.recordingCanceled": "Recording canceled",
   "liveTv.recordingFailed": "Recording action failed",
   "liveTv.noManagement": "You don't have Live TV management permissions on this server.",
-  "liveTv.lastSeen": "Feed preview seen at {time}",
+  "liveTv.lastSeen": "Seen at {time}",
   "liveTv.offline": "Offline",
   "liveTv.hideOffline": "Hide offline",
   "liveTv.noGuide": "No listings for {channel}",
