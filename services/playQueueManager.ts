@@ -17,6 +17,8 @@ class PlayQueueManager {
   private sourceFolderId: string | null = null;
   // When true, the queue wraps at the end instead of stopping (shuffle = endless filtered play).
   private loop: boolean = false;
+  // Bumped by every build and clear; an async build that is no longer the latest writes nothing.
+  private generation: number = 0;
 
   private listeners: Set<PlayQueueListener> = new Set();
 
@@ -81,6 +83,7 @@ class PlayQueueManager {
       folderType,
     });
 
+    const generation = ++this.generation;
     this.isLoading = true;
     this.sourceFolderId = folderId;
     this.loop = false; // normal folder play stops at the end
@@ -93,6 +96,10 @@ class PlayQueueManager {
         items = (await fetchAllPlaylistItems(folderId)) as JellyfinVideoItem[];
       } else {
         items = await fetchRecursiveVideos(folderId);
+      }
+      if (generation !== this.generation) {
+        logger.info("Play queue build superseded", { service: "PlayQueueManager", folderId, startVideoId });
+        return;
       }
 
       if (items.length === 0) {
@@ -123,6 +130,7 @@ class PlayQueueManager {
         startVideoName: items[this.currentIndex]?.Name,
       });
     } catch (error) {
+      if (generation !== this.generation) return;
       logger.error("Failed to build play queue", error, {
         service: "PlayQueueManager",
         folderId,
@@ -143,6 +151,7 @@ class PlayQueueManager {
    * @param loop - When true (shuffle), playback wraps at the end for endless filtered play.
    */
   buildQueueFromItems(items: JellyfinVideoItem[], folderId: string, folderName: string, startVideoId: string, loop = false): void {
+    this.generation++;
     const startIndex = items.findIndex((item) => item.Id === startVideoId);
 
     this.queue = items;
@@ -247,6 +256,7 @@ class PlayQueueManager {
       hadItems: this.queue.length,
     });
 
+    this.generation++;
     this.queue = [];
     this.currentIndex = -1;
     this.isLoading = false;
