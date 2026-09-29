@@ -1,6 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { CloseOverlayButton } from "@/components/close-overlay-button";
-import { FolderBackdrop } from "@/components/folder-backdrop";
 import { PadSheet, padSheetWidth } from "@/components/pad-sheet";
 
 import { FocusableButton } from "@/components/FocusableButton";
@@ -22,8 +21,6 @@ import {
   getBackdropUrl,
   getLogoUrl,
   getPersonImageUrl,
-  getTintUrl,
-  hasPoster,
   isAudioItem,
   isFolder,
   isBook,
@@ -42,7 +39,6 @@ import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
 import { folderPosterSource } from "@/services/itemArtwork";
-import { STANDALONE_VIDEO_TYPES } from "@/services/jellyfin/constants";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
@@ -80,8 +76,6 @@ const IS_TV = Platform.isTV;
 // over what shows either side of a sheet, so the screen has to own its own backdrop.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 // Past the inset shadows' reach, so the re-painted rim has no bottom corners inside the hero.
-// A video's own Primary is a frame of it, scenery like a backdrop, so it never takes the frame.
-const VIDEO_STILL_TYPES = new Set<string>([...STANDALONE_VIDEO_TYPES, "Episode", "Recording"]);
 const HERO_EDGE_OVERRUN = 40;
 // Added to the artwork hero's height, pushing the title and everything under it down.
 const HERO_GROW = 35;
@@ -527,21 +521,6 @@ export default function VideoInfoScreen() {
   // repeats across servers, so its cache key travels with it.
   const heroSource: { uri: string; cacheKey?: string } | undefined = backdropUri ? { uri: backdropUri } : (poster ?? folderPoster);
   const heroUri = heroSource?.uri ?? "";
-  // A server poster, logo or channel tile is shown whole on a glow of its own colours; only a
-  // backdrop or an engine keyframe is scenery that takes the full-bleed crop and the scrim.
-  const tintItemId =
-    details && !backdropUri
-      ? hasPoster(details) && !VIDEO_STILL_TYPES.has(details.Type)
-        ? details.Id
-        : details.Type === "Program" && details.ChannelId
-          ? details.ChannelId
-          : !poster && folderPoster
-            ? details.Id
-            : ""
-      : "";
-  // Framed only once measured as square or wider; a portrait picture crops in like scenery.
-  const framed = !!heroUri && !!tintItemId && heroAspect != null && heroAspect >= 1;
-  const tintUri = framed ? getTintUrl(tintItemId, "Primary") : "";
   // A folder the server has no picture for wears the same collage its card does.
   const preview = useFolderPreview(isContainer ? details : null, !heroUri);
   const showCollage = preview.length > 0;
@@ -558,9 +537,8 @@ export default function VideoInfoScreen() {
   // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
   // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
   const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
-  const heroCropStyle = framed
-    ? styles.heroFramed
-    : heroWidth > 0 && heroHeight > 0 && heroAspect != null && heroAspect < heroWidth / heroHeight
+  const heroCropStyle =
+    heroWidth > 0 && heroHeight > 0 && heroAspect != null && heroAspect < heroWidth / heroHeight
       ? { position: "absolute" as const, top: 0, left: 0, width: heroWidth, height: heroWidth / heroAspect }
       : StyleSheet.absoluteFill;
 
@@ -862,19 +840,13 @@ export default function VideoInfoScreen() {
           setHeroWidth(event.nativeEvent.layout.width);
           setHeroMeasured(true);
         }}>
-        {framed && (
-          <>
-            <FolderBackdrop source={tintUri ? { uri: tintUri, sharp: false } : null} />
-            <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />
-          </>
-        )}
         {heroSource ? (
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
             <Image
               key={heroUri}
               source={heroSource}
               style={heroCropStyle}
-              contentFit={framed ? "contain" : "cover"}
+              contentFit="cover"
               transition={0}
               cachePolicy="memory-disk"
               onLoad={handleHeroLoad}
@@ -896,13 +868,13 @@ export default function VideoInfoScreen() {
             accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
           />
         )}
-        {!framed && <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />}
+        <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />
         {/* The card's own lip and rim, re-painted above the opaque artwork and run past the hero's
             foot so they meet the card's below it. tvOS-safe: the hero holds no focusables. */}
         {IS_TV && <View pointerEvents="none" style={[styles.heroEdge, { height: heroHeight + HERO_EDGE_OVERRUN }]} />}
       </View>
       {/* Title sits below the hero on every item, never over the artwork. */}
-      <View style={[styles.heroTitleWrap, logoUri && !framed ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
+      <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
         {logoUri ? (
           <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
         ) : (
@@ -1023,15 +995,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     boxShadow: `${RECESS_EDGE.LIP_TOP}, ${RECESS_EDGE.RIM}`,
-  },
-  // A framed poster or logo: whole, inset from the hero's edges, over its colour glow.
-  heroFramed: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    margin: IS_TV ? 48 : 24,
   },
   // Transparent brand face, contained and inset so it reads as a small centered
   // mark over the hero's dark fill rather than full-bleed art.
