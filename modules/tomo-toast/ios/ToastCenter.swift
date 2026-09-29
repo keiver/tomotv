@@ -77,7 +77,7 @@ final class ToastCenter: NSObject {
   }
 
   func dismiss(id: String, reason: ToastDismissReason) {
-    if let card, card.model.id == id {
+    if let card, !leaving, card.model.id == id {
       retire(card, reason)
     } else if let index = pending.firstIndex(where: { $0.id == id }) {
       pending.remove(at: index)
