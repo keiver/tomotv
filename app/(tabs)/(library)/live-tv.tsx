@@ -162,7 +162,6 @@ function LiveTvScreen() {
         ) : undefined
       }
       onSelectedHandle={setStripHandle}
-      updating={guideWorking}
     />
   );
 

@@ -1,12 +1,10 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GROUP_CELL_HEIGHT, GuideGroupCell, HUD_CELL_BACKGROUND } from "@/components/live-tv/guide-group-cell";
 import { GuideGroupPlaceholder } from "@/components/live-tv/guide-group-placeholder";
-import { ScanBand } from "@/components/live-tv/scan-band";
 import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
-import { guideSourcesBusy, subscribeGuideSources } from "@/services/externalGuide";
 import { updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
-import React, { useCallback, useSyncExternalStore } from "react";
+import React, { useCallback } from "react";
 import { findNodeHandle, Platform, ScrollView, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
@@ -24,16 +22,13 @@ interface GuideHudProps {
   cornerActions?: React.ReactNode;
   /** TV: the picked group cell's native node, where the guide's top row sends Up. */
   onSelectedHandle?: (handle: number | undefined) => void;
-  /** True while the guide's programs load behind the grid: the band wears the scan for it. */
-  updating?: boolean;
 }
 
 /**
  * The guide's HUD band under the time ruler: the corner's round actions over the channel column
- * and the channel groups as grid cells beside them. While the guide downloads or its programs
- * load, a subtle accent scan drifts across the band; nothing moves when it comes or goes.
+ * and the channel groups as grid cells beside them.
  */
-export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle, updating }: GuideHudProps) {
+export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle }: GuideHudProps) {
   const choices = useChannelFilterChoices();
   const { filter } = useLiveTvPreferences();
   const select = useCallback((next: ChannelFilter) => updateLiveTvPreferences({ filter: next }), []);
@@ -44,14 +39,12 @@ export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle, updatin
     },
     [onSelectedHandle],
   );
-  const busy = useSyncExternalStore(subscribeGuideSources, guideSourcesBusy);
 
   if (choices.length <= 1 && !cornerActions) return null;
   return (
     <View style={styles.band}>
       {cornerActions ? <View style={[styles.cornerBox, styles.leadingEdge, { width: cornerWidth }]}>{cornerActions}</View> : null}
       <View style={[styles.cellsHost, !cornerActions && styles.leadingEdge]}>
-        <ScanBand active={busy || updating === true} />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.cells} contentContainerStyle={styles.cellsContent}>
           {choices.map((choice) => {
             const selected = choice.filter === filter;
