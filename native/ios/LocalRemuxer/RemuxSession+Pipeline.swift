@@ -598,8 +598,13 @@ extension RemuxSession {
             sample["produceSeconds"] = produced
             sample["readSeconds"] = readSecondsInSegment
         }
+        NSLog("[LocalRemuxer] segment %d took %.2fs for %.2fs (read %.2fs of %.1f MB, dolby vision %.2fs, audio %.2fs)%@",
+              n, produced, segmentDurationSeconds(n), readSecondsInSegment, Double(bytesInSegment) / 1_000_000,
+              doviSecondsInSegment, audioSecondsInSegment, sleptOnCap ? ", held" : first ? ", after a restart" : "")
         bytesInSegment = 0
         readSecondsInSegment = 0
+        doviSecondsInSegment = 0
+        audioSecondsInSegment = 0
         sleptOnCap = false
         onThroughput?(sample)
     }
@@ -1799,6 +1804,7 @@ extension RemuxSession {
             segmentsInGeneration = 0
             segmentClock = Date()
             sleptOnCap = false
+            (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment) = (0, 0, 0, 0)
             return true
         }
 
@@ -1851,6 +1857,7 @@ extension RemuxSession {
             segmentsInGeneration = 0
             segmentClock = Date()
             sleptOnCap = false
+            (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment) = (0, 0, 0, 0)
             return true
         }
 
@@ -2355,6 +2362,8 @@ extension RemuxSession {
             // clock, so the input packet is consumed rather than written.
             if !isVideo, let transcoder = rendition.transcoder {
                 var writeError: Int32 = 0
+                let encodeStarted = Date()
+                defer { audioSecondsInSegment += Date().timeIntervalSince(encodeStarted) }
                 transcoder.process(packet: pkt) { encoded in
                     guard writeError == 0 else { return }
                     av_packet_rescale_ts(encoded, transcoder.encoderTimeBase, outStream.pointee.time_base)
@@ -2374,9 +2383,14 @@ extension RemuxSession {
 
             // Profile 7 to 8.1: the RPU is rewritten and the enhancement layer dropped, before
             // any timestamp work, so the packet the muxer sees is the one it will write.
-            if isVideo, let converter = rendition.dolbyVision, !converter.rewrite(packet: pkt) {
-                fail("Dolby Vision rewrite rejected a malformed video packet")
-                break
+            if isVideo, let converter = rendition.dolbyVision {
+                let rewriteStarted = Date()
+                let rewritten = converter.rewrite(packet: pkt)
+                doviSecondsInSegment += Date().timeIntervalSince(rewriteStarted)
+                if !rewritten {
+                    fail("Dolby Vision rewrite rejected a malformed video packet")
+                    break
+                }
             }
 
             // The ADTS header (9 bytes with its CRC) is not part of an MP4 sample.

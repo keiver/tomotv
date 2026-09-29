@@ -140,6 +140,9 @@ final class RemuxSession {
     /// Wall time blocked in av_read_frame while making the current segment, and the bytes that
     /// arrived in it: together one link-rate sample per segment (pipeline thread).
     var readSecondsInSegment: Double = 0
+    /// Time the segment spent in the Dolby Vision rewrite and the audio encoder, beside the reads.
+    var doviSecondsInSegment: Double = 0
+    var audioSecondsInSegment: Double = 0
     var bytesInSegment: Int64 = 0
     /// Bytes and read time since the last link sample (one every 512KB; pipeline thread).
     var bytesSinceLinkSample: Int64 = 0
