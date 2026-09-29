@@ -26,6 +26,8 @@ import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PAGE_SIZE = 60;
+/** Pages a `focusId` load reads before giving up (600 items); past it the folder opens at the top. */
+const MAX_FOCUS_PAGES = 10;
 
 // Whether more pages remain. Prefer the server's TotalRecordCount; when it's omitted (it's optional
 // on the response) fall back to "a full page probably has more" so pagination still works.
@@ -80,7 +82,7 @@ function annotateWithPlayed(list: JellyfinItem[]): JellyfinItem[] {
  * `folderId` is fixed for the lifetime of the hook and the router's back stack is the single source
  * of truth for navigation.
  */
-export function useFolderContents(folderId: string | null, type?: "folder" | "playlist" | "livetv", filters?: LibraryFilters): FolderContentsState {
+export function useFolderContents(folderId: string | null, type?: "folder" | "playlist" | "livetv", filters?: LibraryFilters, focusId?: string): FolderContentsState {
   const cacheKey = folderId ?? "root";
 
   // Serialize the selection so callers don't have to memoize the filters object; a changed
@@ -93,9 +95,12 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // Filtered views are never cached (entries are keyed by folder only), so they still spin.
   // Held in state with a lazy initializer, not a ref written during render: same
   // once-at-mount evaluation, without reading or writing a ref mid-render.
+  // A seed that lacks `focusId` with pages left is refused: the grid would paint and focus its top first.
   const [seed] = useState<FolderCacheEntry | null>(() => {
     const cached = activeFilters ? undefined : getFolderCache(cacheKey);
-    return cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS ? cached : null;
+    if (!cached || Date.now() - cached.timestamp >= CACHE.DEFAULT_TTL_MS) return null;
+    const lacksFocus = !!focusId && !cached.items.some((item) => item.Id === focusId);
+    return lacksFocus && hasMorePages(cached.items.length, cached.items.length, cached.total) ? null : cached;
   });
 
   const [items, setItems] = useState<JellyfinItem[]>(() => {
@@ -147,17 +152,40 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // cache only when its request is still the latest, so an overlapping stale load can't clobber it.
   // Always returns a promise, so callers only ever setState from a .then()/.catch() callback.
   const loadFirstPage = useCallback(
-    async (useCache: boolean): Promise<{ items: JellyfinItem[]; total?: number; fromCache: boolean }> => {
+    async (useCache: boolean): Promise<{ items: JellyfinItem[]; total?: number; nextStartIndex: number; lastPageLength: number; fromCache: boolean }> => {
       // Filtered views bypass the cache entirely: entries are keyed by folder only, and a
       // filtered result must never be served as (or overwrite) the unfiltered listing.
       const cached = activeFilters ? undefined : getFolderCache(cacheKey);
-      if (useCache && cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS) {
-        return { items: cached.items, total: cached.total, fromCache: true };
+      const fresh = useCache && cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS;
+      const first = fresh ? { items: cached.items, total: cached.total } : await fetchPage(0);
+      let loaded = first.items;
+      let total = first.total;
+      let nextStartIndex = first.items.length;
+      let lastPageLength = first.items.length;
+      // "Show In Folder": read on until the target is in hand, so the grid mounts once, already holding it.
+      // A failed later page keeps what arrived; the grid then opens at the top.
+      if (focusId) {
+        const seen = new Set(loaded.map((item) => item.Id));
+        for (let pages = 1; pages < MAX_FOCUS_PAGES && !seen.has(focusId) && hasMorePages(nextStartIndex, lastPageLength, total); pages++) {
+          let more: { items: JellyfinItem[]; total?: number };
+          try {
+            more = await fetchPage(nextStartIndex);
+          } catch (err) {
+            logger.warn("Focus page load failed", err, { service: "useFolderContents", cacheKey, focusId });
+            break;
+          }
+          const unseen = more.items.filter((item) => !seen.has(item.Id));
+          if (unseen.length === 0) break;
+          unseen.forEach((item) => seen.add(item.Id));
+          loaded = [...loaded, ...unseen];
+          total = more.total;
+          nextStartIndex += more.items.length;
+          lastPageLength = more.items.length;
+        }
       }
-      const result = await fetchPage(0);
-      return { items: result.items, total: result.total, fromCache: false };
+      return { items: loaded, total, nextStartIndex, lastPageLength, fromCache: !!fresh && loaded === cached.items };
     },
-    [cacheKey, fetchPage, activeFilters],
+    [cacheKey, fetchPage, activeFilters, focusId],
   );
 
   // The server's SortName order has no tie-break past Name; same-named episodes come back in row
@@ -169,12 +197,12 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   );
 
   const applyFirstPage = useCallback(
-    (result: { items: JellyfinItem[]; total?: number }) => {
+    (result: { items: JellyfinItem[]; total?: number; nextStartIndex: number; lastPageLength: number }) => {
       setItems(orderTies(annotateFavorites(annotateWithPlayed(result.items))));
       seenIdsRef.current = new Set(result.items.map((item) => item.Id));
       totalRef.current = result.total;
-      nextStartIndex.current = result.items.length;
-      setHasMoreResults(hasMorePages(result.items.length, result.items.length, result.total));
+      nextStartIndex.current = result.nextStartIndex;
+      setHasMoreResults(hasMorePages(result.nextStartIndex, result.lastPageLength, result.total));
       hasLoadErrorRef.current = false;
       setError(null);
       setIsLoading(false);

@@ -386,6 +386,91 @@ describe("useFolderContents", () => {
     });
   });
 
+  describe("focusId (Show In Folder)", () => {
+    // clearAllMocks keeps queued once-values and implementations; these tests leave both behind.
+    beforeEach(() => mockFolder.mockReset());
+    afterEach(() => mockFolder.mockReset());
+
+    async function mountFocused(focusId: string) {
+      const renders: { isLoading: boolean; ids: string[] }[] = [];
+      function Probe() {
+        const state = useFolderContents("folder-1", undefined, undefined, focusId);
+        renders.push({ isLoading: state.isLoading, ids: state.items.map((i) => i.Id) });
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+      return renders;
+    }
+
+    it("reads pages until the target is held, then paints once", async () => {
+      mockFolder
+        .mockResolvedValueOnce({ items: items("a", "b"), total: 6 })
+        .mockResolvedValueOnce({ items: items("c", "d"), total: 6 })
+        .mockResolvedValueOnce({ items: items("e", "f"), total: 6 });
+      const renders = await mountFocused("c");
+
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 2 });
+      const painted = renders.filter((r) => r.ids.length > 0);
+      expect(painted[0].ids).toEqual(["a", "b", "c", "d"]);
+      expect(painted.every((r) => !r.isLoading)).toBe(true);
+    });
+
+    it("keeps paging from where the walk stopped", async () => {
+      mockFolder
+        .mockResolvedValueOnce({ items: items("a", "b"), total: 6 })
+        .mockResolvedValueOnce({ items: items("c", "d"), total: 6 })
+        .mockResolvedValueOnce({ items: items("e", "f"), total: 6 });
+      const ref = React.createRef<HookRef>();
+      const Focused = forwardRef<HookRef>((_, r) => {
+        const result = useFolderContents("folder-1", undefined, undefined, "c");
+        useImperativeHandle(r, () => ({ get: () => result }), [result]);
+        return null;
+      });
+      Focused.displayName = "Focused";
+      await act(async () => {
+        TestRenderer.create(<Focused ref={ref} />);
+      });
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+      expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 60, startIndex: 4 });
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "c", "d", "e", "f"]);
+    });
+
+    it("refuses a cached seed that lacks the target and walks on from it", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 });
+      await mount("folder-1"); // caches page one only
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+      mockFolder.mockResolvedValueOnce({ items: items("c", "d"), total: 4 });
+
+      const renders = await mountFocused("d");
+
+      expect(renders[0]).toEqual({ isLoading: true, ids: [] });
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(mockFolder).toHaveBeenLastCalledWith("folder-1", { limit: 60, startIndex: 2 });
+      expect(renders[renders.length - 1].ids).toEqual(["a", "b", "c", "d"]);
+    });
+
+    it("opens with what arrived when a later page fails", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockRejectedValueOnce(new Error("offline"));
+      const renders = await mountFocused("d");
+
+      const last = renders[renders.length - 1];
+      expect(last).toEqual({ isLoading: false, ids: ["a", "b"] });
+    });
+
+    it("stops at the page budget when the target never turns up", async () => {
+      mockFolder.mockImplementation((_id: string, { startIndex }: { startIndex: number }) => Promise.resolve({ items: items(`p${startIndex}`), total: 1000 }));
+      await mountFocused("missing");
+      expect(mockFolder).toHaveBeenCalledTimes(10);
+    });
+  });
+
   describe("overlapping loads", () => {
     it("ignores a stale first-page load that resolves after a refresh", async () => {
       let resolveInitial!: (v: { items: JellyfinItem[]; total?: number }) => void;
