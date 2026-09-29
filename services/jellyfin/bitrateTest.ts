@@ -149,12 +149,14 @@ async function timeStage(server: string, deviceId: string, apiKey: string | unde
   const url = `${server}/Playback/BitrateTest?Size=${size}&_probe=${Date.now()}-${probeNonce++}`;
   const response = await fetchWithTimeout(url, { method: "GET", headers: { Authorization: getAuthHeader(deviceId, apiKey) } }, API_TIMEOUTS.NORMAL);
   if (!response.ok) return null;
-  // React Native's fetch delivers the body fully before resolving json/blob;
-  // arrayBuffer keeps the timing honest without a text decode.
-  const body = await response.arrayBuffer();
+  // blob() keeps the body native. arrayBuffer() round-trips it through base64 in JS, which
+  // capped a 230 Mb/s Apple TV link at 38 Mb/s.
+  const body = await response.blob();
   const seconds = (Date.now() - started) / 1000;
-  if (seconds <= 0 || body.byteLength === 0) return null;
-  return { bps: (body.byteLength * 8) / seconds, bytes: body.byteLength, seconds };
+  const bytes = body.size;
+  (body as Blob & { close?: () => void }).close?.();
+  if (seconds <= 0 || bytes === 0) return null;
+  return { bps: (bytes * 8) / seconds, bytes, seconds };
 }
 
 async function runProbe(config: JellyfinConfig, host: string, shouldRemember: boolean): Promise<number | null> {

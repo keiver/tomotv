@@ -45,9 +45,9 @@ let mockFetch: jest.Mock;
 function stage(bytes: number, elapsedMs: number) {
   return {
     ok: true,
-    arrayBuffer: async () => {
+    blob: async () => {
       now += elapsedMs;
-      return new ArrayBuffer(bytes);
+      return { size: bytes, close: jest.fn() };
     },
   };
 }
@@ -179,7 +179,7 @@ describe("measurement", () => {
   });
 
   it("remembers nothing when the server refuses the probe", async () => {
-    mockFetch.mockResolvedValueOnce({ ok: false, arrayBuffer: jest.fn() });
+    mockFetch.mockResolvedValueOnce({ ok: false, blob: jest.fn() });
 
     await expect(measureServerBitrate()).resolves.toBeNull();
     expect(mockSetItem).not.toHaveBeenCalled();
@@ -188,7 +188,7 @@ describe("measurement", () => {
   it("holds a failed host for its backoff on a direct call, not only on a trigger", async () => {
     // Settings and the Auto startup pick call in here directly; both used to
     // re-probe a dead host on every visit, at 15s a time.
-    mockFetch.mockResolvedValue({ ok: false, arrayBuffer: jest.fn() });
+    mockFetch.mockResolvedValue({ ok: false, blob: jest.fn() });
 
     await expect(measureServerBitrate()).resolves.toBeNull();
     await expect(measureServerBitrate()).resolves.toBeNull();
@@ -294,7 +294,7 @@ describe("triggers", () => {
   });
 
   it("holds a failed host for its backoff instead of retrying on every trigger", async () => {
-    mockFetch.mockResolvedValue({ ok: false, arrayBuffer: jest.fn() });
+    mockFetch.mockResolvedValue({ ok: false, blob: jest.fn() });
 
     warmBitrateMemory(0);
     await jest.advanceTimersByTimeAsync(1);
@@ -374,7 +374,7 @@ describe("triggers", () => {
 
   it("re-measures on a tap past a fresh reading and past the failure backoff", async () => {
     storedMemory({ bps: 90_000_000, at: now - 60 * 1000, net: HOME });
-    mockFetch.mockResolvedValueOnce({ ok: false, arrayBuffer: jest.fn() });
+    mockFetch.mockResolvedValueOnce({ ok: false, blob: jest.fn() });
 
     await expect(remeasureBitrate()).resolves.toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
