@@ -639,8 +639,7 @@ class LocalRemuxer: RCTEventEmitter {
             guard let reading = outcome.linkReading else { return resolve(NSNull()) }
             let kind: String
             switch reading.kind {
-            case .steady: kind = "steady"
-            case .unsettled: kind = "unsettled"
+            case .full: kind = "full"
             case .short: kind = "short"
             }
             resolve(["bps": reading.bps, "kind": kind, "seconds": reading.seconds, "low": reading.lowBps, "high": reading.highBps, "samples": outcome.samples])

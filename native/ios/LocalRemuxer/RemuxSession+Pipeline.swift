@@ -2089,7 +2089,7 @@ extension RemuxSession {
             inputBytesSinceLog += Int64(pkt.pointee.size)
             bytesInSegment += Int64(pkt.pointee.size)
             // The queued packet crossed the wire before the loop; handing it over took no read time.
-            if fromQueue { transfers.note(bytes: Int64(pkt.pointee.size)) } else { noteSourceRead(bytes: Int64(pkt.pointee.size), seconds: readTook) }
+            if !fromQueue { noteSourceRead(bytes: Int64(pkt.pointee.size), seconds: readTook) }
             stateLock.lock()
             pulledBytes += Int64(pkt.pointee.size)
             stateLock.unlock()

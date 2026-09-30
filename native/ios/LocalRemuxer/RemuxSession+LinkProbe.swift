@@ -29,19 +29,52 @@ struct LinkEstimate {
     enum Source: String { case probe, reads, rungs, playlist }
     let bps: Double
     let source: Source
-    /// The probe's RateMeter verdict; nil for the other sources.
-    let confidence: RateMeter.Kind?
     let at: Date
+}
+
+/// hls.js's and Shaka's bandwidth estimate: the lower of a fast and a slow EWMA of samples weighted by
+/// their seconds, so the link follows a drop at once and a rise only once it holds.
+struct LinkEwma {
+    private struct Average {
+        let alpha: Double
+        /// Already corrected for the zero the average starts from, so a first sample reads as itself.
+        var value = 0.0
+        var zero = 0.0
+
+        init(halfLife: Double) { alpha = exp(log(0.5) / halfLife) }
+
+        mutating func add(_ sample: Double, seconds: Double) {
+            let adjusted = pow(alpha, seconds)
+            let first = zero == 0
+            zero = adjusted * zero + (1 - adjusted)
+            value = first ? sample : value + (1 - adjusted) * (sample - value) / zero
+        }
+    }
+
+    /// hls.js's VoD half-lives, in seconds of sample.
+    private var fast = Average(halfLife: 3)
+    private var slow = Average(halfLife: 9)
+
+    /// Seconds of probing behind the estimate.
+    private(set) var seconds = 0.0
+
+    mutating func add(_ bps: Double, seconds: Double) {
+        guard bps.isFinite, bps > 0, seconds > 0 else { return }
+        fast.add(bps, seconds: seconds)
+        slow.add(bps, seconds: seconds)
+        self.seconds += seconds
+    }
+
+    var estimate: Double? { seconds > 0 ? min(fast.value, slow.value) : nil }
 }
 
 /// The link rate the master orders its variants by: a timed read of the source itself, since
 /// AVPlayer measures only the loopback and the engine's own read loop starts after the grid.
 extension RemuxSession {
-    /// A probe runs this long after its first byte unless its RateMeter reads steady first.
+    /// A probe runs this long after its first byte.
     static let linkProbeSeconds = 1.5
-    /// Probe readings the link is the median of (ExoPlayer's sliding median): one probe that caught
-    /// a stall (95 Mb/s between 209 and 225, measured) moves nothing until the next one agrees.
-    static let linkProbeReadingsKept = 3
+    /// Probing behind an estimate before the app may keep it as this server's link: NDT7's ten seconds.
+    static let sustainedLinkSeconds = 10.0
     /// How long a mid-session probe's first byte may take before the link reads as slow. The startup
     /// probe waits out the master's budget: a server disk waking from sleep answered after 3s on a
     /// 260 Mb/s link (measured), and reading that as the link put the session on the rungs.
@@ -82,7 +115,7 @@ extension RemuxSession {
         }
         let reading = outcome.reading.flatMap { $0.bps > 0 ? $0 : nil }
         finishLinkProbe(reading?.bps, reporting: reporting, failure: outcome.failure ?? (reading == nil ? .transient(0) : nil),
-                        confidence: reading?.kind ?? .steady)
+                        seconds: reading?.seconds ?? Self.linkProbeSeconds)
     }
 
     /// A probe that measured nothing usable: the reading stands, only the probe clock moves.
@@ -92,21 +125,21 @@ extension RemuxSession {
         stateLock.unlock()
     }
 
-    func finishLinkProbe(_ bps: Double?, reporting: Bool, failure: LinkProbeFailure? = nil, confidence: RateMeter.Kind = .steady) {
+    func finishLinkProbe(_ bps: Double?, reporting: Bool, failure: LinkProbeFailure? = nil, seconds: Double = RemuxSession.linkProbeSeconds) {
         stateLock.lock()
         guard !cancelled, !failed else { return stateLock.unlock() }
         sourceProbeFailure = failure
         linkProbeDone = true
         lastLinkProbeAt = Date()
-        var median: Double?
+        var held: Double?
         var confirm = false
         if let bps {
-            probeReadings = Array((probeReadings + [bps]).suffix(Self.linkProbeReadingsKept))
-            // Two readings have no median: the held one stands until a third decides.
-            let held = probeReadings.count == 2 ? probeReadings[0] : probeReadings.sorted()[probeReadings.count / 2]
-            median = held
-            confirm = abs(bps - held) > held * 0.25
-            setLinkLocked(held, .probe, confidence: confidence)
+            linkEwma.add(bps, seconds: seconds)
+            held = linkEwma.estimate
+            if let held {
+                confirm = abs(bps - held) > held * 0.25
+                setLinkLocked(held, .probe)
+            }
             linkWindowBytes = 0
             linkWindowBusySeconds = 0
             linkWindowStart = Date()
@@ -114,14 +147,14 @@ extension RemuxSession {
                   let fallback = floorLinkBps.map({ ($0, LinkEstimate.Source.rungs) }) ?? playlistLinkBps.map({ ($0, .playlist) }) {
             setLinkLocked(fallback.0, fallback.1)
         }
-        let readings = probeReadings.count
+        let probed = linkEwma.seconds
         let rate = wireLinkBps
         let moved = rate != nil && (reportedLinkBps == nil || abs(rate! - reportedLinkBps!) > (reportedLinkBps! * 0.15))
         if moved { reportedLinkBps = rate }
         let report = moved ? linkReportLocked() : nil
         stateLock.unlock()
-        if let bps, let median {
-            NSLog("[LocalRemuxer] Slipstream: link measured %.1f Mb/s, the link is %.1f Mb/s (median of %d)", bps / 1_000_000, median / 1_000_000, readings)
+        if let bps, let held {
+            NSLog("[LocalRemuxer] Slipstream: link measured %.1f Mb/s, the link is %.1f Mb/s (%.1fs probed)", bps / 1_000_000, held / 1_000_000, probed)
         } else if !reporting {
             NSLog("[LocalRemuxer] Slipstream: link measured nothing (reads as slow)")
         }
@@ -135,9 +168,9 @@ extension RemuxSession {
         sourceUnusable || sourceState == .retryWait || sourceProbeFailure?.usesServerTransferFallback == true
     }
 
-    private func setLinkLocked(_ bps: Double, _ source: LinkEstimate.Source, confidence: RateMeter.Kind? = nil) {
+    private func setLinkLocked(_ bps: Double, _ source: LinkEstimate.Source) {
         guard bps.isFinite, bps > 0 else { return }
-        link = LinkEstimate(bps: bps, source: source, confidence: confidence, at: Date())
+        link = LinkEstimate(bps: bps, source: source, at: Date())
     }
 
     func notePlaylistTransfer(bytes: Int64, from start: Date, to end: Date) {
@@ -239,10 +272,8 @@ extension RemuxSession {
     func noteSourceRead(bytes: Int64, seconds: Double, now: Date = Date()) {
         bytesSinceLinkSample += bytes
         readSecondsSinceLinkSample += seconds
-        // The ledger carries the producer's bytes as they are read, so a probe beside it counts them.
-        transfers.note(bytes: bytes)
         guard bytesSinceLinkSample >= 512 * 1024 else { return }
-        let beside = transfers.carried() - besideAtLinkSample - bytesSinceLinkSample
+        let beside = transfers.carried() - besideAtLinkSample
         // A probe is not in the ledger's bytes, so its overlap is read off the probe mark.
         let mark = transfers.probeMark()
         let besideProbe = mark != probeMarkAtLinkSample || mark % 2 == 1
@@ -328,12 +359,17 @@ extension RemuxSession {
         // as true as a slow link's long ones.
         if linkWindowBytes > 512 * 1024, linkWindowBusySeconds > 0.05 {
             let rate = Double(linkWindowBytes) * 8 / linkWindowBusySeconds
-            if wireLinkBps == nil || (rate < wireLinkBps! && sourceReadsLowerLinkLocked()) {
+            // A read returns what the socket already holds, so it only ever lowers a measured link.
+            if let wire = wireLinkBps, rate < wire, sourceReadsLowerLinkLocked() {
                 setLinkLocked(rate, .reads)
                 // A drained buffer is the link now: older probes must not outvote it.
-                probeReadings = []
+                linkEwma = LinkEwma()
             }
-            let outran = rate > (wireLinkBps ?? .infinity) * 1.25
+            // Reads drain the socket's buffer faster than any wire (0.7 MB in 0.01s on device), so they
+            // ask for a probe only while a faster link could still admit the copy.
+            let wire = wireLinkBps ?? .infinity
+            let copyFits = sourceBandwidth <= 0 || Double(sourceBandwidth) * 1.2 <= wire
+            let outran = rate > wire * 1.25 && !copyFits
             reportLinkLocked()
             if outran { requestLinkReprobe() }
             return
@@ -378,12 +414,12 @@ extension RemuxSession {
         if let report { onLink?(report) }
     }
 
-    /// The link as the app sees it. `settled` marks a probe of the source the app may keep as the wire.
+    /// The link as the app sees it. `settled` marks probes of the source long enough to be the sustained wire.
     private func linkReportLocked() -> [String: Any] {
         var report: [String: Any] = ["token": token, "bps": link?.bps ?? 0, "copyListed": copyAnnounced]
         if let link {
             report["source"] = link.source.rawValue
-            report["settled"] = link.source == .probe && link.confidence != .short
+            report["settled"] = link.source == .probe && linkEwma.seconds >= Self.sustainedLinkSeconds
         }
         return report
     }
@@ -441,7 +477,7 @@ final class TransferLedger {
         lock.unlock()
     }
 
-    /// Bytes that arrived outside URLSession: the producer's own reads of the source.
+    /// A server transfer's bytes without its task: a test seam, never called in production.
     func note(bytes: Int64) {
         lock.lock()
         settled += bytes

@@ -99,25 +99,25 @@ final class RateProbeTests: XCTestCase {
         return (outcome, Date().timeIntervalSince(started))
     }
 
-    func testAPacedBodyReadsItsRateAndStopsOnceSteady() throws {
+    func testAPacedBodyReadsItsRateOverTheWholeBudget() throws {
         for rate in [8.0, 40, 120] {
             let server = try PacedServer(.init(bps: rate * mbps, length: 200_000_000))
             defer { server.stop() }
             let (outcome, elapsed) = probe(server)
             let reading = try XCTUnwrap(outcome.reading, "\(rate) Mb/s")
             XCTAssertNil(outcome.failure)
-            XCTAssertEqual(reading.kind, .steady, "\(rate) Mb/s")
+            XCTAssertEqual(reading.kind, .full, "\(rate) Mb/s")
             XCTAssertEqual(reading.bps / mbps, rate, accuracy: rate * 0.03, "\(rate) Mb/s")
-            XCTAssertLessThan(elapsed, 2.5, "a steady rate ends the probe before its 3s budget")
+            XCTAssertGreaterThanOrEqual(elapsed, 3, "no flat stretch ends the read before its budget")
         }
     }
 
-    func testAShortTestBodyIsAskedForAgainUntilTheReadingIsSteady() throws {
+    func testAShortTestBodyIsAskedForAgainUntilTheBudget() throws {
         let server = try PacedServer(.init(bps: 40 * mbps, length: 400_000))
         defer { server.stop() }
         let (outcome, _) = probe(server, repeats: true)
         let reading = try XCTUnwrap(outcome.reading)
-        XCTAssertEqual(reading.kind, .steady)
+        XCTAssertEqual(reading.kind, .full)
         XCTAssertEqual(reading.bps / mbps, 40, accuracy: 1.2)
         XCTAssertGreaterThan(server.requests, 5)
     }
@@ -138,7 +138,7 @@ final class RateProbeTests: XCTestCase {
         defer { server.stop() }
         let (outcome, _) = probe(server)
         let reading = try XCTUnwrap(outcome.reading)
-        XCTAssertEqual(reading.kind, .steady)
+        XCTAssertEqual(reading.kind, .full)
         XCTAssertEqual(reading.bps / mbps, 40, accuracy: 1.2)
     }
 
@@ -157,9 +157,9 @@ final class RateProbeTests: XCTestCase {
             .init(reading: .init(kind: kind, bps: 640_000_000, lowBps: 0, highBps: 0, seconds: kind == .short ? 0.004 : 3), failure: failure)
         }
         XCTAssertNil(outcome(.short).linkReading, "one burst reads the last hop, not the link")
-        XCTAssertNil(outcome(.steady, .unavailable(404)).linkReading)
-        XCTAssertNotNil(outcome(.unsettled).linkReading)
-        XCTAssertNotNil(outcome(.steady, .transient(0)).linkReading, "a body cut off after a full window still read the link")
+        XCTAssertNil(outcome(.full, .unavailable(404)).linkReading)
+        XCTAssertNotNil(outcome(.full).linkReading)
+        XCTAssertNotNil(outcome(.full, .transient(0)).linkReading, "a body cut off after a full window still read the link")
     }
 
     func testNoFirstByteReadsNothing() throws {
@@ -194,7 +194,7 @@ final class RateProbeTests: XCTestCase {
 final class LinkEstimateTests: XCTestCase {
     private let mbps = 1_000_000.0
 
-    func testTheEngineProbeSetsTheLinkFromASteadyRead() throws {
+    func testTheEngineProbeSetsTheLinkFromItsRead() throws {
         let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000))
         defer { server.stop() }
         let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString))
@@ -202,7 +202,6 @@ final class LinkEstimateTests: XCTestCase {
         s.probeLink(reporting: true)
         let link = try XCTUnwrap(s.link)
         XCTAssertEqual(link.source, .probe)
-        XCTAssertEqual(link.confidence, .steady)
         XCTAssertEqual(link.bps / mbps, 40, accuracy: 1.2)
         XCTAssertNil(s.sourceProbeFailure)
     }
@@ -243,22 +242,14 @@ final class LinkEstimateTests: XCTestCase {
         XCTAssertGreaterThan(s.lastLinkProbeAt, Date().addingTimeInterval(-5), "the probe clock moves")
     }
 
-    func testAnUnsettledProbeIsStillTheReading() throws {
-        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
-        defer { s.stop() }
-        s.finishLinkProbe(200_000_000, reporting: false)
-        s.finishLinkProbe(60_000_000, reporting: true, confidence: .unsettled)
-        s.finishLinkProbe(60_000_000, reporting: true, confidence: .unsettled)
-        XCTAssertEqual(s.wireLinkBps, 60_000_000)
-        XCTAssertEqual(s.link?.confidence, .unsettled)
-    }
-
     func testEachReadingNamesItsSource() throws {
         let reads = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { reads.stop() }
         reads.noteLinkSample(bytes: 600_000, seconds: 1)
+        XCTAssertNil(reads.link, "a read never sets a link the probe did not measure")
+        reads.finishLinkProbe(8_000_000, reporting: false)
+        reads.noteLinkSample(bytes: 600_000, seconds: 1)
         XCTAssertEqual(reads.link?.source, .reads)
-        XCTAssertNil(reads.link?.confidence)
 
         let server = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { server.stop() }

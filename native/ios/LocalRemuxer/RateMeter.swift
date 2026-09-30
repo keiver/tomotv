@@ -1,15 +1,13 @@
 import Foundation
 
-/// A link rate from the deliveries of any number of concurrent transfers, in fixed samples of flowing time.
-/// The clock runs only while a transfer flows, so idle gaps and first-byte waits are not the link, and the
-/// chunk that starts the clock is not counted: its bytes arrived while nothing was timed.
+/// A link rate from the deliveries of any number of concurrent transfers: every byte over the flowing time
+/// since the first one (NDT7's cumulative rate), stalls included. The clock runs only while a transfer flows,
+/// and the chunk that starts it is not counted: its bytes arrived while nothing was timed.
 struct RateMeter {
     enum Kind: Equatable {
-        /// The last window's samples lie within the tolerance of their mean (fast.com's stop rule).
-        case steady
-        /// A full window that has not settled, read as the average of the whole run: stalls are the link too.
-        case unsettled
-        /// Less than one window of flowing time, read as its average.
+        /// At least one window of flowing time.
+        case full
+        /// Under one window: a TCP ramp or one buffer's drain, not the link.
         case short
     }
 
@@ -23,7 +21,6 @@ struct RateMeter {
 
     let interval: Double
     let span: Int
-    let tolerance: Double
 
     private var clockStart: Double?
     private var pausedSeconds = 0.0
@@ -32,15 +29,14 @@ struct RateMeter {
     /// Flowing transfers and the clock time of each one's last delivery.
     private var flows: [Int: Double] = [:]
     private var closed: Set<Int> = []
-    /// Bytes per sample of flowing time, starting at sample `firstBin`.
+    /// Bytes per sample of flowing time, starting at sample `firstBin`: the spread the log reports.
     private var bins: [Double] = []
     private var firstBin = 0
     private var counted = 0.0
 
-    init(interval: Double = 0.1, span: Int = 10, tolerance: Double = 0.03) {
+    init(interval: Double = 0.1, span: Int = 10) {
         self.interval = interval
         self.span = span
-        self.tolerance = tolerance
     }
 
     mutating func received(_ transfer: Int, bytes: Int, at time: Double) {
@@ -79,26 +75,15 @@ struct RateMeter {
         pausedAt = time
     }
 
-    var isSteady: Bool { reading().kind == .steady }
-
     /// Samples held in memory, bounded however long the meter runs.
     var retainedSamples: Int { bins.count }
 
     func reading() -> Reading {
         let seconds = flowingSeconds
-        let rates = (max(firstBin, settledBins - span)..<settledBins).map { bytes(in: $0) * 8 / interval }
-        guard rates.count >= span else {
-            let bps = seconds > 0 ? counted * 8 / seconds : 0
-            return Reading(kind: .short, bps: bps, lowBps: rates.min() ?? bps, highBps: rates.max() ?? bps, seconds: seconds)
-        }
-        let mean = rates.reduce(0, +) / Double(span)
-        let low = rates.min() ?? 0
-        let high = rates.max() ?? 0
-        guard mean > 0, high - low <= tolerance * mean else {
-            let run = samples()
-            return Reading(kind: .unsettled, bps: run.reduce(0, +) / Double(run.count), lowBps: low, highBps: high, seconds: seconds)
-        }
-        return Reading(kind: .steady, bps: mean, lowBps: low, highBps: high, seconds: seconds)
+        let bps = seconds > 0 ? counted * 8 / seconds : 0
+        let window = samples().suffix(span)
+        let kind: Kind = seconds < Double(span) * interval ? .short : .full
+        return Reading(kind: kind, bps: bps, lowBps: window.min() ?? bps, highBps: window.max() ?? bps, seconds: seconds)
     }
 
     /// Every settled sample's rate, oldest first.

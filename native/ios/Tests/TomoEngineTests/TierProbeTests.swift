@@ -923,12 +923,13 @@ final class TierProbeTests: XCTestCase {
     func testASampleDoesNotSpanAHold() throws {
         let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { s.stop() }
+        s.finishLinkProbe(8_000_000, reporting: false)
         let t0 = Date()
         s.restartLinkSample(now: t0)
         s.transfers.note(bytes: 3_000_000)
         s.restartLinkSample(now: t0.addingTimeInterval(60))
         s.noteSourceRead(bytes: 600_000, seconds: 1, now: t0.addingTimeInterval(61))
-        XCTAssertEqual(s.wireLinkBps ?? 0, 4_800_000, accuracy: 1, "600 KB read alone in one second is the wire")
+        XCTAssertEqual(s.wireLinkBps ?? 0, 4_800_000, accuracy: 1, "600 KB read alone in one second lowers the wire")
     }
 
     /// A producer read made while a probe runs shared the link with it: a floor, never the wire.
@@ -1294,7 +1295,7 @@ final class TierProbeTests: XCTestCase {
         session.copyAnnounced = true
         session.lastRequestedSegment = 1
         session.lastTierRung = 0
-        session.link = LinkEstimate(bps: 5_000_000, source: .probe, confidence: .steady, at: Date())
+        session.link = LinkEstimate(bps: 5_000_000, source: .probe, at: Date())
         let token = session.token
 
         XCTAssertTrue(session.wakeSourceIfAffordable())
@@ -1330,9 +1331,9 @@ final class TierProbeTests: XCTestCase {
         session.sourceState = .dormant
         session.testLinkBps = 12_000_000
         session.finishLinkProbe(12_000_000, reporting: true)
-        XCTAssertEqual(session.wireLinkBps, 6_000_000, "one reading moves nothing")
+        XCTAssertLessThan(session.wireLinkBps ?? .infinity, 12_000_000, "one faster reading moves it only part way")
         XCTAssertTrue(session.reprobeAsked, "it asks for the probe that decides")
-        session.finishLinkProbe(12_000_000, reporting: true)
+        for _ in 0..<5 { session.finishLinkProbe(12_000_000, reporting: true) }
         XCTAssertTrue(session.wakeSourceIfAffordable())
         XCTAssertTrue(session.awaitCopyAdmission(until: Date()))
         XCTAssertTrue(session.copyFollowsLocked())
@@ -1428,7 +1429,7 @@ final class TierProbeTests: XCTestCase {
             try media.mediaSegment.write(to: session.dir.appendingPathComponent(rendition.segmentName(0)))
         }
         session.sourceState = .unavailable
-        session.link = LinkEstimate(bps: 600_000, source: .probe, confidence: .steady, at: Date())
+        session.link = LinkEstimate(bps: 600_000, source: .probe, at: Date())
 
         XCTAssertTrue(isFile(session.initResponse()))
         XCTAssertTrue(isFile(session.segmentResponse(0)))
@@ -1490,7 +1491,7 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(session.wireLinkBps, 165_800_000)
         session.finishLinkProbe(40_000_000, reporting: false)
         session.finishLinkProbe(40_000_000, reporting: false)
-        XCTAssertEqual(session.wireLinkBps, 40_000_000, "probes that agree still lower it")
+        XCTAssertLessThan(session.wireLinkBps ?? .infinity, 80_000_000, "probes that agree still lower it")
     }
 
     /// A copy AVPlayer holds a full reservoir of is served whatever the link reads, and its
@@ -1612,7 +1613,7 @@ final class TierProbeTests: XCTestCase {
         let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))
         defer { session.stop() }
-        session.link = LinkEstimate(bps: 1, source: .probe, confidence: .steady, at: Date())
+        session.link = LinkEstimate(bps: 1, source: .probe, at: Date())
         session.sourceState = .unavailable
         session.audioLoSegments[0] = [TierSegment(duration: 6, url: "a-seg0.mp4")]
         session.recordSupplierFailure(.audio(0), failure: .http(503))
@@ -1924,41 +1925,55 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(reports.last?["bps"] as? Double, session.wireLinkBps)
         XCTAssertEqual(reports.last?["copyListed"] as? Bool, true)
         XCTAssertEqual(reports.last?["source"] as? String, "probe")
-        XCTAssertEqual(reports.last?["settled"] as? Bool, true)
+        XCTAssertEqual(reports.last?["settled"] as? Bool, false, "one probe is not ten seconds of the wire")
 
         session.noteLinkSample(bytes: 2_000_000, seconds: 1)
         XCTAssertEqual(session.wireLinkBps, 1_500_000)
         XCTAssertTrue(session.reprobeAsked)
         session.finishLinkProbe(30_000_000, reporting: true)
         session.finishLinkProbe(30_000_000, reporting: true)
-        XCTAssertEqual(reports.last?["bps"] as? Double, 30_000_000)
+        XCTAssertEqual(reports.last?["bps"] as? Double, session.wireLinkBps)
 
         session.cancelled = true
         let count = reports.count
+        let standing = session.wireLinkBps
         session.finishLinkProbe(600_000, reporting: true)
         session.noteLinkSample(bytes: 600_000, seconds: 4)
         session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-4), to: Date())
         XCTAssertEqual(reports.count, count)
-        XCTAssertEqual(session.wireLinkBps, 30_000_000)
+        XCTAssertEqual(session.wireLinkBps, standing)
     }
 
-    func testTheStartupProbeReportsItsReadingAsSettledOnlyWhenItFilledAWindow() throws {
+    /// Apple TV: reads of 0.7 MB in 0.01s drain the socket, not the wire, and asked for a probe every 10s on a copy.
+    func testReadsPastALinkThatCarriesTheCopyAskForNoProbe() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.finishLinkProbe(190_000_000, reporting: false)
+        session.noteLinkSample(bytes: 5_600_000, seconds: 0.1)
+        XCTAssertFalse(session.reprobeAsked, "the link already admits the copy; a faster one decides nothing")
+
+        let thin = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { thin.stop() }
+        thin.finishLinkProbe(1_500_000, reporting: false)
+        thin.noteLinkSample(bytes: 2_000_000, seconds: 1)
+        XCTAssertTrue(thin.reprobeAsked, "under the copy a faster read may admit it")
+    }
+
+    /// NDT7's ten seconds: a startup probe alone is a burst allowance's length, never the sustained wire.
+    func testTheLinkIsReportedSettledOnlyAfterTenSecondsOfProbing() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { session.stop() }
         var reports: [[String: Any]] = []
         session.onLink = { reports.append($0) }
-        session.finishLinkProbe(80_000_000, reporting: false, confidence: .unsettled)
-        XCTAssertEqual(reports.count, 1)
+        session.finishLinkProbe(80_000_000, reporting: false)
+        XCTAssertEqual(reports.count, 1, "the startup probe reports")
         XCTAssertEqual(reports.last?["bps"] as? Double, 80_000_000)
         XCTAssertEqual(reports.last?["source"] as? String, "probe")
-        XCTAssertEqual(reports.last?["settled"] as? Bool, true)
+        XCTAssertEqual(reports.last?["settled"] as? Bool, false)
 
-        let short = try RemuxSession(config: makeConfig(durationSeconds: 18))
-        defer { short.stop() }
-        var shortReports: [[String: Any]] = []
-        short.onLink = { shortReports.append($0) }
-        short.finishLinkProbe(640_000_000, reporting: false, confidence: .short)
-        XCTAssertEqual(shortReports.last?["settled"] as? Bool, false, "under a window the probe timed a burst")
+        for _ in 0..<6 { session.finishLinkProbe(8_000_000, reporting: true) }
+        XCTAssertEqual(reports.last?["settled"] as? Bool, true)
+        XCTAssertLessThan(session.wireLinkBps ?? .infinity, 15_000_000, "the drop is followed")
     }
 
     func testServerCapacityIsReportedWithItsSourceAndNeverSettled() throws {
@@ -1976,30 +1991,20 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(reports.last?["settled"] as? Bool, false)
     }
 
-    /// One probe that caught a stall moves nothing (T105: 95 Mb/s between 209 and 225); the next decides.
-    func testALoneOutlyingProbeMovesNothingAndAsksForTheOneThatDecides() throws {
+    /// hls.js and Shaka: the lower of a fast and a slow EWMA follows a drop at once and a rise only as it holds.
+    func testTheLinkFollowsADropAtOnceAndARiseOnlyAsItHolds() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { session.stop() }
         session.finishLinkProbe(209_000_000, reporting: true)
+        XCTAssertEqual(session.wireLinkBps ?? 0, 209_000_000, accuracy: 1)
         session.finishLinkProbe(95_000_000, reporting: true)
-        XCTAssertEqual(session.wireLinkBps, 209_000_000)
-        XCTAssertTrue(session.reprobeAsked)
-        session.reprobeAsked = false
+        let dropped = try XCTUnwrap(session.wireLinkBps)
+        XCTAssertLessThan(dropped, 150_000_000)
+        XCTAssertTrue(session.reprobeAsked, "a reading a quarter off the link asks for the next")
         session.finishLinkProbe(225_000_000, reporting: true)
-        XCTAssertEqual(session.wireLinkBps, 209_000_000, "the median of 209, 95 and 225")
-        XCTAssertFalse(session.reprobeAsked, "a reading within a quarter of the link confirms it")
-    }
-
-    func testTwoAgreeingProbesMoveTheLinkEitherWay() throws {
-        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
-        defer { session.stop() }
-        session.finishLinkProbe(200_000_000, reporting: true)
-        session.finishLinkProbe(20_000_000, reporting: true)
-        session.finishLinkProbe(22_000_000, reporting: true)
-        XCTAssertEqual(session.wireLinkBps, 22_000_000)
-        session.finishLinkProbe(180_000_000, reporting: true)
-        session.finishLinkProbe(190_000_000, reporting: true)
-        XCTAssertEqual(session.wireLinkBps, 180_000_000)
+        XCTAssertLessThan(session.wireLinkBps ?? .infinity, 209_000_000, "one fast read does not raise it back")
+        for _ in 0..<10 { session.finishLinkProbe(225_000_000, reporting: true) }
+        XCTAssertGreaterThan(session.wireLinkBps ?? 0, 210_000_000, "a rise that holds is followed")
     }
 
     /// A buffer drained into the reservoir is the link now: probes from before it do not vote it back up.

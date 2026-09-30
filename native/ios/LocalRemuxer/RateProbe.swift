@@ -1,7 +1,7 @@
 import Foundation
 
-/// Times a URL's body through a RateMeter from its first byte until the rate is steady or the budget
-/// runs out. `beside` counts what other transfers carried meanwhile, so a shared link reads whole.
+/// Times a URL's body through a RateMeter for its whole budget from the first byte: no reading ends early on a
+/// flat stretch, which a burst allowance also shows. `beside` counts what other transfers carried meanwhile.
 final class RateProbe: NSObject, URLSessionDataDelegate {
     struct Outcome {
         let reading: RateMeter.Reading?
@@ -89,7 +89,7 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
         }
         meter.received(0, bytes: data.count + Int(max(0, carried - besideSeen)), at: now)
         besideSeen = carried
-        let stop = meter.isSteady || now - (firstByteAt ?? now) >= budget
+        let stop = now - (firstByteAt ?? now) >= budget
         if stop { finished = true }
         lock.unlock()
         if stop {
