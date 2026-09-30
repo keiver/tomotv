@@ -144,14 +144,14 @@ describe("live frames", () => {
     setLiveFrameViewable("guide", ["m1", "m2"]);
     await advance(0);
     expect(grabs()).toEqual(["m1"]);
-    // The first grab for a bare card takes the short cold profile; one open either way.
+    // The first grab for a bare card takes the short cold profile and its clip; one open either way.
     expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({
       channelId: "m1",
       inputUrl: "https://origin/m1.m3u8",
       httpHeaders: { "User-Agent": "Tuner" },
       count: LIVE_FRAME_COLD_COUNT,
       deadline: LIVE_FRAME_COLD_DEADLINE_S,
-      clipSpan: 0,
+      clipSpan: LIVE_FRAME_CLIP_S,
     });
     expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-11.jpg", cacheKey: "live-m1-1000000-11" });
     expect(mockOnDisk).toHaveBeenCalledWith(["m1", "m2"]);
@@ -177,7 +177,7 @@ describe("live frames", () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it("asks every grab after the first paint for a preview clip and hands the file to the card", async () => {
+  it("asks the first grab for a preview clip and hands the file to the card with its picture", async () => {
     mockLiveFrame.mockImplementation(async ({ channelId, clipSpan }: { channelId: string; clipSpan: number }) => ({
       uris: burst(channelId, Date.now()),
       clip: clipSpan > 0 ? `file:///pool/${channelId}/live-${Date.now()}-clip.mp4` : null,
@@ -187,14 +187,61 @@ describe("live frames", () => {
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
-    expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ clipSpan: 0 });
-    expect(liveClipFor("m1")).toBeUndefined();
+    expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ clipSpan: LIVE_FRAME_CLIP_S });
+    const clip = liveClipFor("m1");
+    expect(clip).toEqual({ uri: "file:///pool/m1/live-1000000-clip.mp4", cacheKey: "live-m1-1000000-clip" });
     await advance(LIVE_FRAME_REFRESH_MS);
     expect(mockLiveFrame.mock.calls[1][0]).toMatchObject({ clipSpan: LIVE_FRAME_CLIP_S, shownUri: "file:///pool/m1/live-1000000-0.jpg" });
-    const clip = liveClipFor("m1");
-    const at = 1_000_000 + LIVE_FRAME_REFRESH_MS;
-    expect(clip).toEqual({ uri: `file:///pool/m1/live-${at}-clip.mp4`, cacheKey: `live-m1-${at}-clip` });
-    expect(liveClipFor("m1")).toBe(clip);
+    expect(liveClipFor("m1")).not.toBe(clip);
+  });
+
+  it("grabs the focused row first, then its siblings in view nearest first, no dwell needed", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameFocus("m4");
+    setLiveFrameViewable("guide", ["m1", "m2", "m3", "m4", "m5"]);
+    await advance(0);
+    for (let i = 0; i < 5; i += 1) await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m4", "m3", "m5", "m2", "m1"]);
+    setLiveFrameFocus(null);
+  });
+
+  it("reads a picture still missing its clip again at once, and waits the refresh when a grab brought none", async () => {
+    mockOnDisk.mockResolvedValue({ m1: onDisk("m1", 1_000_000 - 2_000, 2) });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    expect(mockLiveFrame.mock.calls[0][0]).toMatchObject({ clipSpan: LIVE_FRAME_CLIP_S, shownPts: undefined, shownUri: undefined });
+    await advance(LIVE_FRAME_REFRESH_MS - 1);
+    expect(grabs()).toEqual(["m1"]);
+    await advance(1);
+    expect(grabs()).toEqual(["m1", "m1"]);
+  });
+
+  it("stops a refresh for a focused card still missing its picture, never another card's first grab", async () => {
+    const answers = new Map<string, (result: unknown) => void>();
+    mockOnDisk.mockResolvedValue({
+      m1: { ...onDisk("m1", 1_000_000 - LIVE_FRAME_REFRESH_MS - 1, 2), clip: "file:///pool/m1/c.mp4" },
+      m2: { ...onDisk("m2", 1_000_000 - LIVE_FRAME_REFRESH_MS - 1, 2), clip: "file:///pool/m2/c.mp4" },
+    });
+    mockLiveFrame.mockImplementation(({ channelId }: { channelId: string }) => new Promise((resolve) => answers.set(channelId, resolve)));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2", "m3"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m3"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m3", "m1"]);
+    answers.get("m3")?.({ uris: burst("m3", Date.now()), pts: 1, cancelled: false });
+    await flush();
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m3", "m1", "m2"]);
+    setLiveFrameViewable("guide", ["m1", "m2", "m3", "m4"]);
+    expect(mockCancel).not.toHaveBeenCalled();
+    setLiveFrameFocus("m4");
+    expect(mockCancel.mock.calls).toEqual([["m1"]]);
+    setLiveFrameFocus(null);
+    for (const answer of answers.values()) answer({ uris: [], cancelled: true });
+    await flush();
   });
 
   it("carries the clip a burst had on disk, and lets it go with the burst", async () => {
@@ -469,7 +516,7 @@ describe("live frames", () => {
   });
 
   it("shows the newest burst on disk before any grab and counts the refresh from its time", async () => {
-    mockOnDisk.mockResolvedValue({ m1: onDisk("m1", 1_000_000 - 2_000, 2) });
+    mockOnDisk.mockResolvedValue({ m1: { ...onDisk("m1", 1_000_000 - 2_000, 2), clip: "file:///pool/m1/live-998000-clip.mp4" } });
     const listener = jest.fn();
     subscribeLiveFrame("m1", listener);
     setLiveFramesActive("guide", true);

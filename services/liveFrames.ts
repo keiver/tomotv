@@ -29,13 +29,12 @@ export const LIVE_FRAME_BURST_COUNT = 12;
 /** Wall clock per grab, the keyframe wait included; the engine's watchdog stops the read at it. */
 export const LIVE_FRAME_DEADLINE_S = 12;
 /**
- * A channel with no picture yet takes a short grab: the same single open, a few frames, the
- * slot freed in half the time, so a cold wall paints in view order fast. Its full burst comes
- * with the normal refresh; no channel is ever opened twice for one cycle.
+ * A channel with no picture yet takes a short grab: the same single open, a few frames and its
+ * clip, so a cold wall paints and loops in focus order fast. Its full burst comes with the refresh.
  */
 export const LIVE_FRAME_COLD_COUNT = 4;
 export const LIVE_FRAME_COLD_SPAN_S = 9;
-export const LIVE_FRAME_COLD_DEADLINE_S = 6;
+export const LIVE_FRAME_COLD_DEADLINE_S = 9;
 /**
  * Opens refused this many times in a row read as a provider's concurrent-stream cap, not dead
  * channels: the sampler rests instead of walking every card through a refusal. Playback is
@@ -48,7 +47,7 @@ export const LIVE_FRAME_RETRY_MS = 120_000;
 export const LIVE_FRAME_RETRY_CAP_MS = 600_000;
 /** The card's crossfade from its picture to the newer one a grab brings. */
 export const LIVE_FRAME_TRANSITION_MS = 400;
-/** A full grab also copies this much stream into the focused card's preview clip, a video file. */
+/** Every grab also copies this much stream into the card's preview clip, a video file. */
 export const LIVE_FRAME_CLIP_S = 5;
 /** A row focused this long promotes its channel to the front of the sampler. */
 export const LIVE_FRAME_FOCUS_DWELL_MS = 2_000;
@@ -87,6 +86,8 @@ interface Entry {
   lane?: "origin" | "server";
   origin?: ChannelOrigin;
   failure?: { at: number; attempts: number };
+  /** A grab since the shown picture finished asking for a clip: one it did not bring waits for the refresh. */
+  clipAsked?: boolean;
 }
 
 const entries = new Map<string, Entry>();
@@ -311,10 +312,30 @@ function recordFailure(item: Entry, now: number): void {
   item.failure = { at: now, attempts: (item.failure?.attempts ?? 0) + 1 };
 }
 
-/** The channel due next: the promoted one on its short floor first, else the one longest
- *  without a burst once its refresh and any backoff have passed. Backoff binds them both:
- *  staring at a dead channel never hammers it. */
+/** A card in view still missing its picture or its clip: due at once, whatever its refresh says. */
+function needsGrab(channelId: string, now: number): boolean {
+  const burst = validBurst(channelId, now);
+  return !burst || (!burst.clip && !entry(channelId).clipAsked);
+}
+
+/** Viewable channels by distance from the focused row, nearest first; view order with no focus. */
+function byFocus(): string[] {
+  const at = focusCandidate ? viewable.indexOf(focusCandidate) : -1;
+  if (at < 0) return viewable;
+  return viewable
+    .map((channelId, index) => ({ channelId, d: Math.abs(index - at), index }))
+    .sort((a, b) => a.d - b.d || a.index - b.index)
+    .map((e) => e.channelId);
+}
+
+/** The channel due next: a card missing its picture or clip nearest the focused row first, then the
+ *  promoted one on its short floor, else the one longest without a burst once its refresh has
+ *  passed. Backoff binds them all: staring at a dead channel never hammers it. */
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
+  // A card that never failed goes before one retrying past its backoff.
+  const needy = byFocus().filter((channelId) => !grabbing.has(channelId) && needsGrab(channelId, now) && backoffUntil(entry(channelId).failure) <= now);
+  const first = needy.find((channelId) => !entry(channelId).failure) ?? needy[0];
+  if (first) return { channelId: first, waitMs: 0 };
   if (priority && viewable.includes(priority) && !grabbing.has(priority)) {
     const item = entry(priority);
     const readyAt = Math.max(item.lastAt + LIVE_FRAME_FOCUS_REFRESH_MS, backoffUntil(item.failure));
@@ -339,6 +360,8 @@ export function setLiveFrameFocus(channelId: string | null): void {
   focusTimer = null;
   showLivePreview(null);
   if (!channelId) return;
+  preemptRefreshes(channelId);
+  schedule(0);
   focusTimer = setTimeout(() => {
     focusTimer = null;
     priority = channelId;
@@ -347,6 +370,15 @@ export function setLiveFrameFocus(channelId: string | null): void {
     // The card promoted past its dwell warms an engine session on its origin, so a play press binds to it.
     showLivePreview(channelId);
   }, LIVE_FRAME_FOCUS_DWELL_MS);
+}
+
+/** A focused card missing its picture or clip takes a slot from a refresh, never from another card's first grab. */
+function preemptRefreshes(channelId: string): void {
+  if (grabbing.size < MAX_INFLIGHT || grabbing.has(channelId) || !viewable.includes(channelId) || !needsGrab(channelId, Date.now())) return;
+  const refresh = [...grabbing.keys()].find((id) => !needsGrab(id, Date.now()));
+  if (!refresh) return;
+  stopped.add(refresh);
+  void LocalRemuxer?.cancelLiveFrame?.(refresh)?.catch(() => {});
 }
 
 /** A blur that may land after the next row's focus: clears only its own claim. */
@@ -417,6 +449,7 @@ async function grab(channelId: string): Promise<void> {
   // No picture yet: the short first-paint profile; the refresh upgrades to the full burst.
   const shown = validBurst(channelId, now);
   const cold = !shown;
+  const needsClip = !!shown && !shown.clip && !item.clipAsked;
   let input: GrabInput | null = null;
   try {
     input = await inputFor(channelId, item);
@@ -449,10 +482,11 @@ async function grab(channelId: string): Promise<void> {
       span: cold ? LIVE_FRAME_COLD_SPAN_S : LIVE_FRAME_BURST_S,
       interval: LIVE_FRAME_BURST_INTERVAL_S,
       count: cold ? LIVE_FRAME_COLD_COUNT : LIVE_FRAME_BURST_COUNT,
-      // The first paint stays light; every later grab copies the focused card's preview clip.
-      clipSpan: cold ? 0 : LIVE_FRAME_CLIP_S,
-      shownPts: shown ? item.pts : undefined,
-      shownUri: shown?.frames[0]?.uri,
+      // The open is already paid for: the first grab brings the clip with the picture.
+      clipSpan: LIVE_FRAME_CLIP_S,
+      // A picture still missing its clip is read again rather than answered unchanged.
+      shownPts: shown && !needsClip ? item.pts : undefined,
+      shownUri: needsClip ? undefined : shown?.frames[0]?.uri,
     });
     if (gen !== generation) return;
     if (result?.cancelled) {
@@ -470,12 +504,14 @@ async function grab(channelId: string): Promise<void> {
       // The live edge was just verified on these pictures, so their validity counts from now.
       const still = validBurst(channelId, Date.now());
       if (still) still.at = now;
+      item.clipAsked = true;
       item.intervalMs = Math.min((item.intervalMs ?? LIVE_FRAME_REFRESH_MS) * 2, LIVE_FRAME_REFRESH_CAP_MS);
       item.failure = undefined;
       openFailStreak = 0;
       noteChannelAlive(channelId);
     } else if (result?.uris?.length) {
       item.burst = burstOf(channelId, result.uris, now, result.clip);
+      item.clipAsked = true;
       item.pts = result.pts ?? undefined;
       item.intervalMs = LIVE_FRAME_REFRESH_MS;
       item.failure = undefined;
