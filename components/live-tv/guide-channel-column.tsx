@@ -104,6 +104,7 @@ export function GuideChannelColumn({
             onLongPress={onChannelLongPress}
             onItemFocus={cardFocus}
             onItemBlur={cardBlur}
+            playsClipInView
           />
         ) : (
           <ChannelMorph

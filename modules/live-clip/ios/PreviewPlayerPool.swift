@@ -1,8 +1,8 @@
 import AVFoundation
 import UIKit
 
-/// Lends preview players to the channel cards showing a clip. TV has one and the newest card takes it; touch plays
-/// every card in view up to a ceiling, and a card past it waits for the next player to free up.
+/// Lends preview players to the channel cards showing a clip: every card in view plays up to a ceiling, and a card
+/// past it waits for the next player to free up.
 final class PreviewPlayerPool {
   static let shared = PreviewPlayerPool()
 
@@ -16,7 +16,8 @@ final class PreviewPlayerPool {
   }
 
   #if os(tvOS)
-  private static let ceiling = 1
+  /// Above the 5 cards a guide screen shows; a decoder-busy failure lowers it on the device.
+  private static let ceiling = 12
   #else
   /// Decoder busy (-11839) is reported at 16 players on iPhone; a Mac ran 48 card-sized 1080p clips in realtime.
   private static let ceiling = ProcessInfo.processInfo.isiOSAppOnMac ? 48 : 16
@@ -49,17 +50,10 @@ final class PreviewPlayerPool {
       lend(player, to: view, playing: url)
       return
     }
-    #if os(tvOS)
-    // The card that shows last hosts the one player; the one it leaves keeps its frame.
-    if let held = hosting.popLast() {
-      lend(held.player, to: view, playing: url)
-    }
-    #else
     if !waiting.contains(where: { $0.view === view }) {
       waiting.append(Waiting(view: view))
       NSLog("[LiveClip] %@", "waiting: \(hosting.count) of \(limit) playing\(lowPower ? ", low power" : "")")
     }
-    #endif
   }
 
   /// A card leaving the window or losing its clip hands its player to the next card waiting.
@@ -86,9 +80,7 @@ final class PreviewPlayerPool {
   private func lend(_ player: PreviewPlayer, to view: LiveClipView, playing url: URL) {
     hosting.append(Hosting(view: view, player: player))
     player.attach(to: view, playing: url)
-    #if !os(tvOS)
     NSLog("[LiveClip] %@", "playing \(hosting.count) of \(limit)")
-    #endif
   }
 
   private func free(at index: Int) {
@@ -114,9 +106,7 @@ final class PreviewPlayerPool {
   private func failed(_ player: PreviewPlayer, code: Int) {
     guard let index = hosting.firstIndex(where: { $0.player === player }) else { return }
     free(at: index)
-    #if !os(tvOS)
     if code == AVError.Code.decoderTemporarilyUnavailable.rawValue { limit = max(1, hosting.count) }
-    #endif
     NSLog("[LiveClip] %@", "clip failed \(code), \(hosting.count) playing, limit \(limit)")
   }
 
