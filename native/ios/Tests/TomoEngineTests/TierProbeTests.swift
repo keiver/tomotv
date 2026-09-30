@@ -1923,6 +1923,8 @@ final class TierProbeTests: XCTestCase {
         session.finishLinkProbe(1_500_000, reporting: true)
         XCTAssertEqual(reports.last?["bps"] as? Double, session.wireLinkBps)
         XCTAssertEqual(reports.last?["copyListed"] as? Bool, true)
+        XCTAssertEqual(reports.last?["source"] as? String, "probe")
+        XCTAssertEqual(reports.last?["settled"] as? Bool, true)
 
         session.noteLinkSample(bytes: 2_000_000, seconds: 1)
         XCTAssertEqual(session.wireLinkBps, 1_500_000)
@@ -1938,6 +1940,40 @@ final class TierProbeTests: XCTestCase {
         session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-4), to: Date())
         XCTAssertEqual(reports.count, count)
         XCTAssertEqual(session.wireLinkBps, 30_000_000)
+    }
+
+    func testTheStartupProbeReportsItsReadingAsSettledOnlyWhenItFilledAWindow() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        var reports: [[String: Any]] = []
+        session.onLink = { reports.append($0) }
+        session.finishLinkProbe(80_000_000, reporting: false, confidence: .unsettled)
+        XCTAssertEqual(reports.count, 1)
+        XCTAssertEqual(reports.last?["bps"] as? Double, 80_000_000)
+        XCTAssertEqual(reports.last?["source"] as? String, "probe")
+        XCTAssertEqual(reports.last?["settled"] as? Bool, true)
+
+        let short = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { short.stop() }
+        var shortReports: [[String: Any]] = []
+        short.onLink = { shortReports.append($0) }
+        short.finishLinkProbe(640_000_000, reporting: false, confidence: .short)
+        XCTAssertEqual(shortReports.last?["settled"] as? Bool, false, "under a window the probe timed a burst")
+    }
+
+    func testServerCapacityIsReportedWithItsSourceAndNeverSettled() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        var reports: [[String: Any]] = []
+        session.onLink = { reports.append($0) }
+        let now = Date()
+        session.finishLinkProbe(nil, reporting: false, failure: .unavailable(404))
+        session.notePlaylistTransfer(bytes: 30_000, from: now, to: now.addingTimeInterval(0.2))
+        XCTAssertEqual(reports.last?["source"] as? String, "playlist")
+        XCTAssertEqual(reports.last?["settled"] as? Bool, false)
+        session.noteFloorSample(bytes: 600_000, from: now, to: now.addingTimeInterval(1))
+        XCTAssertEqual(reports.last?["source"] as? String, "rungs")
+        XCTAssertEqual(reports.last?["settled"] as? Bool, false)
     }
 
     /// One probe that caught a stall moves nothing (T105: 95 Mb/s between 209 and 225); the next decides.

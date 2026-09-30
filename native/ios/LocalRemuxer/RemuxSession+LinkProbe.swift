@@ -114,18 +114,18 @@ extension RemuxSession {
                   let fallback = floorLinkBps.map({ ($0, LinkEstimate.Source.rungs) }) ?? playlistLinkBps.map({ ($0, .playlist) }) {
             setLinkLocked(fallback.0, fallback.1)
         }
-        let listedCopy = copyAnnounced
         let readings = probeReadings.count
         let rate = wireLinkBps
-        let moved = reporting && rate != nil && (reportedLinkBps == nil || abs(rate! - reportedLinkBps!) > (reportedLinkBps! * 0.15))
+        let moved = rate != nil && (reportedLinkBps == nil || abs(rate! - reportedLinkBps!) > (reportedLinkBps! * 0.15))
         if moved { reportedLinkBps = rate }
+        let report = moved ? linkReportLocked() : nil
         stateLock.unlock()
         if let bps, let median {
             NSLog("[LocalRemuxer] Slipstream: link measured %.1f Mb/s, the link is %.1f Mb/s (median of %d)", bps / 1_000_000, median / 1_000_000, readings)
         } else if !reporting {
             NSLog("[LocalRemuxer] Slipstream: link measured nothing (reads as slow)")
         }
-        if moved, let rate { onLink?(["token": token, "bps": rate, "copyListed": listedCopy]) }
+        if let report { onLink?(report) }
         if confirm { requestLinkReprobe() }
         // The opening rung's server transcode starts the moment the link is known, not at the master.
         if !reporting, let rate, !config.isLive { chooseOpeningRung(linkBps: testLinkBps ?? rate) }
@@ -371,11 +371,21 @@ extension RemuxSession {
     /// Tells the app when the rate has moved by more than 15%. Called with stateLock held; releases it.
     private func reportLinkLocked() {
         let rate = wireLinkBps
-        let listedCopy = copyAnnounced
         let moved = rate != nil && (reportedLinkBps == nil || abs(rate! - reportedLinkBps!) > (reportedLinkBps! * 0.15))
         if moved { reportedLinkBps = rate }
+        let report = moved ? linkReportLocked() : nil
         stateLock.unlock()
-        if moved, let rate { onLink?(["token": token, "bps": rate, "copyListed": listedCopy]) }
+        if let report { onLink?(report) }
+    }
+
+    /// The link as the app sees it. `settled` marks a probe of the source the app may keep as the wire.
+    private func linkReportLocked() -> [String: Any] {
+        var report: [String: Any] = ["token": token, "bps": link?.bps ?? 0, "copyListed": copyAnnounced]
+        if let link {
+            report["source"] = link.source.rawValue
+            report["settled"] = link.source == .probe && link.confidence != .short
+        }
+        return report
     }
 }
 
