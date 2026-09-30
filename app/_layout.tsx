@@ -318,14 +318,16 @@ export default function RootLayout() {
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : {
-                                headerShown: true,
-                                headerTransparent: true,
-                                headerShadowVisible: false,
-                                headerTitle: t("liveTv.groups"),
-                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                                headerBackTitle: t("liveTv.channels"),
-                              }
+                            : Platform.OS === "ios" && Platform.isPad
+                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
+                              : {
+                                  headerShown: true,
+                                  headerTransparent: true,
+                                  headerShadowVisible: false,
+                                  headerTitle: t("liveTv.groups"),
+                                  headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                  headerBackTitle: t("liveTv.channels"),
+                                }
                         }
                       />
                       <Stack.Screen

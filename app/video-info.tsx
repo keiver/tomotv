@@ -593,8 +593,8 @@ export default function VideoInfoScreen() {
 
   const recordShown = recordTimer !== undefined && (!!recordTimer || !programEnded);
   // Portrait phone puts Watch and Record side by side, as the TV row does, splitting the gutter width.
-  // A lone button stays content-sized like every other CTA.
-  const livePaired = stackCtas && watchable && recordShown;
+  // A lone button, and iPad's stack, stay content-sized like every other CTA.
+  const livePaired = stackCtas && !IS_PAD && watchable && recordShown;
   const pairButton = livePaired ? styles.livePairButton : undefined;
   const livePair = (
     <>

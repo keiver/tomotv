@@ -1,5 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
+import { PadSheet } from "@/components/pad-sheet";
 import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
@@ -15,6 +16,8 @@ import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
+// iPad presents the picker over the app as the info panel's fitted card.
+const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 
 /**
  * The channel wall's group picker: one sunken list, the picked group ticked, a press switches and returns.
@@ -47,6 +50,35 @@ export default function ChannelGroupsScreen() {
     [router],
   );
 
+  const choiceRows = choices.map((choice, index) => {
+    const picked = choice.filter === filter;
+    return (
+      <ListRow
+        key={choice.filter}
+        title={choice.label}
+        trailingIcon={picked ? tick : undefined}
+        onPress={() => pick(choice.filter)}
+        hasTVPreferredFocus={picked}
+        accessibilityState={{ selected: picked }}
+        isFirst={index === 0}
+        isLast={index === choices.length - 1}
+      />
+    );
+  });
+
+  if (IS_PAD) {
+    return (
+      <PadSheet onClose={() => router.back()} fit="center">
+        <ScrollView style={styles.padScroll} contentContainerStyle={styles.padContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.padTitle}>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
+          </View>
+          {channel ? <ChannelGroupSection channel={channel} /> : <View style={[settingsStyles.section, styles.card]}>{choiceRows}</View>}
+        </ScrollView>
+      </PadSheet>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <AmbientBackground />
@@ -66,21 +98,7 @@ export default function ChannelGroupsScreen() {
           ) : (
             <View style={[settingsStyles.section, styles.card]}>
               <ScrollView style={{ maxHeight: Math.max(0, roomHeight - titleHeight) }} showsVerticalScrollIndicator={!IS_TV}>
-                {choices.map((choice, index) => {
-                  const picked = choice.filter === filter;
-                  return (
-                    <ListRow
-                      key={choice.filter}
-                      title={choice.label}
-                      trailingIcon={picked ? tick : undefined}
-                      onPress={() => pick(choice.filter)}
-                      hasTVPreferredFocus={picked}
-                      accessibilityState={{ selected: picked }}
-                      isFirst={index === 0}
-                      isLast={index === choices.length - 1}
-                    />
-                  );
-                })}
+                {choiceRows}
               </ScrollView>
             </View>
           )}
@@ -111,5 +129,22 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: 0,
+  },
+  // flexGrow 0 sizes the card to its rows, scrolling only past its max height.
+  padScroll: {
+    flexGrow: 0,
+  },
+  padContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  // Level with the card's floating ✕ and clear of it.
+  padTitle: {
+    minHeight: 44,
+    marginTop: 12,
+    marginRight: 40,
+    marginBottom: 8,
+    paddingHorizontal: 16,
+    justifyContent: "center",
   },
 });
