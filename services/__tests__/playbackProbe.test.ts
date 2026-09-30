@@ -42,6 +42,9 @@ jest.mock("expo-file-system", () => {
   return { Paths: { document: "file:///docs/", cache: "file:///cache/" }, File, __writes: writes, __files: files };
 });
 
+jest.mock("@/services/engineVerdicts", () => ({ clearVerdicts: jest.fn() }));
+const { clearVerdicts } = jest.requireMock("@/services/engineVerdicts") as { clearVerdicts: jest.Mock };
+
 const { __writes: writes, __files: files } = jest.requireMock("expo-file-system") as { __writes: { dir: string; name: string; content: string }[]; __files: Map<string, string> };
 
 const suiteWrites = () => writes.filter((w) => w.name === PROBE_FILENAME);
@@ -60,7 +63,7 @@ describe("playbackProbe suite sink", () => {
   beforeEach(() => {
     writes.length = 0;
     files.clear();
-    setPlaybackProbeEnabled(false, "none");
+    setPlaybackProbeEnabled(null, "none");
   });
 
   it("records nothing while disarmed", () => {
@@ -70,7 +73,7 @@ describe("playbackProbe suite sink", () => {
   });
 
   it("arming resets the log and emits start; events carry the item id", () => {
-    setPlaybackProbeEnabled(true, "item-a");
+    setPlaybackProbeEnabled("1", "item-a");
     probeEmit("mode", { mode: "localRemux" });
 
     const events = lastFileEvents();
@@ -79,9 +82,9 @@ describe("playbackProbe suite sink", () => {
   });
 
   it("re-arming with a new item id starts a fresh log", () => {
-    setPlaybackProbeEnabled(true, "item-a");
+    setPlaybackProbeEnabled("1", "item-a");
     probeEmit("mode", { mode: "direct" });
-    setPlaybackProbeEnabled(true, "item-b");
+    setPlaybackProbeEnabled("1", "item-b");
 
     const events = lastFileEvents();
     expect(events.map((e) => e.event)).toEqual(["start"]);
@@ -89,7 +92,7 @@ describe("playbackProbe suite sink", () => {
   });
 
   it("throttles progress samples", () => {
-    setPlaybackProbeEnabled(true, "item-a");
+    setPlaybackProbeEnabled("1", "item-a");
     probeProgress(1);
     probeProgress(2); // within the throttle window, dropped
 
@@ -99,17 +102,52 @@ describe("playbackProbe suite sink", () => {
   });
 
   it("disarming stops recording without clearing the armed item's file", () => {
-    setPlaybackProbeEnabled(true, "item-a");
+    setPlaybackProbeEnabled("1", "item-a");
     const armed = suiteWrites().length;
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("error", { message: "late" });
     expect(suiteWrites()).toHaveLength(armed);
   });
 
   it("keeps the stream URL raw, because the driver reads it back", () => {
-    setPlaybackProbeEnabled(true, "item-a");
+    setPlaybackProbeEnabled("1", "item-a");
     probeEmit("stream", { url: "http://host:8096/Videos/x/stream?Static=true&ApiKey=secret123" });
     expect(lastFileEvents()[1].url).toContain("ApiKey=secret123");
+  });
+
+  it("a URL sink POSTs each event to the driver in order, writes no file, and clears the verdicts", async () => {
+    const bodies: string[] = [];
+    const fetchMock = jest.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(init.body);
+      return { ok: true, status: 200 };
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    clearVerdicts.mockClear();
+
+    setPlaybackProbeEnabled("http://10.0.0.2:9000/probe", "item-a");
+    probeEmit("mode", { mode: "localRemux" });
+    probeEmit("ended");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(fetchMock.mock.calls.every(([url]) => url === "http://10.0.0.2:9000/probe")).toBe(true);
+    expect(bodies.map((b) => JSON.parse(b).event)).toEqual(["start", "mode", "ended"]);
+    expect(JSON.parse(bodies[1])).toMatchObject({ itemId: "item-a", mode: "localRemux" });
+    expect(suiteWrites()).toHaveLength(0);
+    expect(clearVerdicts).toHaveBeenCalledTimes(1);
+  });
+
+  it("a send the driver refuses does not stop the ones after it", async () => {
+    const bodies: string[] = [];
+    global.fetch = jest.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(init.body);
+      return bodies.length === 1 ? { ok: false, status: 500 } : { ok: true, status: 200 };
+    }) as unknown as typeof fetch;
+
+    setPlaybackProbeEnabled("http://10.0.0.2:9000/probe", "item-b");
+    probeEmit("mode", { mode: "direct" });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(bodies.map((b) => JSON.parse(b).event)).toEqual(["start", "mode"]);
   });
 });
 
@@ -117,15 +155,15 @@ describe("playbackProbe session sink", () => {
   beforeEach(() => {
     writes.length = 0;
     files.clear();
-    setPlaybackProbeEnabled(false, "none");
+    setPlaybackProbeEnabled(null, "none");
     probeEmit("ended");
     writes.length = 0;
     files.clear();
-    setPlaybackProbeEnabled(false, "reset");
+    setPlaybackProbeEnabled(null, "reset");
   });
 
   it("records in memory while the suite sink is disarmed, each event naming the item", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
 
     expect(suiteWrites()).toHaveLength(0);
@@ -134,16 +172,16 @@ describe("playbackProbe session sink", () => {
   });
 
   it("names the item now playing, not the one the suite last armed", () => {
-    setPlaybackProbeEnabled(true, "item-a");
+    setPlaybackProbeEnabled("1", "item-a");
     probeEmit("mode", { mode: "direct" });
-    setPlaybackProbeEnabled(false, "item-b");
+    setPlaybackProbeEnabled(null, "item-b");
     probeEmit("mode", { mode: "transcode" });
 
     expect(readLastSession()?.playback.events).toEqual([expect.objectContaining({ itemId: "item-b", mode: "transcode" })]);
   });
 
   it("redacts the api key the suite sink keeps", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("stream", { url: "http://host:8096/Videos/x/stream?Static=true&ApiKey=secret123" });
 
     const url = String(readLastSession()?.playback.events[0].url);
@@ -152,9 +190,9 @@ describe("playbackProbe session sink", () => {
   });
 
   it("keeps one session, replacing the previous playback", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
-    setPlaybackProbeEnabled(false, "item-b");
+    setPlaybackProbeEnabled(null, "item-b");
     probeEmit("mode", { mode: "transcode" });
 
     expect(readLastSession()?.playback.itemId).toBe("item-b");
@@ -162,10 +200,10 @@ describe("playbackProbe session sink", () => {
   });
 
   it("replaying the same item starts a fresh session", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     probeEmit("ended");
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "localRemux" });
 
     expect(readLastSession()?.playback).toMatchObject({ itemId: "item-a", outcome: "playing" });
@@ -173,7 +211,7 @@ describe("playbackProbe session sink", () => {
   });
 
   it("a retried error does not decide the outcome", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("error", { message: "engine failed", willRetry: true });
     expect(readLastSession()?.playback.outcome).toBe("playing");
 
@@ -182,7 +220,7 @@ describe("playbackProbe session sink", () => {
   });
 
   it("caps progress samples without dropping the session", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     for (let i = 0; i < 25; i++) {
       probeEmit("progress", { position: i });
     }
@@ -194,7 +232,7 @@ describe("playbackProbe session sink", () => {
   });
 
   it("caps events, keeping the opening decisions and the latest activity", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     for (let i = 0; i < 60; i++) {
       probeEmit("qualitySwitch", { to: `q${i}` });
@@ -207,17 +245,17 @@ describe("playbackProbe session sink", () => {
   });
 
   it("marks the outcome so the screen can lead with it", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("error", { message: "failed to load" });
     expect(readLastSession()?.playback.outcome).toBe("error");
 
-    setPlaybackProbeEnabled(false, "item-b");
+    setPlaybackProbeEnabled(null, "item-b");
     probeEmit("ended");
     expect(readLastSession()?.playback.outcome).toBe("ended");
   });
 
   it("mirrors to disk on every event, progress included, and never into Documents", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     expect(sessionWrites()).toHaveLength(1);
     expect(sessionWrites()[0].dir).toBe("file:///cache/");
@@ -229,7 +267,7 @@ describe("playbackProbe session sink", () => {
   });
 
   it("stamps the session with the build and the machine that recorded it", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     expect(readLastSession()).toMatchObject({
       schemaVersion: 2,
@@ -241,7 +279,7 @@ describe("playbackProbe session sink", () => {
 
   it("carries what the device decodes once the engine has said", () => {
     noteDeviceDecode({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     expect(readLastSession()?.device.decode).toEqual({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
   });
@@ -257,10 +295,10 @@ describe("playbackProbe session sink", () => {
       playback: { itemId: "old" },
     });
 
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     const document = files.get(SESSION_FILENAME) ?? "{}";
-    setPlaybackProbeEnabled(false, "");
+    setPlaybackProbeEnabled(null, "");
     clearLastSession();
     files.set(SESSION_FILENAME, document);
     expect(readLastSession()?.playback.itemId).toBe("item-a");
@@ -270,20 +308,20 @@ describe("playbackProbe session sink", () => {
   });
 
   it("never writes an empty session over a stored one", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     probeEmit("ended");
     const stored = sessionWrites().length;
 
-    setPlaybackProbeEnabled(false, "item-b");
+    setPlaybackProbeEnabled(null, "item-b");
     expect(sessionWrites()).toHaveLength(stored);
     expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}").playback.itemId).toBe("item-a");
   });
 
   it("ignores a mount with no video id", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
-    setPlaybackProbeEnabled(false, "");
+    setPlaybackProbeEnabled(null, "");
     expect(readLastSession()?.playback).toMatchObject({ itemId: "item-a" });
   });
 
@@ -292,7 +330,7 @@ describe("playbackProbe session sink", () => {
   });
 
   it("clearing forgets memory and the file, and a playback still running records nothing more", () => {
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     expect(files.has(SESSION_FILENAME)).toBe(true);
 
@@ -309,7 +347,7 @@ describe("playbackProbe session sink", () => {
     const listener = jest.fn();
     const unsubscribe = subscribeLastSession(listener);
     const before = getLastSessionVersion();
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     probeProgress(3);
     clearLastSession();
@@ -317,7 +355,7 @@ describe("playbackProbe session sink", () => {
     expect(getLastSessionVersion()).toBe(before + 3);
 
     unsubscribe();
-    setPlaybackProbeEnabled(false, "item-b");
+    setPlaybackProbeEnabled(null, "item-b");
     probeEmit("ended");
     expect(listener).toHaveBeenCalledTimes(3);
   });
@@ -333,7 +371,7 @@ describe("probeFirstPlaying", () => {
   it("records one playing event with the seconds since the session opened", () => {
     const now = jest.spyOn(Date, "now");
     now.mockReturnValue(10_000);
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     now.mockReturnValue(12_940);
     probeFirstPlaying();
     const events = readLastSession()?.playback.events ?? [];
@@ -344,7 +382,7 @@ describe("probeFirstPlaying", () => {
   it("ignores every call after the first in the same session", () => {
     const now = jest.spyOn(Date, "now");
     now.mockReturnValue(10_000);
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     now.mockReturnValue(11_000);
     probeFirstPlaying();
     now.mockReturnValue(50_000);
@@ -358,11 +396,11 @@ describe("probeFirstPlaying", () => {
   it("starts counting again for a new session", () => {
     const now = jest.spyOn(Date, "now");
     now.mockReturnValue(10_000);
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     now.mockReturnValue(11_500);
     probeFirstPlaying();
     now.mockReturnValue(20_000);
-    setPlaybackProbeEnabled(false, "item-b");
+    setPlaybackProbeEnabled(null, "item-b");
     now.mockReturnValue(20_400);
     probeFirstPlaying();
     const events = readLastSession()?.playback.events ?? [];
@@ -371,14 +409,14 @@ describe("probeFirstPlaying", () => {
   });
 
   it("does nothing without a session", () => {
-    setPlaybackProbeEnabled(false, "");
+    setPlaybackProbeEnabled(null, "");
     expect(() => probeFirstPlaying()).not.toThrow();
   });
 
   it("rounds to a tenth of a second", () => {
     const now = jest.spyOn(Date, "now");
     now.mockReturnValue(0);
-    setPlaybackProbeEnabled(false, "item-a");
+    setPlaybackProbeEnabled(null, "item-a");
     now.mockReturnValue(1_249);
     probeFirstPlaying();
     expect(readLastSession()?.playback.events[0].afterSeconds).toBe(1.2);

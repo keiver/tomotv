@@ -116,7 +116,7 @@ interface HostSession {
   videoName?: string;
   startPositionTicks?: number;
   playedAtStart?: boolean;
-  probe?: boolean;
+  probe?: string;
   sessionKey: string;
   isLive?: boolean;
 }

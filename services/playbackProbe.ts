@@ -3,11 +3,10 @@
  *
  * One set of emit points feeding two sinks.
  *
- * SUITE sink: the playback regression suite (scripts/playback-regression.mjs)
- * deep-links the player with probe=1 and reads Library/Caches/playback-probe.jsonl
- * back from the app container while playback is still live, so that file is
- * rewritten on every event and its URLs stay raw. Armed only by __DEV__ AND
- * probe=1.
+ * SUITE sink: a driver deep-links the player with probe=<its URL> and receives each
+ * event as a POST the moment it happens (scripts/playback-regression.mjs), or with
+ * probe=1 and reads Library/Caches/playback-probe.jsonl back (scripts/abr-drill.mjs).
+ * URLs stay raw. Armed only by __DEV__ AND a probe param.
  *
  * SESSION sink: the Diagnostics screen (app/diagnostics.tsx). Always armed. The
  * MOST RECENT playback only, capped and redacted, living in memory. Every event
@@ -18,6 +17,7 @@ import { APP_BUILD_NUMBER, APP_VERSION, BRAND_NAME } from "@/constants/app";
 import { parseSession, SCHEMA_VERSION, type DeviceDecode, type PlaybackSession, type SessionEvent, type SessionHead } from "@/services/diagnosticsSchema";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { DEVICE_CORES, DEVICE_MARKETING_NAME, DEVICE_MEMORY_BYTES, DEVICE_MODEL, THIS_DEVICE } from "@/utils/hostEnvironment";
+import { clearVerdicts } from "@/services/engineVerdicts";
 import { logger, redactSecrets } from "@/utils/logger";
 import { File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
@@ -28,6 +28,8 @@ export type { PlaybackSession, SessionEvent } from "@/services/diagnosticsSchema
 const JELLYFIN_TICKS_PER_SECOND = 10_000_000;
 
 export const PROBE_FILENAME = "playback-probe.jsonl";
+/** The probe param that selects the file sink; any other value is the URL events are POSTed to. */
+const FILE_SINK = "1";
 export const SESSION_FILENAME = "last-session.json";
 
 /** Seconds between recorded progress samples; the driver only needs coarse advancement. */
@@ -54,7 +56,7 @@ export function noteDeviceDecode(decode: DeviceDecode): void {
   deviceDecode = decode;
 }
 
-let enabled = false;
+let sink: string | null = null;
 let itemId: string | null = null;
 let lines: string[] = [];
 let lastProgressAt = 0;
@@ -88,6 +90,18 @@ function flush(): void {
   } catch (error) {
     logger.warn("Playback probe write failed", error, { service: "PlaybackProbe" });
   }
+}
+
+let sending: Promise<void> = Promise.resolve();
+
+/** One chain, so the driver receives events in the order they happened. */
+function post(url: string, line: string): void {
+  sending = sending
+    .then(async () => {
+      const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: line });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    })
+    .catch((error) => logger.warn("Playback probe send failed", error, { service: "PlaybackProbe" }));
 }
 
 /**
@@ -204,22 +218,23 @@ export function clearLastSession(): void {
 }
 
 /**
- * Arm or disarm the probe for one playback. Arming resets the event log so
- * every driver-launched playback starts a fresh file (the driver cold-starts
- * the app per item, but a Metro reload must not leak a previous run's events).
+ * Arm the probe for one playback with the deep link's probe param, or disarm it with null.
+ * Arming resets the event log, so a Metro reload cannot leak a previous run's events.
  */
-export function setPlaybackProbeEnabled(on: boolean, videoId: string): void {
+export function setPlaybackProbeEnabled(probe: string | null, videoId: string): void {
   startSession(videoId);
   if (!__DEV__) return;
-  if (!on) {
-    enabled = false;
+  if (!probe) {
+    sink = null;
     return;
   }
-  if (!enabled || itemId !== videoId) {
-    enabled = true;
+  if (sink !== probe || itemId !== videoId) {
+    sink = probe;
     itemId = videoId;
     lines = [];
     lastProgressAt = 0;
+    // A verdict an earlier item recorded would pick this item's lane before the one the driver asserts.
+    if (probe !== FILE_SINK) clearVerdicts();
     probeEmit("start");
   }
 }
@@ -234,8 +249,10 @@ export function probeEmit(event: string, data?: Record<string, unknown>): void {
     const id = session?.playback.itemId ?? itemId;
     const entry: SessionEvent = { t: Date.now(), event, ...(id ? { itemId: id } : {}), ...data };
     recordSession(event, entry);
-    if (!enabled) return;
-    lines.push(JSON.stringify(entry));
+    if (!sink) return;
+    const line = JSON.stringify(entry);
+    if (sink !== FILE_SINK) return post(sink, line);
+    lines.push(line);
     flush();
   } catch (error) {
     logger.warn("Probe emit failed", error, { service: "PlaybackProbe", event });

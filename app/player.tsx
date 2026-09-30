@@ -120,7 +120,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     queueMode?: string;
     startTicks?: string; // Resume position the launching screen already displayed
     played?: string; // Played flag the launching screen already displayed
-    probe?: string; // "1" from regression-suite deep links: record playback events (dev-only)
+    probe?: string; // regression-suite deep links: "1" or the URL the driver receives events at (dev-only)
     adopt?: string; // "1" when PlayerHost re-pushed this route to restore a PiP window
     live?: string; // "1" for a Live TV channel: one player across channel flips
     advance?: string; // "1" on a queue advance: a PiP window carries into this item
@@ -209,7 +209,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       videoName: params.videoName,
       startPositionTicks: params.startTicks ? Number(params.startTicks) : undefined,
       playedAtStart: params.played === undefined ? undefined : params.played === "true",
-      probe: params.probe === "1",
+      probe: params.probe || undefined,
       sessionKey,
       adopt: params.adopt === "1",
       isLive: isLiveChannel,

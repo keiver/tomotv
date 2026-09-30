@@ -162,8 +162,8 @@ export interface VideoPlaybackConfig {
   startPositionTicks?: number;
   playedAtStart?: boolean;
   onPlaybackEnd?: () => void;
-  /** Regression-suite deep links pass probe=1; records playback events for the driver (dev-only). */
-  probe?: boolean;
+  /** Regression-suite deep links pass probe=1 or the driver's URL; records playback events for it (dev-only). */
+  probe?: string;
 }
 
 export interface VideoPlaybackResult {
@@ -284,7 +284,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Arm before the state machine's first FETCH_METADATA effect fires (the actual
   // fetch happens one render pass later, so any first-pass effect is early enough).
   useEffect(() => {
-    setPlaybackProbeEnabled(probe === true, videoId);
+    setPlaybackProbeEnabled(probe ?? null, videoId);
   }, [probe, videoId]);
 
   // Persistent data across states

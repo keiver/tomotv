@@ -33,6 +33,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -42,7 +43,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST_PATH = path.join(ROOT, "test", "playback", "manifest.json");
 const BASELINE_DIR = path.join(ROOT, "test", "playback", "baselines");
 const PROBE_FILENAME = "playback-probe.jsonl";
-const VERDICTS_FILENAME = "engine-verdicts.json";
 const HASH_WINDOW_SECONDS = 30;
 
 /** Directories that hold the fixtures, the same three make-test-media.mjs writes.
@@ -100,6 +100,7 @@ export function loadEnv(environment = process.env) {
     "JELLYFIN_DEVICE_ID",
     "BUNDLE_ID",
     "JELLYFIN_FIXTURE_ROOTS",
+    "PROBE_HOST",
   ]) {
     if (environment[key]) env[key] = environment[key];
   }
@@ -449,58 +450,83 @@ async function assertInstalled(env, target) {
 }
 
 /**
- * The probe file the app writes, as a pair of "wipe it" and "read it" calls.
- *
- * On a device both go through `devicectl device copy`, one file at a time: there
- * is no delete, so a stale probe is overwritten with an empty file instead. The
- * app truncates it itself when playback arms the probe, so an empty file and a
- * missing one mean the same thing to it.
+ * Receives the app's probe events. The deep link names this listener and the app POSTs each
+ * event the moment it happens, so an item ends on the event itself, never on a file read back.
  */
-function probeAccess(env, target, itemId, work) {
-  // The probe rides in Caches, the only directory tvOS guarantees an app can
-  // write; the app keeps its verdicts in Documents on iOS and in Caches on tvOS.
-  const PROBE_PATH = `Library/Caches/${PROBE_FILENAME}`;
-  const VERDICTS_PATHS = [`Documents/${VERDICTS_FILENAME}`, `Library/Caches/${VERDICTS_FILENAME}`];
-
-  if (target.kind === "sim") {
-    let root = null;
-    return {
-      async clear() {
-        const { stdout } = await simctl(["get_app_container", target.udid, env.BUNDLE_ID, "data"]);
-        root = stdout.trim();
-        fs.rmSync(path.join(root, PROBE_PATH), { force: true });
-        for (const verdicts of VERDICTS_PATHS) fs.rmSync(path.join(root, verdicts), { force: true });
-      },
-      read() {
-        return readProbe(path.join(root, PROBE_PATH), itemId);
-      },
-    };
-  }
-
-  const blank = path.join(work, "blank");
-  const pulled = path.join(work, PROBE_FILENAME);
-  const copy = (direction, source, destination) =>
-    devicectl(["device", "copy", direction, "--device", target.name, "--domain-type", "appDataContainer", "--domain-identifier", env.BUNDLE_ID, "--source", source, "--destination", destination]);
+export async function startProbeListener() {
+  const received = [];
+  let wake = null;
+  let unseen = false;
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      try {
+        received.push(JSON.parse(body));
+      } catch {
+        res.writeHead(400).end();
+        return;
+      }
+      res.writeHead(204).end();
+      if (wake) wake();
+      else unseen = true;
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "0.0.0.0", resolve);
+  });
   return {
-    async clear() {
-      fs.mkdirSync(blank, { recursive: true });
-      fs.writeFileSync(path.join(blank, PROBE_FILENAME), "");
-      // An empty verdicts file would throw where the app parses it; "{}" reads as none.
-      fs.writeFileSync(path.join(blank, VERDICTS_FILENAME), "{}");
-      // devicectl has no delete: an empty file is what "cleared" means here, and
-      // the app truncates the probe itself the moment playback arms it.
-      await copy("to", path.join(blank, PROBE_FILENAME), PROBE_PATH).catch(() => {});
-      for (const verdicts of VERDICTS_PATHS) await copy("to", path.join(blank, VERDICTS_FILENAME), verdicts).catch(() => {});
+    port: server.address().port,
+    /** Drops what an earlier item sent, so a late event from it cannot count for the next. */
+    reset() {
+      received.length = 0;
+      unseen = false;
     },
-    async read() {
-      fs.rmSync(pulled, { force: true });
-      // --destination names the FILE, not a directory to drop it in.
-      const ok = await copy("from", PROBE_PATH, pulled)
-        .then(() => true)
-        .catch(() => false);
-      return ok ? readProbe(pulled, itemId) : [];
+    events(itemId) {
+      return received.filter((e) => e.itemId === itemId);
+    },
+    /** Resolves on the next event, or when `ms` runs out. */
+    next(ms) {
+      if (unseen) {
+        unseen = false;
+        return Promise.resolve();
+      }
+      return new Promise((resolve) => {
+        const timer = setTimeout(done, Math.max(0, ms));
+        function done() {
+          clearTimeout(timer);
+          wake = null;
+          resolve();
+        }
+        wake = done;
+      });
+    },
+    close() {
+      server.close();
     },
   };
+}
+
+/**
+ * The Mac's address as the target reaches it: loopback from a simulator; from a device, the
+ * address of the interface that routes to the device's own session on Jellyfin.
+ */
+export async function probeHost(env, target) {
+  if (env.PROBE_HOST) return env.PROBE_HOST;
+  if (target.kind === "sim") return "127.0.0.1";
+  const sessions = await (await jf(env, "/Sessions")).json();
+  const remote = sessions
+    .map((s) => ({ ...s, ip: (s.RemoteEndPoint ?? "").replace(/^::ffff:/, "") }))
+    .filter((s) => (s.Client ?? "").toLowerCase().includes("tomo") && s.ip && s.ip !== "127.0.0.1" && s.ip !== "::1")
+    .sort((x, y) => Date.parse(y.LastActivityDate ?? 0) - Date.parse(x.LastActivityDate ?? 0))[0];
+  if (!remote) throw new Error(`no device session on ${env.JELLYFIN_URL} to route the probe to; set PROBE_HOST`);
+  const { stdout } = await exec("route", ["-n", "get", remote.ip]);
+  const iface = stdout.match(/interface:\s*(\S+)/)?.[1];
+  const address = iface && os.networkInterfaces()[iface]?.find((a) => a.family === "IPv4" && !a.internal)?.address;
+  if (!address) throw new Error(`no IPv4 address on ${iface ?? "the interface"} that routes to ${remote.ip}; set PROBE_HOST`);
+  return address;
 }
 
 /** Throws rather than exiting, so --preflight can report it beside the other checks. */
@@ -529,28 +555,6 @@ export async function pickSimulator() {
     );
   }
   return booted[0];
-}
-
-// ---------- Probe ----------
-
-function readProbe(probePath, itemId) {
-  let raw;
-  try {
-    raw = fs.readFileSync(probePath, "utf8");
-  } catch {
-    return [];
-  }
-  const events = [];
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const e = JSON.parse(line);
-      if (e.itemId === itemId) events.push(e);
-    } catch {
-      // partial trailing line mid-write; ignore
-    }
-  }
-  return events;
 }
 
 // ---------- ffmpeg validation ----------
@@ -1001,7 +1005,7 @@ async function validateLiveOutput(masterUrl, item) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function runItem(env, target, item, resolved, updateBaselines, work) {
+async function runItem(env, target, item, resolved, updateBaselines, probe) {
   const { id: itemId, path: sourcePath } = resolved;
   const result = { id: item.id, expected: item.mode, actual: "-", position: 0, validation: "-", problems: [] };
   await terminateApp(env, target);
@@ -1013,16 +1017,11 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   await resetResume(env, itemId, item.resumeFrom ?? 0);
   await sleep(1500);
 
-  // The app only truncates the probe when playback ARMS it. An item that never
-  // reaches the player leaves the previous file in place, and an earlier run of the
-  // same id then reads back as a pass — which is how a dead deep link looked green.
-  // A verdict the engine recorded on an earlier run (services/engineVerdicts.ts) goes
-  // too: it would send the item to the server before the lane pick the manifest asserts.
-  const probe = probeAccess(env, target, itemId, work);
-  await probe.clear();
+  // Arming the probe clears the app's engine verdicts (services/playbackProbe.ts).
+  probe.listener.reset();
   const serverLog = serverLogMark();
 
-  await openDeepLink(env, target, `tomotv://player?videoId=${itemId}&probe=1`);
+  await openDeepLink(env, target, `tomotv://player?videoId=${itemId}&probe=${encodeURIComponent(probe.url)}`);
 
   const startedAt = Date.now();
   const deadline = startedAt + (item.playSeconds + 60) * 1000;
@@ -1035,19 +1034,9 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   // The hash lanes stay post-loop: they compare a filled 30s window against a baseline.
   const probeWhileLive = target.kind === "sim" && item.mode === "localRemux" && item.validate === "none" && Boolean(item.expect);
   let liveValidation = null;
-  // A device relaunches the app for every deep link, and the first of a run pays
-  // the JS bundle load with the link already delivered: it can be consumed before
-  // anything is listening. One re-arm costs a few seconds and turns that into a
-  // pass; the simulator opens links into a running app and never needs it.
-  let rearmedAt = target.kind === "sim" ? Infinity : startedAt + 25000;
   while (Date.now() < deadline) {
-    await sleep(2000);
-    events = await probe.read();
-    if (!events.length && Date.now() > rearmedAt) {
-      rearmedAt = Infinity;
-      console.log("    (no events yet; re-opening the deep link)");
-      await openDeepLink(env, target, `tomotv://player?videoId=${itemId}&probe=1`);
-    }
+    await probe.listener.next(deadline - Date.now());
+    events = probe.listener.events(itemId);
     maxPosition = events.filter((e) => e.event === "progress").reduce((m, e) => Math.max(m, e.position), 0);
     if (probeWhileLive && !liveValidation && !events.some((e) => e.event === "ended")) {
       const live = events.find((e) => e.event === "stream" && e.mode === "localRemux");
@@ -1081,7 +1070,7 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
       result.problems.push(`playback never chose a mode; app reported: ${errors.map((e) => `${e.mode}: ${e.message}`).join(" | ")}`);
     } else {
       result.problems.push(
-        `no probe events arrived (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, or deep link broken; see test/playback/README.md)`,
+        `no probe events arrived at ${probe.url} (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, the listener unreachable from the target, or deep link broken; see test/playback/README.md)`,
       );
     }
     return finish(env, target, result);
@@ -1372,15 +1361,23 @@ async function main() {
   await assertAppOnSameServer(env);
   await terminateApp(env, target);
 
+  const listener = await startProbeListener();
+  const host = await probeHost(env, target).catch((e) => fail(e.message));
+  const probe = { listener, url: `http://${host}:${listener.port}/probe` };
+  console.log(`Probe:     ${probe.url}`);
+
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-playback-"));
 
   const results = [];
   for (const item of items) {
     console.log(`\n▶ ${item.id} ${item.title} (expect ${item.mode}, play ${item.playSeconds}s)`);
     const itemWork = fs.mkdtempSync(path.join(work, `${item.id}-`));
-    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, itemWork);
-    const probePath = path.join(itemWork, PROBE_FILENAME);
-    if (fs.existsSync(probePath)) r.probePath = probePath;
+    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, probe);
+    const received = listener.events(ids.get(item.title).id);
+    if (received.length) {
+      r.probePath = path.join(itemWork, PROBE_FILENAME);
+      fs.writeFileSync(r.probePath, received.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    }
     results.push(r);
     console.log(r.problems.length ? `  ✗ ${r.problems.join("\n    ")}` : `  ✓ mode=${r.actual} pos=${r.position}s validation=${r.validation}`);
   }
@@ -1400,6 +1397,7 @@ async function main() {
     console.log(`Wrote ${jsonPath}`);
   }
 
+  listener.close();
   if (failed.length) process.exit(1);
 }
 

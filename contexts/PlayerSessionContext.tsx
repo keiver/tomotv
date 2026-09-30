@@ -37,8 +37,8 @@ export interface PlayerSessionRequest {
   startPositionTicks?: number;
   /** Played flag the launching screen already displayed. */
   playedAtStart?: boolean;
-  /** Regression-suite deep links pass probe=1. */
-  probe?: boolean;
+  /** Regression-suite deep links pass probe=1 or the driver's URL. */
+  probe?: string;
   /** Deep-link nonce of the requesting body; a new one for the same item restarts it. */
   sessionKey: string;
   /** Set by the host's own restore push: adopt the live session, never restart. */

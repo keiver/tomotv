@@ -15,7 +15,7 @@ import { logger } from "@/utils/logger";
 import { File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 
-/** The regression driver deletes this from the app container before every item. */
+/** The regression driver clears it before every item: the simulator run deletes it, a probe URL arming clears it. */
 export const VERDICTS_FILENAME = "engine-verdicts.json";
 
 /** Measurements that agreed before a file is held to the server lane. */

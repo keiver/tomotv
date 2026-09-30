@@ -165,15 +165,15 @@ The key is also used to reset each item's resume position before launch, for eve
 
 **A dev build needs Metro.** Run `npm start` first; the suite prewarms the app once per run so the first item does not eat the JS bundle download. The app must be installed on the target simulator (`npm run ios` / `npm run both`).
 
-The prewarm does not cover a COLD bundle for a platform Metro has not built yet. The first iOS run after a tvOS run pays a full iOS bundle build, the deep link is served minutes late, and every item reads "no probe events" while the app is in fact playing correctly. Check the probe file's timestamps against the run: events arriving after the driver gave up is the signature. Run one item first (`--only T01`) to warm the platform, then start the suite.
+The prewarm does not cover a COLD bundle for a platform Metro has not built yet. The first iOS run after a tvOS run pays a full iOS bundle build, the deep link is served minutes late, and every item reads "no probe events" while the app is in fact playing correctly. Check the saved probe events' timestamps against the run: events arriving after the driver gave up is the signature. Run one item first (`--only T01`) to warm the platform, then start the suite.
 
 **Host tools:** `ffmpeg`/`ffprobe` on PATH (`brew install ffmpeg`), Xcode simctl. Host-side validation works because the simulator shares the Mac's network stack, so the engine's `127.0.0.1:<port>` HLS server is reachable from the terminal. This does NOT hold for a physical device; on-device runs get mode and progress assertions only unless validation is reworked.
 
 ## How one item runs
 
 1. Force-quit the app, reset the item's resume position via the API.
-2. `xcrun simctl openurl <sim> "tomotv://player?videoId=<id>&probe=1"` cold-starts the app straight into the real player screen, which autoplays.
-3. `services/playbackProbe.ts` (armed ONLY by `probe=1` and `__DEV__`, inert otherwise) appends events to `Library/Caches/playback-probe.jsonl` in the app container: chosen mode, stream URL, errors, retries, positions. The driver polls it via `simctl get_app_container`.
+2. `xcrun simctl openurl <sim> "tomotv://player?videoId=<id>&probe=<listener URL>"` (on a device, `devicectl device process launch --payload-url`) cold-starts the app straight into the real player screen, which autoplays.
+3. `services/playbackProbe.ts` (armed ONLY by a `probe` param and `__DEV__`, inert otherwise) POSTs each event to the driver's HTTP listener as it happens: chosen mode, stream URL, errors, retries, positions. The item ends on an event (`ended`, a fatal error, or progress past `progressMin`); the only other bound is the play window plus 60s. A simulator reaches the listener on `127.0.0.1`; a device on the Mac address of the interface that routes to the device's Jellyfin session (`PROBE_HOST` overrides it). Each item's events are saved to the run's work directory.
 4. After the play window, with the app still alive so the remux session survives, the driver ffprobes the loopback master playlist and hashes the first 30s, then compares against `baselines/<TNN>.json`.
 5. Force-quit, next item.
 
@@ -249,9 +249,9 @@ and the player takes the server lane when that segment ran below realtime (`fall
 reason `engine below realtime`, no `error`, no restart), then remembers the file in
 `engine-verdicts.json` (`services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS).
 
-The driver deletes the verdict file from the app container before every item, the way it deletes
-the probe file, so a verdict from an earlier run cannot change the first mode the manifest
-asserts. On a device the file persists: a second play of a remembered item chooses `transcode` at
+Arming the probe with the driver's URL clears the verdicts before every item, so a verdict from an
+earlier run cannot change the first mode the manifest asserts. Outside the suite the file persists:
+a second play of a remembered item chooses `transcode` at
 the lane pick, which Diagnostics shows as a decline with reason `engine below realtime on an
 earlier play`.
 
