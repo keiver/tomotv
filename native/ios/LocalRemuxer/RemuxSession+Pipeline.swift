@@ -231,6 +231,20 @@ extension RemuxSession {
     /// An empty free box: legal anywhere between a segment's boxes, and skipped by every parser.
     static let freeBox = Data([0, 0, 0, 8] + Array("free".utf8))
 
+    /// Restarts for one segment that each opened past its start before it is published short instead.
+    static let partialOpenLookback = 3
+
+    /// Where a restart for `segment` seeks: its own start, then one segment earlier per opening that
+    /// landed past it, since a container like MPEG-TS returns the same late keyframe for the same seek.
+    static func restartSeekSegment(for segment: Int, partialOpens: Int) -> Int {
+        max(0, segment - min(partialOpens, partialOpenLookback))
+    }
+
+    /// A segment opened past its start is withheld until the lookback is spent, never forever.
+    static func withholdsPartialOpen(partialOpens: Int) -> Bool {
+        partialOpens <= partialOpenLookback
+    }
+
     /// A source that will not open or cannot be planned, before any master has named the copy: a
     /// session whose rungs can carry it alone lets the source go instead of dying.
     func failStartup(_ message: String, retryable: Bool = false) {
@@ -1566,6 +1580,8 @@ extension RemuxSession {
         // segment's nominal start, so the segment is short at the head and must
         // not be published; -1 when the opening segment is whole.
         var partialOpenSegment = -1
+        // Openings that landed past each segment's start: the next restart for it seeks earlier.
+        var partialOpens: [Int: Int] = [:]
 
         // Live: the timing stream's last source PTS (splice detection) and keyframe
         // (interval measurement), where output time resumes after a splice, and the
@@ -1827,7 +1843,8 @@ extension RemuxSession {
         func restart(at segment: Int, failOnSeekError: Bool = true) -> Bool {
             let restartStart = Date()
             let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
-            let targetUs = Int64(segmentStartSeconds(segment) * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
+            let seekSegment = Self.restartSeekSegment(for: segment, partialOpens: partialOpens[segment] ?? 0)
+            let targetUs = Int64(segmentStartSeconds(seekSegment) * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
             let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
             if seekRet < 0 {
                 if !failOnSeekError {
@@ -2246,7 +2263,13 @@ extension RemuxSession {
                     break
                 }
                 currentSegment = openSegment
-                partialOpenSegment = openSeconds > segmentStartSeconds(openSegment) ? openSegment : -1
+                let partial = openSeconds > segmentStartSeconds(openSegment)
+                if partial { partialOpens[openSegment, default: 0] += 1 }
+                let opens = partialOpens[openSegment] ?? 0
+                partialOpenSegment = partial && Self.withholdsPartialOpen(partialOpens: opens) ? openSegment : -1
+                if partial && partialOpenSegment < 0 {
+                    NSLog("[LocalRemuxer] segment %d opened past its start %d times, published short at the head", openSegment, opens)
+                }
                 awaitingKeyframe = false
                 }
             }
