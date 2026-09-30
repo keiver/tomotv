@@ -107,7 +107,7 @@ extension RemuxSession {
             NSLog("[LocalRemuxer] Slipstream: link probe read %.2f Mb/s (%@, %.2f to %.2f) over %.2fs",
                   reading.bps / 1_000_000, "\(reading.kind)", reading.lowBps / 1_000_000, reading.highBps / 1_000_000, reading.seconds)
         }
-        // Under a window a mid-session probe timed mostly the producer's bytes beside it
+        // Under a window a probe times a burst, not the link
         // (measured: 0.01 to 0.26s probes read 275 to 752 Mb/s on a 150 to 237 Mb/s link).
         if reporting, outcome.reading?.kind == .short {
             NSLog("[LocalRemuxer] Slipstream: link probe too short to read, the link reading stands")
