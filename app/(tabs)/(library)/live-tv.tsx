@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
 import { GuideCornerActions, HUD_ACTION_ICON, HudAction } from "@/components/live-tv/guide-corner-actions";
 import { GuideHud } from "@/components/live-tv/guide-hud";
+import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { gridEdgePadding } from "@/constants/app";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { COLORS } from "@/constants/colors";
@@ -17,7 +18,6 @@ import { t } from "@/services/i18n";
 import { showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { EXTERNAL_GUIDE_PREFIX, guideMetrics, NO_GUIDE_PREFIX } from "@/utils/guide";
-import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -158,7 +158,12 @@ function LiveTvScreen() {
             onFirstRef={handleFirstActionRef}
           />
         ) : hasExternalGuide ? (
-          <HudAction label={t("liveTv.guideRefresh")} onPress={refreshGuide} disabled={guide.isUpdating} icon={<Ionicons name="refresh-outline" size={HUD_ACTION_ICON} color={COLORS.ACCENT} />} />
+          <HudAction
+            label={t("liveTv.guideRefresh")}
+            onPress={refreshGuide}
+            disabled={guide.isUpdating}
+            icon={<SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={COLORS.ACCENT} weight="bold" />}
+          />
         ) : undefined
       }
       onSelectedHandle={setStripHandle}

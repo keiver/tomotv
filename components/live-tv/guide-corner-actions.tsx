@@ -2,13 +2,13 @@ import { GROUP_CELL_HEIGHT, HUD_CELL_BACKGROUND } from "@/components/live-tv/gui
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
-import { Ionicons } from "@expo/vector-icons";
 import React, { useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-export const HUD_ACTION_ICON = IS_TV ? 22 : 16;
+export const HUD_ACTION_ICON = IS_TV ? 32 : 23;
 const ICON = HUD_ACTION_ICON;
+const WEIGHT = "bold";
 
 interface HudActionProps {
   icon: React.ReactNode;
@@ -64,12 +64,12 @@ export function GuideCornerActions({ filtered, onChannels, onRecordings, onSched
         forwardedRef={onFirstRef}
         label={t("liveTv.channels")}
         onPress={onChannels}
-        icon={filtered ? <SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={ICON} color={COLORS.ACCENT} /> : <Ionicons name="grid-outline" size={ICON} color={COLORS.ACCENT} />}
+        icon={<SfSymbolIcon name={filtered ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2"} size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />}
       />
-      <HudAction label={t("liveTv.recordings")} onPress={onRecordings} icon={<Ionicons name="recording-outline" size={ICON} color={COLORS.ACCENT} />} />
-      <HudAction label={t("liveTv.scheduled")} onPress={onSchedule} icon={<Ionicons name="calendar-outline" size={ICON} color={COLORS.ACCENT} />} />
+      <HudAction label={t("liveTv.recordings")} onPress={onRecordings} icon={<SfSymbolIcon name="recordingtape" size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />} />
+      <HudAction label={t("liveTv.scheduled")} onPress={onSchedule} icon={<SfSymbolIcon name="calendar" size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />} />
       {onRefreshGuide ? (
-        <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} disabled={refreshing} icon={<Ionicons name="refresh-outline" size={ICON} color={COLORS.ACCENT} />} />
+        <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} disabled={refreshing} icon={<SfSymbolIcon name="arrow.clockwise" size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />} />
       ) : null}
     </View>
   );
