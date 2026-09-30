@@ -45,6 +45,18 @@ describe("useRecordActions", () => {
     jest.mocked(fetchTimers).mockResolvedValue([]);
   });
 
+  it("a later program on a channel recording another offers Record, never the other's Stop", async () => {
+    const later = { StartDate: new Date(now + 3_600_000).toISOString(), EndDate: new Date(now + 7_200_000).toISOString() };
+    jest.mocked(fetchTimers).mockResolvedValue([serverTimer] as never);
+    const ref = React.createRef<{ get: () => Actions }>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} target={{ programId: "p2", channelId: "ch1", channelName: "News", program: later }} />);
+    });
+    expect(ref.current!.get().timer).toBeNull();
+    await act(async () => ref.current!.get().cancel());
+    expect(cancelTimer).not.toHaveBeenCalled();
+  });
+
   it("keeps a created timer as recording when the re-read fails, without a failure toast", async () => {
     const ref = await mount();
     expect(ref.current!.get().timer).toBeNull();

@@ -109,13 +109,24 @@ export function isActiveTimer(timer: Pick<JellyfinTimer, "Status">): boolean {
   return timer.Status !== "Cancelled" && timer.Status !== "Completed";
 }
 
-/** The timer covering this target: a program's by id, else the channel's over the clock now. */
-export function activeRecordTimer(timers: JellyfinTimer[], target: { programId?: string; channelId: string }, nowMs: number): JellyfinTimer | null {
-  if (target.programId) return timers.find((candidate) => candidate.ProgramId === target.programId && isActiveTimer(candidate)) ?? null;
+/**
+ * The timer covering this target: a program's by id, else the channel's over the clock now. A program
+ * no timer names falls back to a manual timer only (no ProgramId), over the program's span when known.
+ */
+export function activeRecordTimer(
+  timers: JellyfinTimer[],
+  target: { programId?: string; channelId: string; program?: Pick<JellyfinProgram, "StartDate" | "EndDate"> | null },
+  nowMs: number,
+): JellyfinTimer | null {
+  const byProgram = target.programId ? timers.find((candidate) => candidate.ProgramId === target.programId && isActiveTimer(candidate)) : undefined;
+  if (byProgram) return byProgram;
+  const span = target.programId && target.program ? programTimes(target.program) : null;
   return (
     timers.find((candidate) => {
       if (candidate.ChannelId !== target.channelId || !isActiveTimer(candidate)) return false;
+      if (target.programId && candidate.ProgramId) return false;
       const { startMs, endMs } = programTimes(candidate);
+      if (span && Number.isFinite(span.startMs) && Number.isFinite(span.endMs)) return startMs < span.endMs && span.startMs < endMs;
       return startMs <= nowMs && nowMs < endMs;
     }) ?? null
   );

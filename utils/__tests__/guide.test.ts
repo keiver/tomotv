@@ -1,4 +1,5 @@
 import {
+  activeRecordTimer,
   adjacentChannelId,
   cellAtEdge,
   cellGeometry,
@@ -87,6 +88,35 @@ describe("guide geometry", () => {
     expect(isActiveTimer({ Status: "InProgress" })).toBe(true);
     expect(isActiveTimer({ Status: "Completed" })).toBe(false);
     expect(isActiveTimer({ Status: "Cancelled" })).toBe(false);
+  });
+
+  describe("activeRecordTimer", () => {
+    const span = (from: number, to: number) => ({ StartDate: new Date(T0 + from * MINUTE_MS).toISOString(), EndDate: new Date(T0 + to * MINUTE_MS).toISOString() });
+    const timer = (Id: string, from: number, to: number, ProgramId?: string) => ({ Id, Name: Id, ChannelId: "c1", ProgramId, Status: "InProgress" as const, ...span(from, to) });
+    const now = T0 + 30 * MINUTE_MS;
+    const recordingA = timer("a", 0, 60, "A");
+    const manual = timer("m", 0, 120);
+
+    it("names a program's own timer first", () => {
+      expect(activeRecordTimer([manual, recordingA], { programId: "A", channelId: "c1", program: span(0, 60) }, now)?.Id).toBe("a");
+    });
+
+    it("never hands a program another program's timer on its channel", () => {
+      expect(activeRecordTimer([recordingA], { programId: "B", channelId: "c1", program: span(60, 120) }, now)).toBeNull();
+      expect(activeRecordTimer([recordingA], { programId: "B", channelId: "c1" }, now)).toBeNull();
+    });
+
+    it("falls back to a manual timer over the program's span, or over the clock without one", () => {
+      expect(activeRecordTimer([manual], { programId: "B", channelId: "c1", program: span(60, 120) }, now)?.Id).toBe("m");
+      expect(activeRecordTimer([manual], { programId: "C", channelId: "c1", program: span(150, 180) }, now)).toBeNull();
+      expect(activeRecordTimer([manual], { programId: "A", channelId: "c1" }, now)?.Id).toBe("m");
+      expect(activeRecordTimer([manual], { programId: "A", channelId: "c2" }, now)).toBeNull();
+    });
+
+    it("gives a channel whatever timer records it now", () => {
+      expect(activeRecordTimer([recordingA], { channelId: "c1" }, now)?.Id).toBe("a");
+      expect(activeRecordTimer([recordingA], { channelId: "c1" }, T0 + 90 * MINUTE_MS)).toBeNull();
+    });
   });
 
   it("lands a vertical move on the cell under the edge, else the first after it", () => {

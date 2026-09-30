@@ -30,23 +30,25 @@ export function useRecordActions(target: RecordTarget | null) {
   const [busy, setBusy] = useState<RecordBusy>(null);
   const enabled = !!target;
 
+  const programStart = program?.StartDate;
+  const programEnd = program?.EndDate;
   const loadTimer = useCallback(async () => {
     const timers = await fetchTimers();
-    setTimer(activeRecordTimer(timers, { programId, channelId }, Date.now()));
-  }, [programId, channelId]);
+    setTimer(activeRecordTimer(timers, { programId, channelId, program: { StartDate: programStart, EndDate: programEnd } }, Date.now()));
+  }, [programId, channelId, programStart, programEnd]);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     fetchTimers()
       .then((timers) => {
-        if (!cancelled) setTimer(activeRecordTimer(timers, { programId, channelId }, Date.now()));
+        if (!cancelled) setTimer(activeRecordTimer(timers, { programId, channelId, program: { StartDate: programStart, EndDate: programEnd } }, Date.now()));
       })
       .catch((err) => logger.warn("Timer state read failed", err, { hook: "useRecordActions" }));
     return () => {
       cancelled = true;
     };
-  }, [enabled, programId, channelId]);
+  }, [enabled, programId, channelId, programStart, programEnd]);
 
   /** A write, then a re-read; a write that landed stands even when the re-read fails, as `landed`. */
   const run = useCallback(
