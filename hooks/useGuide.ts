@@ -5,10 +5,10 @@ import { useHealthGeneration } from "@/hooks/useChannelHealth";
 import { healthFor } from "@/services/channelHealth";
 import { fetchChannels, fetchChannelsByIds, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { activeGuideUrls, fetchExternalPrograms } from "@/services/externalGuide";
-import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences } from "@/services/liveTvPreferences";
+import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { activeRecordTimer, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, mergePrograms, MINUTE_MS, programTimes } from "@/utils/guide";
+import { activeRecordTimer, EXTERNAL_GUIDE_PREFIX, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, mergePrograms, MINUTE_MS, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +16,11 @@ import { AppState } from "react-native";
 
 /** Channels per page: each page's programs load with it; the next page waits until the list nears it. */
 export const GUIDE_CHANNEL_PAGE = 40;
+
+/** The external guide choices a program load read: the viewer's guides and the ones turned off. */
+function guideSourcesKey(preferences: Pick<LiveTvPreferences, "guideUrls" | "guideSourcesOff">): string {
+  return JSON.stringify([preferences.guideUrls, preferences.guideSourcesOff]);
+}
 
 export interface GuideRow {
   channel: JellyfinItem;
@@ -171,10 +176,14 @@ export function useGuide(): GuideState {
       if (bare.length === 0) return programs;
       // No M3U tuner (or a read it refused) still leaves the viewer's guides, matched by name.
       const data = await fetchTunerData().catch(() => null);
-      const urls = activeGuideUrls(getLiveTvPreferences(), data?.tvgUrls ?? []);
+      const preferences = getLiveTvPreferences();
+      const urls = activeGuideUrls(preferences, data?.tvgUrls ?? []);
       if (urls.length === 0) return programs;
       const wanted = bare.map((channel) => ({ channelId: channel.Id, tvgId: data?.tvgById[channel.Id], tvgName: data?.tvgNameById[channel.Id], name: channel.Name ?? "" }));
-      return programs.concat(await fetchExternalPrograms(urls, wanted, { from: startMs, to: endMs }));
+      const external = await fetchExternalPrograms(urls, wanted, { from: startMs, to: endMs });
+      // Sources changed while these loaded: the reload that change started answers for them instead.
+      if (guideSourcesKey(getLiveTvPreferences()) !== guideSourcesKey(preferences)) return programs;
+      return programs.concat(external);
     } finally {
       setPendingPrograms((count) => count - 1);
     }
@@ -349,6 +358,20 @@ export function useGuide(): GuideState {
   useEffect(() => {
     if (loadRef.current.pagePending) loadMoreRows();
   }, [nowMs, loadMoreRows]);
+
+  // A guide source added, turned off or removed: external listings leave the rows and the loaded channels ask again.
+  const guideSources = guideSourcesKey(preferences);
+  const guideSourcesRef = useRef(guideSources);
+  useEffect(() => {
+    if (guideSourcesRef.current === guideSources) return;
+    guideSourcesRef.current = guideSources;
+    setProgramsByChannel((current) =>
+      Object.fromEntries(Object.entries(current).map(([channelId, programs]) => [channelId, programs.filter((program) => !program.Id?.startsWith(EXTERNAL_GUIDE_PREFIX))])),
+    );
+    const load = loadRef.current;
+    if (load.retired || channelsRef.current.length === 0) return;
+    loadPrograms(channelsRef.current, windowStartMs, windowEndRef.current, load).catch((err) => logger.warn("Guide source reload failed", err, { hook: "useGuide" }));
+  }, [guideSources, loadPrograms, windowStartMs]);
 
   const retry = useCallback(() => {
     setIsLoading(true);

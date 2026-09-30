@@ -345,6 +345,49 @@ describe("useGuide", () => {
     expect(fetchChannels).toHaveBeenCalledTimes(calls);
   });
 
+  it("a guide source turned off takes its listings off the rows", async () => {
+    const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+    const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
+    const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+    const url = "http://g/auto.xml.gz";
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs)]);
+    fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: [url] });
+    fetchExternalPrograms.mockImplementation(async (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
+      wanted.map(({ channelId }) => program(`epg:${channelId}`, channelId, 0, 30, windowMs.from)),
+    );
+    const ref = await mount();
+    expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual(["epg:c2"]);
+    updateLiveTvPreferences({ guideSourcesOff: [url] });
+    await changePreferences(ref, { guideSourcesOff: [url] } as Partial<typeof mockPreferences>);
+    expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["a"]);
+    expect(ref.current!.get().rows[1].programs).toEqual([]);
+    updateLiveTvPreferences({ guideSourcesOff: [] });
+  });
+
+  it("a guide request still loading when its source is turned off lands without that source's listings", async () => {
+    const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+    const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
+    const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+    const url = "http://g/auto.xml.gz";
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs)]);
+    fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: [url] });
+    let land!: () => void;
+    fetchExternalPrograms.mockImplementationOnce(
+      (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
+        new Promise((resolve) => (land = () => resolve(wanted.map(({ channelId }) => program(`epg:${channelId}`, channelId, 0, 30, windowMs.from))))),
+    );
+    const ref = await mount();
+    updateLiveTvPreferences({ guideSourcesOff: [url] });
+    await changePreferences(ref, { guideSourcesOff: [url] } as Partial<typeof mockPreferences>);
+    await act(async () => land());
+    await settle();
+    expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["a"]);
+    expect(ref.current!.get().rows[1].programs).toEqual([]);
+    updateLiveTvPreferences({ guideSourcesOff: [] });
+  });
+
   it("a channel's health verdict leaves the rows untouched while Hide offline is off, and drops a down channel once it is on", async () => {
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(41), channel(42)], total: 2 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
