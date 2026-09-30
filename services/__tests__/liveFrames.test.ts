@@ -97,6 +97,7 @@ import {
   setLiveFrameViewable,
   subscribeLiveFrame,
 } from "@/services/liveFrames";
+import { healthFor } from "@/services/channelHealth";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { AppState } from "react-native";
 
@@ -893,6 +894,44 @@ describe("live frames", () => {
     await advance(LIVE_FRAME_CAP_COOLDOWN_MS);
     expect(grabs().length).toBeGreaterThan(3);
     expect(liveFrameFor("m4")).toBeDefined();
+  });
+
+  it("judges channels no tuner carries down at once, without resting the sampler for the rest", async () => {
+    mockResolveOrigin.mockImplementation(async (id: string) => (id.startsWith("g") ? "untuned" : null));
+    mockOpenChannel.mockImplementation(async (id: string) => {
+      if (id.startsWith("g")) throw new Error("Failed to open channel: 500");
+      return { Id: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://jf/LiveTv/LiveStreamFiles/${id}/stream.ts` };
+    });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["g1", "g2", "g3", "t1"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(["g1", "g2", "g3"].map(healthFor)).toEqual(["down", "down", "down"]);
+    expect(grabs()).toEqual(["t1"]);
+  });
+
+  it("asks the server every grab, so a channel re-keyed under a live picture drops it and goes down", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(liveFrameFor("m1")).toBeDefined();
+    mockResolveOrigin.mockImplementation(async () => "untuned");
+    mockOpenChannel.mockRejectedValue(new Error("Failed to open channel: 500"));
+    await advance(LIVE_FRAME_REFRESH_MS + LIVE_FRAME_SPACING_MS);
+    expect(mockResolveOrigin).toHaveBeenCalledTimes(2);
+    expect(liveFrameFor("m1")).toBeUndefined();
+    expect(healthFor("m1")).toBe("down");
+  });
+
+  it("keeps a channel listed with no tuner whose open still plays", async () => {
+    mockResolveOrigin.mockImplementation(async () => "untuned");
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["t1"]);
+    await advance(0);
+    expect(grabs()).toEqual(["t1"]);
+    expect(healthFor("t1")).toBe("up");
   });
 
   it("leaves a stale burst on disk off screen and asks that channel at once", async () => {

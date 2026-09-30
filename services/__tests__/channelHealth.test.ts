@@ -6,7 +6,7 @@ jest.mock("@/utils/logger", () => ({
   logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-import { clearChannelHealth, healthFor, noteChannelAlive, noteChannelOpenFailure, subscribeChannelHealth } from "../channelHealth";
+import { clearChannelHealth, healthFor, noteChannelAlive, noteChannelGone, noteChannelOpenFailure, subscribeChannelHealth } from "../channelHealth";
 
 beforeEach(() => clearChannelHealth());
 
@@ -34,6 +34,13 @@ describe("channelHealth", () => {
     noteChannelAlive("a");
     expect(healthFor("a")).toBe("up");
     expect(listener).toHaveBeenCalled();
+  });
+
+  it("a channel no tuner carries is down at once, and a burst redeems it", () => {
+    noteChannelGone("a");
+    expect(healthFor("a")).toBe("down");
+    noteChannelAlive("a");
+    expect(healthFor("a")).toBe("up");
   });
 
   it("a clear drops every verdict", () => {

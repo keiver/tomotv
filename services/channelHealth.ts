@@ -2,7 +2,8 @@
  * Channel health, fed entirely by the frame sampler's own outcomes: a burst marks a channel
  * alive, and an origin open refused with an HTTP error status strikes it, twice for a down
  * verdict. Nothing here touches the network, so health never competes with a grab for the
- * link or a provider's connection slot. Server-carried channels stay unknown.
+ * link or a provider's connection slot. Server-carried channels stay unknown until the server
+ * refuses one no tuner carries.
  */
 import { logger } from "@/utils/logger";
 
@@ -58,6 +59,15 @@ export function noteChannelOpenFailure(channelId: string, failure?: string): voi
     logger.debug("Channel judged down by its origin", { service: "ChannelHealth", channelId, failure });
     notify(channelId);
   }
+}
+
+/** The server lists the channel but no tuner carries it, and its open was refused: down at once. */
+export function noteChannelGone(channelId: string): void {
+  const item = entry(channelId);
+  if (item.verdict === "down") return;
+  item.verdict = "down";
+  logger.debug("Channel judged down: no tuner carries it", { service: "ChannelHealth", channelId });
+  notify(channelId);
 }
 
 export function healthFor(channelId: string): ChannelHealth {

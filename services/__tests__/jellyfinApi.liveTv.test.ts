@@ -390,10 +390,15 @@ describe("live TV client", () => {
       if (url.includes("/Items/c41/PlaybackInfo")) {
         return { ok: true, json: async () => ({ MediaSources: [{ Protocol: "Http", Container: "ts", Path: "http://172.17.0.2:8096/LiveTv/LiveStreamFiles/x/stream.ts" }] }) };
       }
+      if (url.includes("/Items/c42/PlaybackInfo")) {
+        return { ok: true, json: async () => ({ MediaSources: [{ Id: "c42", Protocol: "File", RequiresOpening: true }] }) };
+      }
       return { ok: true, url, text: async () => "#EXTM3U\n#EXTINF:6,\nseg1.ts\n" };
     });
     expect(await resolveChannelOrigin("c40")).toEqual({ url: "https://origin.example/live/master.m3u8", headers: { "User-Agent": "Tuner" } });
     expect(await resolveChannelOrigin("c41")).toBeNull();
+    // The server's placeholder for a channel it lists that no tuner carries.
+    expect(await resolveChannelOrigin("c42")).toBe("untuned");
     const calls = (global.fetch as jest.Mock).mock.calls;
     expect(calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
     expect(calls.filter(([url]) => String(url).includes("/LiveStreams/"))).toHaveLength(0);

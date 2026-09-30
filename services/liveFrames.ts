@@ -5,7 +5,7 @@
  * the server's disk while it lasts. Stands down while the screen is away, the app is in the
  * background or playback holds the link.
  */
-import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
+import { clearChannelHealth, noteChannelAlive, noteChannelGone, noteChannelOpenFailure } from "@/services/channelHealth";
 import { closeLiveStream, openChannel, openRecentlyFailed, resolveChannelOrigin, type ChannelOrigin } from "@/services/jellyfinApi";
 import { showLivePreview, stopLivePreview } from "@/services/livePreview";
 import { getLiveTvPreferences, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
@@ -84,7 +84,8 @@ interface Entry {
   /** The frame pool was asked for this channel's last burst: a reload keeps the pictures it had. */
   seeded?: boolean;
   lane?: "origin" | "server";
-  origin?: ChannelOrigin;
+  /** The last grab found the channel listed with no tuner and its open refused. */
+  gone?: boolean;
   failure?: { at: number; attempts: number };
   /** A grab since the shown picture finished asking for a clip: one it did not bring waits for the refresh. */
   clipAsked?: boolean;
@@ -423,15 +424,22 @@ interface GrabInput {
 
 /** The stream a grab reads for the channel, or null when nothing can be read now. */
 async function inputFor(channelId: string, item: Entry): Promise<GrabInput | null> {
-  if (!item.lane) {
-    const origin = await resolveChannelOrigin(channelId);
-    item.lane = origin ? "origin" : "server";
-    item.origin = origin ?? undefined;
-  }
-  if (item.lane === "origin") return item.origin ?? null;
+  // Asked every grab: a guide refresh on the server can re-key the channel or move its origin.
+  const resolved = await resolveChannelOrigin(channelId);
+  const origin: ChannelOrigin | null = resolved === "untuned" ? null : resolved;
+  item.lane = origin ? "origin" : "server";
+  item.gone = false;
+  if (origin) return origin;
   // The server carries this channel: opened for this burst alone, closed the moment it is read.
   if (openRecentlyFailed(channelId)) return null;
-  const opened = await openChannel(channelId, undefined, { quiet: true });
+  let opened: Awaited<ReturnType<typeof openChannel>>;
+  try {
+    opened = await openChannel(channelId, undefined, { quiet: true });
+  } catch (error) {
+    if (resolved !== "untuned") throw error;
+    item.gone = true;
+    return null;
+  }
   const close = () => void closeLiveStream(opened.LiveStreamId);
   if (!opened.liveStreamUrl) {
     close();
@@ -460,7 +468,11 @@ async function grab(channelId: string): Promise<void> {
     }
     if (!input) {
       recordFailure(item, now);
-      noteOpenFailure();
+      // A channel no tuner carries is not the provider's cap; its old pictures go with it.
+      if (item.gone) {
+        if (item.burst) dropBurst(channelId, item);
+        noteChannelGone(channelId);
+      } else noteOpenFailure();
       return;
     }
     const result: {
@@ -526,8 +538,6 @@ async function grab(channelId: string): Promise<void> {
         noteOpenFailure();
         // The origin's own words judge the channel, and never while the cap is suspected.
         if (item.lane === "origin" && Date.now() >= capRestUntil) noteChannelOpenFailure(channelId, result.failure ?? undefined);
-        // Where a raw origin is read from follows this device's network: the next grab asks again.
-        if (item.origin?.originKey) item.lane = undefined;
       } else openFailStreak = 0;
     }
   } catch (error) {

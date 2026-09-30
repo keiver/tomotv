@@ -360,9 +360,10 @@ async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigi
 /**
  * A channel's origin for a frame grab, off the read-only PlaybackInfo: nothing is opened on the
  * server, and the playlist goes as given (the engine picks the variant a card needs, through its
- * own HTTP, which App Transport Security does not gate). Null for a channel the server carries.
+ * own HTTP, which App Transport Security does not gate). Null for a channel the server carries,
+ * "untuned" for one it lists that no tuner carries.
  */
-export async function resolveChannelOrigin(channelId: string): Promise<ChannelOrigin | null> {
+export async function resolveChannelOrigin(channelId: string): Promise<ChannelOrigin | "untuned" | null> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
@@ -370,6 +371,8 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   if (!response.ok) throwRequestError(response, `Failed to fetch channel playback info: ${response.status}`);
   const info = await response.json();
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
+  // Jellyfin's placeholder when no tuner lists the channel (LiveTvMediaSourceProvider.cs): the item's own id, no path.
+  if (source && !source.Path && source.Id === channelId) return "untuned";
   if (source && !isManifestSource(source)) {
     const raw = await rawLiveInput(config.server, config.apiKey, channelId, source);
     return raw ? { url: raw.url, originKey: raw.originKey, ...(raw.headers ? { headers: raw.headers } : {}), ...(raw.fallbackUrl ? { fallbackUrl: raw.fallbackUrl } : {}) } : null;
