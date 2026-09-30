@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { CloseOverlayButton } from "@/components/close-overlay-button";
-import { PadSheet, padSheetWidth } from "@/components/pad-sheet";
+import { PadSheet, padFitWidth } from "@/components/pad-sheet";
 
 import { FocusableButton } from "@/components/FocusableButton";
 import { InfoActionRow, InfoExtraAction } from "@/components/info-action-row";
@@ -105,7 +105,7 @@ export default function VideoInfoScreen() {
   // ratio, and the artwork covers only part of the header.
   // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV and iPad, so
   // the first paint already has the final height and onLayout only refines it.
-  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? padSheetWidth(windowWidth) : windowWidth);
+  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? padFitWidth(windowWidth, insets.left + insets.right, "center") : windowWidth);
   // Source aspect of the loaded artwork, so a taller-than-box hero anchors at the top.
   const [heroAspect, setHeroAspect] = useState<number | null>(null);
   // Seeded heroWidth paints frame one; this says the measured one has landed. A cached image
@@ -818,7 +818,7 @@ export default function VideoInfoScreen() {
   ) : null;
 
   const body = failed ? (
-    <View style={styles.stateWrap}>
+    <View style={[styles.stateWrap, IS_PAD && styles.padState]}>
       <Text style={styles.errorText}>{t("info.couldNotLoadDetails").replace("{title}", title || t("common.thisItem"))}</Text>
       <FocusableButton
         title={t("common.retry")}
@@ -833,13 +833,13 @@ export default function VideoInfoScreen() {
   ) : !details ? (
     // The spinner is a focus stop on purpose: presenting a screen with nothing focusable on it
     // leaves focus outside the panel until the fetch resolves and a CTA claims it.
-    <View style={styles.stateWrap}>
+    <View style={[styles.stateWrap, IS_PAD && styles.padState]}>
       <InfoFocusRow hasTVPreferredFocus unhighlighted>
         <LoadingRow label={t("info.loadingDetails").replace("{title}", title || t("common.thisItem"))} />
       </InfoFocusRow>
     </View>
   ) : (
-    <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
+    <ScrollView style={IS_PAD ? styles.padScroll : styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : IS_PAD ? 28 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
       {/* Full-bleed artwork heading on both platforms; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
           (layer-front) centered in it, the cards' no-poster mark. */}
@@ -919,7 +919,7 @@ export default function VideoInfoScreen() {
 
   if (IS_PAD) {
     return (
-      <PadSheet onClose={() => router.back()} closeHint={t("info.closeHint")}>
+      <PadSheet onClose={() => router.back()} closeHint={t("info.closeHint")} fit="center">
         {body}
       </PadSheet>
     );
@@ -981,6 +981,15 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+  },
+  // iPad's card fits its content: flexGrow 0 keeps the scroll content-sized until the card's max height.
+  padScroll: {
+    flexGrow: 0,
+  },
+  // The fitted card has no height of its own; this keeps loading and error from collapsing it.
+  padState: {
+    flex: 0,
+    minHeight: 320,
   },
   // Full-bleed artwork heading; the title sits in its bottom-left corner.
   // NO aspectRatio here, ever: Yoga recomputes the WIDTH from it (even against

@@ -10,12 +10,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const PAD_SHEET_RATIO = 0.905;
 /** An 11" iPad's portrait sheet: landscape and a wide Mac window keep that reading width, centred. */
 const PAD_SHEET_MAX_WIDTH = 760;
-/** Fitted card width caps: iPad's centred card reads as a dialog, iPhone's bottom card spans the screen. */
-const FIT_MAX_WIDTH = { center: 440, bottom: 600 } as const;
+/** Fitted card width caps: iPad's centred card holds the info panel's hero and cast row, iPhone's bottom card spans the screen. */
+const FIT_MAX_WIDTH = { center: 640, bottom: 600 } as const;
 const FIT_MARGIN = 8;
 
 export function padSheetWidth(windowWidth: number): number {
   return Math.min(Math.round(windowWidth * PAD_SHEET_RATIO), PAD_SHEET_MAX_WIDTH);
+}
+
+export function padFitWidth(windowWidth: number, insetsX: number, fit: "center" | "bottom"): number {
+  return Math.min(windowWidth - FIT_MARGIN * 2 - insetsX, FIT_MAX_WIDTH[fit]);
 }
 
 interface PadSheetProps {
@@ -37,7 +41,7 @@ export function PadSheet({ onClose, closeHint, fit, children }: PadSheetProps) {
     ? [
         styles.fitted,
         {
-          width: Math.min(width - FIT_MARGIN * 2 - insets.left - insets.right, FIT_MAX_WIDTH[fit]),
+          width: padFitWidth(width, insets.left + insets.right, fit),
           maxHeight: height - insets.top - Math.max(insets.bottom, FIT_MARGIN) - FIT_MARGIN * 2,
           marginBottom: fit === "bottom" ? Math.max(insets.bottom, FIT_MARGIN) : 0,
         },
