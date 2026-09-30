@@ -26,7 +26,7 @@ jest.mock("../jellyfin/session", () => ({
 
 let mockStreamServer = "http://10.0.0.5:8096";
 jest.mock("../jellyfin/streamUrls", () => ({
-  getRemoteVideoStreamUrl: (id: string) => `${mockStreamServer}/Videos/${id}/stream?Static=true&MediaSourceId=${id}&ApiKey=key`,
+  getRemoteVideoStreamUrl: (id: string, _item: unknown, config?: { server: string }) => `${config?.server ?? mockStreamServer}/Videos/${id}/stream?Static=true&MediaSourceId=${id}&ApiKey=key`,
 }));
 
 jest.mock("../jellyfin/items", () => ({
@@ -42,7 +42,7 @@ import { NativeModules } from "react-native";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
 import { isPlaybackHeld } from "@/services/playbackHold";
 import { playsFromDisk } from "@/services/downloads/localSource";
-import { measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, warmBitrateMemory } from "../jellyfin/bitrateTest";
+import { cancelBitrateProbes, measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, warmBitrateMemory } from "../jellyfin/bitrateTest";
 import { fetchLibraryVideos } from "../jellyfin/items";
 import { getAuthHeader, getConfig } from "../jellyfin/session";
 
@@ -325,6 +325,43 @@ describe("measurement", () => {
     await expect(third).resolves.toBe(40_000_000);
     await expect(shared).resolves.toBe(40_000_000);
     await expect(second).resolves.toBeNull();
+  });
+
+  it("starts no read when a switch lands during the file lookup, and holds no backoff", async () => {
+    let lookup: (value: unknown) => void = () => {};
+    mockLibrary.mockImplementationOnce(() => new Promise((resolve) => (lookup = resolve)));
+    const probe = measureServerBitrate();
+    await jest.advanceTimersByTimeAsync(1);
+
+    cancelBitrateProbes();
+    expect(mockCancel).toHaveBeenCalledTimes(1);
+    lookup({ items: [{ Id: "v1" }] });
+    await expect(probe).resolves.toBeNull();
+    expect(mockMeasure).not.toHaveBeenCalled();
+
+    mockMeasure.mockResolvedValueOnce(link(40_000_000));
+    await expect(measureServerBitrate()).resolves.toBe(40_000_000);
+  });
+
+  it("keeps nothing from a read a switch ended, even one that arrived whole", async () => {
+    let finish: (reading: ReturnType<typeof link> | null) => void = () => undefined;
+    mockMeasure.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    const probe = measureServerBitrate();
+    for (let tick = 0; tick < 50 && mockMeasure.mock.calls.length === 0; tick++) await Promise.resolve();
+    expect(mockMeasure).toHaveBeenCalledTimes(1);
+
+    cancelBitrateProbes();
+    finish(link(90_000_000));
+    await expect(probe).resolves.toBeNull();
+    expect(mockSetItem).not.toHaveBeenCalled();
+  });
+
+  it("reads the server it started for, whatever the cached config names by then", async () => {
+    mockStreamServer = "http://10.0.0.77:8096";
+    mockMeasure.mockResolvedValueOnce(link(40_000_000));
+
+    await measureServerBitrate();
+    expect(mockMeasure.mock.calls[0][0]).toContain(SERVER);
   });
 });
 

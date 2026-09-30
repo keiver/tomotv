@@ -155,11 +155,13 @@ async function probeTarget(): Promise<JellyfinVideoItem | null> {
   return items.find(remote) ?? null;
 }
 
-async function measureLink(config: JellyfinConfig): Promise<LinkReading | null> {
+async function measureLink(config: JellyfinConfig, generation: number): Promise<LinkReading | null> {
   const measure = engine()?.measureLink;
   if (typeof measure !== "function") return null;
   const item = await probeTarget();
-  const stream = item ? getRemoteVideoStreamUrl(item.Id, item) : "";
+  // A switch during the lookup: the list is the next server's, and a read would cancel its probe.
+  if (generation !== probeGeneration) return null;
+  const stream = item ? getRemoteVideoStreamUrl(item.Id, item, config) : "";
   if (!stream || isPlaybackHeld()) return null;
   const url = `${stream}&_probe=${Date.now()}-${probeNonce++}`;
   const reading = await measure(url, { Authorization: getAuthHeader(config.deviceId, config.apiKey), Range: "bytes=0-" }, PROBE_BUDGET_MS);
@@ -176,13 +178,13 @@ async function runProbe(config: JellyfinConfig, host: string, generation: number
       ?.catch(() => undefined);
   });
   try {
-    const reading = await measureLink(config);
+    const reading = await measureLink(config, generation);
     if (yielded || isPlaybackHeld()) {
       logger.info("Bitrate test stood down for playback", { service: "BitrateTest", host });
       return null;
     }
-    if (reading == null && generation !== probeGeneration) {
-      logger.info("Bitrate test replaced by the next server's", { service: "BitrateTest", host });
+    if (generation !== probeGeneration) {
+      logger.info("Bitrate test replaced by a switch or the next probe", { service: "BitrateTest", host });
       return null;
     }
     if (reading == null) {
@@ -204,6 +206,7 @@ async function runProbe(config: JellyfinConfig, host: string, generation: number
     await remember(config.server, bps, net);
     return bps;
   } catch (error) {
+    if (generation !== probeGeneration) return null;
     failedAt.set(host, Date.now());
     logger.warn("Bitrate test failed", error, { service: "BitrateTest", host });
     return null;
@@ -238,6 +241,15 @@ export async function measureServerBitrate(): Promise<number | null> {
     inFlight = current;
   }
   return current.probe;
+}
+
+/** Ends every probe on a server or account switch: none is kept or held against the next server. */
+export function cancelBitrateProbes(): void {
+  probeGeneration++;
+  inFlight = null;
+  void engine()
+    ?.cancelMeasureLink?.()
+    ?.catch(() => undefined);
 }
 
 /**

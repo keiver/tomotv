@@ -385,6 +385,14 @@ export async function clearContentCaches(context: string): Promise<void> {
     });
   }
 
+  // The last server's link probe must leave no reading or backoff on the next one.
+  try {
+    const { cancelBitrateProbes } = await import("./bitrateTest");
+    cancelBitrateProbes();
+  } catch (probeError) {
+    logger.warn(`Failed to cancel the link probe ${context}`, probeError, { service: "JellyfinAPI" });
+  }
+
   // Item ids collide across servers, so a settled keyframe (a failure included) must not
   // answer for the next server's item of the same id, in memory or in the engine's pool on
   // disk. Its own step: the engine is native.
