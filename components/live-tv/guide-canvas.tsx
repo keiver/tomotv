@@ -21,7 +21,7 @@ import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScroll
 
 import { setFocusedGuideRow } from "@/services/guideChannelFocus";
 import { setLiveFrameFocus } from "@/services/liveFrames";
-import type { ChannelFilter } from "@/services/liveTvPreferences";
+import { getLiveTvPreferences, updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
 import { claimMacEscape } from "@/services/macKeyCommands";
 import { IS_MAC } from "@/utils/hostEnvironment";
 
@@ -63,7 +63,13 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const isScreenFocused = useIsFocused();
 
   const insets = useSafeAreaInsets();
-  const [compact, setCompact] = useState(false);
+  // Phone: the column reopens the way it was last left.
+  const [initialCompact] = useState(() => !IS_TV && getLiveTvPreferences().compactColumn);
+  const [compact, setCompact] = useState(initialCompact);
+  const handleCompactChange = useCallback((next: boolean) => {
+    setCompact(next);
+    updateLiveTvPreferences({ compactColumn: next });
+  }, []);
 
   const scrollX = useSharedValue(0);
   const columnRef = useAnimatedRef<Animated.FlatList<JellyfinItem>>();
@@ -74,9 +80,9 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const rulerShift = useMemo(() => ({ transform: [{ translateX: RNAnimated.multiply(nativeScrollX, -1) }] }), [nativeScrollX]);
   // The channel column's live width and the whole guide's width, both driven from the UI thread
   // so the resize drag never re-renders the two lists.
-  const columnW = useSharedValue(METRICS.channelColumnWidth);
+  const columnW = useSharedValue(initialCompact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
   const canvasW = useSharedValue(0);
-  const resize = useColumnResize({ columnW, canvasW, minWidth: METRICS.compactColumnWidth, maxWidth: METRICS.channelColumnWidth, onCompactChange: setCompact });
+  const resize = useColumnResize({ columnW, canvasW, minWidth: METRICS.compactColumnWidth, maxWidth: METRICS.channelColumnWidth, initialCompact, onCompactChange: handleCompactChange });
   const [viewportWidth, setViewportWidth] = useState(0);
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {

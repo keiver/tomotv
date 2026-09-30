@@ -30,14 +30,16 @@ interface ColumnResizeOptions {
   minWidth: number;
   /** The card's full width: the column never opens past what the card fills. */
   maxWidth: number;
+  /** Whether the column opens on the left magnet. */
+  initialCompact: boolean;
   /** Fires when the left magnet takes hold or lets go, so the rows collapse to logos and back. */
   onCompactChange: (compact: boolean) => void;
 }
 
 /** One resize, two handles: the seam's grip and the NOW cell each get a pan over the same drag state. */
-export function useColumnResize({ columnW, canvasW, minWidth, maxWidth, onCompactChange }: ColumnResizeOptions) {
+export function useColumnResize({ columnW, canvasW, minWidth, maxWidth, initialCompact, onCompactChange }: ColumnResizeOptions) {
   const start = useSharedValue(0);
-  const compact = useSharedValue(false);
+  const compact = useSharedValue(initialCompact);
   // The seam grip also slides along its line: its offset from the band's centre, and the band's height.
   const gripY = useSharedValue(0);
   const gripStartY = useSharedValue(0);

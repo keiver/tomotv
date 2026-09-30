@@ -46,6 +46,7 @@ describe("live TV preferences", () => {
       guideSourcesOff: [],
       recordingMinutes: 120,
       hideOffline: false,
+      compactColumn: false,
     });
     // Guide URLs survive only as http(s), once each; a document from before the list carries one as guideUrl.
     expect(parseLiveTvPreferences({ guideUrls: ["https://g/a.xml", "file:///etc/passwd", 7, "https://g/a.xml", "http://g/b.xml"] }).guideUrls).toEqual(["https://g/a.xml", "http://g/b.xml"]);
@@ -59,6 +60,8 @@ describe("live TV preferences", () => {
     // Hide offline survives only as a boolean; anything else falls back to off.
     expect(parseLiveTvPreferences({ hideOffline: true }).hideOffline).toBe(true);
     expect(parseLiveTvPreferences({ hideOffline: "yes" }).hideOffline).toBe(false);
+    expect(parseLiveTvPreferences({ compactColumn: true }).compactColumn).toBe(true);
+    expect(parseLiveTvPreferences({ compactColumn: 1 }).compactColumn).toBe(false);
   });
 
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {

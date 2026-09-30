@@ -43,6 +43,8 @@ export interface LiveTvPreferences {
   recordingMinutes: RecordingMinutes;
   /** Guide and wall leave out channels whose health check concluded down; unchecked ones stay. */
   hideOffline: boolean;
+  /** Phone: the guide's channel column rests collapsed to logos. */
+  compactColumn: boolean;
 }
 export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber"> & { Id?: string };
 
@@ -57,6 +59,7 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   guideSourcesOff: [],
   recordingMinutes: 120,
   hideOffline: false,
+  compactColumn: false,
 };
 
 let current: LiveTvPreferences | null = null;
@@ -116,6 +119,7 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
       ? (source.recordingMinutes as RecordingMinutes)
       : DEFAULT_LIVE_TV_PREFERENCES.recordingMinutes,
     hideOffline: typeof source.hideOffline === "boolean" ? source.hideOffline : DEFAULT_LIVE_TV_PREFERENCES.hideOffline,
+    compactColumn: source.compactColumn === true,
   };
 }
 
