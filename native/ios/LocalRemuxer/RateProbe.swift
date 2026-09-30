@@ -51,6 +51,8 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
             if let left = flowing { _ = done.wait(timeout: .now() + max(0, left) + 0.5) }
         }
         lock.lock()
+        // No chunk or ending stopped the read: it ran into its deadline on a body gone quiet.
+        if !finished, let first = firstByteAt { meter.close(at: min(clock(), first + budget)) }
         finished = true
         let outcome = Outcome(reading: firstByteAt == nil ? nil : meter.reading(), failure: failure, samples: meter.samples())
         lock.unlock()

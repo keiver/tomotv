@@ -71,6 +71,14 @@ struct RateMeter {
         pausedAt = lastDelivery
     }
 
+    /// The read stops at `time` with transfers still open: the silence since their last chunk is the link too.
+    mutating func close(at time: Double) {
+        guard clockStart != nil, pausedAt == nil, !flows.isEmpty, time > lastDelivery else { return }
+        lastDelivery = time
+        flows.removeAll()
+        pausedAt = time
+    }
+
     var isSteady: Bool { reading().kind == .steady }
 
     /// Samples held in memory, bounded however long the meter runs.

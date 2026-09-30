@@ -154,8 +154,10 @@ final class RateProbeTests: XCTestCase {
         let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000, stallAfter: 2_000_000))
         defer { server.stop() }
         let (outcome, elapsed) = probe(server, budget: 1.5)
-        XCTAssertNotNil(outcome.reading)
+        let reading = try XCTUnwrap(outcome.reading)
         XCTAssertLessThan(elapsed, 1.5 + 1, "a stalled body sends no chunk to stop on")
+        XCTAssertEqual(reading.seconds, 1.5, accuracy: 0.1, "the silence up to the budget is read")
+        XCTAssertLessThan(reading.bps / mbps, 16, "2 MB over 1.5s is about 11 Mb/s, not the 40 it arrived at")
     }
 
     func testBytesCarriedBesideTheProbeAreTheLinkToo() throws {

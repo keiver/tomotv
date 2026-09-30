@@ -276,6 +276,26 @@ final class RateMeterTests: XCTestCase {
         XCTAssertEqual(reading.lowBps / mbps, 1, accuracy: 0.01)
     }
 
+    func testASilenceTheReadStopsInIsTheLinkToo() {
+        var trace = Trace()
+        trace.transfer(1, from: 0, to: 0.4, ends: false) { _ in 40 * mbps }
+        _ = trace.read(at: 0.4)
+        var meter = trace.meter
+        meter.close(at: 1.5)
+        let reading = meter.reading()
+        XCTAssertEqual(reading.seconds, 1.5, accuracy: 0.01)
+        XCTAssertEqual(reading.bps / mbps, 40 * 0.4 / 1.5, accuracy: 0.5)
+    }
+
+    func testCloseLeavesAnEndedReadAsItIs() {
+        var trace = Trace()
+        trace.transfer(1, from: 0, to: 0.5) { _ in 40 * mbps }
+        let ended = trace.read(at: 0.5)
+        var meter = trace.meter
+        meter.close(at: 3)
+        XCTAssertEqual(meter.reading(), ended)
+    }
+
     func testSamplesAreTheSettledRates() {
         var trace = Trace()
         trace.transfer(1, from: 0, to: 1.5) { _ in 100 * mbps }
