@@ -20,6 +20,7 @@ import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_S
 import { filtersCacheKey } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
 import { fetchAllPlaylistItems } from "./items";
+import { fetchChannels } from "./liveTv";
 import { isAudioItem } from "./media";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
@@ -163,6 +164,14 @@ export async function fetchViewItemCount(viewId: string): Promise<number> {
     },
     CACHE.VIEW_COUNT_TTL_MS,
   );
+}
+
+/** A library root's count, never its ChildCount. Live TV counts channels, which no item query sees. */
+export async function fetchLibraryRootCount(viewId: string, collectionType: string | undefined): Promise<number> {
+  if (collectionType !== "livetv") return fetchViewItemCount(viewId);
+  const { total } = await fetchChannels({ limit: 0 });
+  if (total === undefined) throw new Error("Channel count unavailable");
+  return total;
 }
 
 async function resolveViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {

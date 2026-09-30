@@ -142,6 +142,7 @@ export {
   fetchFolderMediaKinds,
   fetchFolderPhotos,
   fetchFolderPreviewItems,
+  fetchLibraryRootCount,
   FOLDER_PREVIEW_COUNT,
   FolderMediaKinds,
   fetchUserViews,

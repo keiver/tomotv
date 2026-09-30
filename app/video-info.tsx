@@ -16,6 +16,7 @@ import {
   FolderMediaKinds,
   fetchItemDetails,
   fetchItemFolderPath,
+  fetchLibraryRootCount,
   formatDuration,
   getBackdropUrl,
   getLogoUrl,
@@ -164,8 +165,14 @@ export default function VideoInfoScreen() {
         if (!fetched) throw new Error("Item details unavailable");
         const path = await pathPromise;
         // Same one-paint rule: the play CTAs state what the container actually holds.
-        const kinds = isFolder(fetched) ? await fetchFolderMediaKinds(fetched) : null;
+        const root = fetched.Type === "CollectionFolder" || fetched.Type === "UserView";
+        const [kinds, rootCount] = await Promise.all([
+          isFolder(fetched) ? fetchFolderMediaKinds(fetched) : null,
+          root ? fetchLibraryRootCount(fetched.Id, fetched.CollectionType).catch(() => undefined) : undefined,
+        ]);
         if (cancelled) return;
+        // A library root's ChildCount is a random 1-9; it shows the card badge's count or none.
+        if (root) fetched = { ...fetched, ChildCount: undefined, RecursiveItemCount: rootCount };
         setFolderLeafId(path.length ? path[path.length - 1].id : null);
         setMediaKinds(kinds);
         setDetails(fetched);

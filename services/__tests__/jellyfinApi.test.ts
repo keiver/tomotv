@@ -13,6 +13,7 @@ import {
   fetchRecursiveVideos,
   fetchUserViews,
   fetchViewItemCount,
+  fetchLibraryRootCount,
   setVideoFavorite,
   isFolder,
   isPhoto,
@@ -2867,6 +2868,16 @@ describe("jellyfinApi", () => {
       (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("network down"));
 
       await expect(fetchViewItemCount("lib-1")).rejects.toThrow();
+    });
+
+    it("counts the Live TV root by channel total without downloading the channels", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 10985 }) });
+
+      await expect(fetchLibraryRootCount("livetv-view", "livetv")).resolves.toBe(10985);
+
+      const url = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(url.pathname).toBe("/LiveTv/Channels");
+      expect(url.searchParams.get("limit")).toBe("0");
     });
 
     it("requests RecursiveItemCount in Fields when fetching folder contents", async () => {
