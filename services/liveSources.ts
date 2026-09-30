@@ -70,10 +70,9 @@ export interface GuideLoadStats {
   programmes: number;
 }
 
-/** Streams the XMLTV at `url` (http(s) or file) into a native store held to the window. */
 /**
- * `pool` scopes the native store's eviction: a load closes only the oldest guides of its own pool.
- * `maxOpen` 0 leaves closing to the caller, which keeps its own use order.
+ * Streams the XMLTV at `url` (http(s) or file) into a native store held to the window. `pool` scopes
+ * eviction to its own guides; `maxOpen` 0 leaves closing to the caller, which keeps its own use order.
  */
 export async function loadGuide(url: string, windowMs: { from: number; to: number }, pool: "external", maxOpen?: number): Promise<{ token: string; stats: GuideLoadStats | null }> {
   const result = (await LiveSources.loadGuide({ url, from: windowMs.from, to: windowMs.to, pool, ...(maxOpen !== undefined ? { maxOpen } : {}) })) as {

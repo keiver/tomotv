@@ -21,14 +21,6 @@ interface MediaShelfProps<T> {
   keyExtractor: (item: T) => string;
 }
 
-/**
- * One horizontal shelf of the home screen: heading plus a card carousel of mixed-shape
- * cards (see fitArtwork on the card components). ONE height per row, never uneven: the row
- * takes the tallest shape present in its data and EVERY card renders at that height — wide
- * cards in a poster row grow to match. An all-wide row stays at the wide height. Purely
- * presentational — data loading, press routing and focus side effects belong to the wrapper
- * that instantiates it. Renders null with no items so empty shelves collapse.
- */
 /** The shelf's index-mark heading, exported so sibling sections can label themselves alike. */
 export function ShelfHeading({ title }: { title: string }) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -40,6 +32,14 @@ export function ShelfHeading({ title }: { title: string }) {
   );
 }
 
+/**
+ * One horizontal shelf of the home screen: heading plus a card carousel of mixed-shape
+ * cards (see fitArtwork on the card components). ONE height per row, never uneven: the row
+ * takes the tallest shape present in its data and EVERY card renders at that height: wide
+ * cards in a poster row grow to match. An all-wide row stays at the wide height. Purely
+ * presentational: data loading, press routing and focus side effects belong to the wrapper
+ * that instantiates it. Renders null with no items so empty shelves collapse.
+ */
 export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtractor }: MediaShelfProps<T>) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
