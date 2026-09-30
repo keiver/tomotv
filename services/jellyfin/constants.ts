@@ -27,7 +27,7 @@ export const STORAGE_KEYS = {
   USER_ID: "jellyfin_user_id",
   VIDEO_QUALITY: "app_video_quality",
   /** Earlier keys hold readings from windows short enough to time a burst allowance, so none carry over. */
-  BITRATE_MEMORY: "app_bitrate_memory_3",
+  BITRATE_MEMORY: "app_bitrate_memory_4",
   /** Device-wide subtitle choice from before 2.2.8, read once by the track settings migration. */
   SUBTITLE_PREFERENCE: "app_subtitle_preference",
   TRACK_SETTINGS: "app_track_settings",
