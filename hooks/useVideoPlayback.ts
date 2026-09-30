@@ -338,6 +338,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   /** The master named the copy alone (the link carries it): no cap may sit under it, and a link that
    *  then cannot feed it hands the session to the server, the one other route. */
   const copyOnlyRef = useRef(false);
+  /** The item already rebuilt one starving copy-only session on the engine; the next goes to the server. */
+  const copyRebuiltRef = useRef(false);
   /** The provider this run owns on the non-engine lanes; the engine lane serves its own frames. */
   const frameProviderTokenRef = useRef<string | null>(null);
   const [chapterFrameBaseUrl, setChapterFrameBaseUrl] = useState<string | null>(null);
@@ -873,6 +875,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!playsFromDisk(details.Id) && !isAudioOnly(details) && !serverVideoTranscodingAllowed(details)) return;
       watch.handedOver = true;
       const position = currentTimeRef.current;
+      // A copy-only session starving on the link first gets one fresh engine session: it measures the
+      // link again, and a thin one gets the rungs with the copy listed to climb back to.
+      if (copyOnlyRef.current && readBound(sample) && !copyRebuiltRef.current) {
+        copyRebuiltRef.current = true;
+        logger.warn("The link fell under the copy, rebuilding the engine session at the playhead", { service: "useVideoPlayback", position: Math.round(position) });
+        probeEmit("engineRestart", { position: Math.round(position), reason: "copy starved on the link" });
+        stopLocalRemux(localRemuxTokenRef.current);
+        localRemuxTokenRef.current = null;
+        dropThroughputWatch(watch);
+        restartAtPlayhead(position);
+        return;
+      }
       logger.warn("Engine fell below realtime, leaving the engine lane at the playhead", {
         service: "useVideoPlayback",
         position: Math.round(position),
@@ -2682,6 +2696,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedCredentialRefresh(false);
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
+    copyRebuiltRef.current = false;
     liveReopenedRef.current = false;
     liveLaneRef.current = "engine";
     dropThroughputWatch(throughputRef.current);
@@ -2998,6 +3013,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedTranscoding(false);
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
+    copyRebuiltRef.current = false;
     liveReopenedRef.current = false;
     liveLaneRef.current = "engine";
     heldEngineSpentRef.current = false;

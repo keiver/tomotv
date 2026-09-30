@@ -1481,14 +1481,31 @@ describe("useVideoPlayback (mounted)", () => {
       await act(async () => renderer.unmount());
     });
 
-    it("hands a link-bound starvation to the server, the one other route, without a verdict on the device", async () => {
+    it("rebuilds a link-bound starvation on the engine once, then hands the next to the server, without a verdict on the device", async () => {
       const { ref, renderer } = await laddered("copy");
       ref.current!.get().currentTimeRef.current = 42;
+      const starts = mockStartLocalRemux.mock.calls.length;
       await act(async () => {
         throughputListener!({ ...starving, segment: 1 });
         throughputListener!({ ...starving, segment: 2 });
       });
       expect(mockStopLocalRemux).toHaveBeenCalledWith(token);
+      expect(mockProbeEmit).toHaveBeenCalledWith("engineRestart", expect.objectContaining({ position: 42, reason: "copy starved on the link" }));
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
+      for (let i = 0; i < 6; i++) {
+        await act(async () => {
+          await new Promise((resolve) => setImmediate(resolve));
+        });
+      }
+      expect(mockStartLocalRemux.mock.calls.length).toBeGreaterThan(starts);
+      expect(mockStartLocalRemux.mock.calls.at(-1)?.[3]).toBeUndefined();
+
+      const tier = (subscribeEngineTier as jest.Mock).mock.calls.at(-1)![1];
+      await act(async () => tier({ token, state: "copy" }));
+      await act(async () => {
+        throughputListener!({ ...starving, segment: 3 });
+        throughputListener!({ ...starving, segment: 4 });
+      });
       expect(mockProbeEmit).toHaveBeenCalledWith("fallback", expect.objectContaining({ from: "localRemux", to: "transcode" }));
       expect(mockRecordVerdict).not.toHaveBeenCalled();
       await act(async () => renderer.unmount());
