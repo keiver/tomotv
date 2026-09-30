@@ -78,9 +78,11 @@ jest.mock("@/services/jellyfin/session", () => ({
 jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => null }));
 
 // Measured-slow link: the tier is declared only when measured < source.
+const mockRememberEngineLink = jest.fn();
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
   rememberedBitrate: async () => 3_000_000,
   measureServerBitrate: async () => 3_000_000,
+  rememberEngineLink: (bps: number) => mockRememberEngineLink(bps),
 }));
 
 const HOUR_IN_TICKS = 36000000000;
@@ -146,6 +148,20 @@ describe("engine link ownership", () => {
     expect(listener).not.toHaveBeenCalled();
     stop();
     stopAgain();
+  });
+
+  it("keeps only a settled probe of the source as the server's reading", () => {
+    const token = "remembered-link-session";
+    const stop = subscribeEngineLink(token, jest.fn());
+    const emit = mockListeners.get("onEngineLink")!;
+    emit({ token, bps: 90_000_000, source: "probe", settled: true });
+    emit({ token, bps: 640_000_000, source: "probe", settled: false });
+    emit({ token, bps: 4_000_000, source: "rungs", settled: false });
+    emit({ token, bps: 6_000_000, source: "playlist", settled: false });
+    emit({ token, bps: 20_000_000, source: "reads", settled: false });
+    emit({ token, bps: 30_000_000 });
+    expect(mockRememberEngineLink.mock.calls).toEqual([[90_000_000]]);
+    stop();
   });
 });
 

@@ -32,7 +32,7 @@ import { deviceDecodes, isLiveSource, serverVideoTranscodingAllowed, sourceVideo
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
-import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
+import { rememberedBitrate, rememberEngineLink } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { noteDeviceDecode, probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
@@ -563,8 +563,8 @@ export function subscribeEngineTier(token: string, listener: TierListener): () =
   };
 }
 
-/** The link rate the engine measured behind the loopback, in bits per second. */
-export type EngineLinkReport = { token: string; bps: number; copyListed?: boolean };
+/** The link rate the engine measured behind the loopback, in bits per second. `settled` marks a probe of the source filling a window. */
+export type EngineLinkReport = { token: string; bps: number; copyListed?: boolean; source?: "probe" | "reads" | "rungs" | "playlist"; settled?: boolean };
 
 type LinkListener = (report: EngineLinkReport) => void;
 const linkListeners = new Map<string, Set<LinkListener>>();
@@ -587,6 +587,8 @@ function watchEngineLink(): void {
   linkSubscription = emitter.addListener("onEngineLink", (report: EngineLinkReport) => {
     if (!report.token || !Number.isFinite(report.bps) || report.bps <= 0 || linkReports.get(report.token) === null) return;
     rememberLink(report.token, report);
+    // Only a probe of the real file is the wire; reads and the server's rungs time playback and the transcoder.
+    if (report.source === "probe" && report.settled === true) void rememberEngineLink(report.bps);
     linkListeners.get(report.token)?.forEach((listener) => listener(report));
   });
 }

@@ -19,11 +19,26 @@ jest.mock("../jellyfin/session", () => ({
   getAuthHeader: jest.fn(),
 }));
 
+let mockStreamServer = "http://10.0.0.5:8096";
+jest.mock("../jellyfin/streamUrls", () => ({
+  getRemoteVideoStreamUrl: (id: string) => `${mockStreamServer}/Videos/${id}/stream?Static=true&MediaSourceId=${id}&ApiKey=key`,
+}));
+
+jest.mock("../jellyfin/items", () => ({
+  fetchLibraryVideos: jest.fn(),
+}));
+
+jest.mock("@/services/downloads/localSource", () => ({
+  playsFromDisk: jest.fn(),
+}));
+
 import * as SecureStore from "expo-secure-store";
 import { NativeModules } from "react-native";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
 import { isPlaybackHeld } from "@/services/playbackHold";
-import { measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, remeasureBitrate, warmBitrateMemory } from "../jellyfin/bitrateTest";
+import { playsFromDisk } from "@/services/downloads/localSource";
+import { measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, rememberEngineLink, warmBitrateMemory } from "../jellyfin/bitrateTest";
+import { fetchLibraryVideos } from "../jellyfin/items";
 import { getAuthHeader, getConfig } from "../jellyfin/session";
 
 const SERVER = "http://10.0.0.5:8096";
@@ -38,6 +53,8 @@ const mockDescribeSubnet = describeSubnet as jest.Mock;
 const mockHeld = isPlaybackHeld as jest.Mock;
 const mockGetItem = SecureStore.getItemAsync as jest.Mock;
 const mockSetItem = SecureStore.setItemAsync as jest.Mock;
+const mockLibrary = fetchLibraryVideos as jest.Mock;
+const mockOnDisk = playsFromDisk as jest.Mock;
 
 let now = 1_000_000_000;
 let mockMeasure: jest.Mock;
@@ -74,6 +91,9 @@ beforeEach(() => {
   mockHeld.mockReturnValue(false);
   mockGetItem.mockResolvedValue(null);
   mockSetItem.mockResolvedValue(undefined);
+  mockStreamServer = SERVER;
+  mockLibrary.mockResolvedValue({ items: [{ Id: "v1" }, { Id: "v2" }] });
+  mockOnDisk.mockReturnValue(false);
   mockMeasure = jest.fn();
   NativeModules.LocalRemuxer = { measureLink: mockMeasure };
 });
@@ -98,16 +118,47 @@ describe("measurement", () => {
     const urls = mockMeasure.mock.calls.map((call) => String(call[0]));
     expect(urls).toHaveLength(3);
     expect(new Set(urls).size).toBe(3);
-    for (const url of urls) expect(url).toContain(`${SERVER}/Playback/BitrateTest?Size=50000000`);
+    for (const url of urls) expect(url).toContain(`${SERVER}/Videos/v1/stream?Static=true`);
   });
 
-  it("hands the engine's probe the server's auth and a budget", async () => {
+  it("reads a real file, never a synthetic test body", async () => {
+    mockMeasure.mockResolvedValue(link(16_000_000));
+    await measureServerBitrate();
+
+    expect(String(mockMeasure.mock.calls[0][0])).not.toContain("BitrateTest");
+  });
+
+  it("hands the engine's probe the server's auth, a ranged read and a budget", async () => {
     mockMeasure.mockResolvedValue(link(16_000_000));
     await measureServerBitrate();
 
     expect(mockAuthHeader).toHaveBeenCalledWith("d", "key");
-    expect(mockMeasure.mock.calls[0][1]).toEqual({ Authorization: 'MediaBrowser Token="t"' });
+    expect(mockMeasure.mock.calls[0][1]).toEqual({ Authorization: 'MediaBrowser Token="t"', Range: "bytes=0-" });
     expect(mockMeasure.mock.calls[0][2]).toBe(3_000);
+  });
+
+  it("reads the file it is given, without listing the library", async () => {
+    mockMeasure.mockResolvedValue(link(16_000_000));
+    await measureServerBitrate({ target: { Id: "about-to-play" } as never });
+
+    expect(String(mockMeasure.mock.calls[0][0])).toContain("/Videos/about-to-play/stream?Static=true");
+    expect(mockLibrary).not.toHaveBeenCalled();
+  });
+
+  it("skips a library file this device already holds", async () => {
+    mockOnDisk.mockImplementation((id: string) => id === "v1");
+    mockMeasure.mockResolvedValue(link(16_000_000));
+    await measureServerBitrate();
+
+    expect(String(mockMeasure.mock.calls[0][0])).toContain("/Videos/v2/stream");
+  });
+
+  it("measures nothing when the server has no file left to read", async () => {
+    mockLibrary.mockResolvedValue({ items: [] });
+
+    await expect(measureServerBitrate()).resolves.toBeNull();
+    expect(mockMeasure).not.toHaveBeenCalled();
+    expect(mockSetItem).not.toHaveBeenCalled();
   });
 
   it("remembers the probe's reading against the current subnet", async () => {
@@ -193,6 +244,7 @@ describe("measurement", () => {
 
     // The switch lands while the first probe is still running.
     mockGetConfig.mockResolvedValue({ server: "http://10.0.0.77:8096", apiKey: "key", userId: "u", deviceId: "d" });
+    mockStreamServer = "http://10.0.0.77:8096";
     mockMeasure.mockResolvedValueOnce(link(16_000_000));
 
     await expect(measureServerBitrate()).resolves.toBe(16_000_000);
@@ -202,6 +254,21 @@ describe("measurement", () => {
 
     releaseFirst(link(2_000_000));
     await first;
+  });
+});
+
+describe("the engine's reading", () => {
+  it("is kept as this server's reading on this subnet", async () => {
+    await rememberEngineLink(42_000_000);
+
+    expect(JSON.parse(mockSetItem.mock.calls[0][1])[HOST]).toEqual({ bps: 42_000_000, at: expect.any(Number), net: HOME });
+  });
+
+  it("keeps nothing from a zero or broken rate", async () => {
+    await rememberEngineLink(0);
+    await rememberEngineLink(Number.NaN);
+
+    expect(mockSetItem).not.toHaveBeenCalled();
   });
 });
 
@@ -355,24 +422,5 @@ describe("triggers", () => {
     mockMeasure.mockResolvedValue(link(4_000_000));
 
     await expect(measureIfIdle()).resolves.toBe(4_000_000);
-  });
-
-  it("re-measures on a tap past a fresh reading and past the failure backoff", async () => {
-    storedMemory({ bps: 90_000_000, at: now - 60 * 1000, net: HOME });
-    mockMeasure.mockResolvedValueOnce(null);
-
-    await expect(remeasureBitrate()).resolves.toBeNull();
-    expect(mockMeasure).toHaveBeenCalledTimes(1);
-
-    mockMeasure.mockResolvedValue(link(16_000_000));
-    await expect(remeasureBitrate()).resolves.toBe(16_000_000);
-    expect(mockMeasure).toHaveBeenCalledTimes(2);
-  });
-
-  it("declines the tap while playback owns the link", async () => {
-    mockHeld.mockReturnValue(true);
-
-    await expect(remeasureBitrate()).resolves.toBeNull();
-    expect(mockMeasure).not.toHaveBeenCalled();
   });
 });

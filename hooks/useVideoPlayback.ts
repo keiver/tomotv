@@ -1011,7 +1011,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           const quality = await getQualitySettings();
           if (!ownsAttempt()) return undefined;
           const need = measurementFor({ stallFallback: stallFallbackRef.current, mode: quality.mode });
-          const measuredBps = need === "none" ? null : need === "remembered" ? await rememberedBitrate() : ((await rememberedBitrate()) ?? (await measureServerBitrate()));
+          // Cold, the probe reads the file about to play: this lane never runs the engine's own probe of it.
+          const measuredBps = need === "none" ? null : need === "remembered" ? await rememberedBitrate() : ((await rememberedBitrate()) ?? (await measureServerBitrate({ target: details })));
           if (!ownsAttempt()) return undefined;
           const plan = planTranscodePreset({
             mode: quality.mode,
