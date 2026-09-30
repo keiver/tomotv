@@ -425,7 +425,7 @@
       "validate": "subsync",
       "playSeconds": 14,
       "progressMin": 8,
-      "comment": "Guards the server-HLS subtitle-sync invariant (2026-08-10 Star Trek bug): the driver asserts mpegts segments and |X-TIMESTAMP-MAP - segment PTS| <= 0.5s. Server lane is forced by the video codec, ASUS V1 (asv1), which sits outside TRANSCODABLE_VIDEO_CODECS: 'video codec unsupported' is the one decline independent of size and hardware. Video carries a burned-in clock the cues echo, so sync is judgeable by eye on a device. The title still says Theora because it must match the file on disk."
+      "comment": "Guards the server-lane subtitle-sync invariant (2026-08-10 cue-offset bug): |X-TIMESTAMP-MAP - first segment time| <= 0.5s, on Jellyfin's MPEG-TS HLS or the engine gateway's fMP4 rungs. Server lane is forced by the video codec, ASUS V1 (asv1), which sits outside TRANSCODABLE_VIDEO_CODECS: 'video codec unsupported' is the one decline independent of size and hardware. Video carries a burned-in clock the cues echo, so sync is judgeable by eye on a device. The title still says Theora because it must match the file on disk."
     },
     {
       "id": "T45",
@@ -435,7 +435,7 @@
       "playSeconds": 16,
       "progressMin": 10,
       "comment": "Same invariant as T44 on real content: 90s of broadcast dialogue with its real English SDH track, video in ASUS V1 (asv1) so the codec allowlist forces the server lane. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech. The title still says DivX3 because it must match the file on disk.",
-      "source": "Star.Trek.Strange.New.Worlds.S04E01 @ 17:45, regeneration steps in README"
+      "source": "a broadcast episode with an English SDH track, regeneration steps in README"
     },
     {
       "id": "T50",
@@ -945,11 +945,12 @@
       "expect": {
         "video": "h264",
         "audio": "ac3",
-        "audioRenditions": 4,
+        "audioRenditions": 2,
         "audioCopy": true,
-        "subtitles": 3
+        "subtitles": 3,
+        "tier": "copy"
       },
-      "comment": "Issue 84: a sidecar makes Jellyfin 12 list it first and renumber, so the embedded Index is one past the file position. audioCopy proves the default rendition holds the file's first audio stream. Four renditions: both tracks in the engine group and in audio-lo."
+      "comment": "Issue 84: a sidecar makes Jellyfin 12 list it first and renumber, so the embedded Index is one past the file position. audioCopy proves the default rendition holds the file's first audio stream. Two renditions: both tracks in the engine group, and no server audio group on a link that carries the copy."
     },
     {
       "id": "L01",

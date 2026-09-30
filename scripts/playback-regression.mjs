@@ -348,6 +348,44 @@ async function sessionPosition(env, itemId) {
   }
 }
 
+/** Jellyfin's log directory, readable when the server runs on this Mac. */
+const JELLYFIN_LOG_DIR = process.env.JELLYFIN_LOG_DIR || path.join(os.homedir(), "Library", "Application Support", "jellyfin", "log");
+
+/** Where Jellyfin's current log ends, so an item reads only what its own play wrote; null without a log. */
+export function serverLogMark(dir = JELLYFIN_LOG_DIR) {
+  try {
+    const file = fs
+      .readdirSync(dir)
+      .filter((name) => /^log_\d+\.log$/.test(name))
+      .sort()
+      .at(-1);
+    if (!file) return null;
+    const full = path.join(dir, file);
+    return { file: full, offset: fs.statSync(full).size };
+  } catch {
+    return null;
+  }
+}
+
+/** The ffmpeg jobs Jellyfin started on this file since `mark`: its transcodes and subtitle extractions. */
+export function serverJobsSince(mark, sourcePath) {
+  if (!mark || !sourcePath) return null;
+  let text;
+  try {
+    const fd = fs.openSync(mark.file, "r");
+    const length = Math.max(0, fs.fstatSync(fd).size - mark.offset);
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, mark.offset);
+    fs.closeSync(fd);
+    text = buffer.toString("utf8");
+  } catch {
+    return null;
+  }
+  const name = path.basename(sourcePath);
+  const starts = text.split("\n").filter((line) => line.includes(name) && line.includes('/ffmpeg" '));
+  return { transcodes: starts.filter((line) => line.includes("TranscodeManager:")).length, extractions: starts.filter((line) => line.includes("SubtitleEncoder:")).length };
+}
+
 // ---------- Simulator ----------
 
 export async function simctl(cmdArgs, options = {}) {
@@ -835,16 +873,10 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
 }
 
 /**
- * Server-HLS subtitle-sync invariant (validate: "subsync", mode: transcode).
- *
- * Jellyfin stamps every HLS WebVTT segment with X-TIMESTAMP-MAP=MPEGTS:900000
- * (10s), which players apply against the media segments' internal PTS base.
- * MPEG-TS segments start at ~10s so the delta is zero; fMP4 segments start at
- * 0, which displaced every cue by 10 seconds (the 2026-08-10 Star Trek bug).
- * The app therefore requests SegmentContainer=ts whenever text renditions ride
- * (services/jellyfin/streamUrls.ts). This check fails if that regresses:
- * no subtitle rendition in the master, segments not mpegts, or
- * |timestamp map - first segment PTS| above half a second.
+ * Server-lane subtitle-sync invariant (validate: "subsync", mode: transcode): the WebVTT timestamp
+ * map lands within half a second of the first media segment's time. Two shapes: Jellyfin's own HLS
+ * (MPEG-TS segments, MPEGTS:900000 against a ~10s PTS base, the 2026-08-10 Star Trek bug) and the
+ * engine gateway's server rungs (fMP4 behind EXT-X-MAP, MPEGTS:0 on a timeline that starts at 0).
  */
 async function validateSubtitleSync(masterUrl) {
   const problems = [];
@@ -867,32 +899,48 @@ async function validateSubtitleSync(masterUrl) {
   const videoPlaylistUri = firstUri(master);
   if (!videoPlaylistUri) return ["master playlist has no variant stream"];
   const videoPlaylistUrl = new URL(videoPlaylistUri, masterUrl).href;
-  const segUri = firstUri(await get(videoPlaylistUrl));
+  const mediaPlaylist = await get(videoPlaylistUrl);
+  const segUri = firstUri(mediaPlaylist);
   if (!segUri) return ["video media playlist has no segments yet"];
+  // An fMP4 segment only parses behind its init section, so the pair is probed as one file.
+  const mapUri = mediaPlaylist.match(/#EXT-X-MAP:URI="([^"]+)"/)?.[1];
+  let probeTarget = new URL(segUri, videoPlaylistUrl).href;
+  if (mapUri) {
+    const bytes = async (url) => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
+      if (!res.ok) throw new Error(`GET ${res.status} ${new URL(url).pathname}`);
+      return Buffer.from(await res.arrayBuffer());
+    };
+    const [init, media] = await Promise.all([bytes(new URL(mapUri, videoPlaylistUrl).href), bytes(probeTarget)]);
+    probeTarget = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-subsync-")), "segment.mp4");
+    fs.writeFileSync(probeTarget, Buffer.concat([init, media]));
+  }
 
   // The app session is still alive here, and its AVPlayer read-ahead can trip
   // Jellyfin's gap-seek (kills the from-zero ffmpeg mid-probe -> transient 5XX
   // on segment 0, server-logged as "A task was canceled"). A delayed retry
   // lands after the seek settles and spawns a fresh from-zero job.
-  const probeSegment = () => exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", new URL(segUri, videoPlaylistUrl).href], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+  const probeSegment = () => exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", probeTarget], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
   const { stdout } = await probeSegment().catch(async () => {
     await new Promise((r) => setTimeout(r, 4000));
     return probeSegment();
   });
   const fmt = JSON.parse(stdout).format || {};
   const segStart = Number(fmt.start_time ?? NaN);
-  if (!(fmt.format_name || "").includes("mpegts")) {
-    problems.push(`media segments are "${fmt.format_name}", expected mpegts (SegmentContainer=ts regressed to fMP4, which offsets cues by ~10s)`);
+  const expected = mapUri ? "mp4" : "mpegts";
+  if (!(fmt.format_name || "").includes(expected)) {
+    problems.push(`media segments are "${fmt.format_name}", expected ${expected}${mapUri ? "" : " (SegmentContainer=ts regressed to fMP4, which offsets cues by ~10s)"}`);
   }
 
   const subPlaylistUrl = new URL(subUri, masterUrl).href;
   const vttUri = firstUri(await get(subPlaylistUrl));
   if (!vttUri) return [...problems, "subtitle media playlist has no segments"];
   const vtt = await get(new URL(vttUri, subPlaylistUrl).href);
-  const map = vtt.match(/X-TIMESTAMP-MAP=MPEGTS:(\d+)/);
-  if (!map) return [...problems, "WebVTT segment has no X-TIMESTAMP-MAP (Jellyfin behavior changed; re-derive the sync model before trusting this lane)"];
+  const map = vtt.match(/X-TIMESTAMP-MAP=MPEGTS:(\d+)(?:,LOCAL:(\d+):(\d+):([\d.]+))?/);
+  if (!map) return [...problems, "WebVTT segment has no X-TIMESTAMP-MAP (re-derive the sync model before trusting this lane)"];
 
-  const mapSec = Number(map[1]) / 90000;
+  const local = map[2] ? Number(map[2]) * 3600 + Number(map[3]) * 60 + Number(map[4]) : 0;
+  const mapSec = Number(map[1]) / 90000 - local;
   if (Number.isNaN(segStart)) {
     problems.push("could not read first media segment start_time");
   } else if (Math.abs(mapSec - segStart) > 0.5) {
@@ -972,6 +1020,7 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   // too: it would send the item to the server before the lane pick the manifest asserts.
   const probe = probeAccess(env, target, itemId, work);
   await probe.clear();
+  const serverLog = serverLogMark();
 
   await openDeepLink(env, target, `tomotv://player?videoId=${itemId}&probe=1`);
 
@@ -1055,8 +1104,15 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   }
   // The engine's tier verdict reaches the probe file on a device too, where the master cannot be read.
   const tier = events.filter((e) => e.event === "tier").at(-1);
-  if (item.mode === "localRemux" && (tier?.state === "listed" || tier?.state === "dropped")) result.problems.push(`engine reports server rungs ${tier.state} on a link that carries the file`);
+  if (item.mode === "localRemux" && tier?.state === "listed") result.problems.push("engine reports server rungs listed on a link that carries the file");
   if (item.expect?.tier && tier?.state !== item.expect.tier) result.problems.push(`tier report ${tier?.state ?? "(none)"}, expected ${item.expect.tier}`);
+  // Jellyfin's own log is the proof: a file the device plays never makes the server run ffmpeg on it.
+  const serverJobs = serverJobsSince(serverLog, sourcePath);
+  const lane = item.finalMode ?? item.mode;
+  if (serverJobs && lane !== "transcode" && serverJobs.transcodes + serverJobs.extractions > 0) {
+    result.problems.push(`Jellyfin ran ffmpeg on the file: ${serverJobs.transcodes} transcode(s), ${serverJobs.extractions} subtitle extraction(s)`);
+  }
+  if (serverJobs && lane === "transcode" && serverJobs.transcodes === 0) result.problems.push("expected a server transcode, but Jellyfin started none");
 
   // Cross-check the server saw this playback advancing (reporting path).
   const serverPos = await sessionPosition(env, itemId);
@@ -1285,9 +1341,10 @@ async function main() {
 
   const only = opt("--only")?.split(",");
   const skip = opt("--skip")?.split(",") ?? [];
-  // Manifest-level skips (known platform limitations) run only when --only names them explicitly.
-  const items = manifest.items.filter((i) => (!only || only.includes(i.id)) && !skip.includes(i.id) && (!i.skip || only?.includes(i.id)));
-  for (const i of manifest.items.filter((x) => x.skip && !only && !skip.includes(x.id))) console.log(`SKIP ${i.id}: ${i.skip}`);
+  // Manifest-level skips are simulator limitations: a device runs them, and --only names them anywhere.
+  const onDevice = Boolean(opt("--device"));
+  const items = manifest.items.filter((i) => (!only || only.includes(i.id)) && !skip.includes(i.id) && (!i.skip || onDevice || only?.includes(i.id)));
+  if (!onDevice) for (const i of manifest.items.filter((x) => x.skip && !only && !skip.includes(x.id))) console.log(`SKIP ${i.id}: ${i.skip}`);
   if (!items.length) fail("No manifest items match --only/--skip");
   const updateBaselines = flag("--update-baselines");
 
