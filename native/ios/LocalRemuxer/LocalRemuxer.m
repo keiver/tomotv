@@ -99,6 +99,10 @@ RCT_EXTERN_METHOD(setPlayerBuffer
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(cancelMeasureLink
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(cancelLiveFrame
                   : (nonnull NSString *)channelId resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

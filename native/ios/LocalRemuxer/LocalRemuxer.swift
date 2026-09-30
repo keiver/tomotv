@@ -57,6 +57,8 @@ class LocalRemuxer: RCTEventEmitter {
     private static let posters = PosterQueue()
     /// Live channel frames for the guide's cards (LiveFrameQueue.swift), one grab at a time.
     private static let liveFrames = LiveFrameQueue()
+    /// The library-file probe in flight: a session starting beside it would time only its share of the link.
+    private static var measuring: RateProbe?
 
     private static var server: LocalHTTPServer?
 
@@ -237,6 +239,7 @@ class LocalRemuxer: RCTEventEmitter {
             reject("invalid_config", "startRemux needs inputUrl and a positive durationSeconds, or isLive", nil)
             return
         }
+        Self.cancelMeasuring()
 
         let rawAudioTracks = (config["audioTracks"] as? [[String: Any]]) ?? []
         let audioTracks: [RemuxAudioTrack] = rawAudioTracks.compactMap { raw in
@@ -628,14 +631,22 @@ class LocalRemuxer: RCTEventEmitter {
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
+        guard let target = URL(string: url as String) else { return resolve(NSNull()) }
+        let budget = max(0.5, budgetMs.doubleValue / 1000)
+        var request = URLRequest(url: target, timeoutInterval: RemuxSession.linkProbeStartSeconds + budget)
+        for (name, value) in headers {
+            if let name = name as? String, let value = value as? String { request.setValue(value, forHTTPHeaderField: name) }
+        }
+        // Registered on the module's queue, so a cancel sent after this call always finds it.
+        let probe = RateProbe(request: request, budget: budget, firstByteWithin: RemuxSession.linkProbeStartSeconds, repeats: true)
+        Self.lock.lock()
+        Self.measuring = probe
+        Self.lock.unlock()
         DispatchQueue.global(qos: .userInitiated).async {
-            guard let target = URL(string: url as String) else { return resolve(NSNull()) }
-            let budget = max(0.5, budgetMs.doubleValue / 1000)
-            var request = URLRequest(url: target, timeoutInterval: RemuxSession.linkProbeStartSeconds + budget)
-            for (name, value) in headers {
-                if let name = name as? String, let value = value as? String { request.setValue(value, forHTTPHeaderField: name) }
-            }
-            let outcome = RateProbe(request: request, budget: budget, firstByteWithin: RemuxSession.linkProbeStartSeconds, repeats: true).run()
+            let outcome = probe.run()
+            Self.lock.lock()
+            if Self.measuring === probe { Self.measuring = nil }
+            Self.lock.unlock()
             guard let reading = outcome.linkReading else { return resolve(NSNull()) }
             let kind: String
             switch reading.kind {
@@ -644,6 +655,23 @@ class LocalRemuxer: RCTEventEmitter {
             }
             resolve(["bps": reading.bps, "kind": kind, "seconds": reading.seconds, "low": reading.lowBps, "high": reading.highBps, "samples": outcome.samples])
         }
+    }
+
+    /// Ends the library-file probe: playback has taken the link.
+    @objc func cancelMeasureLink(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.cancelMeasuring()
+        resolve(nil)
+    }
+
+    private static func cancelMeasuring() {
+        lock.lock()
+        let probe = measuring
+        measuring = nil
+        lock.unlock()
+        probe?.cancel()
     }
 
     @objc func cancelLiveFrame(

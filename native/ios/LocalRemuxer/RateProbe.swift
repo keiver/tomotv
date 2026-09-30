@@ -29,6 +29,7 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
     private var firstByteAt: Double?
     private var besideSeen: Int64 = 0
     private var finished = false
+    private var cancelled = false
     private var failure: LinkProbeFailure?
 
     init(request: URLRequest, budget: Double, firstByteWithin: Double, repeats: Bool = false,
@@ -59,10 +60,19 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
         // No chunk or ending stopped the read: it ran into its deadline on a body gone quiet.
         if !finished, let first = firstByteAt { meter.close(at: min(clock(), first + budget)) }
         finished = true
-        let outcome = Outcome(reading: firstByteAt == nil ? nil : meter.reading(), failure: failure, samples: meter.samples())
+        let outcome = Outcome(reading: firstByteAt == nil || cancelled ? nil : meter.reading(), failure: failure, samples: meter.samples())
         lock.unlock()
         session.invalidateAndCancel()
         return outcome
+    }
+
+    /// Ends the read now with no reading: whatever took the link shared it with the probe.
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        finished = true
+        lock.unlock()
+        done.signal()
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,

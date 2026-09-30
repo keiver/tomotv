@@ -162,6 +162,18 @@ final class RateProbeTests: XCTestCase {
         XCTAssertNotNil(outcome(.full, .transient(0)).linkReading, "a body cut off after a full window still read the link")
     }
 
+    func testACancelledReadEndsAtOnceWithNoReading() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000))
+        defer { server.stop() }
+        let probe = RateProbe(request: URLRequest(url: server.url), budget: 10, firstByteWithin: 1, repeats: true)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) { probe.cancel() }
+        let started = Date()
+        let outcome = probe.run()
+        XCTAssertNil(outcome.reading, "a read that shared the link with playback is no reading of it")
+        XCTAssertNil(outcome.linkReading)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2.5, "the ten-second budget is not waited out")
+    }
+
     func testNoFirstByteReadsNothing() throws {
         let server = try PacedServer(.init(bps: 40 * mbps, length: 1_000_000, stallAfter: 0))
         defer { server.stop() }
