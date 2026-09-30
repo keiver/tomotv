@@ -33,6 +33,7 @@ final class GuideStoreTests: XCTestCase {
         store.add(programme("a", 40, 50))
         let result = store.programmes(channelIds: ["a"], window: GuideWindow(from: 20, to: 25))
         XCTAssertEqual(result.map(\.start), [10, 20, 25])
+        XCTAssertEqual(result.last?.stop, 40, "a missing stop is returned as the next programme's start")
     }
 
     func testKeepsChannelsInFileOrder() {

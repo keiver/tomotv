@@ -45,9 +45,9 @@ final class GuideStore {
         return channelIds.flatMap { id -> [GuideProgramme] in
             let list = byChannel[id] ?? []
             return list.indices.compactMap { index in
-                let programme = list[index]
-                let stop = programme.stop ?? (index + 1 < list.count ? list[index + 1].start : nil)
-                return window.overlaps(start: programme.start, stop: stop) ? programme : nil
+                var programme = list[index]
+                programme.stop = programme.stop ?? (index + 1 < list.count ? list[index + 1].start : nil)
+                return window.overlaps(start: programme.start, stop: programme.stop) ? programme : nil
             }
         }
     }
