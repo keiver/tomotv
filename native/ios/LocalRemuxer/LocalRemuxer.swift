@@ -639,9 +639,12 @@ class LocalRemuxer: RCTEventEmitter {
         }
         // Registered on the module's queue, so a cancel sent after this call always finds it.
         let probe = RateProbe(request: request, budget: budget, firstByteWithin: RemuxSession.linkProbeStartSeconds, repeats: true)
+        // One probe at a time: a replaced one would share the link and escape the playback cancel.
         Self.lock.lock()
+        let previous = Self.measuring
         Self.measuring = probe
         Self.lock.unlock()
+        previous?.cancel()
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome = probe.run()
             Self.lock.lock()

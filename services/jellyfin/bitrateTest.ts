@@ -58,7 +58,9 @@ let probeNonce = 0;
 /** Hosts whose last probe failed. Session-only: a relaunch retries clean. */
 const failedAt = new Map<string, number>();
 /** The memory probe in flight, shared by every caller asking about the same host. */
-let inFlight: { host: string; probe: Promise<number | null> } | null = null;
+let inFlight: { host: string; generation: number; probe: Promise<number | null> } | null = null;
+/** Counts probes started, so a replaced one knows the next has cancelled its read. */
+let probeGeneration = 0;
 let cachedNetworkId: { id: string | null; at: number } | null = null;
 let nudgeTimer: ReturnType<typeof setTimeout> | null = null;
 let lastNudgeAt = 0;
@@ -164,7 +166,7 @@ async function measureLink(config: JellyfinConfig): Promise<LinkReading | null> 
   return reading != null && Number.isFinite(reading.bps) && reading.bps > 0 && reading.seconds >= (PROBE_BUDGET_MS / 1000) * FULL_READ_SHARE ? reading : null;
 }
 
-async function runProbe(config: JellyfinConfig, host: string): Promise<number | null> {
+async function runProbe(config: JellyfinConfig, host: string, generation: number): Promise<number | null> {
   // Playback taking the link ends the read: beside it the probe times only its share.
   let yielded = false;
   const offTaken = onPlaybackHoldTaken(() => {
@@ -177,6 +179,10 @@ async function runProbe(config: JellyfinConfig, host: string): Promise<number | 
     const reading = await measureLink(config);
     if (yielded || isPlaybackHeld()) {
       logger.info("Bitrate test stood down for playback", { service: "BitrateTest", host });
+      return null;
+    }
+    if (reading == null && generation !== probeGeneration) {
+      logger.info("Bitrate test replaced by the next server's", { service: "BitrateTest", host });
       return null;
     }
     if (reading == null) {
@@ -220,11 +226,13 @@ export async function measureServerBitrate(): Promise<number | null> {
 
   let current = inFlight;
   if (current?.host !== host) {
+    const generation = ++probeGeneration;
     current = {
       host,
-      probe: runProbe(config, host).finally(() => {
-        // A switch mid-probe already installed the next host; leave that one alone.
-        if (inFlight?.host === host) inFlight = null;
+      generation,
+      probe: runProbe(config, host, generation).finally(() => {
+        // A switch mid-probe already installed the next probe, possibly for this same host; leave it alone.
+        if (inFlight?.generation === generation) inFlight = null;
       }),
     };
     inFlight = current;

@@ -278,6 +278,54 @@ describe("measurement", () => {
     releaseFirst(link(2_000_000));
     await first;
   });
+
+  it("holds no backoff on a server whose read the next server's probe cancelled", async () => {
+    let cancelFirst: (value: unknown) => void = () => {};
+    mockMeasure.mockImplementationOnce(() => new Promise((resolve) => (cancelFirst = resolve)));
+    const first = measureServerBitrate();
+    await jest.advanceTimersByTimeAsync(1);
+
+    mockGetConfig.mockResolvedValue({ server: "http://10.0.0.77:8096", apiKey: "key", userId: "u", deviceId: "d" });
+    mockStreamServer = "http://10.0.0.77:8096";
+    mockMeasure.mockResolvedValueOnce(link(16_000_000));
+    await expect(measureServerBitrate()).resolves.toBe(16_000_000);
+    cancelFirst(null);
+    await expect(first).resolves.toBeNull();
+
+    mockGetConfig.mockResolvedValue({ server: SERVER, apiKey: "key", userId: "u", deviceId: "d" });
+    mockStreamServer = SERVER;
+    mockMeasure.mockResolvedValueOnce(link(40_000_000));
+    await expect(measureServerBitrate()).resolves.toBe(40_000_000);
+  });
+
+  it("keeps a switch back to the first server on the probe it started, not the replaced one's", async () => {
+    const releases: ((value: unknown) => void)[] = [];
+    mockMeasure.mockImplementation(() => new Promise((resolve) => releases.push(resolve)));
+    const other = { server: "http://10.0.0.77:8096", apiKey: "key", userId: "u", deviceId: "d" };
+    const home = { server: SERVER, apiKey: "key", userId: "u", deviceId: "d" };
+
+    const first = measureServerBitrate();
+    await jest.advanceTimersByTimeAsync(1);
+    mockGetConfig.mockResolvedValue(other);
+    const second = measureServerBitrate();
+    await jest.advanceTimersByTimeAsync(1);
+    mockGetConfig.mockResolvedValue(home);
+    const third = measureServerBitrate();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockMeasure).toHaveBeenCalledTimes(3);
+
+    releases[0](null);
+    await expect(first).resolves.toBeNull();
+    const shared = measureServerBitrate();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockMeasure).toHaveBeenCalledTimes(3);
+
+    releases[1](null);
+    releases[2](link(40_000_000));
+    await expect(third).resolves.toBe(40_000_000);
+    await expect(shared).resolves.toBe(40_000_000);
+    await expect(second).resolves.toBeNull();
+  });
 });
 
 describe("what a reading answers for", () => {
@@ -372,7 +420,7 @@ describe("triggers", () => {
 
   it("stays out of the launch window until the warm-up has run", async () => {
     // The latch is once per process, so this needs a module that has never been
-    // warmed — which means re-wiring the mocks inside the isolated registry.
+    // warmed, which means re-wiring the mocks inside the isolated registry.
     await jest.isolateModulesAsync(async () => {
       const secureStore = require("expo-secure-store");
       const identity = require("@/services/localNetworkIdentity");
