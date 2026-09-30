@@ -8,7 +8,7 @@ import React, { forwardRef, type ComponentProps, type ElementRef } from "react";
 
 type GuideChannelCardProps = Omit<ComponentProps<typeof VideoGridItem>, "video" | "liveFrame" | "liveClip" | "clipActive" | "slotOrientation" | "offline"> & {
   channel: JellyfinItem;
-  /** Touch: no focus picks a card, so the clip plays while the card is in view and playback is not holding the link. */
+  /** The clip plays while the card is in view and playback is not holding the link. */
   playsClipInView?: boolean;
 };
 

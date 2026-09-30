@@ -23,7 +23,7 @@ import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
 
@@ -49,6 +49,9 @@ function getNativeHandle(node: View | null): number | undefined {
 let lastFocusLossAt = 0;
 const CARD_PADDING = slotCardPadding(IS_TV);
 const rowChannelIds = (row: PackedRow<JellyfinItem>) => row.cards.map((card) => card.item.Id);
+/** A channel card loops its clip only while its whole row is on screen. */
+const CLIP_VIEWABILITY = { itemVisiblePercentThreshold: 100 };
+const NO_CLIPS: ReadonlySet<string> = new Set();
 
 interface LibraryGridProps {
   items: JellyfinItem[];
@@ -304,6 +307,19 @@ export function LibraryGrid({
     [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels],
   );
   const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
+  const [clipIds, setClipIds] = useState(NO_CLIPS);
+  // Stable for the list's life: a list reads its viewability pairs once, at mount.
+  const viewabilityPairs = useMemo(
+    () => [
+      { viewabilityConfig, onViewableItemsChanged },
+      {
+        viewabilityConfig: CLIP_VIEWABILITY,
+        onViewableItemsChanged: ({ viewableItems }: { viewableItems: ViewToken<PackedRow<JellyfinItem>>[] }) =>
+          setClipIds(new Set(viewableItems.flatMap((token) => (token.isViewable ? rowChannelIds(token.item) : [])))),
+      },
+    ],
+    [viewabilityConfig, onViewableItemsChanged],
+  );
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
   // Global item index of each row's first card (drives image-priority for the first cards).
   const rowStartIndices = useMemo(() => {
@@ -548,6 +564,7 @@ export function LibraryGrid({
                   cardHeight={card.cardHeight}
                   titleIcon={titleIconFor?.(item)}
                   recording={recordingFor?.(item)}
+                  playsClipInView={clipIds.has(item.Id)}
                 />
               );
             }
@@ -598,6 +615,7 @@ export function LibraryGrid({
       handleFocusAndLastCellRef,
       recordings,
       liveChannels,
+      clipIds,
       titleIconFor,
       recordingFor,
     ],
@@ -851,8 +869,7 @@ export function LibraryGrid({
       onScrollToIndexFailed={handleScrollToIndexFailed}
       onScrollBeginDrag={handleScrollBeginDrag}
       ListFooterComponent={renderFooter}
-      viewabilityConfig={liveChannels ? viewabilityConfig : undefined}
-      onViewableItemsChanged={liveChannels ? onViewableItemsChanged : undefined}
+      viewabilityConfigCallbackPairs={liveChannels ? viewabilityPairs : undefined}
     />
   );
 
