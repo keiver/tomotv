@@ -110,6 +110,8 @@ final class RemuxSession {
     var renditionBitrates: [String: SegmentBitrates] = [:]
     var indexedSourcePeak: Int?
     var producingSegment = 0
+    /// Seeks the pipeline restarted on, under the lock.
+    var seekRestarts = 0
     /// The segment AVPlayer asked for most recently — the playhead. Note this
     /// is NOT a high-water mark: after seeking backwards it must move back, or
     /// the producer would stay throttled and freshly written segments would be

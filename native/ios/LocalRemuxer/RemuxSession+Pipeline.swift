@@ -235,9 +235,9 @@ extension RemuxSession {
     static let partialOpenLookback = 3
 
     /// Where a restart for `segment` seeks: its own start, then one segment earlier per opening that
-    /// landed past it, since a container like MPEG-TS returns the same late keyframe for the same seek.
-    static func restartSeekSegment(for segment: Int, partialOpens: Int) -> Int {
-        max(0, segment - min(partialOpens, partialOpenLookback))
+    /// landed past it. MPEG-TS starts a segment early: its seek lands on a packet, not a keyframe.
+    static func restartSeekSegment(for segment: Int, partialOpens: Int, prerolls: Bool = false) -> Int {
+        max(0, segment - min(partialOpens + (prerolls ? 1 : 0), partialOpenLookback))
     }
 
     /// A segment opened past its start is withheld until the lookback is spent, never forever.
@@ -1094,6 +1094,9 @@ extension RemuxSession {
             // operation turns the stall into an error the reconnect options above
             // can retry, or a clean fail() the player recovers from.
             av_dict_set(&openOpts, "rw_timeout", "15000000", 0)
+            // Reuses a connection where a read finishes its body, as a seek's reads near the file's end do
+            // (an MPEG-TS open and seek measured 11 connections to 5); a new HTTPS one costs about 0.35s.
+            if !config.isLive { av_dict_set(&openOpts, "multiple_requests", "1", 0) }
             // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
             // tvOS has no trust store to verify against until we ship a CA file.
             av_dict_set(&openOpts, "tls_verify", "0", 0)
@@ -1845,7 +1848,8 @@ extension RemuxSession {
         func restart(at segment: Int, failOnSeekError: Bool = true) -> Bool {
             let restartStart = Date()
             let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
-            let seekSegment = Self.restartSeekSegment(for: segment, partialOpens: partialOpens[segment] ?? 0)
+            let prerolls = input.pointee.iformat.map { String(cString: $0.pointee.name) == "mpegts" } ?? false
+            let seekSegment = Self.restartSeekSegment(for: segment, partialOpens: partialOpens[segment] ?? 0, prerolls: prerolls)
             let targetUs = Int64(segmentStartSeconds(seekSegment) * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
             let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
             if seekRet < 0 {
@@ -1879,6 +1883,7 @@ extension RemuxSession {
             keyframeForcedAtSegment = -1
             stateLock.lock()
             producingSegment = segment
+            seekRestarts += 1
             reachedEnd = false
             // The seek skips a region: this generation's read starts a new span.
             archiveReadSpanLocked()
