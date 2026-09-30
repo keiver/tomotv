@@ -636,7 +636,7 @@ class LocalRemuxer: RCTEventEmitter {
                 if let name = name as? String, let value = value as? String { request.setValue(value, forHTTPHeaderField: name) }
             }
             let outcome = RateProbe(request: request, budget: budget, firstByteWithin: RemuxSession.linkProbeStartSeconds, repeats: true).run()
-            guard outcome.failure == nil || outcome.failure == .transient(0), let reading = outcome.reading, reading.bps > 0 else { return resolve(NSNull()) }
+            guard let reading = outcome.linkReading else { return resolve(NSNull()) }
             let kind: String
             switch reading.kind {
             case .steady: kind = "steady"

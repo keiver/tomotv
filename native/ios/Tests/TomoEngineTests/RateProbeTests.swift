@@ -152,6 +152,16 @@ final class RateProbeTests: XCTestCase {
         XCTAssertEqual(reading.bps / mbps, 67, accuracy: 12, "each body's burst is not the link")
     }
 
+    func testOnlyAWindowOfDeliveryFromAnAnsweredRequestIsTheLink() {
+        func outcome(_ kind: RateMeter.Kind, _ failure: LinkProbeFailure? = nil) -> RateProbe.Outcome {
+            .init(reading: .init(kind: kind, bps: 640_000_000, lowBps: 0, highBps: 0, seconds: kind == .short ? 0.004 : 3), failure: failure)
+        }
+        XCTAssertNil(outcome(.short).linkReading, "one burst reads the last hop, not the link")
+        XCTAssertNil(outcome(.steady, .unavailable(404)).linkReading)
+        XCTAssertNotNil(outcome(.unsettled).linkReading)
+        XCTAssertNotNil(outcome(.steady, .transient(0)).linkReading, "a body cut off after a full window still read the link")
+    }
+
     func testNoFirstByteReadsNothing() throws {
         let server = try PacedServer(.init(bps: 40 * mbps, length: 1_000_000, stallAfter: 0))
         defer { server.stop() }

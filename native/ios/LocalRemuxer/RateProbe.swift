@@ -8,6 +8,12 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
         let failure: LinkProbeFailure?
         /// Each settled 100ms sample's rate, for reading a run back.
         var samples: [Double] = []
+
+        /// The reading Settings stands behind: none from a refused request, nor from under a window of delivery, which times a burst.
+        var linkReading: RateMeter.Reading? {
+            guard failure == nil || failure == .transient(0), let reading, reading.bps > 0, reading.kind != .short else { return nil }
+            return reading
+        }
     }
 
     private let request: URLRequest

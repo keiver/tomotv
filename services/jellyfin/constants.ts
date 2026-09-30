@@ -26,7 +26,8 @@ export const STORAGE_KEYS = {
   API_KEY: "jellyfin_api_key",
   USER_ID: "jellyfin_user_id",
   VIDEO_QUALITY: "app_video_quality",
-  BITRATE_MEMORY: "app_bitrate_memory",
+  /** Readings under the earlier key were timed without the waits between bodies, so none carry over. */
+  BITRATE_MEMORY: "app_bitrate_memory_2",
   /** Device-wide subtitle choice from before 2.2.8, read once by the track settings migration. */
   SUBTITLE_PREFERENCE: "app_subtitle_preference",
   TRACK_SETTINGS: "app_track_settings",
