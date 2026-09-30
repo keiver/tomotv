@@ -1582,6 +1582,8 @@ extension RemuxSession {
         var partialOpenSegment = -1
         // Openings that landed past each segment's start: the next restart for it seeks earlier.
         var partialOpens: [Int: Int] = [:]
+        // The requested segment opened past its start and is withheld: restart for it at once.
+        var lateOpenRestart: Int?
 
         // Live: the timing stream's last source PTS (splice detection) and keyframe
         // (interval measurement), where output time resumes after a splice, and the
@@ -1912,6 +1914,8 @@ extension RemuxSession {
                    target == producingSegment || (sourceTakeoverSegment == nil && (renditions.first?.completed.contains(target) ?? false)) {
                     seekTo = nil
                 }
+                if seekTo == nil, !stop, let late = lateOpenRestart { seekTo = late }
+                lateOpenRestart = nil
                 // Never sleep while a request waits on a segment inside the
                 // production window: lastRequestedSegment is overwritten by
                 // every request (including ones served instantly from disk),
@@ -2270,6 +2274,8 @@ extension RemuxSession {
                 if partial && partialOpenSegment < 0 {
                     NSLog("[LocalRemuxer] segment %d opened past its start %d times, published short at the head", openSegment, opens)
                 }
+                // Now, not at the waiter's re-assert 2s later (measured 2.0s vs 0.8s between restarts).
+                if partialOpenSegment == generationRequestSegment, openSegment > 0 { lateOpenRestart = openSegment }
                 awaitingKeyframe = false
                 }
             }
