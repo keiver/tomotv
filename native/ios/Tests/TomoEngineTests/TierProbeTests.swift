@@ -1925,7 +1925,6 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(reports.last?["bps"] as? Double, session.wireLinkBps)
         XCTAssertEqual(reports.last?["copyListed"] as? Bool, true)
         XCTAssertEqual(reports.last?["source"] as? String, "probe")
-        XCTAssertEqual(reports.last?["settled"] as? Bool, false, "one probe is not ten seconds of the wire")
 
         session.noteLinkSample(bytes: 2_000_000, seconds: 1)
         XCTAssertEqual(session.wireLinkBps, 1_500_000)
@@ -1959,8 +1958,7 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(thin.reprobeAsked, "under the copy a faster read may admit it")
     }
 
-    /// NDT7's ten seconds: a startup probe alone is a burst allowance's length, never the sustained wire.
-    func testTheLinkIsReportedSettledOnlyAfterTenSecondsOfProbing() throws {
+    func testTheStartupProbeReportsAndLaterProbesFollowADrop() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { session.stop() }
         var reports: [[String: Any]] = []
@@ -1969,14 +1967,12 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(reports.count, 1, "the startup probe reports")
         XCTAssertEqual(reports.last?["bps"] as? Double, 80_000_000)
         XCTAssertEqual(reports.last?["source"] as? String, "probe")
-        XCTAssertEqual(reports.last?["settled"] as? Bool, false)
 
         for _ in 0..<6 { session.finishLinkProbe(8_000_000, reporting: true) }
-        XCTAssertEqual(reports.last?["settled"] as? Bool, true)
         XCTAssertLessThan(session.wireLinkBps ?? .infinity, 15_000_000, "the drop is followed")
     }
 
-    func testServerCapacityIsReportedWithItsSourceAndNeverSettled() throws {
+    func testServerCapacityIsReportedWithItsSource() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { session.stop() }
         var reports: [[String: Any]] = []
@@ -1985,10 +1981,8 @@ final class TierProbeTests: XCTestCase {
         session.finishLinkProbe(nil, reporting: false, failure: .unavailable(404))
         session.notePlaylistTransfer(bytes: 30_000, from: now, to: now.addingTimeInterval(0.2))
         XCTAssertEqual(reports.last?["source"] as? String, "playlist")
-        XCTAssertEqual(reports.last?["settled"] as? Bool, false)
         session.noteFloorSample(bytes: 600_000, from: now, to: now.addingTimeInterval(1))
         XCTAssertEqual(reports.last?["source"] as? String, "rungs")
-        XCTAssertEqual(reports.last?["settled"] as? Bool, false)
     }
 
     /// hls.js and Shaka: the lower of a fast and a slow EWMA follows a drop at once and a rise only as it holds.

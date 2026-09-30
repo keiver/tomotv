@@ -37,7 +37,7 @@ import { NativeModules } from "react-native";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
 import { isPlaybackHeld } from "@/services/playbackHold";
 import { playsFromDisk } from "@/services/downloads/localSource";
-import { measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, rememberEngineLink, warmBitrateMemory } from "../jellyfin/bitrateTest";
+import { measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, warmBitrateMemory } from "../jellyfin/bitrateTest";
 import { fetchLibraryVideos } from "../jellyfin/items";
 import { getAuthHeader, getConfig } from "../jellyfin/session";
 
@@ -238,21 +238,6 @@ describe("measurement", () => {
 
     releaseFirst(link(2_000_000));
     await first;
-  });
-});
-
-describe("the engine's reading", () => {
-  it("is kept as this server's reading on this subnet", async () => {
-    await rememberEngineLink(42_000_000);
-
-    expect(JSON.parse(mockSetItem.mock.calls[0][1])[HOST]).toEqual({ bps: 42_000_000, at: expect.any(Number), net: HOME });
-  });
-
-  it("keeps nothing from a zero or broken rate", async () => {
-    await rememberEngineLink(0);
-    await rememberEngineLink(Number.NaN);
-
-    expect(mockSetItem).not.toHaveBeenCalled();
   });
 });
 

@@ -73,8 +73,6 @@ struct LinkEwma {
 extension RemuxSession {
     /// A probe runs this long after its first byte.
     static let linkProbeSeconds = 1.5
-    /// Probing behind an estimate before the app may keep it as this server's link: NDT7's ten seconds.
-    static let sustainedLinkSeconds = 10.0
     /// How long a mid-session probe's first byte may take before the link reads as slow. The startup
     /// probe waits out the master's budget: a server disk waking from sleep answered after 3s on a
     /// 260 Mb/s link (measured), and reading that as the link put the session on the rungs.
@@ -414,13 +412,10 @@ extension RemuxSession {
         if let report { onLink?(report) }
     }
 
-    /// The link as the app sees it. `settled` marks probes of the source long enough to be the sustained wire.
+    /// The link as the app sees it, with what read it.
     private func linkReportLocked() -> [String: Any] {
         var report: [String: Any] = ["token": token, "bps": link?.bps ?? 0, "copyListed": copyAnnounced]
-        if let link {
-            report["source"] = link.source.rawValue
-            report["settled"] = link.source == .probe && linkEwma.seconds >= Self.sustainedLinkSeconds
-        }
+        if let link { report["source"] = link.source.rawValue }
         return report
     }
 }

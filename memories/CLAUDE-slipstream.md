@@ -230,8 +230,8 @@ tx_bytes`) sent 43 then 106 Mb/s during a TV probe that read 89.3, and Cloudflar
   recovery) or a rung segment AVPlayer asked for takes over 80% of its own length to arrive (a
   drop), never closer than 8s apart.
 - A move of more than 15% is reported to the app (`onEngineLink`), carrying the rate, whether this
-  session's master lists the copy, its `source` and `settled`: a probe reading with 10s of probing
-  behind it (NDT7's length). Only a settled report becomes the app's stored reading.
+  session's master lists the copy, and its `source`. None of it is stored: the engine's 1.5s probes
+  are a burst allowance's length, never the sustained wire.
 - **Between plays** the app times 10s of the newest library file not held on the device, its
   `/Videos/{id}/stream?Static=true` (`services/jellyfin/bitrateTest.ts`), never Jellyfin's
   synthetic `/Playback/BitrateTest`. The reading is kept per server and subnet; playback start

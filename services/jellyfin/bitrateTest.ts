@@ -1,9 +1,8 @@
 /**
  * bitrateTest.ts
  *
- * Link capacity to the configured server, from real media only: the engine's probe of the file a
- * session plays, and between plays the same native probe (RateProbe) timing ten seconds of a
- * library file's static stream.
+ * Link capacity to the configured server, from real media only: between plays the engine's native
+ * probe (RateProbe) times ten seconds of a library file's static stream.
  *
  * A reading is keyed to the server and to the subnet it was taken on: it stands at
  * any age on that subnet, is void on another, and age only drives re-measurement.
@@ -229,14 +228,6 @@ export async function measureIfIdle(): Promise<number | null> {
   if (!active) return null;
   if (entryAnswersFor(active.entry, active.networkId) && Date.now() - active.entry.at < REFRESH_AGE_MS) return null;
   return measureServerBitrate();
-}
-
-/** The engine's probe of the file a session plays, kept as this server's reading on this subnet. */
-export async function rememberEngineLink(bps: number): Promise<void> {
-  if (!Number.isFinite(bps) || bps <= 0) return;
-  const config = await getConfig();
-  if (!config.server) return;
-  await remember(config.server, bps, await currentNetworkId());
 }
 
 /**
