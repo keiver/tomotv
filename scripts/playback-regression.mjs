@@ -646,15 +646,11 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     problems.push("no enginePlan event: the remux engine did not report its decisions (native emitter or its JS listener is broken)");
   }
 
-  if (expect.videoRange || expect.subtitles !== undefined || expect.tierVariant !== undefined || expect.imageSubtitleSets !== undefined) {
+  if (expect.videoRange || expect.subtitles !== undefined || expect.tier !== undefined || expect.imageSubtitleSets !== undefined) {
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
     if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
 
-    // Slipstream gateway shape. tierVariant pins whether the master offers server rungs at all
-    // (eligibility is video + audio + a server source, HDR included). The rungs
-    // ride their own low audio group by design; what must hold is that a switch between them never
-    // moves the viewer's subtitles, and that each BANDWIDTH counts the group it plays with
-    // (RFC 8216 4.3.4.2). The harness link is fast, so the copy is listed beside them.
+    // The harness link carries every fixture, so a ladder-eligible item's master names the copy alone.
     const variants = [];
     {
       const lines = master.split("\n");
@@ -671,26 +667,11 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
         });
       }
     }
-    if (expect.tierVariant !== undefined) {
+    if (expect.tier === "copy") {
       const rungs = variants.filter((v) => /^t\d+\.m3u8$/.test(v.uri));
-      if (expect.tierVariant && rungs.length === 0) problems.push("master playlist offers no Slipstream rung");
-      if (!expect.tierVariant && rungs.length > 0) problems.push(`master playlist offers ${rungs.length} Slipstream rungs for an ineligible item`);
-      if (expect.tierVariant && rungs.length > 0) {
-        const copy = variants.find((v) => v.uri === "media.m3u8");
-        if (!copy) problems.push("master playlist withholds the on-device copy on a link that carries it");
-        if (copy && new Set([copy, ...rungs].map((v) => v.subs)).size > 1) problems.push("variants name different SUBTITLES groups: a switch would drop subtitles");
-        if (rungs.some((rung) => rung.audio !== "audio-lo")) problems.push("a rung does not name the audio-lo group, so its audio comes from the engine it exists to relieve");
-        const declared = new Set(
-          master
-            .split("\n")
-            .filter((line) => line.startsWith("#EXT-X-MEDIA:TYPE=AUDIO"))
-            .map((line) => /GROUP-ID="([^"]*)"/.exec(line)?.[1]),
-        );
-        if (rungs.some((rung) => !declared.has(rung.audio))) problems.push("a rung names an audio group the master does not declare");
-        if (rungs.some((rung) => rung.codecs && !rung.codecs.includes(","))) problems.push("a rung's CODECS omits the audio codec of its group");
-        const ascending = rungs.every((rung, i) => i === 0 || rung.bandwidth > rungs[i - 1].bandwidth);
-        if (!ascending) problems.push(`rung BANDWIDTHs are not ascending: ${rungs.map((r) => r.bandwidth).join(", ")}`);
-      }
+      if (rungs.length > 0) problems.push(`master playlist lists ${rungs.length} server rungs on a link that carries the copy`);
+      if (master.includes('GROUP-ID="audio-lo"')) problems.push("master playlist declares the server audio group on a link that carries the copy");
+      if (!variants.some((v) => v.uri === "media.m3u8")) problems.push("master playlist withholds the on-device copy on a link that carries it");
     }
 
     // Without this, the player cannot rule out captions embedded in the video
@@ -1072,6 +1053,10 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   if (maxPosition < item.progressMin && !events.some((e) => e.event === "ended")) {
     result.problems.push(`position reached ${maxPosition.toFixed(1)}s, needed ${item.progressMin}s`);
   }
+  // The engine's tier verdict reaches the probe file on a device too, where the master cannot be read.
+  const tier = events.filter((e) => e.event === "tier").at(-1);
+  if (item.mode === "localRemux" && (tier?.state === "listed" || tier?.state === "dropped")) result.problems.push(`engine reports server rungs ${tier.state} on a link that carries the file`);
+  if (item.expect?.tier && tier?.state !== item.expect.tier) result.problems.push(`tier report ${tier?.state ?? "(none)"}, expected ${item.expect.tier}`);
 
   // Cross-check the server saw this playback advancing (reporting path).
   const serverPos = await sessionPosition(env, itemId);
