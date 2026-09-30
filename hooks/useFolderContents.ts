@@ -131,6 +131,8 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const pageGenRef = useRef(0);
   const deletesInFlightRef = useRef(0);
   const pageWaitingRef = useRef(false);
+  const firstPageWaitingRef = useRef(false);
+  const [firstPageRetry, setFirstPageRetry] = useState(0);
 
   // Paint favorite hearts on the normal (unfiltered) browse from the cached favorite ids. Filtered
   // views already carry favorite state from the server, and the root has no favoritable leaves, so
@@ -245,10 +247,18 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
         setIsLoading(true);
       }
       const requestId = ++requestIdRef.current;
+      const pageGen = pageGenRef.current;
       isFetchingRef.current = true;
       loadFirstPage(useCache)
         .then((result) => {
           if (requestId !== requestIdRef.current) return;
+          // A delete sent or landing during the read moved the server's positions under it: nothing
+          // of it is cached or shown, and the page is read again once no delete is in flight.
+          if (pageGen !== pageGenRef.current) {
+            firstPageWaitingRef.current = true;
+            if (deletesInFlightRef.current === 0) setFirstPageRetry((n) => n + 1);
+            return;
+          }
           // Cache hit on the entry the useState initializer already seeded and annotated
           // (reference-equal items array): every state applyFirstPage would set is already
           // set, so applying again only burns a second render+commit mid push-transition.
@@ -379,16 +389,29 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     });
   }, []);
 
-  // A page held for a delete is asked for once the last one in flight settles, landed or not.
+  // A page held for a delete is asked for once the last one in flight settles, landed or not; a held
+  // first page replaces the list, so it goes instead of the next page.
   useEffect(() => {
     return subscribeItemRemoving((_itemId, settled) => {
       pageGenRef.current++;
       deletesInFlightRef.current = Math.max(0, deletesInFlightRef.current + (settled ? -1 : 1));
-      if (!settled || deletesInFlightRef.current > 0 || !pageWaitingRef.current) return;
+      if (!settled || deletesInFlightRef.current > 0) return;
+      if (firstPageWaitingRef.current) {
+        setFirstPageRetry((n) => n + 1);
+        return;
+      }
+      if (!pageWaitingRef.current) return;
       pageWaitingRef.current = false;
       void loadMore();
     });
   }, [loadMore]);
+
+  useEffect(() => {
+    if (!firstPageWaitingRef.current) return;
+    firstPageWaitingRef.current = false;
+    pageWaitingRef.current = false;
+    runFirstPage(false);
+  }, [firstPageRetry, runFirstPage]);
 
   // A resume write names its item and, when the app wrote the value, the ticks the server now
   // holds. A Stopped report carries none (the server gated it), so the item is read back; a

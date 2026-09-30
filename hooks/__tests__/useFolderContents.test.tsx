@@ -457,6 +457,53 @@ describe("useFolderContents", () => {
         expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c", "d"]);
       });
 
+      it("a refresh the server answered before a delete is neither shown nor cached, and is read again", async () => {
+        const stale = deferred();
+        mockFolder
+          .mockResolvedValueOnce({ items: items("a", "b"), total: 4 })
+          .mockReturnValueOnce(stale.promise)
+          .mockResolvedValueOnce({ items: items("b", "c"), total: 3 })
+          .mockResolvedValueOnce({ items: items("d"), total: 3 });
+        const ref = await mount("folder-1");
+        await act(async () => ref.current!.get().refresh());
+        await act(async () => {
+          removing("a", false);
+          removed("a");
+          removing("a", true);
+        });
+        await act(async () => stale.resolve({ items: items("a", "b"), total: 4 }));
+
+        expect(mockFolder).toHaveBeenCalledTimes(3);
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c"]);
+        await act(async () => {
+          void ref.current!.get().loadMore();
+        });
+        expect(mockFolder).toHaveBeenNthCalledWith(4, "folder-1", { limit: 60, startIndex: 2 });
+        const again = await mount("folder-1");
+        expect(mockFolder).toHaveBeenCalledTimes(4);
+        expect(again.current!.get().items.map((i) => i.Id)).toEqual(["b", "c"]);
+      });
+
+      it("a refresh that lands while a delete is in flight waits for it to settle", async () => {
+        const stale = deferred();
+        mockFolder
+          .mockResolvedValueOnce({ items: items("a", "b"), total: 4 })
+          .mockReturnValueOnce(stale.promise)
+          .mockResolvedValueOnce({ items: items("b", "c"), total: 3 });
+        const ref = await mount("folder-1");
+        await act(async () => ref.current!.get().refresh());
+        await act(async () => removing("a", false));
+        await act(async () => stale.resolve({ items: items("a", "b"), total: 4 }));
+        expect(mockFolder).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+          removed("a");
+          removing("a", true);
+        });
+        expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 60, startIndex: 0 });
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c"]);
+      });
+
       it("holds a page asked for during a delete until it settles, and asks from where it leaves the list", async () => {
         mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("b", "c", "d"), total: 4 });
         const ref = await mount("folder-1");
