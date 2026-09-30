@@ -14,6 +14,7 @@ import {
   subscribeAuthChange,
   subscribeFavoriteChange,
   subscribeItemRemoved,
+  subscribeItemRemoving,
   subscribePlayedChange,
   subscribeRecordingsChange,
   subscribeResumeChange,
@@ -125,6 +126,11 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const requestIdRef = useRef(0);
   // Ids of loaded items, for de-duplicating shuffled pages (SortBy=Random reshuffles per request).
   const seenIdsRef = useRef<Set<string>>(new Set(seed ? seed.items.map((item) => item.Id) : []));
+  // A delete moves the server's positions under a page: every one sent or landing bumps this, and a
+  // page asked for while one is in flight waits for it to settle.
+  const pageGenRef = useRef(0);
+  const deletesInFlightRef = useRef(0);
+  const pageWaitingRef = useRef(false);
 
   // Paint favorite hearts on the normal (unfiltered) browse from the cached favorite ids. Filtered
   // views already carry favorite state from the server, and the root has no favoritable leaves, so
@@ -286,6 +292,10 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
 
   const loadMore = useCallback(async () => {
     if (isFetchingRef.current || !hasMoreResults) return;
+    if (deletesInFlightRef.current > 0) {
+      pageWaitingRef.current = true;
+      return;
+    }
     // Tie this page to the current first-page generation. If a refresh/remount supersedes the list
     // while this fetch is in flight, drop the page (don't append stale items onto fresh ones) and
     // leave the in-flight flag to the newer request that now owns it.
@@ -293,8 +303,19 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     try {
       isFetchingRef.current = true;
       setIsLoadingMore(true);
-      const { items: more, total } = await fetchPage(nextStartIndex.current);
-      if (requestId !== requestIdRef.current) return;
+      let pageGen: number;
+      let page: Awaited<ReturnType<typeof fetchPage>>;
+      // A delete during the request leaves its offset unknown: ask again from the corrected one.
+      do {
+        pageGen = pageGenRef.current;
+        page = await fetchPage(nextStartIndex.current);
+        if (requestId !== requestIdRef.current) return;
+      } while (pageGen !== pageGenRef.current && deletesInFlightRef.current === 0);
+      if (pageGen !== pageGenRef.current) {
+        pageWaitingRef.current = true;
+        return;
+      }
+      const { items: more, total } = page;
       // SortBy=Random reshuffles on every request, so later pages can repeat earlier items.
       // Drop the repeats; an all-duplicate page means the shuffled set is exhausted.
       const fresh = activeFilters?.shuffle ? more.filter((item) => !seenIdsRef.current.has(item.Id)) : more;
@@ -344,20 +365,34 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     });
   }, [activeFilters]);
 
-  // A deleted item vanishes from the visible list in place; its cached reads are already evicted.
-  useEffect(() => {
-    return subscribeItemRemoved((itemId) => {
-      setItems((prev) => prev.filter((item) => item.Id !== itemId));
-    });
-  }, []);
-
-  // A resume write names its item and, when the app wrote the value, the ticks the server now
-  // holds. A Stopped report carries none (the server gated it), so the item is read back; a
-  // later write for the same item supersedes a read still in flight.
   const itemsRef = useRef(items);
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  // A deleted item vanishes from the visible list in place; its cached reads are already evicted.
+  useEffect(() => {
+    return subscribeItemRemoved((itemId) => {
+      // The server's later items shift back one; the next page starts one earlier to keep the one that crossed.
+      if (itemsRef.current.some((item) => item.Id === itemId)) nextStartIndex.current = Math.max(0, nextStartIndex.current - 1);
+      setItems((prev) => prev.filter((item) => item.Id !== itemId));
+    });
+  }, []);
+
+  // A page held for a delete is asked for once the last one in flight settles, landed or not.
+  useEffect(() => {
+    return subscribeItemRemoving((_itemId, settled) => {
+      pageGenRef.current++;
+      deletesInFlightRef.current = Math.max(0, deletesInFlightRef.current + (settled ? -1 : 1));
+      if (!settled || deletesInFlightRef.current > 0 || !pageWaitingRef.current) return;
+      pageWaitingRef.current = false;
+      void loadMore();
+    });
+  }, [loadMore]);
+
+  // A resume write names its item and, when the app wrote the value, the ticks the server now
+  // holds. A Stopped report carries none (the server gated it), so the item is read back; a
+  // later write for the same item supersedes a read still in flight.
   const resumeWriteSeq = useRef(new Map<string, number>());
   useEffect(() => {
     return subscribeResumeChange((itemId, positionTicks) => {

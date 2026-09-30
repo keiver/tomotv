@@ -42,6 +42,7 @@ export {
   subscribeAuthChange,
   subscribeFavoriteChange,
   subscribeItemRemoved,
+  subscribeItemRemoving,
   subscribePlayedChange,
   subscribeRecordingsChange,
   subscribeResumeChange,

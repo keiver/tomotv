@@ -12,7 +12,17 @@ import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache
 import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, fetchVideoDetails, subscribePlayedChange, subscribeResumeChange } from "@/services/jellyfinApi";
+import {
+  fetchFavoriteIds,
+  fetchFolderContents,
+  fetchPlaylistContents,
+  fetchUserViews,
+  fetchVideoDetails,
+  subscribeItemRemoved,
+  subscribeItemRemoving,
+  subscribePlayedChange,
+  subscribeResumeChange,
+} from "@/services/jellyfinApi";
 
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
 jest.mock("@/services/connectionRecovery", () => ({ attemptConnectionRecovery: jest.fn() }));
@@ -26,6 +36,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   isLiveChannel: jest.fn((item: { Type?: string } | null | undefined) => item?.Type === "TvChannel"),
   subscribeFavoriteChange: jest.fn(() => jest.fn()),
   subscribeItemRemoved: jest.fn(() => jest.fn()),
+  subscribeItemRemoving: jest.fn(() => jest.fn()),
   subscribePlayedChange: jest.fn(() => jest.fn()),
   subscribeResumeChange: jest.fn(() => jest.fn()),
   subscribeRecordingsChange: jest.fn(() => jest.fn()),
@@ -373,6 +384,91 @@ describe("useFolderContents", () => {
       expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 2 });
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "c", "d"]);
       expect(ref.current!.get().hasMoreResults).toBe(false);
+    });
+
+    it("starts the next page one earlier after a loaded item is deleted, and not for one it never held", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("c", "d"), total: 3 });
+      const ref = await mount("folder-1");
+      const removed = (subscribeItemRemoved as jest.Mock).mock.calls.at(-1)![0] as (itemId: string) => void;
+      await act(async () => {
+        removed("zz");
+        removed("a");
+      });
+
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+
+      expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 1 });
+    });
+
+    describe("a delete while a page is in flight", () => {
+      const removed = (itemId: string) => ((subscribeItemRemoved as jest.Mock).mock.calls.at(-1)![0] as (itemId: string) => void)(itemId);
+      const removing = (itemId: string, settled: boolean) => ((subscribeItemRemoving as jest.Mock).mock.calls.at(-1)![0] as (itemId: string, settled: boolean) => void)(itemId, settled);
+      const deferred = () => {
+        let resolve!: (page: { items: JellyfinItem[]; total: number }) => void;
+        const promise = new Promise<{ items: JellyfinItem[]; total: number }>((done) => (resolve = done));
+        return { promise, resolve };
+      };
+
+      it("asks again from the corrected offset when the delete lands before the page", async () => {
+        const inFlight = deferred();
+        mockFolder
+          .mockResolvedValueOnce({ items: items("a", "b"), total: 4 })
+          .mockReturnValueOnce(inFlight.promise)
+          .mockResolvedValueOnce({ items: items("c", "d"), total: 3 });
+        const ref = await mount("folder-1");
+        await act(async () => {
+          void ref.current!.get().loadMore();
+        });
+        await act(async () => {
+          removing("a", false);
+          removed("a");
+          removing("a", true);
+        });
+        // Answered after the delete: it skipped c, the item that moved to position 1.
+        await act(async () => inFlight.resolve({ items: items("d"), total: 3 }));
+
+        expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 2 });
+        expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 60, startIndex: 1 });
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c", "d"]);
+      });
+
+      it("drops a page that lands while the delete is still in flight and asks again once it settles", async () => {
+        const inFlight = deferred();
+        mockFolder
+          .mockResolvedValueOnce({ items: items("a", "b"), total: 4 })
+          .mockReturnValueOnce(inFlight.promise)
+          .mockResolvedValueOnce({ items: items("c", "d"), total: 3 });
+        const ref = await mount("folder-1");
+        await act(async () => {
+          void ref.current!.get().loadMore();
+        });
+        await act(async () => removing("a", false));
+        await act(async () => inFlight.resolve({ items: items("d"), total: 3 }));
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b"]);
+        expect(mockFolder).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+          removed("a");
+          removing("a", true);
+        });
+        expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 60, startIndex: 1 });
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c", "d"]);
+      });
+
+      it("holds a page asked for during a delete until it settles, and asks from where it leaves the list", async () => {
+        mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("b", "c", "d"), total: 4 });
+        const ref = await mount("folder-1");
+        await act(async () => removing("zz", false));
+        await act(async () => {
+          void ref.current!.get().loadMore();
+        });
+        expect(mockFolder).toHaveBeenCalledTimes(1);
+        // Refused: nothing moved, so the page starts where it would have.
+        await act(async () => removing("zz", true));
+        expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 2 });
+      });
     });
 
     it("does nothing on loadMore when there are no more results", async () => {

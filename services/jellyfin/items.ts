@@ -16,6 +16,7 @@ import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, READABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { invalidateItemRemoved } from "./cacheKeys";
+import { notifyItemRemoving } from "./events";
 import { resolveChannel } from "./liveTv";
 import { didConfigReadFail, getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
@@ -44,20 +45,25 @@ export async function deleteItem(itemId: string): Promise<void> {
   if (!config.server || !config.apiKey || !config.userId) {
     throw new Error("Jellyfin server not configured.");
   }
-  const response = await fetchWithTimeout(
-    `${config.server}/Items/${itemId}`,
-    {
-      method: "DELETE",
-      headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) },
-    },
-    API_TIMEOUTS.NORMAL,
-  );
-  // Jellyfin answers a refused delete (CanDelete false) with 401, which is not a dead session.
-  if (response.status === 401) throw new Error("Failed to delete item: 401");
-  if (!response.ok) {
-    throwRequestError(response, `Failed to delete item: ${response.status}`);
+  notifyItemRemoving(itemId, false);
+  try {
+    const response = await fetchWithTimeout(
+      `${config.server}/Items/${itemId}`,
+      {
+        method: "DELETE",
+        headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) },
+      },
+      API_TIMEOUTS.NORMAL,
+    );
+    // Jellyfin answers a refused delete (CanDelete false) with 401, which is not a dead session.
+    if (response.status === 401) throw new Error("Failed to delete item: 401");
+    if (!response.ok) {
+      throwRequestError(response, `Failed to delete item: ${response.status}`);
+    }
+    invalidateItemRemoved(config.userId, itemId);
+  } finally {
+    notifyItemRemoving(itemId, true);
   }
-  invalidateItemRemoved(config.userId, itemId);
 }
 
 /**

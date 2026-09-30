@@ -23,6 +23,7 @@ jest.mock("@/services/jellyfin/cacheKeys", () => ({ invalidateItemRemoved: jest.
 import { invalidateItemRemoved } from "@/services/jellyfin/cacheKeys";
 import { throwRequestError } from "@/services/jellyfin/session";
 import { deleteItem, fetchIsAdministrator } from "@/services/jellyfin/items";
+import { subscribeItemRemoving } from "@/services/jellyfin/events";
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -46,6 +47,20 @@ describe("deleteItem", () => {
     await expect(deleteItem("abc")).rejects.toThrow("Failed to delete item: 401");
     expect(throwRequestError).not.toHaveBeenCalled();
     expect(invalidateItemRemoved).not.toHaveBeenCalled();
+  });
+
+  it("announces the delete as it is sent and again once it settles, landed or refused", async () => {
+    const seen: string[] = [];
+    const unsubscribe = subscribeItemRemoving((itemId, settled) => seen.push(`${itemId}:${settled}`));
+    mockFetch.mockImplementationOnce(async () => {
+      seen.push("sent");
+      return { ok: true };
+    });
+    await deleteItem("abc");
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    await expect(deleteItem("def")).rejects.toThrow();
+    unsubscribe();
+    expect(seen).toEqual(["abc:false", "sent", "abc:true", "def:false", "def:true"]);
   });
 
   it("routes other failures through the shared request error", async () => {
