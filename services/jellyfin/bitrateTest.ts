@@ -12,7 +12,7 @@ import * as SecureStore from "expo-secure-store";
 import { NativeModules } from "react-native";
 import { playsFromDisk } from "@/services/downloads/localSource";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
-import { isPlaybackHeld } from "@/services/playbackHold";
+import { isPlaybackHeld, onPlaybackHoldTaken } from "@/services/playbackHold";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { STORAGE_KEYS } from "./constants";
@@ -25,6 +25,8 @@ import { getRemoteVideoStreamUrl } from "./streamUrls";
 const TARGET_CANDIDATES = 20;
 /** NDT7's ten seconds: a shorter read can sit inside a burst allowance and report it as the link. */
 const PROBE_BUDGET_MS = 10_000;
+/** A read cut off before this share of the budget (a dropped connection) is short enough to be a burst. */
+const FULL_READ_SHARE = 0.9;
 /** Backstop for a reading with no network identity: age is all that is left to judge it by. */
 const UNKNOWN_NETWORK_TTL_MS = 24 * 60 * 60 * 1000;
 /** Past this a trigger re-measures. The reading keeps answering until the new one lands. */
@@ -141,7 +143,8 @@ interface LinkReading {
   seconds: number;
 }
 
-const engine = () => NativeModules.LocalRemuxer as { measureLink?: (url: string, headers: Record<string, string>, budgetMs: number) => Promise<LinkReading | null> } | undefined;
+const engine = () =>
+  NativeModules.LocalRemuxer as { measureLink?: (url: string, headers: Record<string, string>, budgetMs: number) => Promise<LinkReading | null>; cancelMeasureLink?: () => Promise<void> } | undefined;
 
 /** The file the probe reads: the newest library video not already on this device. */
 async function probeTarget(): Promise<JellyfinVideoItem | null> {
@@ -155,15 +158,27 @@ async function measureLink(config: JellyfinConfig): Promise<LinkReading | null> 
   if (typeof measure !== "function") return null;
   const item = await probeTarget();
   const stream = item ? getRemoteVideoStreamUrl(item.Id, item) : "";
-  if (!stream) return null;
+  if (!stream || isPlaybackHeld()) return null;
   const url = `${stream}&_probe=${Date.now()}-${probeNonce++}`;
   const reading = await measure(url, { Authorization: getAuthHeader(config.deviceId, config.apiKey), Range: "bytes=0-" }, PROBE_BUDGET_MS);
-  return reading != null && Number.isFinite(reading.bps) && reading.bps > 0 ? reading : null;
+  return reading != null && Number.isFinite(reading.bps) && reading.bps > 0 && reading.seconds >= (PROBE_BUDGET_MS / 1000) * FULL_READ_SHARE ? reading : null;
 }
 
 async function runProbe(config: JellyfinConfig, host: string): Promise<number | null> {
+  // Playback taking the link ends the read: beside it the probe times only its share.
+  let yielded = false;
+  const offTaken = onPlaybackHoldTaken(() => {
+    yielded = true;
+    void engine()
+      ?.cancelMeasureLink?.()
+      ?.catch(() => undefined);
+  });
   try {
     const reading = await measureLink(config);
+    if (yielded || isPlaybackHeld()) {
+      logger.info("Bitrate test stood down for playback", { service: "BitrateTest", host });
+      return null;
+    }
     if (reading == null) {
       failedAt.set(host, Date.now());
       logger.warn("Bitrate test returned nothing usable", { service: "BitrateTest", host });
@@ -186,6 +201,8 @@ async function runProbe(config: JellyfinConfig, host: string): Promise<number | 
     failedAt.set(host, Date.now());
     logger.warn("Bitrate test failed", error, { service: "BitrateTest", host });
     return null;
+  } finally {
+    offTaken();
   }
 }
 

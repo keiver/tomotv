@@ -4,8 +4,13 @@ jest.mock("@/utils/logger", () => ({
   logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
+const mockHoldTaken = new Set<() => void>();
 jest.mock("@/services/playbackHold", () => ({
   isPlaybackHeld: jest.fn(),
+  onPlaybackHoldTaken: (listener: () => void) => {
+    mockHoldTaken.add(listener);
+    return () => mockHoldTaken.delete(listener);
+  },
 }));
 
 jest.mock("@/services/localNetworkIdentity", () => ({
@@ -58,10 +63,11 @@ const mockOnDisk = playsFromDisk as jest.Mock;
 
 let now = 1_000_000_000;
 let mockMeasure: jest.Mock;
+let mockCancel: jest.Mock;
 
-/** What the engine's probe hands back for a whole run read at `bps`. */
-function link(bps: number, kind = "full") {
-  return { bps, kind, seconds: 1.1, low: bps, high: bps };
+/** What the engine's probe hands back for a whole ten-second run read at `bps`. */
+function link(bps: number, kind = "full", seconds = 10) {
+  return { bps, kind, seconds, low: bps, high: bps };
 }
 
 function storedMemory(entry: Record<string, unknown> | null): void {
@@ -95,7 +101,8 @@ beforeEach(() => {
   mockLibrary.mockResolvedValue({ items: [{ Id: "v1" }, { Id: "v2" }] });
   mockOnDisk.mockReturnValue(false);
   mockMeasure = jest.fn();
-  NativeModules.LocalRemuxer = { measureLink: mockMeasure };
+  mockCancel = jest.fn(async () => undefined);
+  NativeModules.LocalRemuxer = { measureLink: mockMeasure, cancelMeasureLink: mockCancel };
 });
 
 afterEach(() => {
@@ -189,6 +196,38 @@ describe("measurement", () => {
     const [a, b] = await Promise.all([measureServerBitrate(), measureServerBitrate()]);
     expect(a).toBe(b);
     expect(mockMeasure).toHaveBeenCalledTimes(1);
+  });
+
+  it("remembers nothing from a read cut off before its budget", async () => {
+    mockMeasure.mockResolvedValueOnce(link(300_000_000, "full", 2));
+
+    await expect(measureServerBitrate()).resolves.toBeNull();
+    expect(mockSetItem).not.toHaveBeenCalled();
+  });
+
+  it("ends the read when playback takes the link, keeps nothing and holds no backoff", async () => {
+    let finish: (reading: ReturnType<typeof link> | null) => void = () => undefined;
+    mockMeasure.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+
+    const probe = measureServerBitrate();
+    for (let tick = 0; tick < 50 && mockMeasure.mock.calls.length === 0; tick++) await Promise.resolve();
+    expect(mockMeasure).toHaveBeenCalledTimes(1);
+    mockHoldTaken.forEach((listener) => listener());
+    expect(mockCancel).toHaveBeenCalledTimes(1);
+    finish(link(40_000_000));
+
+    await expect(probe).resolves.toBeNull();
+    expect(mockSetItem).not.toHaveBeenCalled();
+    expect(mockHoldTaken.size).toBe(0);
+    mockMeasure.mockResolvedValueOnce(link(90_000_000));
+    await expect(measureServerBitrate()).resolves.toBe(90_000_000);
+  });
+
+  it("starts no read when playback took the link while the file was looked up", async () => {
+    mockHeld.mockReturnValue(true);
+
+    await expect(measureServerBitrate()).resolves.toBeNull();
+    expect(mockMeasure).not.toHaveBeenCalled();
   });
 
   it("remembers nothing when the server refuses the probe", async () => {

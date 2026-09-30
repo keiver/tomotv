@@ -234,7 +234,9 @@ tx_bytes`) sent 43 then 106 Mb/s during a TV probe that read 89.3, and Cloudflar
   are a burst allowance's length, never the sustained wire.
 - **Between plays** the app times 10s of the newest library file not held on the device, its
   `/Videos/{id}/stream?Static=true` (`services/jellyfin/bitrateTest.ts`), never Jellyfin's
-  synthetic `/Playback/BitrateTest`. The reading is kept per server and subnet; playback start
+  synthetic `/Playback/BitrateTest`. A read cut off before 9s is dropped, and playback taking the
+  link (or any engine session starting) cancels it and keeps nothing. The reading is kept per
+  server and subnet; playback start
   never waits on a probe, and a cold server-lane start takes the floor preset.
 
 ## What the app does with it (hooks/useVideoPlayback.ts)
