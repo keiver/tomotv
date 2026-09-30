@@ -441,6 +441,7 @@ extension RemuxSession {
             copyAnnounced = true
             announcedCopyBandwidth = peaks.original
             copyOnlyMaster = copyOnly
+            ladderListed = false
             stateLock.unlock()
             if unavailable {
                 fail("the ladder was lost after the source was let go")
@@ -519,6 +520,12 @@ extension RemuxSession {
             reportTier(listed: false)
             return "#EXTM3U\n"
         }
+        stateLock.lock()
+        copyOnlyMaster = false
+        ladderListed = startRung != nil
+        let rungsListed = ladderListed
+        stateLock.unlock()
+        if rungsListed { prefetchServerCues() }
         NSLog("[LocalRemuxer] Slipstream: master starts on %@%@ (link %.1f Mb/s, %d rungs)",
               startRung == nil ? "the copy" : "rung \(startRung ?? 0)", copyFirst && startRung != nil ? " with the copy listed" : "", linkBps / 1_000_000, listed.count)
         reportTier(listed: !rungs.isEmpty)
@@ -742,10 +749,10 @@ extension RemuxSession {
         if config.isLive { return liveSubtitlePlaylist(sub) }
 
         if sub.isEngineText {
-            if sub.serverVttUrl.isEmpty {
-                _ = awaitTextDecoder(streamIndex: streamIndex)
-            } else {
+            if serverCueSource(sub) {
                 _ = serverCues(streamIndex: streamIndex, deadline: 0)
+            } else {
+                _ = awaitTextDecoder(streamIndex: streamIndex)
             }
             // One TARGETDURATION for every playlist of the session (Apple
             // authoring req 8.2), on the video's own grid.
@@ -838,7 +845,7 @@ extension RemuxSession {
 
         let start = segmentStartSeconds(segment)
         let end = start + segmentDurationSeconds(segment)
-        let hasServer = !sub.serverVttUrl.isEmpty
+        let hasServer = serverCueSource(sub)
         var window = textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
         if !window.covered, hasServer {
             if let server = serverCues(streamIndex: streamIndex, deadline: 0) {

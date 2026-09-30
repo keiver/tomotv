@@ -738,6 +738,40 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(failures, 1, "the app is told, and leaves for the server")
     }
 
+    func testACopyOnlyMasterNeitherReleasesItsCopyNorReportsUnlistedRungs() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                inputUrl: fixtureUrl.absoluteString,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+                tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
+        s.testLinkBps = 30_000_000
+        s.start()
+        defer { s.stop() }
+        waitForProbe(s)
+        XCTAssertFalse(s.masterPlaylist().contains("t0.m3u8"))
+        XCTAssertTrue(s.copyOnlyMaster)
+        XCTAssertFalse(s.ladderListed)
+        XCTAssertFalse(s.releaseSource(because: "open failed", unusable: true), "no rung was listed to carry the session")
+        XCTAssertNotEqual(s.sourceState, .unavailable)
+        s.stateLock.lock()
+        s.sourceReady = false
+        s.stateLock.unlock()
+        XCTAssertEqual(s.progress()["hasPlayableSupplier"] as? Bool, false, "rungs the master never listed are no supplier")
+    }
+
+    func testALadderMasterRecordsItsListedRungs() throws {
+        let s = try ladderSession(rung1Playlist: playlist)
+        defer { s.stop() }
+        s.testLinkBps = 600_000
+        s.start()
+        waitForProbe(s)
+        XCTAssertTrue(s.masterPlaylist().contains("t0.m3u8"))
+        XCTAssertTrue(s.ladderListed)
+        XCTAssertFalse(s.copyOnlyMaster)
+    }
+
     private func isGone(_ response: LocalHTTPResponse) -> Bool {
         if case .gone = response { return true }
         return false

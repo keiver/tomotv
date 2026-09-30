@@ -14,7 +14,6 @@ extension RemuxSession {
         stateLock.lock()
         pipelineStarted = true
         stateLock.unlock()
-        prefetchServerCues()
         let thread = Thread { [weak self] in
             self?.runPipeline()
         }
@@ -96,7 +95,8 @@ extension RemuxSession {
         awaitGrid()
         guard tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
         stateLock.lock()
-        let free = !cancelled && !failed
+        // A copy-only master listed no rungs to carry the session, so the copy is never let go to them.
+        let free = !cancelled && !failed && !copyOnlyMaster
         if free {
             copyVerdict = .withheld
             sourceState = unusable ? .unavailable : .dormant
@@ -148,9 +148,11 @@ extension RemuxSession {
         sourceReady = false
         sourceTakeoverSegment = nil
         recovering = true
+        let rungsListed = ladderListed
         stateLock.unlock()
         NSLog("[LocalRemuxer] source will retry in this session: %@", message)
-        startServerImageSubtitles()
+        // Only rungs carry the session through the retry; without them the copy comes back on its own.
+        if rungsListed { startServerImageSubtitles() }
     }
 
     func wakeSourceIfAffordable(now: Date = Date()) -> Bool {

@@ -632,7 +632,8 @@ extension RemuxSession {
     func progress() -> [String: Any] {
         stateLock.lock()
         defer { stateLock.unlock() }
-        let serverAvailable = !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
+        // Rungs a copy-only master never listed are no supplier AVPlayer can reach.
+        let serverAvailable = !copyOnlyMaster && !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
         return [
             "alive": !cancelled && !failed,
             "bytesRead": pulledBytes,
@@ -1280,12 +1281,12 @@ extension RemuxSession {
             }
             if sub.isExternal {
                 guard !sub.serverSupUrl.isEmpty else { return failStartup("external image subtitle \(sub.index) has no producer") }
-                startServerImageSubtitles()
+                startServerImageSubtitles(only: sub.index)
                 continue
             }
             guard let streamIndex = found.stream, let stream = input.pointee.streams[Int(streamIndex)] else {
                 if !sub.serverSupUrl.isEmpty {
-                    startServerImageSubtitles()
+                    startServerImageSubtitles(only: sub.index)
                     continue
                 }
                 return failStartup("configured image subtitle \(found.refusal)")
@@ -1299,7 +1300,7 @@ extension RemuxSession {
                 namePrefix: "pgs\(sub.index)"
             ) else {
                 if !sub.serverSupUrl.isEmpty {
-                    startServerImageSubtitles()
+                    startServerImageSubtitles(only: sub.index)
                     continue
                 }
                 return failStartup("image subtitle \(sub.index) has no decoder")

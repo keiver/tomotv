@@ -182,7 +182,8 @@ final class RemuxSession {
     /// PGS tracks decoded from the server's raw stream, by source index, and how far each has read.
     var serverImageSubtitles: [Int32: ImageSubtitleDecoder] = [:]
     var serverImageReadUpTo: [Int32: Double] = [:]
-    var serverImageSubtitlesStarted = false
+    /// Image tracks whose server reader has started, by source index.
+    var serverImageSubtitleTracks: Set<Int> = []
 
     /// Text subtitle decoders, same lifetime and locking as the image ones.
     var textSubtitles: [Int32: TextSubtitleDecoder] = [:]
@@ -243,6 +244,9 @@ final class RemuxSession {
     var rungLeads = false
     /// The master named the copy alone: there is no other variant to defer AVPlayer to.
     var copyOnlyMaster = false
+    /// The master lists server rungs, so the link may not carry the copy: only then may the server's
+    /// WebVTT and image streams stand in for the demuxer.
+    var ladderListed = false
     /// The rung AVPlayer last asked a segment of, and when the producer last moved to follow it.
     var lastTierRung = 0
     var lastFollowSeekAt = Date.distantPast
