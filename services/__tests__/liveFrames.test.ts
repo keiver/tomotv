@@ -133,9 +133,13 @@ describe("live frames", () => {
     setLiveFramesActive("guide", false);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    setLiveFrameFocus(null);
     setLiveFramesActive("guide", false);
     setLiveFramesActive("wall", false);
+    // A grab still resolving lets go of its slot before the next test starts.
+    await flush();
+    await flush();
     jest.useRealTimers();
   });
 
@@ -242,6 +246,197 @@ describe("live frames", () => {
     setLiveFrameFocus(null);
     for (const answer of answers.values()) answer({ uris: [], cancelled: true });
     await flush();
+  });
+
+  it("follows focus as it moves, and falls back to view order once it clears", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameFocus("m5");
+    setLiveFrameViewable("guide", ["m1", "m2", "m3", "m4", "m5"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m5"]);
+    setLiveFrameFocus("m1");
+    await advance(0);
+    expect(grabs()).toEqual(["m5", "m1"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m5", "m1", "m2"]);
+    setLiveFrameFocus(null);
+    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m5", "m1", "m2", "m3", "m4"]);
+  });
+
+  it("keeps view order while focus sits on a channel out of view", async () => {
+    setLiveFramesActive("guide", true);
+    setLiveFrameFocus("m9");
+    setLiveFrameViewable("guide", ["m1", "m2", "m3"]);
+    await advance(0);
+    for (let i = 0; i < 3; i += 1) await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2", "m3"]);
+    setLiveFrameFocus(null);
+  });
+
+  it("orders the wall's cards by its focused card too", async () => {
+    setLiveFramesActive("wall", true);
+    setLiveFrameFocus("m3");
+    setLiveFrameViewable("wall", ["m1", "m2", "m3", "m4"]);
+    await advance(0);
+    for (let i = 0; i < 4; i += 1) await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m3", "m2", "m4", "m1"]);
+    setLiveFrameFocus(null);
+  });
+
+  it("starts a focused card missing its picture at once, without waiting out the dwell or a refresh", async () => {
+    mockOnDisk.mockResolvedValue({
+      m1: { ...onDisk("m1", 1_000_000 - 1_000, 2), clip: "file:///pool/m1/c.mp4" },
+      m2: { ...onDisk("m2", 1_000_000 - 1_000, 2), clip: "file:///pool/m2/c.mp4" },
+    });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
+    await advance(0);
+    expect(grabs()).toEqual([]);
+    setLiveFrameViewable("guide", ["m1", "m2", "m3"]);
+    setLiveFrameFocus("m3");
+    await advance(0);
+    expect(grabs()).toEqual(["m3"]);
+    setLiveFrameFocus(null);
+  });
+
+  it("takes a card that never failed before one retrying past its backoff", async () => {
+    mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) =>
+      channelId === "m1" && grabs().filter((id) => id === "m1").length === 1 ? { uris: [], cancelled: false, reason: "frame" } : { uris: burst(channelId, Date.now()), pts: 1, cancelled: false },
+    );
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    expect(liveFrameFor("m1")).toBeUndefined();
+    // Both become eligible in the same pass: m1 past its backoff, m2 never tried.
+    setLiveFramesActive("guide", false);
+    await advance(LIVE_FRAME_RETRY_MS);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
+    setLiveFramesActive("guide", true);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2", "m1"]);
+  });
+
+  it("never grabs a card missing its picture before its backoff passes, focused or not", async () => {
+    mockLiveFrame.mockImplementation(async () => ({ uris: [], cancelled: false, reason: "frame" }));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    setLiveFrameFocus("m1");
+    await advance(LIVE_FRAME_FOCUS_DWELL_MS);
+    await advance(LIVE_FRAME_RETRY_MS - LIVE_FRAME_FOCUS_DWELL_MS - 1);
+    expect(grabs()).toEqual(["m1"]);
+    await advance(1);
+    expect(grabs()).toEqual(["m1", "m1"]);
+    setLiveFrameFocus(null);
+  });
+
+  it("asks a cancelled first grab again on the next slot", async () => {
+    let first = true;
+    mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => {
+      if (first) {
+        first = false;
+        return { uris: [], cancelled: true };
+      }
+      return { uris: burst(channelId, Date.now()), pts: 1, cancelled: false };
+    });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1"]);
+    expect(liveFrameFor("m1")).toBeDefined();
+  });
+
+  it("lets a refresh answer unchanged once a grab asked for the clip and brought none", async () => {
+    mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => ({ uris: burst(channelId, Date.now(), 2), pts: 7, cancelled: false }));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(liveClipFor("m1")).toBeUndefined();
+    await advance(LIVE_FRAME_REFRESH_MS);
+    expect(mockLiveFrame.mock.calls[1][0]).toMatchObject({ shownPts: 7, shownUri: "file:///pool/m1/live-1000000-0.jpg" });
+  });
+
+  describe("preempting a refresh for the focused card", () => {
+    const answers = new Map<string, (result: unknown) => void>();
+    const withClip = (id: string) => ({ ...onDisk(id, 1_000_000 - LIVE_FRAME_REFRESH_MS - 1, 2), clip: `file:///pool/${id}/c.mp4` });
+    const settle = async () => {
+      setLiveFrameFocus(null);
+      for (const answer of answers.values()) answer({ uris: [], cancelled: true });
+      answers.clear();
+      await flush();
+    };
+    beforeEach(() => {
+      mockLiveFrame.mockImplementation(({ channelId }: { channelId: string }) => new Promise((resolve) => answers.set(channelId, resolve)));
+    });
+
+    it("leaves every grab alone while a slot is free", async () => {
+      mockOnDisk.mockResolvedValue({ m1: withClip("m1") });
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1", "m2"]);
+      await advance(0);
+      expect(grabs()).toEqual(["m2"]);
+      setLiveFrameFocus("m2");
+      expect(mockCancel).not.toHaveBeenCalled();
+      await settle();
+    });
+
+    it("leaves two first grabs alone", async () => {
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1", "m2", "m3"]);
+      await advance(0);
+      await advance(LIVE_FRAME_SPACING_MS);
+      expect(grabs()).toEqual(["m1", "m2"]);
+      setLiveFrameFocus("m3");
+      expect(mockCancel).not.toHaveBeenCalled();
+      await settle();
+    });
+
+    it("leaves refreshes alone for a focused card that has its picture and clip", async () => {
+      mockOnDisk.mockResolvedValue({ m1: withClip("m1"), m2: withClip("m2"), m3: { ...onDisk("m3", 1_000_000 - 1_000, 2), clip: "file:///pool/m3/c.mp4" } });
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1", "m2", "m3"]);
+      await advance(0);
+      await advance(LIVE_FRAME_SPACING_MS);
+      expect(grabs()).toEqual(["m1", "m2"]);
+      setLiveFrameFocus("m3");
+      expect(mockCancel).not.toHaveBeenCalled();
+      await settle();
+    });
+
+    it("leaves refreshes alone for a focused card out of view", async () => {
+      mockOnDisk.mockResolvedValue({ m1: withClip("m1"), m2: withClip("m2") });
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1", "m2"]);
+      await advance(0);
+      await advance(LIVE_FRAME_SPACING_MS);
+      expect(grabs()).toEqual(["m1", "m2"]);
+      setLiveFrameFocus("m9");
+      expect(mockCancel).not.toHaveBeenCalled();
+      await settle();
+    });
+
+    it("stops one refresh, then grabs the focused card in the slot it frees", async () => {
+      mockOnDisk.mockResolvedValue({ m1: withClip("m1"), m2: withClip("m2") });
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1", "m2"]);
+      await advance(0);
+      await advance(LIVE_FRAME_SPACING_MS);
+      expect(grabs()).toEqual(["m1", "m2"]);
+      setLiveFrameViewable("guide", ["m1", "m2", "m3"]);
+      setLiveFrameFocus("m3");
+      expect(mockCancel.mock.calls).toEqual([["m1"]]);
+      answers.get("m1")?.({ uris: [], cancelled: true });
+      await flush();
+      await advance(LIVE_FRAME_SPACING_MS);
+      expect(grabs()).toEqual(["m1", "m2", "m3"]);
+      await settle();
+    });
   });
 
   it("carries the clip a burst had on disk, and lets it go with the burst", async () => {
