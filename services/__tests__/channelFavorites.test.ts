@@ -19,6 +19,8 @@ type Modules = {
   preferences: typeof import("@/services/liveTvPreferences");
   liveTv: { fetchChannels: jest.Mock; fetchListedChannels: jest.Mock };
   userData: { setVideoFavorite: jest.Mock };
+  session: { getConfig: jest.Mock; getCachedConfig: jest.Mock };
+  connection: { getStoredServerId: jest.Mock };
 };
 
 function load(): Modules {
@@ -29,6 +31,8 @@ function load(): Modules {
       preferences: require("@/services/liveTvPreferences"),
       liveTv: require("@/services/jellyfin/liveTv"),
       userData: require("@/services/jellyfin/userData"),
+      session: require("@/services/jellyfin/session"),
+      connection: require("@/services/jellyfin/connection"),
     };
   });
   return modules;
@@ -94,7 +98,7 @@ describe("syncChannelFavorites", () => {
     liveTv.fetchListedChannels.mockResolvedValue([one]);
     await favorites.syncChannelFavorites();
     expect(liveTv.fetchChannels).toHaveBeenCalledWith({ favorite: true });
-    expect(userData.setVideoFavorite).toHaveBeenCalledWith("id-1", true);
+    expect(userData.setVideoFavorite).toHaveBeenCalledWith("id-1", true, expect.objectContaining({ userId: "u", apiKey: "k" }));
     expect(preferences.getLiveTvPreferences().favorites).toEqual([
       { id: "id-1", name: "One", number: "1" },
       { id: "id-2", name: "Two", number: "2" },
@@ -120,6 +124,67 @@ describe("syncChannelFavorites", () => {
     liveTv.fetchChannels.mockRejectedValue(new Error("offline"));
     await favorites.syncChannelFavorites();
     expect(preferences.getLiveTvPreferences().favorites).toEqual([{ id: "id-1", name: "One", number: "1" }]);
+  });
+
+  describe("across a switch to another user on the same server", () => {
+    const userV = { server: "http://s", apiKey: "k2", userId: "v", deviceId: "d" };
+    const switchTo = (session: Modules["session"]) => {
+      session.getConfig.mockResolvedValue(userV);
+      session.getCachedConfig.mockReturnValue(userV);
+    };
+    const flush = async () => {
+      for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
+    };
+
+    it("a switch during a read drops it and reads again for the new user", async () => {
+      const { favorites, preferences, liveTv, userData, session } = load();
+      preferences.updateLiveTvPreferences({ favorites: [{ id: "id-1", name: "One", number: "1" }] });
+      liveTv.fetchListedChannels.mockResolvedValue([one]);
+      liveTv.fetchChannels.mockImplementationOnce(async () => {
+        switchTo(session);
+        return { items: [two] };
+      });
+      liveTv.fetchChannels.mockResolvedValue({ items: [] });
+      await favorites.syncChannelFavorites();
+      await flush();
+      expect(liveTv.fetchChannels).toHaveBeenCalledTimes(2);
+      expect(userData.setVideoFavorite.mock.calls).toEqual([["id-1", true, userV]]);
+      expect(preferences.getLiveTvPreferences().favorites).toEqual([{ id: "id-1", name: "One", number: "1" }]);
+    });
+
+    it("a switch while the stored server is read before publishing leaves the list to the new user", async () => {
+      const { favorites, preferences, liveTv, userData, session, connection } = load();
+      preferences.updateLiveTvPreferences({ favorites: [{ id: "id-1", name: "One", number: "1" }] });
+      liveTv.fetchListedChannels.mockResolvedValue([one]);
+      liveTv.fetchChannels.mockResolvedValueOnce({ items: [two] }).mockResolvedValue({ items: [] });
+      let reads = 0;
+      connection.getStoredServerId.mockImplementation(async () => {
+        reads += 1;
+        // The first sync's third read is its last gate before publishing.
+        if (reads === 3) switchTo(session);
+        return "srv";
+      });
+      await favorites.syncChannelFavorites();
+      await flush();
+      expect(userData.setVideoFavorite.mock.calls).toEqual([
+        ["id-1", true, expect.objectContaining({ userId: "u", apiKey: "k" })],
+        ["id-1", true, userV],
+      ]);
+      expect(preferences.getLiveTvPreferences().favorites).toEqual([{ id: "id-1", name: "One", number: "1" }]);
+    });
+
+    it("a switch during the first scope read reads again for the new user", async () => {
+      const { favorites, liveTv, session, connection } = load();
+      liveTv.fetchChannels.mockResolvedValue({ items: [] });
+      liveTv.fetchListedChannels.mockResolvedValue([]);
+      connection.getStoredServerId.mockImplementationOnce(async () => {
+        switchTo(session);
+        return "srv";
+      });
+      await favorites.syncChannelFavorites();
+      await flush();
+      expect(liveTv.fetchChannels).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("does not overwrite a toggle whose write has not landed", async () => {
