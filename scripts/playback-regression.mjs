@@ -517,9 +517,11 @@ export async function probeHost(env, target) {
   if (env.PROBE_HOST) return env.PROBE_HOST;
   if (target.kind === "sim") return "127.0.0.1";
   const sessions = await (await jf(env, "/Sessions")).json();
+  // A session from one of this Mac's own addresses is a simulator, whatever interface it came in on.
+  const own = new Set(Object.values(os.networkInterfaces()).flatMap((list) => (list ?? []).map((a) => a.address)));
   const remote = sessions
     .map((s) => ({ ...s, ip: (s.RemoteEndPoint ?? "").replace(/^::ffff:/, "") }))
-    .filter((s) => (s.Client ?? "").toLowerCase().includes("tomo") && s.ip && s.ip !== "127.0.0.1" && s.ip !== "::1")
+    .filter((s) => (s.Client ?? "").toLowerCase().includes("tomo") && s.ip && !own.has(s.ip))
     .sort((x, y) => Date.parse(y.LastActivityDate ?? 0) - Date.parse(x.LastActivityDate ?? 0))[0];
   if (!remote) throw new Error(`no device session on ${env.JELLYFIN_URL} to route the probe to; set PROBE_HOST`);
   const { stdout } = await exec("route", ["-n", "get", remote.ip]);
