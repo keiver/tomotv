@@ -66,7 +66,8 @@ server for 30 minutes.
   and the server transcodes nothing. On a slower connection the playlist adds
   smaller server streams (stereo AAC), if the account is allowed to transcode,
   and AVPlayer switches between them and the original without a restart. Fixed
-  presets cap either path.
+  presets cap either path. The connection is timed on real files: the engine reads
+  the one playing, and Settings reads ten seconds of one in the library.
 - **Live TV** uses the same engine. HLS and DASH origins are read directly, tuner
   streams are read from their source when the device can reach it, otherwise
   through the server untouched, and the server's live transcode is the fallback.

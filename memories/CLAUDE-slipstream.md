@@ -184,12 +184,13 @@ AVPlayer measures the loopback, which says nothing about the wire, so the
 engine measures it itself. Two kinds of evidence, kept apart:
 
 - **The wire**: a range read of the source (the probe), and the copy pipeline's own reads WHILE
-  NOTHING ELSE TRANSFERS. Reads only lower the rate; one over 1.25x it asks for a probe. A source read
-  beside a rung, an audio transfer or a probe is that read's share of the link: its own bytes over
-  the wall clock, as a floor (a probe is marked in the `TransferLedger`, not counted in it). A
-  restart or a hold starts a fresh sample. The producer's bytes go in the ledger as they are read,
-  so a probe beside it counts them. A mid-session probe under 0.1s is discarded: it timed mostly the
-  producer's bytes (0.01 to 0.26s probes read 275 to 752 Mb/s on a 150 to 237 Mb/s link, T105).
+  NOTHING ELSE TRANSFERS. A read times `av_read_frame`, which mostly returns what the socket already
+  holds (0.7 MB in 0.01s on the Apple TV), so reads only ever LOWER a rate a probe measured and never
+  set one; one over 1.25x asks for a probe only while a faster link could still admit the copy. A
+  source read beside a rung, an audio transfer or a probe is that read's share of the link: its own
+  bytes over the wall clock, as a floor. A restart or a hold starts a fresh sample. A mid-session
+  probe under one window (1s of delivery) is discarded: it times a burst (0.01 to 0.26s probes read
+  275 to 752 Mb/s on a 150 to 237 Mb/s link, T105).
 - **The copy's buffer** (Netflix's buffer-based rule, SIGCOMM 2014): the app reports AVPlayer's
   seconds past the playhead each second (`setPlayerBuffer`). While AVPlayer plays the copy (not
   riding a rung), the producer's reads may not lower the rate until that buffer has reached the 12s
@@ -209,20 +210,32 @@ engine measures it itself. Two kinds of evidence, kept apart:
   while the source is unusable, retrying, or refused the probe (401/403, 404/410, 405/416); the
   canonical playlist's transfer does the same when nothing else has set the rate. Its time is the
   UNION of overlapping transfers in the last 8s.
-- **A probe counts what ran beside it** (`TransferLedger`): alone it reads its share of a busy
-  link. Measured on 0.6 Mb/s: 0.20 alone, 0.59 with the bytes beside it; on 1.5: 0.75 and 1.50.
-- A probe (`RateProbe`, `RateMeter`) reads the source from its first byte in 100ms samples, bytes
-  beside it included, and stops when ten in a row sit within 3% (fast.com's rule) or at 1.5s. A
-  run that never settles reads as its whole average, stalls included. A first byte may take 3s.
-  The link is the median of the last three probes; a drained player buffer overrules them.
+- **A probe counts what ran beside it** (`TransferLedger`): the URLSession transfers (rungs, server
+  audio) by their received bytes; alone it reads its share of a busy link. Measured on 0.6 Mb/s:
+  0.20 alone, 0.59 with the bytes beside it; on 1.5: 0.75 and 1.50. The producer's demuxed packets
+  are never counted: they crossed the wire before the probe (a 7.5 Mb/s link read 18.7 to 28.8).
+- A probe (`RateProbe`, `RateMeter`) reads the source for its whole 1.5s budget from its first byte:
+  every byte over the time since the first (NDT7's cumulative rate), stalls included, no early stop.
+  A first byte may take 3s. The link is the lower of a fast and a slow EWMA of probe readings
+  weighted by their seconds (hls.js and Shaka, half-lives 3s and 9s): a drop is followed at once, a
+  rise once it holds. A drained player buffer resets it.
+- Verified against ground truth: an Oracle box's own NIC counter (`/sys/class/net/*/statistics/
+tx_bytes`) sent 43 then 106 Mb/s during a TV probe that read 89.3, and Cloudflare's
+  `__down?bytes=25000000` read 540.0 Mb/s against 675 MB the OS counted in the same 10s. SSH from
+  the Mac read that box at 7.5 Mb/s: the Mac's path, not the box, and never a ground truth.
 - **While a rung plays** the wire is re-read every 30s, except while rungs arrive at the pace it
   last read (they ARE the wire then, and a probe takes half a thin link for its length: at
   750 kb/s the segment beside it ran past 6s and AVPlayer stepped down). A probe is asked for at
   once, rung or copy, when a floor or a source read outruns the last reading by 1.25x (a
   recovery) or a rung segment AVPlayer asked for takes over 80% of its own length to arrive (a
   drop), never closer than 8s apart.
-- A move of more than 15% is reported to the app (`onEngineLink`), carrying the
-  rate and whether this session's master lists the copy.
+- A move of more than 15% is reported to the app (`onEngineLink`), carrying the rate, whether this
+  session's master lists the copy, its `source` and `settled`: a probe reading with 10s of probing
+  behind it (NDT7's length). Only a settled report becomes the app's stored reading.
+- **Between plays** the app times 10s of the newest library file not held on the device, its
+  `/Videos/{id}/stream?Static=true` (`services/jellyfin/bitrateTest.ts`), never Jellyfin's
+  synthetic `/Playback/BitrateTest`. The reading is kept per server and subnet; playback start
+  never waits on a probe, and a cold server-lane start takes the floor preset.
 
 ## What the app does with it (hooks/useVideoPlayback.ts)
 

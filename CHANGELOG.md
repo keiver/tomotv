@@ -21,7 +21,6 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV, Live TV is a tab of its own when the server has a Live TV library
 - On a Mac, Escape on a scrolled guide returns it to the first channel before it leaves the screen
 - A grid card's badge carries the watched eye, except on music
-- On Apple TV the speed above Streaming Quality in Settings takes focus, and selecting it measures again
 
 ### Changed
 
@@ -37,7 +36,7 @@ All notable changes to Tomo TV are documented here.
 - Loading rows are a small gold spinner with its label centred beneath it
 - On iOS, toasts reach down past the navigation bar
 - On a connection that carries a file, playback offers only the device's own copy: the server starts no lower-quality version, audio or transcode for it. The server's versions are offered only on a connection too slow for the original
-- The connection speed, in Settings and before playback, is measured by the engine: it reads the server in tenth-of-a-second samples until they hold steady or the time runs out, and a reading that never settles is the average of the whole read, stalls included
+- The connection speed in Settings is measured by reading ten seconds of a video on the server, never a test file of the server's own, and playback follows the speed the engine measures on the file it plays: a drop is followed at once, a rise once it holds
 
 ### Fixed
 
