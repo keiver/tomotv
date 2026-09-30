@@ -63,7 +63,6 @@ jest.mock("@/services/libraryManager", () => ({
 // mid-suite and leaks a fetch into whatever test is running by then.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
   warmBitrateMemory: jest.fn(),
-  measureServerBitrate: jest.fn().mockResolvedValue(null),
   rememberedBitrate: jest.fn().mockResolvedValue(null),
   rememberedBitrateStatus: jest.fn().mockResolvedValue(null),
 }));

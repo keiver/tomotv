@@ -81,7 +81,6 @@ jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => n
 const mockRememberEngineLink = jest.fn();
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
   rememberedBitrate: async () => 3_000_000,
-  measureServerBitrate: async () => 3_000_000,
   rememberEngineLink: (bps: number) => mockRememberEngineLink(bps),
 }));
 

@@ -191,14 +191,6 @@ describe("measurement", () => {
     expect(mockMeasure).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the in-playback probe out of the shared probe and out of the memory", async () => {
-    mockMeasure.mockResolvedValue(link(64_000_000));
-
-    await Promise.all([measureServerBitrate(), measureServerBitrate({ remember: false })]);
-    expect(mockMeasure).toHaveBeenCalledTimes(2);
-    expect(mockSetItem).toHaveBeenCalledTimes(1);
-  });
-
   it("remembers nothing when the server refuses the probe", async () => {
     mockMeasure.mockResolvedValueOnce(null);
 

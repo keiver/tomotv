@@ -218,7 +218,7 @@ jest.mock("@/services/subtitlePreference", () => ({
   selectedTextTrackFor: jest.fn(() => ({ type: "system" })),
 }));
 
-jest.mock("@/services/jellyfin/bitrateTest", () => ({ measureServerBitrate: jest.fn(() => Promise.resolve(null)), rememberedBitrate: jest.fn(() => Promise.resolve(null)) }));
+jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: jest.fn(() => Promise.resolve(null)) }));
 jest.mock("@/services/jellyfin/session", () => ({ getQualitySettings: jest.fn(() => Promise.resolve({ mode: "auto", index: 5, label: "Original" })) }));
 
 const mockDetails = fetchVideoDetails as jest.Mock;

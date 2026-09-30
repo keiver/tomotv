@@ -2,8 +2,8 @@
  * bitrateTest.ts
  *
  * Link capacity to the configured server, from real media only: the engine's probe of the file a
- * session plays, and between plays the same native probe (RateProbe) timing a library file's
- * static stream until its rate holds steady or the budget runs out.
+ * session plays, and between plays the same native probe (RateProbe) timing ten seconds of a
+ * library file's static stream.
  *
  * A reading is keyed to the server and to the subnet it was taken on: it stands at
  * any age on that subnet, is void on another, and age only drives re-measurement.
@@ -135,7 +135,7 @@ async function remember(server: string, bps: number, net: string | null): Promis
   }
 }
 
-/** What the native probe read: the rate, whether it held steady, and over how long. */
+/** What the native probe read: the rate, whether it filled a window, and over how long. */
 interface LinkReading {
   bps: number;
   kind: "full" | "short";
@@ -162,16 +162,16 @@ async function measureLink(config: JellyfinConfig): Promise<LinkReading | null> 
   return reading != null && Number.isFinite(reading.bps) && reading.bps > 0 ? reading : null;
 }
 
-async function runProbe(config: JellyfinConfig, host: string, shouldRemember: boolean): Promise<number | null> {
+async function runProbe(config: JellyfinConfig, host: string): Promise<number | null> {
   try {
     const reading = await measureLink(config);
     if (reading == null) {
-      if (shouldRemember) failedAt.set(host, Date.now());
+      failedAt.set(host, Date.now());
       logger.warn("Bitrate test returned nothing usable", { service: "BitrateTest", host });
       return null;
     }
     const bps = reading.bps;
-    const net = shouldRemember ? await currentNetworkId() : null;
+    const net = await currentNetworkId();
     failedAt.delete(host);
     logger.info("Server bitrate measured", {
       service: "BitrateTest",
@@ -180,28 +180,24 @@ async function runProbe(config: JellyfinConfig, host: string, shouldRemember: bo
       kind: reading.kind,
       seconds: Math.round(reading.seconds * 1000) / 1000,
       net,
-      remembered: shouldRemember,
     });
-    if (shouldRemember) await remember(config.server, bps, net);
+    await remember(config.server, bps, net);
     return bps;
   } catch (error) {
-    // Only the memory probe feeds the backoff: the in-playback one shares the link.
-    if (shouldRemember) failedAt.set(host, Date.now());
+    failedAt.set(host, Date.now());
     logger.warn("Bitrate test failed", error, { service: "BitrateTest", host });
     return null;
   }
 }
 
 /**
- * Measure the link to the configured server, in bits/second, by reading a library file. Concurrent
- * callers share one download. `remember: false` is the in-playback probe: it measures LEFTOVER
- * bandwidth, so it stays out of both the sharing and the memory.
+ * Measure the link to the configured server, in bits/second, by reading a library file, and keep
+ * the reading. Concurrent callers share one download.
  */
-export async function measureServerBitrate(options?: { remember?: boolean }): Promise<number | null> {
+export async function measureServerBitrate(): Promise<number | null> {
   const config = await getConfig();
   if (!config.server || !config.apiKey) return null;
   const host = serverHost(config.server);
-  if (options?.remember === false) return runProbe(config, host, false);
 
   const failed = failedAt.get(host);
   if (failed != null && Date.now() - failed < FAILURE_BACKOFF_MS) return null;
@@ -210,7 +206,7 @@ export async function measureServerBitrate(options?: { remember?: boolean }): Pr
   if (current?.host !== host) {
     current = {
       host,
-      probe: runProbe(config, host, true).finally(() => {
+      probe: runProbe(config, host).finally(() => {
         // A switch mid-probe already installed the next host; leave that one alone.
         if (inFlight?.host === host) inFlight = null;
       }),
