@@ -142,6 +142,16 @@ final class RateProbeTests: XCTestCase {
         XCTAssertEqual(reading.bps / mbps, 40, accuracy: 1.2)
     }
 
+    func testARepeatedBodyCountsTheWaitBeforeEachNextOne() throws {
+        // 2 MB bursts at 400 Mb/s after a 0.2s fill each: 16 Mb per 0.24s, about 67 Mb/s.
+        let server = try PacedServer(.init(bps: 400 * mbps, length: 2_000_000, firstByteAfter: 0.2))
+        defer { server.stop() }
+        let (outcome, _) = probe(server, repeats: true)
+        let reading = try XCTUnwrap(outcome.reading)
+        XCTAssertGreaterThan(server.requests, 5)
+        XCTAssertEqual(reading.bps / mbps, 67, accuracy: 12, "each body's burst is not the link")
+    }
+
     func testNoFirstByteReadsNothing() throws {
         let server = try PacedServer(.init(bps: 40 * mbps, length: 1_000_000, stallAfter: 0))
         defer { server.stop() }

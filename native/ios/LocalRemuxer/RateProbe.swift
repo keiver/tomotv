@@ -22,7 +22,6 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
     private var meter = RateMeter()
     private var firstByteAt: Double?
     private var besideSeen: Int64 = 0
-    private var transfer = 0
     private var finished = false
     private var failure: LinkProbeFailure?
 
@@ -82,7 +81,7 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
             firstByteAt = now
             besideSeen = carried
         }
-        meter.received(transfer, bytes: data.count + Int(max(0, carried - besideSeen)), at: now)
+        meter.received(0, bytes: data.count + Int(max(0, carried - besideSeen)), at: now)
         besideSeen = carried
         let stop = meter.isSteady || now - (firstByteAt ?? now) >= budget
         if stop { finished = true }
@@ -96,11 +95,10 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         lock.lock()
         guard !finished else { return lock.unlock() }
-        meter.ended(transfer)
+        // A repeat keeps the flow open: the round trip and the server's fill before the next body are the link too.
         let again = error == nil && repeats && firstByteAt != nil
-        if again {
-            transfer += 1
-        } else {
+        if !again {
+            meter.ended(0)
             if error != nil { failure = .transient(0) }
             finished = true
         }
