@@ -6,15 +6,11 @@ const base = { mode: "auto" as const, qualityIndex: ORIGINAL_INDEX, stallFallbac
 
 describe("measurementFor", () => {
   it("measures nothing after a starvation, which enters at the floor regardless", () => {
-    expect(measurementFor({ stallFallback: true, mode: "auto" })).toBe("none");
+    expect(measurementFor({ stallFallback: true })).toBe("none");
   });
 
-  it("may probe once on Auto, remembered per server", () => {
-    expect(measurementFor({ stallFallback: false, mode: "auto" })).toBe("rememberedOrFresh");
-  });
-
-  it("never blocks a pinned session on a fresh probe", () => {
-    expect(measurementFor({ stallFallback: false, mode: "fixed" })).toBe("remembered");
+  it("never blocks a session on a fresh probe: it reads what this server's link is remembered as", () => {
+    expect(measurementFor({ stallFallback: false })).toBe("remembered");
   });
 });
 

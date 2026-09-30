@@ -24,8 +24,8 @@ import { getRemoteVideoStreamUrl } from "./streamUrls";
 
 /** Newest library videos searched for one the server still has to send. */
 const TARGET_CANDIDATES = 20;
-/** The probe stops as soon as its rate holds steady; this bounds a link that never settles. */
-const PROBE_BUDGET_MS = 3_000;
+/** NDT7's ten seconds: a shorter read can sit inside a burst allowance and report it as the link. */
+const PROBE_BUDGET_MS = 10_000;
 /** Backstop for a reading with no network identity: age is all that is left to judge it by. */
 const UNKNOWN_NETWORK_TTL_MS = 24 * 60 * 60 * 1000;
 /** Past this a trigger re-measures. The reading keeps answering until the new one lands. */
@@ -138,24 +138,23 @@ async function remember(server: string, bps: number, net: string | null): Promis
 /** What the native probe read: the rate, whether it held steady, and over how long. */
 interface LinkReading {
   bps: number;
-  kind: "steady" | "unsettled" | "short";
+  kind: "full" | "short";
   seconds: number;
 }
 
 const engine = () => NativeModules.LocalRemuxer as { measureLink?: (url: string, headers: Record<string, string>, budgetMs: number) => Promise<LinkReading | null> } | undefined;
 
-/** The file the probe reads: the one given, else the newest library video not already on this device. */
-async function probeTarget(target?: JellyfinVideoItem | null): Promise<JellyfinVideoItem | null> {
+/** The file the probe reads: the newest library video not already on this device. */
+async function probeTarget(): Promise<JellyfinVideoItem | null> {
   const remote = (item: JellyfinVideoItem) => !playsFromDisk(item.Id) && !isLiveSource(item);
-  if (target && remote(target)) return target;
   const { items } = await fetchLibraryVideos({ limit: TARGET_CANDIDATES });
   return items.find(remote) ?? null;
 }
 
-async function measureLink(config: JellyfinConfig, target?: JellyfinVideoItem | null): Promise<LinkReading | null> {
+async function measureLink(config: JellyfinConfig): Promise<LinkReading | null> {
   const measure = engine()?.measureLink;
   if (typeof measure !== "function") return null;
-  const item = await probeTarget(target);
+  const item = await probeTarget();
   const stream = item ? getRemoteVideoStreamUrl(item.Id, item) : "";
   if (!stream) return null;
   const url = `${stream}&_probe=${Date.now()}-${probeNonce++}`;
@@ -163,9 +162,9 @@ async function measureLink(config: JellyfinConfig, target?: JellyfinVideoItem | 
   return reading != null && Number.isFinite(reading.bps) && reading.bps > 0 ? reading : null;
 }
 
-async function runProbe(config: JellyfinConfig, host: string, shouldRemember: boolean, target?: JellyfinVideoItem | null): Promise<number | null> {
+async function runProbe(config: JellyfinConfig, host: string, shouldRemember: boolean): Promise<number | null> {
   try {
-    const reading = await measureLink(config, target);
+    const reading = await measureLink(config);
     if (reading == null) {
       if (shouldRemember) failedAt.set(host, Date.now());
       logger.warn("Bitrate test returned nothing usable", { service: "BitrateTest", host });
@@ -194,15 +193,15 @@ async function runProbe(config: JellyfinConfig, host: string, shouldRemember: bo
 }
 
 /**
- * Measure the link to the configured server, in bits/second, by reading `target`'s file (else a
- * library file). Concurrent callers share one download. `remember: false` is the in-playback probe:
- * it measures LEFTOVER bandwidth, so it stays out of both the sharing and the memory.
+ * Measure the link to the configured server, in bits/second, by reading a library file. Concurrent
+ * callers share one download. `remember: false` is the in-playback probe: it measures LEFTOVER
+ * bandwidth, so it stays out of both the sharing and the memory.
  */
-export async function measureServerBitrate(options?: { remember?: boolean; target?: JellyfinVideoItem | null }): Promise<number | null> {
+export async function measureServerBitrate(options?: { remember?: boolean }): Promise<number | null> {
   const config = await getConfig();
   if (!config.server || !config.apiKey) return null;
   const host = serverHost(config.server);
-  if (options?.remember === false) return runProbe(config, host, false, options.target);
+  if (options?.remember === false) return runProbe(config, host, false);
 
   const failed = failedAt.get(host);
   if (failed != null && Date.now() - failed < FAILURE_BACKOFF_MS) return null;
@@ -211,7 +210,7 @@ export async function measureServerBitrate(options?: { remember?: boolean; targe
   if (current?.host !== host) {
     current = {
       host,
-      probe: runProbe(config, host, true, options?.target).finally(() => {
+      probe: runProbe(config, host, true).finally(() => {
         // A switch mid-probe already installed the next host; leave that one alone.
         if (inFlight?.host === host) inFlight = null;
       }),

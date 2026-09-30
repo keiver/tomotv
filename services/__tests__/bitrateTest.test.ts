@@ -59,8 +59,8 @@ const mockOnDisk = playsFromDisk as jest.Mock;
 let now = 1_000_000_000;
 let mockMeasure: jest.Mock;
 
-/** What the engine's probe hands back for a link that held steady at `bps`. */
-function link(bps: number, kind = "steady") {
+/** What the engine's probe hands back for a whole run read at `bps`. */
+function link(bps: number, kind = "full") {
   return { bps, kind, seconds: 1.1, low: bps, high: bps };
 }
 
@@ -134,15 +134,7 @@ describe("measurement", () => {
 
     expect(mockAuthHeader).toHaveBeenCalledWith("d", "key");
     expect(mockMeasure.mock.calls[0][1]).toEqual({ Authorization: 'MediaBrowser Token="t"', Range: "bytes=0-" });
-    expect(mockMeasure.mock.calls[0][2]).toBe(3_000);
-  });
-
-  it("reads the file it is given, without listing the library", async () => {
-    mockMeasure.mockResolvedValue(link(16_000_000));
-    await measureServerBitrate({ target: { Id: "about-to-play" } as never });
-
-    expect(String(mockMeasure.mock.calls[0][0])).toContain("/Videos/about-to-play/stream?Static=true");
-    expect(mockLibrary).not.toHaveBeenCalled();
+    expect(mockMeasure.mock.calls[0][2]).toBe(10_000);
   });
 
   it("skips a library file this device already holds", async () => {
@@ -169,8 +161,8 @@ describe("measurement", () => {
     expect(JSON.parse(mockSetItem.mock.calls[0][1])[HOST]).toEqual({ bps: 231_400_000, at: expect.any(Number), net: HOME });
   });
 
-  it("takes a reading that never settled: it is the last window's mean", async () => {
-    mockMeasure.mockResolvedValueOnce(link(58_000_000, "unsettled"));
+  it("takes the whole run's reading", async () => {
+    mockMeasure.mockResolvedValueOnce(link(58_000_000));
 
     await expect(measureServerBitrate()).resolves.toBe(58_000_000);
   });

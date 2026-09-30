@@ -86,7 +86,7 @@ import { refreshTrackSettings } from "@/services/jellyfin/trackSettings";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { gatewayMaxBitRate } from "@/services/adaptiveQuality";
-import { measureServerBitrate, rememberedBitrate } from "@/services/jellyfin/bitrateTest";
+import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
 import { getQualitySettings } from "@/services/jellyfin/session";
 import { videoPlayerReducer, type PlaybackMode, type PlaybackTransport, type VideoPlayerState } from "./videoPlayback/machine";
@@ -1010,9 +1010,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           if (presetResolved) return preparedPreset;
           const quality = await getQualitySettings();
           if (!ownsAttempt()) return undefined;
-          const need = measurementFor({ stallFallback: stallFallbackRef.current, mode: quality.mode });
-          // Cold, the probe reads the file about to play: this lane never runs the engine's own probe of it.
-          const measuredBps = need === "none" ? null : need === "remembered" ? await rememberedBitrate() : ((await rememberedBitrate()) ?? (await measureServerBitrate({ target: details })));
+          const need = measurementFor({ stallFallback: stallFallbackRef.current });
+          const measuredBps = need === "none" ? null : await rememberedBitrate();
           if (!ownsAttempt()) return undefined;
           const plan = planTranscodePreset({
             mode: quality.mode,
