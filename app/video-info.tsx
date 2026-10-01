@@ -566,7 +566,7 @@ export default function VideoInfoScreen() {
     );
   };
 
-  // The CTA row holds two buttons at most; every further action is a circle in the row below.
+  // The CTA row holds two buttons, three on live items; every further action is a circle in the row below.
   const showFolderCta = !live && !!folderLeafId && folderLeafId !== params.inFolderId;
   const shareable = photo && !IS_TV;
   const folderInRow = showFolderCta && (!isContainer || folderCtas.length < 2);
@@ -576,22 +576,11 @@ export default function VideoInfoScreen() {
     ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), onPress: handleShowInFolder }] : []),
     ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), onPress: () => void handleShare() }] : []),
     ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), onPress: handleDownloadFolder }] : []),
-    ...(recordTimer !== undefined && liveProgram?.IsSeries
-      ? [
-          {
-            key: "series",
-            icon: "repeat" as const,
-            label: seriesSet ? t("liveTv.cancelSeries") : t("liveTv.recordSeries"),
-            onPress: () => {
-              if (recording.busy === null) void (seriesSet ? recording.cancelSeries : recording.recordSeries)();
-            },
-          },
-        ]
-      : []),
     ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), destructive: true, onPress: handleDelete }] : []),
   ];
 
   const recordShown = recordTimer !== undefined && (!!recordTimer || !programEnded);
+  const seriesShown = recordTimer !== undefined && !!liveProgram?.IsSeries;
   // Portrait phone puts Watch and Record side by side, as the TV row does, splitting the gutter width.
   // A lone button, and iPad's stack, stay content-sized like every other CTA.
   const livePaired = stackCtas && !IS_PAD && watchable && recordShown;
@@ -671,6 +660,17 @@ export default function VideoInfoScreen() {
                 hasTVPreferredFocus={!watchable && !recordShown}
                 icon={<Ionicons name="albums-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
                 onPress={handleChannelGroups}
+              />
+            )}
+            {seriesShown && (
+              <FocusableButton
+                title={seriesSet ? t("liveTv.cancelSeries") : t("liveTv.recordSeries")}
+                variant="secondary"
+                hasTVPreferredFocus={!watchable && !recordShown}
+                isLoading={recording.busy === "series" || recording.busy === "cancelSeries"}
+                disabled={recording.busy !== null}
+                icon={<Ionicons name="repeat" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
+                onPress={seriesSet ? recording.cancelSeries : recording.recordSeries}
               />
             )}
           </>
