@@ -170,6 +170,8 @@
   "settings.qualitySaveFailed": "Videoqualität konnte nicht gespeichert werden",
   "settings.streamingQuality": "STREAMING-QUALITÄT",
   "settings.measureAgain": "Misst die Verbindung zum Server erneut",
+  "settings.ui": "UI",
+  "settings.devicePosters": "Auf dem Gerät erzeugte Poster zeigen",
   "settings.about": "ÜBER TOMO TV",
   "settings.diagnostics": "Diagnose",
   "settings.licenses": "Lizenzen und Danksagungen",

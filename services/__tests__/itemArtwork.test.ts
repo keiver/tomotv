@@ -16,8 +16,26 @@ jest.mock("@/services/jellyfinApi", () => ({
 jest.mock("@/services/localRemux", () => ({ posterFrameIfCached: (id: string) => mockCached(id), posterFrameGeneration: () => mockGeneration(), posterFrameRevision: () => mockRevision() }));
 
 import { folderPosterSource, posterSource, posterUri, wantsPosterFrame } from "../itemArtwork";
+import { updateUiPreferences } from "@/services/uiPreferences";
 
 const item = (extra: Record<string, unknown> = {}) => ({ Id: "a", Type: "Movie", RunTimeTicks: 0, ...extra });
+
+beforeEach(() => updateUiPreferences({ devicePosters: true }));
+
+describe("with device generated posters off", () => {
+  beforeEach(() => updateUiPreferences({ devicePosters: false }));
+
+  it("never asks for a keyframe and never shows a settled one", () => {
+    mockCached.mockReturnValue("file:///pool/a/poster.jpg");
+    expect(wantsPosterFrame({ Type: "Movie" })).toBe(false);
+    expect(posterSource(item(), 300)).toBeUndefined();
+    expect(posterSource(item(), 300, "file:///pool/a/poster.jpg")).toBeUndefined();
+  });
+
+  it("still takes the server poster", () => {
+    expect(posterSource(item({ ImageTags: { Primary: "tag1" } }), 300)?.uri).toBe("https://jf/Items/a/Images/Primary?maxHeight=300");
+  });
+});
 
 describe("posterSource", () => {
   beforeEach(() => {

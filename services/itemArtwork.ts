@@ -6,6 +6,7 @@
 import { STANDALONE_VIDEO_TYPES } from "@/services/jellyfin/constants";
 import { getCachedConfig, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { posterFrameGeneration, posterFrameIfCached, posterFrameRevision } from "@/services/localRemux";
+import { getUiPreferences } from "@/services/uiPreferences";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 /** The kinds the engine can open for a frame; photos, audio and folders never ask. */
@@ -35,12 +36,13 @@ function audioOnly(item: Pick<JellyfinVideoItem, "MediaStreams">): boolean {
 }
 
 /**
- * An item the engine should make a keyframe for: a video the server left without a poster.
- * An audio-only file is excluded, or every card for one opens the file over HTTP and probes
- * it for a video stream it does not have, three times a launch (POSTER_FRAME_ATTEMPTS).
+ * An item the engine should make a keyframe for: a video the server left without a poster,
+ * while Settings shows device generated posters. An audio-only file is excluded, or every card
+ * for one opens the file over HTTP and probes it for a video stream it does not have, three
+ * times a launch (POSTER_FRAME_ATTEMPTS).
  */
 export function wantsPosterFrame(item: Pick<JellyfinVideoItem, "Type" | "ImageTags" | "MediaStreams">): boolean {
-  return !hasPoster(item) && POSTER_FRAME_TYPES.has(item.Type) && !audioOnly(item);
+  return getUiPreferences().devicePosters && !hasPoster(item) && POSTER_FRAME_TYPES.has(item.Type) && !audioOnly(item);
 }
 
 export interface PosterSource {
@@ -57,6 +59,7 @@ export function posterSource(item: PosterItem, height: number, frame?: string | 
   if (hasPoster(item)) return serverPoster(item.Id, item.ImageTags?.Primary, height);
   // A programme found by search wears its channel's logo.
   if (item.Type === "Program" && item.ChannelId) return serverPoster(item.ChannelId, "channel", height);
+  if (!getUiPreferences().devicePosters) return undefined;
   const keyframe = frame ?? posterFrameIfCached(item.Id);
   // The pool path repeats across servers and across a decode, so the server, the generation and
   // the revision are what part one picture from the next.

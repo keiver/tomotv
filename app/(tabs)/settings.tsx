@@ -11,6 +11,7 @@ import { LinkLadder } from "@/components/settings/LinkLadder";
 import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { UiSection } from "@/components/settings/UiSection";
 import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
@@ -371,9 +372,10 @@ export default function SettingsScreen() {
             </>
           )}
 
-          {/* In both states, as the stand-in every other tab renders logged out. Connected, its
-              first row is what pinListToBottom exists for, being the first focusable below the
+          {/* In both states, as the stand-in every other tab renders logged out. Connected, the
+              UI row is what pinListToBottom exists for, being the first focusable below the
               nested quality ScrollView. */}
+          <UiSection />
           {/* No version line under this: the Open Source page carries it. */}
           <AboutSection showDiagnostics={screenState === "CONNECTED"} />
         </View>

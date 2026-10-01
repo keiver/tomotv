@@ -7,6 +7,7 @@
 import { usePosterFrame } from "@/hooks/usePosterFrame";
 import { subscribeAuthChange } from "@/services/jellyfinApi";
 import { cancelPosterFrame, posterFrameIfCached, requestPosterFrame } from "@/services/localRemux";
+import { updateUiPreferences } from "@/services/uiPreferences";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
@@ -52,6 +53,7 @@ async function mount(item: JellyfinVideoItem) {
 describe("usePosterFrame", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    updateUiPreferences({ devicePosters: true });
     mockCached.mockReturnValue(undefined);
     mockRequest.mockResolvedValue("file:///pool/a/poster.jpg");
     authListeners = [];
@@ -61,6 +63,22 @@ describe("usePosterFrame", () => {
         authListeners = authListeners.filter((listener) => listener !== cb);
       };
     });
+  });
+
+  it("never asks while device generated posters are off, and drops a shown frame when they turn off", async () => {
+    updateUiPreferences({ devicePosters: false });
+    const { renderer, latest } = await mount(movie("a"));
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(latest()).toBeNull();
+
+    await act(async () => updateUiPreferences({ devicePosters: true }));
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(latest()).toBe("file:///pool/a/poster.jpg");
+
+    await act(async () => updateUiPreferences({ devicePosters: false }));
+    expect(cancelPosterFrame).toHaveBeenCalledWith("a");
+    expect(latest()).toBeNull();
+    act(() => renderer.unmount());
   });
 
   it("asks once for a video without a poster and shows the frame when it lands", async () => {
