@@ -6,18 +6,23 @@
  * The tag is reduced to its base ("de-DE" and "de-AT" are both "de"), because
  * the store lists one German, one French and one Spanish.
  *
- * Resolved once, at import. A language change on the device restarts the app,
- * and the screenshot pipeline relaunches it per locale (tomotv://dev-locale).
+ * The viewer's pick in Settings wins over the device; without one the device decides. Both are
+ * read synchronously at import, so the first frame is already in the right language, and a pick
+ * notifies subscribers (components/locale-boundary.tsx) so the screens redraw in place.
  */
-import { NativeModules, Platform } from "react-native";
+import { NativeModules, Platform, Settings } from "react-native";
 
-import { STORAGE_KEYS } from "@/services/jellyfin/constants";
 import { logger } from "@/utils/logger";
 
 import { catalogues, en, type StringKey } from "./strings";
 
 export const SUPPORTED_LOCALES = ["en", "de", "fr", "es"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
+
+/** Each language in its own words, the way a picker lists them. */
+export const LANGUAGE_NAMES: Record<Locale, string> = { en: "English", de: "Deutsch", fr: "Français", es: "Español" };
+
+export const LANGUAGE_KEY = "app_language";
 
 const FALLBACK: Locale = "en";
 
@@ -42,11 +47,34 @@ function supported(tag: string): Locale | null {
   return (SUPPORTED_LOCALES as readonly string[]).includes(tag) ? (tag as Locale) : null;
 }
 
-let active: Locale = supported(deviceTag()) ?? FALLBACK;
+/** A tag in any spelling ("de-AT", "fr_CA") as a language the app ships, or null. */
+export function supportedLocale(tag: string | undefined | null): Locale | null {
+  return supported(baseTag(tag));
+}
+
+function storedChoice(): Locale | null {
+  const stored = Settings.get(LANGUAGE_KEY);
+  return typeof stored === "string" ? supportedLocale(stored) : null;
+}
+
+const system: Locale = supported(deviceTag()) ?? FALLBACK;
+let choice: Locale | null = storedChoice();
+let active: Locale = choice ?? system;
+const listeners = new Set<() => void>();
 
 /** The language the app is rendering in. */
 export function locale(): Locale {
   return active;
+}
+
+/** The language the device asks for, as the app resolves it: the default when nothing is picked. */
+export function systemLocale(): Locale {
+  return system;
+}
+
+/** The viewer's pick, or null while the app follows the device. */
+export function languageChoice(): Locale | null {
+  return choice;
 }
 
 /**
@@ -60,42 +88,27 @@ export function t(key: StringKey): string {
   return catalogues[active]?.[key] ?? en[key];
 }
 
-/**
- * Force a language, for the screenshot pipeline: the captures under each store
- * locale have to show that locale's UI, or the listing shows a German caption
- * over an English app. Dev builds only, and it persists so the capture script
- * can set it once and deep-link every screen after.
- */
-export async function setLocaleOverride(tag: string): Promise<Locale | null> {
-  const picked = supported(baseTag(tag));
-  if (!picked) {
-    logger.warn("Locale override ignored, not a supported language", { service: "i18n", tag });
-    return null;
-  }
-  active = picked;
+/** Picks a language, or null to follow the device again; persisted, then every subscriber redraws. */
+export function setLanguage(next: Locale | null): void {
+  if (next === choice) return;
+  choice = next;
   try {
-    const SecureStore = await import("expo-secure-store");
-    await SecureStore.setItemAsync(STORAGE_KEYS.LOCALE_OVERRIDE, picked);
+    Settings.set({ [LANGUAGE_KEY]: next });
   } catch (error) {
-    logger.warn("Locale override not persisted", error, { service: "i18n" });
+    logger.warn("Language choice not persisted", error, { service: "i18n" });
   }
-  return picked;
+  active = next ?? system;
+  for (const listener of listeners) listener();
 }
 
-/** Restores an override across the relaunch the capture script does per screen. */
-export async function loadLocaleOverride(): Promise<void> {
-  if (!__DEV__) return;
-  try {
-    const SecureStore = await import("expo-secure-store");
-    const stored = await SecureStore.getItemAsync(STORAGE_KEYS.LOCALE_OVERRIDE);
-    const picked = stored ? supported(baseTag(stored)) : null;
-    if (picked) active = picked;
-  } catch {
-    // A locked device throws here; the device language is the right answer then.
-  }
+export function subscribeLocale(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
-/** Test seam: the module resolves the language once, at import. */
+/** Test seam: sets the rendered language without a pick or a redraw. */
 export function __setLocaleForTests(tag: Locale): void {
   active = tag;
 }

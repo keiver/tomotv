@@ -32,8 +32,6 @@ export const STORAGE_KEYS = {
   SUBTITLE_PREFERENCE: "app_subtitle_preference",
   TRACK_SETTINGS: "app_track_settings",
   NEXT_EPISODE_AUTOPLAY: "app_next_episode_autoplay",
-  /** Dev builds only: the language the screenshot pipeline captures in. */
-  LOCALE_OVERRIDE: "app_locale_override",
   IS_DEMO_MODE: "jellyfin_is_demo_mode",
   DEVICE_ID: "jellyfin_device_id",
   USER_NAME: "jellyfin_user_name",

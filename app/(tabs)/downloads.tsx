@@ -1,6 +1,7 @@
 import { EmptyCard } from "@/components/empty-card";
+import { localeScreen } from "@/components/locale-boundary";
 import { AmbientBackground } from "@/components/ambient-background";
-import { DownloadRow, REMOVE_ACTIONS } from "@/components/settings/DownloadRow";
+import { DownloadRow, removeActions } from "@/components/settings/DownloadRow";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
@@ -81,7 +82,9 @@ const keyOf = (row: ListItem) => row.key;
  * What is on the device, the one screen that needs no server. tvOS has no persistent local
  * storage, so the tab is hidden there (app/(tabs)/_layout.tsx) and this screen says so if reached.
  */
-export default function DownloadsScreen() {
+export default localeScreen(DownloadsScreen);
+
+function DownloadsScreen() {
   // A finished file plays with no server at all, so the list stands alone. What it holds does
   // not: an unfinished transfer needs the session back before it means anything.
   const { isConnected } = useAuth();
@@ -261,7 +264,7 @@ export default function DownloadsScreen() {
                 setExpanded(open ? null : group.id);
               }}
               onLongPress={() => confirmRemoveGroup(group)}
-              accessibilityActions={REMOVE_ACTIONS}
+              accessibilityActions={removeActions()}
               onAccessibilityAction={(event) => {
                 if (event.nativeEvent.actionName === "remove") confirmRemoveGroup(group);
               }}

@@ -5,6 +5,7 @@ import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import { t } from "@/services/i18n";
+import { useLocale } from "@/hooks/useLocale";
 
 // SDK 56: Icon/Label moved under NativeTabs.Trigger.
 const { Icon, Label, Badge } = NativeTabs.Trigger;
@@ -94,6 +95,8 @@ export default function TabLayout() {
   // whole bar, so no trigger ever flips on a live navigator and the static-trigger rule holds.
   const hasLiveTv = useSyncExternalStore(subscribeLiveTvAvailability, getLiveTvAvailability);
   const showLiveTvTab = Platform.isTV && hasLiveTv;
+  // Labels follow a picked language as a title prop change; the triggers themselves stay static.
+  useLocale();
 
   return (
     <NativeTabs key={showLiveTvTab ? "tabs-livetv" : "tabs"} {...TAB_BAR_BACKGROUND} tintColor={TAB_TINT} disableTransparentOnScrollEdge>

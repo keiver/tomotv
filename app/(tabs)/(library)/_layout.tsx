@@ -1,5 +1,6 @@
 import { LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { LocaleBoundary } from "@/components/locale-boundary";
 import { Stack } from "expo-router";
 import React from "react";
 import { Platform } from "react-native";
@@ -32,6 +33,7 @@ export default function LibraryStackLayout() {
   // transition consistent.
   return (
     <Stack
+      screenLayout={({ children }) => <LocaleBoundary>{children}</LocaleBoundary>}
       screenOptions={{
         headerShown: !Platform.isTV,
         headerTransparent: true,

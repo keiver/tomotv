@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { LoadingRow } from "@/components/loading-row";
+import { localeScreen } from "@/components/locale-boundary";
 import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
@@ -663,7 +664,9 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   );
 }
 
-export default function SearchScreen() {
+export default localeScreen(SearchScreen);
+
+function SearchScreen() {
   const { isConnected, isReady } = useAuth();
   // Capture deep-links `?q=` so the screenshot tool never has to type into the simulator.
   const { q } = useLocalSearchParams<{ q?: string }>();

@@ -2,7 +2,7 @@ import { COLORS } from "@/constants/colors";
 import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider, useNavigationContainerRef } from "expo-router";
 import { LogBox, Platform } from "react-native";
-import { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect } from "react";
 import "react-native-reanimated";
 
 import { preloadAmbientBackgrounds } from "@/components/ambient-background";
@@ -27,7 +27,9 @@ import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { videoDecodeSupport } from "@/services/localRemux";
 import { logger } from "@/utils/logger";
-import { loadLocaleOverride, t } from "@/services/i18n";
+import { t } from "@/services/i18n";
+import { LocaleBoundary } from "@/components/locale-boundary";
+import { useLocale } from "@/hooks/useLocale";
 
 /**
  * LogBox off, both platforms.
@@ -77,6 +79,14 @@ const AppDarkTheme = {
   },
 };
 
+/** Not remounted on a language pick: the tabs carry their own boundary per screen, a playback
+ *  route would restart its item, and dev-locale would run its link again. */
+const KEEP_MOUNTED = new Set(["(tabs)", "player", "audio-player", "dev-locale"]);
+
+function localeScreenLayout({ route, children }: { route: { name: string }; children: React.ReactElement }) {
+  return KEEP_MOUNTED.has(route.name) ? children : <LocaleBoundary>{children}</LocaleBoundary>;
+}
+
 export default function RootLayout() {
   // Register native plugins on app startup
   useEffect(() => {
@@ -92,9 +102,10 @@ export default function RootLayout() {
     warmBitrateMemory();
     // Same for what this device decodes: the answer opens VideoToolbox sessions once.
     void videoDecodeSupport();
-    // A screenshot run sets the language once and deep-links every screen after.
-    void loadLocaleOverride();
   }, []);
+
+  // Redraws the header titles below and the hosts outside the navigator in a picked language.
+  useLocale();
 
   // Foregrounding is when the device may have changed networks. Also the moment a session
   // spent offline gets its resume positions to the server, and reporting stops standing down.
@@ -152,7 +163,7 @@ export default function RootLayout() {
                   native tab bar on screen to steal focus on tvOS. Both share this one provider. */}
                 <LibraryFiltersProvider>
                   <ThemeProvider value={AppDarkTheme}>
-                    <Stack screenOptions={{ contentStyle: { backgroundColor: COLORS.BACKGROUND } }}>
+                    <Stack screenOptions={{ contentStyle: { backgroundColor: COLORS.BACKGROUND } }} screenLayout={localeScreenLayout}>
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                       {/* Folder browsing is a ROOT route, not nested in (tabs): a route inside the tabs
                       leaves the native tab bar on screen, and on tvOS the focus engine hands it focus
@@ -483,6 +494,22 @@ export default function RootLayout() {
                                 headerTitle: t("diagnostics.title"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
                                 headerBackTitle: t("common.about"),
+                                animation: "fade",
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="language"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("settings.language"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("settings.title"),
                                 animation: "fade",
                               }
                         }

@@ -14,7 +14,7 @@ import type { StyleProp, TextStyle } from "react-native";
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
 /** Swiping is no gesture a screen reader has, and the panel it opens is the only Remove button. */
-export const REMOVE_ACTIONS = [{ name: "remove", label: t("common.remove") }] as const;
+export const removeActions = () => [{ name: "remove", label: t("common.remove") }] as const;
 
 interface DownloadRowProps {
   entry: DownloadEntry;
@@ -108,7 +108,7 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, neste
         selected={selected}
         onPress={onPress}
         onLongPress={onRemove}
-        accessibilityActions={REMOVE_ACTIONS}
+        accessibilityActions={removeActions()}
         onAccessibilityAction={onAction}
         onFocus={onFocus}
         nested={nested}

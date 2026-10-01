@@ -18,7 +18,7 @@ jest.mock("@/hooks/use-color-scheme", () => ({ useColorScheme: () => "dark" }));
 jest.mock("@/hooks/useItemLongPress", () => ({ useItemLongPress: () => jest.fn() }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
 jest.mock("@/services/jellyfinApi", () => ({ searchVideos: jest.fn(), searchLiveTv: jest.fn(async () => []), connectToDemoServer: jest.fn() }));
-jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
+jest.mock("@/services/i18n", () => ({ t: (key: string) => key, locale: () => "en", subscribeLocale: () => () => {} }));
 jest.mock("@/utils/logger", () => ({ logger: { debug: jest.fn(), error: jest.fn() } }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }) }));

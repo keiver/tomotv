@@ -51,12 +51,13 @@ const PLATFORM_ICON: Record<DeviceName, "phone-portrait-outline" | "tablet-portr
 const FRESH_MS = 5 * 60 * 1000;
 const fresh = (at: number, now: number) => now - at < FRESH_MS;
 /** This device is named as such; two Apple TVs read alike, so a sender is its glyph and the head of its id. */
-const OWN_PILL = { icon: PLATFORM_ICON[THIS_DEVICE], label: t("settings.thisDevice").replace("{device}", THIS_DEVICE) };
+const ownPill = () => ({ icon: PLATFORM_ICON[THIS_DEVICE], label: t("settings.thisDevice").replace("{device}", THIS_DEVICE) });
 const senderPill = (device: DeviceName, deviceId: string) => ({ icon: PLATFORM_ICON[device], label: deviceId.split("-")[0].toUpperCase() });
-const ROW_ACTIONS = [
-  { name: "email", label: t("common.email") },
-  { name: "remove", label: t("common.remove") },
-] as const;
+const rowActions = () =>
+  [
+    { name: "email", label: t("common.email") },
+    { name: "remove", label: t("common.remove") },
+  ] as const;
 const EMPTY_SENDS: SentSession[] = [];
 
 export function AboutSection({ showDiagnostics }: AboutSectionProps) {
@@ -106,13 +107,13 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
       <ListRow
         icon="pulse"
         title={t("settings.diagnostics")}
-        titlePill={OWN_PILL}
+        titlePill={ownPill()}
         subtitleDot={fresh(savedAt(own), now)}
         subtitle={t("settings.savedStamp").replace("{when}", stamp(savedAt(own)))}
         trailingIcon="chevron-forward"
         onPress={openDiagnostics}
         onLongPress={confirmRemoveOwn}
-        accessibilityActions={ROW_ACTIONS}
+        accessibilityActions={rowActions()}
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === "remove") confirmRemoveOwn();
           if (event.nativeEvent.actionName === "email") emailOwn(own);
@@ -157,7 +158,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
                 trailingIcon="chevron-forward"
                 onPress={() => openSent(sent.sender)}
                 onLongPress={() => confirmRemove(sent)}
-                accessibilityActions={ROW_ACTIONS}
+                accessibilityActions={rowActions()}
                 onAccessibilityAction={(event) => {
                   if (event.nativeEvent.actionName === "remove") confirmRemove(sent);
                   if (event.nativeEvent.actionName === "email") emailSent(sent);

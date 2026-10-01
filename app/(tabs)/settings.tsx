@@ -1,5 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
+import { localeScreen } from "@/components/locale-boundary";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { LoadingRow } from "@/components/loading-row";
@@ -69,7 +70,9 @@ function qualityTick({ color }: { color: string }) {
   return <Ionicons name="checkmark" size={TRAILING_SIZE} color={color === COLORS.TEXT_TERTIARY ? COLORS.SUCCESS : color} />;
 }
 
-export default function SettingsScreen() {
+export default localeScreen(SettingsScreen);
+
+function SettingsScreen() {
   const router = useRouter();
 
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
