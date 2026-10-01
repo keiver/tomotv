@@ -306,7 +306,7 @@ export function LibraryGrid({
       ),
     [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels],
   );
-  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
+  const { viewabilityConfig, onViewableItemsChanged, visibleChannelIds } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
   const [clipIds, setClipIds] = useState(NO_CLIPS);
   // Stable for the list's life: a list reads its viewability pairs once, at mount.
   const viewabilityPairs = useMemo(
@@ -565,7 +565,7 @@ export function LibraryGrid({
                   titleIcon={titleIconFor?.(item)}
                   recording={recordingFor?.(item)}
                   playsClipInView={clipIds.has(item.Id)}
-                  inView={clipIds.has(item.Id)}
+                  inView={visibleChannelIds.has(item.Id)}
                 />
               );
             }
@@ -617,6 +617,7 @@ export function LibraryGrid({
       recordings,
       liveChannels,
       clipIds,
+      visibleChannelIds,
       titleIconFor,
       recordingFor,
     ],
