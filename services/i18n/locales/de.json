@@ -312,6 +312,7 @@
   "info.watched": "Angesehen",
   "info.folder": "Ordner",
   "info.file": "Datei",
+  "info.playback": "Wiedergabe",
   "info.loadingDetails": "Details für {title} werden geladen",
   "info.couldNotPlay": "Dieser Titel konnte nicht abgespielt werden",
   "info.download": "Herunterladen",

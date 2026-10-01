@@ -312,6 +312,7 @@
   "info.watched": "Regardé",
   "info.folder": "Dossier",
   "info.file": "Fichier",
+  "info.playback": "Lecture",
   "info.loadingDetails": "Chargement des détails de {title}",
   "info.couldNotPlay": "Impossible de lire cet élément",
   "info.download": "Télécharger",

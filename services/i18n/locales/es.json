@@ -312,6 +312,7 @@
   "info.watched": "Visto",
   "info.folder": "Carpeta",
   "info.file": "Archivo",
+  "info.playback": "Reproducción",
   "info.loadingDetails": "Cargando los detalles de {title}",
   "info.couldNotPlay": "No se pudo reproducir este elemento",
   "info.download": "Descargar",

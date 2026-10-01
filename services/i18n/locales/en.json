@@ -312,6 +312,7 @@
   "info.watched": "Watched",
   "info.folder": "Folder",
   "info.file": "File",
+  "info.playback": "Playback",
   "info.loadingDetails": "Loading details for {title}",
   "info.couldNotPlay": "Couldn't play this item",
   "info.download": "Download",

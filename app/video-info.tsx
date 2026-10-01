@@ -129,7 +129,6 @@ export default function VideoInfoScreen() {
   const [plan, setPlan] = useState<{ lane: PlaybackLane; smallFeedFirst: boolean } | null>(null);
   // Whether the lane question has been answered at all, prediction failures included, so a
   // reserved row never stays open on an item that will never fill it.
-  const [laneSettled, setLaneSettled] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPlayed, setIsPlayed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -196,8 +195,6 @@ export default function VideoInfoScreen() {
         if (!cancelled) setPlan(predicted);
       } catch (error) {
         logger.warn("Playback lane prediction failed", error, { service: "VideoInfo", videoId: params.videoId });
-      } finally {
-        if (!cancelled) setLaneSettled(true);
       }
     };
     void load();
@@ -508,10 +505,6 @@ export default function VideoInfoScreen() {
   const engineTail = plan?.smallFeedFirst ? t("info.laneSmallerFeed") : t("info.laneNoServerWork");
   const laneLabel = lane === null ? "" : lane === "server" ? t("info.laneServer") : lane === "deviceTranscode" ? `${t("info.laneDevice")} · ${engineTail}` : `Direct Play · ${engineTail}`;
   const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;
-  // The lane needs SecureStore and a native probe, so it lands after the panel paints. The row
-  // holds its line from the first frame and the CTAs below it never move. Streams are what the
-  // load effect gates the prediction on, so nothing else reserves a line it will never use.
-  const lanePending = !laneSettled && !!details?.MediaStreams?.length && !live;
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
   const poster = useItemPoster(details, IS_TV ? 600 : 300);
@@ -814,6 +807,19 @@ export default function VideoInfoScreen() {
           </InfoFocusRow>
         </>
       )}
+
+      {/* Last, so a lane that differs per file and connection never moves the header. */}
+      {!!laneLabel && (
+        <>
+          <Text style={styles.sectionHeading}>{t("info.playback")}</Text>
+          <InfoFocusRow style={styles.streamRow}>
+            <View style={styles.playbackRow}>
+              <View style={[styles.laneDot, { backgroundColor: laneColor }]} />
+              <Text style={[styles.streamTitle, styles.playbackText]}>{laneLabel}</Text>
+            </View>
+          </InfoFocusRow>
+        </>
+      )}
     </>
   ) : null;
 
@@ -900,15 +906,6 @@ export default function VideoInfoScreen() {
             <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
             <Text style={styles.recordingNowText}>
               {recordingNow || recordTimer?.Status === "InProgress" ? t("liveTv.recordingNow") : recordTimer?.SeriesTimerId ? t("liveTv.seriesRules") : t("liveTv.record")}
-            </Text>
-          </View>
-        )}
-        {(!!laneLabel || lanePending) && (
-          <View style={[styles.laneRow, styles.laneBlock]}>
-            {!!laneLabel && <View style={[styles.laneDot, { backgroundColor: laneColor }]} />}
-            {/* A space, not a height: the placeholder is the same line box the label will fill. */}
-            <Text style={styles.laneText} accessibilityElementsHidden={!laneLabel}>
-              {laneLabel || " "}
             </Text>
           </View>
         )}
@@ -1088,6 +1085,14 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     gap: IS_TV ? 10 : 6,
   },
+  playbackRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: IS_TV ? 10 : 6,
+  },
+  playbackText: {
+    flexShrink: 1,
+  },
   laneDot: {
     width: IS_TV ? 10 : 7,
     height: IS_TV ? 10 : 7,
@@ -1098,14 +1103,6 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 21 : 13,
     fontWeight: "700",
     color: COLORS.DESTRUCTIVE_SOFT,
-  },
-  // Shrinks so a long lane label wraps inside the row instead of pushing the dot off the
-  // centre axis, and centres its own lines the way the meta line above it does.
-  laneText: {
-    flexShrink: 1,
-    fontSize: IS_TV ? 21 : 13,
-    color: COLORS.TEXT_SECONDARY,
-    textAlign: "center",
   },
   // Content-sized buttons (FocusableButton's own min width), centered in the panel. A
   // container can carry four (videos, audio, slideshow, show in folder), past the width of

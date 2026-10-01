@@ -40,7 +40,7 @@ jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ show
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/close-overlay-button", () => ({ CloseOverlayButton: () => null }));
 jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }));
-jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
+jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
 jest.mock("expo-image", () => ({ Image: () => null }));
