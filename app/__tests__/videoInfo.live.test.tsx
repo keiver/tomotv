@@ -3,7 +3,7 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useLocalSearchParams } from "expo-router";
 import VideoInfoScreen from "@/app/video-info";
-import { cancelTimer, createSeriesTimer, createTimer, fetchItemDetails, fetchLiveTvManagement, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
+import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchItemDetails, fetchLiveTvManagement, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -70,6 +70,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   createSeriesTimer: jest.fn(),
   fetchTimerDefaults: jest.fn(),
   fetchTimers: jest.fn(),
+  fetchSeriesTimers: jest.fn(),
   fetchLiveTvManagement: jest.fn(),
 }));
 
@@ -125,6 +126,8 @@ describe("Video info: live items", () => {
     (createTimer as jest.Mock).mockResolvedValue(undefined);
     (createSeriesTimer as jest.Mock).mockResolvedValue(undefined);
     (cancelTimer as jest.Mock).mockResolvedValue(undefined);
+    (cancelSeriesTimer as jest.Mock).mockResolvedValue(undefined);
+    (fetchSeriesTimers as jest.Mock).mockResolvedValue([]);
     (fetchLiveTvManagement as jest.Mock).mockResolvedValue(true);
   });
 
@@ -165,14 +168,18 @@ describe("Video info: live items", () => {
     expect(buttons(tree)).toEqual(["Cancel Recording", "Record Series"]);
   });
 
-  it("cancels a timer by its id and offers to cancel its series rule", async () => {
-    (fetchTimers as jest.Mock)
-      .mockResolvedValueOnce([{ Id: "t2", Name: "Football Live", ProgramId: "p1", SeriesTimerId: "s1", StartDate: later.StartDate, EndDate: later.EndDate, Status: "New" }])
-      .mockResolvedValue([]);
+  it("cancels one airing by its timer id and keeps offering to cancel the series rule that survives it", async () => {
+    const seriesAiring = { Id: "t2", Name: "Football Live", ProgramId: "p1", SeriesTimerId: "s1", StartDate: later.StartDate, EndDate: later.EndDate };
+    (fetchSeriesTimers as jest.Mock).mockResolvedValue([{ Id: "s1", Name: "Football Live", ProgramId: "p0" }]);
+    (fetchTimers as jest.Mock).mockResolvedValueOnce([{ ...seriesAiring, Status: "New" }]).mockResolvedValue([{ ...seriesAiring, Status: "Cancelled" }]);
     const tree = await mount(later);
     expect(buttons(tree)).toEqual(["Cancel Recording", "Cancel Series"]);
     await press(tree, "Cancel Recording");
     expect(cancelTimer).toHaveBeenCalledWith("t2");
+    expect(buttons(tree)).toEqual(["Record", "Cancel Series"]);
+    (fetchSeriesTimers as jest.Mock).mockResolvedValue([]);
+    await press(tree, "Cancel Series");
+    expect(cancelSeriesTimer).toHaveBeenCalledWith("s1");
     expect(buttons(tree)).toEqual(["Record", "Record Series"]);
   });
 

@@ -1,8 +1,8 @@
 import { t } from "@/services/i18n";
-import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
+import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { showToast } from "@/services/toast";
-import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
+import type { JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer } from "@/types/jellyfin";
 import { activeRecordTimer, durationLabel, isAiring, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useState } from "react";
@@ -27,32 +27,43 @@ export function useRecordActions(target: RecordTarget | null) {
   const channelName = target?.channelName ?? "";
   const program = target?.program ?? null;
   const [timer, setTimer] = useState<JellyfinTimer | null | undefined>(undefined);
+  const [seriesTimerId, setSeriesTimerId] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState<RecordBusy>(null);
   const enabled = !!target;
 
   const programStart = program?.StartDate;
   const programEnd = program?.EndDate;
-  const loadTimer = useCallback(async () => {
-    const timers = await fetchTimers();
-    setTimer(activeRecordTimer(timers, { programId, channelId, program: { StartDate: programStart, EndDate: programEnd } }, Date.now()));
+  const readState = useCallback(async () => {
+    const [timers, rules] = await Promise.all([fetchTimers(), fetchSeriesTimers()]);
+    return {
+      timer: activeRecordTimer(timers, { programId, channelId, program: { StartDate: programStart, EndDate: programEnd } }, Date.now()),
+      seriesTimerId: programSeriesTimerId(timers, rules, programId),
+    };
   }, [programId, channelId, programStart, programEnd]);
+  const loadTimer = useCallback(async () => {
+    const state = await readState();
+    setTimer(state.timer);
+    setSeriesTimerId(state.seriesTimerId);
+  }, [readState]);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    fetchTimers()
-      .then((timers) => {
-        if (!cancelled) setTimer(activeRecordTimer(timers, { programId, channelId, program: { StartDate: programStart, EndDate: programEnd } }, Date.now()));
+    readState()
+      .then((state) => {
+        if (cancelled) return;
+        setTimer(state.timer);
+        setSeriesTimerId(state.seriesTimerId);
       })
       .catch((err) => logger.warn("Timer state read failed", err, { hook: "useRecordActions" }));
     return () => {
       cancelled = true;
     };
-  }, [enabled, programId, channelId, programStart, programEnd]);
+  }, [enabled, readState]);
 
-  /** A write, then a re-read; a write that landed stands even when the re-read fails, as `landed`. */
+  /** A write, then a re-read; a write that landed stands even when the re-read fails, as `landed` (and `landedSeries` when given). */
   const run = useCallback(
-    async (kind: Exclude<RecordBusy, null>, action: () => Promise<void>, doneToast: string, landed: JellyfinTimer | null) => {
+    async (kind: Exclude<RecordBusy, null>, action: () => Promise<void>, doneToast: string, landed: JellyfinTimer | null, landedSeries?: string | null) => {
       setBusy(kind);
       try {
         await action();
@@ -68,6 +79,7 @@ export function useRecordActions(target: RecordTarget | null) {
       } catch (err) {
         logger.warn("Timer state read failed", err, { hook: "useRecordActions" });
         setTimer(landed);
+        if (landedSeries !== undefined) setSeriesTimerId(landedSeries);
       } finally {
         setBusy(null);
       }
@@ -128,18 +140,26 @@ export function useRecordActions(target: RecordTarget | null) {
   const recordSeries = useCallback(() => {
     const airing = !!program && isAiring(program, Date.now());
     const endMs = program ? programTimes(program).endMs : Date.now();
-    return run("series", async () => createSeriesTimer(await fetchTimerDefaults(programId)), t("liveTv.recordingScheduled"), standIn(endMs, airing, STAND_IN_SERIES_ID));
+    return run("series", async () => createSeriesTimer(await fetchTimerDefaults(programId)), t("liveTv.recordingScheduled"), standIn(endMs, airing, STAND_IN_SERIES_ID), STAND_IN_SERIES_ID);
   }, [run, standIn, programId, program]);
   const cancel = useCallback(() => {
     if (timer && !timer.Id) return rereadStandIn();
     return run("cancel", async () => (timer ? cancelTimer(timer.Id) : undefined), t(timer?.Status === "InProgress" ? "liveTv.recordingStopped" : "liveTv.recordingCanceled"), null);
   }, [run, rereadStandIn, timer]);
   const cancelSeries = useCallback(() => {
-    if (timer && !timer.Id) return rereadStandIn();
+    if (seriesTimerId === STAND_IN_SERIES_ID || (timer && !timer.Id)) return rereadStandIn();
     // The rule goes; this airing's own timer stays until the re-read says otherwise.
     const landed = timer ? { ...timer, SeriesTimerId: undefined } : null;
-    return run("cancelSeries", async () => (timer?.SeriesTimerId ? cancelSeriesTimer(timer.SeriesTimerId) : undefined), t("liveTv.recordingCanceled"), landed);
-  }, [run, rereadStandIn, timer]);
+    return run("cancelSeries", async () => (seriesTimerId ? cancelSeriesTimer(seriesTimerId) : undefined), t("liveTv.recordingCanceled"), landed, null);
+  }, [run, rereadStandIn, timer, seriesTimerId]);
 
-  return { timer, busy, record, recordSeries, cancel, cancelSeries };
+  return { timer, seriesTimerId, busy, record, recordSeries, cancel, cancelSeries };
+}
+
+/** The live rule covering a program: linked from its timer in any status (a cancelled airing keeps the link), else the rule's own program. */
+export function programSeriesTimerId(timers: JellyfinTimer[], rules: JellyfinSeriesTimer[], programId?: string): string | null {
+  if (!programId) return null;
+  const linked = timers.find((candidate) => candidate.ProgramId === programId && candidate.SeriesTimerId)?.SeriesTimerId;
+  const rule = rules.find((candidate) => (linked ? candidate.Id === linked : candidate.ProgramId === programId));
+  return rule?.Id ?? null;
 }

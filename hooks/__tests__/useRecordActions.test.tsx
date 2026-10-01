@@ -1,6 +1,6 @@
 /** Record writes: a write that landed stands even when the re-read fails, and a cancel on that stand-in reads first. */
 import { useRecordActions, type RecordTarget } from "@/hooks/useRecordActions";
-import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
+import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
 import { showToast } from "@/services/toast";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
@@ -12,6 +12,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   createTimer: jest.fn(async () => {}),
   fetchTimerDefaults: jest.fn(async () => ({})),
   fetchTimers: jest.fn(async () => []),
+  fetchSeriesTimers: jest.fn(async () => []),
 }));
 jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
@@ -43,6 +44,7 @@ describe("useRecordActions", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(fetchTimers).mockResolvedValue([]);
+    jest.mocked(fetchSeriesTimers).mockResolvedValue([]);
   });
 
   it("a later program on a channel recording another offers Record, never the other's Stop", async () => {
@@ -85,9 +87,27 @@ describe("useRecordActions", () => {
     jest.mocked(fetchTimers).mockRejectedValueOnce(new Error("offline"));
     await act(async () => ref.current!.get().recordSeries());
     expect(createSeriesTimer).toHaveBeenCalledTimes(1);
-    expect(ref.current!.get().timer?.SeriesTimerId).toBeTruthy();
+    expect(ref.current!.get().seriesTimerId).toBeTruthy();
     await act(async () => ref.current!.get().cancelSeries());
     expect(cancelSeriesTimer).not.toHaveBeenCalled();
+  });
+
+  it("an airing cancelled out of a series still shows the rule set and cancels the rule by its id", async () => {
+    jest.mocked(fetchTimers).mockResolvedValue([{ ...serverTimer, Status: "Cancelled", SeriesTimerId: "s1" }] as never);
+    jest.mocked(fetchSeriesTimers).mockResolvedValue([{ Id: "s1", Name: "News", ProgramId: "p0" }] as never);
+    const ref = await mount();
+    expect(ref.current!.get().timer).toBeNull();
+    expect(ref.current!.get().seriesTimerId).toBe("s1");
+    jest.mocked(fetchSeriesTimers).mockResolvedValue([]);
+    await act(async () => ref.current!.get().cancelSeries());
+    expect(cancelSeriesTimer).toHaveBeenCalledWith("s1");
+    expect(ref.current!.get().seriesTimerId).toBeNull();
+  });
+
+  it("a timer linked to a deleted rule reads as no series", async () => {
+    jest.mocked(fetchTimers).mockResolvedValue([{ ...serverTimer, Status: "Cancelled", SeriesTimerId: "gone" }] as never);
+    const ref = await mount();
+    expect(ref.current!.get().seriesTimerId).toBeNull();
   });
 
   it("clears the timer when a stop landed but the re-read failed", async () => {

@@ -563,7 +563,7 @@ export default function VideoInfoScreen() {
   const showFolderCta = !live && !!folderLeafId && folderLeafId !== params.inFolderId;
   const shareable = photo && !IS_TV;
   const folderInRow = showFolderCta && (!isContainer || folderCtas.length < 2);
-  const seriesSet = !!recordTimer?.SeriesTimerId;
+  const seriesSet = !!recording.seriesTimerId;
   const extras: InfoExtraAction[] = [
     ...(isContainer ? folderCtas.slice(2).map((cta) => ({ key: cta.kind, icon: cta.icon, label: cta.title, onPress: () => handlePlayFolder(cta.kind) })) : []),
     ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), onPress: handleShowInFolder }] : []),
@@ -658,11 +658,11 @@ export default function VideoInfoScreen() {
             {seriesShown && (
               <FocusableButton
                 title={seriesSet ? t("liveTv.cancelSeries") : t("liveTv.recordSeries")}
-                variant="secondary"
+                variant="record"
                 hasTVPreferredFocus={!watchable && !recordShown}
                 isLoading={recording.busy === "series" || recording.busy === "cancelSeries"}
                 disabled={recording.busy !== null}
-                icon={<Ionicons name="repeat" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
+                icon={<Ionicons name="repeat" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
                 onPress={seriesSet ? recording.cancelSeries : recording.recordSeries}
               />
             )}

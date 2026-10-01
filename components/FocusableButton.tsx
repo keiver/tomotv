@@ -202,20 +202,20 @@ const styles = StyleSheet.create({
     color: COLORS.ACCENT,
   },
 
-  // Record variant: the secondary outline in recording red
+  // Record variant: the secondary outline; the caller's icon carries the recording red
   recordButton: {
     backgroundColor: "transparent",
-    borderColor: COLORS.DESTRUCTIVE,
+    borderColor: COLORS.ACCENT,
   },
   recordButtonFocused: {
-    backgroundColor: "rgba(255, 59, 48, 0.15)",
-    borderColor: COLORS.DESTRUCTIVE,
-    shadowColor: COLORS.DESTRUCTIVE,
+    backgroundColor: "rgba(255, 195, 18, 0.15)",
+    borderColor: COLORS.ACCENT_FOCUSED,
+    shadowColor: COLORS.ACCENT,
     shadowOpacity: 0.4,
     elevation: 6,
   },
   recordButtonText: {
-    color: COLORS.DESTRUCTIVE,
+    color: COLORS.ACCENT,
   },
 
   // Destructive variant (Red text)
