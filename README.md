@@ -193,6 +193,24 @@ every effect, and no scale animations on grid items.
 - **Server.** Jellyfin only.
 - **Network.** HTTP is allowed on every network. Use HTTPS beyond your LAN.
 
+## Disclaimer
+
+Tomo TV is a player. It hosts, distributes and ships no media, channels,
+playlists or guides: it plays what your Jellyfin server and the sources you add
+provide, and you are responsible for having the right to access them. It is
+provided as is, without warranty, under the MIT License.
+
+Tomo TV is an independent client, not affiliated with or endorsed by the
+Jellyfin project. Jellyfin is a trademark of its respective owner. Apple, Apple
+TV, iPhone, iPad and AirPlay are trademarks of Apple Inc. Dolby, Dolby Vision and
+Dolby Atmos are trademarks of Dolby Laboratories Licensing Corporation. All other
+marks belong to their owners.
+
+The screenshot above shows Big Buck Bunny, © 2008 Blender Foundation |
+bigbuckbunny.org, and Tears of Steel, (CC) Blender Foundation |
+mango.blender.org, both under CC BY 3.0. Rights concerns go to
+<contact@keiver.dev>.
+
 ## A Note on AI
 
 I use Claude and other AI tools for drafting code and documentation.
