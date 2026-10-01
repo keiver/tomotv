@@ -3,6 +3,7 @@ import {
   adjacentChannelId,
   cellAtEdge,
   cellGeometry,
+  cellInSpan,
   guideMetrics,
   guideWindowStart,
   isActiveTimer,
@@ -43,6 +44,16 @@ describe("guide geometry", () => {
   it("clips a cell that started before the window", () => {
     const cell = cellGeometry(T0 - 60 * MINUTE_MS, T0 + 30 * MINUTE_MS, T0, WINDOW_END, tv);
     expect(cell).toEqual({ left: 0, width: 240 });
+  });
+
+  it("finds a cell in a span by any overlap, its edges included", () => {
+    const span = { fromPx: 1000, toPx: 2000 };
+    expect(cellInSpan({ left: 500, width: 600 }, span)).toBe(true);
+    expect(cellInSpan({ left: 1900, width: 400 }, span)).toBe(true);
+    expect(cellInSpan({ left: 0, width: 5000 }, span)).toBe(true);
+    expect(cellInSpan({ left: 400, width: 600 }, span)).toBe(true);
+    expect(cellInSpan({ left: 0, width: 999 }, span)).toBe(false);
+    expect(cellInSpan({ left: 2001, width: 100 }, span)).toBe(false);
   });
 
   it("clips a cell that runs past the window end", () => {

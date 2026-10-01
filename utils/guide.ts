@@ -61,6 +61,17 @@ export function cellGeometry(startMs: number, endMs: number, windowStartMs: numb
   return { left, width };
 }
 
+/** A horizontal stretch of the canvas. */
+export interface CanvasSpan {
+  fromPx: number;
+  toPx: number;
+}
+
+/** True when any part of the cell lies inside the span. */
+export function cellInSpan(cell: CellGeometry, span: CanvasSpan): boolean {
+  return cell.left + cell.width >= span.fromPx && cell.left <= span.toPx;
+}
+
 export interface RulerTick {
   left: number;
   atMs: number;

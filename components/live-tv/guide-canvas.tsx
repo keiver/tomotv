@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import { LayoutChangeEvent, Platform, Animated as RNAnimated, StyleSheet, Text, TVFocusGuideView, useAnimatedValue, View } from "react-native";
+import { LayoutChangeEvent, Platform, Animated as RNAnimated, StyleSheet, Text, TVFocusGuideView, useAnimatedValue, View, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
@@ -35,6 +35,10 @@ const TAB_BAR_HEIGHT = 49;
 const attachNativeEvent = (RNAnimated as unknown as { attachNativeEvent: (view: unknown, eventName: string, mapping: unknown[]) => { detach: () => void } }).attachNativeEvent;
 /** The grid reaches this far under the channel column, the width of the grid line on the seam. */
 const SEAM_REACH = 1;
+/** A page or row must hold this long before its posters load. */
+const ART_SETTLE_MS = 150;
+const ART_ROW_VIEWABILITY = { itemVisiblePercentThreshold: 1, minimumViewTime: ART_SETTLE_MS };
+const NO_ROWS: ReadonlySet<string> = new Set();
 
 interface GuideCanvasProps {
   guide: GuideState;
@@ -98,6 +102,17 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const [mountPage, setMountPage] = useState(0);
   const mountPageUi = useSharedValue(0);
   const mountSpan = useMemo(() => (viewportWidth > 0 ? { fromPx: (mountPage - 2) * viewportWidth, toPx: (mountPage + 3) * viewportWidth } : undefined), [mountPage, viewportWidth]);
+  // Posters load only for the cells and rows in view, once the scroll rests there; a fling past loads none.
+  const [artPage, setArtPage] = useState(0);
+  useEffect(() => {
+    const timer = setTimeout(() => setArtPage(mountPage), ART_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [mountPage]);
+  const artSpan = useMemo(() => (viewportWidth > 0 ? { fromPx: artPage * viewportWidth, toPx: (artPage + 2) * viewportWidth } : undefined), [artPage, viewportWidth]);
+  const [artRows, setArtRows] = useState<ReadonlySet<string>>(NO_ROWS);
+  const handleRowsViewable = useCallback(({ viewableItems }: { viewableItems: ViewToken<GuideRowData>[] }) => {
+    setArtRows(new Set(viewableItems.map((token) => token.item.channel.Id)));
+  }, []);
 
   // Within a viewport of the loaded edge: grow the window before the viewer reaches it.
   const horizontalHandler = useAnimatedScrollHandler({
@@ -282,6 +297,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         scrollX={nativeScrollX}
         viewportWidth={viewportWidth}
         mountSpan={mountSpan}
+        artSpan={artSpan}
+        artInView={artRows.has(item.channel.Id)}
         rowIndex={index}
         snapOffset={rowSnapOffset}
         nextFocusUp={index === 0 ? topFocusHandle : undefined}
@@ -302,6 +319,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       nativeScrollX,
       viewportWidth,
       mountSpan,
+      artSpan,
+      artRows,
       rowSnapOffset,
       topFocusHandle,
       targetsFor,
@@ -435,6 +454,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
               scrollEventThrottle={16}
               onEndReached={loadMoreRows}
               onEndReachedThreshold={1}
+              viewabilityConfig={ART_ROW_VIEWABILITY}
+              onViewableItemsChanged={handleRowsViewable}
               showsVerticalScrollIndicator={false}
               removeClippedSubviews={!IS_TV}
               // Three viewports each side mounted ahead of a held press, in small batches so rows

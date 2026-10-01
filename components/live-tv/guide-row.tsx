@@ -2,7 +2,7 @@ import { GRID_LINE, GuideCell, type RecordingMark } from "@/components/live-tv/g
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { cellGeometry, NO_GUIDE_PREFIX, programTimes, type GuideMetrics } from "@/utils/guide";
+import { cellGeometry, cellInSpan, NO_GUIDE_PREFIX, programTimes, type CanvasSpan, type GuideMetrics } from "@/utils/guide";
 import React, { useCallback, useRef, useState } from "react";
 import { Platform, type Animated, StyleSheet, View } from "react-native";
 
@@ -31,7 +31,10 @@ interface GuideRowProps {
   /** The rows' visible width: a reel longer than the screen fades at its edge. */
   viewportWidth: number;
   /** Only cells overlapping this horizontal span mount; undefined mounts every cell. */
-  mountSpan?: { fromPx: number; toPx: number };
+  mountSpan?: CanvasSpan;
+  /** Cells overlapping this span show their poster, when the row itself is in view; undefined shows none. */
+  artSpan?: CanvasSpan;
+  artInView?: boolean;
   rowIndex: number;
   /** TV: where a focus scroll lands this row's top in the list (react-native-tvos item snap). */
   snapOffset?: number;
@@ -86,6 +89,8 @@ function GuideRowComponent({
   scrollX,
   viewportWidth,
   mountSpan,
+  artSpan,
+  artInView = false,
   rowIndex,
   snapOffset,
   nextFocusUp,
@@ -129,7 +134,8 @@ function GuideRowComponent({
           const { startMs, endMs } = programTimes(program);
           const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
           if (!geometry || !program.Id) return null;
-          if (mountSpan && (geometry.left + geometry.width < mountSpan.fromPx || geometry.left > mountSpan.toPx)) return null;
+          if (mountSpan && !cellInSpan(geometry, mountSpan)) return null;
+          const showArt = artInView && artSpan !== undefined && cellInSpan(geometry, artSpan);
           const targets = focusTargets?.programId === program.Id ? focusTargets : undefined;
           return (
             <GuideCell
@@ -142,6 +148,7 @@ function GuideRowComponent({
               recording={recordingMark(program, timersByProgramId)}
               scrollX={scrollX}
               viewportWidth={viewportWidth}
+              showArt={showArt}
               nextFocusUp={targets?.up ?? nextFocusUp}
               nextFocusDown={targets?.down}
               hasTVPreferredFocus={focusProgramId === program.Id}

@@ -42,6 +42,8 @@ interface GuideCellProps {
   /** The canvas's native-driven horizontal offset; the label rides it so it stays on the visible edge. */
   scrollX: RNAnimated.Value;
   viewportWidth?: number;
+  /** The poster loads only while this holds; the canvas sets it for the cells in view once scrolling settles. */
+  showArt?: boolean;
   onPress: (program: JellyfinProgram) => void;
   onLongPress: (program: JellyfinProgram) => void;
   onFocus?: (program: JellyfinProgram) => void;
@@ -67,6 +69,7 @@ function GuideCellComponent({
   recording,
   scrollX,
   viewportWidth,
+  showArt = true,
   onPress,
   onLongPress,
   onFocus,
@@ -87,7 +90,7 @@ function GuideCellComponent({
   // One line under the titles: the slot, then whatever the guide source filled in.
   // A guide's "no info available" placeholder gets no slot of its own.
   const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter((part) => part && !NO_INFO.test(part)).join("  ·  ");
-  const art = program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
+  const art = showArt && program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
   // The art box is the picture's own shape at the cell's height, cut down to what fits past the
   // text; the picture keeps its right end, and the fade spans the box so the bleed starts at its edge.
   const artWidth = Math.min(Math.round(height * (program.PrimaryImageAspectRatio || 16 / 9)), Math.max(0, width - ART_START));
