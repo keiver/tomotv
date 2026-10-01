@@ -10,7 +10,7 @@ All notable changes to Tomo TV are documented here.
 - Guide sources, in Channel Settings: listings for channels the server has none for, from any number of XMLTV guides you add and the guides your tuner playlists declare, asked in order. A channel is matched by its tvg-id, then its tvg-name, then its name, letter case aside. The screen shows each guide's status, how many channels it matched and which, its size on the device and when it last downloaded, turns a guide off, and clears the downloaded files. A downloaded guide is reused for an hour, and Refresh guide downloads the guides again and reports how it went
 - Live TV search: Search lists matching channels and programmes on a Live TV shelf above the library results, channels first, then programmes by start time, ended ones left out. The channel wall has a search of its own
 - Channel health: a channel whose source refuses it twice wears Offline, and Hide offline in Channel Settings leaves those channels out of the guide and the wall
-- Channel cards rest on their channel's newest frame and loop a five-second clip recorded on the device: on Apple TV while they or their guide row hold focus, on iPhone, iPad and Mac every card on screen while the channel column is at full width. A channel with no listings reads "No listings for" its name in the guide, and shows its recent frames under one "Seen at" caption
+- Channel cards rest on their channel's newest frame and loop a five-second clip recorded on the device: on Apple TV while they or their guide row hold focus, on iPhone, iPad and Mac every card on screen while the channel column is at full width. A channel with no listings reads "No listings for" its name in the guide, and shows its recent frames under one "Seen at" caption. The clip is encoded on the device at 360p, 15 frames a second and 1 Mbps, so a wall of cards loops small files, and a clip cut off while it is written is never looped
 - Dragging the guide's time ruler scrolls the grid, with a fling on release
 - Record from the player on Apple TV: a Record button in the playback controls records the programme on air, and a channel with no guide records for the Recording length set in Channel Settings (30 minutes to 3 hours, 2 hours by default). The button reads Stop Recording while a timer records
 - A heart in the Apple TV playback controls adds the video or live channel to favorites, or removes it
@@ -26,6 +26,9 @@ All notable changes to Tomo TV are documented here.
 ### Changed
 
 - The info panel's secondary actions are glass circles beneath its main buttons
+- On a series programme's info panel, Record Series or Cancel Series is a button beside Watch and Record, and the record buttons wear the gold outline with a red icon
+- The info panel's playback line (Direct Play, Re-encoded on this device, or Transcoded by the server) sits in a Playback section at the end of the panel, so the header reads the same for every file and connection
+- On iPad the info panel's centred card is at most 900 points tall, and a longer panel scrolls inside it
 - The guide ruler shows the current time in gold above its labels
 - Names written by a metadata scraper with HTML entities, such as "&amp;", read as the character they stand for in the app's screens
 - Episode cards take the same landscape slot as the other cards in a folder grid, whatever the shape of their still
@@ -42,7 +45,10 @@ All notable changes to Tomo TV are documented here.
 ### Fixed
 
 - On Apple TV a live channel on screen that dies shows its error screen with Retry focused, and Menu from it no longer sends the app to the background
-- A video paused from the playback controls for more than five minutes stays paused when playback rebuilds after a stream error
+- A video paused from the playback controls stays paused through a stall, a rebuild after a stream error, an audio track switch and a seek, and one press of the space bar on a Mac resumes it
+- Cancelling one airing of a series keeps Cancel Series on its info panel: the panel reads the server's series rules
+- A long horizontal scroll through the guide no longer piles up cells: a row mounts only the cells within two viewports of the one in view
+- Guide posters load only for the rows and cells in view once the scroll rests, so a fling past them loads none
 - A stream error after the player screen has closed ends playback instead of retrying a player that cannot return
 - Channels either side of the one playing warm up only for 30 seconds after a flip, so they no longer starve the playing channel on a slow connection
 - The guide no longer pulls the focused row to the top on every move
