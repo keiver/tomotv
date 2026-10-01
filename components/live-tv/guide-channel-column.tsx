@@ -66,6 +66,7 @@ export function GuideChannelColumn({
   onEndReached,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
+  const { viewabilityConfig, onViewableItemsChanged, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const firstCardRef = useCallback(
     (node: React.ElementRef<typeof GuideChannelCard> | null) => {
       onFirstHandle?.(node ? (findNodeHandle(node) ?? undefined) : undefined);
@@ -105,6 +106,7 @@ export function GuideChannelColumn({
             onItemFocus={cardFocus}
             onItemBlur={cardBlur}
             playsClipInView
+            inView={visibleChannelIds.has(item.Id)}
           />
         ) : (
           <ChannelMorph
@@ -113,6 +115,7 @@ export function GuideChannelColumn({
             metrics={metrics}
             columnWidth={columnWidth}
             compact={compact}
+            inView={visibleChannelIds.has(item.Id)}
             titleIcon={favoriteMark(preferences, item)}
             recording={recordingChannelIds.has(item.Id)}
             onPress={onChannelPress}
@@ -121,9 +124,8 @@ export function GuideChannelColumn({
         )}
       </View>
     ),
-    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef],
+    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, visibleChannelIds],
   );
-  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
     [metrics.rowHeight],
@@ -172,6 +174,7 @@ function ChannelMorph({
   metrics,
   columnWidth,
   compact,
+  inView,
   titleIcon,
   recording,
   onPress,
@@ -182,6 +185,7 @@ function ChannelMorph({
   metrics: GuideMetrics;
   columnWidth: SharedValue<number>;
   compact: boolean;
+  inView: boolean;
   titleIcon?: "heart";
   recording: boolean;
   onPress: (channel: JellyfinItem) => void;
@@ -211,6 +215,7 @@ function ChannelMorph({
           onPress={onPress}
           onLongPress={onLongPress}
           playsClipInView={!compact}
+          inView={inView && !compact}
         />
       </Animated.View>
       <Animated.View style={[styles.tileLayer, { width: metrics.compactColumnWidth }, tileStyle]} pointerEvents={compact ? "auto" : "none"}>

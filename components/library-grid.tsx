@@ -565,6 +565,7 @@ export function LibraryGrid({
                   titleIcon={titleIconFor?.(item)}
                   recording={recordingFor?.(item)}
                   playsClipInView={clipIds.has(item.Id)}
+                  inView={clipIds.has(item.Id)}
                 />
               );
             }
