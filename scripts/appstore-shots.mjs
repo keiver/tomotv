@@ -28,6 +28,7 @@
  *                                    shoot each booted phone/tablet's status bar at 9:41 into applestore/statusbar
  *
  * Every phone and tablet render swaps the capture's status bar for that reference ink.
+ * A shot's `platforms.<device>` replaces its copy or capture on that device; see shots.schema.json.
  * A file whose name starts with a shot id claims that slot; the rest fill the
  * remaining slots in the order they were taken.
  *
@@ -95,13 +96,11 @@ function loadConfig(localeOverride) {
   if (!l10n) fail(`No "${locale}" in config.locales. Have: ${Object.keys(config.locales ?? {}).join(", ") || "none"}`);
   config.locale = locale;
   setFonts(l10n?.fonts);
-  // Untranslated captions fall back to English rather than rendering a blank plate.
   for (const shot of config.shots) {
-    const t = shot.l10n?.[locale];
-    if (t?.title) shot.title = t.title;
-    if (t?.spec) shot.spec = t.spec;
-    if (t?.eyebrow) shot.eyebrow = t.eyebrow;
+    const why = platformProblem(shot);
+    if (why) fail(`${shot.id}: ${why}`);
   }
+  for (const gap of untranslated(config.shots, locale)) console.log(`   ! ${locale} ${gap}, using the English`);
   // Every language gets its own folder, English included, so no set is the odd one out.
   config.output = path.join(config.output, locale);
 
@@ -139,7 +138,46 @@ const capturePath = (deviceKey, id, locale = "en") => (locale === "en" ? path.jo
 const outputRoot = (config) => path.resolve(ROOT, config.output);
 const outputPath = (config, deviceKey, id) => path.join(outputRoot(config), deviceKey, `${id}.png`);
 
-const plan = (config) => Object.keys(config.devices).map((deviceKey) => ({ deviceKey, shots: config.shots.filter((s) => s.devices.includes(deviceKey)) }));
+const TEXT = ["title", "spec", "eyebrow"];
+const PLATFORM_KEYS = [...TEXT, "accent", "capture"];
+
+/**
+ * One shot as one device shows it in one language. Most specific wins: the language's
+ * device copy, the device's copy, the language, the shot. Untranslated copy stays English.
+ */
+function resolveShot(shot, deviceKey, locale) {
+  const own = shot.platforms?.[deviceKey] ?? {};
+  const t = shot.l10n?.[locale] ?? {};
+  const tOwn = t.platforms?.[deviceKey] ?? {};
+  const out = { ...shot };
+  for (const k of TEXT) out[k] = tOwn[k] ?? own[k] ?? t[k] ?? shot[k];
+  for (const k of ["accent", "capture"]) out[k] = own[k] ?? shot[k];
+  return out;
+}
+
+/** Why a shot's platforms or l10n platforms name a device it does not ship on, or a key no device takes. */
+function platformProblem(shot) {
+  const sets = [["platforms", shot.platforms, PLATFORM_KEYS], ...Object.entries(shot.l10n ?? {}).map(([loc, t]) => [`l10n.${loc}.platforms`, t.platforms, TEXT])];
+  for (const [where, map, allowed] of sets) {
+    for (const [device, values] of Object.entries(map ?? {})) {
+      if (shot.devices && !shot.devices.includes(device)) return `${where}.${device} is set but ${device} is not in devices`;
+      const bad = Object.keys(values).filter((k) => !allowed.includes(k));
+      if (bad.length) return `${where}.${device} has ${bad.join(", ")}; it takes ${allowed.join(", ")}`;
+    }
+  }
+  return null;
+}
+
+/** Device copy written in English with no translation for this language. */
+function untranslated(shots, locale) {
+  if (locale === "en") return [];
+  return shots.flatMap((s) =>
+    Object.entries(s.platforms ?? {}).flatMap(([device, own]) => TEXT.filter((k) => own[k] && !s.l10n?.[locale]?.platforms?.[device]?.[k]).map((k) => `${s.id} has no ${device} ${k}`)),
+  );
+}
+
+const plan = (config) =>
+  Object.keys(config.devices).map((deviceKey) => ({ deviceKey, shots: config.shots.filter((s) => s.devices.includes(deviceKey)).map((s) => resolveShot(s, deviceKey, config.locale)) }));
 
 /**
  * Captures adopted before the set went upright are still on disk, so the shape
@@ -403,6 +441,23 @@ function selfCheck() {
 
   const numbered = assign(shots, [file("02 grid.png")]);
   check("a bare leading number claims its shot", numbered.byShot.get("02-grid")?.name === "02 grid.png");
+
+  const shot = {
+    id: "02-player",
+    title: "BASE",
+    spec: "base spec",
+    capture: { path: "/player" },
+    platforms: { tv: { spec: "tv spec", capture: { path: "/live-tv" } } },
+    l10n: { de: { title: "DE", spec: "de spec", platforms: { tv: { title: "DE TV" } } } },
+  };
+  check("a device's own copy replaces the shot's", resolveShot(shot, "tv", "en").spec === "tv spec" && resolveShot(shot, "iphone", "en").spec === "base spec");
+  check("a language's device copy beats every other", resolveShot(shot, "tv", "de").title === "DE TV");
+  check("an untranslated device line stays English, not the language's shared line", resolveShot(shot, "tv", "de").spec === "tv spec");
+  check("the language's shared line covers devices without their own", resolveShot(shot, "ipad", "de").spec === "de spec");
+  check("a device's capture replaces the shot's", resolveShot(shot, "tv", "en").capture.path === "/live-tv" && resolveShot(shot, "ipad", "en").capture.path === "/player");
+  check("a device copy for a device the shot skips is refused", platformProblem({ ...shot, devices: ["iphone"] })?.includes("tv is not in devices"));
+  check("a translation cannot move the capture", platformProblem({ ...shot, l10n: { de: { platforms: { tv: { capture: {} } } } } })?.includes("it takes"));
+  check("a missing device translation is reported", untranslated([shot], "de").join() === "02-player has no tv spec");
 
   // A 100x60 dark frame: bar ink at rows 10-14, app chrome at rows 30-34, one stray edge pixel.
   const W = 100;

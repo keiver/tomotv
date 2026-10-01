@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "App Store screenshot plan",
+  "description": "Read by scripts/appstore-shots.mjs. A caption resolves most specific first: l10n.<locale>.platforms.<device>, platforms.<device>, l10n.<locale>, the shot.",
+  "type": "object",
+  "required": ["output", "background", "locales", "devices", "shots"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "output": { "type": "string", "description": "Render root, relative to the repo; each locale writes its own folder under it." },
+    "background": { "type": "string", "description": "A name in applestore/backgrounds, with or without extension, or a repo path." },
+    "locales": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/locale" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fonts": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "display": { "type": "array", "items": { "type": "string" } },
+              "sub": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "devices": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/device" },
+      "additionalProperties": { "type": "object", "maxProperties": 0 }
+    },
+    "shots": { "type": "array", "items": { "$ref": "#/$defs/shot" } }
+  },
+  "$defs": {
+    "device": { "enum": ["iphone", "ipad", "tv"] },
+    "locale": { "type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$" },
+    "text": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Headline; \\n breaks the line, the last line takes the gold accent." },
+        "spec": { "type": "string", "description": "The line on the gold footer band." },
+        "eyebrow": { "type": "string", "description": "Small caps line above the headline." }
+      }
+    },
+    "capture": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "description": "Deep link path; {library:Name} and {item:Name} resolve against the server." },
+        "params": { "type": "object", "additionalProperties": { "type": "string" } },
+        "ready": { "enum": ["session"], "description": "session: shoot once the server reports the video playing." }
+      }
+    },
+    "platform": {
+      "description": "What this device shows instead of the shot's own values.",
+      "allOf": [{ "$ref": "#/$defs/text" }],
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "accent": { "type": "integer", "description": "Headline line drawn in gold; -1 for none." },
+        "capture": { "$ref": "#/$defs/capture" }
+      }
+    },
+    "translation": {
+      "allOf": [{ "$ref": "#/$defs/text" }],
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "platforms": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/device" },
+          "additionalProperties": { "type": "object", "allOf": [{ "$ref": "#/$defs/text" }], "unevaluatedProperties": false }
+        }
+      }
+    },
+    "shot": {
+      "allOf": [{ "$ref": "#/$defs/text" }],
+      "type": "object",
+      "required": ["id", "title", "capture"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^\\d{2}-[a-z0-9-]+$", "description": "Slot order and capture file name." },
+        "accent": { "type": "integer" },
+        "devices": { "type": "array", "items": { "$ref": "#/$defs/device" }, "uniqueItems": true },
+        "capture": { "$ref": "#/$defs/capture" },
+        "platforms": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/device" },
+          "additionalProperties": { "$ref": "#/$defs/platform" }
+        },
+        "l10n": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/locale" },
+          "additionalProperties": { "$ref": "#/$defs/translation" }
+        }
+      }
+    }
+  }
+}
