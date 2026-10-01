@@ -19,6 +19,7 @@ All notable changes to Tomo TV are documented here.
 - Short confirmations appear as a one-line strip: a recording started, with its length, or stopped, and a guide refresh starting, finishing or failing
 - Server admins can delete an item and its files from the server in the info panel, after a confirmation
 - On Apple TV, Live TV is a tab of its own when the server has a Live TV library
+- On Apple TV the speed above Streaming Quality in Settings takes focus, and selecting it measures again
 - On a Mac, Escape on a scrolled guide returns it to the first channel before it leaves the screen
 - A grid card's badge carries the watched eye, except on music
 
@@ -63,6 +64,12 @@ All notable changes to Tomo TV are documented here.
 - Show in Folder opens the folder already holding the item, instead of drawing the folder's top first
 - A play queue still being built no longer replaces a newer one started from another folder
 - High-bitrate files no longer run the Apple TV out of memory: the player's forward buffer is held to about 200 MB, and the engine writes each segment without a second full copy
+- A resumed recording no longer waits forever while getting the video ready: a segment that opens past its start restarts a segment earlier at once and is served short after three tries, and an MPEG-TS resume seeks once instead of twice
+- The Settings speed test stops when playback starts or the server or account changes, and a read cut off before its ten seconds is not kept
+- A live preview that finds the picture unchanged no longer counts as a lost connection to its provider
+- Guide and wall cards off screen, on a screen out of focus or during playback hold no preview player
+- A guide refresh drops programmes the server no longer lists, and a guide source that fails keeps its listings
+- A deleted item leaves the search results
 
 ## [2.2.8]
 
