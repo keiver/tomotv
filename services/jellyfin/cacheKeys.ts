@@ -69,6 +69,7 @@ export function invalidateItemRemoved(userId: string, itemId: string): void {
   invalidateByPrefix(`viewLeaves:${userId}:`);
   invalidateByPrefix(`folderpreview:${userId}:`);
   invalidateByPrefix(`viewcount:${userId}:`);
+  invalidateByPrefix(`search:${userId}:`);
   patchFolderCacheItem(itemId, null);
   notifyItemRemoved(itemId);
   notifyResumeChange();

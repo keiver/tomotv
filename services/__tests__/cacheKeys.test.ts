@@ -25,6 +25,8 @@ const LISTING_KEYS = [
   "viewLeaves:u:v:none",
   "folderpreview:u:f",
   "viewcount:u:v",
+  "search:u:film::0:60",
+  "search:u:film:2026:60:60",
 ];
 
 async function isCached(key: string): Promise<boolean> {
@@ -44,7 +46,26 @@ describe("invalidateItemRemoved", () => {
 
   it("leaves another user's reads alone", async () => {
     await cachedRequest("viewLeaves:other:v:none", async () => "old", TTL);
+    await cachedRequest("search:other:film::0:60", async () => "old", TTL);
     invalidateItemRemoved("u", "abc");
     expect(await isCached("viewLeaves:other:v:none")).toBe(true);
+    expect(await isCached("search:other:film::0:60")).toBe(true);
+  });
+
+  it("prevents an in-flight search from repopulating the cache after deletion", async () => {
+    const key = "search:u:film::0:60";
+    let finish!: (items: string[]) => void;
+    const pending = cachedRequest(
+      key,
+      () =>
+        new Promise<string[]>((resolve) => {
+          finish = resolve;
+        }),
+      TTL,
+    );
+    invalidateItemRemoved("u", "abc");
+    finish(["abc"]);
+    await pending;
+    expect(await cachedRequest(key, async () => [], TTL)).toEqual([]);
   });
 });

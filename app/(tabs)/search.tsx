@@ -16,6 +16,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { connectToDemoServer, searchLiveTv, searchVideos } from "@/services/jellyfinApi";
+import { subscribeItemRemoved } from "@/services/jellyfin/events";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -171,6 +172,17 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
       }
     }, 300);
   }, []);
+
+  useEffect(
+    () =>
+      subscribeItemRemoved((itemId) => {
+        setSearchResults((items) => items.filter((item) => item.Id !== itemId));
+        setLiveResults((items) => items.filter((item) => item.Id !== itemId));
+        // Retire pending responses and read the newly invalidated search cache.
+        handleSearch({ nativeEvent: { query } });
+      }),
+    [query, handleSearch],
+  );
 
   // The native field has no JS-settable text, so a seeded query drives the results only.
   const seeded = useRef(false);
@@ -373,6 +385,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       setIsLoadingMore(true);
     } else {
       setIsSearching(true);
+      setIsLoadingMore(false);
       setSearchError(null);
       nextStartIndexRef.current = 0;
       setHasMoreResults(false);
@@ -406,10 +419,9 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
         setLiveResults([]);
       }
     } finally {
-      if (append) {
-        setIsLoadingMore(false);
-      } else if (seq === searchSeqRef.current) {
-        setIsSearching(false);
+      if (seq === searchSeqRef.current) {
+        if (append) setIsLoadingMore(false);
+        else setIsSearching(false);
       }
     }
   }, []);
@@ -419,6 +431,23 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       executeSearch(searchQuery.trim());
     }
   }, [searchQuery, executeSearch]);
+
+  useEffect(
+    () =>
+      subscribeItemRemoved((itemId) => {
+        setSearchResults((items) => items.filter((item) => item.Id !== itemId));
+        setLiveResults((items) => items.filter((item) => item.Id !== itemId));
+        ++searchSeqRef.current;
+        if (searchDelayRef.current) clearTimeout(searchDelayRef.current);
+        setIsLoadingMore(false);
+        setHasMoreResults(false);
+        // Deletion shifts server offsets. Reload page zero so the next page cannot skip an item,
+        // and the response of a page already in flight cannot bring the deleted card back.
+        if (searchQuery.trim().length >= 2) void executeSearch(searchQuery);
+        else setIsSearching(false);
+      }),
+    [searchQuery, executeSearch],
+  );
 
   const handleLoadMore = useCallback(() => {
     if (hasMoreResults && !isLoadingMore && !isSearching && activeQuery) {
@@ -478,6 +507,8 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       setLiveResults([]);
       setSearchError(null);
       setIsSearching(false);
+      setIsLoadingMore(false);
+      setHasMoreResults(false);
       return;
     }
 
