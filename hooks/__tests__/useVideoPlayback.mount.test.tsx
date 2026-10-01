@@ -9,7 +9,7 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
-import { ENGINE_SEGMENT_DEADLINE_MS, LIVE_STALL_DEADLINE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
+import { DIRECT_STALL_DEADLINE_MS, ENGINE_SEGMENT_DEADLINE_MS, LIVE_STALL_DEADLINE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
 import { AUTOMATIC_RETRY_BUDGET_MS } from "@/hooks/videoPlayback/errorRecovery";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import {
@@ -17,6 +17,7 @@ import {
   fetchVideoDetails,
   getTranscodingStreamUrl,
   getVideoStreamUrl,
+  isAudioOnly,
   isLiveSource,
   needsTranscoding,
   getTextSubtitleStreams,
@@ -2436,6 +2437,295 @@ describe("useVideoPlayback (mounted)", () => {
       } finally {
         jest.useRealTimers();
       }
+    });
+  });
+
+  // RNV reports AVKit's own pause and play as isPlaying edges; a stall (waitingToPlay) sends none.
+  describe("a pause from the player controls", () => {
+    const nativePause = { isPlaying: false, isSeeking: false };
+    const nativePlay = { isPlaying: true, isSeeking: false };
+    const callbacks = (ref: React.RefObject<HookRef | null>) => ref.current!.get().videoCallbacks;
+
+    /** Runs timers and promise hops until the stream URL the player mounts with is set. */
+    async function settleStream(ref: React.RefObject<HookRef | null>) {
+      for (let round = 0; round < 20 && ref.current!.get().sourceUri === null; round++) {
+        await act(async () => {
+          jest.advanceTimersByTime(100);
+          for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+        });
+      }
+      expect(ref.current!.get().sourceUri).not.toBeNull();
+    }
+
+    /** Loads the stream and lets its auto-play land. */
+    async function load(ref: React.RefObject<HookRef | null>) {
+      await settleStream(ref);
+      await act(async () => {
+        callbacks(ref).onLoad({ duration: 120 } as never);
+        jest.advanceTimersByTime(101);
+        for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+      });
+    }
+
+    /** Loads the session and plays it past the stable-playback mark. */
+    async function playToStable(ref: React.RefObject<HookRef | null>) {
+      await load(ref);
+      expect(ref.current!.get().paused).toBe(false);
+      await act(async () => {
+        callbacks(ref).onProgress({ currentTime: 10, playableDuration: 30, seekableDuration: 120 } as never);
+        callbacks(ref).onPlaybackStateChanged(nativePlay as never);
+        jest.advanceTimersByTime(501);
+      });
+    }
+
+    /** Fails the session in the order AVPlayer reports it (error, buffer flag clearing, PAUSED) and loads the retry. */
+    async function failAndReload(ref: React.RefObject<HookRef | null>) {
+      await act(async () => {
+        callbacks(ref).onError({ error: { code: -12971, domain: "CoreMediaErrorDomain" } } as never);
+        callbacks(ref).onBuffer({ isBuffering: false });
+        callbacks(ref).onPlaybackStateChanged(nativePause as never);
+        jest.advanceTimersByTime(1);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+        for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+      });
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+      await load(ref);
+    }
+
+    function mockVideoRef(ref: React.RefObject<HookRef | null>) {
+      const video = { seek: jest.fn(), resume: jest.fn() };
+      (ref.current!.get().videoRef as { current: unknown }).current = video;
+      return video;
+    }
+
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    // Streamed video never plays direct (laneDecision networkVideo); a streamed audio file does.
+    describe("on a direct audio stream that stalls", () => {
+      beforeEach(() => {
+        (isAudioOnly as jest.Mock).mockReturnValue(true);
+        mockDetails.mockResolvedValue(videoItem({ Type: "Audio", MediaSources: [{ Id: "source-1", Container: "mp3", Bitrate: 320_000 }], MediaStreams: [{ Type: "Audio", Index: 0, Codec: "mp3" }] }));
+      });
+      afterEach(() => (isAudioOnly as jest.Mock).mockReturnValue(false));
+
+      async function stall(ref: React.RefObject<HookRef | null>, between: () => void) {
+        await act(async () => {
+          callbacks(ref).onBuffer({ isBuffering: true });
+          between();
+          jest.advanceTimersByTime(DIRECT_STALL_DEADLINE_MS * 3);
+          for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+        });
+      }
+
+      it("leaves a session the viewer paused during the stall alone", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        expect(ref.current!.get().state).toMatchObject({ mode: "direct" });
+        await playToStable(ref);
+        await stall(ref, () => callbacks(ref).onPlaybackStateChanged(nativePause as never));
+        expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
+        expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/stream.mkv");
+      });
+
+      it("re-routes a stall nobody paused", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await stall(ref, () => {});
+        expect(mockProbeEmit).toHaveBeenCalledWith("fallback", expect.objectContaining({ reason: "silent stall" }));
+      });
+
+      it("re-routes a stall the viewer paused and played again", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await stall(ref, () => {
+          callbacks(ref).onPlaybackStateChanged(nativePause as never);
+          callbacks(ref).onPlaybackStateChanged(nativePlay as never);
+        });
+        expect(mockProbeEmit).toHaveBeenCalledWith("fallback", expect.objectContaining({ reason: "silent stall" }));
+      });
+    });
+
+    describe("across a rebuild after an error", () => {
+      beforeEach(() => {
+        (isLocalRemuxAvailable as jest.Mock).mockReturnValue(true);
+        mockCanRemux.mockResolvedValue(true);
+      });
+
+      it("comes back paused when the viewer paused a minute before", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await act(async () => {
+          callbacks(ref).onPlaybackStateChanged(nativePause as never);
+          jest.advanceTimersByTime(60_000);
+        });
+        await failAndReload(ref);
+        expect(ref.current!.get().paused).toBe(true);
+      });
+
+      it("comes back playing when the viewer was watching", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await failAndReload(ref);
+        expect(ref.current!.get().paused).toBe(false);
+      });
+
+      it("comes back playing when the rebuilt session fails again before it plays", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await failAndReload(ref);
+        await act(async () => {
+          callbacks(ref).onError({ error: { code: -12971, domain: "CoreMediaErrorDomain" } } as never);
+          jest.advanceTimersByTime(1);
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(500);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        await load(ref);
+        expect(ref.current!.get().paused).toBe(false);
+      });
+    });
+
+    describe("on a live channel that drops", () => {
+      beforeEach(() => {
+        (isLiveSource as jest.Mock).mockReturnValue(true);
+        mockNeedsTranscoding.mockReturnValue(true);
+        mockCanRemux.mockResolvedValue(true);
+        mockDetails.mockResolvedValue(
+          videoItem({
+            Type: "TvChannel",
+            RunTimeTicks: undefined,
+            MediaSources: [{ Id: "source-1", Container: "hls", IsInfiniteStream: true }],
+            liveStreamUrl: "https://origin/live/high.m3u8",
+          }),
+        );
+      });
+
+      async function drop(ref: React.RefObject<HookRef | null>) {
+        await act(async () => {
+          callbacks(ref).onError({ error: { errorString: "Could not connect to the server.", code: -1004 } } as never);
+          callbacks(ref).onBuffer({ isBuffering: false });
+          callbacks(ref).onPlaybackStateChanged(nativePause as never);
+          jest.advanceTimersByTime(1);
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(600);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+        await load(ref);
+      }
+
+      it("reopens playing when the drop's own pause edge follows the error", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await drop(ref);
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+        expect(ref.current!.get().paused).toBe(false);
+      });
+
+      it("reopens paused when the viewer paused before the drop", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await act(async () => {
+          callbacks(ref).onPlaybackStateChanged(nativePause as never);
+        });
+        await drop(ref);
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+        expect(ref.current!.get().paused).toBe(true);
+      });
+    });
+
+    describe("on a seek", () => {
+      it("does not resume a session the viewer paused", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        const video = mockVideoRef(ref);
+        await act(async () => {
+          callbacks(ref).onPlaybackStateChanged(nativePause as never);
+          ref.current!.get().seekBy(10);
+          callbacks(ref).onSeek();
+        });
+        expect(video.seek).toHaveBeenCalledWith(20);
+        expect(video.resume).not.toHaveBeenCalled();
+      });
+
+      it("resumes a playing session through RNV's own seek pause", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        const video = mockVideoRef(ref);
+        await act(async () => {
+          ref.current!.get().seekBy(10);
+          callbacks(ref).onPlaybackStateChanged({ isPlaying: false, isSeeking: true } as never);
+          callbacks(ref).onSeek();
+        });
+        expect(video.resume).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe("on an audio switch that restarts the stream", () => {
+      beforeEach(() => {
+        mockNeedsTranscoding.mockReturnValue(true);
+        mockDetails.mockResolvedValue(
+          videoItem({
+            MediaStreams: [
+              { Type: "Video", Index: 0, Codec: "mpeg2video" },
+              { Type: "Audio", Index: 1, Codec: "aac", Language: "eng" },
+              { Type: "Audio", Index: 2, Codec: "aac", Language: "spa" },
+            ],
+          }),
+        );
+        (getAudioTracks as jest.Mock).mockImplementation(jest.requireActual("@/services/multiAudioLoader").getAudioTracks);
+      });
+
+      it("comes back paused when the viewer paused from the controls", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        expect(ref.current!.get().state).toMatchObject({ mode: "transcode" });
+        await playToStable(ref);
+        const tracks = (selected: number) => ({ audioTracks: [0, 1].map((index) => ({ index, selected: index === selected })) }) as never;
+        await act(async () => {
+          callbacks(ref).onAudioTracks(tracks(0));
+          callbacks(ref).onPlaybackStateChanged(nativePause as never);
+        });
+        const before = mockTranscodeUrl.mock.calls.length;
+        await act(async () => {
+          callbacks(ref).onAudioTracks(tracks(1));
+          jest.advanceTimersByTime(1);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        expect(mockTranscodeUrl.mock.calls.length).toBe(before + 1);
+        await load(ref);
+        await act(async () => {
+          jest.advanceTimersByTime(101);
+          for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+        });
+        expect(ref.current!.get().paused).toBe(true);
+      });
+    });
+
+    describe("on the play/pause toggle", () => {
+      it("plays a session the viewer paused from the controls in one press", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        const video = mockVideoRef(ref);
+        await act(async () => {
+          callbacks(ref).onPlaybackStateChanged(nativePause as never);
+          ref.current!.get().togglePlay();
+        });
+        expect(ref.current!.get().paused).toBe(false);
+        expect(video.resume).toHaveBeenCalledTimes(1);
+      });
+
+      it("pauses a playing session", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await act(async () => {
+          ref.current!.get().togglePlay();
+        });
+        expect(ref.current!.get().paused).toBe(true);
+      });
     });
   });
 });

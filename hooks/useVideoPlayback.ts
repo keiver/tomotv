@@ -90,7 +90,7 @@ import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
 import { getQualitySettings } from "@/services/jellyfin/session";
 import { videoPlayerReducer, type PlaybackMode, type PlaybackTransport, type VideoPlayerState } from "./videoPlayback/machine";
-import { automaticRetryDelay, planErrorRecovery, planLiveErrorRecovery, rebuildResumesPaused, shouldAutomaticallyRetry } from "./videoPlayback/errorRecovery";
+import { automaticRetryDelay, planErrorRecovery, planLiveErrorRecovery, shouldAutomaticallyRetry } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
@@ -243,6 +243,8 @@ export interface VideoPlaybackResult {
   // Playback control
   play: () => void;
   pause: () => void;
+  /** Play/pause by what the viewer sees, including a pause taken in AVKit's controls. */
+  togglePlay: () => void;
   seekBy: (offsetSeconds: number) => void;
   seekTo: (seconds: number, toleranceMs?: number) => void;
 
@@ -406,10 +408,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
-  // When the native player reported paused; 0 while it plays or before its first report.
-  const nativePausedAtRef = useRef(0);
-  /** Paused intent carried into the next session: the JS flag, or a long-standing native pause. */
-  const resumePausedIntent = useCallback(() => rebuildResumesPaused({ jsPaused: pausedRef.current, nativePausedAt: nativePausedAtRef.current, now: Date.now() }), []);
+  // A pause the viewer took in AVKit's own controls, which never reaches `paused`.
+  const nativePausedRef = useRef(false);
+  const viewerPaused = useCallback(() => pausedRef.current || nativePausedRef.current, []);
 
   // Audio track state (for tracking selected track)
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
@@ -786,7 +787,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         savedPosition: currentPosition,
       });
 
-      resumePausedRef.current = pausedRef.current;
+      resumePausedRef.current = viewerPaused();
       setPaused(true);
 
       // Reset playing state refs so onProgress will detect playback start after restart
@@ -802,7 +803,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       audioStreamIndexForReportingRef.current = newTrackIndex;
       viewerPickedAudioRef.current = newTrackIndex;
     },
-    [videoId, videoDetails],
+    [videoId, videoDetails, viewerPaused],
   );
 
   /**
@@ -841,7 +842,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const restartAtPlayhead = useCallback(
     (position?: number) => {
       const attempt = ++requestIdRef.current;
-      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = resumePausedIntent();
+      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = viewerPaused();
       if (position !== undefined) seekToPositionAfterLoadRef.current = position;
       if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
       if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
@@ -859,7 +860,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         dispatch({ type: "RETRY_WITH_TRANSCODE" });
       });
     },
-    [resumePausedIntent],
+    [viewerPaused],
   );
 
   /**
@@ -1690,6 +1691,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const attempt = requestIdRef.current;
       const resumePaused = resumePausedRef.current ?? false;
       resumePausedRef.current = null;
+      // The new session's pause rides on `paused`; a native edge from the player before it is spent.
+      nativePausedRef.current = false;
 
       durationRef.current = data.duration;
 
@@ -1959,7 +1962,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 stallWatchRef.current = null;
                 if (!isMountedRef.current || requestIdRef.current !== attempt || currentModeRef.current !== "direct") return;
                 // A pause freezes the playhead too: keep watching, never re-route a paused session.
-                if (pausedRef.current) {
+                if (viewerPaused()) {
                   arm();
                   return;
                 }
@@ -1982,7 +1985,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
     },
-    [restartAtPlayhead],
+    [restartAtPlayhead, viewerPaused],
   );
 
   // Callback: Video playback ended
@@ -2013,6 +2016,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
 
+      // Read before AVPlayer's own PAUSED edge for this failure, which RNV delivers after the error.
+      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = viewerPaused();
       const currentMode = currentModeRef.current;
       // Extract error message from react-native-video error object
       const originalMessage = error.error?.localizedDescription || error.error?.errorString || String(error.error || "");
@@ -2059,7 +2064,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
 
       const attempt = requestIdRef.current;
-      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = resumePausedIntent();
       if (currentTimeRef.current > 0) seekToPositionAfterLoadRef.current = currentTimeRef.current;
       // The whole ladder decision is pure (see planErrorRecovery); this callback only applies it.
       const decision = planErrorRecovery({
@@ -2223,7 +2227,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       });
     },
-    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead, retryingForMs, resumePausedIntent],
+    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead, retryingForMs, viewerPaused],
   );
 
   const onError = useCallback(
@@ -2731,7 +2735,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // outlive the route, which makes resetting it here the only thing that does.
     isPlayingRef.current = false;
     autoPlayTriggeredRef.current = false;
-    nativePausedAtRef.current = 0;
+    nativePausedRef.current = false;
     // The reporter reads this as its live position source, without the reset a queue
     // advance would stamp the new video's first reports with the previous video's clock.
     currentTimeRef.current = 0;
@@ -2867,7 +2871,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
     if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
     if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
-    if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = resumePausedIntent();
+    if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = viewerPaused();
     if (!isLiveRef.current && currentTimeRef.current > 0) seekToPositionAfterLoadRef.current = currentTimeRef.current;
 
     // A failed DIRECT play gets the engine as its next rung, not the server: AVPlayer refusing
@@ -2906,7 +2910,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (state.autoRetry) retryWindowStartRef.current ??= Date.now();
 
     return () => clearTimeout(retryTimer);
-  }, [skip, state, resumePausedIntent]);
+  }, [skip, state, viewerPaused]);
 
   /**
    * Playback control functions
@@ -2920,6 +2924,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setPaused(true);
     reportPauseChange(true);
   }, [reportPauseChange]);
+
+  const togglePlay = useCallback(() => {
+    if (!viewerPaused()) return pause();
+    play();
+    // After an AVKit pause `paused` is already false, so the prop alone would not change.
+    videoRef.current?.resume();
+  }, [viewerPaused, play, pause]);
 
   // Relative seek for remote-driven skips (tvOS audio-only: AVKit's audio presentation
   // exposes no focusable UI, so left/right remote events must seek from JS).
@@ -2953,10 +2964,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // A seek empties AVPlayer's buffer; it is not a drain the engine should step down on.
     bufferReportRef.current = { at: 0, sinceSeek: true };
     syncPlayManager.noteSeekCompleted(currentTimeRef.current);
-    if (!pausedRef.current) {
+    if (!viewerPaused()) {
       videoRef.current?.resume();
     }
-  }, []);
+  }, [viewerPaused]);
 
   // A viewer touching AVKit's own transport surfaces here; the manager forwards it to
   // the group. Player changes the manager itself caused are marked and ignored.
@@ -2964,8 +2975,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (event: OnPlaybackStateChangedData) => {
       syncPlayManager.notePlaybackState(event);
       playerPlayingRef.current = event.isPlaying;
-      // RNV reports only the edges, so the stamp is when the pause began.
-      nativePausedAtRef.current = event.isPlaying ? 0 : Date.now();
+      // RNV's programmatic seek pauses the player itself and reports it with isSeeking.
+      if (event.isPlaying) nativePausedRef.current = false;
+      else if (!event.isSeeking) nativePausedRef.current = true;
       reportPauseChange(!event.isPlaying);
     },
     [reportPauseChange],
@@ -3127,6 +3139,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     showLoadingOverlay,
     play,
     pause,
+    togglePlay,
     seekBy,
     seekTo,
     retry,

@@ -238,7 +238,7 @@ export function PlayerHost() {
     pause,
     retry,
     videoDetails,
-    play,
+    togglePlay,
     seekBy,
     imageSubtitleSessionUrl,
     activeImageSubtitleStream,
@@ -584,11 +584,6 @@ export function PlayerHost() {
     setFillVideoId((current) => (current === sessionVideoId ? null : sessionVideoId));
   }, [sessionVideoId]);
 
-  const pausedRef = useRef(paused);
-  useEffect(() => {
-    pausedRef.current = paused;
-  }, [paused]);
-
   // Intrinsic video size, needed to place bitmap subtitles: they carry absolute
   // coordinates in the subtitle canvas, and mapping that onto the screen needs the rect the
   // active gravity produces, which is why `fills` travels with it. Captured on both lanes,
@@ -903,15 +898,10 @@ export function PlayerHost() {
       },
       retry,
       seekBy,
-      // Read through a ref, so the bridge identity does not churn on every play and pause and
-      // re-register itself with the provider each time.
-      togglePlay: () => {
-        if (pausedRef.current) play();
-        else pause();
-      },
+      togglePlay,
       toggleVideoFill,
     }),
-    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, play, retry, seekBy, setPip, toggleVideoFill],
+    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, retry, seekBy, setPip, togglePlay, toggleVideoFill],
   );
 
   useEffect(() => {
