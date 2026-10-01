@@ -13,7 +13,7 @@ import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, presetNeedsMbps } from "@/services/adaptiveQuality";
-import { measureIfIdle, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
+import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
 import { DEMO_USERNAME, getStoredUserName, getUserImageUrl, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
@@ -118,6 +118,7 @@ export default function SettingsScreen() {
   // capacity marks. On focus, not on mount: the tab stays mounted across a server switch.
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [measuring, setMeasuring] = useState(false);
+  const [headingFocused, setHeadingFocused] = useState(false);
   const [syncPlay, setSyncPlay] = useState<SyncPlaySnapshot | null>(null);
 
   useEffect(() => subscribeSyncPlay(setSyncPlay), []);
@@ -150,6 +151,16 @@ export default function SettingsScreen() {
     }, []),
   );
 
+  const handleRemeasure = useCallback(() => {
+    if (measuring) return;
+    setMeasuring(true);
+    void (async () => {
+      const bps = await remeasureBitrate();
+      if (bps != null) setMeasuredBps(bps);
+      setMeasuring(false);
+    })();
+  }, [measuring]);
+
   // Sign-out fires from the pushed server list with this screen mounted behind it, so a state
   // read on focus arrives a whole pop too late: the connected card is what the user watches the
   // transition uncover. isAuthenticated is synchronous, so the swap lands in the same frame as
@@ -179,9 +190,8 @@ export default function SettingsScreen() {
     [],
   );
 
-  // Every subtitle says what the row plays on the measured connection, off the
-  // player's own entry pick (pickStartupIndex), so menu and player cannot
-  // disagree. Every line is sized to the ~237pt subtitle budget on a 375pt
+  // Every subtitle says what the row plays on the measured connection when the server transcodes,
+  // off that lane's own entry pick (pickStartupIndex); the engine measures each play itself. Every line is sized to the ~237pt subtitle budget on a 375pt
   // phone (33 characters at most): these rows never wrap.
   const carried = carriedRungs(measuredBps);
   const rowSubtitle = (preset: { value: number }) => {
@@ -319,14 +329,14 @@ export default function SettingsScreen() {
 
           {screenState === "CONNECTED" && (
             <>
-              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} />
+              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} onFocus={() => setHeadingFocused(true)} onBlur={() => setHeadingFocused(false)} />
 
               {/* The preset list is taller than the space left under the server card, so it
                   scrolls inside the section instead of running off the bottom of the screen.
                   The wrapper carries the section's radius + overflow: hidden (clipping rows to
                   the card corners) and its inset shadow, which stays pinned to the card edges
                   while the transparent rows scroll over it. */}
-              <View style={styles.section}>
+              <View style={[styles.section, headingFocused && styles.sectionCapped]}>
                 <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
                   {QUALITY_PRESETS.map((preset, index) => {
                     const selected = videoQuality === preset.value;

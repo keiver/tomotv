@@ -267,6 +267,19 @@ export async function measureIfIdle(): Promise<number | null> {
   return measureServerBitrate();
 }
 
+/** Settings' select: measures now, past a fresh reading and the failure backoff. A result from before a server switch is dropped. */
+export async function remeasureBitrate(): Promise<number | null> {
+  if (isPlaybackHeld()) return null;
+  cachedNetworkId = null;
+  const config = await getConfig();
+  if (!config.server) return null;
+  const host = serverHost(config.server);
+  failedAt.delete(host);
+  const bps = await measureServerBitrate();
+  const now = await getConfig();
+  return now.server && serverHost(now.server) === host ? bps : null;
+}
+
 /**
  * Warm the memory in the background: launch, sign-in, account switch, adopted URL,
  * foreground. The delay keeps the download off the library's first paint.

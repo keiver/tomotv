@@ -42,7 +42,7 @@ import { NativeModules } from "react-native";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
 import { isPlaybackHeld } from "@/services/playbackHold";
 import { playsFromDisk } from "@/services/downloads/localSource";
-import { cancelBitrateProbes, measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, warmBitrateMemory } from "../jellyfin/bitrateTest";
+import { cancelBitrateProbes, measureIfIdle, measureServerBitrate, nudgeBitrateMemory, rememberedBitrate, rememberedBitrateStatus, remeasureBitrate, warmBitrateMemory } from "../jellyfin/bitrateTest";
 import { fetchLibraryVideos } from "../jellyfin/items";
 import { getAuthHeader, getConfig } from "../jellyfin/session";
 
@@ -515,5 +515,33 @@ describe("triggers", () => {
     mockMeasure.mockResolvedValue(link(4_000_000));
 
     await expect(measureIfIdle()).resolves.toBe(4_000_000);
+  });
+
+  it("re-measures on a select past a fresh reading and past the failure backoff", async () => {
+    storedMemory({ bps: 90_000_000, at: now - 60 * 1000, net: HOME });
+    mockMeasure.mockResolvedValueOnce(null);
+
+    await expect(remeasureBitrate()).resolves.toBeNull();
+    expect(mockMeasure).toHaveBeenCalledTimes(1);
+
+    mockMeasure.mockResolvedValue(link(16_000_000));
+    await expect(remeasureBitrate()).resolves.toBe(16_000_000);
+    expect(mockMeasure).toHaveBeenCalledTimes(2);
+  });
+
+  it("declines the select while playback owns the link", async () => {
+    mockHeld.mockReturnValue(true);
+
+    await expect(remeasureBitrate()).resolves.toBeNull();
+    expect(mockMeasure).not.toHaveBeenCalled();
+  });
+
+  it("drops a re-measure that lands after a server switch", async () => {
+    mockMeasure.mockImplementationOnce(async () => {
+      mockGetConfig.mockResolvedValue({ server: "http://10.0.0.77:8096", apiKey: "key", userId: "u", deviceId: "d" });
+      return link(40_000_000);
+    });
+
+    await expect(remeasureBitrate()).resolves.toBeNull();
   });
 });

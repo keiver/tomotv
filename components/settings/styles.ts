@@ -231,6 +231,12 @@ export const settingsStyles = StyleSheet.create({
     marginBottom: Platform.isTV ? 32 : 12,
     boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM}`,
   },
+  // A card whose gold heading holds focus: the heading is its top edge, so no top corners or lip at the seam.
+  sectionCapped: {
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    boxShadow: `${LIP_BOTTOM}, ${RIM_SIDES}`,
+  },
   // Video Quality is the one section long enough to run past the bottom of the
   // screen, so it caps its height and scrolls internally. The cap is derived, not
   // dialled in by eye: see QUALITY_ROW_HEIGHT and VISIBLE_QUALITY_ROWS above.

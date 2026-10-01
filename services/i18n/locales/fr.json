@@ -168,6 +168,7 @@
   "settings.syncplay": "SyncPlay",
   "settings.qualitySaveFailed": "La qualité vidéo n'a pas pu être enregistrée",
   "settings.streamingQuality": "QUALITÉ DE DIFFUSION",
+  "settings.measureAgain": "Mesure à nouveau la connexion au serveur",
   "settings.about": "À PROPOS DE TOMO TV",
   "settings.diagnostics": "Diagnostic",
   "settings.licenses": "Licences et crédits",
