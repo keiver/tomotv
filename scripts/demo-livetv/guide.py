@@ -159,7 +159,7 @@ def programmes(channel, durations, epoch, start, end, pattern):
     return [entry for entry in out if entry[1] > start]
 
 
-def programme_xml(channel, start, stop, sources, items, base):
+def programme_xml(directory, channel, start, stop, sources, items, base):
     names = [(items.get(src) or {}).get("Name") or os.path.splitext(os.path.basename(src))[0] for src in sources]
     first = items.get(sources[0]) or {}
     series = {(items.get(src) or {}).get("SeriesName") for src in sources}
@@ -182,10 +182,16 @@ def programme_xml(channel, start, stop, sources, items, base):
     if kind == "Movie" and first.get("ProductionYear"):
         parts.append(f"<date>{first['ProductionYear']}</date>")
     # A frame of the first source, stepping once per half hour so neighbouring cells differ.
-    frame = (int(start) // 1800 + channel["number"]) % FRAMES
-    parts.append(f'<icon src="{base}/frames/{slug(sources[0])}-{frame}.jpg"/>')
+    frame = f"{slug(sources[0])}-{(int(start) // 1800 + channel['number']) % FRAMES}.jpg"
+    parts.append(f'<icon src="{base}/frames/{frame}?v={frame_version(directory, frame)}"/>')
     parts.append("</programme>")
     return "".join(parts)
+
+
+def frame_version(directory, frame):
+    """A regrabbed frame gets a new URL, so Jellyfin fetches it instead of keeping the old image."""
+    path = os.path.join(directory, "frames", frame)
+    return int(os.path.getmtime(path)) if os.path.exists(path) else 0
 
 
 def logo_url(directory, base, channel):
@@ -225,7 +231,7 @@ def generate(directory):
     for channel, durations in ready:
         pattern = [60 * m for m in channel.get("slots", lineup.get("slots", [30]))]
         for p_start, p_stop, sources in programmes(channel, durations, epoch, start, end, pattern):
-            xml.append(programme_xml(channel, p_start, p_stop, sources, items, base))
+            xml.append(programme_xml(directory, channel, p_start, p_stop, sources, items, base))
             count += 1
     xml.append("</tv>")
     write_atomic(os.path.join(directory, "live.m3u"), "\n".join(m3u) + "\n")
