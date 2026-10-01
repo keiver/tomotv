@@ -374,17 +374,58 @@ final class LiveFrameQueueTests: XCTestCase {
         for url in burst { try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: url.path) }
         let done = XCTestExpectation(description: "second")
         var outcome: LiveFrameQueue.Outcome?
-        queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:], shownPts: shown) {
+        let origin = "unchanged-\(UUID().uuidString)"
+        let broker = LiveConnectionBroker.shared
+        let playing = try XCTUnwrap(broker.tryAcquire(key: origin, priority: .playback, onRevoke: {}))
+        defer { playing.release() }
+        queue.request(channelId: "chan-a", inputUrl: stream.absoluteString, headers: [:], originKey: origin, shownPts: shown) {
             outcome = $0
             done.fulfill()
         }
         wait(for: [done], timeout: 15)
         guard case .unchanged(let onDisk)? = outcome else { return XCTFail("the same keyframe is not written again") }
         XCTAssertTrue(onDisk)
+        XCTAssertNil(broker.budget(for: origin), "an unchanged preview beside playback is a successful connection")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: first.deletingLastPathComponent().path).sorted(), burst.map(\.lastPathComponent).sorted())
         let verifiedAt = LiveFrameQueue.bursts(in: first.deletingLastPathComponent()).first?.at ?? 0
         XCTAssertGreaterThan(verifiedAt, Int64(written.timeIntervalSince1970 * 1000) + 300_000, "the verified burst's validity restarts on disk")
         guard case .frames? = settle(queue, "chan-a", stream.absoluteString) else { return XCTFail("a grab with nothing shown writes its burst") }
+    }
+
+    func testASuccessfulShortSpanDoesNotLearnAConnectionLimit() throws {
+        let stream = try shortGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        let origin = "short-span-\(UUID().uuidString)"
+        let broker = LiveConnectionBroker.shared
+        let playing = try XCTUnwrap(broker.tryAcquire(key: origin, priority: .playback, onRevoke: {}))
+        defer { playing.release() }
+        let done = expectation(description: "short span")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "short", inputUrl: stream.absoluteString, headers: [:], span: 0.1, count: 10, originKey: origin) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 15)
+        guard case .frames(let files, _, _)? = outcome else { return XCTFail("expected a successful burst") }
+        XCTAssertEqual(files.count, 1)
+        XCTAssertNil(broker.budget(for: origin), "ending at the requested span is not a provider kick")
+    }
+
+    func testAnInputEndingBeforeTheBurstStillLearnsAConnectionLimit() throws {
+        let stream = try midGopStream()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        let origin = "ended-input-\(UUID().uuidString)"
+        let broker = LiveConnectionBroker.shared
+        let playing = try XCTUnwrap(broker.tryAcquire(key: origin, priority: .playback, onRevoke: {}))
+        defer { playing.release() }
+        let done = expectation(description: "input ended")
+        queue.request(channelId: "ended", inputUrl: stream.absoluteString, headers: [:], span: 60, count: 100, originKey: origin) { _ in done.fulfill() }
+        wait(for: [done], timeout: 15)
+        XCTAssertEqual(broker.budget(for: origin), 1, "an actual early input end beside playback still teaches the broker")
     }
 
     func testADuplicateRequestForAChannelInFlightAnswersCancelled() throws {

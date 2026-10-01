@@ -144,11 +144,14 @@ final class LiveFrameQueue {
             watchdog.cancel()
             grabber.stop()
             let elapsed = Date().timeIntervalSince(started)
-            // A read beside another on an unknown origin that broke off before its deadline was kicked.
-            if shared, grabber.sourceOpened, elapsed < deadline - 1, !isCancelled(channelId) {
-                var short = true
-                if case .frames(let files, _, _) = result { short = files.count < max(1, count) }
-                if short { LiveConnectionBroker.shared.noteLost(lease) }
+            // Only a broken input is evidence of a provider kick. Unchanged pictures and a span
+            // containing fewer keyframes are successful reads, regardless of the requested count.
+            if shared, grabber.sourceOpened, grabber.liveReadEnded, elapsed < deadline - 1, !isCancelled(channelId) {
+                switch result {
+                case .none: LiveConnectionBroker.shared.noteLost(lease)
+                case .frames(let files, _, _) where files.count < max(1, count): LiveConnectionBroker.shared.noteLost(lease)
+                default: break
+                }
             }
             lock.lock()
             running[channelId] = nil

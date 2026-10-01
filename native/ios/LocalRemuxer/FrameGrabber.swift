@@ -71,6 +71,8 @@ final class FrameGrabber {
     private var openFailed = false
     /// The container and its streams were read, whether or not a video stream was in them.
     private(set) var sourceOpened = false
+    /// The live input stopped delivering packets before cancellation, rather than a sampling limit.
+    private(set) var liveReadEnded = false
     /// Off for a live read opened beside another on an origin whose limit is unknown: a kick then ends the read.
     var reconnects = true
     /// Bytes the last live grab read through the container's own I/O: the whole pull for a raw stream, the playlist alone for HLS.
@@ -172,6 +174,7 @@ final class FrameGrabber {
         clipMs = 0
         clipPackets = 0
         return queue.sync {
+            liveReadEnded = false
             guard !isCancelled, open() else { return .none }
             let started = Date()
             let first = decode(target: .firstKeyframe, nearestFromStart: false, batch: 1, started: started).first
@@ -303,7 +306,7 @@ final class FrameGrabber {
         var freeing: UnsafeMutablePointer<AVPacket>? = pkt
         defer { av_packet_free(&freeing) }
         readLoop: while Date().timeIntervalSince(started) < wall, !isCancelled {
-            if av_read_frame(input, pkt) < 0 { break }
+            if readPacket(input, pkt) < 0 { break }
             defer { av_packet_unref(pkt) }
             guard pkt.pointee.stream_index == videoIndex, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE else { continue }
             // Leading pictures of an open GOP reference the GOP before the read; nothing after them does.
@@ -364,7 +367,7 @@ final class FrameGrabber {
         var nextPts = after ?? (first.pts == SWIFT_AV_NOPTS_VALUE ? nil : first.pts + step)
         var endPts = first.pts == SWIFT_AV_NOPTS_VALUE ? nil : first.pts + spanPts
         readLoop: while kept < count, Date().timeIntervalSince(started) < wall, !isCancelled {
-            if av_read_frame(input, pkt) < 0 { break }
+            if readPacket(input, pkt) < 0 { break }
             defer { av_packet_unref(pkt) }
             guard pkt.pointee.stream_index == videoIndex else { continue }
             // Keyframes alone: each decodes on its own, and the decoder skips the rest anyway.
@@ -404,6 +407,12 @@ final class FrameGrabber {
     }
 
     // MARK: - FFmpeg
+
+    private func readPacket(_ input: UnsafeMutablePointer<AVFormatContext>, _ packet: UnsafeMutablePointer<AVPacket>) -> Int32 {
+        let result = av_read_frame(input, packet)
+        if live, result < 0, !isCancelled { liveReadEnded = true }
+        return result
+    }
 
     private func open() -> Bool {
         if input != nil { return true }
@@ -700,7 +709,7 @@ final class FrameGrabber {
         var keptValid = false
         var sawKeyframe = false
         readLoop: while packets < ceiling, Date().timeIntervalSince(started) < Self.deadline, !isCancelled {
-            if av_read_frame(input, pkt) < 0 {
+            if readPacket(input, pkt) < 0 {
                 // End of file: drain the decoder for a frame it may still hold.
                 _ = avcodec_send_packet(decoder, nil)
                 if avcodec_receive_frame(decoder, frame) >= 0, let picture = makePicture(from: frame, stream: stream, ms: ms, forward: forward, crop: crop) {
