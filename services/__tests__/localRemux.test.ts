@@ -1716,18 +1716,6 @@ describe("imagesAt", () => {
 });
 
 describe("startLocalRemux Slipstream tier config", () => {
-  it.each([false, true])("passes a fixed ceiling to native selection with serverVideoOnly=%s", async (serverVideoOnly) => {
-    const source = item({ MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }] });
-    await startLocalRemux(source, undefined, undefined, { serverVideoOnly, maxBitRate: 896_000 });
-    expect(mockStartRemux.mock.calls[0][0]).toMatchObject({ maxBitRate: 896_000, serverVideoOnly });
-    expect(mockStartRemux.mock.calls[0][0].tiers.length).toBeGreaterThan(0);
-  });
-
-  it.each([undefined, 0, -1, NaN, Infinity])("leaves native selection automatic without a valid ceiling (%s)", async (maxBitRate) => {
-    await startLocalRemux(item(), undefined, undefined, { maxBitRate });
-    expect(mockStartRemux.mock.calls[0][0].maxBitRate).toBe(0);
-  });
-
   it.each([true, undefined])("keeps the ladder when SupportsTranscoding is %s", async (supportsTranscoding) => {
     const source = item({ MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000, SupportsTranscoding: supportsTranscoding }] });
 

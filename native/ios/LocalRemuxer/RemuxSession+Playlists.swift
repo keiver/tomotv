@@ -148,10 +148,7 @@ extension RemuxSession {
     /// Whether the copy carries the session alone: a source being read, on a link that carries it. A
     /// source let go or retrying never does. Caller holds stateLock.
     func copyLeadsLocked(linkBps: Double) -> Bool {
-        // A fixed quality the original exceeds, or may exceed, needs the ladder on any link: AVPlayer
-        // cannot honor a ceiling below the only variant. One the original fits keeps the copy alone.
-        let fitsCeiling = config.maxBitRate <= 0 || (sourceBandwidth > 0 && sourceBandwidth <= config.maxBitRate)
-        return fitsCeiling && copyVerdict != .withheld && !sourceReleased && (sourceBandwidth <= 0 || linkBps >= Double(sourceBandwidth) * Self.copyLeadsMargin)
+        copyVerdict != .withheld && !sourceReleased && (sourceBandwidth <= 0 || linkBps >= Double(sourceBandwidth) * Self.copyLeadsMargin)
     }
 
     /// The rung the master leads with, latched by the first caller: the biggest whose segment lands
@@ -161,11 +158,8 @@ extension RemuxSession {
     func chooseOpeningRung(linkBps: Double) -> Int? {
         stateLock.lock()
         let available = config.tiers.indices.filter { !rungsUnavailable.contains($0) }
-        let capped = available.filter { config.maxBitRate <= 0 || config.tiers[$0].bandwidth <= config.maxBitRate }
-        // If even the lowest rung exceeds the ceiling, retain that last playable fallback.
-        let candidates = capped.isEmpty ? Array(available.prefix(1)) : capped
-        let healthy = candidates.filter { supplierRecovery[.rung($0)] == nil }
-        let rungs = healthy.isEmpty ? candidates : healthy
+        let healthy = available.filter { supplierRecovery[.rung($0)] == nil }
+        let rungs = healthy.isEmpty ? available : healthy
         let latched = openingRung.flatMap { rungs.contains($0) ? $0 : nil }
         // A copy that leads opens the session itself, and a rung fetched beside its first segment
         // takes the link from it (measured at 30 Mb/s: AVPlayer hedged onto the bottom rung).
@@ -437,9 +431,9 @@ extension RemuxSession {
             originals += bridge
         }
 
-        // A fixed ceiling or a link that cannot carry the copy needs the ladder: copy and rungs on
-        // the SAME grid, sharing the subtitle group, a rung first. Automatic quality on a link that
-        // carries the copy gets the copy alone and never touches a server rung.
+        // Slipstream ladder, only on a link that cannot carry the copy: the copy and the rungs in one
+        // master on the SAME grid, sharing the subtitle group, a rung first. A link that carries the
+        // copy gets the copy alone and never touches a server rung.
         guard ladder else {
             stateLock.lock()
             let unavailable = sourceUnusable

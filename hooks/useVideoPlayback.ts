@@ -1319,10 +1319,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               logger.info("Live channel bound to its warming ring session", { service: "useVideoPlayback", videoId });
             } else {
               setPlaybackStage("engine");
-              url = await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined, {
-                ...(serverVideoOnly ? { serverVideoOnly: true } : {}),
-                ...(pinnedCapRef.current != null ? { maxBitRate: pinnedCapRef.current } : {}),
-              });
+              url = serverVideoOnly
+                ? await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined, { serverVideoOnly: true })
+                : await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
               if (requestIdRef.current !== currentRequestId) {
                 // Stale since the await: a session nobody will play, stopped here instead of at the cap.
                 stopLocalRemux(localRemuxToken(url));

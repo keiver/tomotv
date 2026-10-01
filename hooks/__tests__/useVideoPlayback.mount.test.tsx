@@ -475,7 +475,7 @@ describe("useVideoPlayback (mounted)", () => {
         });
 
         expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
-        expect(mockStartLocalRemux.mock.calls[1][3]?.serverVideoOnly).toBeUndefined();
+        expect(mockStartLocalRemux.mock.calls[1][3]).toBeUndefined();
         expect(mockStartLocalRemux.mock.calls[1][2]).toBe(failureAt === "playback" ? 42 : undefined);
         expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
         expect(ref.current!.get().imageSubtitleSessionUrl).toBe(ref.current!.get().sourceUri);
@@ -1498,7 +1498,7 @@ describe("useVideoPlayback (mounted)", () => {
         });
       }
       expect(mockStartLocalRemux.mock.calls.length).toBeGreaterThan(starts);
-      expect(mockStartLocalRemux.mock.calls.at(-1)?.[3]?.serverVideoOnly).toBeUndefined();
+      expect(mockStartLocalRemux.mock.calls.at(-1)?.[3]).toBeUndefined();
 
       const tier = (subscribeEngineTier as jest.Mock).mock.calls.at(-1)![1];
       await act(async () => tier({ token, state: "copy" }));
@@ -2020,7 +2020,7 @@ describe("useVideoPlayback (mounted)", () => {
         });
         expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
         expect(mockStartLocalRemux.mock.calls[1][2]).toBe(12);
-        expect(mockStartLocalRemux.mock.calls[1][3]?.serverVideoOnly).toBeUndefined();
+        expect(mockStartLocalRemux.mock.calls[1][3]).toBeUndefined();
         await act(async () => renderer.unmount());
       } finally {
         jest.useRealTimers();
@@ -2046,7 +2046,7 @@ describe("useVideoPlayback (mounted)", () => {
             jest.advanceTimersByTime(delay);
             for (let hop = 0; hop < 30; hop++) await Promise.resolve();
           });
-          expect(mockStartLocalRemux).toHaveBeenLastCalledWith(expect.objectContaining({ Id: "video-1" }), undefined, 42, {});
+          expect(mockStartLocalRemux).toHaveBeenLastCalledWith(expect.objectContaining({ Id: "video-1" }), undefined, 42);
           expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
         }
         expect(mockStartLocalRemux).toHaveBeenCalledTimes(3);
@@ -2177,7 +2177,6 @@ describe("useVideoPlayback (mounted)", () => {
       });
       const { ref, renderer } = await mount({ videoId: "video-1" });
       expect(ref.current!.get().maxBitRate).toBe(mode === "fixed" ? 896_000 : 1_200_000);
-      expect(mockStartLocalRemux.mock.calls.at(-1)![3]?.maxBitRate).toBe(mode === "fixed" ? 896_000 : undefined);
       const listener = (subscribeEngineLink as jest.Mock).mock.calls.at(-1)![1];
       await act(async () => {
         listener({ bps: 30_000_000, copyListed: false });

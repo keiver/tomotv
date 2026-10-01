@@ -350,8 +350,7 @@ class LocalRemuxer: RCTEventEmitter {
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
                 primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
                 sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,
-                serverVideoOnly: (config["serverVideoOnly"] as? Bool) ?? false,
-                maxBitRate: max(0, (config["maxBitRate"] as? Int) ?? 0)
+                serverVideoOnly: (config["serverVideoOnly"] as? Bool) ?? false
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
