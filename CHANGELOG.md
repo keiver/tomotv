@@ -22,6 +22,9 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV the speed above Streaming Quality in Settings takes focus, and selecting it measures again
 - On a Mac, Escape on a scrolled guide returns it to the first channel before it leaves the screen
 - A grid card's badge carries the watched eye, except on music
+- Commercial skipping, where the server marks commercial segments: a Skip Commercial pill over each break on Apple TV, and on iPhone, iPad and Mac playback seeks past each break itself while Skip commercials is on in Channel Settings (on by default)
+- The Apple TV Top Shelf adds recently played live channels to Continue Watching in one row, in last-played order, each channel's logo whole on the app's channel card
+- A UI section in Settings: Language picks English, Deutsch, Français or Español for every screen at once, System by default, and Show device generated posters (on by default) turned off leaves cards on the server's poster alone
 
 ### Changed
 
@@ -29,6 +32,7 @@ All notable changes to Tomo TV are documented here.
 - On a series programme's info panel, Record Series or Cancel Series is a button beside Watch and Record, and the record buttons wear the gold outline with a red icon
 - The info panel's playback line (Direct Play, Re-encoded on this device, or Transcoded by the server) sits in a Playback section at the end of the panel, so the header reads the same for every file and connection
 - On iPad the info panel's centred card is at most 900 points tall, and a longer panel scrolls inside it
+- The info panel's artwork fills one 16:9 area across the top whatever the picture's shape, and the panel opens once its artwork and buttons are ready, so nothing below moves
 - The guide ruler shows the current time in gold above its labels
 - Names written by a metadata scraper with HTML entities, such as "&amp;", read as the character they stand for in the app's screens
 - Episode cards take the same landscape slot as the other cards in a folder grid, whatever the shape of their still
@@ -76,6 +80,7 @@ All notable changes to Tomo TV are documented here.
 - Guide and wall cards off screen, on a screen out of focus or during playback hold no preview player
 - A guide refresh drops programmes the server no longer lists, and a guide source that fails keeps its listings
 - A deleted item leaves the search results
+- On Apple TV the heart and Record in a live channel's playback controls no longer wait on a lineup of thousands of channels: the player reads the playing channel and the 29 after it
 
 ## [2.2.8]
 

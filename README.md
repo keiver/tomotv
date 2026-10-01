@@ -91,15 +91,18 @@ server for 30 minutes.
   server in reach, with watch positions synced back later.
 - **SyncPlay**, Jellyfin's watch-together. The Apple TV shows a join code; a
   phone signed in to the same server scans it with the camera to join.
-- **Apple TV.** Skip Intro and Skip Credits from Jellyfin's Media Segments,
-  chapter thumbnails, the Up Next panel, and Continue Watching on the Top Shelf.
+- **Apple TV.** Skip Intro, Skip Credits and Skip Commercial from Jellyfin's
+  Media Segments, chapter thumbnails, the Up Next panel, and Continue Watching
+  with recently played channels on the Top Shelf. iPhone and iPad skip
+  commercials on their own.
 - **Music** keeps playing while you browse, with Now Playing controls.
 - **Diagnostics.** The last playback as a versioned JSON document
   ([schema](docs/diagnostics-session.schema.json)): the lane, why the engine
   chose it, the streams, every error, and what the device decodes in hardware.
   Share it from the phone, or send it from the Apple TV to your phone through
   your own account on the server. Nothing goes anywhere else.
-- **Languages.** English, German, French and Spanish, following the device.
+- **Languages.** English, German, French and Spanish, following the device or
+  picked in Settings.
 
 ## Getting started
 
