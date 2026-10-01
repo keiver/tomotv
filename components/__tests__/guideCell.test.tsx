@@ -50,6 +50,12 @@ describe("GuideCell", () => {
     expect(testIds(render({ program: withArt, width: halfHour + 1 }))).toContain("guide-cell-art");
   });
 
+  it("holds the poster back while the canvas has the cell out of view", () => {
+    const withArt = { ...program, Id: "p7", ImageTags: { Primary: "tag" } };
+    expect(testIds(render({ program: withArt, showArt: false }))).not.toContain("guide-cell-art");
+    expect(testIds(render({ program: withArt, showArt: true }))).toContain("guide-cell-art");
+  });
+
   it("keys the art by its image tag, so a refreshed guide image replaces the cached one", () => {
     const artKey = (tag: string) => render({ program: { ...program, Id: "p4", ImageTags: { Primary: tag } } }).root.findByType("Image" as never).props.source.cacheKey;
     expect(artKey("old")).not.toEqual(artKey("new"));
