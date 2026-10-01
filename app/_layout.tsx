@@ -168,6 +168,16 @@ export default function RootLayout() {
                             : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitleStyle: { color: COLORS.TEXT_PRIMARY }, animation: "default" }
                         }
                       />
+                      {/* Phone's guide is a root route like folders: pushed inside the Home tab's stack, iPad
+                      returns to Home with the tab's safe-area top short of the floating tab bar. TV's guide is the livetv tab. */}
+                      <Stack.Screen
+                        name="live-tv"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : { headerShown: true, headerTransparent: true, headerShadowVisible: false, headerTitleStyle: { color: COLORS.TEXT_PRIMARY }, animation: "default" }
+                        }
+                      />
                       {/* Regular push, NOT a fullScreenModal: UIModalPresentationFullScreen takes the RN
                       root view out of the window, so every native view below it sees window == nil and
                       back again. expo-tvos-search tears its UIHostingController out of the VC hierarchy

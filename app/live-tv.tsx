@@ -31,7 +31,7 @@ const PHONE_REFRESH_CELL_WIDTH = 44;
 
 /**
  * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
- * Schedule one press away. The livetv tab's root on TV; a pushed library-stack route on phone.
+ * Schedule one press away. The livetv tab's root on TV; a pushed root-stack route on phone.
  * Signed out, the tab keeps its trigger (static-trigger rule) and shows the connect widget.
  */
 export default function LiveTvRoute() {

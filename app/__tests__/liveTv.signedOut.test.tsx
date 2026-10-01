@@ -1,5 +1,5 @@
 /** Signed out, the Live TV tab shows the connect widget and never loads a guide. */
-import LiveTvRoute from "@/app/(tabs)/(library)/live-tv";
+import LiveTvRoute from "@/app/live-tv";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
