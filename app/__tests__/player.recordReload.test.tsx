@@ -1,7 +1,17 @@
 /** The transport bar record CTA: a write that lands keeps its flip even when the re-read fails, and a Stop on that stand-in reads first. */
 import VideoPlayerScreen from "@/app/player";
 import type { PlayerTvConfig } from "@/contexts/PlayerSessionContext";
-import { cancelTimer, createTimer, fetchChannels, fetchLiveTvManagement, fetchMediaSegments, fetchNextEpisodeAutoPlay, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
+import {
+  cancelTimer,
+  createTimer,
+  fetchChannelOrder,
+  fetchChannelWindow,
+  fetchLiveTvManagement,
+  fetchMediaSegments,
+  fetchNextEpisodeAutoPlay,
+  fetchTimerDefaults,
+  fetchTimers,
+} from "@/services/jellyfinApi";
 import { Alert } from "react-native";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
@@ -33,7 +43,8 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn() 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchMediaSegments: jest.fn(),
   fetchNextEpisodeAutoPlay: jest.fn(),
-  fetchChannels: jest.fn(async () => ({ items: [] })),
+  fetchChannelOrder: jest.fn(async () => []),
+  fetchChannelWindow: jest.fn(async () => []),
   fetchVideoDetails: jest.fn(async () => null),
   setVideoFavorite: jest.fn(async () => {}),
   fetchLiveTvManagement: jest.fn(async () => false),
@@ -85,7 +96,8 @@ describe("transport bar record after a failed re-read", () => {
     mockSession.sessionVideoId = "ch1";
     jest.mocked(fetchNextEpisodeAutoPlay).mockResolvedValue(true);
     jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null, commercials: [] });
-    jest.mocked(fetchChannels).mockResolvedValue({ items: [{ Id: "ch1", Name: "News" }] } as never);
+    jest.mocked(fetchChannelOrder).mockResolvedValue([{ Id: "ch1", Name: "News" }] as never);
+    jest.mocked(fetchChannelWindow).mockResolvedValue([{ Id: "ch1", Name: "News" }] as never);
     jest.mocked(fetchLiveTvManagement).mockResolvedValue(true);
     jest.mocked(fetchTimers).mockResolvedValue([]);
   });
@@ -136,16 +148,19 @@ describe("transport bar record across a programme boundary", () => {
 
   it("records the programme on air now, not the one airing when the player opened", async () => {
     const now = Date.now();
-    jest.mocked(fetchChannels).mockResolvedValue({ items: [{ Id: "ch1", Name: "News", CurrentProgram: airing("p1", now - 60_000, now + 60_000) }] } as never);
+    jest.mocked(fetchChannelOrder).mockResolvedValue([{ Id: "ch1", Name: "News" }] as never);
+    jest.mocked(fetchChannelWindow).mockResolvedValue([{ Id: "ch1", Name: "News", CurrentProgram: airing("p1", now - 60_000, now + 60_000) }] as never);
     await act(async () => {
       renderer = TestRenderer.create(<VideoPlayerScreen />);
     });
-    expect(fetchChannels).toHaveBeenCalledTimes(1);
-    jest.mocked(fetchChannels).mockResolvedValue({ items: [{ Id: "ch1", Name: "News", CurrentProgram: airing("p2", now + 60_000, now + 1_800_000) }] } as never);
+    const reads = jest.mocked(fetchChannelWindow).mock.calls.length;
+    jest.mocked(fetchChannelWindow).mockResolvedValue([{ Id: "ch1", Name: "News", CurrentProgram: airing("p2", now + 60_000, now + 1_800_000) }] as never);
     await act(async () => {
       await jest.advanceTimersByTimeAsync(70_000);
     });
-    expect(fetchChannels).toHaveBeenCalledTimes(2);
+    // The airing ended: the window is read again, never the whole lineup.
+    expect(fetchChannelWindow).toHaveBeenCalledTimes(reads + 1);
+    expect(fetchChannelOrder).toHaveBeenCalledTimes(1);
     await act(async () => lastHandlers().onTransportBarButtonSelected({ id: "record" }));
     expect(fetchTimerDefaults).toHaveBeenCalledWith("p2");
   });

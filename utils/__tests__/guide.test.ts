@@ -4,6 +4,7 @@ import {
   cellAtEdge,
   cellGeometry,
   cellInSpan,
+  channelWindow,
   guideMetrics,
   guideWindowStart,
   isActiveTimer,
@@ -156,6 +157,18 @@ describe("guide geometry", () => {
     expect(adjacentChannelId(list, "missing", 1)).toBeNull();
     expect(adjacentChannelId([{ Id: "only" }], "only", 1)).toBeNull();
     expect(adjacentChannelId([], "x", 1)).toBeNull();
+  });
+
+  it("windows the lineup around the playing channel: the previous one, then it and the ones after", () => {
+    const list = ["a", "b", "c", "d", "e"].map((Id) => ({ Id }));
+    expect(channelWindow(list, "c", 1)).toEqual(["b", "c", "d"]);
+    expect(channelWindow(list, "a", 1)).toEqual(["e", "a", "b"]);
+    expect(channelWindow(list, "e", 1)).toEqual(["d", "e", "a"]);
+    // A lineup shorter than the window wraps no further than itself.
+    expect(channelWindow(list, "b", 30)).toEqual(["a", "b", "c", "d", "e"]);
+    // Before the lineup arrives, or for a channel it lacks, the window is the playing channel alone.
+    expect(channelWindow([], "x", 30)).toEqual(["x"]);
+    expect(channelWindow(list, "missing", 30)).toEqual(["missing"]);
   });
 });
 

@@ -11,7 +11,8 @@ import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
 import {
   cancelTimer,
   createTimer,
-  fetchChannels,
+  fetchChannelOrder,
+  fetchChannelWindow,
   fetchLiveTvManagement,
   fetchMediaSegments,
   fetchNextEpisodeAutoPlay,
@@ -27,7 +28,7 @@ import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { showToast } from "@/services/toast";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { activeRecordTimer, adjacentChannelId, durationLabel, programTimes } from "@/utils/guide";
+import { activeRecordTimer, adjacentChannelId, channelWindow, durationLabel, programTimes } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { playsFromDisk } from "@/services/downloads/localSource";
 import { stageStopped } from "@/hooks/usePlaybackStage";
@@ -53,6 +54,9 @@ const CHANNEL_SKIP_WATCHDOG_MS = 20_000;
 /** The error screen re-claims focus this often, for this long, while no error button holds it. */
 const ERROR_FOCUS_CLAIM_EVERY_MS = 300;
 const ERROR_FOCUS_CLAIM_WINDOW_MS = 5_000;
+
+/** Channels after the playing one that the info panel's strip shows (30 with it). */
+const CHANNEL_WINDOW_AHEAD = 29;
 
 /** Past the playing channel's airing end before its lineup is read again, so the server names the next programme. */
 const AIRING_END_SLACK_MS = 5_000;
@@ -218,8 +222,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     });
   }, [requestSession, sessionKey, videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel, params.advance]);
 
-  // tvOS channel flipping rides AVKit's own swipe: the channel ring in tuner order names the
-  // neighbours for the interstitial, and a flip swaps the channel under the one player.
+  // tvOS channel flipping rides AVKit's own swipe: the channel ring in tuner order (ids and names,
+  // the lineup's order only) names the neighbours, and a flip swaps the channel under the one player.
   const [channelRing, setChannelRing] = useState<JellyfinItem[]>([]);
   // A swipe before the ring loads waits here; a failed load is retried by that swipe.
   const pendingFlipRef = useRef<{ direction: 1 | -1; at: number } | null>(null);
@@ -229,8 +233,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (!Platform.isTV || !isLiveChannel) return;
     let cancelled = false;
     ringFailedRef.current = false;
-    fetchChannels()
-      .then(({ items }) => !cancelled && setChannelRing(items))
+    fetchChannelOrder()
+      .then((items) => !cancelled && setChannelRing(items))
       .catch((err) => {
         if (!cancelled) ringFailedRef.current = true;
         logger.warn("Channel ring load failed", err, { service: "VideoPlayer" });
@@ -239,6 +243,22 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       cancelled = true;
     };
   }, [isLiveChannel, ringAttempt]);
+  // What the player shows of the ring, read in full: art, number and the programme airing. The playing
+  // channel is in it from the first render, so the heart and Record never wait on the lineup.
+  const windowKey = channelWindow(channelRing, videoId, CHANNEL_WINDOW_AHEAD).join(",");
+  const [windowAttempt, setWindowAttempt] = useState(0);
+  const [windowChannels, setWindowChannels] = useState<Map<string, JellyfinItem>>(() => new Map());
+  useEffect(() => {
+    if (!Platform.isTV || !isLiveChannel) return;
+    let cancelled = false;
+    fetchChannelWindow(windowKey.split(","))
+      .then((items) => !cancelled && setWindowChannels(new Map(items.map((channel) => [channel.Id, channel]))))
+      .catch((err) => logger.warn("Channel window load failed", err, { service: "VideoPlayer" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [isLiveChannel, windowKey, windowAttempt]);
+  const playingChannel = windowChannels.get(videoId);
   // The ring follows the channel on screen: its neighbours cut segments in the engine while a surf
   // window is open. The snapshot must name this channel, not the one left.
   const livePlaying = isLiveChannel && playbackState.type === "PLAYING" && sessionVideoId === videoId;
@@ -257,7 +277,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     const neighbour = (direction: 1 | -1) => {
       const id = adjacentChannelId(channelRing, videoId, direction);
       const channel = id ? channelRing.find((entry) => entry.Id === id) : undefined;
-      return channel ? { title: cleanLabel(channel.Name), subtitle: cleanLabel(channel.CurrentProgram?.Name) } : undefined;
+      return channel ? { title: cleanLabel(channel.Name), subtitle: cleanLabel(windowChannels.get(channel.Id)?.CurrentProgram?.Name) } : undefined;
     };
     // Present from the first render of a live session: AVKit arms its flip swipes when playback
     // starts and does not look again, so the gate must be open before the ring has loaded.
@@ -266,7 +286,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     // A loaded ring with no neighbour (a one-channel lineup) has nothing to flip to.
     if (channelRing.length > 0 && !next && !previous) return undefined;
     return { ...(next ? { next } : {}), ...(previous ? { previous } : {}) };
-  }, [isLiveChannel, channelRing, videoId]);
+  }, [isLiveChannel, channelRing, windowChannels, videoId]);
   const handleSkipChannel = useCallback(
     (direction: 1 | -1) => {
       if (channelRing.length === 0) {
@@ -367,8 +387,13 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (Platform.isTV && isLiveChannel) {
       const at = channelRing.findIndex((entry) => entry.Id === videoId);
       if (at < 0 || channelRing.length < 2) return undefined;
-      const ordered = channelRing.slice(at).concat(channelRing.slice(0, at)).slice(0, 30);
-      return ordered.map((channel) => {
+      const ordered = channelRing
+        .slice(at)
+        .concat(channelRing.slice(0, at))
+        .slice(0, CHANNEL_WINDOW_AHEAD + 1);
+      // A card shows its window read (art, programme) once it lands; the ring alone names it.
+      return ordered.map((entry) => {
+        const channel = windowChannels.get(entry.Id) ?? entry;
         const imageUri = posterUri(channel, 450);
         return {
           id: channel.Id,
@@ -394,7 +419,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       };
     });
     return upcoming.length > 0 ? upcoming : undefined;
-  }, [queue, currentIndex, isQueueMode, upcomingFrames, isLiveChannel, channelRing, videoId]);
+  }, [queue, currentIndex, isQueueMode, upcomingFrames, isLiveChannel, channelRing, windowChannels, videoId]);
   const infoPanelTitle = Platform.isTV && isLiveChannel ? t("liveTv.channels") : undefined;
 
   // tvOS timed pills (AVKit-rendered, patched contextualActions prop): Skip
@@ -450,12 +475,11 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   useEffect(() => {
     if (!Platform.isTV || !isLiveChannel) return;
     const compute = () => {
-      const channel = channelRing.find((entry) => entry.Id === videoId);
-      setLiveFavorite(channel ? isFavoriteChannel(getLiveTvPreferences(), channel) : false);
+      setLiveFavorite(playingChannel ? isFavoriteChannel(getLiveTvPreferences(), playingChannel) : false);
     };
     compute();
     return subscribeLiveTvPreferences(compute);
-  }, [isLiveChannel, channelRing, videoId]);
+  }, [isLiveChannel, playingChannel]);
 
   // tvOS transport bar record button, the info panel's flow on the airing program:
   // record the channel's CurrentProgram, or cancel/stop its active timer. Shown
@@ -476,13 +500,13 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
 
   // A channel with guide data records its CurrentProgram; without one it gets a manual
   // timer (ChannelId + the recordingMinutes window; the server names this path IsManual).
-  const liveChannel = Platform.isTV && isLiveChannel ? channelRing.find((entry) => entry.Id === videoId) : undefined;
+  const liveChannel = Platform.isTV && isLiveChannel ? playingChannel : undefined;
   const currentProgramId = liveChannel?.CurrentProgram?.Id;
-  // The ring's CurrentProgram is what aired when it loaded: the lineup is read again once it ends.
+  // The window's CurrentProgram is what aired when it loaded: the window is read again once it ends.
   const airingEndMs = Date.parse(liveChannel?.CurrentProgram?.EndDate ?? "");
   useEffect(() => {
     if (!Number.isFinite(airingEndMs)) return;
-    const timer = setTimeout(() => setRingAttempt((n) => n + 1), Math.max(0, airingEndMs - Date.now()) + AIRING_END_SLACK_MS);
+    const timer = setTimeout(() => setWindowAttempt((n) => n + 1), Math.max(0, airingEndMs - Date.now()) + AIRING_END_SLACK_MS);
     return () => clearTimeout(timer);
   }, [airingEndMs]);
   const recordKey = liveChannel ? (currentProgramId ?? `channel:${videoId}`) : undefined;
@@ -521,12 +545,12 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         tintColor: COLORS.DESTRUCTIVE,
       });
     }
-    const favorite = isLiveChannel ? (channelRing.some((entry) => entry.Id === videoId) ? liveFavorite : null) : vodFavorite;
+    const favorite = isLiveChannel ? (playingChannel ? liveFavorite : null) : vodFavorite;
     if (favorite !== null) {
       buttons.push({ id: "favorite", title: t(favorite ? "info.removeFavorite" : "info.addFavorite"), sfSymbol: favorite ? "heart.fill" : "heart" });
     }
     return buttons.length > 0 ? buttons : undefined;
-  }, [isLiveChannel, channelRing, videoId, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer]);
+  }, [isLiveChannel, playingChannel, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer]);
 
   // One recording write at a time: AVKit can deliver a second press before the reload lands.
   const recordBusyRef = useRef(false);
@@ -611,8 +635,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       }
       if (event.id !== "favorite") return;
       if (isLiveChannel) {
-        const channel = channelRing.find((entry) => entry.Id === videoId);
-        if (channel) toggleFavoriteChannel(channel);
+        if (playingChannel) toggleFavoriteChannel(playingChannel);
         return;
       }
       if (vodFavorite === null) return;
@@ -623,7 +646,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         setVodFavoriteResult({ itemId: videoId, favorite: !next });
       });
     },
-    [isLiveChannel, channelRing, videoId, vodFavorite, recordKey, liveChannel, currentProgramId, recordTimer, reloadTimer],
+    [isLiveChannel, playingChannel, videoId, vodFavorite, recordKey, liveChannel, currentProgramId, recordTimer, reloadTimer],
   );
 
   // The AVKit surfaces are computed here, from the queue and this item's

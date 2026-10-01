@@ -31,7 +31,8 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn() 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchMediaSegments: jest.fn(),
   fetchNextEpisodeAutoPlay: jest.fn(),
-  fetchChannels: jest.fn(),
+  fetchChannelOrder: jest.fn(),
+  fetchChannelWindow: jest.fn(),
   fetchVideoDetails: jest.fn(async () => null),
   setVideoFavorite: jest.fn(async () => {}),
 }));

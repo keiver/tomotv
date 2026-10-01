@@ -1,7 +1,7 @@
 /** The transport bar favorite flips its title at the press, VOD and live, like the record CTA. */
 import VideoPlayerScreen from "@/app/player";
 import type { PlayerTvConfig } from "@/contexts/PlayerSessionContext";
-import { fetchChannels, fetchLiveTvManagement, fetchMediaSegments, fetchNextEpisodeAutoPlay, fetchTimers, fetchVideoDetails } from "@/services/jellyfinApi";
+import { fetchChannelOrder, fetchChannelWindow, fetchLiveTvManagement, fetchMediaSegments, fetchNextEpisodeAutoPlay, fetchTimers, fetchVideoDetails } from "@/services/jellyfinApi";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
@@ -32,7 +32,8 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn() 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchMediaSegments: jest.fn(),
   fetchNextEpisodeAutoPlay: jest.fn(),
-  fetchChannels: jest.fn(async () => ({ items: [] })),
+  fetchChannelOrder: jest.fn(async () => []),
+  fetchChannelWindow: jest.fn(async () => []),
   fetchVideoDetails: jest.fn(async () => null),
   setVideoFavorite: jest.fn(async () => {}),
   fetchLiveTvManagement: jest.fn(async () => false),
@@ -103,17 +104,31 @@ describe("transport bar favorite flip", () => {
   it("live: the press flips the title to remove", async () => {
     mockParams = { videoId: "ch1", videoName: "News", live: "1" };
     mockSession.sessionVideoId = "ch1";
-    jest.mocked(fetchChannels).mockResolvedValue({
-      items: [
-        { Id: "ch1", Name: "News" },
-        { Id: "ch2", Name: "Sports" },
-      ],
-    } as never);
+    const names: Record<string, string> = { ch1: "News", ch2: "Sports" };
+    jest.mocked(fetchChannelOrder).mockResolvedValue([
+      { Id: "ch1", Name: "News" },
+      { Id: "ch2", Name: "Sports" },
+    ] as never);
+    jest.mocked(fetchChannelWindow).mockImplementation(async (ids) => ids.map((Id) => ({ Id, Name: names[Id] })) as never);
     jest.mocked(fetchLiveTvManagement).mockResolvedValue(false);
     jest.mocked(fetchTimers).mockResolvedValue([]);
     await mount();
+    expect(fetchChannelWindow).toHaveBeenLastCalledWith(["ch2", "ch1"]);
     expect(favoriteButton()).toMatchObject({ title: "info.addFavorite", sfSymbol: "heart" });
     await act(async () => lastHandlers().onTransportBarButtonSelected({ id: "favorite" }));
     expect(favoriteButton()).toMatchObject({ title: "info.removeFavorite", sfSymbol: "heart.fill" });
+  });
+
+  it("live: the heart and Record come off the playing channel's own read, even when the lineup order fails", async () => {
+    mockParams = { videoId: "ch9", videoName: "Weather", live: "1", ts: "1" };
+    mockSession.sessionVideoId = "ch9";
+    jest.mocked(fetchChannelOrder).mockRejectedValue(new Error("timeout"));
+    jest.mocked(fetchChannelWindow).mockResolvedValue([{ Id: "ch9", Name: "Weather" }] as never);
+    jest.mocked(fetchLiveTvManagement).mockResolvedValue(true);
+    jest.mocked(fetchTimers).mockResolvedValue([]);
+    await mount();
+    expect(fetchChannelWindow).toHaveBeenCalledWith(["ch9"]);
+    expect(favoriteButton()).toMatchObject({ title: "info.addFavorite", sfSymbol: "heart" });
+    expect(lastConfig().transportBarButtons?.find((b: { id: string }) => b.id === "record")).toMatchObject({ title: "liveTv.record" });
   });
 });

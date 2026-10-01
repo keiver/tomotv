@@ -211,3 +211,15 @@ export function adjacentChannelId<T extends { Id: string }>(channels: T[], curre
   const next = (index + direction + channels.length) % channels.length;
   return channels[next].Id;
 }
+
+/**
+ * The ids the player shows around the playing channel: the previous one (a flip back), then it and up
+ * to `ahead` after it, wrapping, each once. Just the playing channel until the lineup has it.
+ */
+export function channelWindow<T extends { Id: string }>(channels: readonly T[], currentId: string, ahead: number): string[] {
+  const index = channels.findIndex((channel) => channel.Id === currentId);
+  if (index < 0) return [currentId];
+  const count = Math.min(channels.length, ahead + 1);
+  const at = (offset: number) => channels[(index + offset + channels.length) % channels.length].Id;
+  return [...new Set([at(-1), ...Array.from({ length: count }, (_, offset) => at(offset))])];
+}

@@ -203,6 +203,24 @@ export async function fetchChannels(
   return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
 }
 
+/**
+ * The whole lineup in the server's channel order, ids and names only. No programmes, art or user data:
+ * measured 0.2 s and 2.9 MB on an 11k-channel server, where the full read took 5.5 s and timed out cold.
+ */
+export async function fetchChannelOrder(): Promise<JellyfinItem[]> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
+  const query = new URLSearchParams({ userId: config.userId, addCurrentProgram: "false", enableUserData: "false", enableImages: "false", enableTotalRecordCount: "false" });
+  const response = await fetchWithTimeout(
+    `${config.server}/LiveTv/Channels?${query.toString()}`,
+    { headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
+    API_TIMEOUTS.NORMAL,
+  );
+  if (!response.ok) throwRequestError(response, `Failed to fetch channel order: ${response.status}`);
+  const json = await response.json();
+  return ((json.Items ?? []) as JellyfinItem[]).map(({ Id, Name, Type }) => ({ Id, Name, Type }) as JellyfinItem);
+}
+
 /** Category flags move only when guide data refreshes, so mounts share one read for a while. */
 const CHANNEL_CATEGORIES_TTL_MS = 60 * 60 * 1000;
 
@@ -259,6 +277,24 @@ export async function fetchChannelsByIds(ids: readonly string[]): Promise<Jellyf
     const item = byId.get(id);
     return item ? [item] : [];
   });
+}
+
+/** These channels in this order, each with its art, number and the programme it airs now. */
+export async function fetchChannelWindow(ids: readonly string[]): Promise<JellyfinItem[]> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
+  const query = new URLSearchParams({ userId: config.userId, channelIds: ids.join(","), isAiring: "true", enableImages: "false", enableUserData: "false", enableTotalRecordCount: "false" });
+  const [channels, response] = await Promise.all([
+    fetchChannelsByIds(ids),
+    fetchWithTimeout(
+      `${config.server}/LiveTv/Programs?${query.toString()}`,
+      { headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
+      API_TIMEOUTS.NORMAL,
+    ),
+  ]);
+  if (!response.ok) throwRequestError(response, `Failed to fetch airing programmes: ${response.status}`);
+  const airing = new Map(((await response.json()).Items as JellyfinProgram[] | undefined)?.map((program) => [program.ChannelId, program]) ?? []);
+  return channels.map((channel) => ({ ...channel, CurrentProgram: airing.get(channel.Id) ?? null }));
 }
 
 /**
