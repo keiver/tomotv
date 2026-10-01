@@ -1419,7 +1419,7 @@ export async function startLocalRemux(
   preferredAudioStreamIndex?: number,
   startOffsetSeconds?: number,
   // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
-  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring" } = {},
+  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring"; maxBitRate?: number } = {},
 ): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
@@ -1575,6 +1575,7 @@ export async function startLocalRemux(
     primaryVideoBandwidth,
     sourceBandwidth,
     serverVideoOnly,
+    maxBitRate: !live && typeof options.maxBitRate === "number" && Number.isFinite(options.maxBitRate) && options.maxBitRate > 0 ? Math.round(options.maxBitRate) : 0,
     supplementalCodecs,
     width,
     height,

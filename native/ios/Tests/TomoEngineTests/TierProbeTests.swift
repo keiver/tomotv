@@ -761,6 +761,47 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(s.progress()["hasPlayableSupplier"] as? Bool, false, "rungs the master never listed are no supplier")
     }
 
+    func testAFixedQualityKeepsTheLadderOnAFastLinkAndCapsItsOpeningRung() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        var config = makeConfig(
+            durationSeconds: 18,
+            inputUrl: fixtureUrl.absoluteString,
+            audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+            tiers: [
+                TierConfig(playlistUrl: playlistUrl, bandwidth: 1_700_000, codecs: "avc1.4D401F,mp4a.40.2", width: 854, height: 480),
+                TierConfig(playlistUrl: playlistUrl, bandwidth: 5_500_000, codecs: "avc1.4D401F,mp4a.40.2", width: 854, height: 480),
+            ])
+        config.maxBitRate = 2_000_000
+        let session = try RemuxSession(config: config)
+        session.testLinkBps = 100_000_000
+        session.start()
+        defer { session.stop() }
+        waitForProbe(session)
+        XCTAssertTrue(session.masterPlaylist().contains("t0.m3u8"))
+        XCTAssertTrue(session.ladderListed)
+        XCTAssertFalse(session.copyOnlyMaster)
+        XCTAssertEqual(session.openingRung, 0, "a fast link must not prefetch above the viewer's fixed ceiling")
+    }
+
+    func testAFixedQualityTheOriginalFitsKeepsTheCopyAlone() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        var config = makeConfig(
+            durationSeconds: 18,
+            inputUrl: fixtureUrl.absoluteString,
+            audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+            tiers: [TierConfig(playlistUrl: playlistUrl, bandwidth: 1_700_000, codecs: "avc1.4D401F,mp4a.40.2", width: 854, height: 480)])
+        config.sourceBandwidth = 6_000_000
+        config.maxBitRate = 8_000_000
+        let session = try RemuxSession(config: config)
+        session.testLinkBps = 100_000_000
+        session.start()
+        defer { session.stop() }
+        waitForProbe(session)
+        _ = session.masterPlaylist()
+        XCTAssertTrue(session.copyOnlyMaster, "a link that carries the file never touches the server's rungs")
+        XCTAssertFalse(session.ladderListed)
+    }
+
     func testALadderMasterRecordsItsListedRungs() throws {
         let s = try ladderSession(rung1Playlist: playlist)
         defer { s.stop() }

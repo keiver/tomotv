@@ -165,6 +165,8 @@ struct RemuxConfig {
     var primaryVideoBandwidth = 0
     var sourceBandwidth = 0
     var serverVideoOnly = false
+    /// The viewer's fixed quality ceiling, including audio. Zero leaves selection automatic.
+    var maxBitRate = 0
 }
 
 struct SegmentBitrates {
