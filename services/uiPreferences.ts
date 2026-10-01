@@ -13,7 +13,7 @@ export interface UiPreferences {
   devicePosters: boolean;
 }
 
-export const DEFAULT_UI_PREFERENCES: UiPreferences = { version: 1, devicePosters: false };
+export const DEFAULT_UI_PREFERENCES: UiPreferences = { version: 1, devicePosters: true };
 
 let current: UiPreferences | null = null;
 const listeners = new Set<() => void>();
@@ -29,7 +29,7 @@ export function parseUiPreferences(raw: unknown): UiPreferences {
     }
   }
   const source = doc && typeof doc === "object" ? (doc as Record<string, unknown>) : {};
-  return { version: 1, devicePosters: source.devicePosters === true };
+  return { version: 1, devicePosters: typeof source.devicePosters === "boolean" ? source.devicePosters : DEFAULT_UI_PREFERENCES.devicePosters };
 }
 
 export function getUiPreferences(): UiPreferences {
