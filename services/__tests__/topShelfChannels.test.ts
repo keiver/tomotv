@@ -68,6 +68,23 @@ describe("syncTopShelfChannels", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it("drops a sync that a newer one overtook, so the last filter picked is the row", async () => {
+    let releaseOld: (channels: Awaited<ReturnType<typeof fetchListedChannels>>) => void = () => undefined;
+    jest.mocked(getLiveTvPreferences).mockReturnValueOnce(prefs({ filter: "group:g1", groups: [group] }));
+    jest.mocked(fetchListedChannels).mockReturnValueOnce(new Promise((resolve) => (releaseOld = resolve)));
+    const older = syncTopShelfChannels();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    jest.mocked(getLiveTvPreferences).mockReturnValue(prefs({ filter: "favorites", favorites: [favorite] }));
+    jest.mocked(fetchListedChannels).mockResolvedValueOnce([{ Id: "c1" }] as Awaited<ReturnType<typeof fetchListedChannels>>);
+    await syncTopShelfChannels();
+    releaseOld([{ Id: "c2" }] as Awaited<ReturnType<typeof fetchListedChannels>>);
+    await older;
+
+    const calls = jest.mocked(SecureStore.setItemAsync).mock.calls;
+    expect(JSON.parse(calls[calls.length - 1][1]).title).toBe("Favorites");
+  });
+
   it("caps the row and clears it once the server has no Live TV", async () => {
     jest.mocked(getLiveTvPreferences).mockReturnValue(prefs({}));
     jest.mocked(fetchChannels).mockResolvedValue({ items: Array.from({ length: 14 }, (_, index) => ({ Id: `c${index}` })) } as Awaited<ReturnType<typeof fetchChannels>>);

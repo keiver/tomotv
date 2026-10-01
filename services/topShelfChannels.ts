@@ -83,10 +83,14 @@ async function write(value: string | null): Promise<void> {
   NativeModules.TopShelfReload?.contentDidChange();
 }
 
+/** Bumped by every sync, so one a newer sync overtook writes nothing. */
+let syncGeneration = 0;
+
 export async function syncTopShelfChannels(): Promise<void> {
+  const generation = ++syncGeneration;
   const config = await getConfig();
   if (!config.server || !config.userId || !getLiveTvAvailability()) {
-    await write(null);
+    if (generation === syncGeneration) await write(null);
     return;
   }
   const preferences = getLiveTvPreferences();
@@ -95,6 +99,7 @@ export async function syncTopShelfChannels(): Promise<void> {
   const categories = await fetchChannelCategories().catch(() => [] as LiveTvCategory[]);
   const source = topShelfSource(preferences, categories, lastKnownTunerData()?.groups ?? null);
   const ids = (await sourceChannelIds(source, preferences)).slice(0, TOP_SHELF_CHANNEL_LIMIT);
+  if (generation !== syncGeneration) return;
   await write(ids.length > 0 ? JSON.stringify({ server: config.server, userId: config.userId, title: source.title, ids }) : null);
 }
 
