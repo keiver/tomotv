@@ -35,10 +35,10 @@ import { RECESS_EDGE } from "@/constants/app";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
-import { useFolderPreview } from "@/hooks/useFolderPreview";
+import { useFolderPreviewState } from "@/hooks/useFolderPreview";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
-import { folderPosterSource } from "@/services/itemArtwork";
+import { folderPosterSource, heroArtFrame } from "@/services/itemArtwork";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
@@ -58,7 +58,8 @@ import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { sharePhoto } from "@/services/sharePhoto";
 import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
+import { BlurView } from "expo-blur";
+import { Image, useImage } from "expo-image";
 
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -76,6 +77,12 @@ const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 const HERO_EDGE_OVERRUN = 40;
 // Added to the artwork hero's height, pushing the title and everything under it down.
 const HERO_GROW = 35;
+// The hero's art area never shrinks below this, however small the picture.
+const HERO_ART_MIN = IS_TV ? 360 : 180;
+// TV: the title and CTA row rise this far onto the art, so the CTAs land on its foot.
+const TV_CONTENT_RISE = 120;
+// TV: art clear of the risen content, so a short picture (a channel logo) stays whole.
+const TV_ART_CLEAR = 300;
 // The fade's one colour, the surface under the hero (TV card SURFACE, phone sheet BACKGROUND), so it never dips darker than the card.
 const HERO_FADE_RGB = IS_TV ? "rgba(44, 44, 46, " : "rgba(20, 20, 20, ";
 
@@ -106,10 +113,10 @@ export default function VideoInfoScreen() {
   // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV and iPad, so
   // the first paint already has the final height and onLayout only refines it.
   const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? padFitWidth(windowWidth, insets.left + insets.right, "center") : windowWidth);
-  // Source aspect of the loaded artwork, so a taller-than-box hero anchors at the top.
-  const [heroAspect, setHeroAspect] = useState<number | null>(null);
-  // Seeded heroWidth paints frame one; this says the measured one has landed. A cached image
-  // can fire onLoad before the first layout pass, and the fade must not start on a guess.
+  // The hero source whose load failed; that hero falls back to the brand face.
+  const [heroFailedUri, setHeroFailedUri] = useState("");
+  // Seeded heroWidth paints frame one; this says the measured one has landed, and the fade
+  // must not start on a guess.
   const [heroMeasured, setHeroMeasured] = useState(false);
   const heroFade = useSharedValue(0);
   const reducedMotion = useReducedMotion();
@@ -516,25 +523,36 @@ export default function VideoInfoScreen() {
   const heroSource: { uri: string; cacheKey?: string } | undefined = backdropUri ? { uri: backdropUri } : (poster ?? folderPoster);
   const heroUri = heroSource?.uri ?? "";
   // A folder the server has no picture for wears the same collage its card does.
-  const preview = useFolderPreview(isContainer ? details : null, !heroUri);
+  const { items: preview, settled: previewSettled } = useFolderPreviewState(isContainer ? details : null, !heroUri);
   const showCollage = preview.length > 0;
 
-  const handleHeroLoad = (event: { source?: { width: number; height: number } | null }) => {
-    const source = event.source;
-    if (!source?.width || !source.height) return;
-    setHeroAspect(source.width / source.height);
-  };
-
-  // Taller than the box: full width at the source's own ratio, pinned to the top, the foot
-  // clipped by the hero. Wider: the plain cover fill, which crops the sides evenly.
-  const heroHeight = heroWidth > 0 ? heroHeightFor(heroWidth, !!heroUri || showCollage) : 0;
+  // Loaded before the panel shows, so the hero opens at its final size and nothing below it moves.
+  const heroRef = useImage(heroSource ?? "", { onError: () => setHeroFailedUri(heroUri) }, [heroSource?.cacheKey]);
+  const heroFailed = !!heroUri && heroFailedUri === heroUri;
+  const heroAspect = heroRef && heroRef.height > 0 && !heroFailed ? heroRef.width / heroRef.height : null;
+  // Art area clamped to [HERO_ART_MIN, 16:9 of the card on TV]; a portrait's foot runs under the fade and content.
+  const heroMaxHeight = IS_TV ? (heroWidth * 9) / 16 : windowHeight * 0.42;
+  const heroArt = heroSource && heroRef && heroWidth > 0 && heroAspect != null ? heroArtFrame(heroWidth, HERO_ART_MIN, heroMaxHeight, heroRef.width, heroRef.height) : null;
+  const heroArtArea = heroArt ? heroArt.area : 0;
+  const heroHeight = heroArt ? heroArtArea + HERO_GROW : heroWidth > 0 ? heroHeightFor(heroWidth, (!!heroUri && !heroFailed) || showCollage) : 0;
+  const heroRise = IS_TV && heroArt ? Math.min(TV_CONTENT_RISE, Math.max(0, heroHeight - TV_ART_CLEAR)) : 0;
+  // The fade is opaque by the art's visible foot, so its bottom edge never shows.
+  const footPct = heroHeight > 0 ? ((heroHeight - HERO_GROW) / heroHeight) * 100 : 100;
+  const footScrim = heroArt
+    ? {
+        experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) ${footPct * 0.2}%, ${HERO_FADE_RGB}0.45) ${footPct * 0.55}%, ${HERO_FADE_RGB}0.85) ${footPct * 0.8}%, ${HERO_FADE_RGB}1) ${footPct}%)`,
+      }
+    : null;
   // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
   // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
   const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
-  const heroCropStyle =
-    heroWidth > 0 && heroHeight > 0 && heroAspect != null && heroAspect < heroWidth / heroHeight
-      ? { position: "absolute" as const, top: 0, left: 0, width: heroWidth, height: heroWidth / heroAspect }
-      : StyleSheet.absoluteFill;
+  const heroCropStyle = heroArt
+    ? { position: "absolute" as const, top: Math.max(0, (heroArtArea - heroArt.height) / 2), left: (heroWidth - heroArt.width) / 2, width: heroArt.width, height: heroArt.height }
+    : StyleSheet.absoluteFill;
+  // The panel opens once the hero, the collage and the live CTAs have all answered, so it paints once.
+  const liveSettled = !live || !liveChannelId || canManage === false || (canManage === true && recording.settled);
+  const heroSettled = heroSource ? heroAspect != null || heroFailed : previewSettled;
+  const ready = !!details && heroSettled && liveSettled;
 
   // The artwork is transparent until its crop frame is final, so the first painted frame
   // already sits where it belongs and the fade stands in for the shift. Honors Reduce Motion.
@@ -836,7 +854,7 @@ export default function VideoInfoScreen() {
         }}
       />
     </View>
-  ) : !details ? (
+  ) : !ready ? (
     // The spinner is a focus stop on purpose: presenting a screen with nothing focusable on it
     // leaves focus outside the panel until the fetch resolves and a CTA claims it.
     <View style={[styles.stateWrap, IS_PAD && styles.padState]}>
@@ -846,28 +864,25 @@ export default function VideoInfoScreen() {
     </View>
   ) : (
     <ScrollView style={IS_PAD ? styles.padScroll : styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : IS_PAD ? 28 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
-      {/* Full-bleed artwork heading on both platforms; the scrim fades it into
+      {/* Artwork heading on both platforms, whole; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
           (layer-front) centered in it, the cards' no-poster mark. */}
       <View
-        style={[styles.hero, heroHeight > 0 && { height: heroHeight }]}
+        style={[styles.hero, heroHeight > 0 && { height: heroHeight }, heroRise > 0 && { marginBottom: -heroRise }]}
         onLayout={(event) => {
           setHeroWidth(event.nativeEvent.layout.width);
           setHeroMeasured(true);
         }}>
-        {heroSource ? (
+        {heroRef && heroArt ? (
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
-            <Image
-              key={heroUri}
-              source={heroSource}
-              style={heroCropStyle}
-              contentFit="cover"
-              transition={0}
-              cachePolicy="memory-disk"
-              onLoad={handleHeroLoad}
-              accessible
-              accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
-            />
+            {/* Art smaller than its area: its own blurred fill takes the rest, never bars. */}
+            {(heroArt.width < heroWidth - 1 || heroArt.height < heroArtArea - 1) && (
+              <>
+                <Image source={heroRef} style={StyleSheet.absoluteFill} contentFit="cover" transition={0} accessible={false} />
+                <BlurView intensity={IS_TV ? 90 : 80} tint="dark" style={StyleSheet.absoluteFill} />
+              </>
+            )}
+            <Image key={heroUri} source={heroRef} style={heroCropStyle} contentFit="cover" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
           </Animated.View>
         ) : showCollage ? (
           <View style={StyleSheet.absoluteFill} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)}>
@@ -883,12 +898,12 @@ export default function VideoInfoScreen() {
             accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
           />
         )}
-        <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />
+        <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
         {/* The card's own lip and rim, re-painted above the opaque artwork and run past the hero's
             foot so they meet the card's below it. tvOS-safe: the hero holds no focusables. */}
         {IS_TV && <View pointerEvents="none" style={[styles.heroEdge, { height: heroHeight + HERO_EDGE_OVERRUN }]} />}
       </View>
-      {/* Title sits below the hero on every item, never over the artwork. */}
+      {/* Title sits below the hero; on TV it and the CTAs ride up onto tall art (heroRise). */}
       <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
         {logoUri ? (
           <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
@@ -1036,8 +1051,7 @@ const styles = StyleSheet.create({
     marginTop: IS_TV ? 5 : 16,
   },
   // A logo rides up into the foot of the artwork on TV, where the scrim has already faded it to
-  // the surface. Text never does: a title over the picture is what the scrim exists to avoid,
-  // and the phone's hero is too short to give any of it away.
+  // the surface; the phone's hero is too short to give any of it away.
   heroLogoBelow: {
     marginTop: IS_TV ? -100 : 10,
   },

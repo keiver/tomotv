@@ -34,7 +34,7 @@ jest.mock("@/components/info-action-row", () => ({
 }));
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
-jest.mock("expo-image", () => ({ Image: () => null }));
+jest.mock("expo-image", () => ({ Image: () => null, useImage: () => ({ width: 16, height: 9 }) }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/components/FocusableButton", () => ({
   FocusableButton: ({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) => {
@@ -137,6 +137,16 @@ describe("Video info: live items", () => {
     const tree = await mount(airing);
     expect(buttons(tree)).toEqual(["Watch"]);
     expect(fetchTimers).not.toHaveBeenCalled();
+  });
+
+  it("paints no CTA until the record state answers, then Watch and Record at once", async () => {
+    let release!: (timers: never[]) => void;
+    (fetchTimers as jest.Mock).mockImplementation(() => new Promise((resolve) => (release = resolve)));
+    const tree = await mount(channel);
+    expect(buttons(tree)).toEqual([]);
+    await act(async () => release([]));
+    await settle();
+    expect(buttons(tree)).toEqual(expect.arrayContaining(["Watch", "Record"]));
   });
 
   it("offers Watch, Record and Record Series for an airing series, and Watch replaces the sheet with the channel", async () => {

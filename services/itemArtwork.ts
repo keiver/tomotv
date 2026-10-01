@@ -85,3 +85,19 @@ export function folderPosterSource(folder: FolderPosterItem, height: number): Po
 export function posterUri(item: PosterItem, height: number, frame?: string | null): string | null {
   return posterSource(item, height, frame)?.uri ?? null;
 }
+
+const HERO_MAX_UPSCALE = 3;
+
+/**
+ * The info hero's art at its own ratio and the area it sits in. Full width, the area clamped to
+ * [minArea, maxArea] and a taller picture's foot cropped; a tiny landscape picture (a channel logo) stops at 3x its own size.
+ */
+export function heroArtFrame(width: number, minArea: number, maxArea: number, imageWidth: number, imageHeight: number): { width: number; height: number; area: number } {
+  if (imageWidth * HERO_MAX_UPSCALE < width && imageWidth >= imageHeight) {
+    const scale = Math.min(HERO_MAX_UPSCALE, maxArea / imageHeight);
+    const height = imageHeight * scale;
+    return { width: imageWidth * scale, height, area: Math.max(height, minArea) };
+  }
+  const height = (width * imageHeight) / imageWidth;
+  return { width, height, area: Math.min(Math.max(height, minArea), maxArea) };
+}

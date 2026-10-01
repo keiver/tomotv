@@ -15,7 +15,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 jest.mock("@/services/localRemux", () => ({ posterFrameIfCached: (id: string) => mockCached(id), posterFrameGeneration: () => mockGeneration(), posterFrameRevision: () => mockRevision() }));
 
-import { folderPosterSource, posterSource, posterUri, wantsPosterFrame } from "../itemArtwork";
+import { folderPosterSource, heroArtFrame, posterSource, posterUri, wantsPosterFrame } from "../itemArtwork";
 import { updateUiPreferences } from "@/services/uiPreferences";
 
 const item = (extra: Record<string, unknown> = {}) => ({ Id: "a", Type: "Movie", RunTimeTicks: 0, ...extra });
@@ -108,6 +108,39 @@ describe("folderPosterSource", () => {
   it("answers nothing when the server has no picture for the folder", () => {
     expect(folderPosterSource({ Id: "f1" }, 300)).toBeUndefined();
     expect(folderPosterSource({ Id: "f1", SeriesId: "show" }, 300)).toBeUndefined();
+  });
+});
+
+describe("heroArtFrame", () => {
+  // A 503x125 channel logo on the 1100pt TV card: whole, never cover-cropped at the sides.
+  it("shows a backdrop whole at full width", () => {
+    const backdrop = heroArtFrame(1100, 360, 618.75, 1920, 1080);
+    expect(backdrop.width).toBe(1100);
+    expect(backdrop.height).toBeCloseTo(618.75);
+    expect(backdrop.area).toBeCloseTo(618.75);
+  });
+
+  // The foot sits under the fade and the content, as a poster page does.
+  it("draws a portrait or square picture full width, its area clamped to the max", () => {
+    const portrait = heroArtFrame(1100, 360, 618.75, 400, 600);
+    expect(portrait).toEqual({ width: 1100, height: 1650, area: 618.75 });
+    expect(heroArtFrame(1100, 360, 618.75, 1000, 1000).area).toBeCloseTo(618.75);
+  });
+
+  it("keeps a very wide picture's area at the min", () => {
+    expect(heroArtFrame(1100, 360, 618.75, 4000, 1000)).toEqual({ width: 1100, height: 275, area: 360 });
+  });
+
+  // .black (576p)'s logo is 68x16: drawn full width it is a 16x blow-up.
+  it("stops a tiny landscape picture at 3x its own size", () => {
+    expect(heroArtFrame(1100, 360, 618.75, 68, 16)).toEqual({ width: 204, height: 48, area: 360 });
+  });
+
+  // A 940pt-wide backdrop on the TV card, a 533pt one on a landscape phone: full width, never boxed.
+  it("draws a landscape picture a little narrower than the hero full width", () => {
+    expect(heroArtFrame(1100, 360, 618.75, 940, 627).width).toBe(1100);
+    expect(heroArtFrame(852, 180, 165, 533, 300)).toMatchObject({ width: 852, area: 165 });
+    expect(heroArtFrame(1100, 360, 618.75, 503, 125).width).toBe(1100);
   });
 });
 

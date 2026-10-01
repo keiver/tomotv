@@ -59,6 +59,14 @@ describe("useRecordActions", () => {
     expect(cancelTimer).not.toHaveBeenCalled();
   });
 
+  it("settles after the first read, a failed one included", async () => {
+    expect((await mount()).current!.get().settled).toBe(true);
+    jest.mocked(fetchTimers).mockRejectedValueOnce(new Error("offline"));
+    const failed = await mount();
+    expect(failed.current!.get().settled).toBe(true);
+    expect(failed.current!.get().timer).toBeUndefined();
+  });
+
   it("keeps a created timer as recording when the re-read fails, without a failure toast", async () => {
     const ref = await mount();
     expect(ref.current!.get().timer).toBeNull();

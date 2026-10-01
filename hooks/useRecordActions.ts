@@ -29,6 +29,8 @@ export function useRecordActions(target: RecordTarget | null) {
   const [timer, setTimer] = useState<JellyfinTimer | null | undefined>(undefined);
   const [seriesTimerId, setSeriesTimerId] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState<RecordBusy>(null);
+  // The first read has answered, a failure included, so a caller can wait on it.
+  const [settled, setSettled] = useState(false);
   const enabled = !!target;
 
   const programStart = program?.StartDate;
@@ -54,8 +56,12 @@ export function useRecordActions(target: RecordTarget | null) {
         if (cancelled) return;
         setTimer(state.timer);
         setSeriesTimerId(state.seriesTimerId);
+        setSettled(true);
       })
-      .catch((err) => logger.warn("Timer state read failed", err, { hook: "useRecordActions" }));
+      .catch((err) => {
+        logger.warn("Timer state read failed", err, { hook: "useRecordActions" });
+        if (!cancelled) setSettled(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -153,7 +159,7 @@ export function useRecordActions(target: RecordTarget | null) {
     return run("cancelSeries", async () => (seriesTimerId ? cancelSeriesTimer(seriesTimerId) : undefined), t("liveTv.recordingCanceled"), landed, null);
   }, [run, rereadStandIn, timer, seriesTimerId]);
 
-  return { timer, seriesTimerId, busy, record, recordSeries, cancel, cancelSeries };
+  return { timer, seriesTimerId, busy, settled, record, recordSeries, cancel, cancelSeries };
 }
 
 /** The live rule covering a program: linked from its timer in any status (a cancelled airing keeps the link), else the rule's own program. */
