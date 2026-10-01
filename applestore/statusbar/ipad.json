@@ -1,0 +1,35 @@
+{
+  "simulator": "iPad Pro 13-inch (M5)",
+  "canvas": [2064, 2752],
+  "time": "2024-01-09T14:41:00.000Z",
+  "zones": {
+    "left": {
+      "ink": {
+        "left": 51,
+        "right": 443,
+        "top": 22,
+        "bottom": 42
+      },
+      "box": {
+        "left": 45,
+        "right": 449,
+        "top": 16,
+        "bottom": 48
+      }
+    },
+    "right": {
+      "ink": {
+        "left": 1874,
+        "right": 2011,
+        "top": 20,
+        "bottom": 43
+      },
+      "box": {
+        "left": 1868,
+        "right": 2017,
+        "top": 14,
+        "bottom": 49
+      }
+    }
+  }
+}

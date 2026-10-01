@@ -24,7 +24,10 @@
  *   npm run shots -- --verify        compliance gate only
  *   npm run shots -- --list          print the caption plan and exit
  *   npm run shots -- --self-check    assign() correctness only, no files touched
+ *   npm run shots -- --statusbar-template
+ *                                    shoot each booted phone/tablet's status bar at 9:41 into applestore/statusbar
  *
+ * Every phone and tablet render swaps the capture's status bar for that reference ink.
  * A file whose name starts with a shot id claims that slot; the rest fill the
  * remaining slots in the order they were taken.
  *
@@ -43,6 +46,7 @@ import { fresh, hash, hashFile, loadManifest, saveManifest, toolchain } from "./
 import { planImport, adopt, assign } from "./appstore/import.mjs";
 import { captureShots } from "./appstore/capture.mjs";
 import { ensurePlaceholders } from "./appstore/placeholder.mjs";
+import { STAMP_TIME, TEMPLATE_DIR, captureTemplate, findClusters, stampStatusBar, templateHash } from "./appstore/statusbar.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG_PATH = path.join(ROOT, "applestore", "shots.config.json");
@@ -255,7 +259,7 @@ async function composeAll(config, manifest) {
       const fellBack = src !== own;
       const out = outputPath(config, deviceKey, shot.id);
       const capture = hashFile(src);
-      const key = hash(tools, config.locales?.[config.locale]?.fonts ?? null, layout(device, shot, shared), hashFile(config.background), capture);
+      const key = hash(tools, config.locales?.[config.locale]?.fonts ?? null, layout(device, shot, shared), hashFile(config.background), capture, templateHash(deviceKey));
       const id = `${deviceKey}/${shot.id}`;
 
       if (!force && fresh(manifest[id], key, out)) {
@@ -265,9 +269,13 @@ async function composeAll(config, manifest) {
       changed.add(deviceKey);
       tasks.push(async () => {
         fs.mkdirSync(path.dirname(out), { recursive: true });
-        const info = await compose(device, shot, src, out, shared, config.background);
-        manifest[id] = { key, sha: hashFile(out), background: path.relative(ROOT, config.background), capture: path.relative(ROOT, src), captureSha: capture };
-        console.log(`   ${id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px${fellBack ? "  ! english capture" : ""}`);
+        const bar = await stampStatusBar(src, deviceKey).catch((e) => {
+          throw new Error(`${id}: ${e.message}`);
+        });
+        const info = await compose(device, shot, bar.input, out, shared, config.background);
+        manifest[id] = { key, sha: hashFile(out), background: path.relative(ROOT, config.background), capture: path.relative(ROOT, src), captureSha: capture, statusBar: bar.status };
+        const note = bar.status === "stamped" || deviceKey === "tv" ? "" : `  · ${bar.status}`;
+        console.log(`   ${id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px${fellBack ? "  ! english capture" : ""}${note}`);
       });
     }
   }
@@ -396,6 +404,20 @@ function selfCheck() {
   const numbered = assign(shots, [file("02 grid.png")]);
   check("a bare leading number claims its shot", numbered.byShot.get("02-grid")?.name === "02 grid.png");
 
+  // A 100x60 dark frame: bar ink at rows 10-14, app chrome at rows 30-34, one stray edge pixel.
+  const W = 100;
+  const data = Buffer.alloc(W * 60 * 3, 30);
+  const paint = (x0, x1, y0, y1) => {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) data.fill(250, (y * W + x) * 3, (y * W + x) * 3 + 3);
+  };
+  paint(10, 20, 10, 14);
+  paint(70, 85, 11, 13);
+  paint(5, 40, 30, 34);
+  paint(99, 99, 4, 4);
+  const bar = findClusters({ data, info: { width: W, height: 60, channels: 3 } }, 0, 50);
+  check("the bar is the first run of inked rows, not the chrome under it", bar.left?.top === 10 && bar.left?.bottom === 14 && bar.left?.right === 20);
+  check("a frame's edge pixel never starts the bar", bar.right?.top === 11 && bar.right?.right === 85);
+
   console.log(problems.length ? `\n${problems.length} problem(s)` : "\nassign() holds every caption to its own image");
   return problems.length === 0;
 }
@@ -425,6 +447,18 @@ async function main() {
     console.log();
     if (failures) fail(`${failures} compliance problem(s)`);
     console.log("✓ every generated image is App Store Connect compliant\n");
+    return;
+  }
+
+  if (flag("--statusbar-template")) {
+    console.log(`\n▸ status bar templates at ${STAMP_TIME.toString().slice(0, 21)}`);
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-statusbar-"));
+    for (const { deviceKey, shots } of plan(config)) {
+      if (deviceKey === "tv" || !shots.length) continue;
+      await captureTemplate(deviceKey, DEVICES[deviceKey], scratch);
+      console.log(`   ✓ ${deviceKey} → ${path.relative(ROOT, TEMPLATE_DIR)}/${deviceKey}.png`);
+    }
+    fs.rmSync(scratch, { recursive: true, force: true });
     return;
   }
 
