@@ -25,10 +25,15 @@ jest.mock("@/services/jellyfinApi", () => ({
 const mockAuthListeners = new Set<() => void>();
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
 jest.mock("@/services/jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] })) }));
-jest.mock("@/services/externalGuide", () => ({
-  fetchExternalPrograms: jest.fn(async () => []),
-  activeGuideUrls: jest.requireActual("@/services/externalGuide").activeGuideUrls,
-}));
+jest.mock("@/services/externalGuide", () => {
+  const fetchExternalPrograms = jest.fn();
+  fetchExternalPrograms.mockResolvedValue([]);
+  return {
+    fetchExternalPrograms,
+    fetchExternalProgramWindow: jest.fn(async (...args: unknown[]) => ({ programs: await fetchExternalPrograms(...args), failedChannelIds: [] })),
+    activeGuideUrls: jest.requireActual("@/services/externalGuide").activeGuideUrls,
+  };
+});
 let mockPreferences = {
   version: 1,
   autoUpdate: true,
@@ -404,6 +409,61 @@ describe("useGuide", () => {
     expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c41"]);
     await act(async () => noteChannelAlive("c42"));
     expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c41", "c42"]);
+  });
+
+  it("replaces every requested channel on refresh, including empty responses and removed tails", async () => {
+    const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+    fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [
+      program("a", "c1", 0, 30, startMs),
+      program("tail", "c1", 30, 60, startMs),
+      program("b", "c2", 0, 30, startMs),
+    ]);
+    const ref = await mount();
+    expect(ref.current!.get().rows.map((row) => row.programs.length)).toEqual([2, 1]);
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 30, startMs)]);
+    await act(async () => ref.current!.get().retry());
+    await settle();
+    expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([["a"], []]);
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    await act(async () => ref.current!.get().retry());
+    await settle();
+    expect(ref.current!.get().rows.map((row) => row.programs)).toEqual([[], []]);
+  });
+
+  it("preserves failed external channels while applying successful server and empty external refreshes", async () => {
+    const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+    const { fetchExternalProgramWindow } = jest.requireMock("@/services/externalGuide") as { fetchExternalProgramWindow: jest.Mock };
+    fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: ["http://g/refresh.xml"] });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2), channel(3)], total: 3 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("old-server", "c1", 0, 30, startMs)]);
+    fetchExternalProgramWindow.mockImplementationOnce(async (_urls: string[], _wanted: unknown, window: { from: number }) => ({
+      programs: [program("epg:c2", "c2", 0, 30, window.from), program("epg:c3", "c3", 0, 30, window.from)],
+      failedChannelIds: [],
+    }));
+    const ref = await mount();
+    expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([["old-server"], ["epg:c2"], ["epg:c3"]]);
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("new-server", "c1", 0, 30, startMs)]);
+    fetchExternalProgramWindow.mockResolvedValueOnce({ programs: [], failedChannelIds: ["c2"] });
+    await act(async () => ref.current!.get().retry());
+    await settle();
+    expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([["new-server"], ["epg:c2"], []]);
+    fetchExternalProgramWindow.mockResolvedValueOnce({ programs: [], failedChannelIds: [] });
+    await act(async () => ref.current!.get().retry());
+    await settle();
+    expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([["new-server"], [], []]);
+  });
+
+  it("keeps the previous programmes when their refresh fails", async () => {
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 30, startMs)]);
+    const ref = await mount();
+    (fetchGuidePrograms as jest.Mock).mockRejectedValueOnce(new Error("offline"));
+    await act(async () => ref.current!.get().retry());
+    await settle();
+    expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["a"]);
+    expect(ref.current!.get().error).toBe("offline");
   });
 
   it("reports a failed load and retries on request", async () => {

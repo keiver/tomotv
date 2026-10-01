@@ -4,7 +4,7 @@ import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
 import { useHealthGeneration } from "@/hooks/useChannelHealth";
 import { healthFor } from "@/services/channelHealth";
 import { fetchChannels, fetchChannelsByIds, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
-import { activeGuideUrls, fetchExternalPrograms } from "@/services/externalGuide";
+import { activeGuideUrls, fetchExternalProgramWindow } from "@/services/externalGuide";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
@@ -51,7 +51,7 @@ export interface GuideState {
 type ChannelPage = { hasMore: boolean; pageLength: number };
 
 /** Lands a page in two steps: channels as soon as they are known, programs when they arrive. */
-type PageLand = { channels: (items: JellyfinItem[]) => void; programs: (items: JellyfinItem[], programs: JellyfinProgram[]) => void };
+type PageLand = { channels: (items: JellyfinItem[]) => void; programs: (items: JellyfinItem[], programs: JellyfinProgram[], window: { from: number; to: number }) => void };
 
 /**
  * One fresh load of the list: a sort, a filter change or a retry starts another and retires this
@@ -151,15 +151,14 @@ export function useGuide(): GuideState {
     setWindowEndMs(start + GUIDE_SPAN_MINUTES * MINUTE_MS);
   }
 
-  const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[]) => {
+  const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[], window: { from: number; to: number }) => {
     setProgramsByChannel((current) => {
       const next = { ...current };
-      for (const channel of list) if (!next[channel.Id]) next[channel.Id] = [];
       const byChannel = new Map<string, JellyfinProgram[]>();
       for (const program of programs) {
         if (program.ChannelId) byChannel.set(program.ChannelId, [...(byChannel.get(program.ChannelId) ?? []), program]);
       }
-      for (const [channelId, incoming] of byChannel) next[channelId] = mergePrograms(next[channelId], incoming);
+      for (const channel of list) next[channel.Id] = mergePrograms(next[channel.Id], byChannel.get(channel.Id) ?? [], window);
       return next;
     });
   }, []);
@@ -167,23 +166,30 @@ export function useGuide(): GuideState {
   /** Server programs for the page; channels the server has none for fall back to the external
    *  guides: the viewer's own, then the ones the tuner playlists declare. */
   const fetchPrograms = useCallback(async (list: JellyfinItem[], startMs: number, endMs: number) => {
-    if (list.length === 0) return [];
+    if (list.length === 0) return { channels: list, programs: [] };
+    const preferences = getLiveTvPreferences();
     setPendingPrograms((count) => count + 1);
     try {
       const programs = await fetchGuidePrograms({ channelIds: list.map((channel) => channel.Id), startMs, endMs });
+      if (guideSourcesKey(getLiveTvPreferences()) !== guideSourcesKey(preferences)) return null;
       const covered = new Set(programs.map((program) => program.ChannelId));
       const bare = list.filter((channel) => !covered.has(channel.Id));
-      if (bare.length === 0) return programs;
+      if (bare.length === 0) return { channels: list, programs };
       // No M3U tuner (or a read it refused) still leaves the viewer's guides, matched by name.
       const data = await fetchTunerData().catch(() => null);
-      const preferences = getLiveTvPreferences();
+      if (guideSourcesKey(getLiveTvPreferences()) !== guideSourcesKey(preferences)) return null;
       const urls = activeGuideUrls(preferences, data?.tvgUrls ?? []);
-      if (urls.length === 0) return programs;
+      if (urls.length === 0) return { channels: data ? list : list.filter((channel) => covered.has(channel.Id)), programs };
       const wanted = bare.map((channel) => ({ channelId: channel.Id, tvgId: data?.tvgById[channel.Id], tvgName: data?.tvgNameById[channel.Id], name: channel.Name ?? "" }));
-      const external = await fetchExternalPrograms(urls, wanted, { from: startMs, to: endMs });
+      const external = await fetchExternalProgramWindow(urls, wanted, { from: startMs, to: endMs });
       // Sources changed while these loaded: the reload that change started answers for them instead.
-      if (guideSourcesKey(getLiveTvPreferences()) !== guideSourcesKey(preferences)) return programs;
-      return programs.concat(external);
+      if (guideSourcesKey(getLiveTvPreferences()) !== guideSourcesKey(preferences)) return null;
+      const failed = new Set(external.failedChannelIds);
+      if (!data) {
+        const externallyCovered = new Set(external.programs.map((program) => program.ChannelId));
+        for (const channel of bare) if (!externallyCovered.has(channel.Id)) failed.add(channel.Id);
+      }
+      return { channels: list.filter((channel) => !failed.has(channel.Id)), programs: programs.concat(external.programs) };
     } finally {
       setPendingPrograms((count) => count - 1);
     }
@@ -192,7 +198,8 @@ export function useGuide(): GuideState {
   const loadPrograms = useCallback(
     async (list: JellyfinItem[], startMs: number, endMs: number, load: GuideLoad) => {
       if (list.length === 0) return;
-      load.land.programs(list, await fetchPrograms(list, startMs, endMs));
+      const result = await fetchPrograms(list, startMs, endMs);
+      if (result !== null) load.land.programs(result.channels, result.programs, { from: startMs, to: endMs });
     },
     [fetchPrograms],
   );
@@ -201,6 +208,11 @@ export function useGuide(): GuideState {
    *  soon as they are known, so the grid renders while the page's programs load behind it. */
   const loadChannelPage = useCallback(
     async (startIndex: number, land: PageLand) => {
+      const window = { from: windowStartMs, to: windowEndRef.current };
+      const landPrograms = async (items: JellyfinItem[]) => {
+        const result = await fetchPrograms(items, window.from, window.to);
+        if (result !== null) land.programs(result.channels, result.programs, window);
+      };
       if (Array.isArray(playlistIds)) {
         // Slices whose ids the server does not know come back empty; keep going until items or the end.
         let consumed = 0;
@@ -211,21 +223,21 @@ export function useGuide(): GuideState {
           consumed += slice.length;
         }
         land.channels(items);
-        land.programs(items, await fetchPrograms(items, windowStartMs, windowEndRef.current));
+        await landPrograms(items);
         return { hasMore: startIndex + consumed < playlistIds.length, pageLength: consumed };
       }
       // A list is fetched by its entries in one page: a catalog can hold thousands of channels.
       if (list) {
         const items = await fetchListedChannels(list);
         land.channels(items);
-        land.programs(items, await fetchPrograms(items, windowStartMs, windowEndRef.current));
+        await landPrograms(items);
         return { hasMore: false, pageLength: items.length };
       }
       const { items, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) });
       const loaded = startIndex + items.length;
       const hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
       land.channels(items);
-      land.programs(items, await fetchPrograms(items, windowStartMs, windowEndRef.current));
+      await landPrograms(items);
       return { hasMore, pageLength: items.length };
     },
     [windowStartMs, sort, list, category, playlistIds, fetchPrograms],
@@ -259,8 +271,8 @@ export function useGuide(): GuideState {
         }
         setChannels(channelsRef.current);
       },
-      programs: (items, programs) => {
-        if (!load.retired) applyPrograms(items, programs);
+      programs: (items, programs, window) => {
+        if (!load.retired) applyPrograms(items, programs, window);
       },
     }),
     [applyPrograms],

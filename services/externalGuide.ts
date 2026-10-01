@@ -253,18 +253,31 @@ export function clearDownloadedGuides(): void {
  * and the next guide is still asked.
  */
 export async function fetchExternalPrograms(urls: readonly string[], channels: readonly GuideChannelRequest[], windowMs: { from: number; to: number }): Promise<JellyfinProgram[]> {
+  return (await fetchExternalProgramWindow(urls, channels, windowMs)).programs;
+}
+
+/** A refresh distinguishes a successful empty window from channels whose guides could not be read. */
+export async function fetchExternalProgramWindow(
+  urls: readonly string[],
+  channels: readonly GuideChannelRequest[],
+  windowMs: { from: number; to: number },
+): Promise<{ programs: JellyfinProgram[]; failedChannelIds: string[] }> {
   prune(urls);
-  if (urls.length === 0 || channels.length === 0 || !isLiveSourcesAvailable()) return [];
+  if (urls.length === 0 || channels.length === 0) return { programs: [], failedChannelIds: [] };
+  if (!isLiveSourcesAvailable()) return { programs: [], failedChannelIds: channels.map((channel) => channel.channelId) };
   const names = new Map(channels.map((channel) => [channel.channelId, channel.name]));
   const result: JellyfinProgram[] = [];
+  const failed = new Set<string>();
   let remaining = channels;
   for (const url of urls) {
     if (remaining.length === 0) break;
     const source = sourceFor(url);
     let guide: OpenGuide | null = null;
+    let attempted = remaining.map((channel) => channel.channelId);
     try {
       guide = await ensureOpen(source, windowMs);
       const matches = matchChannels(guide.index, remaining);
+      attempted = Array.from(matches.keys());
       for (const channel of remaining) source.asked.add(channel.channelId);
       for (const [channelId, { via }] of matches) source.matched.set(channelId, { channelId, name: names.get(channelId) ?? "", via });
       setStatus(source, { asked: source.asked.size, matched: Array.from(source.matched.values()) });
@@ -291,10 +304,13 @@ export async function fetchExternalPrograms(urls: readonly string[], channels: r
       // A channel this guide names but lists nothing for in the window is still asked of the next one.
       remaining = remaining.filter((channel) => !covered.has(channel.channelId));
     } catch (error) {
+      for (const channelId of attempted) failed.add(channelId);
       // A read of an open guide failed (the native store closed it): the next fetch reopens it.
       if (guide && source.open === guide) source.open = null;
       logger.warn("External guide load failed", error, { service: "ExternalGuide", url });
     }
   }
-  return result;
+  // A later guide with listings answers for a failed source. An empty fallback cannot tell us
+  // whether the failed source removed its programmes, so retain those channels until a good read.
+  return { programs: result, failedChannelIds: remaining.filter((channel) => failed.has(channel.channelId)).map((channel) => channel.channelId) };
 }

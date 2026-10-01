@@ -3,6 +3,7 @@ import {
   activeGuideUrls,
   clearDownloadedGuides,
   fetchExternalPrograms,
+  fetchExternalProgramWindow,
   forgetGuide,
   guideSourcesBusy,
   guideSourceStatuses,
@@ -54,6 +55,34 @@ describe("fetchExternalPrograms", () => {
     native.loadGuide.mockImplementation(async () => ({ token: `tok-${++tokens}`, stats: { channels: 12, programmes: 340 } }));
     native.guideChannels.mockResolvedValue([]);
     native.guideProgrammes.mockResolvedValue([]);
+  });
+
+  it("distinguishes an empty window from a failed source, and accepts a successful fallback", async () => {
+    const channels = [{ channelId: "c1", tvgId: "A.us", name: "Alpha" }];
+    native.guideChannels.mockResolvedValue([{ id: "A.us", displayNames: ["Alpha"], icon: null }]);
+    expect(await fetchExternalProgramWindow([URL], channels, WINDOW)).toEqual({ programs: [], failedChannelIds: [] });
+    refreshExternalGuide();
+    cache.cachedGuideFile.mockRejectedValueOnce(new Error("offline"));
+    expect(await fetchExternalProgramWindow([URL], channels, WINDOW)).toEqual({ programs: [], failedChannelIds: ["c1"] });
+    expect(await fetchExternalProgramWindow([URL, OTHER], channels, WINDOW)).toEqual({ programs: [], failedChannelIds: ["c1"] });
+    native.guideProgrammes.mockResolvedValue([programme("A.us", WINDOW.from)]);
+    const fallback = await fetchExternalProgramWindow([URL, OTHER], channels, WINDOW);
+    expect(fallback.failedChannelIds).toEqual([]);
+    expect(fallback.programs.map((program) => program.ChannelId)).toEqual(["c1"]);
+  });
+
+  it("marks only matched channels when an open guide's programme read fails", async () => {
+    native.guideChannels.mockResolvedValue([{ id: "A.us", displayNames: ["Alpha"], icon: null }]);
+    native.guideProgrammes.mockRejectedValueOnce(new Error("store closed"));
+    const result = await fetchExternalProgramWindow(
+      [URL],
+      [
+        { channelId: "c1", tvgId: "A.us", name: "Alpha" },
+        { channelId: "c2", tvgId: "B.us", name: "Bravo" },
+      ],
+      WINDOW,
+    );
+    expect(result).toEqual({ programs: [], failedChannelIds: ["c1"] });
   });
 
   it("pairs by tvg-id, shaping programmes like the server's", async () => {
