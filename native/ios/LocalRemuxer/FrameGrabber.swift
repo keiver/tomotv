@@ -85,8 +85,16 @@ final class FrameGrabber {
     private(set) var clipMode = "none"
     private(set) var clipMs: Double = 0
     private(set) var clipPackets = 0
-    /// A card-sized preview: the transcoded clip's bitrate ceiling.
-    private static let clipMaxBitrate: Int64 = 4_000_000
+    /// A card-sized preview: every clip is encoded down to this, so the cards that loop it decode little.
+    private static let clipMaxBitrate: Int64 = 1_000_000
+    private static let clipMaxHeight: Int32 = 360
+    private static let clipFrameRate: Int32 = 15
+    /// The simulator has no hardware decoder; asking for one there fails every clip with -12906 before falling back.
+    #if targetEnvironment(simulator)
+    private static let clipHardwareDecode = false
+    #else
+    private static let clipHardwareDecode = true
+    #endif
     /// The live read's first keyframe packet: the clip starts on it.
     private var keyPacket: UnsafeMutablePointer<AVPacket>?
 
@@ -230,13 +238,11 @@ final class FrameGrabber {
         let lifted = inPar.pointee.extradata_size == 0 && (codec == AV_CODEC_ID_H264 || codec == AV_CODEC_ID_HEVC)
             ? TierRewrapper.annexBParameterSets(keyPacket, hevc: codec == AV_CODEC_ID_HEVC) : nil
         let copyable = !VideoTranscoder.needsTranscode(stream: inStream) && (inPar.pointee.extradata_size > 0 || lifted != nil)
-        let transcoder: VideoTranscoder?
-        if copyable {
-            transcoder = nil
-        } else {
-            guard let made = VideoTranscoder(inputStream: inStream, keyframeInterval: span, maxBitrate: Self.clipMaxBitrate) else { return nil }
-            transcoder = made
-        }
+        // A copy stands in only when the encoder cannot be made.
+        let transcoder = VideoTranscoder(inputStream: inStream, keyframeInterval: span, maxBitrate: Self.clipMaxBitrate,
+                                         maxHeight: Self.clipMaxHeight, maxFrameRate: Self.clipFrameRate,
+                                         hardwareDecode: Self.clipHardwareDecode, quiet: true)
+        guard transcoder != nil || copyable else { return nil }
         clipMode = transcoder == nil ? "copy" : "transcode"
 
         var outputCtx: UnsafeMutablePointer<AVFormatContext>?

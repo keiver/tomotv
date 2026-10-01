@@ -304,7 +304,7 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(opened.seconds, 2, accuracy: 0.25)
     }
 
-    func testAnHevcClipCarriesTheSampleEntryAVFoundationPlays() throws {
+    func testAnHevcChannelsClipIsEncodedToH264AVFoundationPlays() throws {
         let stream = try fixture("hevc-shortgop.ts", [
             "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",
             "-c:v", "libx265", "-x265-params", "keyint=25:min-keyint=25:log-level=error", "-pix_fmt", "yuv420p", "-an",
@@ -315,7 +315,7 @@ final class LiveFrameQueueTests: XCTestCase {
 
         guard case .frames(_, let clip?, _)? = grab(queue, stream, clipSpan: 3) else { return XCTFail("no clip") }
         let opened = try playable(clip)
-        XCTAssertEqual(opened.codec, "hvc1")
+        XCTAssertEqual(opened.codec, "avc1")
         XCTAssertEqual(opened.seconds, 3, accuracy: 0.25)
     }
 
