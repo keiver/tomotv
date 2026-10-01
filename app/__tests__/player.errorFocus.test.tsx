@@ -91,7 +91,7 @@ describe("error screen focus claim", () => {
     jest.clearAllMocks();
     mockParams = { videoId: "one", videoName: "First" };
     jest.mocked(fetchNextEpisodeAutoPlay).mockResolvedValue(true);
-    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null });
+    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null, commercials: [] });
   });
   afterEach(async () => {
     await act(async () => renderer?.unmount());

@@ -33,6 +33,7 @@ export default function ChannelSettingsScreen() {
   const preferences = useLiveTvPreferences();
   const toggleAutoUpdate = useCallback(() => updateLiveTvPreferences({ autoUpdate: !preferences.autoUpdate }), [preferences.autoUpdate]);
   const toggleHideOffline = useCallback(() => updateLiveTvPreferences({ hideOffline: !preferences.hideOffline }), [preferences.hideOffline]);
+  const toggleSkipCommercials = useCallback(() => updateLiveTvPreferences({ skipCommercials: !preferences.skipCommercials }), [preferences.skipCommercials]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
   const pickRecordingMinutes = useCallback((recordingMinutes: RecordingMinutes) => updateLiveTvPreferences({ recordingMinutes }), []);
   const newGroup = useCallback(() => router.push("/channel-group"), [router]);
@@ -69,6 +70,8 @@ export default function ChannelSettingsScreen() {
               isFirst
             />
             <ListRow icon="eye-off-outline" title={t("liveTv.hideOffline")} trailingIcon={preferences.hideOffline ? tick : undefined} onPress={toggleHideOffline} />
+            {/* Apple TV skips through the player's own pill; the phone's player takes no custom buttons. */}
+            {!IS_TV && <ListRow icon="play-skip-forward-outline" title={t("liveTv.skipCommercials")} trailingIcon={preferences.skipCommercials ? tick : undefined} onPress={toggleSkipCommercials} />}
             <ListRow
               icon="calendar-outline"
               title={t("liveTv.guideSources")}

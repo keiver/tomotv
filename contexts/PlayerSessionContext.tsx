@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import type { ReactVideoProps } from "react-native-video";
 
 import type { VideoPlayerState } from "@/hooks/useVideoPlayback";
+import type { MediaSegmentWindow } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 
 /**
@@ -17,8 +18,9 @@ export type HostMode =
   | "pip-active" // PiP window up, route still mounted
   | "pip-detached"; // PiP window up, route popped — the reason this host exists
 
-/** tvOS AVKit surfaces the route computes and the host hands to <Video>. */
+/** The AVKit surfaces and segment skips the route computes and the host applies. */
 export interface PlayerTvConfig {
+  skipWindows?: readonly MediaSegmentWindow[];
   contentProposal?: ReactVideoProps["contentProposal"];
   contextualActions?: ReactVideoProps["contextualActions"];
   infoPanelItems?: ReactVideoProps["infoPanelItems"];

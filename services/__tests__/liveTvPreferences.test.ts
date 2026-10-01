@@ -47,6 +47,7 @@ describe("live TV preferences", () => {
       recordingMinutes: 120,
       hideOffline: false,
       compactColumn: false,
+      skipCommercials: true,
     });
     // Guide URLs survive only as http(s), once each; a document from before the list carries one as guideUrl.
     expect(parseLiveTvPreferences({ guideUrls: ["https://g/a.xml", "file:///etc/passwd", 7, "https://g/a.xml", "http://g/b.xml"] }).guideUrls).toEqual(["https://g/a.xml", "http://g/b.xml"]);
@@ -62,6 +63,9 @@ describe("live TV preferences", () => {
     expect(parseLiveTvPreferences({ hideOffline: "yes" }).hideOffline).toBe(false);
     expect(parseLiveTvPreferences({ compactColumn: true }).compactColumn).toBe(true);
     expect(parseLiveTvPreferences({ compactColumn: 1 }).compactColumn).toBe(false);
+    // Commercial auto-skip defaults on; only a stored boolean turns it off.
+    expect(parseLiveTvPreferences({ skipCommercials: false }).skipCommercials).toBe(false);
+    expect(parseLiveTvPreferences({ skipCommercials: "no" }).skipCommercials).toBe(true);
   });
 
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {

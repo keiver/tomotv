@@ -253,6 +253,7 @@ export function PlayerHost() {
     playedAtStart: session?.playedAtStart,
     onPlaybackEnd: handlePlaybackEnd,
     probe: session?.probe,
+    skipWindows: tvConfig.skipWindows,
   });
 
   // Disarm a teardown that is waiting on a presentation. Called wherever a session is

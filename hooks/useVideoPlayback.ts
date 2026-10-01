@@ -19,6 +19,7 @@ import {
   isLiveSource,
   noteOpenFailed,
   openChannel,
+  type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
 import { serverVideoTranscodingAllowed } from "@/services/jellyfin/media";
 import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
@@ -93,6 +94,7 @@ import { videoPlayerReducer, type PlaybackMode, type PlaybackTransport, type Vid
 import { automaticRetryDelay, planErrorRecovery, planLiveErrorRecovery, shouldAutomaticallyRetry } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
+import { segmentSkipTarget } from "./videoPlayback/segmentSkip";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
 import { classifyObservedChoice, planSubtitleApplication, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
@@ -164,6 +166,8 @@ export interface VideoPlaybackConfig {
   onPlaybackEnd?: () => void;
   /** Regression-suite deep links pass probe=1 or the driver's URL; records playback events for it (dev-only). */
   probe?: string;
+  /** Windows playback seeks past on reaching them (the phone's commercial auto-skip). */
+  skipWindows?: readonly MediaSegmentWindow[];
 }
 
 export interface VideoPlaybackResult {
@@ -278,7 +282,7 @@ export interface VideoPlaybackResult {
  * Handles codec checking, transcoding decisions, and player lifecycle
  */
 export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResult {
-  const { videoId, skip, startPositionTicks, playedAtStart, onPlaybackEnd, probe } = config;
+  const { videoId, skip, startPositionTicks, playedAtStart, onPlaybackEnd, probe, skipWindows } = config;
 
   // State machine
   const [state, dispatch] = useReducer(videoPlayerReducer, { type: "IDLE" });
@@ -386,6 +390,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   useEffect(() => {
     onPlaybackEndRef.current = onPlaybackEnd;
   }, [onPlaybackEnd]);
+  const skipWindowsRef = useRef(skipWindows);
+  useEffect(() => {
+    skipWindowsRef.current = skipWindows;
+  }, [skipWindows]);
 
   // Track stable playback for UI (state triggers re-renders, ref is for sync checks)
   const [hasStablePlayback, setHasStablePlayback] = useState(false);
@@ -1828,7 +1836,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // edge below that is the only thing dispatching PLAYER_PLAYING.
       if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING") return;
 
-      currentTimeRef.current = data.currentTime;
+      const skipTarget = segmentSkipTarget(skipWindowsRef.current, currentTimeRef.current, data.currentTime);
+      currentTimeRef.current = skipTarget ?? data.currentTime;
+      if (skipTarget !== null) {
+        pendingSeekTargetRef.current = skipTarget;
+        videoRef.current?.seek(skipTarget);
+      }
       if (retryProgressStartRef.current === null) retryProgressStartRef.current = data.currentTime;
       if (data.currentTime - retryProgressStartRef.current >= 30) {
         retryAttemptRef.current = 0;

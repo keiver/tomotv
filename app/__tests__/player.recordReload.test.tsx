@@ -84,7 +84,7 @@ describe("transport bar record after a failed re-read", () => {
     mockParams = { videoId: "ch1", videoName: "News", live: "1" };
     mockSession.sessionVideoId = "ch1";
     jest.mocked(fetchNextEpisodeAutoPlay).mockResolvedValue(true);
-    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null });
+    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null, commercials: [] });
     jest.mocked(fetchChannels).mockResolvedValue({ items: [{ Id: "ch1", Name: "News" }] } as never);
     jest.mocked(fetchLiveTvManagement).mockResolvedValue(true);
     jest.mocked(fetchTimers).mockResolvedValue([]);
@@ -125,7 +125,7 @@ describe("transport bar record across a programme boundary", () => {
     mockParams = { videoId: "ch1", videoName: "News", live: "1" };
     mockSession.sessionVideoId = "ch1";
     jest.mocked(fetchNextEpisodeAutoPlay).mockResolvedValue(true);
-    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null });
+    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null, commercials: [] });
     jest.mocked(fetchLiveTvManagement).mockResolvedValue(true);
     jest.mocked(fetchTimers).mockResolvedValue([]);
   });

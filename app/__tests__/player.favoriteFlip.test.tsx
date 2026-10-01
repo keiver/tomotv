@@ -80,7 +80,7 @@ describe("transport bar favorite flip", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(fetchNextEpisodeAutoPlay).mockResolvedValue(true);
-    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null });
+    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null, commercials: [] });
   });
   afterEach(async () => {
     await act(async () => renderer?.unmount());

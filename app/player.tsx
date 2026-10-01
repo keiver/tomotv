@@ -6,6 +6,7 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
 import {
   cancelTimer,
@@ -397,7 +398,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   const infoPanelTitle = Platform.isTV && isLiveChannel ? t("liveTv.channels") : undefined;
 
   // tvOS timed pills (AVKit-rendered, patched contextualActions prop): Skip
-  // Intro over the intro, Skip Credits over the outro. Not gated on queue mode:
+  // Intro over the intro, Skip Credits over the outro, Skip Commercial over each
+  // break. Not gated on queue mode:
   // with no next item no proposal presents, and that case had no way past the
   // credits at all.
   //
@@ -414,8 +416,15 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (segments.outro && !cardWillPresent) {
       actions.push({ title: t("player.skipCredits"), startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
     }
+    for (const commercial of segments.commercials) {
+      actions.push({ title: t("player.skipCommercial"), startSeconds: commercial.startSeconds, endSeconds: commercial.endSeconds - 1, seekToSeconds: commercial.endSeconds });
+    }
     return actions.length > 0 ? actions : undefined;
   }, [segments, cardWillPresent]);
+
+  // The phone has no pill: with the Channel Settings toggle on, playback seeks past each break itself.
+  const skipCommercials = useLiveTvPreferences().skipCommercials;
+  const skipWindows = useMemo(() => (!Platform.isTV && skipCommercials && segments && segments.commercials.length > 0 ? segments.commercials : undefined), [skipCommercials, segments]);
 
   // tvOS transport bar heart (patched transportBarButtons prop): the playing
   // item's favorite state, server-backed for media, device-local for a live
@@ -620,8 +629,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // The AVKit surfaces are computed here, from the queue and this item's
   // segments, and handed to the host to attach to its player.
   useEffect(() => {
-    setTvConfig({ contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip, transportBarButtons });
-  }, [setTvConfig, contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip, transportBarButtons]);
+    setTvConfig({ contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip, transportBarButtons, skipWindows });
+  }, [setTvConfig, contentProposal, contextualActions, infoPanelItems, infoPanelTitle, liveChannelFlip, transportBarButtons, skipWindows]);
 
   // Disarm on unmount, while the player is still alive to receive it: a PiP window outlives this route.
   useEffect(() => () => setTvConfig({}), [setTvConfig]);
