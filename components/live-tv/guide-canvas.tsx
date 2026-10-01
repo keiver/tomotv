@@ -94,6 +94,11 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const cornerWidthStyle = useAnimatedStyle(() => ({ width: columnW.get() }));
   const { gesture: scrubGesture, stop: stopScrub } = useRulerScrub(gridRef, scrollX, Math.max(0, spanPx + SEAM_REACH - viewportWidth));
 
+  // Cells mount within two viewports either side of the one in view; the page steps once per viewport scrolled.
+  const [mountPage, setMountPage] = useState(0);
+  const mountPageUi = useSharedValue(0);
+  const mountSpan = useMemo(() => (viewportWidth > 0 ? { fromPx: (mountPage - 2) * viewportWidth, toPx: (mountPage + 3) * viewportWidth } : undefined), [mountPage, viewportWidth]);
+
   // Within a viewport of the loaded edge: grow the window before the viewer reaches it.
   const horizontalHandler = useAnimatedScrollHandler({
     onBeginDrag: () => {
@@ -101,6 +106,11 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     },
     onScroll: (event) => {
       scrollX.set(event.contentOffset.x);
+      const page = viewportWidth > 0 ? Math.floor(event.contentOffset.x / viewportWidth) : 0;
+      if (page !== mountPageUi.get()) {
+        mountPageUi.set(page);
+        runOnJS(setMountPage)(page);
+      }
       if (viewportWidth > 0 && event.contentOffset.x + 2 * viewportWidth > spanPx) runOnJS(extendWindow)();
     },
   });
@@ -271,6 +281,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         timersByProgramId={timersByProgramId}
         scrollX={nativeScrollX}
         viewportWidth={viewportWidth}
+        mountSpan={mountSpan}
         rowIndex={index}
         snapOffset={rowSnapOffset}
         nextFocusUp={index === 0 ? topFocusHandle : undefined}
@@ -290,6 +301,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       timersByProgramId,
       nativeScrollX,
       viewportWidth,
+      mountSpan,
       rowSnapOffset,
       topFocusHandle,
       targetsFor,

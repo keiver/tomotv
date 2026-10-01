@@ -30,6 +30,8 @@ interface GuideRowProps {
   scrollX: Animated.Value;
   /** The rows' visible width: a reel longer than the screen fades at its edge. */
   viewportWidth: number;
+  /** Only cells overlapping this horizontal span mount; undefined mounts every cell. */
+  mountSpan?: { fromPx: number; toPx: number };
   rowIndex: number;
   /** TV: where a focus scroll lands this row's top in the list (react-native-tvos item snap). */
   snapOffset?: number;
@@ -83,6 +85,7 @@ function GuideRowComponent({
   timersByProgramId,
   scrollX,
   viewportWidth,
+  mountSpan,
   rowIndex,
   snapOffset,
   nextFocusUp,
@@ -126,6 +129,7 @@ function GuideRowComponent({
           const { startMs, endMs } = programTimes(program);
           const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
           if (!geometry || !program.Id) return null;
+          if (mountSpan && (geometry.left + geometry.width < mountSpan.fromPx || geometry.left > mountSpan.toPx)) return null;
           const targets = focusTargets?.programId === program.Id ? focusTargets : undefined;
           return (
             <GuideCell
