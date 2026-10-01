@@ -12,6 +12,8 @@ const PAD_SHEET_RATIO = 0.905;
 const PAD_SHEET_MAX_WIDTH = 760;
 /** Fitted card width caps: iPad's centred card holds the info panel's hero and cast row, iPhone's bottom card spans the screen. */
 const FIT_MAX_WIDTH = { center: 640, bottom: 600 } as const;
+/** iPad's centred card stops short of the screen's edges; a longer panel scrolls inside it. */
+const FIT_MAX_HEIGHT = { center: 900, bottom: Infinity } as const;
 const FIT_MARGIN = 8;
 
 export function padSheetWidth(windowWidth: number): number {
@@ -20,6 +22,10 @@ export function padSheetWidth(windowWidth: number): number {
 
 export function padFitWidth(windowWidth: number, insetsX: number, fit: "center" | "bottom"): number {
   return Math.min(windowWidth - FIT_MARGIN * 2 - insetsX, FIT_MAX_WIDTH[fit]);
+}
+
+export function padFitMaxHeight(windowHeight: number, insetTop: number, insetBottom: number, fit: "center" | "bottom"): number {
+  return Math.min(windowHeight - insetTop - Math.max(insetBottom, FIT_MARGIN) - FIT_MARGIN * 2, FIT_MAX_HEIGHT[fit]);
 }
 
 interface PadSheetProps {
@@ -42,7 +48,7 @@ export function PadSheet({ onClose, closeHint, fit, children }: PadSheetProps) {
         styles.fitted,
         {
           width: padFitWidth(width, insets.left + insets.right, fit),
-          maxHeight: height - insets.top - Math.max(insets.bottom, FIT_MARGIN) - FIT_MARGIN * 2,
+          maxHeight: padFitMaxHeight(height, insets.top, insets.bottom, fit),
           marginBottom: fit === "bottom" ? Math.max(insets.bottom, FIT_MARGIN) : 0,
         },
       ]
