@@ -77,12 +77,8 @@ const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 const HERO_EDGE_OVERRUN = 40;
 // Added to the artwork hero's height, pushing the title and everything under it down.
 const HERO_GROW = 35;
-// The hero's art area never shrinks below this, however small the picture.
-const HERO_ART_MIN = IS_TV ? 360 : 180;
 // TV: the title and CTA row rise this far onto the art, so the CTAs land on its foot.
 const TV_CONTENT_RISE = 120;
-// TV: art clear of the risen content, so a short picture (a channel logo) stays whole.
-const TV_ART_CLEAR = 300;
 // The fade's one colour, the surface under the hero (TV card SURFACE, phone sheet BACKGROUND), so it never dips darker than the card.
 const HERO_FADE_RGB = IS_TV ? "rgba(44, 44, 46, " : "rgba(20, 20, 20, ";
 
@@ -120,14 +116,11 @@ export default function VideoInfoScreen() {
   const [heroMeasured, setHeroMeasured] = useState(false);
   const heroFade = useSharedValue(0);
   const reducedMotion = useReducedMotion();
-  const heroHeightFor = (width: number, hasArt: boolean) => {
-    // Landscape phone: width-derived caps exceed the ~440pt window height, so the
-    // hero also clamps to a share of it (no-op in portrait).
-    const phoneCap = windowHeight * 0.42;
-    if (hasArt) return Math.min((width * 9) / 16, IS_TV ? 460 : Math.min(320, phoneCap)) + HERO_GROW;
-    // Artless hero: just enough for the inset face plus a tight gap to the title below.
-    return IS_TV ? 388 : Math.min(Math.min(width * 0.8, 380) - 88, phoneCap);
-  };
+  // One art area for every item and state, set by the hero's width alone: 16:9, and on a phone
+  // never past 42% of the window. Art, collage or brand face, nothing that loads late resizes it.
+  const heroArtArea = heroWidth > 0 ? (IS_TV ? (heroWidth * 9) / 16 : Math.min((heroWidth * 9) / 16, windowHeight * 0.42)) : 0;
+  const heroHeight = heroArtArea > 0 ? heroArtArea + HERO_GROW : 0;
+  const heroRise = IS_TV ? TV_CONTENT_RISE : 0;
 
   const [details, setDetails] = useState<JellyfinItem | null>(null);
   // The clock at the moment details landed; render stays pure and the elapsed line is a snapshot.
@@ -526,23 +519,17 @@ export default function VideoInfoScreen() {
   const { items: preview, settled: previewSettled } = useFolderPreviewState(isContainer ? details : null, !heroUri);
   const showCollage = preview.length > 0;
 
-  // Loaded before the panel shows, so the hero opens at its final size and nothing below it moves.
+  // Loaded before the panel shows, so the art is in place on its first paint.
   const heroRef = useImage(heroSource ?? "", { onError: () => setHeroFailedUri(heroUri) }, [heroSource?.cacheKey]);
   const heroFailed = !!heroUri && heroFailedUri === heroUri;
   const heroAspect = heroRef && heroRef.height > 0 && !heroFailed ? heroRef.width / heroRef.height : null;
-  // Art area clamped to [HERO_ART_MIN, 16:9 of the card on TV]; a portrait's foot runs under the fade and content.
-  const heroMaxHeight = IS_TV ? (heroWidth * 9) / 16 : windowHeight * 0.42;
-  const heroArt = heroSource && heroRef && heroWidth > 0 && heroAspect != null ? heroArtFrame(heroWidth, HERO_ART_MIN, heroMaxHeight, heroRef.width, heroRef.height) : null;
-  const heroArtArea = heroArt ? heroArt.area : 0;
-  const heroHeight = heroArt ? heroArtArea + HERO_GROW : heroWidth > 0 ? heroHeightFor(heroWidth, (!!heroUri && !heroFailed) || showCollage) : 0;
-  const heroRise = IS_TV && heroArt ? Math.min(TV_CONTENT_RISE, Math.max(0, heroHeight - TV_ART_CLEAR)) : 0;
-  // The fade is opaque by the art's visible foot, so its bottom edge never shows.
-  const footPct = heroHeight > 0 ? ((heroHeight - HERO_GROW) / heroHeight) * 100 : 100;
-  const footScrim = heroArt
-    ? {
-        experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) ${footPct * 0.2}%, ${HERO_FADE_RGB}0.45) ${footPct * 0.55}%, ${HERO_FADE_RGB}0.85) ${footPct * 0.8}%, ${HERO_FADE_RGB}1) ${footPct}%)`,
-      }
-    : null;
+  // Full width in the fixed area; a portrait's foot runs under the fade and content.
+  const heroArt = heroSource && heroRef && heroArtArea > 0 && heroAspect != null ? heroArtFrame(heroWidth, heroArtArea, heroRef.width, heroRef.height) : null;
+  // The fade is opaque by the art area's foot, so the picture's bottom edge never shows.
+  const footPct = heroHeight > 0 ? (heroArtArea / heroHeight) * 100 : 100;
+  const footScrim = {
+    experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) ${footPct * 0.2}%, ${HERO_FADE_RGB}0.45) ${footPct * 0.55}%, ${HERO_FADE_RGB}0.85) ${footPct * 0.8}%, ${HERO_FADE_RGB}1) ${footPct}%)`,
+  };
   // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
   // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
   const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
@@ -903,7 +890,7 @@ export default function VideoInfoScreen() {
             foot so they meet the card's below it. tvOS-safe: the hero holds no focusables. */}
         {IS_TV && <View pointerEvents="none" style={[styles.heroEdge, { height: heroHeight + HERO_EDGE_OVERRUN }]} />}
       </View>
-      {/* Title sits below the hero; on TV it and the CTAs ride up onto tall art (heroRise). */}
+      {/* Title sits below the hero; on TV it and the CTAs ride up onto its foot (heroRise). */}
       <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
         {logoUri ? (
           <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
@@ -1035,9 +1022,9 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     margin: IS_TV ? 80 : 44,
-    // Shallower top/bottom insets keep the face high and the title close below.
+    // Shallower top/bottom insets keep the face high; on TV it clears the risen title.
     marginTop: IS_TV ? 40 : 12,
-    marginBottom: IS_TV ? 48 : 20,
+    marginBottom: IS_TV ? 48 + TV_CONTENT_RISE : 20,
   },
   // Centred on the same axis as the CTA rows below, so the panel reads as one column.
   // Everything from the overview down stays flush left.
