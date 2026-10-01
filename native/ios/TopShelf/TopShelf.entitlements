@@ -9,5 +9,10 @@
 	<array>
 		<string>$(AppIdentifierPrefix)dev.keiver.tomotv</string>
 	</array>
+	<!-- Rendered channel cards: the shelf's system renderer reads the group container, not the extension's own. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.dev.keiver.tomotv</string>
+	</array>
 </dict>
 </plist>
