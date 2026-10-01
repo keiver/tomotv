@@ -58,7 +58,7 @@
   "liveTv.offline": "Hors ligne",
   "liveTv.hideOffline": "Masquer hors ligne",
   "liveTv.skipCommercials": "Passer les publicités",
-  "liveTv.noGuide": "Aucun programme pour {channel}",
+  "liveTv.noGuide": "Aucun programme",
   "liveTv.noGuideHint": "Regarder la chaîne",
   "liveTv.noChannels": "Aucune chaîne",
   "liveTv.now": "Maintenant",

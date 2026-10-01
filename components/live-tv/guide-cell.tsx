@@ -1,3 +1,4 @@
+import { CardBadge } from "@/components/card-badge";
 import { GuideFocusReel } from "@/components/live-tv/guide-focus-reel";
 import { useGuideChannelFocus } from "@/hooks/useGuideChannelFocus";
 import { GuideCellQuietLine } from "@/components/live-tv/guide-cell-quiet-line";
@@ -9,6 +10,7 @@ import { pinOffset } from "@/components/live-tv/guide-pin";
 import { formatClock, guideMetrics, programCategory, programTimes, standInChannelId, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
+import { t } from "@/services/i18n";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
@@ -100,8 +102,13 @@ function GuideCellComponent({
   const [focused, setFocused] = useState(false);
   const reelChannel = !standIn && program.ChannelId && startMs <= nowMs && nowMs < endMs ? program.ChannelId : null;
   const subscribeReel = useCallback((listener: () => void) => (reelChannel ? subscribeLiveFrame(reelChannel, listener) : () => undefined), [reelChannel]);
-  const readReel = useCallback(() => (reelChannel ? (liveFrameReel(reelChannel)?.frames.length ?? 0) > 0 : false), [reelChannel]);
-  const reelShown = useSyncExternalStore(subscribeReel, readReel);
+  // When this device grabbed the shown frames, 0 while none show; the guide carries no such time.
+  const readReel = useCallback(() => {
+    const reel = reelChannel ? liveFrameReel(reelChannel) : undefined;
+    return reel && reel.frames.length > 0 ? reel.at : 0;
+  }, [reelChannel]);
+  const seenAt = useSyncExternalStore(subscribeReel, readReel);
+  const reelShown = seenAt > 0;
   const artOpacity = useSharedValue(1);
   useEffect(() => {
     artOpacity.set(withTiming(reelShown ? ART_UNDER_REEL_OPACITY : 1, { duration: 200 }));
@@ -146,6 +153,12 @@ function GuideCellComponent({
       ) : reelChannel ? (
         <View style={styles.reelClip} pointerEvents="none">
           <GuideFocusReel channelId={reelChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} compact />
+        </View>
+      ) : null}
+      {/* The card pill, in the cell's lower right corner: when this device grabbed the frames. */}
+      {reelShown ? (
+        <View style={styles.seenPill} pointerEvents="none" testID="guide-cell-seen">
+          <CardBadge segments={[{ label: t("liveTv.lastSeen").replace("{time}", formatClock(seenAt)) }]} focused={focused} />
         </View>
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
@@ -249,6 +262,12 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_TERTIARY,
     fontSize: IS_TV ? 17 : 10,
     ...TEXT_SHADOW,
+  },
+  // On the reel strip's bottom line.
+  seenPill: {
+    position: "absolute",
+    right: IS_TV ? 12 : 6,
+    bottom: IS_TV ? 12 : 6,
   },
   titleRow: {
     flexDirection: "row",

@@ -2,7 +2,8 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { Animated, StyleSheet, Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
-import { guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
+import { CardBadge } from "@/components/card-badge";
+import { formatClock, guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `poster:${id}`, getCachedConfig: () => ({ server: "http://jf" }) }));
@@ -69,6 +70,22 @@ describe("GuideCell", () => {
     const withPoster = focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } } });
     expect(withPoster).toEqual(expect.arrayContaining(["guide-cell-art", "guide-focus-reel"]));
     expect(focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } }, nowMs: T0 - MINUTE_MS })).not.toContain("guide-focus-reel");
+  });
+
+  it("pins when this device grabbed an airing programme's frames to a corner pill, only while they show, gold on focus", () => {
+    const airing = { ...program, Id: "p8", ChannelId: "c1" };
+    expect(testIds(render({ program: airing }))).not.toContain("guide-cell-seen");
+
+    mockReel = { at: T0 + 10 * MINUTE_MS, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
+    const tree = render({ program: airing });
+    const pill = () => tree.root.findByType(CardBadge);
+    expect(testIds(tree)).toContain("guide-cell-seen");
+    expect(pill().props.segments).toEqual([{ label: `Seen at ${formatClock(T0 + 10 * MINUTE_MS)}` }]);
+    expect(pill().props.focused).toBe(false);
+    act(() => tree.root.findByProps({ accessibilityRole: "button" }).props.onFocus());
+    expect(pill().props.focused).toBe(true);
+    // The text rows stay the title and the slot line.
+    expect(texts(tree).filter((line) => typeof line === "string" && line.startsWith("Seen at"))).toEqual(["Seen at " + formatClock(T0 + 10 * MINUTE_MS)]);
   });
 
   it("fades the poster down while grabbed frames show over it, focused or not, and only then", () => {

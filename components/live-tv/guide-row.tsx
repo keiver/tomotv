@@ -54,7 +54,7 @@ interface GuideRowProps {
 function noGuideProgram(channel: JellyfinItem, windowStartMs: number, windowEndMs: number): JellyfinProgram {
   return {
     Id: `${NO_GUIDE_PREFIX}${channel.Id}`,
-    Name: t("liveTv.noGuide").replace("{channel}", channel.Name ?? ""),
+    Name: t("liveTv.noGuide"),
     EpisodeTitle: IS_TV ? t("liveTv.noGuideHint") : undefined,
     StartDate: new Date(windowStartMs).toISOString(),
     EndDate: new Date(windowEndMs).toISOString(),

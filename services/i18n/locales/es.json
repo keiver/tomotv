@@ -58,7 +58,7 @@
   "liveTv.offline": "Sin señal",
   "liveTv.hideOffline": "Ocultar sin señal",
   "liveTv.skipCommercials": "Saltar comerciales",
-  "liveTv.noGuide": "Sin programación para {channel}",
+  "liveTv.noGuide": "Sin programación",
   "liveTv.noGuideHint": "Sintonizar",
   "liveTv.noChannels": "Sin canales",
   "liveTv.now": "Ahora",

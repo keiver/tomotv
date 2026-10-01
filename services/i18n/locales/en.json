@@ -58,7 +58,7 @@
   "liveTv.offline": "Offline",
   "liveTv.hideOffline": "Hide offline",
   "liveTv.skipCommercials": "Skip commercials",
-  "liveTv.noGuide": "No listings for {channel}",
+  "liveTv.noGuide": "No listings",
   "liveTv.noGuideHint": "Tune in",
   "liveTv.noChannels": "No channels",
   "liveTv.now": "Now",
