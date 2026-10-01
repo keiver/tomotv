@@ -205,7 +205,8 @@ final class LiveFrameQueue {
                   let newest = Self.bursts(in: location).max(by: { $0.stamp < $1.stamp }),
                   nowMs - newest.at <= Self.expiryMs else { continue }
             let ordered = newest.urls.sorted { Self.index($0) < Self.index($1) }
-            found[channelId] = (ordered.filter { !Self.isClip($0) }, ordered.first(where: Self.isClip), newest.at)
+            // A clip still named `.part` was never finished; it is neither the clip nor a frame.
+            found[channelId] = (ordered.filter { $0.pathExtension == "jpg" }, ordered.first(where: Self.isClip), newest.at)
         }
         return found
     }

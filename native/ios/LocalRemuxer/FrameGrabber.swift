@@ -245,14 +245,16 @@ final class FrameGrabber {
         guard transcoder != nil || copyable else { return nil }
         clipMode = transcoder == nil ? "copy" : "transcode"
 
+        // Written under a name the disk seed never serves, and renamed once whole: a grab killed mid-write leaves no clip.
+        let partial = file.appendingPathExtension("part")
         var outputCtx: UnsafeMutablePointer<AVFormatContext>?
-        guard avformat_alloc_output_context2(&outputCtx, nil, "mp4", file.path) >= 0, let output = outputCtx else { return nil }
+        guard avformat_alloc_output_context2(&outputCtx, nil, "mp4", partial.path) >= 0, let output = outputCtx else { return nil }
         var committed = false
         defer {
             if !committed {
                 if output.pointee.pb != nil { avio_closep(&output.pointee.pb) }
                 avformat_free_context(output)
-                try? FileManager.default.removeItem(at: file)
+                try? FileManager.default.removeItem(at: partial)
             }
         }
         guard let outStream = avformat_new_stream(output, nil), let outPar = outStream.pointee.codecpar,
@@ -267,7 +269,7 @@ final class FrameGrabber {
         outPar.pointee.codec_tag = outPar.pointee.codec_id == AV_CODEC_ID_HEVC ? DownloadRepackager.tag("hvc1") : 0
         let packetTb = transcoder?.encoderTimeBase ?? inStream.pointee.time_base
         outStream.pointee.time_base = packetTb
-        guard avio_open(&output.pointee.pb, file.path, AVIO_FLAG_WRITE) >= 0 else { return nil }
+        guard avio_open(&output.pointee.pb, partial.path, AVIO_FLAG_WRITE) >= 0 else { return nil }
         var muxOpts: OpaquePointer?
         av_dict_set(&muxOpts, "movflags", "faststart", 0)
         let header = avformat_write_header(output, &muxOpts)
@@ -333,6 +335,10 @@ final class FrameGrabber {
         avio_closep(&output.pointee.pb)
         avformat_free_context(output)
         committed = true
+        guard (try? FileManager.default.moveItem(at: partial, to: file)) != nil else {
+            try? FileManager.default.removeItem(at: partial)
+            return nil
+        }
         clipPackets = written
         return nextKey
     }

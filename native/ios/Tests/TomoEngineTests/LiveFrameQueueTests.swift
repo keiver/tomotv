@@ -174,6 +174,21 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(LiveFrameQueue.stamp(dir.appendingPathComponent("live-1000.jpg")), 1000)
     }
 
+    func testAClipLeftHalfWrittenIsNeitherTheBurstsClipNorOneOfItsFrames() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = root.appendingPathComponent("chan-a", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let stamp = Int64(Date().timeIntervalSince1970 * 1000)
+        for name in ["live-\(stamp)-0.jpg", "live-\(stamp)-1.jpg", "live-\(stamp)-clip.mp4.part"] {
+            try Data([0xFF, 0xD8]).write(to: dir.appendingPathComponent(name))
+        }
+        let queue = LiveFrameQueue(root: root)
+        let found = queue.queue.sync { queue.latest(channelIds: ["chan-a"]) }
+        XCTAssertEqual(found["chan-a"]?.urls.map(\.lastPathComponent), ["live-\(stamp)-0.jpg", "live-\(stamp)-1.jpg"])
+        XCTAssertNil(found["chan-a"]?.clip)
+    }
+
     /// Writes a burst whose files were last written or verified at `at`.
     private func writeBurst(_ dir: URL, stamp: Int64, count: Int, at: Date) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
