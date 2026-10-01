@@ -103,6 +103,7 @@ class ContentProvider: TVTopShelfContentProvider {
   /// centred 70% x 50% box, RAISED_EDGE's top highlight and hairline. The shelf fills a 16:9 card by
   /// cropping, so a wide logo shows whole only on an image that is already 16:9.
   private static let cardSize = CGSize(width: 1280, height: 720)
+  private static let cardVersion = 2
 
   /// The App Group container: the system process that draws the shelf cannot read this extension's own
   /// Caches (a card there renders blank, seen on device 2026-10-01). Same layout as NexusPVR's shelf.
@@ -120,7 +121,8 @@ class ContentProvider: TVTopShelfContentProvider {
     let wanted = picked.compactMap { item -> (id: String, file: URL, logo: URL)? in
       guard item.itemType == "TvChannel", let tag = item.ImageTags?["Primary"],
             let logo = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?ApiKey=\(apiKey)&maxHeight=720&quality=90") else { return nil }
-      return (item.Id, directory.appendingPathComponent("\(item.Id)-\(tag).png"), logo)
+      // The render version keys the file too, so a card drawn by an older build is replaced.
+      return (item.Id, directory.appendingPathComponent("\(item.Id)-\(tag)-v\(Self.cardVersion).png"), logo)
     }
     // Cards for logos no longer on the shelf go.
     let keep = Set(wanted.map(\.file.lastPathComponent))
