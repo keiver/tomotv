@@ -3,7 +3,7 @@ import { GuideCanvas } from "@/components/live-tv/guide-canvas";
 import { GuideCornerActions, HUD_ACTION_ICON, HudAction } from "@/components/live-tv/guide-corner-actions";
 import { GuideHud } from "@/components/live-tv/guide-hud";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
-import { gridEdgePadding } from "@/constants/app";
+import { gridEdgePadding, LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -128,6 +128,7 @@ function LiveTvScreen() {
         ? {}
         : {
             title: params.name ?? t("liveTv.title"),
+            headerBackTitle: LIBRARY_ROOT_TITLE,
             unstable_headerRightItems: () => [
               {
                 type: "button",
