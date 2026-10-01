@@ -2,13 +2,13 @@ import Foundation
 import TVServices
 import os.log
 
-/// Top Shelf provider: "Continue Watching", then the live channel row the app writes.
+/// Top Shelf provider: Continue Watching and recently played live channels, one list.
 ///
 /// Runs as a separate tvOS app-extension process. Reads the Jellyfin credentials the app
 /// stores via expo-secure-store (shared keychain access group, see TopShelf.entitlements),
-/// fetches the user's resume list and the row's channels, and returns a sectioned shelf.
-/// With neither row, it returns nil, which makes tvOS fall back to the static Top Shelf
-/// image from the app's brand assets.
+/// fetches the user's resume list and recently played channels, and returns a sectioned
+/// shelf. With nothing to show, it returns nil, which makes tvOS fall back to the static
+/// Top Shelf image from the app's brand assets.
 ///
 /// Constraints (Apple): ~16 MB memory cap — never download image data here; hand the
 /// system URLs via setImageURL and let it load them. Keep the JSON fetches small.
@@ -24,8 +24,6 @@ class ContentProvider: TVTopShelfContentProvider {
     static let apiKey = "jellyfin_api_key"
     static let userId = "jellyfin_user_id"
     static let deviceId = "jellyfin_device_id"
-    /// Mirrors TOP_SHELF_CHANNELS_KEY in services/topShelfChannels.ts.
-    static let channels = "topshelf_live_channels"
   }
 
   // MARK: - TVTopShelfContentProvider
@@ -70,34 +68,32 @@ class ContentProvider: TVTopShelfContentProvider {
       forHTTPHeaderField: "Authorization"
     )
 
-    let channelRow = Self.channelRow(base: base, userId: userId)
+    // Recently played channels: the server stamps a channel's LastPlayedDate like any item's.
+    var channelsRequest = request
+    channelsRequest.url = URL(string: "\(base)/Items?userId=\(userId)&includeItemTypes=TvChannel&recursive=true&sortBy=DatePlayed&sortOrder=Descending&Limit=\(Self.limit)&Fields=PrimaryImageAspectRatio%2CImageTags&EnableUserData=true&enableTotalRecordCount=false")
 
-    Self.fetchItems(request) { resumeItems in
-      var sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>] = []
-      if !resumeItems.isEmpty {
-        let section = TVTopShelfItemCollection(items: resumeItems.map { Self.makeShelfItem($0, base: base, apiKey: apiKey, live: false) })
-        section.title = "Continue Watching"
-        sections.append(section)
-      }
-      guard let row = channelRow, let channelsRequest = Self.channelsRequest(row, base: base, userId: userId, authorization: request) else {
-        Self.finish(sections, completionHandler)
-        return
-      }
+    Self.fetchItems(request) { resume in
       Self.fetchItems(channelsRequest) { channels in
-        // The server answers ids in its own order; the row keeps the app's.
-        let byId = Dictionary(channels.map { ($0.Id, $0) }, uniquingKeysWith: { first, _ in first })
-        let ordered = row.ids.compactMap { byId[$0] }
-        if !ordered.isEmpty {
-          let section = TVTopShelfItemCollection(items: ordered.map { Self.makeShelfItem($0, base: base, apiKey: apiKey, live: true) })
-          section.title = row.title
-          sections.append(section)
+        // One list in last-played order, as the app's Continue Watching row reads; never-played channels sort last and drop out.
+        let items = (resume + channels.filter { $0.UserData?.LastPlayedDate != nil })
+          .enumerated()
+          .sorted { ($0.element.playedKey, -$0.offset) > ($1.element.playedKey, -$1.offset) }
+          .prefix(Self.limit)
+          .map { Self.makeShelfItem($0.element, base: base, apiKey: apiKey) }
+        guard !items.isEmpty else {
+          Self.log.error("no items, returning nil (static image fallback)")
+          completionHandler(nil)
+          return
         }
-        Self.finish(sections, completionHandler)
+        Self.log.info("returning \(items.count, privacy: .public) items, \(channels.count, privacy: .public) channels read")
+        completionHandler(TVTopShelfSectionedContent(sections: [TVTopShelfItemCollection(items: items)]))
       }
     }
   }
 
-  /// The request's Items, or none on any failure: one row failing leaves the other standing.
+  private static let limit = 10
+
+  /// The request's Items, or none on any failure: either list failing leaves the other standing.
   private static func fetchItems(_ request: URLRequest, completion: @escaping ([ShelfItemDTO]) -> Void) {
     URLSession.shared.dataTask(with: request) { data, response, error in
       if let error = error {
@@ -117,47 +113,9 @@ class ContentProvider: TVTopShelfContentProvider {
     }.resume()
   }
 
-  private static func finish(_ sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>], _ completionHandler: (TVTopShelfContent?) -> Void) {
-    guard !sections.isEmpty else {
-      Self.log.error("no rows, returning nil (static image fallback)")
-      completionHandler(nil)
-      return
-    }
-    Self.log.info("returning \(sections.count, privacy: .public) rows")
-    completionHandler(TVTopShelfSectionedContent(sections: sections))
-  }
-
-  /// The live channel row the app wrote, when it belongs to the signed-in server and user.
-  private static func channelRow(base: String, userId: String) -> ChannelRow? {
-    guard
-      let raw = keychainString(forKey: StorageKey.channels),
-      let row = try? JSONDecoder().decode(ChannelRow.self, from: Data(raw.utf8)),
-      !row.ids.isEmpty
-    else { return nil }
-    let rowBase = row.server.hasSuffix("/") ? String(row.server.dropLast()) : row.server
-    return rowBase == base && row.userId == userId ? row : nil
-  }
-
-  /// The row's channels by id, with the resume request's Authorization header.
-  private static func channelsRequest(_ row: ChannelRow, base: String, userId: String, authorization source: URLRequest) -> URLRequest? {
-    var components = URLComponents(string: "\(base)/Items")
-    // Without includeItemTypes the server drops most live channels from an ids query (services/jellyfin/liveTv.ts).
-    components?.queryItems = [
-      URLQueryItem(name: "userId", value: userId),
-      URLQueryItem(name: "ids", value: row.ids.joined(separator: ",")),
-      URLQueryItem(name: "includeItemTypes", value: "TvChannel"),
-      URLQueryItem(name: "fields", value: "PrimaryImageAspectRatio,ImageTags"),
-      URLQueryItem(name: "enableImages", value: "true"),
-    ]
-    guard let url = components?.url else { return nil }
-    var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-    request.setValue(source.value(forHTTPHeaderField: "Authorization"), forHTTPHeaderField: "Authorization")
-    return request
-  }
-
   // MARK: - Item mapping
 
-  private static func makeShelfItem(_ item: ShelfItemDTO, base: String, apiKey: String, live: Bool) -> TVTopShelfSectionedItem {
+  private static func makeShelfItem(_ item: ShelfItemDTO, base: String, apiKey: String) -> TVTopShelfSectionedItem {
     let shelfItem = TVTopShelfSectionedItem(identifier: item.Id)
 
     let name = item.Name ?? "Untitled"
@@ -213,7 +171,7 @@ class ContentProvider: TVTopShelfContentProvider {
       URLQueryItem(name: "ts", value: String(Int(Date().timeIntervalSince1970 * 1000))),
     ]
     // The params a channel card pushes (app/channels.tsx): the player opens it as a live channel.
-    if live {
+    if item.itemType == "TvChannel" {
       link.queryItems?.append(URLQueryItem(name: "live", value: "1"))
     }
     if let linkURL = link.url {
@@ -260,13 +218,6 @@ private struct ItemsResponse: Decodable {
   let Items: [ShelfItemDTO]?
 }
 
-private struct ChannelRow: Decodable {
-  let server: String
-  let userId: String
-  let title: String
-  let ids: [String]
-}
-
 private struct ShelfItemDTO: Decodable {
   let Id: String
   let Name: String?
@@ -282,9 +233,13 @@ private struct ShelfItemDTO: Decodable {
     case Id, Name, SeriesName, RunTimeTicks, PrimaryImageAspectRatio, ImageTags, UserData
     case itemType = "Type"
   }
+
+  /// LastPlayedDate to the second: the server's ISO-8601 UTC strings order as text once the fraction is cut.
+  var playedKey: String { String((UserData?.LastPlayedDate ?? "").prefix(19)) }
 }
 
 private struct ResumeUserData: Decodable {
   let PlaybackPositionTicks: Double?
   let PlayedPercentage: Double?
+  let LastPlayedDate: String?
 }
