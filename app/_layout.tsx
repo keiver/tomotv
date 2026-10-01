@@ -26,6 +26,7 @@ import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { videoDecodeSupport } from "@/services/localRemux";
+import { startTopShelfChannelSync } from "@/services/topShelfChannels";
 import { logger } from "@/utils/logger";
 import { loadLocaleOverride, t } from "@/services/i18n";
 
@@ -94,6 +95,7 @@ export default function RootLayout() {
     void videoDecodeSupport();
     // A screenshot run sets the language once and deep-links every screen after.
     void loadLocaleOverride();
+    startTopShelfChannelSync();
   }, []);
 
   // Foregrounding is when the device may have changed networks. Also the moment a session

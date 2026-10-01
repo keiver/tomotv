@@ -28,11 +28,13 @@ const MODULE_FILES = [
   "DeviceEnvironment.swift",
   "MacKeyCommands.swift",
   "FileAttributes.swift",
+  "TopShelfReload.swift",
   "MultiAudioResourceLoader.m",
   "NetworkInfo.m",
   "DeviceEnvironment.m",
   "MacKeyCommands.m",
   "FileAttributes.m",
+  "TopShelfReload.m",
   "MultiAudioResourceLoader-Bridging-Header.h",
 ];
 
