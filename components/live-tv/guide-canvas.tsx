@@ -301,7 +301,6 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   }, [rows, nowMs, focusLatched, isScreenFocused, windowStartMs, windowEndMs]);
 
   const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
-  const dayLabel = new Date(windowStartMs).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
   // TV: the focused row lands as the lowest whole row, so every focus scroll rests on a row edge, the last row's too.
   const snap = rowSnap(canvasHeight, METRICS.rowHeight);
   const rowSnapOffset = IS_TV ? snap.offset : undefined;
@@ -358,13 +357,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
 
-  const corner = (
-    <Animated.View style={[styles.corner, { height: METRICS.rulerHeight }, cornerWidthStyle]}>
-      <Text style={styles.cornerLabel} numberOfLines={1}>
-        {dayLabel}
-      </Text>
-    </Animated.View>
-  );
+  const corner = <Animated.View style={[styles.corner, { height: METRICS.rulerHeight }, cornerWidthStyle]} />;
   const rulerClip = (
     <View style={styles.rulerClip}>
       <RNAnimated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
@@ -532,12 +525,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderBottomWidth: 1,
     borderBottomColor: GRID_LINE,
-  },
-  cornerLabel: {
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: IS_TV ? 22 : 13,
-    fontWeight: "700",
-    textTransform: "uppercase",
   },
   bandRow: {
     flex: 1,
