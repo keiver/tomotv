@@ -44,6 +44,28 @@ describe("GuideCell", () => {
     expect(testIds(render({ program: { ...program, Id: "p2", ImageTags: { Primary: "tag" } } }))).toContain("guide-cell-art");
   });
 
+  it("sets the text on a scrim riding the pinned label whenever art shows, so a narrow view never puts it over the poster", () => {
+    expect(testIds(render())).not.toContain("guide-cell-scrim");
+    const tree = render({ program: { ...program, Id: "p9", ImageTags: { Primary: "tag" } } });
+    const label = tree.root.find((node) => node.props.isTVSelectable === true && typeof node.type !== "string");
+    const scrim = label.find((node) => node.props.testID === "guide-cell-scrim" && typeof node.type === "string");
+    expect(StyleSheet.flatten(scrim.props.style)).toEqual(expect.objectContaining({ top: 0, bottom: 0 }));
+    const tail = label.find((node) => node.props.testID === "guide-cell-scrim-tail" && typeof node.type === "string");
+    expect(StyleSheet.flatten(tail.props.style).width).toBe(400);
+  });
+
+  it("leaves the scrim off while grabbed frames show, so the reel strip under the label stays in view", () => {
+    mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
+    expect(testIds(render({ program: { ...program, Id: "p10", ChannelId: "c1", ImageTags: { Primary: "tag" } } }))).not.toContain("guide-cell-scrim");
+  });
+
+  it("leads the art in from the left with its own fade, so the poster never starts on a hard edge", () => {
+    const tree = render({ program: { ...program, Id: "p11", ImageTags: { Primary: "tag" } } });
+    const artWidth = Math.min(160, 400 - guideMetrics(false).pxPerMinute * TICK_MINUTES);
+    const lead = tree.root.find((node) => node.props.testID === "guide-cell-art-lead" && typeof node.type === "string");
+    expect(StyleSheet.flatten(lead.props.style)).toEqual(expect.objectContaining({ right: "100%", width: Math.min(artWidth, 400 - artWidth) }));
+  });
+
   it("draws no art in a cell that ends inside its first half hour", () => {
     const withArt = { ...program, Id: "p3", ImageTags: { Primary: "tag" } };
     const halfHour = guideMetrics(false).pxPerMinute * TICK_MINUTES;

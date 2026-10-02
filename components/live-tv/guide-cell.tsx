@@ -26,7 +26,11 @@ const AnimatedPressable = RNAnimated.createAnimatedComponent(Pressable);
 const PX_PER_MINUTE = guideMetrics(IS_TV).pxPerMinute;
 const ART_START = PX_PER_MINUTE * TICK_MINUTES;
 /** The art fades into the cell across its whole width, so the text reads over it. */
-const ART_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 44, 46, 0) 100%)";
+const ART_FADE = "linear-gradient(to right, " + COLORS.BACKGROUND + " 0%, rgba(20, 20, 20, 0) 100%)";
+/** Darkens the floor up to the art's edge, so the fade's black never starts on a line. */
+const ART_LEAD = "linear-gradient(to right, rgba(20, 20, 20, 0) 0%, " + COLORS.BACKGROUND + " 100%)";
+/** A deeper black than the art's fade, so a scrimmed label still reads apart from the neighbouring cell's floor. */
+const SCRIM_FADE = "linear-gradient(to right, " + COLORS.BACKGROUND_DEEP + " 0%, rgba(13, 13, 15, 0) 100%)";
 /** The poster steps back while the channel's grabbed frames show over it. */
 const ART_UNDER_REEL_OPACITY = 0.12;
 const TEXT_SHADOW = { textShadowColor: "rgba(0, 0, 0, 0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: IS_TV ? 4 : 3 } as const;
@@ -34,7 +38,9 @@ const TEXT_SHADOW = { textShadowColor: "rgba(0, 0, 0, 0.8)", textShadowOffset: {
 const SEEN_LINE = IS_TV ? 16 : 10;
 const SEEN_PAD = IS_TV ? 2 : 1;
 const SEEN_BOX_HEIGHT = SEEN_LINE + 2 * SEEN_PAD + 1;
-
+const LABEL_PAD_LEFT = IS_TV ? 16 : 10;
+const LABEL_PAD_RIGHT = IS_TV ? 14 : 8;
+const RING_WIDTH = IS_TV ? 2 : 1;
 export type RecordingMark = "single" | "series" | null;
 
 interface GuideCellProps {
@@ -99,6 +105,8 @@ function GuideCellComponent({
   // The art box is the picture's own shape at the cell's height, cut down to what fits past the
   // text; the picture keeps its right end, and the fade spans the box so the bleed starts at its edge.
   const artWidth = Math.min(Math.round(height * (program.PrimaryImageAspectRatio || 16 / 9)), Math.max(0, width - ART_START));
+  const artShown = art !== undefined && artWidth > 0;
+  const artLead = Math.min(artWidth, width - artWidth);
   const past = endMs <= nowMs;
   // A node, not state: a measured width that re-rendered the cell doubled every mount.
   const labelWidth = useAnimatedValue(0);
@@ -144,10 +152,13 @@ function GuideCellComponent({
   return (
     <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, standIn && styles.cellQuiet, { left, width, height }]}>
       {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
-      {art && artWidth > 0 ? (
+      {artShown ? (
         <Animated.View style={[styles.art, { width: artWidth }, artStyle]} pointerEvents="none" testID="guide-cell-art">
-          <Image source={art} style={styles.artImage} contentFit="cover" contentPosition="right" transition={150} />
-          <View style={styles.artFade} />
+          <View style={[styles.artLead, { width: artLead }]} testID="guide-cell-art-lead" />
+          <View style={styles.artClip}>
+            <Image source={art} style={styles.artImage} contentFit="cover" contentPosition="right" transition={150} />
+            <View style={styles.artFade} />
+          </View>
         </Animated.View>
       ) : null}
       {/* Any row wears its reel whenever a burst exists, resting faded and brightening on the row's
@@ -189,6 +200,13 @@ function GuideCellComponent({
         accessibilityRole="button"
         accessibilityLabel={episodeTitle ? `${programName}, ${episodeTitle}` : programName}
         style={[styles.label, pinStyle]}>
+        {/* Full height behind the pinned text, so a cell scrolled down to its tail never sets it on the poster.
+            Off under grabbed frames: the poster is already faded and the reel strip runs under the label. */}
+        {artShown && !reelShown ? (
+          <View style={[styles.scrim, focused && styles.scrimFocused]} pointerEvents="none" testID="guide-cell-scrim">
+            <View style={[styles.scrimTail, { width }]} testID="guide-cell-scrim-tail" />
+          </View>
+        ) : null}
         {standInChannel ? (
           <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} />
         ) : (
@@ -235,7 +253,7 @@ const styles = StyleSheet.create({
     left: -1,
     right: -1,
     bottom: 0,
-    borderWidth: IS_TV ? 2 : 1,
+    borderWidth: RING_WIDTH,
     borderColor: COLORS.ACCENT,
   },
   art: {
@@ -243,7 +261,21 @@ const styles = StyleSheet.create({
     top: 0,
     right: 0,
     bottom: 0,
+  },
+  artClip: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     overflow: "hidden",
+  },
+  artLead: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: "100%",
+    experimental_backgroundImage: ART_LEAD,
   },
   artImage: {
     width: "100%",
@@ -262,13 +294,34 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     height: "100%",
     maxWidth: "100%",
-    paddingLeft: IS_TV ? 16 : 10,
-    paddingRight: IS_TV ? 14 : 8,
+    paddingLeft: LABEL_PAD_LEFT,
+    paddingRight: LABEL_PAD_RIGHT,
     // The same band above the title on every row, with or without the corner box, so the text lines up.
     paddingTop: Math.round(((SEEN_BOX_HEIGHT + (IS_TV ? 6 : 3)) * 2) / 3),
   },
   text: {
     gap: IS_TV ? 4 : 2,
+  },
+  // Black under the label, trailing off across a cell's width.
+  scrim: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: RING_WIDTH - 1,
+    right: 0,
+    backgroundColor: COLORS.BACKGROUND_DEEP,
+  },
+  // The ring sits behind the label: the scrim clears its top and bottom lines.
+  scrimFocused: {
+    top: RING_WIDTH,
+    bottom: RING_WIDTH,
+  },
+  scrimTail: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: "100%",
+    experimental_backgroundImage: SCRIM_FADE,
   },
   meta: {
     color: COLORS.TEXT_TERTIARY,
