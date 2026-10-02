@@ -68,6 +68,25 @@ export interface CanvasSpan {
   toPx: number;
 }
 
+/** The cells mounted while the view's left edge is on `page`: a whole viewport past either edge of the view. */
+export function mountSpanFor(page: number, viewportWidth: number): CanvasSpan {
+  return { fromPx: (page - 1) * viewportWidth, toPx: (page + 3) * viewportWidth };
+}
+
+/**
+ * TV row snap: a focused row lands as the list's lowest whole row. The bottom pad puts the list's end
+ * exactly where its last row lands, so the end sits on the row grid the interval snap rounds to.
+ */
+export function rowSnap(listHeight: number, rowHeight: number): { offset: number; bottomPad: number } {
+  const offset = Math.max(0, Math.floor((listHeight - rowHeight) / rowHeight)) * rowHeight;
+  return { offset, bottomPad: Math.max(0, listHeight - rowHeight - offset) };
+}
+
+/** Where the grid scrolls so a cell begun left of the visible edge shows its start; the pinned label alone never asks for it. */
+export function leftRevealOffset(cellLeft: number, scrollX: number): number | undefined {
+  return cellLeft < scrollX ? cellLeft : undefined;
+}
+
 /** True when any part of the cell lies inside the span. */
 export function cellInSpan(cell: CellGeometry, span: CanvasSpan): boolean {
   return cell.left + cell.width >= span.fromPx && cell.left <= span.toPx;

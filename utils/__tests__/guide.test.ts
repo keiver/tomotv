@@ -10,10 +10,13 @@ import {
   guideWindowStart,
   isActiveTimer,
   isAiring,
+  leftRevealOffset,
   mergePrograms,
   MINUTE_MS,
+  mountSpanFor,
   NO_GUIDE_PREFIX,
   programCategory,
+  rowSnap,
   rulerTicks,
   standInChannelId,
 } from "../guide";
@@ -57,6 +60,37 @@ describe("guide geometry", () => {
     expect(cellInSpan({ left: 400, width: 600 }, span)).toBe(true);
     expect(cellInSpan({ left: 0, width: 999 }, span)).toBe(false);
     expect(cellInSpan({ left: 2001, width: 100 }, span)).toBe(false);
+  });
+
+  it("mounts a whole viewport past either edge of the view anywhere inside its page", () => {
+    const viewport = 1620;
+    for (const page of [0, 1, 4]) {
+      const span = mountSpanFor(page, viewport);
+      for (const scrollX of [page * viewport, (page + 0.5) * viewport, (page + 1) * viewport - 1]) {
+        expect(scrollX - span.fromPx).toBeGreaterThanOrEqual(viewport);
+        expect(span.toPx - (scrollX + viewport)).toBeGreaterThanOrEqual(viewport);
+      }
+      expect(span.toPx - span.fromPx).toBe(4 * viewport);
+    }
+  });
+
+  it("pads the list so its last row lands like any other, on the row grid", () => {
+    for (const listHeight of [800, 657, 219, 1000]) {
+      const { offset, bottomPad } = rowSnap(listHeight, 219);
+      expect(offset % 219).toBe(0);
+      for (const rows of [5, 12, 40]) {
+        const maxOffset = rows * 219 + bottomPad - listHeight;
+        expect(maxOffset).toBe((rows - 1) * 219 - offset);
+        expect(maxOffset % 219).toBe(0);
+      }
+    }
+  });
+
+  it("brings a cell's start into view only when it begins left of the visible edge", () => {
+    expect(leftRevealOffset(0, 1200)).toBe(0);
+    expect(leftRevealOffset(800, 1200)).toBe(800);
+    expect(leftRevealOffset(1200, 1200)).toBeUndefined();
+    expect(leftRevealOffset(1500, 1200)).toBeUndefined();
   });
 
   it("clips a cell that runs past the window end", () => {

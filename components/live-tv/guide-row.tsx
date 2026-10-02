@@ -3,7 +3,7 @@ import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { cellGeometry, cellInSpan, NO_GUIDE_PREFIX, programTimes, type CanvasSpan, type GuideMetrics } from "@/utils/guide";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Platform, type Animated, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
@@ -122,6 +122,16 @@ function GuideRowComponent({
     },
     [targetsFor, rowIndex, onCellFocus, channel],
   );
+  // Placed once per listing change: the canvas re-renders every row on each page step and art settle.
+  const placed = useMemo(
+    () =>
+      rowCells(channel, programs, windowStartMs, windowEndMs, metrics).flatMap((program) => {
+        const { startMs, endMs } = programTimes(program);
+        const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
+        return geometry && program.Id ? [{ program, programId: program.Id, geometry }] : [];
+      }),
+    [channel, programs, windowStartMs, windowEndMs, metrics],
+  );
   const blur = useCallback((program: JellyfinProgram) => {
     if (focusedIdRef.current === program.Id) focusedIdRef.current = null;
     setFocusTargets((current) => (current?.programId === program.Id ? undefined : current));
@@ -129,38 +139,33 @@ function GuideRowComponent({
   return (
     <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapOffset={snapOffset}>
       <View style={styles.line} pointerEvents="none" />
-      {(() => {
-        return rowCells(channel, programs, windowStartMs, windowEndMs, metrics).map((program) => {
-          const { startMs, endMs } = programTimes(program);
-          const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
-          if (!geometry || !program.Id) return null;
-          if (mountSpan && !cellInSpan(geometry, mountSpan)) return null;
-          const showArt = artInView && artSpan !== undefined && cellInSpan(geometry, artSpan);
-          const targets = focusTargets?.programId === program.Id ? focusTargets : undefined;
-          return (
-            <GuideCell
-              key={program.Id}
-              program={program}
-              left={geometry.left}
-              width={geometry.width}
-              height={cellHeight}
-              nowMs={nowMs}
-              recording={recordingMark(program, timersByProgramId)}
-              scrollX={scrollX}
-              viewportWidth={viewportWidth}
-              showArt={showArt}
-              nextFocusUp={targets?.up ?? nextFocusUp}
-              nextFocusDown={targets?.down}
-              hasTVPreferredFocus={focusProgramId === program.Id}
-              onFocus={focus}
-              onBlur={IS_TV ? blur : undefined}
-              onHandle={onCellHandle}
-              onPress={press}
-              onLongPress={longPress}
-            />
-          );
-        });
-      })()}
+      {placed.map(({ program, programId, geometry }) => {
+        if (mountSpan && !cellInSpan(geometry, mountSpan)) return null;
+        const showArt = artInView && artSpan !== undefined && cellInSpan(geometry, artSpan);
+        const targets = focusTargets?.programId === programId ? focusTargets : undefined;
+        return (
+          <GuideCell
+            key={programId}
+            program={program}
+            left={geometry.left}
+            width={geometry.width}
+            height={cellHeight}
+            nowMs={nowMs}
+            recording={recordingMark(program, timersByProgramId)}
+            scrollX={scrollX}
+            viewportWidth={viewportWidth}
+            showArt={showArt}
+            nextFocusUp={targets?.up ?? nextFocusUp}
+            nextFocusDown={targets?.down}
+            hasTVPreferredFocus={focusProgramId === programId}
+            onFocus={focus}
+            onBlur={IS_TV ? blur : undefined}
+            onHandle={onCellHandle}
+            onPress={press}
+            onLongPress={longPress}
+          />
+        );
+      })}
     </View>
   );
 }

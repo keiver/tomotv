@@ -10,11 +10,10 @@ import { formatClock, guideMetrics, programCategory, programTimes, standInChanne
 import { serverPoster } from "@/services/itemArtwork";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { t } from "@/services/i18n";
-import { Image } from "expo-image";
+import { GuideCellArt } from "@/components/live-tv/guide-cell-art";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, Animated as RNAnimated, StyleSheet, Text, useAnimatedValue, View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 const NO_INFO = /^\s*no info(rmation)?( available)?\s*$/i;
@@ -25,15 +24,8 @@ const AnimatedPressable = RNAnimated.createAnimatedComponent(Pressable);
 /** The first half hour of a cell is text alone: the art is clipped out of it, so a short cell shows none. */
 const PX_PER_MINUTE = guideMetrics(IS_TV).pxPerMinute;
 const ART_START = PX_PER_MINUTE * TICK_MINUTES;
-/** The art fades into the cell across its whole width, so the text reads over it. */
-const ART_FADE = "linear-gradient(to right, " + COLORS.BACKGROUND + " 0%, rgba(20, 20, 20, 0) 100%)";
-/** Darkens the floor up to the art's edge, so the fade's black never starts on a line. */
-const ART_LEAD = "linear-gradient(to right, rgba(20, 20, 20, 0) 0%, " + COLORS.BACKGROUND + " 100%)";
 /** A deeper black than the art's fade, so a scrimmed label still reads apart from the neighbouring cell's floor. */
 const SCRIM_FADE = "linear-gradient(to right, " + COLORS.BACKGROUND_DEEP + " 0%, rgba(13, 13, 15, 0) 100%)";
-/** The poster steps back while the channel's grabbed frames show over it. */
-const ART_UNDER_REEL_OPACITY = 0.12;
-const TEXT_SHADOW = { textShadowColor: "rgba(0, 0, 0, 0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: IS_TV ? 4 : 3 } as const;
 /** The corner box: one line, a sliver of padding, its bottom rule. */
 const SEEN_LINE = IS_TV ? 16 : 10;
 const SEEN_PAD = IS_TV ? 2 : 1;
@@ -103,7 +95,7 @@ function GuideCellComponent({
   const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter((part) => part && !NO_INFO.test(part)).join("  ·  ");
   const art = showArt && program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
   // The art box is the picture's own shape at the cell's height, cut down to what fits past the
-  // text; the picture keeps its right end, and the fade spans the box so the bleed starts at its edge.
+  // text; the picture keeps its right end, and its fade leads in over the floor before it.
   const artWidth = Math.min(Math.round(height * (program.PrimaryImageAspectRatio || 16 / 9)), Math.max(0, width - ART_START));
   const artShown = art !== undefined && artWidth > 0;
   const artLead = Math.min(artWidth, width - artWidth);
@@ -122,21 +114,20 @@ function GuideCellComponent({
   const seenAt = useSyncExternalStore(subscribeReel, readReel);
   const reelShown = seenAt > 0;
   const [seenLead, seenTail] = t("liveTv.lastSeen").split("{time}");
-  const artOpacity = useSharedValue(1);
-  useEffect(() => {
-    artOpacity.set(withTiming(reelShown ? ART_UNDER_REEL_OPACITY : 1, { duration: 200 }));
-  }, [artOpacity, reelShown]);
-  const artStyle = useAnimatedStyle(() => ({ opacity: artOpacity.value }));
   const handleLabelLayout = useCallback((event: LayoutChangeEvent) => labelWidth.setValue(event.nativeEvent.layout.width), [labelWidth]);
-  const pinStyle = useMemo(() => ({ transform: [{ translateX: pinOffset(scrollX, left, width, labelWidth) }] }), [scrollX, left, width, labelWidth]);
-  // The label's width is a native node, so the scrim takes it as a scale on a 1pt body, never as a layout width.
-  const scrimStyles = useMemo(() => {
-    const pin = pinOffset(scrollX, left, width, labelWidth);
-    return {
-      body: { transform: [{ translateX: RNAnimated.add(pin, RNAnimated.multiply(labelWidth, 0.5)) }, { scaleX: labelWidth }] },
-      tail: { transform: [{ translateX: RNAnimated.add(pin, labelWidth) }] },
-    };
-  }, [scrollX, left, width, labelWidth]);
+  const pin = useMemo(() => pinOffset(scrollX, left, width, labelWidth), [scrollX, left, width, labelWidth]);
+  const pinStyle = useMemo(() => ({ transform: [{ translateX: pin }] }), [pin]);
+  // A playing cell's scrim sits under its reel, outside the label: the label's width reaches it as a scale on a 1pt body.
+  const reelScrimStyles = useMemo(
+    () =>
+      reelShown && !standIn
+        ? {
+            body: { transform: [{ translateX: RNAnimated.add(pin, RNAnimated.multiply(labelWidth, 0.5)) }, { scaleX: labelWidth }] },
+            tail: { transform: [{ translateX: RNAnimated.add(pin, labelWidth) }] },
+          }
+        : undefined,
+    [reelShown, standIn, pin, labelWidth],
+  );
   const seenPinStyle = useMemo(() => (viewportWidth ? { transform: [{ translateX: pinRightOffset(scrollX, left, width, viewportWidth) }] } : undefined), [scrollX, left, width, viewportWidth]);
   const programId = program.Id;
   const handleRef = useCallback(
@@ -160,23 +151,13 @@ function GuideCellComponent({
   return (
     <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, standIn && styles.cellQuiet, { left, width, height }]}>
       {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
-      {artShown ? (
-        <Animated.View style={[styles.art, { width: artWidth }, artStyle]} pointerEvents="none" testID="guide-cell-art">
-          <View style={[styles.artLead, { width: artLead }]} testID="guide-cell-art-lead" />
-          <View style={styles.artClip}>
-            <Image source={art} style={styles.artImage} contentFit="cover" contentPosition="right" transition={150} />
-            <View style={styles.artFade} />
-          </View>
-        </Animated.View>
-      ) : null}
-      {/* Full height behind the pinned label, under the reel and the focus ring, so the text never sits on the poster.
-          Clipped inside the border: a one-sided border draws behind the cell's children. */}
-      {standIn ? null : (
-        <View style={styles.scrimClip} pointerEvents="none" testID="guide-cell-scrim-clip">
-          <RNAnimated.View style={[styles.scrim, scrimStyles.body]} testID="guide-cell-scrim" />
-          <RNAnimated.View style={[styles.scrimTail, { width }, scrimStyles.tail]} testID="guide-cell-scrim-tail" />
+      {art && artShown ? <GuideCellArt source={art} width={artWidth} lead={artLead} reelShown={reelShown} /> : null}
+      {reelScrimStyles ? (
+        <View style={styles.reelScrimClip} pointerEvents="none" testID="guide-cell-reel-scrim-clip">
+          <RNAnimated.View style={[styles.reelScrim, reelScrimStyles.body]} testID="guide-cell-reel-scrim" />
+          <RNAnimated.View style={[styles.reelScrimTail, { width }, reelScrimStyles.tail]} />
         </View>
-      )}
+      ) : null}
       {/* Any row wears its reel whenever a burst exists, resting faded and brightening on the row's
           focus. A programme gets the compact strip only while it airs: history under a future slot would lie. */}
       {standInChannel ? (
@@ -201,43 +182,52 @@ function GuideCellComponent({
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
       {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
-      <AnimatedPressable
-        ref={handleRef}
-        onPress={press}
-        onLongPress={longPress}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        onLayout={handleLabelLayout}
-        isTVSelectable
-        hasTVPreferredFocus={hasTVPreferredFocus}
-        nextFocusUp={nextFocusUp}
-        nextFocusDown={nextFocusDown}
-        tvParallaxProperties={{ enabled: false }}
-        accessibilityRole="button"
-        accessibilityLabel={episodeTitle ? `${programName}, ${episodeTitle}` : programName}
-        style={[styles.label, pinStyle]}>
-        {standInChannel ? (
-          <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} />
-        ) : (
-          <View style={styles.text}>
-            <View style={styles.titleRow}>
-              {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
-              {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
-              <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
-                {programName}
+      {/* Clipped inside the border: a one-sided border draws behind the cell's children, and the scrim's fade runs past the label. */}
+      <View style={styles.labelClip} pointerEvents="box-none" testID="guide-cell-label-clip">
+        <AnimatedPressable
+          ref={handleRef}
+          onPress={press}
+          onLongPress={longPress}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          onLayout={handleLabelLayout}
+          isTVSelectable
+          hasTVPreferredFocus={hasTVPreferredFocus}
+          nextFocusUp={nextFocusUp}
+          nextFocusDown={nextFocusDown}
+          tvParallaxProperties={{ enabled: false }}
+          accessibilityRole="button"
+          accessibilityLabel={episodeTitle ? `${programName}, ${episodeTitle}` : programName}
+          style={[styles.label, pinStyle]}>
+          {/* Moves with the label, so it costs no animated node of its own. A playing cell's lies under its reel instead. */}
+          {!standIn && !reelShown ? (
+            <View style={[styles.scrim, focused && styles.scrimFocused]} pointerEvents="none" testID="guide-cell-scrim">
+              <View style={[styles.scrimTail, { width }]} testID="guide-cell-scrim-tail" />
+            </View>
+          ) : null}
+          {standInChannel ? (
+            <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} />
+          ) : (
+            <View style={styles.text}>
+              <View style={styles.titleRow}>
+                {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
+                {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
+                <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
+                  {programName}
+                </Text>
+              </View>
+              {episodeTitle ? (
+                <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
+                  {episodeTitle}
+                </Text>
+              ) : null}
+              <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+                {meta}
               </Text>
             </View>
-            {episodeTitle ? (
-              <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
-                {episodeTitle}
-              </Text>
-            ) : null}
-            <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
-              {meta}
-            </Text>
-          </View>
-        )}
-      </AnimatedPressable>
+          )}
+        </AnimatedPressable>
+      </View>
     </Pressable>
   );
 }
@@ -265,38 +255,13 @@ const styles = StyleSheet.create({
     borderWidth: RING_WIDTH,
     borderColor: COLORS.ACCENT,
   },
-  art: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-  },
-  artClip: {
+  labelClip: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
     overflow: "hidden",
-  },
-  artLead: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    right: "100%",
-    experimental_backgroundImage: ART_LEAD,
-  },
-  artImage: {
-    width: "100%",
-    height: "100%",
-  },
-  artFade: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    experimental_backgroundImage: ART_FADE,
   },
   // Full cell height so a vertical move reveals the whole row; only as wide as its text.
   label: {
@@ -311,7 +276,28 @@ const styles = StyleSheet.create({
   text: {
     gap: IS_TV ? 4 : 2,
   },
-  scrimClip: {
+  // Black under the label from just inside the focus ring's left line, trailing off across a cell's width.
+  scrim: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: RING_WIDTH - 1,
+    right: 0,
+    backgroundColor: COLORS.BACKGROUND_DEEP,
+  },
+  // The ring sits behind the label: the scrim clears its top and bottom lines.
+  scrimFocused: {
+    top: RING_WIDTH,
+    bottom: RING_WIDTH,
+  },
+  scrimTail: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: "100%",
+    experimental_backgroundImage: SCRIM_FADE,
+  },
+  reelScrimClip: {
     position: "absolute",
     top: 0,
     left: 0,
@@ -319,9 +305,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     overflow: "hidden",
   },
-  // Black under the label, trailing off across a cell's width. A 1pt body centred on the cell's left edge,
-  // scaled to the label's width and slid right by half of it.
-  scrim: {
+  // A 1pt body centred on the cell's left edge, scaled to the label's width and slid right by half of it.
+  reelScrim: {
     position: "absolute",
     top: 0,
     bottom: 0,
@@ -329,7 +314,7 @@ const styles = StyleSheet.create({
     width: 1,
     backgroundColor: COLORS.BACKGROUND_DEEP,
   },
-  scrimTail: {
+  reelScrimTail: {
     position: "absolute",
     top: 0,
     bottom: 0,
@@ -339,7 +324,6 @@ const styles = StyleSheet.create({
   meta: {
     color: COLORS.TEXT_TERTIARY,
     fontSize: IS_TV ? 17 : 10,
-    ...TEXT_SHADOW,
   },
   // Flush in the corner: the cell's top edge and its right line are its other two sides.
   seenBox: {
@@ -375,12 +359,10 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 24 : 13,
     fontWeight: "600",
     flexShrink: 1,
-    ...TEXT_SHADOW,
   },
   subtitle: {
     color: COLORS.TEXT_SECONDARY,
     fontSize: IS_TV ? 19 : 11,
-    ...TEXT_SHADOW,
   },
   textPast: {
     opacity: 0.5,

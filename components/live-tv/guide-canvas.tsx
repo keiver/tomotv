@@ -10,7 +10,7 @@ import { COLORS } from "@/constants/colors";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { cellAtEdge, cellGeometry, guideMetrics, isAiring, MINUTE_MS, programTimes } from "@/utils/guide";
+import { cellAtEdge, cellGeometry, guideMetrics, isAiring, leftRevealOffset, MINUTE_MS, mountSpanFor, programTimes, rowSnap } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,7 +28,7 @@ import { IS_MAC } from "@/utils/hostEnvironment";
 const IS_TV = Platform.isTV;
 const METRICS = guideMetrics(IS_TV);
 /** Phone: clear the tab bar so the last channel is never tucked under it. */
-const LIST_BOTTOM_PAD = IS_TV ? 0 : 200;
+const LIST_BOTTOM_PAD = 200;
 /** The floating tab bar the phone list scrolls under; matches home-shelves. */
 const TAB_BAR_HEIGHT = 49;
 /** Public in Animated's Flow exports (AnimatedExports.js.flow), missing from its TypeScript types. */
@@ -98,10 +98,10 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const cornerWidthStyle = useAnimatedStyle(() => ({ width: columnW.get() }));
   const { gesture: scrubGesture, stop: stopScrub } = useRulerScrub(gridRef, scrollX, Math.max(0, spanPx + SEAM_REACH - viewportWidth));
 
-  // Cells mount within two viewports either side of the one in view; the page steps once per viewport scrolled.
+  // The page steps once per viewport scrolled.
   const [mountPage, setMountPage] = useState(0);
   const mountPageUi = useSharedValue(0);
-  const mountSpan = useMemo(() => (viewportWidth > 0 ? { fromPx: (mountPage - 2) * viewportWidth, toPx: (mountPage + 3) * viewportWidth } : undefined), [mountPage, viewportWidth]);
+  const mountSpan = useMemo(() => (viewportWidth > 0 ? mountSpanFor(mountPage, viewportWidth) : undefined), [mountPage, viewportWidth]);
   // Posters load only for the cells and rows in view, once the scroll rests there; a fling past loads none.
   const [artPage, setArtPage] = useState(0);
   useEffect(() => {
@@ -250,22 +250,38 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     },
     [windowStartMs, windowEndMs, scrollX, neighbourHandle],
   );
+  // The row the last focused cell sat in: a focus in that same row came from Left or Right.
+  const lastCellRowRef = useRef<string | null>(null);
   const handleCellFocus = useCallback(
-    (_program: JellyfinProgram, channel: JellyfinItem) => {
+    (program: JellyfinProgram, channel: JellyfinItem) => {
       if (!IS_TV) return;
+      // The pinned label is always on screen, so the focus engine never scrolls a Left move back to the cell's start.
+      if (lastCellRowRef.current === channel.Id) {
+        const { startMs, endMs } = programTimes(program);
+        const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, METRICS);
+        const target = geometry ? leftRevealOffset(geometry.left, scrollX.get()) : undefined;
+        if (target !== undefined) {
+          runOnUI(() => {
+            "worklet";
+            scrollTo(gridRef, target, 0, true);
+          })();
+        }
+      }
+      lastCellRowRef.current = channel.Id;
       driver.set("grid");
       setFocusLatched(true);
       // A dwell on the row promotes its channel to the sampler's front; its card plays its clip.
       setLiveFrameFocus(channel.Id);
       setFocusedGuideRow(channel.Id);
     },
-    [driver],
+    [driver, windowStartMs, windowEndMs, scrollX, gridRef],
   );
   // While focus sits in the cells region the entry guide points back up at the HUD, so both
   // guides on row 0's top edge name the same target and Up never redirects to the focused cell.
   const [cellsFocused, setCellsFocused] = useState(false);
   const handleCellsEnter = useCallback(() => setCellsFocused(true), []);
   const handleCellsLeave = useCallback(() => {
+    lastCellRowRef.current = null;
     setCellsFocused(false);
     setLiveFrameFocus(null);
     setFocusedGuideRow(null);
@@ -286,8 +302,10 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
 
   const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
   const dayLabel = new Date(windowStartMs).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-  // TV: the focused row lands as the lowest whole row, so every focus scroll rests on a row edge.
-  const rowSnapOffset = IS_TV ? Math.max(0, Math.floor((canvasHeight - METRICS.rowHeight) / METRICS.rowHeight)) * METRICS.rowHeight : undefined;
+  // TV: the focused row lands as the lowest whole row, so every focus scroll rests on a row edge, the last row's too.
+  const snap = rowSnap(canvasHeight, METRICS.rowHeight);
+  const rowSnapOffset = IS_TV ? snap.offset : undefined;
+  const listBottomPad = IS_TV ? snap.bottomPad : LIST_BOTTOM_PAD;
 
   const renderRow = useCallback(
     ({ item, index }: { item: GuideRowData; index: number }) => (
@@ -428,7 +446,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           onScroll={columnHandler}
           listHeight={listHeight}
           rowSnapOffset={rowSnapOffset}
-          contentBottomPad={LIST_BOTTOM_PAD}
+          contentBottomPad={listBottomPad}
           columnWidth={columnW}
           compact={compact}
           onChannelPress={onChannelPress}
@@ -464,14 +482,14 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
               onViewableItemsChanged={handleRowsViewable}
               showsVerticalScrollIndicator={false}
               removeClippedSubviews={!IS_TV}
-              // Three viewports each side mounted ahead of a held press, in small batches so rows
-              // paint one after another instead of as a block; a press costs no canvas render now.
+              // Two viewports each side mounted ahead of a held press, in small batches so rows
+              // paint one after another instead of as a block.
               initialNumToRender={12}
               maxToRenderPerBatch={4}
               updateCellsBatchingPeriod={16}
-              windowSize={7}
+              windowSize={5}
               style={{ height: listHeight, width: spanPx + SEAM_REACH }}
-              contentContainerStyle={{ paddingBottom: LIST_BOTTOM_PAD, paddingLeft: SEAM_REACH }}
+              contentContainerStyle={{ paddingBottom: listBottomPad, paddingLeft: SEAM_REACH }}
             />
           </Animated.ScrollView>
         </TVFocusGuideView>

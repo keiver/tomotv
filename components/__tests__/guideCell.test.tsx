@@ -2,6 +2,7 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { Animated, StyleSheet, Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
+import { artFadeGradient } from "@/components/live-tv/guide-cell-art";
 import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 import { formatClock, guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
 
@@ -44,35 +45,56 @@ describe("GuideCell", () => {
     expect(testIds(render({ program: { ...program, Id: "p2", ImageTags: { Primary: "tag" } } }))).toContain("guide-cell-art");
   });
 
-  it("sets every programme's text on a scrim riding the pinned label, poster or not, never a stand-in's", () => {
-    expect(testIds(render())).toContain("guide-cell-scrim");
+  const hostById = (tree: TestRenderer.ReactTestRenderer, id: string) => tree.root.find((node) => node.props.testID === id && typeof node.type === "string");
+  const labelOf = (tree: TestRenderer.ReactTestRenderer) => tree.root.find((node) => node.props.isTVSelectable === true && typeof node.type !== "string");
+
+  it("sets every programme's text on a scrim inside its pinned label, poster or not, never a stand-in's", () => {
     expect(testIds(render({ program: { ...program, Id: `${NO_GUIDE_PREFIX}c3`, Name: "No listings", EpisodeTitle: undefined } }))).not.toContain("guide-cell-scrim");
-    const tree = render({ program: { ...program, Id: "p9", ImageTags: { Primary: "tag" } } });
-    const scrim = tree.root.find((node) => node.props.testID === "guide-cell-scrim" && typeof node.type === "string");
-    expect(StyleSheet.flatten(scrim.props.style)).toEqual(expect.objectContaining({ top: 0, bottom: 0 }));
-    const tail = tree.root.find((node) => node.props.testID === "guide-cell-scrim-tail" && typeof node.type === "string");
-    expect(StyleSheet.flatten(tail.props.style).width).toBe(400);
+    for (const cell of [program, { ...program, Id: "p9", ImageTags: { Primary: "tag" } }]) {
+      const label = labelOf(render({ program: cell }));
+      const scrim = label.find((node) => node.props.testID === "guide-cell-scrim" && typeof node.type === "string");
+      expect(StyleSheet.flatten(scrim.props.style)).toEqual(expect.objectContaining({ top: 0, bottom: 0 }));
+      const tail = label.find((node) => node.props.testID === "guide-cell-scrim-tail" && typeof node.type === "string");
+      expect(StyleSheet.flatten(tail.props.style).width).toBe(400);
+    }
   });
 
-  it("clips the scrim inside the cell's border, so the grid line between programmes stays visible", () => {
-    const clip = render().root.find((node) => node.props.testID === "guide-cell-scrim-clip" && typeof node.type === "string");
+  it("clears the focus ring's top and bottom lines with the scrim while focused", () => {
+    const tree = render();
+    act(() => labelOf(tree).props.onFocus());
+    expect(StyleSheet.flatten(hostById(tree, "guide-cell-scrim").props.style)).toEqual(expect.objectContaining({ top: 1, bottom: 1 }));
+  });
+
+  it("clips the label inside the cell's border, so the scrim's fade never covers the grid line", () => {
+    const tree = render();
+    const clip = hostById(tree, "guide-cell-label-clip");
     expect(StyleSheet.flatten(clip.props.style)).toEqual(expect.objectContaining({ position: "absolute", left: 0, right: 0, overflow: "hidden" }));
     expect(clip.findAll((node) => node.props.testID === "guide-cell-scrim-tail" && typeof node.type === "string")).toHaveLength(1);
   });
 
-  it("lays the scrim under an airing programme's reel and seen box, never over them", () => {
+  it("lays a playing cell's scrim under its reel and seen box, never over them", () => {
     mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
-    const ids = testIds(render({ program: { ...program, Id: "p10", ChannelId: "c1", ImageTags: { Primary: "tag" } } }));
-    expect(ids.indexOf("guide-cell-scrim")).toBeGreaterThan(-1);
-    expect(ids.indexOf("guide-cell-scrim")).toBeLessThan(ids.indexOf("guide-focus-reel"));
-    expect(ids.indexOf("guide-cell-scrim")).toBeLessThan(ids.indexOf("guide-cell-seen"));
+    const tree = render({ program: { ...program, Id: "p10", ChannelId: "c1", ImageTags: { Primary: "tag" } } });
+    const ids = testIds(tree);
+    expect(ids.indexOf("guide-cell-reel-scrim")).toBeGreaterThan(-1);
+    expect(ids.indexOf("guide-cell-reel-scrim")).toBeLessThan(ids.indexOf("guide-focus-reel"));
+    expect(ids.indexOf("guide-cell-reel-scrim")).toBeLessThan(ids.indexOf("guide-cell-seen"));
+    expect(ids).not.toContain("guide-cell-scrim");
+    const clip = hostById(tree, "guide-cell-reel-scrim-clip");
+    expect(StyleSheet.flatten(clip.props.style)).toEqual(expect.objectContaining({ position: "absolute", left: 0, right: 0, overflow: "hidden" }));
   });
 
-  it("leads the art in from the left with its own fade, so the poster never starts on a hard edge", () => {
+  it("fades the art with one gradient that darkens the floor up to the poster's edge, then clears across it", () => {
     const tree = render({ program: { ...program, Id: "p11", ImageTags: { Primary: "tag" } } });
     const artWidth = Math.min(160, 400 - guideMetrics(false).pxPerMinute * TICK_MINUTES);
-    const lead = tree.root.find((node) => node.props.testID === "guide-cell-art-lead" && typeof node.type === "string");
-    expect(StyleSheet.flatten(lead.props.style)).toEqual(expect.objectContaining({ right: "100%", width: Math.min(artWidth, 400 - artWidth) }));
+    const lead = Math.min(artWidth, 400 - artWidth);
+    const fade = StyleSheet.flatten(hostById(tree, "guide-cell-art-fade").props.style);
+    expect(fade).toEqual(expect.objectContaining({ right: 0, width: lead + artWidth, experimental_backgroundImage: artFadeGradient(lead, artWidth) }));
+    expect(artFadeGradient(100, 300)).toBe("linear-gradient(to right, rgba(20, 20, 20, 0) 0%, #141414 25%, rgba(20, 20, 20, 0) 100%)");
+  });
+
+  it("draws the programme lines without text shadows, the scrim carries the contrast", () => {
+    for (const line of render().root.findAllByType(Text)) expect(StyleSheet.flatten(line.props.style).textShadowRadius).toBeUndefined();
   });
 
   it("draws no art in a cell that ends inside its first half hour", () => {
