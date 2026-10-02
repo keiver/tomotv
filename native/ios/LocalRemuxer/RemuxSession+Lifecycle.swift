@@ -160,7 +160,7 @@ extension RemuxSession {
         defer { stateLock.unlock() }
         guard sourceState == .dormant || sourceState == .retryWait,
               !cancelled, !failed, now >= sourceRetryAt else { return false }
-        let hasAlternative = !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
+        let hasAlternative = !copyOnlyMaster && !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
         let wire = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         guard !hasAlternative || sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2 else { return false }
         sourceState = .warming

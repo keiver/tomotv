@@ -461,6 +461,10 @@ final class MasterPlaylistTests: XCTestCase {
         XCTAssertTrue(session.copyOnlyMaster)
         session.testLinkBps = 1_000_000
         XCTAssertNil(session.copyResponseDeferral())
+        XCTAssertTrue(session.awaitCopyAdmission(until: Date()), "the copy the master lists alone is admitted on any link")
+        session.sourceState = .retryWait
+        session.sourceRetryAt = .distantPast
+        XCTAssertTrue(session.wakeSourceIfAffordable(), "a retrying copy-only source wakes on any link")
     }
 
     func testRetryWaitingSourceWithoutALadderRemainsListedAndRecoverable() throws {
