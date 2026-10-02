@@ -563,6 +563,7 @@ export function LibraryGrid({
                   nextFocusDown={nextFocusDown}
                   cardHeight={card.cardHeight}
                   titleIcon={titleIconFor?.(item)}
+                  hideAiring
                   recording={recordingFor?.(item)}
                   playsClipInView={clipIds.has(item.Id)}
                   inView={visibleChannelIds.has(item.Id)}
