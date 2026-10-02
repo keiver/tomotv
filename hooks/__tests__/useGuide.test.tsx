@@ -393,6 +393,39 @@ describe("useGuide", () => {
     updateLiveTvPreferences({ guideSourcesOff: [] });
   });
 
+  it("keeps the window edge when a guide source change drops an extension, and extends from it after", async () => {
+    const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+    const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
+    const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+    const url = "http://g/auto.xml.gz";
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program(`a-${startMs}`, "c1", 0, 60, startMs)]);
+    fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: [url] });
+    fetchExternalPrograms.mockImplementation(async (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
+      wanted.map(({ channelId }) => program(`epg:${channelId}`, channelId, 0, 30, windowMs.from)),
+    );
+    const ref = await mount();
+    const endBefore = ref.current!.get().windowEndMs;
+    let land!: () => void;
+    fetchExternalPrograms.mockImplementationOnce(() => new Promise((resolve) => (land = () => resolve([]))));
+    await act(async () => ref.current!.get().extendWindow());
+    await settle();
+    try {
+      updateLiveTvPreferences({ guideSourcesOff: [url] });
+      await changePreferences(ref, { guideSourcesOff: [url] } as Partial<typeof mockPreferences>);
+      await act(async () => land());
+      await settle();
+      // The source change's reload reaches the old edge only; the dropped extension must not move it.
+      expect(ref.current!.get().windowEndMs).toBe(endBefore);
+      await act(async () => ref.current!.get().extendWindow());
+      await settle();
+      expect(ref.current!.get().windowEndMs).toBe(endBefore + GUIDE_SPAN_MINUTES * MINUTE_MS);
+      expect((fetchGuidePrograms as jest.Mock).mock.calls.at(-1)![0].startMs).toBe(endBefore);
+    } finally {
+      updateLiveTvPreferences({ guideSourcesOff: [] });
+    }
+  });
+
   it("a channel's health verdict leaves the rows untouched while Hide offline is off, and drops a down channel once it is on", async () => {
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(41), channel(42)], total: 2 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);

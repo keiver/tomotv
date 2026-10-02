@@ -195,11 +195,14 @@ export function useGuide(): GuideState {
     }
   }, []);
 
+  /** False when a guide source change discarded the programs. */
   const loadPrograms = useCallback(
-    async (list: JellyfinItem[], startMs: number, endMs: number, load: GuideLoad) => {
-      if (list.length === 0) return;
+    async (list: JellyfinItem[], startMs: number, endMs: number, load: GuideLoad): Promise<boolean> => {
+      if (list.length === 0) return true;
       const result = await fetchPrograms(list, startMs, endMs);
-      if (result !== null) load.land.programs(result.channels, result.programs, { from: startMs, to: endMs });
+      if (result === null) return false;
+      load.land.programs(result.channels, result.programs, { from: startMs, to: endMs });
+      return true;
     },
     [fetchPrograms],
   );
@@ -353,9 +356,10 @@ export function useGuide(): GuideState {
     const to = from + GUIDE_SPAN_MINUTES * MINUTE_MS;
     load.busy = "window";
     loadPrograms(channelsRef.current, from, to, load)
-      .then(() => {
+      .then((landed) => {
         // A list loaded since holds programs up to the old edge only; the window stays there for it.
-        if (load.retired) return;
+        // So does a source change: its reload reaches the old edge, and the next extension asks again.
+        if (load.retired || !landed) return;
         windowEndRef.current = to;
         setWindowEndMs(to);
       })
