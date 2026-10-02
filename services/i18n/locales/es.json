@@ -312,7 +312,7 @@
   "info.video": "Vídeo",
   "info.audio": "Audio",
   "info.subtitles": "Subtítulos",
-  "info.laneSmallerFeed": "empieza con una señal de servidor más pequeña para tu conexión",
+  "info.laneSmallerFeed": "empieza con una señal de servidor más pequeña en conexiones lentas",
   "info.laneNoServerWork": "sin trabajo del servidor",
   "info.playForGroup": "Reproducir para el grupo",
   "info.resume": "Reanudar",

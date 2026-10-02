@@ -98,12 +98,12 @@ describe("the engine line on the item panel", () => {
   });
 
   it("says a smaller server feed opens the session when the link cannot carry the file", async () => {
-    expect(await laneLine({ lane: "copy", smallFeedFirst: true })).toBe("Direct Play · starts on a smaller server feed for your connection");
+    expect(await laneLine({ lane: "copy", smallFeedFirst: true })).toBe("Direct Play · starts on a smaller server feed on slow connections");
   });
 
   it("carries the same tail on the device's own re-encode", async () => {
     expect(await laneLine({ lane: "deviceTranscode", smallFeedFirst: false })).toBe("Re-encoded on this device · no server work");
-    expect(await laneLine({ lane: "deviceTranscode", smallFeedFirst: true })).toBe("Re-encoded on this device · starts on a smaller server feed for your connection");
+    expect(await laneLine({ lane: "deviceTranscode", smallFeedFirst: true })).toBe("Re-encoded on this device · starts on a smaller server feed on slow connections");
   });
 
   it("names the server outright when the whole file goes through it", async () => {

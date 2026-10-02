@@ -312,7 +312,7 @@
   "info.video": "Video",
   "info.audio": "Audio",
   "info.subtitles": "Subtitles",
-  "info.laneSmallerFeed": "starts on a smaller server feed for your connection",
+  "info.laneSmallerFeed": "starts on a smaller server feed on slow connections",
   "info.laneNoServerWork": "no server work",
   "info.playForGroup": "Play for Group",
   "info.resume": "Resume",

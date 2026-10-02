@@ -312,7 +312,7 @@
   "info.video": "Vidéo",
   "info.audio": "Audio",
   "info.subtitles": "Sous-titres",
-  "info.laneSmallerFeed": "démarre sur un flux serveur réduit pour ta connexion",
+  "info.laneSmallerFeed": "démarre sur un flux serveur réduit sur les connexions lentes",
   "info.laneNoServerWork": "aucun travail serveur",
   "info.playForGroup": "Lire pour le groupe",
   "info.resume": "Reprendre",
