@@ -8,6 +8,7 @@ import {
   durationLabel,
   GUIDE_SPAN_MINUTES,
   guideMetrics,
+  guideRefreshOutcome,
   guideWindowStart,
   isActiveTimer,
   isAiring,
@@ -155,6 +156,12 @@ describe("guide geometry", () => {
     expect(standInChannelId(`${NO_GUIDE_PREFIX}abc123`)).toBe("abc123");
     expect(standInChannelId("abc123")).toBeNull();
     expect(standInChannelId(undefined)).toBeNull();
+  });
+
+  it("tells a finished refresh's outcome: failed, no listings, or updated", () => {
+    expect(guideRefreshOutcome(true, true)).toEqual({ title: "liveTv.guideUnavailable", kind: "error" });
+    expect(guideRefreshOutcome(false, false)).toEqual({ title: "liveTv.noGuide", kind: "info" });
+    expect(guideRefreshOutcome(false, true)).toEqual({ title: "liveTv.guideUpdated", kind: "success" });
   });
 
   it("names the airing program by its dates", () => {

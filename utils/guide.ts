@@ -223,6 +223,12 @@ export function standInChannelId(programId: string | undefined): string | null {
 /** Id prefix of a programme from the viewer's external XMLTV guide: not on the server, never fetched. */
 export const EXTERNAL_GUIDE_PREFIX = "epg:";
 
+/** What a finished refresh tells the viewer: the load failed, no row has listings, or the guide updated. */
+export function guideRefreshOutcome(failed: boolean, hasListings: boolean): { title: "liveTv.guideUnavailable" | "liveTv.noGuide" | "liveTv.guideUpdated"; kind: "error" | "info" | "success" } {
+  if (failed) return { title: "liveTv.guideUnavailable", kind: "error" };
+  return hasListings ? { title: "liveTv.guideUpdated", kind: "success" } : { title: "liveTv.noGuide", kind: "info" };
+}
+
 /**
  * Replace the requested window with its successful response, including an empty one. Keep other
  * windows when extending the guide; the returned programmes alone cannot describe what was removed.

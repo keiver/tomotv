@@ -48,8 +48,8 @@ interface GuideCornerActionsProps {
   onChannels: () => void;
   onRecordings: () => void;
   onSchedule: () => void;
-  /** Present while an external guide is in play: a fourth cell re-downloads it. */
-  onRefreshGuide?: () => void;
+  /** Reloads the server's listings and re-downloads the external guides. */
+  onRefreshGuide: () => void;
   /** True while the guide is already working: the refresh cell drops presses and dims. */
   refreshing?: boolean;
   /** The first cell's node, the guide cells' fallback Up target. */
@@ -68,9 +68,7 @@ export function GuideCornerActions({ filtered, onChannels, onRecordings, onSched
       />
       <HudAction label={t("liveTv.recordings")} onPress={onRecordings} icon={<SfSymbolIcon name="recordingtape" size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />} />
       <HudAction label={t("liveTv.scheduled")} onPress={onSchedule} icon={<SfSymbolIcon name="calendar" size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />} />
-      {onRefreshGuide ? (
-        <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} disabled={refreshing} icon={<SfSymbolIcon name="arrow.clockwise" size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />} />
-      ) : null}
+      <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} disabled={refreshing} icon={<SfSymbolIcon name="arrow.clockwise" size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />} />
     </View>
   );
 }

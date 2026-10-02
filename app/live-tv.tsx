@@ -11,13 +11,12 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { useGuide } from "@/hooks/useGuide";
-import { lastKnownTunerData } from "@/services/jellyfinApi";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
-import { activeGuideUrls, refreshExternalGuide } from "@/services/externalGuide";
+import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import { showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { EXTERNAL_GUIDE_PREFIX, guideMetrics, NO_GUIDE_PREFIX } from "@/utils/guide";
+import { EXTERNAL_GUIDE_PREFIX, guideMetrics, guideRefreshOutcome, NO_GUIDE_PREFIX } from "@/utils/guide";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -36,12 +35,25 @@ const PHONE_REFRESH_CELL_WIDTH = 44;
  */
 export default function LiveTvRoute() {
   const { isConnected, isReady } = useAuth();
+  // A refresh remounts the screen: first channel, the current half hour, every listing loaded again.
+  const [refreshes, setRefreshes] = useState(0);
+  const refreshGuide = useCallback(() => {
+    refreshExternalGuide();
+    setRefreshes((count) => count + 1);
+    showToast({ id: "guide-refresh", title: t("liveTv.guideDownloading"), progress: true });
+  }, []);
   if (!isReady) return null;
   if (!isConnected) return <ServerConnectScreen title={t("liveTv.title")} />;
-  return <LiveTvScreen />;
+  return <LiveTvScreen key={refreshes} refreshed={refreshes > 0} onRefresh={refreshGuide} />;
 }
 
-function LiveTvScreen() {
+interface LiveTvScreenProps {
+  /** Mounted by a refresh press: the first load announces its outcome. */
+  refreshed: boolean;
+  onRefresh: () => void;
+}
+
+function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps) {
   const router = useRouter();
   const contextInsets = useSafeAreaInsets();
   // TV: the tab's SafeAreaProvider first renders with the window's insets, then the tab bar's;
@@ -67,25 +79,17 @@ function LiveTvScreen() {
   // The Channels pill wears the filled filter symbol while a filter holds the channels.
   const filtered = preferences.filter !== "all";
   const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
-  // The refresh circle shows only while an external guide is in play: the viewer's or a playlist's.
-  const hasExternalGuide = activeGuideUrls(preferences, lastKnownTunerData()?.tvgUrls ?? []).length > 0;
-  const { retry } = guide;
-  // The refresh press announces itself and its outcome; armed so the passive loads
-  // (first open, paging, window growth) stay silent.
-  const refreshToastArmed = useRef(false);
-  const refreshGuide = useCallback(() => {
-    refreshExternalGuide();
-    retry();
-    refreshToastArmed.current = true;
-    showToast({ id: "guide-refresh", title: t("liveTv.guideDownloading"), progress: true });
-  }, [retry]);
+  // A refresh's first load announces its outcome; the passive loads (first open, paging, window growth) stay silent.
+  const refreshToastArmed = useRef(refreshed);
   const guideWorking = guide.isLoading || guide.isUpdating;
   const guideFailed = !!guide.error;
+  const hasListings = guide.rows.some((row) => row.programs.length > 0);
   useEffect(() => {
     if (guideWorking || !refreshToastArmed.current) return;
     refreshToastArmed.current = false;
-    showToast({ id: "guide-refresh", title: t(guideFailed ? "liveTv.guideUnavailable" : "liveTv.guideUpdated"), kind: guideFailed ? "error" : "success" });
-  }, [guideWorking, guideFailed]);
+    const outcome = guideRefreshOutcome(guideFailed, hasListings);
+    showToast({ id: "guide-refresh", title: t(outcome.title), kind: outcome.kind });
+  }, [guideWorking, guideFailed, hasListings]);
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
@@ -159,18 +163,18 @@ function LiveTvScreen() {
             onChannels={openChannels}
             onRecordings={openRecordings}
             onSchedule={openSchedule}
-            onRefreshGuide={hasExternalGuide ? refreshGuide : undefined}
+            onRefreshGuide={refreshGuide}
             refreshing={guide.isUpdating}
             onFirstRef={handleFirstActionRef}
           />
-        ) : hasExternalGuide ? (
+        ) : (
           <HudAction
             label={t("liveTv.guideRefresh")}
             onPress={refreshGuide}
             disabled={guide.isUpdating}
             icon={<SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={COLORS.ACCENT} weight="bold" />}
           />
-        ) : undefined
+        )
       }
       onSelectedHandle={setStripHandle}
     />
