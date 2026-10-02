@@ -125,9 +125,17 @@ describe("heroArtFrame", () => {
     expect(heroArtFrame(1100, 618.75, 1000, 1000)).toEqual({ width: 1100, height: 1100 });
   });
 
-  it("draws a picture wider than 16:9 full width, shorter than the area", () => {
-    expect(heroArtFrame(1100, 618.75, 4000, 1000)).toEqual({ width: 1100, height: 275 });
-    expect(heroArtFrame(1100, 618.75, 503, 125).width).toBe(1100);
+  // Sintel's programme still is 640x272: drawn full width it leaves a band over its top.
+  it("covers the area with a picture wider than 16:9, its sides cropped", () => {
+    const still = heroArtFrame(1100, 618.75, 640, 272);
+    expect(still.height).toBe(618.75);
+    expect(still.width).toBeCloseTo(1455.88);
+    expect(heroArtFrame(1100, 618.75, 4000, 1000)).toEqual({ width: 2475, height: 618.75 });
+  });
+
+  it("keeps a wide logo whole, full width and shorter than the area", () => {
+    expect(heroArtFrame(1100, 618.75, 4000, 1000, true)).toEqual({ width: 1100, height: 275 });
+    expect(heroArtFrame(1100, 618.75, 503, 125, true).width).toBe(1100);
   });
 
   // .black (576p)'s logo is 68x16: drawn full width it is a 16x blow-up.

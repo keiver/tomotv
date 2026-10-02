@@ -89,13 +89,15 @@ export function posterUri(item: PosterItem, height: number, frame?: string | nul
 const HERO_MAX_UPSCALE = 3;
 
 /**
- * The info hero's art at its own ratio inside a fixed `width` x `area`: full width, a taller picture's
- * foot past the area; a tiny landscape picture (a channel logo) stops at 3x its own size.
+ * The info hero's art at its own ratio inside a fixed `width` x `area`: a taller picture full width, its foot
+ * past the area; a wider one covers the area, sides cropped. A logo stays whole; a tiny one stops at 3x.
  */
-export function heroArtFrame(width: number, area: number, imageWidth: number, imageHeight: number): { width: number; height: number } {
+export function heroArtFrame(width: number, area: number, imageWidth: number, imageHeight: number, logo = false): { width: number; height: number } {
   if (imageWidth * HERO_MAX_UPSCALE < width && imageWidth >= imageHeight) {
     const scale = Math.min(HERO_MAX_UPSCALE, area / imageHeight);
     return { width: imageWidth * scale, height: imageHeight * scale };
   }
-  return { width, height: (width * imageHeight) / imageWidth };
+  const height = (width * imageHeight) / imageWidth;
+  if (height < area && !logo) return { width: (area * imageWidth) / imageHeight, height: area };
+  return { width, height };
 }

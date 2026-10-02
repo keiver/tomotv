@@ -20,6 +20,7 @@ import {
   getBackdropUrl,
   getLogoUrl,
   getPersonImageUrl,
+  hasPoster,
   isAudioItem,
   isFolder,
   isBook,
@@ -544,7 +545,9 @@ export default function VideoInfoScreen() {
   const heroFailed = !!heroUri && heroLoad.uri === heroUri && !heroLoad.ref;
   const heroAspect = heroRef && heroRef.height > 0 && !heroFailed ? heroRef.width / heroRef.height : null;
   // Full width in the fixed area; a portrait's foot runs under the fade and content.
-  const heroArt = heroSource && heroRef && heroArtArea > 0 && heroAspect != null ? heroArtFrame(heroWidth, heroArtArea, heroRef.width, heroRef.height) : null;
+  // A channel, or a programme wearing its channel's art, shows a logo: never cropped.
+  const heroIsLogo = liveChannel || (!!liveProgram && !!details && !hasPoster(details));
+  const heroArt = heroSource && heroRef && heroArtArea > 0 && heroAspect != null ? heroArtFrame(heroWidth, heroArtArea, heroRef.width, heroRef.height, heroIsLogo) : null;
   // The fade is opaque by the art area's foot, so the picture's bottom edge never shows.
   const footPct = heroHeight > 0 ? (heroArtArea / heroHeight) * 100 : 100;
   const footScrim = {
