@@ -248,13 +248,15 @@ final class XmltvParser: StreamSink {
     private func open(flush: Bool) {
         let utf16 = head.count >= 2 && ((head[0] == 0xFF && head[1] == 0xFE) || (head[0] == 0xFE && head[1] == 0xFF) || head[0] == 0 || head[1] == 0)
         if utf16 { escaper = nil }
+        let raw = head
         var first: [UInt8] = []
-        head.withUnsafeBytes { escaped($0, flush: flush) { first.append(contentsOf: $0) } }
+        raw.withUnsafeBytes { escaped($0, flush: flush) { first.append(contentsOf: $0) } }
         head = []
-        // A held `&` can leave too few bytes to sniff; wait for the next chunk.
+        // A held `<` or `&` can leave too few bytes to sniff: keep the raw bytes and scan them afresh with the
+        // next chunk, so a held byte never jumps ahead of those let through. Under 4 bytes out opened no CDATA.
         guard first.count >= 4 || flush else {
-            head = first
-            escaper?.filter(UnsafeRawBufferPointer(start: nil, count: 0), flush: false) { _ in }
+            head = raw
+            if escaper != nil { escaper = AmpersandEscaper() }
             return
         }
         context = first.withUnsafeBufferPointer { buffer in

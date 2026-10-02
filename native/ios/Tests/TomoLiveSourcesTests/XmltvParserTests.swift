@@ -208,6 +208,19 @@ final class XmltvParserTests: XCTestCase {
         XCTAssertEqual(Fixture.programmes(store).first?.title, "BOM")
     }
 
+    /// A first chunk too short to sniff, ending on a `<` the escaper holds: the held byte stays behind the ones let through.
+    func testAFirstChunkEndingOnAHeldTagReadsTheSame() {
+        let bom: [UInt8] = [0xEF, 0xBB, 0xBF] + Array(Fixture.programme("<title>BOM</title>").utf8)
+        let spaced = Array(#"   <tv><programme start="20260925010000 +0000" channel="a.us"><title>Space</title></programme></tv>"#.utf8)
+        for (bytes, title) in [(bom, "BOM"), (spaced, "Space")] {
+            for chunks in [[4], [1], [2], [4, 64]] {
+                let (store, parser) = Fixture.parse(bytes, chunks: chunks)
+                XCTAssertEqual(Fixture.programmes(store).first?.title, title, "\(title) chunks \(chunks)")
+                XCTAssertEqual(parser.errors, 0, "\(title) chunks \(chunks)")
+            }
+        }
+    }
+
     func testDecodesADeclaredLatin1Document() {
         var bytes = Array(#"<?xml version="1.0" encoding="ISO-8859-1"?><tv><programme start="20260925010000 +0000" channel="a.us"><title>Caf"#.utf8)
         bytes += [0xE9]
