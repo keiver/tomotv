@@ -373,7 +373,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
               <View style={[styles.infoTitleBlend, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(COLORS.ACCENT)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold, isChannel && styles.infoValueTitleChannel])}>
                   {cardTitle}
                 </MarqueeText>
               </View>
@@ -383,7 +383,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
               <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(CARD_FOCUS.TITLE_TEXT_FOCUSED)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused, isChannel && styles.infoValueTitleChannel])}>
                   {cardTitle}
                 </MarqueeText>
               </View>
@@ -392,7 +392,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
               <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(COLORS.ACCENT)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold, isChannel && styles.infoValueTitleChannel])}>
                   {cardTitle}
                 </MarqueeText>
               </View>
@@ -662,6 +662,10 @@ const styles = StyleSheet.create({
   },
   infoValueTitleFocused: {
     color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
+  },
+  infoValueTitleChannel: {
+    fontSize: TITLE_SIZE - 2,
+    textTransform: "uppercase",
   },
   // Gold resting title. On progress cards it runs through a difference blend:
   // difference(gold, gold fill) cancels to black; difference(gold, dark bar)
