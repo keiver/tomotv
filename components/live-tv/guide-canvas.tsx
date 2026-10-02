@@ -10,7 +10,7 @@ import { COLORS } from "@/constants/colors";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { cellAtEdge, cellGeometry, formatDayLabel, guideMetrics, isAiring, MINUTE_MS, programTimes } from "@/utils/guide";
+import { cellAtEdge, cellGeometry, guideMetrics, isAiring, MINUTE_MS, programTimes } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -279,7 +279,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   }, [rows, nowMs, focusLatched, isScreenFocused, windowStartMs, windowEndMs]);
 
   const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
-  const dayLabel = formatDayLabel(windowStartMs, nowMs, { today: t("liveTv.now"), tomorrow: t("liveTv.tomorrow") });
+  const dayLabel = new Date(windowStartMs).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
   // TV: the focused row lands as the lowest whole row, so every focus scroll rests on a row edge.
   const rowSnapOffset = IS_TV ? Math.max(0, Math.floor((canvasHeight - METRICS.rowHeight) / METRICS.rowHeight)) * METRICS.rowHeight : undefined;
 
