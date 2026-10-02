@@ -22,9 +22,12 @@ final class PreviewPlayerPool {
   /// Decoder busy (-11839) is reported at 16 players on iPhone; a Mac ran 48 card-sized 1080p clips in realtime.
   private static let ceiling = ProcessInfo.processInfo.isiOSAppOnMac ? 48 : 16
   #endif
+  /// Idle players are for the next card of a scroll; past this with no card playing, the screen is away and they go.
+  private static let idleLinger: TimeInterval = 5
   private var limit = ceiling
   private var hosting: [Hosting] = []
   private var idle: [PreviewPlayer] = []
+  private var idleDrop: DispatchWorkItem?
   private var waiting: [Waiting] = []
   private var lowPower = false
 
@@ -87,6 +90,17 @@ final class PreviewPlayerPool {
     let player = hosting.remove(at: index).player
     player.detach()
     idle.append(player)
+    dropIdleAfterLinger()
+  }
+
+  private func dropIdleAfterLinger() {
+    idleDrop?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, self.hosting.isEmpty else { return }
+      self.idle.removeAll()
+    }
+    idleDrop = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.idleLinger, execute: work)
   }
 
   private func grantWaiting() {
