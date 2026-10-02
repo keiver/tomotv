@@ -6,7 +6,7 @@ import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { pinOffset, pinRightOffset } from "@/components/live-tv/guide-pin";
-import { formatClock, guideMetrics, programCategory, programTimes, standInChannelId, TICK_MINUTES } from "@/utils/guide";
+import { formatClock, guideMetrics, programCategory, standInChannelId, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { t } from "@/services/i18n";
@@ -40,6 +40,9 @@ interface GuideCellProps {
   left: number;
   width: number;
   height: number;
+  /** The slot, parsed once by the row. */
+  startMs: number;
+  endMs: number;
   /** Where the clock stands against the slot, not the clock itself: a passing minute re-renders only the cells it moves. */
   past: boolean;
   airing: boolean;
@@ -47,7 +50,7 @@ interface GuideCellProps {
   /** The canvas's native-driven horizontal offset; the label rides it so it stays on the visible edge. */
   scrollX: RNAnimated.Value;
   viewportWidth?: number;
-  /** The poster loads only while this holds; the canvas sets it for the cells in view once scrolling settles. */
+  /** The poster and the reel show only while this holds; the canvas sets it for the cells in view once scrolling settles. */
   showArt?: boolean;
   onPress: (program: JellyfinProgram) => void;
   onLongPress: (program: JellyfinProgram) => void;
@@ -70,6 +73,8 @@ function GuideCellComponent({
   left,
   width,
   height,
+  startMs,
+  endMs,
   past,
   airing,
   recording,
@@ -85,14 +90,11 @@ function GuideCellComponent({
   nextFocusDown,
   hasTVPreferredFocus = false,
 }: GuideCellProps) {
-  const { startMs, endMs } = programTimes(program);
   const programName = cleanLabel(program.Name);
   const episodeTitle = cleanLabel(program.EpisodeTitle);
   // The stand-in of a channel without listings: a quiet band, one dim line, no slot times.
   const standInChannel = standInChannelId(program.Id);
   const standIn = standInChannel !== null;
-  // The reel also unrolls while the row's channel card holds focus over in the column.
-  const cardFocused = useGuideChannelFocus(standInChannel ?? program.ChannelId);
   // One line under the titles: the slot, then whatever the guide source filled in.
   // A guide's "no info available" placeholder gets no slot of its own.
   const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter((part) => part && !NO_INFO.test(part)).join("  ·  ");
@@ -106,7 +108,10 @@ function GuideCellComponent({
   const labelWidth = useAnimatedValue(0);
   const [focused, setFocused] = useState(false);
   const reelChannel = !standIn && program.ChannelId && airing ? program.ChannelId : null;
-  const seenChannel = standInChannel ?? reelChannel;
+  // Only a cell in view wears its reel: one off screen would hold a burst's frames for nothing.
+  const seenChannel = showArt ? (standInChannel ?? reelChannel) : null;
+  // The reel also unrolls while the row's channel card holds focus over in the column.
+  const cardFocused = useGuideChannelFocus(seenChannel ?? undefined);
   const subscribeReel = useCallback((listener: () => void) => (seenChannel ? subscribeLiveFrame(seenChannel, listener) : () => undefined), [seenChannel]);
   // When this device grabbed the shown frames, 0 while none show; the guide carries no such time.
   const readReel = useCallback(() => {
@@ -130,7 +135,10 @@ function GuideCellComponent({
         : undefined,
     [reelShown, standIn, pin, labelWidth],
   );
-  const seenPinStyle = useMemo(() => (viewportWidth ? { transform: [{ translateX: pinRightOffset(scrollX, left, width, viewportWidth) }] } : undefined), [scrollX, left, width, viewportWidth]);
+  const seenPinStyle = useMemo(
+    () => (reelShown && viewportWidth ? { transform: [{ translateX: pinRightOffset(scrollX, left, width, viewportWidth) }] } : undefined),
+    [reelShown, scrollX, left, width, viewportWidth],
+  );
   const programId = program.Id;
   const handleRef = useCallback(
     (node: View | null) => {
@@ -150,8 +158,9 @@ function GuideCellComponent({
   const press = useCallback(() => onPress(program), [onPress, program]);
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
 
-  return (
-    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={[styles.cell, standIn && styles.cellQuiet, { left, width, height }]}>
+  const cellStyle = [styles.cell, standIn && styles.cellQuiet, { left, width, height }];
+  const body = (
+    <>
       {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
       {art && artShown ? <GuideCellArt source={art} width={artWidth} lead={artLead} reelShown={reelShown} /> : null}
       {reelScrimStyles ? (
@@ -160,15 +169,11 @@ function GuideCellComponent({
           <RNAnimated.View style={[styles.reelScrimTail, { width }, reelScrimStyles.tail]} />
         </View>
       ) : null}
-      {/* Any row wears its reel whenever a burst exists, resting faded and brightening on the row's
+      {/* A row in view wears its reel whenever a burst exists, resting faded and brightening on the row's
           focus. A programme gets the compact strip only while it airs: history under a future slot would lie. */}
-      {standInChannel ? (
+      {seenChannel ? (
         <View style={styles.reelClip} pointerEvents="none">
-          <GuideFocusReel channelId={standInChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} />
-        </View>
-      ) : reelChannel ? (
-        <View style={styles.reelClip} pointerEvents="none">
-          <GuideFocusReel channelId={reelChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} compact />
+          <GuideFocusReel channelId={seenChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} compact={!standIn} />
         </View>
       ) : null}
       {/* A box set into the cell's top right corner, the cell's own edges closing it: when this device grabbed the frames.
@@ -230,6 +235,16 @@ function GuideCellComponent({
           )}
         </AnimatedPressable>
       </View>
+    </>
+  );
+  // TV: the label is the only focusable, so no press can reach the cell itself.
+  return IS_TV ? (
+    <View collapsable={false} style={cellStyle}>
+      {body}
+    </View>
+  ) : (
+    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={cellStyle}>
+      {body}
     </Pressable>
   );
 }

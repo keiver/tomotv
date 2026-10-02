@@ -3,7 +3,9 @@ import TestRenderer, { act } from "react-test-renderer";
 import { Animated, StyleSheet, Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
 import { artFadeGradient } from "@/components/live-tv/guide-cell-art";
+import * as guidePin from "@/components/live-tv/guide-pin";
 import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
+import * as guideChannelFocus from "@/services/guideChannelFocus";
 import { formatClock, guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
@@ -20,7 +22,21 @@ function render(overrides: Partial<React.ComponentProps<typeof GuideCell>> = {})
   let tree: TestRenderer.ReactTestRenderer | undefined;
   act(() => {
     tree = TestRenderer.create(
-      <GuideCell program={program} left={0} width={400} height={90} past={false} airing recording={null} scrollX={scrollX} onPress={jest.fn()} onLongPress={jest.fn()} {...overrides} />,
+      <GuideCell
+        program={program}
+        left={0}
+        width={400}
+        height={90}
+        startMs={T0}
+        endMs={T0 + 60 * MINUTE_MS}
+        past={false}
+        airing
+        recording={null}
+        scrollX={scrollX}
+        onPress={jest.fn()}
+        onLongPress={jest.fn()}
+        {...overrides}
+      />,
     );
   });
   return tree!;
@@ -38,6 +54,37 @@ describe("GuideCell", () => {
     const shown = texts(render());
     expect(shown).toEqual(expect.arrayContaining(["Evening News", "Episode 9"]));
     expect(shown.some((text) => text.includes(" – ") && text.includes("news"))).toBe(true);
+  });
+
+  it("prints the slot the row parsed, never the programme's dates again", () => {
+    const shown = texts(render({ startMs: T0 + 30 * MINUTE_MS, endMs: T0 + 45 * MINUTE_MS }));
+    expect(shown.some((text) => typeof text === "string" && text.startsWith(`${formatClock(T0 + 30 * MINUTE_MS)} – ${formatClock(T0 + 45 * MINUTE_MS)}`))).toBe(true);
+  });
+
+  it("builds the seen box's pin only while grabbed frames show", () => {
+    const pinRight = jest.spyOn(guidePin, "pinRightOffset");
+    try {
+      render({ viewportWidth: 1600 });
+      expect(pinRight).not.toHaveBeenCalled();
+      mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
+      render({ program: { ...program, Id: "p12", ChannelId: "c1" }, viewportWidth: 1600 });
+      expect(pinRight).toHaveBeenCalledTimes(1);
+    } finally {
+      pinRight.mockRestore();
+    }
+  });
+
+  it("listens for its channel card's focus only while it can wear a reel", () => {
+    const subscribe = jest.spyOn(guideChannelFocus, "subscribeGuideChannelFocus");
+    try {
+      render({ program: { ...program, Id: "p13", ChannelId: "c1" }, airing: false });
+      expect(subscribe).not.toHaveBeenCalled();
+      render({ program: { ...program, Id: "p13", ChannelId: "c1" } });
+      render({ program: { ...program, Id: `${NO_GUIDE_PREFIX}c2`, Name: "No listings" }, airing: false });
+      expect(subscribe).toHaveBeenCalledTimes(2);
+    } finally {
+      subscribe.mockRestore();
+    }
   });
 
   it("bleeds the programme's art in from the right only when it has one", () => {
@@ -110,6 +157,26 @@ describe("GuideCell", () => {
     expect(testIds(render({ program: withArt, showArt: true }))).toContain("guide-cell-art");
   });
 
+  it("wears no reel, seen box or reel scrim, and listens for no card focus, while the canvas has the cell out of view", () => {
+    mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
+    const subscribe = jest.spyOn(guideChannelFocus, "subscribeGuideChannelFocus");
+    try {
+      const airing = { ...program, Id: "p14", ChannelId: "c1" };
+      const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c2`, Name: "No listings", EpisodeTitle: undefined };
+      for (const cell of [airing, standIn]) {
+        const away = testIds(render({ program: cell, showArt: false }));
+        expect(away).not.toContain("guide-focus-reel");
+        expect(away).not.toContain("guide-cell-seen");
+        expect(away).not.toContain("guide-cell-reel-scrim");
+      }
+      expect(testIds(render({ program: airing, showArt: false }))).toContain("guide-cell-scrim");
+      expect(subscribe).not.toHaveBeenCalled();
+      expect(testIds(render({ program: airing, showArt: true }))).toEqual(expect.arrayContaining(["guide-focus-reel", "guide-cell-seen"]));
+    } finally {
+      subscribe.mockRestore();
+    }
+  });
+
   it("keys the art by its image tag, so a refreshed guide image replaces the cached one", () => {
     const artKey = (tag: string) => render({ program: { ...program, Id: "p4", ImageTags: { Primary: tag } } }).root.findByType("Image" as never).props.source.cacheKey;
     expect(artKey("old")).not.toEqual(artKey("new"));
@@ -154,7 +221,24 @@ describe("GuideCell", () => {
     mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
     const grabbed = render({ program: withPoster });
     // The mock evaluates animated styles at render; a nudge re-renders after the effect's set.
-    act(() => grabbed.update(<GuideCell program={withPoster} left={0} width={400} height={90} past={false} airing recording={null} scrollX={scrollX} onPress={jest.fn()} onLongPress={jest.fn()} />));
+    act(() =>
+      grabbed.update(
+        <GuideCell
+          program={withPoster}
+          left={0}
+          width={400}
+          height={90}
+          startMs={T0}
+          endMs={T0 + 60 * MINUTE_MS}
+          past={false}
+          airing
+          recording={null}
+          scrollX={scrollX}
+          onPress={jest.fn()}
+          onLongPress={jest.fn()}
+        />,
+      ),
+    );
     expect(artOpacity(grabbed)).toBeLessThan(0.2);
   });
 

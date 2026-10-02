@@ -268,7 +268,7 @@ describe("useGuide", () => {
 
     const endBefore = ref.current!.get().windowEndMs;
     await act(async () => {
-      ref.current!.get().extendWindow();
+      ref.current!.get().holdWindow(ref.current!.get().windowStartMs, endBefore + 1);
     });
     await settle();
     expect(ref.current!.get().windowEndMs).toBe(endBefore + GUIDE_SPAN_MINUTES * MINUTE_MS);
@@ -330,13 +330,13 @@ describe("useGuide", () => {
     const ref = await mount();
     const endBefore = ref.current!.get().windowEndMs;
     (fetchGuidePrograms as jest.Mock).mockImplementationOnce(() => new Promise((resolve) => (finishExtension = () => resolve([]))));
-    await act(async () => ref.current!.get().extendWindow());
+    await act(async () => ref.current!.get().holdWindow(ref.current!.get().windowStartMs, endBefore + 1));
     await changePreferences(ref, { sort: "name" });
     await act(async () => finishExtension());
     await settle();
     // The reloaded rows hold programs up to the old edge only.
     expect(ref.current!.get().windowEndMs).toBe(endBefore);
-    await act(async () => ref.current!.get().extendWindow());
+    await act(async () => ref.current!.get().holdWindow(ref.current!.get().windowStartMs, endBefore + 1));
     await settle();
     expect(ref.current!.get().windowEndMs).toBe(endBefore + GUIDE_SPAN_MINUTES * MINUTE_MS);
   });
@@ -408,7 +408,7 @@ describe("useGuide", () => {
     const endBefore = ref.current!.get().windowEndMs;
     let land!: () => void;
     fetchExternalPrograms.mockImplementationOnce(() => new Promise((resolve) => (land = () => resolve([]))));
-    await act(async () => ref.current!.get().extendWindow());
+    await act(async () => ref.current!.get().holdWindow(ref.current!.get().windowStartMs, endBefore + 1));
     await settle();
     try {
       updateLiveTvPreferences({ guideSourcesOff: [url] });
@@ -417,7 +417,7 @@ describe("useGuide", () => {
       await settle();
       // The source change's reload reaches the old edge only; the dropped extension must not move it.
       expect(ref.current!.get().windowEndMs).toBe(endBefore);
-      await act(async () => ref.current!.get().extendWindow());
+      await act(async () => ref.current!.get().holdWindow(ref.current!.get().windowStartMs, endBefore + 1));
       await settle();
       expect(ref.current!.get().windowEndMs).toBe(endBefore + GUIDE_SPAN_MINUTES * MINUTE_MS);
       expect((fetchGuidePrograms as jest.Mock).mock.calls.at(-1)![0].startMs).toBe(endBefore);
@@ -499,6 +499,103 @@ describe("useGuide", () => {
     await act(async () => ref.current!.get().retry());
     await settle();
     expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([["new-server"], [], []]);
+  });
+
+  describe("window", () => {
+    const span = GUIDE_SPAN_MINUTES * MINUTE_MS;
+    /** One programme per channel at the head of every stretch fetched, named by channel and stretch start. */
+    const listEveryStretch = () =>
+      (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ channelIds, startMs }: { channelIds: string[]; startMs: number }) =>
+        channelIds.map((id) => program(`${id}-${startMs}`, id, 0, 30, startMs)),
+      );
+    /** Asks for spans 1..last in turn, twice each: the canvas asks again once a stretch has landed. */
+    async function walkRight(ref: React.RefObject<HookRef | null>, last: number) {
+      const start = ref.current!.get().windowStartMs;
+      for (let k = 1; k <= last; k++) {
+        await act(async () => ref.current!.get().holdWindow(start + k * span, start + (k + 1) * span));
+        await settle();
+        await act(async () => ref.current!.get().holdWindow(start + k * span, start + (k + 1) * span));
+      }
+      return start;
+    }
+    const lastFetch = () => (fetchGuidePrograms as jest.Mock).mock.calls.at(-1)![0] as { channelIds: string[]; startMs: number; endMs: number };
+
+    it("loads toward the stretch asked for and lets go of the listings two spans behind it", async () => {
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      listEveryStretch();
+      const ref = await mount();
+      const start = await walkRight(ref, 5);
+      expect(ref.current!.get().windowEndMs).toBe(start + 6 * span);
+      expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([3, 4, 5].map((k) => `c1-${start + k * span}`));
+    });
+
+    it("a channel whose listings end behind the loaded stretch keeps its last programme, so its row never reads as one without listings", async () => {
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+      const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+      fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
+      // Channel 2 has listings in the first two spans only; the first fetch opens on the window's start.
+      let origin: number | undefined;
+      (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ channelIds, startMs }: { channelIds: string[]; startMs: number }) => {
+        origin ??= startMs;
+        const early = startMs < origin + 2 * span;
+        return channelIds.filter((id) => id === "c1" || early).map((id) => program(`${id}-${startMs}`, id, 0, 30, startMs));
+      });
+      const ref = await mount();
+      const start = await walkRight(ref, 5);
+      expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual([`c2-${start + span}`]);
+    });
+
+    it("going back reloads the span it let go, and after a jump loads the stretch asked for alone", async () => {
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      listEveryStretch();
+      const ref = await mount();
+      const start = await walkRight(ref, 5);
+      await act(async () => ref.current!.get().holdWindow(start + 2.5 * span, start + 3.5 * span));
+      await settle();
+      expect(lastFetch()).toMatchObject({ startMs: start + 2 * span, endMs: start + 3 * span });
+      expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([2, 3, 4, 5].map((k) => `c1-${start + k * span}`));
+
+      await act(async () => ref.current!.get().holdWindow(start, start + span));
+      await settle();
+      expect(lastFetch()).toMatchObject({ startMs: start, endMs: start + span });
+      expect(ref.current!.get().windowEndMs).toBe(start + span);
+      expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([`c1-${start}`]);
+    });
+
+    it("a page loaded after a trim asks listings for the loaded stretch alone", async () => {
+      const many = Array.from({ length: GUIDE_CHANNEL_PAGE + 1 }, (_, i) => channel(i + 1));
+      (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex, limit }: { startIndex: number; limit: number }) => ({
+        items: many.slice(startIndex, startIndex + limit),
+        total: many.length,
+      }));
+      listEveryStretch();
+      const ref = await mount();
+      const start = await walkRight(ref, 5);
+      await act(async () => ref.current!.get().loadMoreRows());
+      await settle();
+      expect(lastFetch()).toEqual({ channelIds: [`c${GUIDE_CHANNEL_PAGE + 1}`], startMs: start + 3 * span, endMs: start + 6 * span });
+    });
+
+    it("a group change opens the next group at the window's start and lets go of the last group's listings", async () => {
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchListedChannels as jest.Mock).mockResolvedValue([channel(2)]);
+      listEveryStretch();
+      const ref = await mount();
+      const start = await walkRight(ref, 3);
+      // A channel recording marks every listing its channel still holds.
+      (fetchTimers as jest.Mock).mockResolvedValue([
+        { Id: "t1", Name: "Channel 1", ChannelId: "c1", StartDate: new Date(start).toISOString(), EndDate: new Date(start + 9 * span).toISOString(), Status: "New" },
+      ]);
+      await act(async () => ref.current!.get().refreshTimers());
+      await settle();
+      expect(ref.current!.get().timersByProgramId.size).toBeGreaterThan(0);
+
+      await changePreferences(ref, { filter: "favorites", favorites: [{ name: "Channel 2" }] });
+      expect(lastFetch()).toEqual({ channelIds: ["c2"], startMs: start, endMs: start + span });
+      expect(ref.current!.get().windowEndMs).toBe(start + span);
+      expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([[`c2-${start}`]]);
+      expect(ref.current!.get().timersByProgramId.size).toBe(0);
+    });
   });
 
   it("keeps the previous programmes when their refresh fails", async () => {

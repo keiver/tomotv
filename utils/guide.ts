@@ -82,9 +82,23 @@ export function rowSnap(listHeight: number, rowHeight: number): { offset: number
   return { offset, bottomPad: Math.max(0, listHeight - rowHeight - offset) };
 }
 
-/** Where the grid scrolls so a cell begun left of the visible edge shows its start; the pinned label alone never asks for it. */
-export function leftRevealOffset(cellLeft: number, scrollX: number): number | undefined {
-  return cellLeft < scrollX ? cellLeft : undefined;
+/**
+ * Where the grid scrolls so the focused cell shows: its start when it began left of the visible edge or is
+ * wider than the view, its end when the right edge cuts it. The pinned label alone never asks for either.
+ */
+export function revealOffset(cell: CellGeometry, scrollX: number, viewportWidth: number): number | undefined {
+  if (cell.left < scrollX) return cell.left;
+  const end = cell.left + cell.width;
+  if (viewportWidth <= 0 || end <= scrollX + viewportWidth) return undefined;
+  return cell.width >= viewportWidth ? cell.left : end - viewportWidth;
+}
+
+/**
+ * A Left press or swipe while a no-listings row holds focus in a scrolled grid: the row is one cell with none
+ * before it to walk back to, and tvOS lets no focus out of a scrolled grid, so the grid rewinds to the row's start.
+ */
+export function rewindsStandIn(eventType: string, standInFocused: boolean, scrollX: number): boolean {
+  return standInFocused && scrollX > 0 && (eventType === "left" || eventType === "swipeLeft");
 }
 
 /** True when any part of the cell lies inside the span. */
@@ -100,10 +114,14 @@ export interface RulerTick {
   isMinor: boolean;
 }
 
-export function rulerTicks(windowStartMs: number, windowEndMs: number, metrics: GuideMetrics): RulerTick[] {
+/** The window's marks, or only those inside `span`. */
+export function rulerTicks(windowStartMs: number, windowEndMs: number, metrics: GuideMetrics, span?: CanvasSpan): RulerTick[] {
   const ticks: RulerTick[] = [];
   const step = MINOR_TICK_MINUTES * MINUTE_MS;
-  for (let at = windowStartMs; at < windowEndMs; at += step) {
+  const stepPx = MINOR_TICK_MINUTES * metrics.pxPerMinute;
+  const from = span ? windowStartMs + Math.max(0, Math.floor(span.fromPx / stepPx)) * step : windowStartMs;
+  const to = span ? Math.min(windowEndMs, windowStartMs + (Math.floor(span.toPx / stepPx) + 1) * step) : windowEndMs;
+  for (let at = from; at < to; at += step) {
     const minutes = new Date(at).getMinutes();
     ticks.push({ left: ((at - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute, atMs: at, isHour: minutes === 0, isMinor: minutes % TICK_MINUTES !== 0 });
   }
@@ -218,6 +236,33 @@ export function mergePrograms(existing: readonly JellyfinProgram[] | undefined, 
     return endMs <= window.from || startMs >= window.to;
   });
   return kept.concat(Array.from(fresh.values())).sort((a, b) => Date.parse(a.StartDate ?? "") - Date.parse(b.StartDate ?? ""));
+}
+
+/** Whole spans of loaded listings kept past the stretch the view needs, on each side. */
+export const GUIDE_KEEP_SPANS = 2;
+
+/** The stretch worth keeping loaded: the needed one widened to whole spans from the origin, GUIDE_KEEP_SPANS more each side. */
+export function keepRange(originMs: number, needFromMs: number, needToMs: number): { from: number; to: number } {
+  const span = GUIDE_SPAN_MINUTES * MINUTE_MS;
+  const from = originMs + (Math.floor((needFromMs - originMs) / span) - GUIDE_KEEP_SPANS) * span;
+  const to = originMs + (Math.ceil((needToMs - originMs) / span) + GUIDE_KEEP_SPANS) * span;
+  return { from: Math.max(originMs, from), to };
+}
+
+/**
+ * The programmes touching [from, to), one with no end placed by its start; the same list when none leaves.
+ * A list never empties: its nearest programme stays, so a channel with listings elsewhere never reads as one without.
+ */
+export function trimPrograms(programs: JellyfinProgram[], from: number, to: number): JellyfinProgram[] {
+  const kept = programs.filter((program) => {
+    const { startMs, endMs } = programTimes(program);
+    if (!Number.isFinite(endMs) || endMs <= startMs) return startMs >= from && startMs < to;
+    return endMs > from && startMs < to;
+  });
+  if (kept.length === programs.length || programs.length === 1) return programs;
+  if (kept.length > 0) return kept;
+  const before = programs.filter((program) => programTimes(program).startMs < from);
+  return [before.length > 0 ? before[before.length - 1] : programs[0]];
 }
 
 /**

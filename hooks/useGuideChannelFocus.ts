@@ -1,9 +1,9 @@
 import { isGuideChannelFocused, isGuideRowFocused, subscribeGuideChannelFocus, subscribeGuideRowFocus } from "@/services/guideChannelFocus";
 import { useCallback, useSyncExternalStore } from "react";
 
-/** True while the channel's column card holds TV focus; false for an empty id. */
+/** True while the channel's column card holds TV focus; an empty id listens to nothing and reads false. */
 export function useGuideChannelFocus(channelId: string | undefined): boolean {
-  const subscribe = useCallback((listener: () => void) => subscribeGuideChannelFocus(listener), []);
+  const subscribe = useCallback((listener: () => void) => (channelId ? subscribeGuideChannelFocus(listener) : () => undefined), [channelId]);
   const read = useCallback(() => (channelId ? isGuideChannelFocused(channelId) : false), [channelId]);
   return useSyncExternalStore(subscribe, read);
 }

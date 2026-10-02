@@ -6,19 +6,23 @@ import {
   cellInSpan,
   channelWindow,
   durationLabel,
+  GUIDE_SPAN_MINUTES,
   guideMetrics,
   guideWindowStart,
   isActiveTimer,
   isAiring,
-  leftRevealOffset,
+  keepRange,
   mergePrograms,
   MINUTE_MS,
   mountSpanFor,
   NO_GUIDE_PREFIX,
   programCategory,
+  revealOffset,
+  rewindsStandIn,
   rowSnap,
   rulerTicks,
   standInChannelId,
+  trimPrograms,
 } from "../guide";
 import { __setLocaleForTests } from "@/services/i18n";
 
@@ -86,11 +90,26 @@ describe("guide geometry", () => {
     }
   });
 
-  it("brings a cell's start into view only when it begins left of the visible edge", () => {
-    expect(leftRevealOffset(0, 1200)).toBe(0);
-    expect(leftRevealOffset(800, 1200)).toBe(800);
-    expect(leftRevealOffset(1200, 1200)).toBeUndefined();
-    expect(leftRevealOffset(1500, 1200)).toBeUndefined();
+  it("brings a cell's start into view when it begins left of the visible edge", () => {
+    expect(revealOffset({ left: 0, width: 300 }, 1200, 1600)).toBe(0);
+    expect(revealOffset({ left: 800, width: 300 }, 1200, 1600)).toBe(800);
+    expect(revealOffset({ left: 1200, width: 300 }, 1200, 1600)).toBeUndefined();
+    expect(revealOffset({ left: 1500, width: 300 }, 1200, 1600)).toBeUndefined();
+  });
+
+  it("brings a cell cut by the right edge whole into view, or its start when it is wider than the view", () => {
+    expect(revealOffset({ left: 2600, width: 400 }, 1200, 1600)).toBe(1400);
+    expect(revealOffset({ left: 2400, width: 400 }, 1200, 1600)).toBeUndefined();
+    expect(revealOffset({ left: 2000, width: 2400 }, 1200, 1600)).toBe(2000);
+    expect(revealOffset({ left: 2600, width: 400 }, 1200, 0)).toBeUndefined();
+  });
+
+  it("rewinds a scrolled grid on a Left press or swipe while a no-listings row holds focus, and only then", () => {
+    expect(rewindsStandIn("left", true, 900)).toBe(true);
+    expect(rewindsStandIn("swipeLeft", true, 900)).toBe(true);
+    expect(rewindsStandIn("left", true, 0)).toBe(false);
+    expect(rewindsStandIn("left", false, 900)).toBe(false);
+    expect(rewindsStandIn("right", true, 900)).toBe(false);
   });
 
   it("clips a cell that runs past the window end", () => {
@@ -116,6 +135,20 @@ describe("guide geometry", () => {
     const majors = ticks.filter((tick) => !tick.isMinor);
     expect(majors.map((tick) => tick.left)).toEqual([0, 240, 480]);
     expect(majors.map((tick) => tick.isHour)).toEqual([true, false, true]);
+  });
+
+  it("lays only the marks inside a span, at the places the whole window gives them", () => {
+    const all = rulerTicks(T0, WINDOW_END, tv);
+    expect(rulerTicks(T0, WINDOW_END, tv, { fromPx: 400, toPx: 800 })).toEqual(all.filter((tick) => tick.left >= 400 && tick.left <= 800));
+    expect(rulerTicks(T0, WINDOW_END, tv, { fromPx: -1600, toPx: 120 })).toEqual(all.slice(0, 4));
+    expect(rulerTicks(T0, WINDOW_END, tv, { fromPx: 2800, toPx: 9000 }).at(-1)).toEqual(all.at(-1));
+  });
+
+  it("keeps the needed stretch widened to whole spans, two more each side, never before the origin", () => {
+    const span = GUIDE_SPAN_MINUTES * MINUTE_MS;
+    expect(keepRange(T0, T0 + 100 * MINUTE_MS, T0 + 500 * MINUTE_MS)).toEqual({ from: T0, to: T0 + 4 * span });
+    expect(keepRange(T0, T0 + 1500 * MINUTE_MS, T0 + 1900 * MINUTE_MS)).toEqual({ from: T0 + 2 * span, to: T0 + 8 * span });
+    expect(keepRange(T0, T0 - 400 * MINUTE_MS, T0 + 360 * MINUTE_MS)).toEqual({ from: T0, to: T0 + 3 * span });
   });
 
   it("names the channel a stand-in cell stands for", () => {
@@ -244,6 +277,42 @@ describe("mergePrograms", () => {
     const before = [at("earlier", -30, 0), at("overlap", -10, 10), at("epg:c1:0", 0, 30), at("server", 30, 60), at("later", 60, 90)];
     expect(mergePrograms(before, [], window(0, 60))).toEqual([before[0], before[4]]);
     expect(mergePrograms([{ ...at("unknown-end", 0, 30), EndDate: undefined }], [], window(0, 60))).toEqual([]);
+  });
+});
+
+describe("trimPrograms", () => {
+  const at = (id: string, startMin: number, endMin: number) => ({
+    Id: id,
+    Name: id,
+    ChannelId: "c1",
+    StartDate: new Date(T0 + startMin * MINUTE_MS).toISOString(),
+    EndDate: new Date(T0 + endMin * MINUTE_MS).toISOString(),
+  });
+
+  it("drops the programmes wholly outside the range and keeps the ones crossing its edges", () => {
+    const list = [at("before", 0, 60), at("into", 30, 90), at("inside", 90, 120), at("out-of", 150, 240), at("after", 180, 240)];
+    expect(trimPrograms(list, T0 + 60 * MINUTE_MS, T0 + 180 * MINUTE_MS).map((p) => p.Id)).toEqual(["into", "inside", "out-of"]);
+  });
+
+  it("hands back the same list when nothing leaves it", () => {
+    const list = [at("a", 0, 30), at("b", 30, 60)];
+    expect(trimPrograms(list, T0, T0 + 60 * MINUTE_MS)).toBe(list);
+  });
+
+  it("places a programme with no end by its start", () => {
+    const open = { ...at("open", 30, 60), EndDate: undefined };
+    const later = at("later", 90, 120);
+    expect(trimPrograms([open, later], T0, T0 + 60 * MINUTE_MS)).toEqual([open]);
+    expect(trimPrograms([open, later], T0 + 60 * MINUTE_MS, T0 + 120 * MINUTE_MS)).toEqual([later]);
+  });
+
+  it("never empties a channel that has listings: its nearest programme stays, so the row never reads as one without", () => {
+    const list = [at("a", 0, 30), at("b", 30, 60)];
+    expect(trimPrograms(list, T0 + 600 * MINUTE_MS, T0 + 900 * MINUTE_MS).map((p) => p.Id)).toEqual(["b"]);
+    expect(trimPrograms(list, T0 - 900 * MINUTE_MS, T0 - 600 * MINUTE_MS).map((p) => p.Id)).toEqual(["a"]);
+    const kept = [at("b", 30, 60)];
+    expect(trimPrograms(kept, T0 + 600 * MINUTE_MS, T0 + 900 * MINUTE_MS)).toBe(kept);
+    expect(trimPrograms([], T0, T0 + 60 * MINUTE_MS)).toEqual([]);
   });
 });
 

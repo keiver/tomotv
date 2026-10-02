@@ -8,7 +8,7 @@ import { activeGuideUrls, fetchExternalProgramWindow } from "@/services/external
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { activeRecordTimer, EXTERNAL_GUIDE_PREFIX, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, mergePrograms, MINUTE_MS, programTimes } from "@/utils/guide";
+import { activeRecordTimer, EXTERNAL_GUIDE_PREFIX, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, keepRange, mergePrograms, MINUTE_MS, programTimes, trimPrograms } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -43,8 +43,8 @@ export interface GuideState {
   isUpdating: boolean;
   error: string | null;
   retry: () => void;
-  /** Grow the window by one span; the canvas calls it as it nears the right edge. */
-  extendWindow: () => void;
+  /** The canvas names the stretch it needs: the window loads to cover it, then lets go of what lies GUIDE_KEEP_SPANS spans past it. */
+  holdWindow: (needFromMs: number, needToMs: number) => void;
   /** Load the next page of channels with their programs; the list calls it as it nears the bottom. */
   loadMoreRows: () => void;
   refreshTimers: () => void;
@@ -114,8 +114,8 @@ function loadNextPage(load: GuideLoad): void {
 }
 
 /**
- * The guide's data: channels a page at a time, each with its programs over the loaded window, and
- * the timers that mark recordings. The window opens on the current half hour and only grows.
+ * The guide's data: channels a page at a time, each with its programs over the loaded stretch, and
+ * the timers that mark recordings. The window opens on the current half hour; its loaded stretch follows the view.
  */
 export function useGuide(): GuideState {
   const [channels, setChannels] = useState<JellyfinItem[]>([]);
@@ -129,6 +129,8 @@ export function useGuide(): GuideState {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const windowEndRef = useRef(windowEndMs);
+  /** Where the loaded listings begin: the window's start until the view moves far enough right to let it go. */
+  const loadedStartRef = useRef(windowStartMs);
   const channelsRef = useRef<JellyfinItem[]>([]);
   const loadRef = useRef<GuideLoad>(RETIRED_LOAD);
   const isFocused = useIsFocused();
@@ -151,6 +153,12 @@ export function useGuide(): GuideState {
     const start = guideWindowStart(nowMs);
     setWindowStartMs(start);
     setWindowEndMs(start + GUIDE_SPAN_MINUTES * MINUTE_MS);
+  }
+  // Another group opens at the window's start, where the canvas rewinds to.
+  const [rowsFilter, setRowsFilter] = useState(preferences.filter);
+  if (rowsFilter !== preferences.filter) {
+    setRowsFilter(preferences.filter);
+    setWindowEndMs(windowStartMs + GUIDE_SPAN_MINUTES * MINUTE_MS);
   }
 
   const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[], window: { from: number; to: number }) => {
@@ -213,7 +221,7 @@ export function useGuide(): GuideState {
    *  soon as they are known, so the grid renders while the page's programs load behind it. */
   const loadChannelPage = useCallback(
     async (startIndex: number, land: PageLand) => {
-      const window = { from: windowStartMs, to: windowEndRef.current };
+      const window = { from: loadedStartRef.current, to: windowEndRef.current };
       const landPrograms = async (items: JellyfinItem[]) => {
         const result = await fetchPrograms(items, window.from, window.to);
         if (result !== null) land.programs(result.channels, result.programs, window);
@@ -245,7 +253,7 @@ export function useGuide(): GuideState {
       await landPrograms(items);
       return { hasMore, pageLength: items.length };
     },
-    [windowStartMs, sort, list, category, playlistIds, fetchPrograms],
+    [sort, list, category, playlistIds, fetchPrograms],
   );
 
   const sessionRef = useRef(session);
@@ -269,8 +277,12 @@ export function useGuide(): GuideState {
     (load: GuideLoad): PageLand => ({
       channels: (items) => {
         if (load.retired) return;
-        if (load.loaded === 0) channelsRef.current = items;
-        else {
+        if (load.loaded === 0) {
+          channelsRef.current = items;
+          // Listings of channels the new list does not hold go with the old one.
+          const held = new Set(items.map((channel) => channel.Id));
+          setProgramsByChannel((current) => (Object.keys(current).every((id) => held.has(id)) ? current : Object.fromEntries(Object.entries(current).filter(([id]) => held.has(id)))));
+        } else {
           const seen = new Set(channelsRef.current.map((channel) => channel.Id));
           channelsRef.current = channelsRef.current.concat(items.filter((channel) => !seen.has(channel.Id)));
         }
@@ -287,7 +299,8 @@ export function useGuide(): GuideState {
   useEffect(() => {
     channelsRef.current = [];
     windowEndRef.current = windowStartMs + GUIDE_SPAN_MINUTES * MINUTE_MS;
-  }, [session, windowStartMs]);
+    loadedStartRef.current = windowStartMs;
+  }, [session, windowStartMs, preferences.filter]);
 
   useEffect(() => {
     const load: GuideLoad = { fetchPage: loadChannelPage, land: RETIRED_LOAD.land, retired: false, loading: true, busy: null, pagePending: false, loaded: 0, hasMore: false };
@@ -351,26 +364,61 @@ export function useGuide(): GuideState {
     wasFocusedRef.current = isFocused;
   }, [isFocused, isLoading, refreshTimers]);
 
-  const extendWindow = useCallback(() => {
-    const load = loadRef.current;
-    if (load.retired || load.loading || load.busy) return;
-    const from = windowEndRef.current;
-    const to = from + GUIDE_SPAN_MINUTES * MINUTE_MS;
-    load.busy = "window";
-    loadPrograms(channelsRef.current, from, to, load)
-      .then((landed) => {
-        // A list loaded since holds programs up to the old edge only; the window stays there for it.
-        // So does a source change: its reload reaches the old edge, and the next extension asks again.
-        if (load.retired || !landed) return;
-        windowEndRef.current = to;
-        setWindowEndMs(to);
-      })
-      .catch((err) => logger.warn("Guide window extension failed", err, { hook: "useGuide" }))
-      .finally(() => {
-        load.busy = null;
-        if (!load.retired && load.pagePending) loadMoreRows();
-      });
-  }, [loadPrograms, loadMoreRows]);
+  /** Moves the loaded edges and drops the listings outside them. */
+  const setLoaded = useCallback((start: number, end: number) => {
+    loadedStartRef.current = start;
+    windowEndRef.current = end;
+    setWindowEndMs(end);
+    setProgramsByChannel((current) => {
+      let changed = false;
+      const next: Record<string, JellyfinProgram[]> = {};
+      for (const [channelId, programs] of Object.entries(current)) {
+        next[channelId] = trimPrograms(programs, start, end);
+        if (next[channelId] !== programs) changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, []);
+
+  const holdWindow = useCallback(
+    (needFromMs: number, needToMs: number) => {
+      const load = loadRef.current;
+      if (load.retired || load.loading || load.busy) return;
+      const span = GUIDE_SPAN_MINUTES * MINUTE_MS;
+      const start = loadedStartRef.current;
+      const end = windowEndRef.current;
+      const wantFrom = Math.max(windowStartMs, windowStartMs + Math.floor((needFromMs - windowStartMs) / span) * span);
+      const wantTo = windowStartMs + Math.ceil((needToMs - windowStartMs) / span) * span;
+      // A stretch with a gap to the loaded one starts over there; one touching it grows the nearer edge.
+      const apart = wantFrom > end || wantTo < start;
+      const missing = apart
+        ? { from: wantFrom, to: wantTo, start: wantFrom, end: wantTo }
+        : wantTo > end
+          ? { from: end, to: wantTo, start, end: wantTo }
+          : wantFrom < start
+            ? { from: wantFrom, to: start, start: wantFrom, end }
+            : null;
+      if (!missing) {
+        const keep = keepRange(windowStartMs, needFromMs, needToMs);
+        if (keep.from > start || keep.to < end) setLoaded(Math.max(start, keep.from), Math.min(end, keep.to));
+        return;
+      }
+      load.busy = "window";
+      loadPrograms(channelsRef.current, missing.from, missing.to, load)
+        .then((landed) => {
+          // A list loaded since holds programs up to the old edges only; the window stays there for it.
+          // So does a source change: its reload reaches the old edges, and the next ask loads again.
+          if (load.retired || !landed) return;
+          setLoaded(missing.start, missing.end);
+        })
+        .catch((err) => logger.warn("Guide window load failed", err, { hook: "useGuide" }))
+        .finally(() => {
+          load.busy = null;
+          if (!load.retired && load.pagePending) loadMoreRows();
+        });
+    },
+    [windowStartMs, loadPrograms, loadMoreRows, setLoaded],
+  );
 
   // The minute tick retries a page that failed.
   useEffect(() => {
@@ -388,8 +436,8 @@ export function useGuide(): GuideState {
     );
     const load = loadRef.current;
     if (load.retired || channelsRef.current.length === 0) return;
-    loadPrograms(channelsRef.current, windowStartMs, windowEndRef.current, load).catch((err) => logger.warn("Guide source reload failed", err, { hook: "useGuide" }));
-  }, [guideSources, loadPrograms, windowStartMs]);
+    loadPrograms(channelsRef.current, loadedStartRef.current, windowEndRef.current, load).catch((err) => logger.warn("Guide source reload failed", err, { hook: "useGuide" }));
+  }, [guideSources, loadPrograms]);
 
   const retry = useCallback(() => {
     setIsLoading(true);
@@ -436,7 +484,7 @@ export function useGuide(): GuideState {
     isUpdating: pendingPrograms > 0,
     error,
     retry,
-    extendWindow,
+    holdWindow,
     loadMoreRows,
     refreshTimers,
   };

@@ -199,6 +199,17 @@ describe("fetchExternalPrograms", () => {
     await expect(fetchExternalPrograms([URL], channels, WINDOW)).resolves.toEqual([]);
   });
 
+  it("a window asked before the open guide's start reloads a day further back, so the next spans back reload nothing", async () => {
+    const channels = [{ channelId: "c1", tvgId: "A.us", name: "A" }];
+    const SPAN = 6 * 60 * 60 * 1000;
+    const later = { from: WINDOW.from + 3 * DAY, to: WINDOW.from + 3 * DAY + SPAN };
+    await fetchExternalPrograms([URL], channels, later);
+    await fetchExternalPrograms([URL], channels, { from: later.from - SPAN, to: later.from });
+    expect(native.loadGuide).toHaveBeenLastCalledWith(FILE, { from: later.from - SPAN - DAY, to: later.from + DAY }, "external", 0);
+    await fetchExternalPrograms([URL], channels, { from: later.from - 2 * SPAN, to: later.from - SPAN });
+    expect(native.loadGuide).toHaveBeenCalledTimes(2);
+  });
+
   it("reports each guide's progress, reading, counts and pairings, and the HUD's busy flag", async () => {
     cache.cachedGuideFile.mockImplementation(async (_url: string, onProgress?: (p: { bytesWritten: number; totalBytes: number }) => void) => {
       onProgress?.({ bytesWritten: 5, totalBytes: 10 });

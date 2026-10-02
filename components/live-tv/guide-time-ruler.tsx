@@ -1,6 +1,6 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
-import { formatClock, MINUTE_MS, rulerTicks, type GuideMetrics } from "@/utils/guide";
+import { formatClock, MINUTE_MS, rulerTicks, type CanvasSpan, type GuideMetrics } from "@/utils/guide";
 import React, { useMemo } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
@@ -24,6 +24,8 @@ interface GuideTimeRulerProps {
   metrics: GuideMetrics;
   spanPx: number;
   nowMs: number;
+  /** Only the marks inside this stretch are drawn; undefined draws the whole window's. */
+  mountSpan?: CanvasSpan;
 }
 
 /** Phone: dragging the ruler scrolls the grid under it, a release flings it on with native-like decay. */
@@ -67,8 +69,8 @@ export function useRulerScrub(scrollRef: AnimatedRef<Animated.ScrollView>, scrol
  * A red scale over the canvas, gold up to now; the only place "now" is drawn, never over a cell.
  * A cell's edge is the previous cell's 1px right border, one pixel left of its offset: marks sit on it, as wide as it.
  */
-export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, nowMs }: GuideTimeRulerProps) {
-  const ticks = rulerTicks(windowStartMs, windowEndMs, metrics);
+export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, nowMs, mountSpan }: GuideTimeRulerProps) {
+  const ticks = rulerTicks(windowStartMs, windowEndMs, metrics, mountSpan);
   // Floored to the minute its label reads, so at :00 and :30 the mark sits on the tick.
   const minuteMs = nowMs - (nowMs % MINUTE_MS);
   const nowLeft = ((minuteMs - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute;
@@ -76,13 +78,13 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
   return (
     <View style={[styles.ruler, { height: metrics.rulerHeight, width: spanPx }]} pointerEvents="none">
       {showNow ? <View style={[styles.elapsed, { width: nowLeft }]} /> : null}
-      {ticks.map((tick, index) =>
+      {ticks.map((tick) =>
         tick.isMinor ? (
           <View key={tick.atMs} style={[styles.minorMark, { left: Math.max(0, tick.left - 1) }]} />
         ) : (
           <View key={tick.atMs} style={[styles.tick, { left: Math.max(0, tick.left - 1) }]}>
-            {/* The first mark is painted over the seam by GuideSeamMark; this one keeps the label's place. */}
-            <View style={[styles.majorMark, tick.isHour && styles.hourMark, index === 0 && styles.hidden]} />
+            {/* The window's first mark is painted over the seam by GuideSeamMark; this one keeps the label's place. */}
+            <View style={[styles.majorMark, tick.isHour && styles.hourMark, tick.atMs === windowStartMs && styles.hidden]} />
             <Text style={[styles.tickLabel, tick.isHour && styles.tickLabelHour]} numberOfLines={1}>
               {formatClock(tick.atMs)}
             </Text>

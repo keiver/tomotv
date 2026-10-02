@@ -32,7 +32,7 @@ interface GuideRowProps {
   viewportWidth: number;
   /** Only cells overlapping this horizontal span mount; undefined mounts every cell. */
   mountSpan?: CanvasSpan;
-  /** Cells overlapping this span show their poster; the canvas hands it to the rows in view alone, undefined shows none. */
+  /** Cells overlapping this span show their poster and reel; the canvas hands it to the rows in view alone, undefined shows none. */
   artSpan?: CanvasSpan;
   rowIndex: number;
   /** TV: where a focus scroll lands this row's top in the list (react-native-tvos item snap). */
@@ -148,6 +148,8 @@ function GuideRowComponent({
             left={geometry.left}
             width={geometry.width}
             height={cellHeight}
+            startMs={startMs}
+            endMs={endMs}
             past={endMs <= nowMs}
             airing={startMs <= nowMs && nowMs < endMs}
             recording={recordingMark(program, timersByProgramId)}

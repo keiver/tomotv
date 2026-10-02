@@ -158,6 +158,7 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
 
 async function ensureOpen(source: Source, windowMs: { from: number; to: number }): Promise<OpenGuide> {
   const covers = (guide: OpenGuide | null): guide is OpenGuide => !!guide && guide.from <= windowMs.from && guide.to >= windowMs.to;
+  const startsBefore = (guide: OpenGuide | null) => guide !== null && windowMs.from < guide.from;
   if (covers(source.open)) return source.open;
   // Waits out every open in flight, so two callers never each open one and orphan the other's handle.
   let pending = source.opening;
@@ -168,7 +169,8 @@ async function ensureOpen(source: Source, windowMs: { from: number; to: number }
     pending = source.opening !== pending ? source.opening : null;
   }
   if (source.failedAt !== null && Date.now() - source.failedAt < FAILURE_TTL_MS) throw new Error("Guide open skipped after a recent failure.");
-  const target = { from: windowMs.from, to: windowMs.to + WINDOW_SLACK_MS };
+  // A window before the open guide's start is the view going back: the load reaches a slack further back too.
+  const target = { from: startsBefore(source.open) ? windowMs.from - WINDOW_SLACK_MS : windowMs.from, to: windowMs.to + WINDOW_SLACK_MS };
   const epoch = source.epoch;
   const opening = (async () => {
     close(source);
