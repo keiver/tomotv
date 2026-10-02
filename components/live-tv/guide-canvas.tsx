@@ -261,11 +261,11 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const handleCellFocus = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
       if (!IS_TV) return;
-      // The focus engine scrolls by the label alone: a Left move never returns to the cell's start, a Right move leaves the cell cut by the right edge.
+      // The focusable is the cell's stretch on screen, so a Left move never scrolls back to the cell's start by itself.
       if (lastCellRowRef.current === channel.Id) {
         const { startMs, endMs } = programTimes(program);
         const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, METRICS);
-        const target = geometry ? revealOffset(geometry, scrollX.get(), viewportWidth) : undefined;
+        const target = geometry ? revealOffset(geometry, scrollX.get()) : undefined;
         if (target !== undefined) {
           runOnUI(() => {
             "worklet";
@@ -281,7 +281,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       setLiveFrameFocus(channel.Id);
       setFocusedGuideRow(channel.Id);
     },
-    [driver, windowStartMs, windowEndMs, scrollX, gridRef, viewportWidth],
+    [driver, windowStartMs, windowEndMs, scrollX, gridRef],
   );
   // A no-listings row is one cell: Left finds none before it, and a scrolled grid lets no focus out to the channel card.
   useTVEventHandler(

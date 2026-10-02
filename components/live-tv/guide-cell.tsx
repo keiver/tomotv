@@ -5,7 +5,7 @@ import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { pinOffset, pinRightOffset } from "@/components/live-tv/guide-pin";
+import { pinOffset, pinRightOffset, visibleSpan } from "@/components/live-tv/guide-pin";
 import { formatClock, guideMetrics, programCategory, standInChannelId, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
@@ -124,6 +124,13 @@ function GuideCellComponent({
   const handleLabelLayout = useCallback((event: LayoutChangeEvent) => labelWidth.setValue(event.nativeEvent.layout.width), [labelWidth]);
   const pin = useMemo(() => pinOffset(scrollX, left, width, labelWidth), [scrollX, left, width, labelWidth]);
   const pinStyle = useMemo(() => ({ transform: [{ translateX: pin }] }), [pin]);
+  // TV: the focusable is the cell's stretch on screen, so the focus engine reveals a cell cut by the right edge
+  // in its own scroll and never scrolls for a cell cut by the left one.
+  const spanStyle = useMemo(() => {
+    if (!IS_TV) return undefined;
+    const { translateX, scaleX } = visibleSpan(scrollX, left, width, viewportWidth || width);
+    return { transform: [{ translateX }, { scaleX }] };
+  }, [scrollX, left, width, viewportWidth]);
   // A playing cell's scrim sits under its reel, outside the label: the label's width reaches it as a scale on a 1pt body.
   const reelScrimStyles = useMemo(
     () =>
@@ -165,6 +172,38 @@ function GuideCellComponent({
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
 
   const cellStyle = [styles.cell, standIn && styles.cellQuiet, { left, width, height }];
+  const accessibilityLabel = episodeTitle ? `${programName}, ${episodeTitle}` : programName;
+  const lines = (
+    <>
+      {/* Moves with the label, so it costs no animated node of its own. A playing cell's lies under its reel instead. */}
+      {!standIn && !reelShown ? (
+        <View style={[styles.scrim, focused && styles.scrimFocused]} pointerEvents="none" testID="guide-cell-scrim">
+          <View style={[styles.scrimTail, { width }]} testID="guide-cell-scrim-tail" />
+        </View>
+      ) : null}
+      {standInChannel ? (
+        <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} />
+      ) : (
+        <View style={styles.text}>
+          <View style={styles.titleRow}>
+            {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
+            {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
+            <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
+              {programName}
+            </Text>
+          </View>
+          {episodeTitle ? (
+            <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
+              {episodeTitle}
+            </Text>
+          ) : null}
+          <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+            {meta}
+          </Text>
+        </View>
+      )}
+    </>
+  );
   const body = (
     <>
       {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
@@ -197,53 +236,52 @@ function GuideCellComponent({
       {focused ? <RNAnimated.View style={[styles.focusRing, ringStyle]} pointerEvents="none" testID="guide-cell-ring" /> : null}
       {/* Clipped inside the border: a one-sided border draws behind the cell's children, and the scrim's fade runs past the label. */}
       <View style={styles.labelClip} pointerEvents="box-none" testID="guide-cell-label-clip">
-        <AnimatedPressable
-          ref={handleRef}
-          onPress={press}
-          onLongPress={longPress}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          onLayout={handleLabelLayout}
-          isTVSelectable
-          hasTVPreferredFocus={hasTVPreferredFocus}
-          nextFocusUp={nextFocusUp}
-          nextFocusDown={nextFocusDown}
-          tvParallaxProperties={{ enabled: false }}
-          accessibilityRole="button"
-          accessibilityLabel={episodeTitle ? `${programName}, ${episodeTitle}` : programName}
-          style={[styles.label, pinStyle]}>
-          {/* Moves with the label, so it costs no animated node of its own. A playing cell's lies under its reel instead. */}
-          {!standIn && !reelShown ? (
-            <View style={[styles.scrim, focused && styles.scrimFocused]} pointerEvents="none" testID="guide-cell-scrim">
-              <View style={[styles.scrimTail, { width }]} testID="guide-cell-scrim-tail" />
-            </View>
-          ) : null}
-          {standInChannel ? (
-            <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} />
-          ) : (
-            <View style={styles.text}>
-              <View style={styles.titleRow}>
-                {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
-                {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
-                <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
-                  {programName}
-                </Text>
-              </View>
-              {episodeTitle ? (
-                <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
-                  {episodeTitle}
-                </Text>
-              ) : null}
-              <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
-                {meta}
-              </Text>
-            </View>
-          )}
-        </AnimatedPressable>
+        {IS_TV ? (
+          <RNAnimated.View onLayout={handleLabelLayout} style={[styles.label, pinStyle]} pointerEvents="none" testID="guide-cell-label">
+            {lines}
+          </RNAnimated.View>
+        ) : (
+          <AnimatedPressable
+            ref={handleRef}
+            onPress={press}
+            onLongPress={longPress}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onLayout={handleLabelLayout}
+            isTVSelectable
+            hasTVPreferredFocus={hasTVPreferredFocus}
+            nextFocusUp={nextFocusUp}
+            nextFocusDown={nextFocusDown}
+            tvParallaxProperties={{ enabled: false }}
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
+            style={[styles.label, pinStyle]}>
+            {lines}
+          </AnimatedPressable>
+        )}
+        {/* Last in the clip, so nothing sits over it (tvOS occlusion). An empty body: the label under it reads. */}
+        {IS_TV ? (
+          <AnimatedPressable
+            ref={handleRef}
+            onPress={press}
+            onLongPress={longPress}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            isTVSelectable
+            hasTVPreferredFocus={hasTVPreferredFocus}
+            nextFocusUp={nextFocusUp}
+            nextFocusDown={nextFocusDown}
+            tvParallaxProperties={{ enabled: false }}
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
+            style={[styles.focusable, spanStyle]}
+            testID="guide-cell-focusable"
+          />
+        ) : null}
       </View>
     </>
   );
-  // TV: the label is the only focusable, so no press can reach the cell itself.
+  // TV: the body over the label is the only focusable, so no press can reach the cell itself.
   return IS_TV ? (
     <View collapsable={false} style={cellStyle}>
       {body}
@@ -285,6 +323,14 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     overflow: "hidden",
+  },
+  // The focus body: a point wide, scaled out to the cell's stretch on screen.
+  focusable: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: -0.5,
+    width: 1,
   },
   // Full cell height so a vertical move reveals the whole row; only as wide as its text.
   label: {

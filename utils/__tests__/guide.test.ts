@@ -91,18 +91,12 @@ describe("guide geometry", () => {
     }
   });
 
-  it("brings a cell's start into view when it begins left of the visible edge", () => {
-    expect(revealOffset({ left: 0, width: 300 }, 1200, 1600)).toBe(0);
-    expect(revealOffset({ left: 800, width: 300 }, 1200, 1600)).toBe(800);
-    expect(revealOffset({ left: 1200, width: 300 }, 1200, 1600)).toBeUndefined();
-    expect(revealOffset({ left: 1500, width: 300 }, 1200, 1600)).toBeUndefined();
-  });
-
-  it("brings a cell cut by the right edge whole into view, or its start when it is wider than the view", () => {
-    expect(revealOffset({ left: 2600, width: 400 }, 1200, 1600)).toBe(1400);
-    expect(revealOffset({ left: 2400, width: 400 }, 1200, 1600)).toBeUndefined();
-    expect(revealOffset({ left: 2000, width: 2400 }, 1200, 1600)).toBe(2000);
-    expect(revealOffset({ left: 2600, width: 400 }, 1200, 0)).toBeUndefined();
+  it("brings a cell's start into view only when it begins left of the visible edge; the focus engine reveals the rest", () => {
+    expect(revealOffset({ left: 0, width: 300 }, 1200)).toBe(0);
+    expect(revealOffset({ left: 800, width: 300 }, 1200)).toBe(800);
+    expect(revealOffset({ left: 1200, width: 300 }, 1200)).toBeUndefined();
+    expect(revealOffset({ left: 2600, width: 400 }, 1200)).toBeUndefined();
+    expect(revealOffset({ left: 2000, width: 2400 }, 1200)).toBeUndefined();
   });
 
   it("rewinds a scrolled grid on a Left press or swipe while a no-listings row holds focus, and only then", () => {

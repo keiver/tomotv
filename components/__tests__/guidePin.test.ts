@@ -1,5 +1,5 @@
 import { Animated } from "react-native";
-import { pinOffset, pinRightOffset } from "@/components/live-tv/guide-pin";
+import { pinOffset, pinRightOffset, visibleSpan } from "@/components/live-tv/guide-pin";
 
 /** The node's current value, as the props node reads it on a render. */
 const valueOf = (node: Animated.AnimatedInterpolation<number>) => (node as unknown as { __getValue: () => number }).__getValue();
@@ -26,6 +26,29 @@ describe("pinOffset", () => {
     expect(valueOf(pin)).toBe(400);
     labelWidth.setValue(120);
     expect(valueOf(pin)).toBe(280);
+  });
+});
+
+describe("visibleSpan", () => {
+  const spanOf = (scrollX: number, left: number, width: number, viewportWidth: number) => {
+    const { translateX, scaleX } = visibleSpan(new Animated.Value(scrollX), left, width, viewportWidth);
+    const scale = valueOf(scaleX);
+    // A 1pt body centred on the cell's left edge, slid to the span's middle and scaled to its width.
+    return { from: valueOf(translateX) - scale / 2, width: scale };
+  };
+
+  it("covers the whole of a cell that fits on screen, and only its part past the visible edge once it is cut", () => {
+    expect(spanOf(0, 100, 400, 1000)).toEqual({ from: 0, width: 400 });
+    expect(spanOf(250, 100, 400, 1000)).toEqual({ from: 150, width: 250 });
+  });
+
+  it("covers one screen of a cell wider than the screen, from its start until the view moves into it", () => {
+    expect(spanOf(0, 100, 3000, 1000)).toEqual({ from: 0, width: 1000 });
+    expect(spanOf(2500, 100, 3000, 1000)).toEqual({ from: 2400, width: 600 });
+  });
+
+  it("leaves a point at the far end of a cell scrolled wholly past the edge, so it stays off screen where it is", () => {
+    expect(spanOf(900, 100, 400, 1000)).toEqual({ from: 399, width: 1 });
   });
 });
 

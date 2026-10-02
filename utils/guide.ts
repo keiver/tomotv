@@ -85,14 +85,11 @@ export function rowSnap(listHeight: number, rowHeight: number): { offset: number
 }
 
 /**
- * Where the grid scrolls so the focused cell shows: its start when it began left of the visible edge or is
- * wider than the view, its end when the right edge cuts it. The pinned label alone never asks for either.
+ * Where the grid scrolls on a move within a row: a cell's start when it began left of the visible edge. The
+ * focusable covers only the cell's stretch on screen, so the focus engine reveals a cell cut by the right edge itself.
  */
-export function revealOffset(cell: CellGeometry, scrollX: number, viewportWidth: number): number | undefined {
-  if (cell.left < scrollX) return cell.left;
-  const end = cell.left + cell.width;
-  if (viewportWidth <= 0 || end <= scrollX + viewportWidth) return undefined;
-  return cell.width >= viewportWidth ? cell.left : end - viewportWidth;
+export function revealOffset(cell: CellGeometry, scrollX: number): number | undefined {
+  return cell.left < scrollX ? cell.left : undefined;
 }
 
 /**
