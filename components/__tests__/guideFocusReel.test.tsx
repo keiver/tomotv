@@ -17,13 +17,29 @@ jest.mock("@/services/liveFrames", () => ({
 }));
 jest.mock("expo-image", () => ({ Image: (props: { source?: { cacheKey?: string } }) => require("react").createElement("Image", props) }));
 
-import { GuideFocusReel } from "@/components/live-tv/guide-focus-reel";
+import { GuideFocusReel, reelTiles } from "@/components/live-tv/guide-focus-reel";
 
 const scrollX = new Animated.Value(0);
 
 function frames(at: number, count: number) {
   return { at, frames: Array.from({ length: count }, (_, i) => ({ uri: `file:///f-${at}-${i}.jpg`, cacheKey: `k-${at}-${i}` })) };
 }
+
+describe("reelTiles", () => {
+  it("stairs each frame over the last by a few pixels at one size", () => {
+    const tiles = reelTiles(12, 200, 100, true);
+    expect(tiles.every((tile) => tile.width === 200 && tile.height === 100)).toBe(true);
+    expect(tiles.map((tile) => tile.marginLeft)).toEqual([0, ...Array(11).fill(-3)]);
+  });
+
+  it("keeps the compact strip flat with a gap", () => {
+    expect(reelTiles(3, 200, 100, false)).toEqual([
+      { width: 200, height: 100, marginLeft: 0 },
+      { width: 200, height: 100, marginLeft: 2 },
+      { width: 200, height: 100, marginLeft: 2 },
+    ]);
+  });
+});
 
 describe("GuideFocusReel", () => {
   it("repaints a resting reel when a new burst replaces the old, no focus involved", () => {
@@ -52,6 +68,6 @@ describe("GuideFocusReel", () => {
       return StyleSheet.flatten(clip[0].props.style).width;
     };
     expect(clipWidth()).toBeUndefined();
-    expect(clipWidth(1600)).toBeLessThan(1600);
+    expect(clipWidth(1000)).toBeLessThan(1000);
   });
 });
