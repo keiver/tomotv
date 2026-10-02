@@ -113,6 +113,8 @@ interface VideoGridItemProps {
   titleIcon?: keyof typeof Ionicons.glyphMap;
   /** Channel cards: leave the airing programme off the title (the guide beside them shows it). */
   hideAiring?: boolean;
+  /** Channel cards: leave the channel number pill off (the guide column). */
+  hideNumber?: boolean;
   /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
   liveFrame?: { uri: string; cacheKey: string };
   /** Channel cards: the channel's preview clip file, looped over the frame while the card holds focus. */
@@ -161,6 +163,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     numColumns,
     titleIcon,
     hideAiring = false,
+    hideNumber = false,
     liveFrame,
     liveClip,
     clipActive = false,
@@ -218,6 +221,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // A channel's marks ride its badge row; its title stays alone.
   const titleMarkIcon = isChannel ? undefined : titleIcon;
   const marks = channelMarks(video, titleIcon);
+  if (hideNumber) marks.number = undefined;
   const cardTitle = airingName ? `${cleanLabel(airingName)} - ${videoName}` : programChannel ? `${videoName} - ${cleanLabel(programChannel)}` : videoName || t("common.unknown");
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
@@ -468,6 +472,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.numColumns === nextProps.numColumns &&
     prevProps.titleIcon === nextProps.titleIcon &&
     prevProps.hideAiring === nextProps.hideAiring &&
+    prevProps.hideNumber === nextProps.hideNumber &&
     prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
     prevProps.liveClip?.uri === nextProps.liveClip?.uri &&
     prevProps.clipActive === nextProps.clipActive &&
