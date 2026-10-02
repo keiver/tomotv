@@ -1,8 +1,9 @@
 /**
- * Guide geometry: time to pixels, cells clipped to the loaded window, ruler ticks. Pure, so the
- * canvas and its tests share one source of truth.
+ * Guide geometry: time to pixels, cells clipped to the loaded window, ruler ticks. Pure (durationLabel
+ * reads the active language), so the canvas and its tests share one source of truth.
  */
 import { GRID, slotCardPadding } from "@/constants/app";
+import { t } from "@/services/i18n";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 
 export const MINUTE_MS = 60_000;
@@ -143,13 +144,14 @@ export function activeRecordTimer(
   );
 }
 
-/** "2h", "1h 12m" or "45m": the length a recording toast names. */
+/** "2h", "1h 12m" or "45m" in the active language's units: the length a recording toast names. */
 export function durationLabel(ms: number): string {
   const minutes = Math.round(ms / 60_000);
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  if (hours === 0) return `${rest}m`;
-  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+  if (hours === 0) return t("common.durationMinutes").replace("{minutes}", String(rest));
+  if (rest === 0) return t("common.durationHours").replace("{hours}", String(hours));
+  return t("common.durationHoursMinutes").replace("{hours}", String(hours)).replace("{minutes}", String(rest));
 }
 
 export function isAiring(program: Pick<JellyfinProgram, "StartDate" | "EndDate">, nowMs: number): boolean {

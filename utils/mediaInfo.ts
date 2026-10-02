@@ -2,9 +2,9 @@ import { cleanLabel } from "@/utils/cleanLabel";
 import { decodeHTML } from "entities";
 /**
  * Pure formatters for the Video Info panel. Runtime formatting lives in
- * services/jellyfin/media.ts (formatDuration); these cover the rest of the
- * technical readout. All return "" for absent input so callers can join and
- * filter without null checks.
+ * utils/formatDuration.ts; these cover the rest of the technical readout.
+ * All return "" for absent input so callers can join and filter without
+ * null checks.
  */
 import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
 import { t } from "@/services/i18n";

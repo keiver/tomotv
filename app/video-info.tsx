@@ -17,7 +17,6 @@ import {
   fetchItemDetails,
   fetchItemFolderPath,
   fetchLibraryRootCount,
-  formatDuration,
   getBackdropUrl,
   getLogoUrl,
   getPersonImageUrl,
@@ -51,6 +50,7 @@ import { formatClock, formatDayLabel, isAiring, programCategory, programTimes } 
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
+import { formatDuration } from "@/utils/formatDuration";
 import { logger } from "@/utils/logger";
 import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, overviewParagraphs, streamDetailLine } from "@/utils/mediaInfo";
 import { cardResumeProgress } from "@/utils/resumeProgress";

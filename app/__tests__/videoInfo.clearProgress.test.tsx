@@ -61,7 +61,6 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchItemDetails: jest.fn(),
   fetchFolderMediaKinds: jest.fn(async () => null),
   fetchItemFolderPath: jest.fn(async () => []),
-  formatDuration: () => "",
   getBackdropUrl: () => null,
   getLogoUrl: () => null,
   getPersonImageUrl: () => null,

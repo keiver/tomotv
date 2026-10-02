@@ -47,7 +47,7 @@ export {
   subscribeRecordingsChange,
   subscribeResumeChange,
 } from "./jellyfin/events";
-export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupported, isLiveChannel, isLiveSource, needsTranscoding } from "./jellyfin/media";
+export { audioNeedsRewrap, isAudioItem, isAudioOnly, isCodecSupported, isLiveChannel, isLiveSource, needsTranscoding } from "./jellyfin/media";
 export {
   cancelSeriesTimer,
   cancelTimer,

@@ -5,6 +5,7 @@ import {
   cellGeometry,
   cellInSpan,
   channelWindow,
+  durationLabel,
   guideMetrics,
   guideWindowStart,
   isActiveTimer,
@@ -16,6 +17,7 @@ import {
   rulerTicks,
   standInChannelId,
 } from "../guide";
+import { __setLocaleForTests } from "@/services/i18n";
 
 const tv = guideMetrics(true);
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -208,5 +210,24 @@ describe("mergePrograms", () => {
     const before = [at("earlier", -30, 0), at("overlap", -10, 10), at("epg:c1:0", 0, 30), at("server", 30, 60), at("later", 60, 90)];
     expect(mergePrograms(before, [], window(0, 60))).toEqual([before[0], before[4]]);
     expect(mergePrograms([{ ...at("unknown-end", 0, 30), EndDate: undefined }], [], window(0, 60))).toEqual([]);
+  });
+});
+
+describe("durationLabel", () => {
+  afterEach(() => __setLocaleForTests("en"));
+
+  it("prints minutes, hours, or both", () => {
+    expect(durationLabel(45 * MINUTE_MS)).toBe("45m");
+    expect(durationLabel(120 * MINUTE_MS)).toBe("2h");
+    expect(durationLabel(72 * MINUTE_MS)).toBe("1h 12m");
+  });
+
+  it("prints the active language's units", () => {
+    __setLocaleForTests("de");
+    expect(durationLabel(30 * MINUTE_MS)).toBe("30 Min.");
+    expect(durationLabel(180 * MINUTE_MS)).toBe("3 Std.");
+    expect(durationLabel(90 * MINUTE_MS)).toBe("1 Std. 30 Min.");
+    __setLocaleForTests("fr");
+    expect(durationLabel(90 * MINUTE_MS)).toBe("1 h 30 min");
   });
 });

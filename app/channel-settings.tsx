@@ -10,6 +10,7 @@ import { activeGuideUrls } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import { lastKnownTunerData } from "@/services/jellyfin/tunerGroups";
 import { deleteGroup, RECORDING_MINUTES_OPTIONS, updateLiveTvPreferences, type ChannelGroup, type ChannelSort, type RecordingMinutes } from "@/services/liveTvPreferences";
+import { durationLabel } from "@/utils/guide";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback } from "react";
@@ -18,19 +19,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-/** "30m" under the hour, "2h" from it, the duration style formatDuration prints. */
-function minutesLabel(minutes: number): string {
-  return minutes < 60 ? `${minutes}m` : `${minutes / 60}h`;
-}
-
-const recordingOptions = RECORDING_MINUTES_OPTIONS.map((minutes) => ({ value: minutes, label: minutesLabel(minutes) }));
-
 /** The channel wall's choices, sunken lists of large rows. A root route: Menu pops it, every press applies at once. */
 export default function ChannelSettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const preferences = useLiveTvPreferences();
+  // Built per render, not at import: a module constant keeps the language it was first loaded in.
+  const recordingOptions = RECORDING_MINUTES_OPTIONS.map((minutes) => ({ value: minutes, label: durationLabel(minutes * 60_000) }));
   const toggleAutoUpdate = useCallback(() => updateLiveTvPreferences({ autoUpdate: !preferences.autoUpdate }), [preferences.autoUpdate]);
   const toggleHideOffline = useCallback(() => updateLiveTvPreferences({ hideOffline: !preferences.hideOffline }), [preferences.hideOffline]);
   const toggleSkipCommercials = useCallback(() => updateLiveTvPreferences({ skipCommercials: !preferences.skipCommercials }), [preferences.skipCommercials]);
