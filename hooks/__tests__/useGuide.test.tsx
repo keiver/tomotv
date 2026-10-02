@@ -444,6 +444,19 @@ describe("useGuide", () => {
     expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c41", "c42"]);
   });
 
+  it("a row whose programmes have not landed keeps one programme list across a rows rebuild", async () => {
+    mockPreferences = { ...mockPreferences, hideOffline: true };
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(51), channel(52)], total: 2 });
+    (fetchGuidePrograms as jest.Mock).mockReturnValue(new Promise(() => {}));
+    const ref = await mount();
+    const before = ref.current!.get().rows;
+    expect(before.map((row) => row.programs)).toEqual([[], []]);
+    await act(async () => noteChannelAlive("c52"));
+    const after = ref.current!.get().rows;
+    expect(after).not.toBe(before);
+    expect(after[0].programs).toBe(before[0].programs);
+  });
+
   it("replaces every requested channel on refresh, including empty responses and removed tails", async () => {
     const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
     fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });

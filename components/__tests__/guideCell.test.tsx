@@ -20,7 +20,7 @@ function render(overrides: Partial<React.ComponentProps<typeof GuideCell>> = {})
   let tree: TestRenderer.ReactTestRenderer | undefined;
   act(() => {
     tree = TestRenderer.create(
-      <GuideCell program={program} left={0} width={400} height={90} nowMs={T0 + 15 * MINUTE_MS} recording={null} scrollX={scrollX} onPress={jest.fn()} onLongPress={jest.fn()} {...overrides} />,
+      <GuideCell program={program} left={0} width={400} height={90} past={false} airing recording={null} scrollX={scrollX} onPress={jest.fn()} onLongPress={jest.fn()} {...overrides} />,
     );
   });
   return tree!;
@@ -122,7 +122,7 @@ describe("GuideCell", () => {
     expect(focusedIds({ program: airing })).toContain("guide-focus-reel");
     const withPoster = focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } } });
     expect(withPoster).toEqual(expect.arrayContaining(["guide-cell-art", "guide-focus-reel"]));
-    expect(focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } }, nowMs: T0 - MINUTE_MS })).not.toContain("guide-focus-reel");
+    expect(focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } }, airing: false })).not.toContain("guide-focus-reel");
   });
 
   it("sets when this device grabbed the frames in a box flush in the top right corner, on airing and no-listings cells, only while they show", () => {
@@ -154,9 +154,7 @@ describe("GuideCell", () => {
     mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
     const grabbed = render({ program: withPoster });
     // The mock evaluates animated styles at render; a nudge re-renders after the effect's set.
-    act(() =>
-      grabbed.update(<GuideCell program={withPoster} left={0} width={400} height={90} nowMs={T0 + 16 * MINUTE_MS} recording={null} scrollX={scrollX} onPress={jest.fn()} onLongPress={jest.fn()} />),
-    );
+    act(() => grabbed.update(<GuideCell program={withPoster} left={0} width={400} height={90} past={false} airing recording={null} scrollX={scrollX} onPress={jest.fn()} onLongPress={jest.fn()} />));
     expect(artOpacity(grabbed)).toBeLessThan(0.2);
   });
 

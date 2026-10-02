@@ -16,6 +16,8 @@ import { AppState } from "react-native";
 
 /** Channels per page: each page's programs load with it; the next page waits until the list nears it. */
 export const GUIDE_CHANNEL_PAGE = 40;
+/** One list for every row still waiting on its programs: a fresh one per rebuild re-renders the row. */
+const NO_PROGRAMS: JellyfinProgram[] = [];
 
 /** The external guide choices a program load read: the viewer's guides and the ones turned off. */
 function guideSourcesKey(preferences: Pick<LiveTvPreferences, "guideUrls" | "guideSourcesOff">): string {
@@ -400,7 +402,7 @@ export function useGuide(): GuideState {
   const healthGen = useHealthGeneration(hideOffline);
   const rows = useMemo<GuideRow[]>(() => {
     const listed = hideOffline ? channels.filter((channel) => healthFor(channel.Id) !== "down") : channels;
-    return listed.map((channel) => ({ channel, programs: programsByChannel[channel.Id] ?? [] }));
+    return listed.map((channel) => ({ channel, programs: programsByChannel[channel.Id] ?? NO_PROGRAMS }));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- healthGen re-filters when any verdict moves
   }, [channels, programsByChannel, hideOffline, healthGen]);
 

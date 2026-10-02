@@ -102,14 +102,19 @@ function LiveTvScreen() {
     },
     [router],
   );
+  // The guide's clock through a ref: a press handler rebuilt each minute re-renders every cell.
+  const nowRef = useRef(guide.nowMs);
+  useEffect(() => {
+    nowRef.current = guide.nowMs;
+  }, [guide.nowMs]);
   const handleProgramPress = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
       const startMs = Date.parse(program.StartDate ?? "");
       const endMs = Date.parse(program.EndDate ?? "");
-      if (startMs <= guide.nowMs && guide.nowMs < endMs) tune(channel.Id, channel.Name);
+      if (startMs <= nowRef.current && nowRef.current < endMs) tune(channel.Id, channel.Name);
       else openProgram(program, channel);
     },
-    [guide.nowMs, tune, openProgram],
+    [tune, openProgram],
   );
   const handleChannelPress = useCallback((channel: JellyfinItem) => tune(channel.Id, channel.Name), [tune]);
   const openChannel = useCallback((channel: JellyfinItem) => router.push({ pathname: "/video-info", params: { videoId: channel.Id, name: channel.Name } }), [router]);

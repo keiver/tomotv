@@ -320,8 +320,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         scrollX={nativeScrollX}
         viewportWidth={viewportWidth}
         mountSpan={mountSpan}
-        artSpan={artSpan}
-        artInView={artRows.has(item.channel.Id)}
+        artSpan={artRows.has(item.channel.Id) ? artSpan : undefined}
         rowIndex={index}
         snapOffset={rowSnapOffset}
         nextFocusUp={index === 0 ? topFocusHandle : undefined}

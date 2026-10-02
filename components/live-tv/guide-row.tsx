@@ -32,9 +32,8 @@ interface GuideRowProps {
   viewportWidth: number;
   /** Only cells overlapping this horizontal span mount; undefined mounts every cell. */
   mountSpan?: CanvasSpan;
-  /** Cells overlapping this span show their poster, when the row itself is in view; undefined shows none. */
+  /** Cells overlapping this span show their poster; the canvas hands it to the rows in view alone, undefined shows none. */
   artSpan?: CanvasSpan;
-  artInView?: boolean;
   rowIndex: number;
   /** TV: where a focus scroll lands this row's top in the list (react-native-tvos item snap). */
   snapOffset?: number;
@@ -90,7 +89,6 @@ function GuideRowComponent({
   viewportWidth,
   mountSpan,
   artSpan,
-  artInView = false,
   rowIndex,
   snapOffset,
   nextFocusUp,
@@ -128,7 +126,7 @@ function GuideRowComponent({
       rowCells(channel, programs, windowStartMs, windowEndMs, metrics).flatMap((program) => {
         const { startMs, endMs } = programTimes(program);
         const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
-        return geometry && program.Id ? [{ program, programId: program.Id, geometry }] : [];
+        return geometry && program.Id ? [{ program, programId: program.Id, geometry, startMs, endMs }] : [];
       }),
     [channel, programs, windowStartMs, windowEndMs, metrics],
   );
@@ -139,9 +137,9 @@ function GuideRowComponent({
   return (
     <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapOffset={snapOffset}>
       <View style={styles.line} pointerEvents="none" />
-      {placed.map(({ program, programId, geometry }) => {
+      {placed.map(({ program, programId, geometry, startMs, endMs }) => {
         if (mountSpan && !cellInSpan(geometry, mountSpan)) return null;
-        const showArt = artInView && artSpan !== undefined && cellInSpan(geometry, artSpan);
+        const showArt = artSpan !== undefined && cellInSpan(geometry, artSpan);
         const targets = focusTargets?.programId === programId ? focusTargets : undefined;
         return (
           <GuideCell
@@ -150,7 +148,8 @@ function GuideRowComponent({
             left={geometry.left}
             width={geometry.width}
             height={cellHeight}
-            nowMs={nowMs}
+            past={endMs <= nowMs}
+            airing={startMs <= nowMs && nowMs < endMs}
             recording={recordingMark(program, timersByProgramId)}
             scrollX={scrollX}
             viewportWidth={viewportWidth}

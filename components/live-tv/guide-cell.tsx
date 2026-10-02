@@ -40,7 +40,9 @@ interface GuideCellProps {
   left: number;
   width: number;
   height: number;
-  nowMs: number;
+  /** Where the clock stands against the slot, not the clock itself: a passing minute re-renders only the cells it moves. */
+  past: boolean;
+  airing: boolean;
   recording: RecordingMark;
   /** The canvas's native-driven horizontal offset; the label rides it so it stays on the visible edge. */
   scrollX: RNAnimated.Value;
@@ -68,7 +70,8 @@ function GuideCellComponent({
   left,
   width,
   height,
-  nowMs,
+  past,
+  airing,
   recording,
   scrollX,
   viewportWidth,
@@ -99,11 +102,10 @@ function GuideCellComponent({
   const artWidth = Math.min(Math.round(height * (program.PrimaryImageAspectRatio || 16 / 9)), Math.max(0, width - ART_START));
   const artShown = art !== undefined && artWidth > 0;
   const artLead = Math.min(artWidth, width - artWidth);
-  const past = endMs <= nowMs;
   // A node, not state: a measured width that re-rendered the cell doubled every mount.
   const labelWidth = useAnimatedValue(0);
   const [focused, setFocused] = useState(false);
-  const reelChannel = !standIn && program.ChannelId && startMs <= nowMs && nowMs < endMs ? program.ChannelId : null;
+  const reelChannel = !standIn && program.ChannelId && airing ? program.ChannelId : null;
   const seenChannel = standInChannel ?? reelChannel;
   const subscribeReel = useCallback((listener: () => void) => (seenChannel ? subscribeLiveFrame(seenChannel, listener) : () => undefined), [seenChannel]);
   // When this device grabbed the shown frames, 0 while none show; the guide carries no such time.
