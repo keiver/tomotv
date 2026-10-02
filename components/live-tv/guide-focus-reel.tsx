@@ -91,7 +91,8 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, vi
   const handleLayout = useCallback((event: LayoutChangeEvent) => reelWidth.setValue(event.nativeEvent.layout.width), [reelWidth]);
   const pinStyle = useMemo(() => ({ transform: [{ translateX: pinOffset(scrollX, left, width, reelWidth) }] }), [scrollX, left, width, reelWidth]);
   if (!reel || reel.frames.length === 0) return null;
-  const tileHeight = Math.round(cellHeight * (compact ? 0.42 : IS_TV ? 0.55 : 0.5));
+  // Phone rows are short: 4pt off the strip keeps it clear of the cell's last text line.
+  const tileHeight = Math.round(cellHeight * (compact ? 0.42 : IS_TV ? 0.55 : 0.5)) - (IS_TV ? 0 : 4);
   const tileWidth = Math.round(tileHeight * (16 / 9));
   const room = Math.max(0, (viewportWidth > 0 ? Math.min(width, viewportWidth) : width) - PAD_LEFT);
   const tiles = reelTiles(reel.frames.length, tileWidth, tileHeight, !compact);
