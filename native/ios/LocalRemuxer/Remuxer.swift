@@ -92,6 +92,8 @@ final class RemuxSession {
     var liveKeepSegments: Int
     /// The live input's connection lease while the input is open; guarded by stateLock.
     var inputLease: LiveConnectionBroker.Lease?
+    /// The live input reads `fallbackInputUrl`, not the origin its lease counts; guarded by stateLock.
+    var inputIsFallback = false
 
     let token = UUID().uuidString
     let config: RemuxConfig

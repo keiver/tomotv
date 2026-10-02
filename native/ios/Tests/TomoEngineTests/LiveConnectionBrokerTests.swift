@@ -368,4 +368,114 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertNil(failure, "the session failed: \(failure ?? "")")
         XCTAssertEqual(try relay.stats()["active"], 1, "the fallback is not being read")
     }
+
+    // MARK: - The fallback teaches the origin nothing
+
+    private static let unopenable = "http://127.0.0.1:9/live.ts"
+
+    /// A live session on its own key reading the relay, so the relay counts it as a reader.
+    private func occupy(_ relay: Relay, key: String) throws -> RemuxSession {
+        var config = makeConfig(durationSeconds: 0, inputUrl: relay.url, width: 128, height: 96, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30)
+        config.liveOriginKey = key
+        let session = try RemuxSession(config: config)
+        session.start()
+        Thread.sleep(forTimeInterval: 3)
+        return session
+    }
+
+    private func fallbackSession(key: String, relay: Relay) throws -> RemuxSession {
+        var config = makeConfig(durationSeconds: 0, inputUrl: Self.unopenable, width: 128, height: 96, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30)
+        config.liveOriginKey = key
+        config.fallbackInputUrl = relay.url
+        return try RemuxSession(config: config)
+    }
+
+    func testARefusedFallbackSessionTeachesTheOriginNothing() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19582)
+        defer { relay.stop() }
+        let key = "fallback-refused-session"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        let occupier = try occupy(relay, key: "\(key)-occupier")
+        defer { occupier.stop() }
+        XCTAssertEqual(try relay.stats()["active"], 1, "the relay is not occupied")
+        let other = try XCTUnwrap(LiveConnectionBroker.shared.tryAcquire(key: key, priority: .sweep, onRevoke: {}))
+        defer { other.release() }
+        let session = try fallbackSession(key: key, relay: relay)
+        session.start()
+        defer { session.stop() }
+        Thread.sleep(forTimeInterval: 4)
+        XCTAssertGreaterThanOrEqual(try relay.stats()["refused"] ?? 0, 1, "the fallback was never refused")
+        XCTAssertNil(LiveConnectionBroker.shared.budget(for: key), "the server's refusal is no limit of the origin")
+    }
+
+    func testARefusedFallbackGrabTeachesTheOriginNothing() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19592)
+        defer { relay.stop() }
+        let key = "fallback-refused-grab"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        let occupier = try occupy(relay, key: "\(key)-occupier")
+        defer { occupier.stop() }
+        XCTAssertEqual(try relay.stats()["active"], 1, "the relay is not occupied")
+        let other = try XCTUnwrap(LiveConnectionBroker.shared.tryAcquire(key: key, priority: .sweep, onRevoke: {}))
+        defer { other.release() }
+        let queue = try frameQueue()
+        let done = XCTestExpectation(description: "grab")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "refused-fallback", inputUrl: Self.unopenable, headers: [:], deadline: 6, span: 9,
+                      interval: 3, count: 4, originKey: key, fallbackUrl: relay.url) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 15)
+        guard case .none(opened: false, failure: let failure)? = outcome else { return XCTFail("the fallback was not refused: \(String(describing: outcome))") }
+        XCTAssertTrue(failure?.contains("403") ?? false, failure ?? "no failure")
+        XCTAssertNil(LiveConnectionBroker.shared.budget(for: key), "the server's refusal is no limit of the origin")
+    }
+
+    func testAKickedFallbackGrabTeachesTheOriginNothing() throws {
+        let relay = try cappedRelay(mode: "kick", port: 19702)
+        defer { relay.stop() }
+        let key = "fallback-kicked-grab"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        let other = try XCTUnwrap(LiveConnectionBroker.shared.tryAcquire(key: key, priority: .sweep, onRevoke: {}))
+        defer { other.release() }
+        let queue = try frameQueue()
+        let reading = XCTestExpectation(description: "fallback reading")
+        reading.assertForOverFulfill = false
+        let done = XCTestExpectation(description: "grab")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "kicked-fallback", inputUrl: Self.unopenable, headers: [:], deadline: 12, span: 36,
+                      interval: 3, count: 12, originKey: key, fallbackUrl: relay.url, frame: { _, _ in reading.fulfill() }) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [reading], timeout: 10)
+        let kicker = try occupy(relay, key: "\(key)-kicker")
+        defer { kicker.stop() }
+        wait(for: [done], timeout: 15)
+        XCTAssertGreaterThanOrEqual(try relay.stats()["kicked"] ?? 0, 1, "the fallback grab was not kicked")
+        if case .cancelled? = outcome { XCTFail("the grab was cancelled, not kicked") }
+        XCTAssertNil(LiveConnectionBroker.shared.budget(for: key), "the server dropping its copy is no limit of the origin")
+    }
+
+    func testAKickedFallbackSessionTeachesTheOriginNothing() throws {
+        let relay = try cappedRelay(mode: "kick", port: 19712)
+        defer { relay.stop() }
+        let key = "fallback-kicked-session"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        let other = try XCTUnwrap(LiveConnectionBroker.shared.tryAcquire(key: key, priority: .sweep, onRevoke: {}))
+        defer { other.release() }
+        let session = try fallbackSession(key: key, relay: relay)
+        let ended = XCTestExpectation(description: "fallback ended")
+        ended.assertForOverFulfill = false
+        session.onFailed = { _ in ended.fulfill() }
+        session.start()
+        defer { session.stop() }
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(try relay.stats()["active"], 1, "the fallback is not being read")
+        let kicker = try occupy(relay, key: "\(key)-kicker")
+        defer { kicker.stop() }
+        wait(for: [ended], timeout: 20)
+        XCTAssertNil(LiveConnectionBroker.shared.budget(for: key), "the server dropping its copy is no limit of the origin")
+    }
 }

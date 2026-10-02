@@ -42,7 +42,8 @@ extension RemuxSession {
     /// A live input that dropped may have been kicked by its origin for another read this device just opened.
     func noteLiveInputLost() {
         stateLock.lock()
-        let lease = inputLease
+        // A drop on the server's copy says nothing of the origin the lease counts.
+        let lease = inputIsFallback ? nil : inputLease
         stateLock.unlock()
         if let lease { LiveConnectionBroker.shared.noteLost(lease) }
     }
@@ -1069,6 +1070,7 @@ extension RemuxSession {
         defer {
             stateLock.lock()
             inputLease = nil
+            inputIsFallback = false
             stateLock.unlock()
             lease?.release()
         }
@@ -1124,9 +1126,9 @@ extension RemuxSession {
             ret = avformat_open_input(&inputCtx, inputUrl, nil, &openOpts)
             av_dict_free(&openOpts)
             if ret >= 0 || !config.isLive || isCancelled { break }
-            // A refusal while this device holds other connections to the origin shows its limit: the reads below
+            // A refusal by the origin while this device holds other connections to it shows its limit: the reads below
             // this one yield. Just after a yield it is the origin still counting the closed one. Either way, retry.
-            if Self.refusalErrors.contains(ret), attempt < 4, let held = lease,
+            if Self.refusalErrors.contains(ret), attempt < 4, inputUrl == config.inputUrl, let held = lease,
                LiveConnectionBroker.shared.noteRefusal(of: held) || LiveConnectionBroker.shared.recentlyYielded(key: originKey, within: 15) {
                 Thread.sleep(forTimeInterval: 0.5 * pow(2, Double(attempt)))
                 attempt += 1
@@ -1137,6 +1139,9 @@ extension RemuxSession {
                 inputUrl = fallback
                 inputHeaders = [:]
                 attempt = 0
+                stateLock.lock()
+                inputIsFallback = true
+                stateLock.unlock()
                 continue
             }
             break

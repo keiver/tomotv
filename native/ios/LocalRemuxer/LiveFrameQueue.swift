@@ -133,6 +133,10 @@ final class LiveFrameQueue {
             var result = grabber.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: deadline,
                                            clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
             let left = deadline - Date().timeIntervalSince(started)
+            // Only the origin's own answers teach its budget; the server's copy says nothing of it.
+            let originRefused = !grabber.sourceOpened && (grabber.openFailure.map { failure in
+                ["Server returned 401", "Server returned 403", "Server returned 4XX"].contains(where: failure.contains) } ?? false)
+            var fellBack = false
             if case .none = result, !grabber.sourceOpened, let fallbackUrl, !fallbackUrl.isEmpty, fallbackUrl != inputUrl, left > 1, !isCancelled(channelId) {
                 grabber.stop()
                 let fallback = FrameGrabber(inputUrl: fallbackUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: [:], live: true)
@@ -141,6 +145,7 @@ final class LiveFrameQueue {
                 running[channelId] = fallback
                 lock.unlock()
                 grabber = fallback
+                fellBack = true
                 result = fallback.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: left,
                                             clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
             }
@@ -149,7 +154,7 @@ final class LiveFrameQueue {
             let elapsed = Date().timeIntervalSince(started)
             // Only a broken input is evidence of a provider kick. Unchanged pictures and a span
             // containing fewer keyframes are successful reads, regardless of the requested count.
-            if shared, grabber.sourceOpened, grabber.liveReadEnded, elapsed < deadline - 1, !isCancelled(channelId) {
+            if shared, !fellBack, grabber.sourceOpened, grabber.liveReadEnded, elapsed < deadline - 1, !isCancelled(channelId) {
                 switch result {
                 case .none: LiveConnectionBroker.shared.noteLost(lease)
                 case .frames(let files, _, _) where files.count < max(1, count): LiveConnectionBroker.shared.noteLost(lease)
@@ -187,7 +192,7 @@ final class LiveFrameQueue {
                 outcome = .unchanged(onDisk: onDisk)
             case .none:
                 // The pipeline's refusal set: a 404 is a dead channel, not the provider's connection cap.
-                if !grabber.sourceOpened, let failure = grabber.openFailure, ["Server returned 401", "Server returned 403", "Server returned 4XX"].contains(where: failure.contains) {
+                if originRefused {
                     LiveConnectionBroker.shared.noteRefusal(of: lease)
                 }
                 NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@", channelId, elapsed, grabber.sourceOpened ? 1 : 0,
