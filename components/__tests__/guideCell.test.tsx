@@ -112,6 +112,24 @@ describe("GuideCell", () => {
     expect(StyleSheet.flatten(hostById(tree, "guide-cell-scrim").props.style)).toEqual(expect.objectContaining({ top: 1, bottom: 1 }));
   });
 
+  it("frames the stretch on screen with a focused no-listings cell's ring, while a programme's ring keeps its own cell", () => {
+    const ring = (tree: TestRenderer.ReactTestRenderer) => StyleSheet.flatten(hostById(tree, "guide-cell-ring").props.style);
+    const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c4`, Name: "No listings", EpisodeTitle: undefined };
+    const wide = render({ program: standIn, width: 6000, viewportWidth: 1600, airing: false });
+    act(() => labelOf(wide).props.onFocus());
+    expect(ring(wide)).toMatchObject({ left: -1, right: "auto", width: 1600 });
+    expect(ring(wide).transform).toHaveLength(1);
+    // A window narrower than the screen: the ring is the cell's own, both grid lines covered.
+    const narrow = render({ program: standIn, width: 900, viewportWidth: 1600, airing: false });
+    act(() => labelOf(narrow).props.onFocus());
+    expect(ring(narrow).width).toBe(902);
+
+    const cell = render({ width: 6000, viewportWidth: 1600 });
+    act(() => labelOf(cell).props.onFocus());
+    expect(ring(cell)).toMatchObject({ left: -1, right: -1 });
+    expect(ring(cell).width).toBeUndefined();
+  });
+
   it("clips the label inside the cell's border, so the scrim's fade never covers the grid line", () => {
     const tree = render();
     const clip = hostById(tree, "guide-cell-label-clip");

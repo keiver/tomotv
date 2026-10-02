@@ -139,6 +139,12 @@ function GuideCellComponent({
     () => (reelShown && viewportWidth ? { transform: [{ translateX: pinRightOffset(scrollX, left, width, viewportWidth) }] } : undefined),
     [reelShown, scrollX, left, width, viewportWidth],
   );
+  // A no-listings cell runs the whole window: its ring frames the stretch on screen and rides the scroll like the label.
+  const ringStyle = useMemo(() => {
+    if (!focused || !standIn || !viewportWidth) return undefined;
+    const ringWidth = Math.min(width + 2, viewportWidth);
+    return { right: "auto" as const, width: ringWidth, transform: [{ translateX: pinOffset(scrollX, left, width, new RNAnimated.Value(ringWidth - 2)) }] };
+  }, [focused, standIn, viewportWidth, scrollX, left, width]);
   const programId = program.Id;
   const handleRef = useCallback(
     (node: View | null) => {
@@ -188,7 +194,7 @@ function GuideCellComponent({
         </RNAnimated.View>
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
-      {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
+      {focused ? <RNAnimated.View style={[styles.focusRing, ringStyle]} pointerEvents="none" testID="guide-cell-ring" /> : null}
       {/* Clipped inside the border: a one-sided border draws behind the cell's children, and the scrim's fade runs past the label. */}
       <View style={styles.labelClip} pointerEvents="box-none" testID="guide-cell-label-clip">
         <AnimatedPressable
