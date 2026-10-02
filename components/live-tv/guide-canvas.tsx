@@ -176,13 +176,19 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     },
     [driver, rowsRef],
   );
-  // Another group opens at its first channel; the old rows hold until its first page replaces them.
+  // Another group opens at its first channel and the window's start; the old rows hold until its first page replaces them.
   const lastFilterRef = useRef(filter);
   useEffect(() => {
     if (lastFilterRef.current === filter) return;
     lastFilterRef.current = filter;
-    if (gridShown) rewindToTop(false);
-  }, [filter, gridShown, rewindToTop]);
+    if (!gridShown) return;
+    rewindToTop(false);
+    runOnUI(() => {
+      "worklet";
+      stopScrub();
+      scrollTo(gridRef, 0, 0, false);
+    })();
+  }, [filter, gridShown, rewindToTop, stopScrub, gridRef]);
 
   // Mac: Escape from a scrolled guide rewinds it to the top; the next press pops as usual.
   useEffect(() => {
