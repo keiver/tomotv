@@ -26,6 +26,7 @@ import {
 import { Settings } from "react-native";
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
+jest.mock("@/services/jellyfin/session", () => ({ getCachedConfig: jest.fn(() => ({ server: "", apiKey: "", userId: "", deviceId: "" })) }));
 
 const kqed = { Name: "KQED", ChannelNumber: "9.1" };
 const kqedPlus = { Name: "KQED Plus", ChannelNumber: "9.2" };
@@ -207,5 +208,74 @@ describe("guide URL list", () => {
     setGuideSourceEnabled("http://declared/x.xml", true);
     removeGuideUrl("http://lan/b.xml");
     expect(getLiveTvPreferences()).toMatchObject({ guideUrls: [], guideSourcesOff: [] });
+  });
+});
+
+describe("favorites and groups per user", () => {
+  type Loaded = { preferences: typeof import("@/services/liveTvPreferences"); signIn: (userId: string) => void };
+  /** A fresh module, as a relaunch reads it, with the signed-in user under the test's control. */
+  const load = (): Loaded => {
+    let loaded!: Loaded;
+    jest.isolateModules(() => {
+      const session = require("@/services/jellyfin/session") as { getCachedConfig: jest.Mock };
+      loaded = {
+        preferences: require("@/services/liveTvPreferences"),
+        signIn: (userId) => session.getCachedConfig.mockReturnValue({ server: "http://s", apiKey: "k", userId, deviceId: "d" }),
+      };
+    });
+    return loaded;
+  };
+  beforeEach(() => Settings.set({ [LIVE_TV_PREFERENCES_KEY]: undefined }));
+
+  it("keeps each user's lists apart, and a switch back or a relaunch finds them again", () => {
+    const { preferences, signIn } = load();
+    signIn("a");
+    preferences.toggleLocalFavoriteChannel(kqed);
+    const news = preferences.createGroup("News");
+    signIn("b");
+    expect(preferences.getLiveTvPreferences()).toMatchObject({ favorites: [], groups: [] });
+    preferences.toggleLocalFavoriteChannel(unnumbered);
+    signIn("a");
+    expect(preferences.getLiveTvPreferences().favorites).toEqual([{ number: "9.1", name: "KQED" }]);
+    expect(preferences.getLiveTvPreferences().groups.map((group) => group.id)).toEqual([news.id]);
+    const relaunched = load();
+    relaunched.signIn("b");
+    expect(relaunched.preferences.getLiveTvPreferences()).toMatchObject({ favorites: [{ name: "Al Jazeera English" }], groups: [] });
+  });
+
+  it("gives an earlier build's lists to the first user signed in, and to nobody after", () => {
+    Settings.set({
+      [LIVE_TV_PREFERENCES_KEY]: JSON.stringify({ version: 1, sort: "name", filter: "group:g", favorites: [{ name: "Old" }], groups: [{ id: "g", name: "G", channels: [] }] }),
+    });
+    const { preferences, signIn } = load();
+    signIn("a");
+    expect(preferences.getLiveTvPreferences()).toMatchObject({ favorites: [{ name: "Old" }], filter: "group:g", sort: "name" });
+    signIn("b");
+    expect(preferences.getLiveTvPreferences()).toMatchObject({ favorites: [], groups: [], filter: "all", sort: "name" });
+    expect(JSON.parse(Settings.get(LIVE_TV_PREFERENCES_KEY) as string).favorites).toBeUndefined();
+    const relaunched = load();
+    relaunched.signIn("b");
+    expect(relaunched.preferences.getLiveTvPreferences().favorites).toEqual([]);
+    relaunched.signIn("a");
+    expect(relaunched.preferences.getLiveTvPreferences().groups.map((group) => group.id)).toEqual(["g"]);
+  });
+
+  it("shares the sort, the guides and the recording length across users", () => {
+    const { preferences, signIn } = load();
+    signIn("a");
+    preferences.updateLiveTvPreferences({ sort: "name", guideUrls: ["https://g/a.xml"], recordingMinutes: 30 });
+    signIn("b");
+    expect(preferences.getLiveTvPreferences()).toMatchObject({ sort: "name", guideUrls: ["https://g/a.xml"], recordingMinutes: 30 });
+  });
+
+  it("hands a snapshot reader the same object until a write or a switch", () => {
+    const { preferences, signIn } = load();
+    signIn("a");
+    const first = preferences.getLiveTvPreferences();
+    expect(preferences.getLiveTvPreferences()).toBe(first);
+    signIn("b");
+    const second = preferences.getLiveTvPreferences();
+    expect(second).not.toBe(first);
+    expect(preferences.getLiveTvPreferences()).toBe(second);
   });
 });

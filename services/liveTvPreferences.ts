@@ -1,8 +1,10 @@
 /**
  * The viewer's live TV choices: how the channels sort, which channels show, whether the wall keeps
  * sampling, the favorites and the named groups. One JSON document in the device's defaults,
- * naming channels by number and name so it outlives any one server.
+ * naming channels by number and name so it outlives any one server. The favorites and the groups
+ * are each signed-in user's own, under `users`; signed out reads the device-wide lists of earlier builds.
  */
+import { getCachedConfig } from "@/services/jellyfin/session";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { Settings } from "react-native";
@@ -66,6 +68,8 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
 };
 
 let current: LiveTvPreferences | null = null;
+/** The user whose lists `current` holds; "" signed out. */
+let currentUserId = "";
 const listeners = new Set<() => void>();
 
 function parseChannelList(raw: unknown): ChannelFavorite[] {
@@ -141,18 +145,49 @@ function safeParse(raw: string): unknown {
   }
 }
 
+function readDocument(): Record<string, unknown> {
+  const raw = Settings.get(LIVE_TV_PREFERENCES_KEY);
+  const doc = typeof raw === "string" ? safeParse(raw) : raw;
+  return doc && typeof doc === "object" && !Array.isArray(doc) ? (doc as Record<string, unknown>) : {};
+}
+
+function usersOf(doc: Record<string, unknown>): Record<string, unknown> {
+  const users = doc.users;
+  return users && typeof users === "object" && !Array.isArray(users) ? (users as Record<string, unknown>) : {};
+}
+
+/** The shared fields at the top; the lists under the user, or at the top signed out. */
+function write(preferences: LiveTvPreferences, userId: string): void {
+  try {
+    const stored = readDocument();
+    const { favorites, groups, ...shared } = preferences;
+    const doc = userId
+      ? { ...shared, users: { ...usersOf(stored), [userId]: { favorites, groups } } }
+      : { ...shared, favorites, groups, ...(stored.users === undefined ? {} : { users: stored.users }) };
+    Settings.set({ [LIVE_TV_PREFERENCES_KEY]: JSON.stringify(doc) });
+  } catch (error) {
+    logger.warn("Live TV preferences write failed", error, { service: "LiveTvPreferences" });
+  }
+}
+
+/** Cached per user, so a snapshot reader gets the same object until a write or a switch. */
 export function getLiveTvPreferences(): LiveTvPreferences {
-  if (!current) current = parseLiveTvPreferences(Settings.get(LIVE_TV_PREFERENCES_KEY));
+  const { userId } = getCachedConfig();
+  if (current && userId === currentUserId) return current;
+  const stored = readDocument();
+  // An earlier build's device-wide lists go to the first user signed in; anyone after starts empty.
+  const claiming = !!userId && stored.users === undefined;
+  const own = usersOf(stored)[userId];
+  const lists = !userId || claiming ? stored : own && typeof own === "object" ? (own as Record<string, unknown>) : {};
+  current = parseLiveTvPreferences({ ...stored, favorites: lists.favorites, groups: lists.groups });
+  currentUserId = userId;
+  if (claiming) write(current, userId);
   return current;
 }
 
 export function updateLiveTvPreferences(patch: Partial<Omit<LiveTvPreferences, "version">>): void {
   current = { ...getLiveTvPreferences(), ...patch };
-  try {
-    Settings.set({ [LIVE_TV_PREFERENCES_KEY]: JSON.stringify(current) });
-  } catch (error) {
-    logger.warn("Live TV preferences write failed", error, { service: "LiveTvPreferences" });
-  }
+  write(current, currentUserId);
   for (const listener of listeners) listener();
 }
 

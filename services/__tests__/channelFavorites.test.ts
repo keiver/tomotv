@@ -127,6 +127,7 @@ describe("syncChannelFavorites", () => {
   });
 
   describe("across a switch to another user on the same server", () => {
+    const userU = { server: "http://s", apiKey: "k", userId: "u", deviceId: "d" };
     const userV = { server: "http://s", apiKey: "k2", userId: "v", deviceId: "d" };
     const switchTo = (session: Modules["session"]) => {
       session.getConfig.mockResolvedValue(userV);
@@ -136,7 +137,7 @@ describe("syncChannelFavorites", () => {
       for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
     };
 
-    it("a switch during a read drops it and reads again for the new user", async () => {
+    it("a switch during a read drops it and reads again for the new user, carrying none of the first user's favorites", async () => {
       const { favorites, preferences, liveTv, userData, session } = load();
       preferences.updateLiveTvPreferences({ favorites: [{ id: "id-1", name: "One", number: "1" }] });
       liveTv.fetchListedChannels.mockResolvedValue([one]);
@@ -148,7 +149,9 @@ describe("syncChannelFavorites", () => {
       await favorites.syncChannelFavorites();
       await flush();
       expect(liveTv.fetchChannels).toHaveBeenCalledTimes(2);
-      expect(userData.setVideoFavorite.mock.calls).toEqual([["id-1", true, userV]]);
+      expect(userData.setVideoFavorite).not.toHaveBeenCalled();
+      expect(preferences.getLiveTvPreferences().favorites).toEqual([]);
+      session.getCachedConfig.mockReturnValue(userU);
       expect(preferences.getLiveTvPreferences().favorites).toEqual([{ id: "id-1", name: "One", number: "1" }]);
     });
 
@@ -166,11 +169,34 @@ describe("syncChannelFavorites", () => {
       });
       await favorites.syncChannelFavorites();
       await flush();
-      expect(userData.setVideoFavorite.mock.calls).toEqual([
-        ["id-1", true, expect.objectContaining({ userId: "u", apiKey: "k" })],
-        ["id-1", true, userV],
-      ]);
+      expect(userData.setVideoFavorite.mock.calls).toEqual([["id-1", true, expect.objectContaining({ userId: "u", apiKey: "k" })]]);
+      expect(preferences.getLiveTvPreferences().favorites).toEqual([]);
+      session.getCachedConfig.mockReturnValue(userU);
       expect(preferences.getLiveTvPreferences().favorites).toEqual([{ id: "id-1", name: "One", number: "1" }]);
+    });
+
+    it("a second user's first visit carries none of the first user's list", async () => {
+      const { favorites, preferences, liveTv, userData, session } = load();
+      preferences.updateLiveTvPreferences({ favorites: [{ id: "id-1", name: "One", number: "1" }] });
+      switchTo(session);
+      liveTv.fetchChannels.mockResolvedValue({ items: [two] });
+      liveTv.fetchListedChannels.mockResolvedValue([one]);
+      await favorites.syncChannelFavorites();
+      await flush();
+      expect(userData.setVideoFavorite).not.toHaveBeenCalled();
+      expect(preferences.getLiveTvPreferences().favorites).toEqual([{ id: "id-2", name: "Two", number: "2" }]);
+    });
+
+    it("leaves the new user's list alone when a refusal lands after a switch", async () => {
+      const { favorites, preferences, userData, session } = load();
+      let refuse!: (error: Error) => void;
+      userData.setVideoFavorite.mockImplementationOnce(() => new Promise((_, reject) => (refuse = reject)));
+      favorites.toggleFavoriteChannel(one);
+      switchTo(session);
+      preferences.toggleLocalFavoriteChannel(one);
+      refuse(new Error("refused"));
+      await flush();
+      expect(preferences.isFavoriteChannel(preferences.getLiveTvPreferences(), one)).toBe(true);
     });
 
     it("a switch during the first scope read reads again for the new user", async () => {

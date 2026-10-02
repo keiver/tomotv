@@ -57,13 +57,15 @@ export function toggleFavoriteChannel(channel: ChannelIdentity): void {
   const next = !isFavoriteChannel(getLiveTvPreferences(), channel);
   toggleLocalFavoriteChannel(channel);
   edits += 1;
-  if (!channel.Id || !getCachedConfig().userId) return;
+  const userId = getCachedConfig().userId;
+  if (!channel.Id || !userId) return;
   const id = channel.Id;
   writing += 1;
   setVideoFavorite(id, next)
     .catch((error) => {
       logger.warn("Channel favorite write failed", error, { service: "ChannelFavorites", channelId: id });
-      if (isFavoriteChannel(getLiveTvPreferences(), channel) === next) toggleLocalFavoriteChannel(channel);
+      // A refusal after a switch belongs to the user who asked; their list is not the one shown.
+      if (getCachedConfig().userId === userId && isFavoriteChannel(getLiveTvPreferences(), channel) === next) toggleLocalFavoriteChannel(channel);
     })
     .finally(() => {
       writing -= 1;
