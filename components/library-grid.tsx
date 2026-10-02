@@ -89,7 +89,7 @@ interface LibraryGridProps {
   liveChannels?: boolean;
   /** Channel wall: the sampler runs while true; off, the cards keep the frames they have. */
   liveFramesEnabled?: boolean;
-  /** Channel wall: the mark a card wears at its title's left end (a favorite's heart). */
+  /** Channel wall: a favorite's heart, worn in the card's badge row. */
   titleIconFor?: (item: JellyfinItem) => keyof typeof Ionicons.glyphMap | undefined;
   /** Channel wall: whether a timer is recording the card's channel (a REC pill). */
   recordingFor?: (item: JellyfinItem) => boolean;

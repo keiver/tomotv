@@ -55,6 +55,8 @@
   "liveTv.recordingFailed": "Recording action failed",
   "liveTv.noManagement": "You don't have Live TV management permissions on this server.",
   "liveTv.lastSeen": "Seen at {time}",
+  "liveTv.streamingNow": "Streaming now",
+  "liveTv.seemsOffline": "Channel seems offline",
   "liveTv.offline": "Offline",
   "liveTv.hideOffline": "Hide offline",
   "liveTv.skipCommercials": "Skip commercials",

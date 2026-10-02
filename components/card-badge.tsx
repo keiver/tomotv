@@ -14,6 +14,8 @@ const RESTING_RIM = "rgba(255, 255, 255, 0.18)";
 
 /** Inset every card's corner overlays sit at, shared so the pill and the chips line up. */
 export const CARD_BADGE_INSET = IS_TV ? 16 : 10;
+/** The LIVE pill's height; a slim pill and a bare mark beside it take the same, so the row reads as one size. */
+export const SLIM_BADGE_HEIGHT = IS_TV ? 26 : 18;
 
 export interface BadgeSegment {
   /** Names the value. A bare number reads as anything; "♪ 5" reads as a track. */
@@ -33,6 +35,8 @@ interface CardBadgeProps {
   tone?: "gold" | "live";
   /** Phone only: a shorter pill with smaller text, for two pills sharing one card corner. */
   compact?: boolean;
+  /** The LIVE pill's size, for a pill sharing its row (a channel's number). LIVE is always slim. */
+  slim?: boolean;
 }
 
 /**
@@ -43,19 +47,20 @@ interface CardBadgeProps {
  * most Jellyfin clients are not, and the season/episode tag survives filenames the server never
  * parsed — both are claims worth making at full strength, not metadata to tuck away.
  */
-export function CardBadge({ segments, loading, focused, tone = "gold", compact = false }: CardBadgeProps) {
+export function CardBadge({ segments, loading, focused, tone = "gold", compact = false, slim = false }: CardBadgeProps) {
   const live = tone === "live";
   const small = compact && !IS_TV;
+  const thin = live || slim;
   const ink = live ? COLORS.TEXT_PRIMARY : focused ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT;
 
   return (
-    <View style={[styles.badge, small && styles.badgeCompact, live ? styles.badgeLive : focused ? styles.badgeFocused : styles.badgeResting]} pointerEvents="none">
+    <View style={[styles.badge, small && styles.badgeCompact, thin && styles.badgeSlim, live ? styles.badgeLive : focused ? styles.badgeFocused : styles.badgeResting]} pointerEvents="none">
       {segments?.map(({ icon, label }, index) => (
         // Index keys: the array is rebuilt whole on every render and never reordered.
         <View key={index} style={styles.segment}>
           {icon ? <Ionicons name={icon} size={ICON_SIZE} color={ink} /> : null}
           {label != null ? (
-            <Text style={[styles.badgeText, live && styles.badgeTextLive, small && styles.badgeTextCompact, { color: ink }]} numberOfLines={1}>
+            <Text style={[styles.badgeText, thin && styles.badgeTextLive, small && styles.badgeTextCompact, { color: ink }]} numberOfLines={1}>
               {label}
             </Text>
           ) : null}
@@ -98,10 +103,12 @@ const styles = StyleSheet.create({
     borderColor: RESTING_RIM,
   },
   // Tighter than the index pill: one short word, the same vertical air would read as padding.
+  badgeSlim: {
+    minWidth: SLIM_BADGE_HEIGHT,
+    height: SLIM_BADGE_HEIGHT,
+    paddingHorizontal: IS_TV ? 7 : 4,
+  },
   badgeLive: {
-    minWidth: IS_TV ? 30 : 20,
-    height: IS_TV ? 30 : 20,
-    paddingHorizontal: IS_TV ? 9 : 6,
     backgroundColor: COLORS.DESTRUCTIVE_DEEP,
     borderColor: COLORS.DESTRUCTIVE_DEEP,
   },

@@ -1,4 +1,3 @@
-import { CardBadge } from "@/components/card-badge";
 import { GuideFocusReel } from "@/components/live-tv/guide-focus-reel";
 import { useGuideChannelFocus } from "@/hooks/useGuideChannelFocus";
 import { GuideCellQuietLine } from "@/components/live-tv/guide-cell-quiet-line";
@@ -6,7 +5,7 @@ import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { pinOffset } from "@/components/live-tv/guide-pin";
+import { pinOffset, pinRightOffset } from "@/components/live-tv/guide-pin";
 import { formatClock, guideMetrics, programCategory, programTimes, standInChannelId, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
@@ -31,6 +30,10 @@ const ART_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 
 /** The poster steps back while the channel's grabbed frames show over it. */
 const ART_UNDER_REEL_OPACITY = 0.12;
 const TEXT_SHADOW = { textShadowColor: "rgba(0, 0, 0, 0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: IS_TV ? 4 : 3 } as const;
+/** The corner box: one line, a sliver of padding, its bottom rule. */
+const SEEN_LINE = IS_TV ? 16 : 10;
+const SEEN_PAD = IS_TV ? 2 : 1;
+const SEEN_BOX_HEIGHT = SEEN_LINE + 2 * SEEN_PAD + 1;
 
 export type RecordingMark = "single" | "series" | null;
 
@@ -101,14 +104,16 @@ function GuideCellComponent({
   const labelWidth = useAnimatedValue(0);
   const [focused, setFocused] = useState(false);
   const reelChannel = !standIn && program.ChannelId && startMs <= nowMs && nowMs < endMs ? program.ChannelId : null;
-  const subscribeReel = useCallback((listener: () => void) => (reelChannel ? subscribeLiveFrame(reelChannel, listener) : () => undefined), [reelChannel]);
+  const seenChannel = standInChannel ?? reelChannel;
+  const subscribeReel = useCallback((listener: () => void) => (seenChannel ? subscribeLiveFrame(seenChannel, listener) : () => undefined), [seenChannel]);
   // When this device grabbed the shown frames, 0 while none show; the guide carries no such time.
   const readReel = useCallback(() => {
-    const reel = reelChannel ? liveFrameReel(reelChannel) : undefined;
+    const reel = seenChannel ? liveFrameReel(seenChannel) : undefined;
     return reel && reel.frames.length > 0 ? reel.at : 0;
-  }, [reelChannel]);
+  }, [seenChannel]);
   const seenAt = useSyncExternalStore(subscribeReel, readReel);
   const reelShown = seenAt > 0;
+  const [seenLead, seenTail] = t("liveTv.lastSeen").split("{time}");
   const artOpacity = useSharedValue(1);
   useEffect(() => {
     artOpacity.set(withTiming(reelShown ? ART_UNDER_REEL_OPACITY : 1, { duration: 200 }));
@@ -116,6 +121,7 @@ function GuideCellComponent({
   const artStyle = useAnimatedStyle(() => ({ opacity: artOpacity.value }));
   const handleLabelLayout = useCallback((event: LayoutChangeEvent) => labelWidth.setValue(event.nativeEvent.layout.width), [labelWidth]);
   const pinStyle = useMemo(() => ({ transform: [{ translateX: pinOffset(scrollX, left, width, labelWidth) }] }), [scrollX, left, width, labelWidth]);
+  const seenPinStyle = useMemo(() => (viewportWidth ? { transform: [{ translateX: pinRightOffset(scrollX, left, width, viewportWidth) }] } : undefined), [scrollX, left, width, viewportWidth]);
   const programId = program.Id;
   const handleRef = useCallback(
     (node: View | null) => {
@@ -155,11 +161,16 @@ function GuideCellComponent({
           <GuideFocusReel channelId={reelChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} compact />
         </View>
       ) : null}
-      {/* The card pill, in the cell's lower right corner: when this device grabbed the frames. */}
+      {/* A box set into the cell's top right corner, the cell's own edges closing it: when this device grabbed the frames.
+          A cell running past the screen holds it on the screen's right edge. */}
       {reelShown ? (
-        <View style={styles.seenPill} pointerEvents="none" testID="guide-cell-seen">
-          <CardBadge segments={[{ label: t("liveTv.lastSeen").replace("{time}", formatClock(seenAt)) }]} focused={focused} />
-        </View>
+        <RNAnimated.View style={[styles.seenBox, seenPinStyle]} pointerEvents="none" testID="guide-cell-seen">
+          <Text style={styles.seenText} numberOfLines={1}>
+            {seenLead}
+            {seenTail === undefined ? null : <Text style={styles.seenTime}>{formatClock(seenAt)}</Text>}
+            {seenTail}
+          </Text>
+        </RNAnimated.View>
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
       {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
@@ -253,7 +264,8 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     paddingLeft: IS_TV ? 16 : 10,
     paddingRight: IS_TV ? 14 : 8,
-    paddingTop: IS_TV ? 14 : 8,
+    // The same band above the title on every row, with or without the corner box, so the text lines up.
+    paddingTop: Math.round(((SEEN_BOX_HEIGHT + (IS_TV ? 6 : 3)) * 2) / 3),
   },
   text: {
     gap: IS_TV ? 4 : 2,
@@ -263,11 +275,29 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 17 : 10,
     ...TEXT_SHADOW,
   },
-  // On the reel strip's bottom line.
-  seenPill: {
+  // Flush in the corner: the cell's top edge and its right line are its other two sides.
+  seenBox: {
     position: "absolute",
-    right: IS_TV ? 12 : 6,
-    bottom: IS_TV ? 12 : 6,
+    top: 0,
+    right: 0,
+    paddingHorizontal: IS_TV ? 8 : 5,
+    paddingVertical: SEEN_PAD,
+    borderBottomWidth: 1,
+    borderLeftWidth: 1,
+    borderColor: GRID_LINE,
+    backgroundColor: COLORS.SURFACE_SUNKEN,
+  },
+  seenText: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: IS_TV ? 13 : 8,
+    lineHeight: SEEN_LINE,
+    fontWeight: "600",
+    letterSpacing: IS_TV ? 0.8 : 0.4,
+    textTransform: "uppercase",
+  },
+  // The ruler's now label ink.
+  seenTime: {
+    color: COLORS.ACCENT,
   },
   titleRow: {
     flexDirection: "row",

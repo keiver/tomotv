@@ -55,6 +55,8 @@
   "liveTv.recordingFailed": "La acción de grabación falló",
   "liveTv.noManagement": "No tienes permisos de gestión de Televisión en vivo en este servidor.",
   "liveTv.lastSeen": "Visto a las {time}",
+  "liveTv.streamingNow": "Transmitiendo ahora",
+  "liveTv.seemsOffline": "El canal parece sin señal",
   "liveTv.offline": "Sin señal",
   "liveTv.hideOffline": "Ocultar sin señal",
   "liveTv.skipCommercials": "Saltar comerciales",

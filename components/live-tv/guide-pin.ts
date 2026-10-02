@@ -15,3 +15,12 @@ export function pinOffset(scrollX: Node, left: number, width: number, contentWid
   // min(pinned, room) = pinned - max(0, pinned - room)
   return Animated.subtract(pinned, floorAtZero(Animated.subtract(pinned, room)));
 }
+
+/**
+ * How far a box anchored to a cell's right edge slides left to stay on the grid's visible right
+ * edge: min(0, scrollX + viewportWidth - (left + width)).
+ */
+export function pinRightOffset(scrollX: Node, left: number, width: number, viewportWidth: number): Animated.AnimatedInterpolation<number> {
+  const overhang = floorAtZero(Animated.subtract(new Animated.Value(left + width - viewportWidth), scrollX));
+  return Animated.subtract(new Animated.Value(0), overhang);
+}

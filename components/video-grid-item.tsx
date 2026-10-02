@@ -1,4 +1,5 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
+import { CardMark } from "@/components/card-mark";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { LiveClip } from "@/components/live-tv/live-clip";
@@ -18,7 +19,7 @@ import { formatClock, formatDayLabel } from "@/utils/guide";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
@@ -61,6 +62,16 @@ export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Dat
   // Watched mark, the info panel's eye; music stays out (every full listen marks a track played, which is noise, not state).
   if (video.UserData?.Played && video.Type !== "Audio") segments.push({ icon: "eye" });
   return segments.length > 0 ? segments : null;
+}
+
+type Mark = ComponentProps<typeof CardMark>;
+
+/** A channel card's marks: the tuner's number as the cards' gold pill when it gives one, the favorite heart after LIVE (REC while recording). */
+export function channelMarks(video: Pick<JellyfinVideoItem, "Type" | "ChannelNumber">, titleIcon?: keyof typeof Ionicons.glyphMap): { number?: string; trailing: Mark[] } {
+  const trailing: Mark[] = [];
+  if (video.Type !== "TvChannel") return { trailing };
+  if (titleIcon) trailing.push({ icon: titleIcon, color: COLORS.ACCENT });
+  return { number: video.ChannelNumber?.trim() || undefined, trailing };
 }
 
 interface VideoGridItemProps {
@@ -110,7 +121,7 @@ interface VideoGridItemProps {
   clipActive?: boolean;
   /** Channel cards: the health check concluded down; the art dims and the corner badge says Offline. */
   offline?: boolean;
-  /** Channel cards: the server is recording this channel; a REC pill joins the corner badge. */
+  /** Channel cards: the server is recording this channel; a REC pill takes LIVE's place. */
   recording?: boolean;
   /** No resting depth shadow, for hosts that clip it; the focus glow stays. */
   flat?: boolean;
@@ -204,6 +215,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // A channel card names what is on, then the channel: the logo and the badge already say which channel.
   const programChannel = video.Type === "Program" ? video.ChannelName?.trim() : undefined;
   const videoName = cleanLabel(video.Name);
+  // A channel's marks ride its badge row; its title stays alone.
+  const titleMarkIcon = isChannel ? undefined : titleIcon;
+  const marks = channelMarks(video, titleIcon);
   const cardTitle = airingName ? `${cleanLabel(airingName)} - ${videoName}` : programChannel ? `${videoName} - ${cleanLabel(programChannel)}` : videoName || t("common.unknown");
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
@@ -242,9 +256,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // floored at 5% below so "just starting" is always visible; grids that pass
   // no progressPercent are unaffected.
   const renderTitleMark = (color: string) =>
-    titleIcon ? (
+    titleMarkIcon ? (
       <View style={styles.titleMark} pointerEvents="none">
-        <Ionicons name={titleIcon} size={TITLE_SIZE} color={color} />
+        <Ionicons name={titleMarkIcon} size={TITLE_SIZE} color={color} />
       </View>
     ) : null;
   const hasProgress = progressPercent != null;
@@ -353,7 +367,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // over the fill). Decorative to a11y — the card announces name + value.
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
-              <View style={[styles.infoTitleBlend, titleIcon && styles.titleLineInset]}>
+              <View style={[styles.infoTitleBlend, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(COLORS.ACCENT)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                   {cardTitle}
@@ -363,7 +377,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : // Focused: opaque gold bar
           focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
-              <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
+              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(CARD_FOCUS.TITLE_TEXT_FOCUSED)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused])}>
                   {cardTitle}
@@ -372,7 +386,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <View style={[styles.infoTitleLine, titleIcon && styles.titleLineInset]}>
+              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(COLORS.ACCENT)}
                 <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold])}>
                   {cardTitle}
@@ -383,14 +397,20 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
-          {offline || badgeSegments || recording ? (
+          {offline || badgeSegments || recording || marks.number || marks.trailing.length > 0 ? (
             <View style={styles.indexBadge} pointerEvents="none">
+              {/* Gold at rest too: the number is the channel's, not a state of the card. */}
+              {marks.number ? <CardBadge segments={[{ label: marks.number }]} focused slim /> : null}
               {offline ? (
                 <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} tone="live" />
+              ) : isChannel && recording ? (
+                <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
               ) : badgeSegments ? (
                 <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
               ) : null}
-              {recording ? <CardBadge segments={[{ icon: "radio-button-on", label: t("liveTv.rec") }]} focused={focused} tone="live" /> : null}
+              {marks.trailing.map((mark) => (
+                <CardMark key={mark.icon} {...mark} />
+              ))}
             </View>
           ) : null}
 
@@ -429,6 +449,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     // Played drives the watched segment; annotation passes flip it on same-Id items.
     prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
     prevProps.video.CurrentProgram?.Name === nextProps.video.CurrentProgram?.Name &&
+    prevProps.video.ChannelNumber === nextProps.video.ChannelNumber &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&

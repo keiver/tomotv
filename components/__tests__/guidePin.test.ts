@@ -1,5 +1,5 @@
 import { Animated } from "react-native";
-import { pinOffset } from "@/components/live-tv/guide-pin";
+import { pinOffset, pinRightOffset } from "@/components/live-tv/guide-pin";
 
 /** The node's current value, as the props node reads it on a render. */
 const valueOf = (node: Animated.AnimatedInterpolation<number>) => (node as unknown as { __getValue: () => number }).__getValue();
@@ -26,5 +26,18 @@ describe("pinOffset", () => {
     expect(valueOf(pin)).toBe(400);
     labelWidth.setValue(120);
     expect(valueOf(pin)).toBe(280);
+  });
+});
+
+describe("pinRightOffset", () => {
+  it("holds a right-anchored box on the visible right edge while the cell runs past it, and on the cell's edge once it is in view", () => {
+    const scrollX = new Animated.Value(0);
+    // A cell from 100 to 3100 seen through a 1000-wide viewport.
+    const pin = pinRightOffset(scrollX, 100, 3000, 1000);
+    expect(valueOf(pin)).toBe(-2100);
+    scrollX.setValue(1500);
+    expect(valueOf(pin)).toBe(-600);
+    scrollX.setValue(2500);
+    expect(valueOf(pin)).toBe(0);
   });
 });
