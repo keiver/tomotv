@@ -92,6 +92,9 @@ final class LiveFrameQueue {
         let epoch = ChapterFramePool.epoch
         let key = originKey ?? URL(string: inputUrl)?.host ?? "-"
         hostQueue(for: key).async { [self] in
+            // Declared first so it runs last: the caller hears once the lease, `pending` and the slot are free.
+            var outcome = Outcome.cancelled
+            defer { completion(outcome) }
             slots.wait()
             defer { slots.signal() }
             defer {
@@ -100,15 +103,15 @@ final class LiveFrameQueue {
                 lock.unlock()
             }
             if isCancelled(channelId) || ChapterFramePool.epoch != epoch {
-                completion(.cancelled)
+                outcome = .cancelled
                 return
             }
             guard let directory = ChapterFramePool.directory(for: channelId, in: root) else {
-                completion(.none(opened: true, failure: nil))
+                outcome = .none(opened: true, failure: nil)
                 return
             }
             guard let lease = LiveConnectionBroker.shared.tryAcquire(key: key, priority: priority, onRevoke: { [weak self] in self?.cancel(channelId: channelId) }) else {
-                completion(.cancelled)
+                outcome = .cancelled
                 return
             }
             defer { lease.release() }
@@ -120,7 +123,7 @@ final class LiveFrameQueue {
             if !stopped { running[channelId] = grabber }
             lock.unlock()
             if stopped {
-                completion(.cancelled)
+                outcome = .cancelled
                 return
             }
             let watchdog = DispatchWorkItem { grabber.stop() }
@@ -160,7 +163,7 @@ final class LiveFrameQueue {
             if stoppedMidway {
                 // Frames already written stay: the card was told about each as it landed.
                 NSLog("[LiveFrame] %@", String(format: "%@ cancelled %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
-                completion(.cancelled)
+                outcome = .cancelled
                 return
             }
             switch result {
@@ -172,7 +175,7 @@ final class LiveFrameQueue {
                 let clipBytes = clip.flatMap { (try? FileManager.default.attributesOfItem(atPath: $0.path))?[.size] as? Int } ?? 0
                 NSLog("[LiveFrame] %@", String(format: "%@ %d frames clip %@ %d packets %d bytes %.0fms %.2fs %lld bytes", channelId, files.count,
                                                  grabber.clipMode, grabber.clipPackets, clipBytes, grabber.clipMs, elapsed, grabber.bytesRead))
-                completion(.frames(files, clip: clip, pts: pts))
+                outcome = .frames(files, clip: clip, pts: pts)
             case .unchanged:
                 // The shown burst was just verified live: its files restart their validity.
                 let onDisk = queue.sync { () -> Bool in
@@ -181,7 +184,7 @@ final class LiveFrameQueue {
                     return touched
                 }
                 NSLog("[LiveFrame] %@", String(format: "%@ unchanged %.2fs %lld bytes onDisk=%d", channelId, elapsed, grabber.bytesRead, onDisk ? 1 : 0))
-                completion(.unchanged(onDisk: onDisk))
+                outcome = .unchanged(onDisk: onDisk)
             case .none:
                 // The pipeline's refusal set: a 404 is a dead channel, not the provider's connection cap.
                 if !grabber.sourceOpened, let failure = grabber.openFailure, ["Server returned 401", "Server returned 403", "Server returned 4XX"].contains(where: failure.contains) {
@@ -189,7 +192,7 @@ final class LiveFrameQueue {
                 }
                 NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@", channelId, elapsed, grabber.sourceOpened ? 1 : 0,
                                                  grabber.openFailure ?? "no keyframe", grabber.openedUrl ?? inputUrl))
-                completion(.none(opened: grabber.sourceOpened, failure: grabber.openFailure))
+                outcome = .none(opened: grabber.sourceOpened, failure: grabber.openFailure)
             }
         }
     }
