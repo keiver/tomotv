@@ -327,6 +327,11 @@ export default function VideoInfoScreen() {
 
   // Admin-only, and irreversible on the server, so the press only opens the confirm.
   const [deleting, setDeleting] = useState(false);
+  // The DELETE can outlast the panel: leaving through state means a panel already gone never pops what is on top.
+  const [deleted, setDeleted] = useState(false);
+  useEffect(() => {
+    if (deleted) router.back();
+  }, [deleted, router]);
   const handleDelete = useCallback(() => {
     if (!details || deleting) return;
     Alert.alert(cleanLabel(details.Name), t("info.deleteConfirm"), [
@@ -337,7 +342,7 @@ export default function VideoInfoScreen() {
         onPress: () => {
           setDeleting(true);
           deleteItem(details.Id)
-            .then(() => router.back())
+            .then(() => setDeleted(true))
             .catch((error) => {
               logger.warn("Failed to delete item", error, { service: "VideoInfo", videoId: details.Id });
               Alert.alert(cleanLabel(details.Name), t("info.deleteFailed"));
@@ -346,7 +351,7 @@ export default function VideoInfoScreen() {
         },
       },
     ]);
-  }, [deleting, details, router]);
+  }, [deleting, details]);
 
   // Stop an in-progress recording: deleting its timer is the stop, the file stays. The flip
   // is local (`stopped`) because the item's own Status lags the timer delete server-side.
