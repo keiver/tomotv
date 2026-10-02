@@ -365,13 +365,14 @@ final class FrameGrabber {
     private func decodeFollowing(_ first: Picture, span: TimeInterval, interval: TimeInterval, count: Int,
                                  wall: TimeInterval, started: Date, after: Int64? = nil, emit: (Picture) -> Bool) {
         guard count > 0, let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return }
-        guard let frame = av_frame_alloc(), let pkt = av_packet_alloc() else { return }
+        var freeingFrame: UnsafeMutablePointer<AVFrame>? = av_frame_alloc()
+        var freeingPacket: UnsafeMutablePointer<AVPacket>? = av_packet_alloc()
+        // Before the guard: one allocation failing still frees the other, and both frees take a nil.
         defer {
-            var freeingFrame: UnsafeMutablePointer<AVFrame>? = frame
             av_frame_free(&freeingFrame)
-            var freeingPacket: UnsafeMutablePointer<AVPacket>? = pkt
             av_packet_free(&freeingPacket)
         }
+        guard let frame = freeingFrame, let pkt = freeingPacket else { return }
         let timeBase = stream.pointee.time_base
         let step = Int64((interval * Double(timeBase.den) / Double(timeBase.num)).rounded())
         let spanPts = Int64((span * Double(timeBase.den) / Double(timeBase.num)).rounded())
@@ -702,15 +703,16 @@ final class FrameGrabber {
         guard let input, let decoder, let stream = input.pointee.streams[Int(videoIndex)] else { return [] }
         avcodec_flush_buffers(decoder)
 
-        guard let frame = av_frame_alloc(), let kept = av_frame_alloc(), let pkt = av_packet_alloc() else { return [] }
+        var freeingFrame: UnsafeMutablePointer<AVFrame>? = av_frame_alloc()
+        var freeingKept: UnsafeMutablePointer<AVFrame>? = av_frame_alloc()
+        var freeingPacket: UnsafeMutablePointer<AVPacket>? = av_packet_alloc()
+        // Before the guard: one allocation failing still frees the others, and every free takes a nil.
         defer {
-            var freeingFrame: UnsafeMutablePointer<AVFrame>? = frame
             av_frame_free(&freeingFrame)
-            var freeingKept: UnsafeMutablePointer<AVFrame>? = kept
             av_frame_free(&freeingKept)
-            var freeingPacket: UnsafeMutablePointer<AVPacket>? = pkt
             av_packet_free(&freeingPacket)
         }
+        guard let frame = freeingFrame, let kept = freeingKept, let pkt = freeingPacket else { return [] }
         // The chapter grab stops at one keyframe; a batch reads a keyframe per GOP, so its ceiling
         // scales with the batch. The deadline is the real bound on a slow link.
         let ceiling = forward ? Self.forwardPacketBudget : Self.packetBudget * max(1, batch)
@@ -1014,6 +1016,16 @@ struct FrameScore {
     }
 }
 
+/// One trim waits per pool: a write behind it queues no other, one after it started queues its own.
+struct TrimGate {
+    private var waiting = Set<String>()
+
+    /// True when no trim waits for the pool, which the caller then queues.
+    mutating func take(_ pool: String) -> Bool { waiting.insert(pool).inserted }
+
+    mutating func start(_ pool: String) { waiting.remove(pool) }
+}
+
 /// Where chapter frames live between plays: `Caches/chapter-frames/<itemId>/<ms>.jpg`,
 /// outside the session tree so no session sweep touches it, trimmed to a fixed size with
 /// the least recently used frames going first. The OS may purge Caches on top of this.
@@ -1022,6 +1034,7 @@ enum ChapterFramePool {
     private static let queue = DispatchQueue(label: "tv.tomo.framepool", qos: .utility)
     private static let lock = NSLock()
     private static var generation = 0
+    private static var gate = TrimGate()
 
     /// Which pool the frames on disk belong to. A grab that finishes after a purge drops its own.
     static var epoch: Int {
@@ -1058,8 +1071,18 @@ enum ChapterFramePool {
     }
 
     /// A trim queued behind whatever is being written, so the pool never stays over the cap.
+    /// A burst's writes share the one already waiting: it reads the pool when it starts.
     static func scheduleTrim(root: URL = root) {
-        queue.async { trim(toBytes: capBytes, root: root) }
+        lock.lock()
+        let fresh = gate.take(root.path)
+        lock.unlock()
+        guard fresh else { return }
+        queue.async {
+            lock.lock()
+            gate.start(root.path)
+            lock.unlock()
+            trim(toBytes: capBytes, root: root)
+        }
     }
 
     /// Oldest files go first until the pool fits. Only a directory this pass emptied is removed:

@@ -638,7 +638,11 @@ final class VideoTranscoder {
             out.pointee.format = encoder.pointee.pix_fmt.rawValue
             out.pointee.width = encoder.pointee.width
             out.pointee.height = encoder.pointee.height
-            guard av_frame_get_buffer(out, 0) >= 0 else { return nil }
+            guard av_frame_get_buffer(out, 0) >= 0 else {
+                var unbuffered: UnsafeMutablePointer<AVFrame>? = out
+                av_frame_free(&unbuffered)
+                return nil
+            }
             converted = out
         }
         guard let dst = converted, av_frame_make_writable(dst) >= 0 else { return nil }
