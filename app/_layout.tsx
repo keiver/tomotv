@@ -1,4 +1,5 @@
 import { COLORS } from "@/constants/colors";
+import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider, useNavigationContainerRef } from "expo-router";
 import { LogBox, Platform } from "react-native";
@@ -61,6 +62,10 @@ if (__DEV__) {
     logger.error("Uncaught JS error, LogBox suppressed", error, { component: "AppRoot", isFatal: isFatal === true });
   });
 }
+
+/** SDWebImage's decoded-image cache has no ceiling of its own. Android's image module has no such call. */
+const IMAGE_MEMORY_CACHE_BYTES = 64 * 1024 * 1024;
+if (Platform.OS === "ios") Image.configureCache({ maxMemoryCost: IMAGE_MEMORY_CACHE_BYTES });
 
 // Without a theme, expo-router's NavigationContainer falls back to the LIGHT DefaultTheme, whose
 // colors.background (rgb(242,242,242)) paints the surfaces behind/between screens — visible as a
