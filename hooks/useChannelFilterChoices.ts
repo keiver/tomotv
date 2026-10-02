@@ -20,7 +20,7 @@ export const CATEGORY_LABELS: Record<LiveTvCategory, () => string> = {
 };
 
 /**
- * Favorites, All, the viewer's groups, the tuner playlists' groups, then the server's non-empty categories.
+ * All, Favorites, the viewer's groups, the tuner playlists' groups, then the server's non-empty categories.
  * Favorites shows once there is one, or while it is picked; a picked playlist group shows before the groups arrive.
  */
 export function useChannelFilterChoices(): ChannelFilterChoice[] {
@@ -28,9 +28,8 @@ export function useChannelFilterChoices(): ChannelFilterChoice[] {
   const categories = useLiveTvCategories();
   const playlistGroups = useTunerGroups();
   return useMemo(() => {
-    const choices: ChannelFilterChoice[] = [];
+    const choices: ChannelFilterChoice[] = [{ filter: "all", label: t("liveTv.groupAll") }];
     if (favorites.length > 0 || filter === "favorites") choices.push({ filter: "favorites", label: t("library.favorites") });
-    choices.push({ filter: "all", label: t("liveTv.groupAll") });
     for (const group of groups) choices.push({ filter: `group:${group.id}`, label: group.name });
     // The picked group holds its slot until a read of every tuner drops it; a dead pick then resets to All (usePlaylistChannelIds).
     const picked = activePlaylistGroup(filter);

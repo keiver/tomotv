@@ -40,14 +40,14 @@ describe("useChannelFilterChoices", () => {
     mockComplete = true;
   });
 
-  it("lists custom groups, then playlist groups, then categories after All", () => {
+  it("lists All, Favorites, custom groups, then playlist groups, then categories", () => {
     mockPreferences = { favorites: [{ name: "KQED" }], groups: [{ id: "g1", name: "Mine", channels: [] }], filter: "all" };
     mockTunerGroups = [
       { name: "News", channelIds: ["a"] },
       { name: "Kids", channelIds: ["b"] },
     ];
     mockCategories = ["sports"];
-    expect(render().map((choice) => choice.filter)).toEqual(["favorites", "all", "group:g1", "playlist:News", "playlist:Kids", "category:sports"]);
+    expect(render().map((choice) => choice.filter)).toEqual(["all", "favorites", "group:g1", "playlist:News", "playlist:Kids", "category:sports"]);
   });
 
   it("keeps a picked playlist group's slot only while the groups still load", () => {
@@ -66,6 +66,6 @@ describe("useChannelFilterChoices", () => {
 
   it("shows Favorites while it is picked even with no favorite left", () => {
     mockPreferences = { favorites: [], groups: [], filter: "favorites" };
-    expect(render().map((choice) => choice.filter)).toEqual(["favorites", "all"]);
+    expect(render().map((choice) => choice.filter)).toEqual(["all", "favorites"]);
   });
 });
