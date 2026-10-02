@@ -59,7 +59,7 @@ import { sharePhoto } from "@/services/sharePhoto";
 import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import { Image, useImage } from "expo-image";
+import { Image, type ImageRef } from "expo-image";
 
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -109,8 +109,8 @@ export default function VideoInfoScreen() {
   // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV and iPad, so
   // the first paint already has the final height and onLayout only refines it.
   const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? padFitWidth(windowWidth, insets.left + insets.right, "center") : windowWidth);
-  // The hero source whose load failed; that hero falls back to the brand face.
-  const [heroFailedUri, setHeroFailedUri] = useState("");
+  // The last hero load's answer: its image, or null when it failed and the brand face stands in.
+  const [heroLoad, setHeroLoad] = useState<{ uri: string; ref: ImageRef | null }>({ uri: "", ref: null });
   // Seeded heroWidth paints frame one; this says the measured one has landed, and the fade
   // must not start on a guess.
   const [heroMeasured, setHeroMeasured] = useState(false);
@@ -519,9 +519,24 @@ export default function VideoInfoScreen() {
   const { items: preview, settled: previewSettled } = useFolderPreviewState(isContainer ? details : null, !heroUri);
   const showCollage = preview.length > 0;
 
-  // Loaded before the panel shows, so the art is in place on its first paint.
-  const heroRef = useImage(heroSource ?? "", { onError: () => setHeroFailedUri(heroUri) }, [heroSource?.cacheKey]);
-  const heroFailed = !!heroUri && heroFailedUri === heroUri;
+  // Loaded before the panel shows, so the art is in place on its first paint. Each load answers
+  // for its own URI: an earlier source's failure never blanks the art that replaced it.
+  const heroCacheKey = heroSource?.cacheKey;
+  useEffect(() => {
+    if (!heroSource) return;
+    let current = true;
+    const uri = heroSource.uri;
+    Image.loadAsync(heroSource).then(
+      (ref) => current && setHeroLoad({ uri, ref }),
+      () => current && setHeroLoad({ uri, ref: null }),
+    );
+    return () => {
+      current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heroUri, heroCacheKey]);
+  const heroRef = heroLoad.uri === heroUri ? heroLoad.ref : null;
+  const heroFailed = !!heroUri && heroLoad.uri === heroUri && !heroLoad.ref;
   const heroAspect = heroRef && heroRef.height > 0 && !heroFailed ? heroRef.width / heroRef.height : null;
   // Full width in the fixed area; a portrait's foot runs under the fade and content.
   const heroArt = heroSource && heroRef && heroArtArea > 0 && heroAspect != null ? heroArtFrame(heroWidth, heroArtArea, heroRef.width, heroRef.height) : null;

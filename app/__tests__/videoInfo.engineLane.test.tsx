@@ -43,7 +43,7 @@ jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }))
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
-jest.mock("expo-image", () => ({ Image: () => null, useImage: () => ({ width: 16, height: 9 }) }));
+jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: async () => ({ width: 16, height: 9 }) }) }));
 jest.mock("expo-blur", () => ({ BlurView: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));

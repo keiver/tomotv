@@ -2,6 +2,7 @@
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useLocalSearchParams } from "expo-router";
+import { Image } from "expo-image";
 import VideoInfoScreen from "@/app/video-info";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchItemDetails, fetchLiveTvManagement, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
 
@@ -34,7 +35,7 @@ jest.mock("@/components/info-action-row", () => ({
 }));
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
-jest.mock("expo-image", () => ({ Image: () => null, useImage: () => ({ width: 16, height: 9 }) }));
+jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: jest.fn(async () => ({ width: 16, height: 9 })) }) }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/components/FocusableButton", () => ({
   FocusableButton: ({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) => {
@@ -55,8 +56,9 @@ jest.mock("@/services/jellyfinApi", () => ({
   getBackdropUrl: () => null,
   getLogoUrl: () => null,
   getPersonImageUrl: () => null,
-  getPosterUrl: () => null,
-  hasPoster: () => false,
+  getCachedConfig: () => ({ server: "https://jf" }),
+  getPosterUrl: (id: string) => `https://jf/Items/${id}/Images/Primary`,
+  hasPoster: (item: { ImageTags?: { Primary?: string } }) => !!item.ImageTags?.Primary,
   isAudioItem: () => false,
   isFolder: () => false,
   isPhoto: () => false,
@@ -215,5 +217,17 @@ describe("Video info: live items", () => {
 
     await press(tree, "Groups");
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/channel-groups", params: { channelId: "c1", channelName: "One", channelNumber: "7" } });
+  });
+
+  it("draws the channel logo even when the load before details fails", async () => {
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    const logo = { width: 645, height: 300 };
+    (Image.loadAsync as jest.Mock).mockImplementation(async (source: { uri: string }) => {
+      if (!source.uri) throw new Error("Image url is blacklisted");
+      return logo;
+    });
+    const tree = await mount({ ...channel, ImageTags: { Primary: "tag" } });
+    expect(Image.loadAsync).not.toHaveBeenCalledWith(expect.objectContaining({ uri: "" }));
+    expect(tree.root.findAll((node) => node.props.source === logo).length).toBeGreaterThan(0);
   });
 });

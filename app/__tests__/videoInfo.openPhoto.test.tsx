@@ -45,7 +45,7 @@ jest.mock("@/components/close-overlay-button", () => ({ CloseOverlayButton: () =
 jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }));
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
-jest.mock("expo-image", () => ({ Image: () => null, useImage: () => ({ width: 16, height: 9 }) }));
+jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: async () => ({ width: 16, height: 9 }) }) }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
 let openPress: (() => void) | null = null;
