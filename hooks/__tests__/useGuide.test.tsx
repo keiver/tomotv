@@ -6,7 +6,7 @@ import TestRenderer, { act } from "react-test-renderer";
 import { AppState, type AppStateStatus } from "react-native";
 import { fetchChannels, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { GUIDE_CHANNEL_PAGE, useGuide } from "../useGuide";
-import { GUIDE_SPAN_MINUTES, MINUTE_MS } from "@/utils/guide";
+import { GUIDE_HORIZON_MINUTES, GUIDE_SPAN_MINUTES, MINUTE_MS } from "@/utils/guide";
 import { noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 
 jest.mock("@/services/jellyfinApi", () => ({
@@ -560,6 +560,25 @@ describe("useGuide", () => {
       expect(lastFetch()).toMatchObject({ startMs: start, endMs: start + span });
       expect(ref.current!.get().windowEndMs).toBe(start + span);
       expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([`c1-${start}`]);
+    });
+
+    it("ends two days out: a stretch crossing the horizon loads up to it, one past it loads nothing", async () => {
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      listEveryStretch();
+      const ref = await mount();
+      const start = await walkRight(ref, 6);
+      const horizon = start + GUIDE_HORIZON_MINUTES * MINUTE_MS;
+      expect(GUIDE_HORIZON_MINUTES).toBe(48 * 60);
+      await act(async () => ref.current!.get().holdWindow(horizon - span / 2, horizon + span));
+      await settle();
+      expect(lastFetch()).toMatchObject({ startMs: horizon - span, endMs: horizon });
+      expect(ref.current!.get().windowEndMs).toBe(horizon);
+
+      const asked = (fetchGuidePrograms as jest.Mock).mock.calls.length;
+      await act(async () => ref.current!.get().holdWindow(horizon + span, horizon + 2 * span));
+      await settle();
+      expect((fetchGuidePrograms as jest.Mock).mock.calls).toHaveLength(asked);
+      expect(ref.current!.get().windowEndMs).toBe(horizon);
     });
 
     it("a page loaded after a trim asks listings for the loaded stretch alone", async () => {

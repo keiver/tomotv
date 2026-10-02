@@ -12,6 +12,8 @@ export const TICK_MINUTES = 30;
 export const MINOR_TICK_MINUTES = 5;
 /** Programs loaded per fetch, and how far the window grows when the canvas nears its end. */
 export const GUIDE_SPAN_MINUTES = 360;
+/** Where the guide ends, counted from the window's start: nothing past it loads or scrolls into view. */
+export const GUIDE_HORIZON_MINUTES = 48 * 60;
 
 export interface GuideMetrics {
   pxPerMinute: number;

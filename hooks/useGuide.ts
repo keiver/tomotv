@@ -8,7 +8,19 @@ import { activeGuideUrls, fetchExternalProgramWindow } from "@/services/external
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { activeRecordTimer, EXTERNAL_GUIDE_PREFIX, GUIDE_SPAN_MINUTES, guideWindowStart, isActiveTimer, keepRange, mergePrograms, MINUTE_MS, programTimes, trimPrograms } from "@/utils/guide";
+import {
+  activeRecordTimer,
+  EXTERNAL_GUIDE_PREFIX,
+  GUIDE_HORIZON_MINUTES,
+  GUIDE_SPAN_MINUTES,
+  guideWindowStart,
+  isActiveTimer,
+  keepRange,
+  mergePrograms,
+  MINUTE_MS,
+  programTimes,
+  trimPrograms,
+} from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -43,7 +55,7 @@ export interface GuideState {
   isUpdating: boolean;
   error: string | null;
   retry: () => void;
-  /** The canvas names the stretch it needs: the window loads to cover it, then lets go of what lies GUIDE_KEEP_SPANS spans past it. */
+  /** The canvas names the stretch it needs: the window loads to cover it up to the horizon, then lets go of what lies GUIDE_KEEP_SPANS spans past it. */
   holdWindow: (needFromMs: number, needToMs: number) => void;
   /** Load the next page of channels with their programs; the list calls it as it nears the bottom. */
   loadMoreRows: () => void;
@@ -388,7 +400,9 @@ export function useGuide(): GuideState {
       const start = loadedStartRef.current;
       const end = windowEndRef.current;
       const wantFrom = Math.max(windowStartMs, windowStartMs + Math.floor((needFromMs - windowStartMs) / span) * span);
-      const wantTo = windowStartMs + Math.ceil((needToMs - windowStartMs) / span) * span;
+      const wantTo = Math.min(windowStartMs + GUIDE_HORIZON_MINUTES * MINUTE_MS, windowStartMs + Math.ceil((needToMs - windowStartMs) / span) * span);
+      // Wholly past the horizon: nothing to load.
+      if (wantFrom >= wantTo) return;
       // A stretch with a gap to the loaded one starts over there; one touching it grows the nearer edge.
       const apart = wantFrom > end || wantTo < start;
       const missing = apart
