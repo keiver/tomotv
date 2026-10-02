@@ -129,6 +129,14 @@ function GuideCellComponent({
   const artStyle = useAnimatedStyle(() => ({ opacity: artOpacity.value }));
   const handleLabelLayout = useCallback((event: LayoutChangeEvent) => labelWidth.setValue(event.nativeEvent.layout.width), [labelWidth]);
   const pinStyle = useMemo(() => ({ transform: [{ translateX: pinOffset(scrollX, left, width, labelWidth) }] }), [scrollX, left, width, labelWidth]);
+  // The label's width is a native node, so the scrim takes it as a scale on a 1pt body, never as a layout width.
+  const scrimStyles = useMemo(() => {
+    const pin = pinOffset(scrollX, left, width, labelWidth);
+    return {
+      body: { transform: [{ translateX: RNAnimated.add(pin, RNAnimated.multiply(labelWidth, 0.5)) }, { scaleX: labelWidth }] },
+      tail: { transform: [{ translateX: RNAnimated.add(pin, labelWidth) }] },
+    };
+  }, [scrollX, left, width, labelWidth]);
   const seenPinStyle = useMemo(() => (viewportWidth ? { transform: [{ translateX: pinRightOffset(scrollX, left, width, viewportWidth) }] } : undefined), [scrollX, left, width, viewportWidth]);
   const programId = program.Id;
   const handleRef = useCallback(
@@ -161,6 +169,14 @@ function GuideCellComponent({
           </View>
         </Animated.View>
       ) : null}
+      {/* Full height behind the pinned label, under the reel and the focus ring, so the text never sits on the poster.
+          Clipped inside the border: a one-sided border draws behind the cell's children. */}
+      {standIn ? null : (
+        <View style={styles.scrimClip} pointerEvents="none" testID="guide-cell-scrim-clip">
+          <RNAnimated.View style={[styles.scrim, scrimStyles.body]} testID="guide-cell-scrim" />
+          <RNAnimated.View style={[styles.scrimTail, { width }, scrimStyles.tail]} testID="guide-cell-scrim-tail" />
+        </View>
+      )}
       {/* Any row wears its reel whenever a burst exists, resting faded and brightening on the row's
           focus. A programme gets the compact strip only while it airs: history under a future slot would lie. */}
       {standInChannel ? (
@@ -200,13 +216,6 @@ function GuideCellComponent({
         accessibilityRole="button"
         accessibilityLabel={episodeTitle ? `${programName}, ${episodeTitle}` : programName}
         style={[styles.label, pinStyle]}>
-        {/* Full height behind the pinned text, so a cell scrolled down to its tail never sets it on the poster.
-            Off under grabbed frames: the poster is already faded and the reel strip runs under the label. */}
-        {artShown && !reelShown ? (
-          <View style={[styles.scrim, focused && styles.scrimFocused]} pointerEvents="none" testID="guide-cell-scrim">
-            <View style={[styles.scrimTail, { width }]} testID="guide-cell-scrim-tail" />
-          </View>
-        ) : null}
         {standInChannel ? (
           <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} />
         ) : (
@@ -302,25 +311,29 @@ const styles = StyleSheet.create({
   text: {
     gap: IS_TV ? 4 : 2,
   },
-  // Black under the label, trailing off across a cell's width.
+  scrimClip: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: "hidden",
+  },
+  // Black under the label, trailing off across a cell's width. A 1pt body centred on the cell's left edge,
+  // scaled to the label's width and slid right by half of it.
   scrim: {
     position: "absolute",
     top: 0,
     bottom: 0,
-    left: RING_WIDTH - 1,
-    right: 0,
+    left: -0.5,
+    width: 1,
     backgroundColor: COLORS.BACKGROUND_DEEP,
-  },
-  // The ring sits behind the label: the scrim clears its top and bottom lines.
-  scrimFocused: {
-    top: RING_WIDTH,
-    bottom: RING_WIDTH,
   },
   scrimTail: {
     position: "absolute",
     top: 0,
     bottom: 0,
-    left: "100%",
+    left: 0,
     experimental_backgroundImage: SCRIM_FADE,
   },
   meta: {

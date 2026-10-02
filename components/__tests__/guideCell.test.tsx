@@ -44,19 +44,28 @@ describe("GuideCell", () => {
     expect(testIds(render({ program: { ...program, Id: "p2", ImageTags: { Primary: "tag" } } }))).toContain("guide-cell-art");
   });
 
-  it("sets the text on a scrim riding the pinned label whenever art shows, so a narrow view never puts it over the poster", () => {
-    expect(testIds(render())).not.toContain("guide-cell-scrim");
+  it("sets every programme's text on a scrim riding the pinned label, poster or not, never a stand-in's", () => {
+    expect(testIds(render())).toContain("guide-cell-scrim");
+    expect(testIds(render({ program: { ...program, Id: `${NO_GUIDE_PREFIX}c3`, Name: "No listings", EpisodeTitle: undefined } }))).not.toContain("guide-cell-scrim");
     const tree = render({ program: { ...program, Id: "p9", ImageTags: { Primary: "tag" } } });
-    const label = tree.root.find((node) => node.props.isTVSelectable === true && typeof node.type !== "string");
-    const scrim = label.find((node) => node.props.testID === "guide-cell-scrim" && typeof node.type === "string");
+    const scrim = tree.root.find((node) => node.props.testID === "guide-cell-scrim" && typeof node.type === "string");
     expect(StyleSheet.flatten(scrim.props.style)).toEqual(expect.objectContaining({ top: 0, bottom: 0 }));
-    const tail = label.find((node) => node.props.testID === "guide-cell-scrim-tail" && typeof node.type === "string");
+    const tail = tree.root.find((node) => node.props.testID === "guide-cell-scrim-tail" && typeof node.type === "string");
     expect(StyleSheet.flatten(tail.props.style).width).toBe(400);
   });
 
-  it("leaves the scrim off while grabbed frames show, so the reel strip under the label stays in view", () => {
+  it("clips the scrim inside the cell's border, so the grid line between programmes stays visible", () => {
+    const clip = render().root.find((node) => node.props.testID === "guide-cell-scrim-clip" && typeof node.type === "string");
+    expect(StyleSheet.flatten(clip.props.style)).toEqual(expect.objectContaining({ position: "absolute", left: 0, right: 0, overflow: "hidden" }));
+    expect(clip.findAll((node) => node.props.testID === "guide-cell-scrim-tail" && typeof node.type === "string")).toHaveLength(1);
+  });
+
+  it("lays the scrim under an airing programme's reel and seen box, never over them", () => {
     mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
-    expect(testIds(render({ program: { ...program, Id: "p10", ChannelId: "c1", ImageTags: { Primary: "tag" } } }))).not.toContain("guide-cell-scrim");
+    const ids = testIds(render({ program: { ...program, Id: "p10", ChannelId: "c1", ImageTags: { Primary: "tag" } } }));
+    expect(ids.indexOf("guide-cell-scrim")).toBeGreaterThan(-1);
+    expect(ids.indexOf("guide-cell-scrim")).toBeLessThan(ids.indexOf("guide-focus-reel"));
+    expect(ids.indexOf("guide-cell-scrim")).toBeLessThan(ids.indexOf("guide-cell-seen"));
   });
 
   it("leads the art in from the left with its own fade, so the poster never starts on a hard edge", () => {
