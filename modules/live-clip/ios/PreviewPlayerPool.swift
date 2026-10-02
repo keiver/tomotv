@@ -108,6 +108,7 @@ final class PreviewPlayerPool {
     free(at: index)
     if code == AVError.Code.decoderTemporarilyUnavailable.rawValue { limit = max(1, hosting.count) }
     NSLog("[LiveClip] %@", "clip failed \(code), \(hosting.count) playing, limit \(limit)")
+    grantWaiting()
   }
 
   private func setLowPower(_ on: Bool) {
