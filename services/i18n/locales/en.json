@@ -90,8 +90,6 @@
   "liveTv.guideSourcesActive": "Active: {count}",
   "liveTv.guideSourcesAbout": "Guides from your tuner playlists, and the ones you add, fill in listings for channels your server has none for.",
   "liveTv.yourGuides": "Your guides",
-  "liveTv.playlistGuides": "From your playlists",
-  "liveTv.noPlaylistGuides": "Your tuner playlists declare no guide",
   "liveTv.addGuide": "Add guide URL",
   "liveTv.guideInvalid": "Enter an http or https address",
   "liveTv.guideWaiting": "Loads when the guide opens",

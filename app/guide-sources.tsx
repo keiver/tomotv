@@ -1,7 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { EmptyCard } from "@/components/empty-card";
 import { ListRow } from "@/components/settings/ListRow";
-import { RollingFieldRow, type RollingFieldRowHandle } from "@/components/settings/RollingFieldRow";
+import { RollingFieldRow } from "@/components/settings/RollingFieldRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { StorageBar } from "@/components/storage-bar";
@@ -16,7 +15,7 @@ import { guideLabel, guideSourceSummary } from "@/utils/guideSources";
 import { Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Alert, Platform, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -49,7 +48,6 @@ export default function GuideSourcesScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- statuses and clears are the triggers, not inputs
   const bytes = useMemo(() => guideCacheBytes(), [statuses, clears]);
 
-  const addRow = useRef<RollingFieldRowHandle>(null);
   const [draft, setDraft] = useState("");
   const [invalid, setInvalid] = useState(false);
   const saveDraft = useCallback(() => {
@@ -86,7 +84,7 @@ export default function GuideSourcesScreen() {
 
   const storage = <StorageBar used={bytes} free={Paths.availableDiskSpace} usedLabel={formatFileSize(bytes) || "0 KB"} hint={t("liveTv.clearGuides")} onClear={clearGuides} />;
 
-  const sourceRow = (url: string, isFirst: boolean, isLast: boolean, preferred: boolean) => {
+  const sourceRow = (url: string, preferred: boolean) => {
     const summary = guideSourceSummary(statuses[url], !off.has(url), t);
     return (
       <ListRow
@@ -98,8 +96,6 @@ export default function GuideSourcesScreen() {
         trailingIcon="chevron-forward"
         onPress={() => openGuide(url)}
         hasTVPreferredFocus={preferred}
-        isFirst={isFirst}
-        isLast={isLast}
       />
     );
   };
@@ -123,9 +119,12 @@ export default function GuideSourcesScreen() {
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.yourGuides")}</Text>
           </View>
           <View style={settingsStyles.section}>
-            {preferences.guideUrls.map((url, index) => sourceRow(url, index === 0, false, index === 0))}
+            <SectionFooter edge="top">
+              <Text style={settingsStyles.sectionNote}>{t("liveTv.guideSourcesAbout")}</Text>
+            </SectionFooter>
+            {/* The order guides are asked in: the viewer's own first. */}
+            {[...preferences.guideUrls, ...playlistUrls].map((url, index) => sourceRow(url, index === 0))}
             <RollingFieldRow
-              ref={addRow}
               icon="add"
               title={t("liveTv.addGuide")}
               subtitle={invalid ? t("liveTv.guideInvalid") : t("liveTv.guideUrlHint")}
@@ -133,7 +132,7 @@ export default function GuideSourcesScreen() {
               accessibilityLabel={t("liveTv.addGuide")}
               keyboardType="url"
               autoCapitalize="none"
-              isFirst={preferences.guideUrls.length === 0}
+              isFirst={false}
               isLast={false}
               value={draft}
               onChangeText={setDraft}
@@ -141,20 +140,6 @@ export default function GuideSourcesScreen() {
             />
             {storage}
           </View>
-
-          <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.playlistGuides")}</Text>
-          </View>
-          {playlistUrls.length > 0 ? (
-            <View style={settingsStyles.section}>
-              {playlistUrls.map((url, index) => sourceRow(url, index === 0, false, false))}
-              <SectionFooter>
-                <Text style={settingsStyles.sectionNote}>{t("liveTv.guideSourcesAbout")}</Text>
-              </SectionFooter>
-            </View>
-          ) : (
-            <EmptyCard icon="add" text={t("liveTv.noPlaylistGuides")} note={t("liveTv.guideSourcesAbout")} onPress={() => addRow.current?.reveal()} />
-          )}
         </View>
       </ScrollView>
     </View>

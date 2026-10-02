@@ -90,8 +90,6 @@
   "liveTv.guideSourcesActive": "Activas: {count}",
   "liveTv.guideSourcesAbout": "Las guías de tus listas del sintonizador, y las que añades, completan la programación de los canales para los que tu servidor no tiene.",
   "liveTv.yourGuides": "Tus guías",
-  "liveTv.playlistGuides": "De tus listas de reproducción",
-  "liveTv.noPlaylistGuides": "Tus listas del sintonizador no declaran ninguna guía",
   "liveTv.addGuide": "Añadir URL de guía",
   "liveTv.guideInvalid": "Escribe una dirección http o https",
   "liveTv.guideWaiting": "Se carga al abrir la guía",

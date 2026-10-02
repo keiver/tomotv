@@ -90,8 +90,6 @@
   "liveTv.guideSourcesActive": "Aktiv: {count}",
   "liveTv.guideSourcesAbout": "Guides aus deinen Tuner-Playlists und die, die du hinzufügst, ergänzen das Programm für Kanäle, für die dein Server keins hat.",
   "liveTv.yourGuides": "Deine Guides",
-  "liveTv.playlistGuides": "Aus deinen Playlists",
-  "liveTv.noPlaylistGuides": "Deine Tuner-Playlists geben keinen Guide an",
   "liveTv.addGuide": "Guide-URL hinzufügen",
   "liveTv.guideInvalid": "Gib eine http- oder https-Adresse ein",
   "liveTv.guideWaiting": "Lädt, wenn das Fernsehprogramm öffnet",

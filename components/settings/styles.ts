@@ -321,6 +321,10 @@ export const settingsStyles = StyleSheet.create({
   noteShadow: {
     boxShadow: `${Platform.isTV ? "inset 0 9px 12px -2px rgba(0,0,0,0.6)" : "inset 0 6px 8px -1px rgba(0,0,0,0.6)"}, ${LIP_BOTTOM}, ${RIM_SIDES}`,
   },
+  // A note heading its card: the same deep cast, thrown by the card's top edge, and the side rims.
+  noteShadowTop: {
+    boxShadow: `${Platform.isTV ? "inset 0 9px 12px -2px rgba(0,0,0,0.6)" : "inset 0 6px 8px -1px rgba(0,0,0,0.6)"}, ${RIM_SIDES}`,
+  },
   // Separates the action rows (Scan Network, Add Server) from the server rows
   // below them in the connect list. Inset to the rows' text edge, like a grouped
   // list separator, so it reads as structure rather than as a broken row border.
