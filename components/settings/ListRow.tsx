@@ -40,6 +40,8 @@ interface ListRowProps {
   unread?: boolean;
   /** Second line — a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
+  /** Lines the subtitle may take before it truncates; 0 wraps it whole (a full URL). */
+  subtitleLines?: number;
   /** Lead-in on the subtitle in the row's accent ink (ServerRow's "New · "). */
   subtitleAccent?: string;
   /** A green dot before the subtitle: a Diagnostics session from the last few minutes. */
@@ -121,6 +123,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     icon,
     title,
     subtitle,
+    subtitleLines = 1,
     subtitleAccent,
     subtitleDot = false,
     meter,
@@ -228,7 +231,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                 {subtitle != null ? (
                   <View style={styles.subtitleRow} collapsable={false}>
                     {subtitleDot ? <View style={[styles.fresh, { backgroundColor: onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.SUCCESS }]} /> : null}
-                    <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={1}>
+                    <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={subtitleLines}>
                       {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
                       {subtitle}
                     </Text>

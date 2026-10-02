@@ -21,6 +21,10 @@ export interface TunerData {
   tvgNameById: Record<string, string>;
   /** http(s) guide URLs the playlists declare (x-tvg-url / url-tvg), deduped in order. */
   tvgUrls: string[];
+  /** The tuner playlist URLs that declare each guide URL. */
+  tvgUrlSources: Record<string, string[]>;
+  /** The playlist URLs this read covered, in the server's order. */
+  tunerUrls: string[];
   /** Every tuner answered: only then may a group missing from `groups` be treated as gone. */
   complete: boolean;
 }
@@ -35,7 +39,7 @@ const TUNER_GROUPS_TTL_MS = 60 * 60 * 1000;
 /** A failed read is not retried before this passes, or every screen mount re-streams the playlists. */
 const TUNER_GROUPS_FAILURE_TTL_MS = 5 * 60 * 1000;
 
-const NO_DATA: TunerData = { groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [], complete: false };
+const NO_DATA: TunerData = { groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [], tvgUrlSources: {}, tunerUrls: [], complete: false };
 const failedAt = new Map<string, number>();
 /** The last successful read per key: a failed refetch serves this instead of nothing. */
 const lastGood = new Map<string, TunerData>();
@@ -60,12 +64,33 @@ export function resetTunerCache(): void {
   latest = null;
 }
 
-/** The server's http(s) M3U tuners read in one pass: groups and tvg-ids together. */
-export async function fetchTunerData(): Promise<TunerData> {
+/** The server's M3U tuners the device can stream itself: http(s) ones only. */
+async function readTuners(config: Awaited<ReturnType<typeof getConfig>>): Promise<TunerHost[]> {
+  const response = await fetchWithTimeout(
+    `${config.server}/System/Configuration/livetv`,
+    { headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
+    API_TIMEOUTS.NORMAL,
+  );
+  if (!response.ok) throwRequestError(response, `Failed to read the Live TV configuration: ${response.status}`);
+  const json = (await response.json()) as { TunerHosts?: TunerHost[] };
+  return (json.TunerHosts ?? []).filter((tuner) => tuner.Type?.toLowerCase() === "m3u" && /^https?:\/\//i.test(tuner.Url ?? ""));
+}
+
+/** The server's http(s) M3U tuners read in one pass: groups and tvg-ids together. `revalidate` reads
+ *  the tuner list first and drops the cached read when a playlist was added or removed on the server. */
+export async function fetchTunerData(options: { revalidate?: boolean } = {}): Promise<TunerData> {
   if (!isLiveSourcesAvailable()) return NO_DATA;
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const key = `tunerGroups:${config.server}:${config.userId}`;
+  const known = lastGood.get(key);
+  if (options.revalidate && known) {
+    const tuners = await readTuners(config).catch(() => null);
+    if (tuners && tuners.map((tuner) => tuner.Url).join("\n") !== known.tunerUrls.join("\n")) {
+      invalidateRequest(key);
+      failedAt.delete(key);
+    }
+  }
   const failed = failedAt.get(key);
   if (failed !== undefined && Date.now() - failed < TUNER_GROUPS_FAILURE_TTL_MS) return lastGood.get(key) ?? NO_DATA;
   const gen = generation;
@@ -73,18 +98,12 @@ export async function fetchTunerData(): Promise<TunerData> {
     const data = await cachedRequest(
       key,
       async () => {
-        const response = await fetchWithTimeout(
-          `${config.server}/System/Configuration/livetv`,
-          { headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
-          API_TIMEOUTS.NORMAL,
-        );
-        if (!response.ok) throwRequestError(response, `Failed to read the Live TV configuration: ${response.status}`);
-        const json = (await response.json()) as { TunerHosts?: TunerHost[] };
-        const tuners = (json.TunerHosts ?? []).filter((tuner) => tuner.Type?.toLowerCase() === "m3u" && /^https?:\/\//i.test(tuner.Url ?? ""));
+        const tuners = await readTuners(config);
         const groups = new Map<string, Set<string>>();
         const tvgById: Record<string, string> = {};
         const tvgNameById: Record<string, string> = {};
         const tvgUrls: string[] = [];
+        const tvgUrlSources: Record<string, string[]> = {};
         let lastFailure: unknown = null;
         let failures = 0;
         for (const tuner of tuners) {
@@ -110,13 +129,26 @@ export async function fetchTunerData(): Promise<TunerData> {
               if (channel.tvgId) tvgById[channel.id] = channel.tvgId;
               if (channel.tvgName) tvgNameById[channel.id] = channel.tvgName;
             }
-            for (const url of playlist.tvgUrls) if (/^https?:\/\//i.test(url) && !tvgUrls.includes(url)) tvgUrls.push(url);
+            for (const url of playlist.tvgUrls) {
+              if (!/^https?:\/\//i.test(url)) continue;
+              if (!tvgUrls.includes(url)) tvgUrls.push(url);
+              const sources = (tvgUrlSources[url] ??= []);
+              if (!sources.includes(tuner.Url!)) sources.push(tuner.Url!);
+            }
           }
         }
         // Every tuner refused (a busy single-connection tuner does, while a channel streams): a
         // failure, never an empty success that would overwrite lastGood and kill the group filter.
         if (tuners.length > 0 && failures === tuners.length) throw lastFailure;
-        const data: TunerData = { groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })), tvgById, tvgNameById, tvgUrls, complete: failures === 0 };
+        const data: TunerData = {
+          groups: Array.from(groups, ([name, ids]) => ({ name, channelIds: Array.from(ids) })),
+          tvgById,
+          tvgNameById,
+          tvgUrls,
+          tvgUrlSources,
+          tunerUrls: tuners.map((tuner) => tuner.Url!),
+          complete: failures === 0,
+        };
         if (gen !== generation) return data;
         // A partial read is retried after the failure window, like a failed one.
         if (data.complete) failedAt.delete(key);

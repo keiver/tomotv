@@ -39,6 +39,8 @@ export interface GuideSourceStatus {
   /** Channels asked of this guide so far, and the ones it paired. */
   asked: number;
   matched: readonly GuideMatch[];
+  /** The asked channels it did not pair. */
+  unmatched: readonly { channelId: string; name: string }[];
 }
 
 interface OpenGuide {
@@ -57,7 +59,8 @@ interface Source {
   force: boolean;
   /** Bumped by a refresh, so an open that started before it lands closed instead of kept. */
   epoch: number;
-  asked: Set<string>;
+  /** Channel name by id. */
+  asked: Map<string, string>;
   matched: Map<string, GuideMatch>;
   status: GuideSourceStatus;
 }
@@ -94,9 +97,9 @@ function sourceFor(url: string): Source {
       failedAt: null,
       force: false,
       epoch: 0,
-      asked: new Set(),
+      asked: new Map(),
       matched: new Map(),
-      status: { url, state: "waiting", progress: null, channels: null, programmes: null, loadedAt: null, asked: 0, matched: [] },
+      status: { url, state: "waiting", progress: null, channels: null, programmes: null, loadedAt: null, asked: 0, matched: [], unmatched: [] },
     };
     sources.set(url, source);
   }
@@ -278,9 +281,10 @@ export async function fetchExternalProgramWindow(
       guide = await ensureOpen(source, windowMs);
       const matches = matchChannels(guide.index, remaining);
       attempted = Array.from(matches.keys());
-      for (const channel of remaining) source.asked.add(channel.channelId);
+      for (const channel of remaining) source.asked.set(channel.channelId, channel.name);
       for (const [channelId, { via }] of matches) source.matched.set(channelId, { channelId, name: names.get(channelId) ?? "", via });
-      setStatus(source, { asked: source.asked.size, matched: Array.from(source.matched.values()) });
+      const unmatched = Array.from(source.asked, ([channelId, name]) => ({ channelId, name })).filter((channel) => !source.matched.has(channel.channelId));
+      setStatus(source, { asked: source.asked.size, matched: Array.from(source.matched.values()), unmatched });
       if (matches.size === 0) continue;
       const byGuideId = new Map<string, string[]>();
       for (const [channelId, { guideId }] of matches) byGuideId.set(guideId, [...(byGuideId.get(guideId) ?? []), channelId]);

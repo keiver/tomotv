@@ -1,6 +1,7 @@
 /** Wording and numbers the Guide Sources screens show for one guide, kept pure so both screens and tests share them. */
 import type { GuideSourceStatus } from "@/services/externalGuide";
 import type { StringKey } from "@/services/i18n/strings";
+import type { MatchVia } from "@/utils/guideMatch";
 import { formatClock, formatDayLabel } from "@/utils/guide";
 
 type Translate = (key: StringKey) => string;
@@ -8,6 +9,19 @@ type Translate = (key: StringKey) => string;
 /** A guide's URL as a row title: scheme and trailing slash dropped, host and path kept. */
 export function guideLabel(url: string): string {
   return url.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}
+
+/** Where a guide comes from: the viewer added it, and/or the tuner playlists that declare it. */
+export function guideOrigin(url: string, ownUrls: readonly string[], declaredBy: Readonly<Record<string, readonly string[]>>): { own: boolean; playlists: readonly string[] } {
+  return { own: ownUrls.includes(url), playlists: declaredBy[url] ?? [] };
+}
+
+/** Every channel asked of a guide, the paired ones first, each run by name; `via` is null for a miss. */
+export function guideChannelRows(status: GuideSourceStatus | undefined): { channelId: string; name: string; via: MatchVia | null }[] {
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+  const matched = [...(status?.matched ?? [])].sort(byName);
+  const missed = [...(status?.unmatched ?? [])].sort(byName).map((channel) => ({ ...channel, via: null }));
+  return [...matched, ...missed];
 }
 
 /** The host alone, for a screen title. */

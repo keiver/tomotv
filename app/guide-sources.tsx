@@ -31,7 +31,7 @@ export default function GuideSourcesScreen() {
   const [declared, setDeclared] = useState<string[]>(() => lastKnownTunerData()?.tvgUrls ?? []);
   useEffect(() => {
     let cancelled = false;
-    fetchTunerData()
+    fetchTunerData({ revalidate: true })
       .then((data) => {
         if (!cancelled) setDeclared(data.tvgUrls);
       })

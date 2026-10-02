@@ -61,6 +61,9 @@ describe("fetchTunerGroups", () => {
       tvgNameById: {},
       // Declared guide URLs merge in order, http(s) only, deduped.
       tvgUrls: ["http://g/a.xml", "https://g/b.xml.gz"],
+      // Each guide names every playlist that declares it, once.
+      tvgUrlSources: { "http://g/a.xml": ["http://t/one.m3u", "https://t/two.m3u"], "https://g/b.xml.gz": ["https://t/two.m3u"] },
+      tunerUrls: ["http://t/one.m3u", "https://t/two.m3u"],
       complete: true,
     });
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledTimes(2);
@@ -112,6 +115,8 @@ describe("fetchTunerGroups", () => {
       tvgById: { s: "S.uk" },
       tvgNameById: {},
       tvgUrls: ["http://g/busy.xml"],
+      tvgUrlSources: { "http://g/busy.xml": ["http://t/busy.m3u"] },
+      tunerUrls: ["http://t/busy.m3u", "http://t/other.m3u"],
       complete: false,
     });
     expect(lastKnownTunerData()).toEqual(partial);
@@ -212,5 +217,29 @@ describe("fetchTunerGroups", () => {
     expect(lastKnownTunerData()).toBeNull();
     clearRequestCache();
     await expect(fetchTunerGroups()).rejects.toThrow("500");
+  });
+
+  it("revalidating re-reads at once when the server gained a playlist, and keeps the cache when it did not", async () => {
+    const one = configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]);
+    global.fetch = jest.fn().mockResolvedValue(one);
+    mockLiveSources.loadTunerPlaylist.mockResolvedValue({ groups: [], channels: [], tvgUrls: ["http://g/one.xml"] });
+    await fetchTunerData();
+    // Same tuner list: one config read, no re-stream.
+    await fetchTunerData({ revalidate: true });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledTimes(1);
+    global.fetch = jest.fn().mockResolvedValue(
+      configResponse([
+        { Type: "m3u", Url: "http://t/one.m3u" },
+        { Type: "m3u", Url: "http://t/new.m3u" },
+      ]),
+    );
+    mockLiveSources.loadTunerPlaylist
+      .mockResolvedValueOnce({ groups: [], channels: [], tvgUrls: ["http://g/one.xml"] })
+      .mockResolvedValueOnce({ groups: [], channels: [], tvgUrls: ["http://g/new.xml"] });
+    const data = await fetchTunerData({ revalidate: true });
+    expect(data.tunerUrls).toEqual(["http://t/one.m3u", "http://t/new.m3u"]);
+    expect(data.tvgUrls).toEqual(["http://g/one.xml", "http://g/new.xml"]);
+    expect(data.tvgUrlSources["http://g/new.xml"]).toEqual(["http://t/new.m3u"]);
   });
 });
