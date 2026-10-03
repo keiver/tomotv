@@ -114,6 +114,8 @@ const emitLiveFrame = (body: { channelId: string; uri: string; index: number }) 
 };
 /** A burst of `count` files under one stamp, the shape the engine answers with. */
 const burst = (channelId: string, stamp: number, count = LIVE_FRAME_BURST_COUNT) => Array.from({ length: count }, (_, i) => `file:///pool/${channelId}/live-${stamp}-${i}.jpg`);
+/** The newest frame of a full burst, the one a card rests on. */
+const LAST_FRAME = LIVE_FRAME_BURST_COUNT - 1;
 /** The pool's answer for a channel: its newest burst and when its validity counts from. */
 const onDisk = (channelId: string, at: number, count = LIVE_FRAME_BURST_COUNT) => ({ uris: burst(channelId, at, count), at });
 
@@ -158,7 +160,7 @@ describe("live frames", () => {
       deadline: LIVE_FRAME_COLD_DEADLINE_S,
       clipSpan: LIVE_FRAME_CLIP_S,
     });
-    expect(liveFrameFor("m1")).toEqual({ uri: "file:///pool/m1/live-1000000-11.jpg", cacheKey: "live-m1-1000000-11" });
+    expect(liveFrameFor("m1")).toEqual({ uri: `file:///pool/m1/live-1000000-${LAST_FRAME}.jpg`, cacheKey: `live-m1-1000000-${LAST_FRAME}` });
     expect(mockOnDisk).toHaveBeenCalledWith(["m1", "m2"]);
     await advance(LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["m1", "m2"]);
@@ -173,12 +175,12 @@ describe("live frames", () => {
     await advance(0);
     expect(listener).toHaveBeenCalledTimes(1);
     const resting = liveFrameFor("m1");
-    expect(resting?.uri).toBe("file:///pool/m1/live-1000000-11.jpg");
+    expect(resting?.uri).toBe(`file:///pool/m1/live-1000000-${LAST_FRAME}.jpg`);
     await advance(LIVE_FRAME_REFRESH_MS - 1);
     expect(liveFrameFor("m1")).toBe(resting);
     expect(listener).toHaveBeenCalledTimes(1);
     await advance(1);
-    expect(liveFrameFor("m1")?.uri).toBe(`file:///pool/m1/live-${1_000_000 + LIVE_FRAME_REFRESH_MS}-11.jpg`);
+    expect(liveFrameFor("m1")?.uri).toBe(`file:///pool/m1/live-${1_000_000 + LIVE_FRAME_REFRESH_MS}-${LAST_FRAME}.jpg`);
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
@@ -941,7 +943,7 @@ describe("live frames", () => {
     await advance(0);
     // The day-old pictures never show; the first grab replaces nothing but a placeholder.
     expect(grabs()).toEqual(["m1"]);
-    expect(liveFrameFor("m1")?.uri).toBe("file:///pool/m1/live-1000000-11.jpg");
+    expect(liveFrameFor("m1")?.uri).toBe(`file:///pool/m1/live-1000000-${LAST_FRAME}.jpg`);
   });
 
   it("expires a burst whose channel keeps failing, so the card lets its old picture go", async () => {
