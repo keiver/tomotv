@@ -1,18 +1,21 @@
 import { closeLiveStream, noteOpenFailed, openRecentlyFailed, resolveChannel } from "@/services/jellyfinApi";
-import { canRemuxLocally, localRemuxToken, setLiveWindow, startLocalRemux, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@/services/localRemux";
+import { canRemuxLocally, localRemuxToken, setLiveSessionPriority, setLiveWindow, startLocalRemux, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { adjacentChannelId } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 
 /**
- * The channels around the one on screen, and the one owner of their sessions. Neighbours run in
- * the engine with segments already cut, so a flip binds a ready session (measured 0.05-0.10s to
- * ready against 0.6-2.8s cold). Nothing is held open on the server: an open the server counts
- * outlives any app that dies, and it writes the channel to the server's disk the whole time.
+ * The channels around the one on screen, hot in the engine so a flip binds a ready session
+ * (measured 0.05-0.10s against 0.6-2.8s cold). Neighbours run only inside a surf window after a
+ * flip: a warm live neighbour pulls its full bitrate the whole time, starving the playing channel.
  */
 
 /** Channels on each side kept cutting segments in the engine. */
 const HOT_RADIUS = 1;
+/** How long after a flip neighbours stay hot; settled viewing holds no sessions. */
+const SURF_WINDOW_MS = 30_000;
+/** How long a quiet resolve stays bindable; origin variant URLs go stale. */
+const WARM_TTL_MS = 60_000;
 /** Hot sessions at once: both neighbours and the channel just left, until a recenter trims it. */
 const MAX_HOT = 3;
 /** A hot session's window until a player adopts it: disk, not playback, is what it bounds. */
@@ -49,10 +52,38 @@ const starting = new Map<string, number>();
 /** A flip waiting on a start in flight: the start hands its session here instead of into the ring. */
 const claims = new Map<string, (session: RingSession | null) => void>();
 const coldUntil = new Map<string, number>();
+/** Details a neighbour resolve minted without a server open, bindable once each. */
+const warm = new Map<string, { details: JellyfinVideoItem; at: number }>();
 let generation = 0;
 let active = false;
 let center: string | null = null;
 let wanted = new Set<string>();
+let surfDeadline = 0;
+let surfTimer: ReturnType<typeof setTimeout> | null = null;
+
+function surfing(): boolean {
+  return Date.now() < surfDeadline;
+}
+
+function armSurfWindow(): void {
+  surfDeadline = Date.now() + SURF_WINDOW_MS;
+  if (surfTimer) clearTimeout(surfTimer);
+  surfTimer = setTimeout(() => coolDown("surf window closed"), SURF_WINDOW_MS);
+}
+
+/** Ends the window and releases every hot session; in-flight starts abandon themselves. */
+function coolDown(reason: string): void {
+  surfDeadline = 0;
+  if (surfTimer) {
+    clearTimeout(surfTimer);
+    surfTimer = null;
+  }
+  if (hot.size === 0) return;
+  const entries = [...hot.values()];
+  hot.clear();
+  for (const entry of entries) release(entry);
+  logger.info("Live ring: neighbours released", { service: "LiveRing", reason, count: entries.length });
+}
 
 /** Channel ids within `radius` steps of `centerId` either way round the ring, the center excluded. */
 export function ringAround(ring: { Id: string }[], centerId: string, radius: number): string[] {
@@ -120,11 +151,13 @@ async function heat(channelId: string): Promise<void> {
   const mine = ++generation;
   starting.set(channelId, mine);
   // The center counts: a flip recenters before its player asks, and trim() keeps the center for it.
-  const current = () => active && starting.get(channelId) === mine && (wanted.has(channelId) || claims.has(channelId) || center === channelId);
+  const current = () => active && starting.get(channelId) === mine && (claims.has(channelId) || center === channelId || (wanted.has(channelId) && surfing()));
   let details: JellyfinVideoItem | null = null;
   let token: string | null = null;
   try {
     details = await resolveChannel(channelId, undefined, { quiet: true });
+    // A manifest resolve holds nothing open, so it keeps for a flip after the ring cooled.
+    if (details.liveStreamUrl && !details.LiveStreamId) warm.set(channelId, { details, at: Date.now() });
     if (!current()) {
       void closeLiveStream(details.LiveStreamId);
       return;
@@ -146,6 +179,7 @@ async function heat(channelId: string): Promise<void> {
     if (claim) {
       claims.delete(channelId);
       void setLiveWindow(token, PLAYING_WINDOW_SECONDS);
+      void setLiveSessionPriority(token, "playback");
       claim({ channelId, details, url, token, ready: false });
       logger.info("Live ring: flip took a neighbour still starting", { service: "LiveRing", channel: details.Name });
       return;
@@ -176,10 +210,12 @@ async function heat(channelId: string): Promise<void> {
  */
 export function recenterLiveRing(ring: { Id: string }[], centerId: string, playing: boolean): void {
   active = true;
+  // A new center is a flip (or the first channel opened); a lane retry keeps the old window.
+  if (center !== centerId) armSurfWindow();
   center = centerId;
   wanted = new Set(ringAround(ring, centerId, HOT_RADIUS).filter((id) => !coldOnly(id)));
   trim();
-  if (playing) {
+  if (playing && surfing()) {
     for (const id of wanted) {
       if (!hot.has(id) && !starting.has(id) && !openRecentlyFailed(id)) void heat(id);
     }
@@ -202,6 +238,7 @@ export function takeRingSession(channelId: string): Promise<RingSession | null> 
     hot.delete(channelId);
     entry.unsubscribe();
     void setLiveWindow(entry.token, PLAYING_WINDOW_SECONDS);
+    void setLiveSessionPriority(entry.token, "playback");
     logger.info(entry.ready ? "Live ring: flip bound a hot session" : "Live ring: flip took a neighbour still cutting its first segments", { service: "LiveRing", channel: entry.details.Name });
     return Promise.resolve({ channelId: entry.channelId, details: entry.details, url: entry.url, token: entry.token, ready: entry.ready });
   }
@@ -212,16 +249,32 @@ export function takeRingSession(channelId: string): Promise<RingSession | null> 
   });
 }
 
-/** Keeps a channel the player left, still cutting segments, so flipping back is instant. False: stop it. */
+/** Keeps a channel the player left mid-surf, still cutting segments, so flipping back is instant. False: stop it. */
 export function retainLiveSession(channel: HotChannel): boolean {
-  if (!active || hot.has(channel.channelId)) return false;
+  if (!active || !surfing() || hot.has(channel.channelId)) return false;
   const entry: HotEntry = { ...channel, segmentsCut: READY_SEGMENTS, ready: true, unsubscribe: () => {} };
   watch(entry);
   hot.set(channel.channelId, entry);
   trim();
   if (hot.get(channel.channelId) !== entry) return true;
   void setLiveWindow(channel.token, HOT_WINDOW_SECONDS);
+  // A neighbour again: the next channel's playback may take its origin connection.
+  void setLiveSessionPriority(channel.token, "ring");
   return true;
+}
+
+/** The playing channel is starving on the link: every neighbour goes, until the next flip. */
+export function yieldLiveRing(): void {
+  if (surfDeadline === 0 && hot.size === 0) return;
+  coolDown("playing channel starved");
+}
+
+/** Details a neighbour resolve minted for this channel, fresh enough to bind, once. */
+export function takeWarmDetails(channelId: string): JellyfinVideoItem | null {
+  const entry = warm.get(channelId);
+  if (!entry) return null;
+  warm.delete(channelId);
+  return Date.now() - entry.at < WARM_TTL_MS ? entry.details : null;
 }
 
 /** The player is gone: every session the ring holds is closed. */
@@ -230,6 +283,12 @@ export async function releaseLiveRing(): Promise<void> {
   center = null;
   wanted = new Set();
   starting.clear();
+  warm.clear();
+  surfDeadline = 0;
+  if (surfTimer) {
+    clearTimeout(surfTimer);
+    surfTimer = null;
+  }
   for (const claim of claims.values()) claim(null);
   claims.clear();
   generation += 1;

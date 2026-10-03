@@ -15,7 +15,7 @@ for list in "$ROOT"/channels/*.list; do
   echo "$(basename "$out"): $(wc -l < "$out") sources, $(awk -F '\t' '{ s += $2 } END { printf "%.0f", s / 60 }' "$out") min cycle"
 done
 
-# Six frames per source, spread across its length, for the guide's programme images.
+# Six frames per source, spread across its length, for the guide's programme images; a replaced source regrabs.
 FF=/usr/lib/jellyfin-ffmpeg/ffmpeg
 mkdir -p "$ROOT/frames"
 for dur in "$ROOT"/channels/*.dur; do
@@ -23,7 +23,7 @@ for dur in "$ROOT"/channels/*.dur; do
     id=$(printf '%s' "$path" | md5sum | cut -c1-12)
     for i in 0 1 2 3 4 5; do
       out="$ROOT/frames/$id-$i.jpg"
-      [ -s "$out" ] && continue
+      [ -s "$out" ] && [ "$out" -nt "/media/$path" ] && continue
       at=$(awk -v d="$seconds" -v i="$i" 'BEGIN { printf "%.2f", d * (i + 0.5) / 6 }')
       "$FF" -nostdin -hide_banner -loglevel error -y -ss "$at" -i "/media/$path" -frames:v 1 -vf "scale=640:-2" -q:v 4 "$out" || echo "no frame $i for $path"
     done

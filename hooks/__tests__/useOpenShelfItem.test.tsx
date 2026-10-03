@@ -35,7 +35,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   isLiveChannel: (item: JellyfinItem) => item.Type === "TvChannel",
 }));
 
-type OpenHandle = { open: (item: JellyfinItem) => void };
+type OpenHandle = { open: (item: JellyfinItem, options?: { replace?: boolean }) => void };
 
 const Harness = forwardRef<OpenHandle>((_props, ref) => {
   const openItem = useOpenShelfItem();
@@ -79,5 +79,23 @@ describe("useOpenShelfItem", () => {
     mountHarness().open({ Id: "movie-1", Name: "Movie", Type: "Movie", ParentId: "folder-1" } as JellyfinItem);
 
     expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/player" }));
+  });
+
+  it("tunes the channel of a programme on now, and opens the panel of a later one", () => {
+    const now = Date.now();
+    const iso = (offsetMin: number) => new Date(now + offsetMin * 60_000).toISOString();
+    const handle = mountHarness();
+    handle.open({ Id: "p1", Name: "Witness", Type: "Program", ChannelId: "ch1", ChannelName: "Al Jazeera", StartDate: iso(-10), EndDate: iso(20) } as JellyfinItem);
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/player", params: { videoId: "ch1", videoName: "Al Jazeera", live: "1" } });
+    handle.open({ Id: "p2", Name: "Witness", Type: "Program", ChannelId: "ch1", ChannelName: "Al Jazeera", StartDate: iso(60), EndDate: iso(90) } as JellyfinItem);
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/video-info", params: { videoId: "p2", name: "Witness" } });
+    expect(mockBuildQueue).not.toHaveBeenCalled();
+  });
+
+  it("replaces the presenting sheet with a live channel when asked", () => {
+    mountHarness().open({ Id: "ch1", Name: "Al Jazeera", Type: "TvChannel" } as JellyfinItem, { replace: true });
+
+    expect(mockReplace).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "ch1", videoName: "Al Jazeera", live: "1" } });
+    expect(mockPush).not.toHaveBeenCalledWith(expect.objectContaining({ pathname: "/player" }));
   });
 });

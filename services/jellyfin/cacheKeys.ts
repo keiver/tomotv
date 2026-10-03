@@ -9,7 +9,7 @@
 import { patchFolderCacheItem } from "@/services/folderContentsCache";
 import { invalidateByPrefix } from "@/services/requestCache";
 import { LibraryFilters } from "@/types/jellyfin";
-import { notifyResumeChange } from "./events";
+import { notifyItemRemoved, notifyRecordingsChange, notifyResumeChange } from "./events";
 
 /**
  * Stable cache-key fragment for a LibraryFilters selection. Read functions cache their mapped
@@ -46,6 +46,51 @@ export function invalidateResumeAndItem(userId: string, itemId: string, position
   invalidateByPrefix(`filtered:${userId}:`);
   patchFolderCacheItem(itemId, positionTicks == null ? null : { PlaybackPositionTicks: positionTicks });
   notifyResumeChange(itemId, positionTicks);
+}
+
+/**
+ * Evict every cached read that could still list a deleted item, then tell visible lists to
+ * drop its card and the Continue Watching row to reload.
+ */
+export function invalidateItemRemoved(userId: string, itemId: string): void {
+  if (!userId) return;
+  invalidateByPrefix(`resume:${userId}:`);
+  invalidateByPrefix(`recentPlayed:${userId}:`);
+  invalidateByPrefix(`details:${userId}:${itemId}`);
+  invalidateByPrefix(`folder:${userId}:`);
+  invalidateByPrefix(`playlist:${userId}:`);
+  invalidateByPrefix(`filtered:${userId}:`);
+  invalidateByPrefix(`latest:${userId}:`);
+  invalidateByPrefix(`recursive:${userId}:`);
+  invalidateByPrefix(`recursivesized:${userId}:`);
+  invalidateByPrefix(`recursivephotos:${userId}:`);
+  invalidateByPrefix(`items:${userId}:`);
+  invalidateByPrefix(`playlistAll:${userId}:`);
+  invalidateByPrefix(`viewLeaves:${userId}:`);
+  invalidateByPrefix(`folderpreview:${userId}:`);
+  invalidateByPrefix(`viewcount:${userId}:`);
+  invalidateByPrefix(`search:${userId}:`);
+  patchFolderCacheItem(itemId, null);
+  notifyItemRemoved(itemId);
+  notifyResumeChange();
+}
+
+/**
+ * Evict cached reads whose contents change when a timer write starts or stops a recording:
+ * the recordings folders (a first recording creates one) and every listing that could carry
+ * the new item, then tell the recordings screens to refetch. `recordingItemId` is the
+ * recording an info panel stopped, whose own detail goes stale with the timer.
+ */
+export function invalidateRecordingReads(userId: string, recordingItemId?: string): void {
+  if (!userId) return;
+  if (recordingItemId) invalidateByPrefix(`details:${userId}:${recordingItemId}`);
+  invalidateByPrefix("recordingFolders:");
+  invalidateByPrefix(`folder:${userId}:`);
+  invalidateByPrefix(`filtered:${userId}:`);
+  invalidateByPrefix(`latest:${userId}:`);
+  invalidateByPrefix(`items:${userId}:`);
+  invalidateByPrefix(`recursive:${userId}:`);
+  notifyRecordingsChange();
 }
 
 /**

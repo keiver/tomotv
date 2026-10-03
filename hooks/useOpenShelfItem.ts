@@ -5,6 +5,7 @@ import { isJoined, playForGroup } from "@/services/syncPlayManager";
 import { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
+import { Platform } from "react-native";
 
 /**
  * One press handler for every home shelf card. Folder kinds (Series, MusicAlbum, BoxSet,
@@ -27,7 +28,21 @@ export function useOpenShelfItem() {
     (item: JellyfinItem, options?: { replace?: boolean }) => {
       // The Live TV view is a screen of its own (the guide), not a folder.
       if (item.CollectionType === "livetv") {
-        router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
+        if (Platform.isTV) router.navigate("/livetv");
+        else router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
+        return;
+      }
+      // A programme from search follows the guide's rule: on now tunes its channel, later opens its panel.
+      if (item.Type === "Program" && item.ChannelId) {
+        const startMs = Date.parse(item.StartDate ?? "");
+        const endMs = Date.parse(item.EndDate ?? "");
+        const nowMs = Date.now();
+        if (startMs <= nowMs && nowMs < endMs) {
+          showGlobalLoader();
+          router.push({ pathname: "/player", params: { videoId: item.ChannelId, videoName: item.ChannelName ?? item.Name, live: "1" } });
+        } else {
+          router.push({ pathname: "/video-info", params: { videoId: item.Id, name: item.Name } });
+        }
         return;
       }
       if (isFolder(item)) {
@@ -56,7 +71,9 @@ export function useOpenShelfItem() {
       // A live channel has no queue, no resume and no SyncPlay: the player opens the stream.
       if (isLiveChannel(item)) {
         showGlobalLoader();
-        router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name, live: "1" } });
+        const destination = { pathname: "/player" as const, params: { videoId: item.Id, videoName: item.Name, live: "1" } };
+        if (options?.replace) router.replace(destination);
+        else router.push(destination);
         return;
       }
 

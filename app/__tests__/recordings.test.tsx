@@ -26,6 +26,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchFilteredVideos: jest.fn(async () => []),
   fetchRecordingFolderIds: jest.fn(),
   fetchRecordings: jest.fn(async () => ({ items: [] })),
+  subscribeRecordingsChange: jest.fn(() => jest.fn()),
 }));
 
 import RecordingsScreen from "@/app/recordings";

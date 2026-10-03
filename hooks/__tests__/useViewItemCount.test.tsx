@@ -4,14 +4,14 @@
  * the badge and refetches even though both servers hand out the same view id.
  */
 import { useViewItemCount } from "@/hooks/useViewItemCount";
-import { fetchViewItemCount, subscribeAuthChange } from "@/services/jellyfinApi";
+import { fetchLibraryRootCount, subscribeAuthChange } from "@/services/jellyfinApi";
 import type { JellyfinItem } from "@/types/jellyfin";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
-jest.mock("@/services/jellyfinApi", () => ({ fetchViewItemCount: jest.fn(), subscribeAuthChange: jest.fn() }));
+jest.mock("@/services/jellyfinApi", () => ({ fetchLibraryRootCount: jest.fn(), subscribeAuthChange: jest.fn() }));
 
-const mockFetch = fetchViewItemCount as jest.Mock;
+const mockFetch = fetchLibraryRootCount as jest.Mock;
 const mockSubscribe = subscribeAuthChange as jest.Mock;
 
 // Every mounted probe's auth listener, so a test can fire the switch the app fires.

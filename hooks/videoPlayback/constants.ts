@@ -14,8 +14,14 @@ export const LINK_CAP_SHARE = 0.8;
 export const LINK_CAP_HYSTERESIS = 0.15;
 /** Margin over the source rate at which the link carries the copy (linkAffordsChapterFrames). */
 export const LINK_CLIMB_MARGIN = 1.2;
+/** How often AVPlayer's buffer reaches the engine; it counts a report older than 3s as gone. */
+export const PLAYER_BUFFER_REPORT_MS = 1000;
 /** What AVPlayer buffers ahead to reach the first frame on the rung lane, where its own threshold costs a server encode per segment. */
 export const SLIPSTREAM_FORWARD_BUFFER_SECONDS = 12;
+/** Bytes AVPlayer may hold ahead once playing: automatic held 52s of a 110 Mb/s copy and the 3 GB TV killed the app. */
+export const FORWARD_BUFFER_BYTES = 200_000_000;
+/** AVPlayer's automatic depth (measured 50-55s on T105); a budget reaching it leaves automatic in place. */
+export const FORWARD_BUFFER_AUTOMATIC_SECONDS = 50;
 /** A live stream the player has not opened by then is treated as dropped; the live ladder takes it. */
 export const LIVE_START_DEADLINE_MS = 45_000;
 /**

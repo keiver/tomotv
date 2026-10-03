@@ -16,16 +16,16 @@ private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AVERROR_EOF: Int32 = -541_478_725 // FFERRTAG('E','O','F',' ')
 
 extension RemuxSession {
-    /// Starts one reader per image track that names a server stream. Once a session, and only when
-    /// the demuxer is not feeding them: the source let go, lost, or held under a rung. A session
-    /// that reads its source never makes the server extract anything.
-    func startServerImageSubtitles() {
+    /// Starts a reader for each image track that names a server stream, once per track: every track when
+    /// the rungs carry the session, or only `index`, a track the demuxer cannot feed itself.
+    func startServerImageSubtitles(only index: Int? = nil) {
         stateLock.lock()
-        let first = !serverImageSubtitlesStarted
-        serverImageSubtitlesStarted = true
+        let tracks = config.subtitles.filter { track in
+            track.isImage && !track.serverSupUrl.isEmpty && (index == nil || track.index == index) && !serverImageSubtitleTracks.contains(track.index)
+        }
+        for track in tracks { serverImageSubtitleTracks.insert(track.index) }
         stateLock.unlock()
-        guard first else { return }
-        for track in config.subtitles where track.isImage && !track.serverSupUrl.isEmpty {
+        for track in tracks {
             let thread = Thread { self.readServerImageSubtitles(track) }
             thread.name = "tv.tomo.localremux.sup"
             thread.qualityOfService = .utility
@@ -65,7 +65,7 @@ extension RemuxSession {
     private func readServerImageSubtitlesOnce(_ track: RemuxSubtitle) -> Bool {
         var ctx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
         guard ctx != nil else { return false }
-        ctx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
+        ctx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.cancelCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
         var opts: OpaquePointer? = nil
         av_dict_set(&opts, "rw_timeout", "600000000", 0)
         av_dict_set(&opts, "tls_verify", "0", 0)

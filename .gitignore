@@ -60,6 +60,7 @@ coverage
 nogit/
 
 .claude/
+CLAUDE.local.md
 
 # FFmpeg build tree: pinned sources, per-slice prefixes, packaged artifacts.
 # Written by scripts/ffmpeg/build.sh, never by npm install.

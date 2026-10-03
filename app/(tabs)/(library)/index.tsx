@@ -7,6 +7,7 @@ import { isFolder } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { useRouter } from "expo-router";
 import React, { useCallback } from "react";
+import { Platform } from "react-native";
 import { t } from "@/services/i18n";
 
 /**
@@ -22,7 +23,9 @@ function LibrariesRootScreen() {
   const handleItemPress = useCallback(
     (item: JellyfinItem) => {
       if (item.CollectionType === "livetv") {
-        router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
+        // TV: the guide lives at its own tab root, so Menu reaches the tab bar instead of popping.
+        if (Platform.isTV) router.navigate("/livetv");
+        else router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
       } else if (isFolder(item)) {
         const type = item.Type === "Playlist" ? "playlist" : "folder";
         const crumb: FolderStackEntry = { id: item.Id, name: item.Name, type, parentId: item.ParentId };

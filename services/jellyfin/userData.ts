@@ -13,7 +13,7 @@ import { API_TIMEOUTS } from "./constants";
 import { notifyFavoriteChange, notifyPlayedChange } from "./events";
 import { invalidateFavoriteReads, invalidatePlayedReads } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
-import { getAuthHeader, getCachedConfig, getConfig, throwRequestError } from "./session";
+import { getAuthHeader, getCachedConfig, getConfig, throwRequestError, type JellyfinConfig } from "./session";
 
 /**
  * Record a played-state change without an HTTP call: override map + subscriber repaint,
@@ -28,11 +28,11 @@ export function markItemPlayed(itemId: string, played: boolean): void {
 }
 
 /**
- * Mark or unmark an item as favorite for the current user.
+ * Mark or unmark an item as favorite for the current user, or for `account` when a caller holds one.
  * POST adds, DELETE removes (same endpoint). Notifies favorite subscribers on success.
  */
-export async function setVideoFavorite(itemId: string, favorite: boolean): Promise<void> {
-  const config = await getConfig();
+export async function setVideoFavorite(itemId: string, favorite: boolean, account?: JellyfinConfig): Promise<void> {
+  const config = account ?? (await getConfig());
 
   if (!config.server || !config.apiKey || !config.userId) {
     throw new Error("Jellyfin server not configured.");
@@ -61,6 +61,9 @@ export async function setVideoFavorite(itemId: string, favorite: boolean): Promi
     { maxAttempts: 3 },
   );
 
+  // The caches and cards belong to the signed-in account; a write for one signed out since leaves them.
+  const signedIn = getCachedConfig();
+  if (signedIn.server !== config.server || signedIn.userId !== config.userId) return;
   // Keep the favorites cache correct, then let subscribers repaint the toggled card in place.
   markFavorite(itemId, favorite);
   notifyFavoriteChange(itemId, favorite);

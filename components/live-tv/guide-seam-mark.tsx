@@ -1,6 +1,6 @@
 import { HOUR_MARK_HEIGHT, MAJOR_MARK_HEIGHT, MAJOR_MARK_WIDTH, RULER_RED } from "@/components/live-tv/guide-time-ruler";
-import React from "react";
-import { Platform, StyleSheet } from "react-native";
+import React, { useMemo } from "react";
+import { Platform, Animated as RNAnimated, StyleSheet } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 /** The seam's centre from the column's width: TV draws it as the column's 1px border, phone as the divider's centred line. */
@@ -8,7 +8,8 @@ const SEAM_CENTRE = Platform.isTV ? -0.5 : 0;
 
 interface GuideSeamMarkProps {
   columnW: SharedValue<number>;
-  scrollX: SharedValue<number>;
+  /** The grid's native-driven horizontal offset. */
+  scrollX: RNAnimated.Value;
   isHour: boolean;
   /** The ruler's content height, above its 1px bottom line. */
   height: number;
@@ -20,10 +21,10 @@ interface GuideSeamMarkProps {
  */
 export function GuideSeamMark({ columnW, scrollX, isHour, height }: GuideSeamMarkProps) {
   const clipStyle = useAnimatedStyle(() => ({ left: columnW.get() + SEAM_CENTRE - MAJOR_MARK_WIDTH / 2 }));
-  const markStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -scrollX.get() }] }));
+  const markStyle = useMemo(() => ({ transform: [{ translateX: RNAnimated.multiply(scrollX, -1) }] }), [scrollX]);
   return (
     <Animated.View style={[styles.clip, { height }, clipStyle]} pointerEvents="none">
-      <Animated.View style={[styles.mark, { height: isHour ? HOUR_MARK_HEIGHT : MAJOR_MARK_HEIGHT }, markStyle]} />
+      <RNAnimated.View style={[styles.mark, { height: isHour ? HOUR_MARK_HEIGHT : MAJOR_MARK_HEIGHT }, markStyle]} />
     </Animated.View>
   );
 }

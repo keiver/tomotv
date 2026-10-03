@@ -9,7 +9,7 @@ import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { t } from "@/services/i18n";
-import { fetchFilteredVideos, fetchRecordingFolderIds, fetchRecordings } from "@/services/jellyfinApi";
+import { fetchFilteredVideos, fetchRecordingFolderIds, fetchRecordings, subscribeRecordingsChange } from "@/services/jellyfinApi";
 import { countActiveFilters, EMPTY_FILTERS, type FolderStackEntry, type JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -35,15 +35,18 @@ export default function RecordingsScreen() {
   // A server can hold several recordings libraries; a filter searches all of them and keys on the first.
   const [folderIds, setFolderIds] = useState<string[]>([]);
   const folderId = folderIds[0] ?? null;
+  // reloadKey also re-runs this lookup: a timer write fires the bus below and a first-ever
+  // recording creates the folder this screen filters by.
   useEffect(() => {
     let cancelled = false;
     fetchRecordingFolderIds()
-      .then((ids) => !cancelled && setFolderIds(ids))
+      .then((ids) => !cancelled && setFolderIds((current) => (current.join(",") === ids.join(",") ? current : ids)))
       .catch((err) => logger.warn("Recordings folder lookup failed", err, { screen: "Recordings" }));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
+  useEffect(() => subscribeRecordingsChange(() => setReloadKey((n) => n + 1)), []);
   const { getFilters } = useLibraryFilters();
   const filters = folderId ? getFilters(folderId) : EMPTY_FILTERS;
   const activeFilterCount = countActiveFilters(filters);

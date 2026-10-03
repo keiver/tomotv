@@ -15,8 +15,9 @@ extension RemuxSession {
     /// grid and the tier probe share it, so a slow server cannot stack two waits before
     /// AVPlayer sees a single response header.
     static let masterBudgetSeconds = 12.0
-    /// The link, as a multiple of the source rate, on which the copy's first 6s segment lands in 2s.
-    static let copyLeadsMargin = 3.0
+    /// The link, as a multiple of the source rate, that carries the copy: the master then names the
+    /// copy alone, and no server rung, audio or opening transcode is touched.
+    static let copyLeadsMargin = 1.2
     /// How many times over the link carries the rung that opens a session.
     static let openingRungShare = 6.0
 
@@ -127,23 +128,25 @@ extension RemuxSession {
         return !adoptedStarts.isEmpty
     }
 
-    /// Once per session: what the master did with the configured ladder.
-    func reportTier(listed: Bool) {
+    /// Once per session: what the master did with the configured ladder. `copyOnly` is a ladder left
+    /// out because the link carries the copy, not one that failed.
+    func reportTier(listed: Bool, copyOnly: Bool = false) {
         stateLock.lock()
         guard !config.tiers.isEmpty, !tierReported else { return stateLock.unlock() }
         tierReported = true
         tierListed = listed
         let reason = tierUnavailableReason
         stateLock.unlock()
-        NSLog("[LocalRemuxer] Slipstream: master %@ the tier%@", listed ? "lists" : "withholds", reason.map { ", \($0)" } ?? "")
-        var payload: [String: Any] = ["token": token, "state": listed ? "listed" : "declined"]
+        NSLog("[LocalRemuxer] Slipstream: master %@ the tier%@", listed ? "lists" : copyOnly ? "leaves out" : "withholds",
+              copyOnly ? ", the link carries the copy" : reason.map { ", \($0)" } ?? "")
+        var payload: [String: Any] = ["token": token, "state": listed ? "listed" : copyOnly ? "copy" : "declined"]
         if probeSeconds > 0 { payload["probeSeconds"] = round(probeSeconds * 100) / 100 }
-        if !listed, let reason { payload["reason"] = reason }
+        if !listed, !copyOnly, let reason { payload["reason"] = reason }
         onTier?(payload)
     }
 
-    /// Whether the copy opens the session: a source being read, on a link that lands its first
-    /// segment at once. A source let go or retrying stays listed and never leads. Caller holds stateLock.
+    /// Whether the copy carries the session alone: a source being read, on a link that carries it. A
+    /// source let go or retrying never does. Caller holds stateLock.
     func copyLeadsLocked(linkBps: Double) -> Bool {
         copyVerdict != .withheld && !sourceReleased && (sourceBandwidth <= 0 || linkBps >= Double(sourceBandwidth) * Self.copyLeadsMargin)
     }
@@ -208,7 +211,11 @@ extension RemuxSession {
                 return self.sourceReady || self.sourceReleased || self.failed || self.cancelled
             }
         }
-        var out = "#EXTM3U\n#EXT-X-VERSION:\(offered ? 10 : 7)\n"
+        stateLock.lock()
+        let copyOnly = offered && !sourceUnusable && copyLeadsLocked(linkBps: testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0)
+        stateLock.unlock()
+        let ladder = offered && !copyOnly
+        var out = "#EXTM3U\n#EXT-X-VERSION:\(ladder ? 10 : 7)\n"
 
         // Audio renditions. Every track points at its own audio-only playlist
         // — none is muxed into the variant. A muxed (URI-less) rendition gets
@@ -244,7 +251,7 @@ extension RemuxSession {
         let useAudioGroup = tracks.count > 1 || !config.tiers.isEmpty || tracks.contains(where: { $0.usesServerAudio })
         let audioNames = Self.renditionNames(tracks.map { (name: $0.name, index: $0.index) })
         let subtitleNames = Self.renditionNames(subtitles.map { (name: $0.name, index: $0.index) })
-        let useServerAudioGroup = audioLoActive && !config.tiers.isEmpty
+        let useServerAudioGroup = audioLoActive && ladder
         if useAudioGroup {
             for (position, track) in tracks.enumerated() {
                 let name = audioNames[position]
@@ -343,7 +350,7 @@ extension RemuxSession {
         let primaryCodecs = videoCodecs.isEmpty ? config.codecs : (videoCodecs + audioCodecs).joined(separator: ",")
         var primary = "#EXT-X-STREAM-INF:BANDWIDTH=\(peaks.original),AVERAGE-BANDWIDTH=\(bandwidth)"
         let originalScore = config.tiers.count + 2
-        if offered { primary += ",SCORE=\(originalScore)" }
+        if ladder { primary += ",SCORE=\(originalScore)" }
         // Unquoted enumerated value per RFC 8216 §4.3.4.2. RFC 8216 §4.3.4.2
         // scopes VIDEO-RANGE to variants that carry video, so an audio-only
         // session sends an empty string and the attribute is left off.
@@ -424,30 +431,36 @@ extension RemuxSession {
             originals += bridge
         }
 
-        // Slipstream ladder: the on-device copy and the rungs in one master, all on the SAME grid and
-        // sharing the subtitle group, so AVPlayer's own ABR steps down when the copy outruns the
-        // link and climbs back when it recovers. The first variant listed is where it starts: the
-        // copy on a link measured to carry it, else the smallest rung.
-        guard offered else {
+        // Slipstream ladder, only on a link that cannot carry the copy: the copy and the rungs in one
+        // master on the SAME grid, sharing the subtitle group, a rung first. A link that carries the
+        // copy gets the copy alone and never touches a server rung.
+        guard ladder else {
             stateLock.lock()
             let unavailable = sourceUnusable
             copyVerdict = .listed
             copyAnnounced = true
+            announcedCopyBandwidth = peaks.original
+            copyOnlyMaster = copyOnly
+            ladderListed = false
             stateLock.unlock()
             if unavailable {
                 fail("the ladder was lost after the source was let go")
                 return "#EXTM3U\n"
             }
             out += originals
-            reportTier(listed: false)
+            if copyOnly { NSLog("[LocalRemuxer] Slipstream: master starts on the copy alone (link %.1f Mb/s)", (testLinkBps ?? wireLinkBps ?? 0) / 1_000_000) }
+            reportTier(listed: false, copyOnly: copyOnly)
             return out
         }
         stateLock.lock()
         let copyFirst = !sourceUnusable
-        if copyFirst { copyAnnounced = true }
+        if copyFirst {
+            copyAnnounced = true
+            announcedCopyBandwidth = peaks.original
+        }
         // A source that cannot be read leaves the probe nothing to time; the ladder is then sized by
         // the canonical playlist's own transfer, the one other body that moves at the wire's pace.
-        let linkBps = testLinkBps ?? measuredLinkBps ?? playlistLinkBps ?? 0
+        let linkBps = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         let rungs = (0..<config.tiers.count).filter { !rungsUnavailable.contains($0) }
         stateLock.unlock()
         let startRung = chooseOpeningRung(linkBps: linkBps)
@@ -484,16 +497,9 @@ extension RemuxSession {
             return line + "\nt\(index).m3u8\n"
         }
 
-        // The copy leads only on a link that lands its first segment at once. Listed first at
-        // 12 Mb/s (1.9x the source) its 4.7 MB opening segment took 3.7s, AVPlayer hedged onto the
-        // bottom rung and showed a frame at 8.6s; it then climbed to the copy on the same item by
-        // itself (measured). So under that margin the smallest rung leads and the copy stays listed.
-        stateLock.lock()
-        let copyLeads = copyLeadsLocked(linkBps: linkBps)
-        stateLock.unlock()
-        if copyLeads {
-            out += originals + listed.map(rungLine).joined()
-        } else if copyFirst, let startRung {
+        // Under the carry margin the copy never leads: a rung opens the session and the copy stays
+        // listed for AVPlayer to climb to.
+        if copyFirst, let startRung {
             out += rungLine(startRung) + originals + listed.filter { $0 != startRung }.map(rungLine).joined()
             stateLock.lock()
             rungLeads = true
@@ -514,8 +520,14 @@ extension RemuxSession {
             reportTier(listed: false)
             return "#EXTM3U\n"
         }
+        stateLock.lock()
+        copyOnlyMaster = false
+        ladderListed = startRung != nil
+        let rungsListed = ladderListed
+        stateLock.unlock()
+        if rungsListed { prefetchServerCues() }
         NSLog("[LocalRemuxer] Slipstream: master starts on %@%@ (link %.1f Mb/s, %d rungs)",
-              copyLeads || startRung == nil ? "the copy" : "rung \(startRung ?? 0)", copyFirst && !copyLeads ? " with the copy listed" : "", linkBps / 1_000_000, listed.count)
+              startRung == nil ? "the copy" : "rung \(startRung ?? 0)", copyFirst && startRung != nil ? " with the copy listed" : "", linkBps / 1_000_000, listed.count)
         reportTier(listed: !rungs.isEmpty)
         return out
     }
@@ -587,6 +599,14 @@ extension RemuxSession {
         stateLock.lock()
         liveKeepSegments = max(3, Int(seconds / max(1, config.liveSegmentSeconds)))
         stateLock.unlock()
+    }
+
+    /// A player adopting this session ranks its input connection with its own.
+    func setLivePriority(_ priority: LiveConnectionBroker.Priority) {
+        stateLock.lock()
+        let lease = inputLease
+        stateLock.unlock()
+        if let lease { LiveConnectionBroker.shared.setPriority(priority, of: lease) }
     }
 
     func liveWindowSecondsNow() -> Double {
@@ -729,10 +749,10 @@ extension RemuxSession {
         if config.isLive { return liveSubtitlePlaylist(sub) }
 
         if sub.isEngineText {
-            if sub.serverVttUrl.isEmpty {
-                _ = awaitTextDecoder(streamIndex: streamIndex)
-            } else {
+            if serverCueSource(sub) {
                 _ = serverCues(streamIndex: streamIndex, deadline: 0)
+            } else {
+                _ = awaitTextDecoder(streamIndex: streamIndex)
             }
             // One TARGETDURATION for every playlist of the session (Apple
             // authoring req 8.2), on the video's own grid.
@@ -825,7 +845,7 @@ extension RemuxSession {
 
         let start = segmentStartSeconds(segment)
         let end = start + segmentDurationSeconds(segment)
-        let hasServer = !sub.serverVttUrl.isEmpty
+        let hasServer = serverCueSource(sub)
         var window = textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
         if !window.covered, hasServer {
             if let server = serverCues(streamIndex: streamIndex, deadline: 0) {

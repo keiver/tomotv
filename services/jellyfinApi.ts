@@ -36,8 +36,18 @@ export { activateAccount, getAccountsForServer, getSavedAccounts, relocateAccoun
 export type { ActivateAccountResult } from "./jellyfin/accounts";
 
 export { DEMO_ADDRESS, DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
-export { notifyResumeChange, notifyServerRecovered, subscribeAuthChange, subscribeFavoriteChange, subscribePlayedChange, subscribeResumeChange } from "./jellyfin/events";
-export { audioNeedsRewrap, formatDuration, isAudioItem, isAudioOnly, isCodecSupported, isLiveChannel, isLiveSource, needsTranscoding } from "./jellyfin/media";
+export {
+  notifyResumeChange,
+  notifyServerRecovered,
+  subscribeAuthChange,
+  subscribeFavoriteChange,
+  subscribeItemRemoved,
+  subscribeItemRemoving,
+  subscribePlayedChange,
+  subscribeRecordingsChange,
+  subscribeResumeChange,
+} from "./jellyfin/events";
+export { audioNeedsRewrap, isAudioItem, isAudioOnly, isCodecSupported, isLiveChannel, isLiveSource, needsTranscoding } from "./jellyfin/media";
 export {
   cancelSeriesTimer,
   cancelTimer,
@@ -45,6 +55,11 @@ export {
   closeLiveStream,
   createSeriesTimer,
   createTimer,
+  fetchChannelCategories,
+  fetchChannelOrder,
+  fetchChannelsByIds,
+  fetchChannelWindow,
+  fetchListedChannels,
   fetchChannels,
   fetchGuidePrograms,
   fetchLiveTvManagement,
@@ -59,9 +74,13 @@ export {
   openRecentlyFailed,
   resolveChannel,
   resolveChannelOrigin,
+  resolveChannelWithoutOpen,
 } from "./jellyfin/liveTv";
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
 export type { ChannelOrigin } from "./jellyfin/liveTv";
+export { fetchTunerGroups, lastKnownTunerData } from "./jellyfin/tunerGroups";
+export { fetchChannelRing } from "./jellyfin/channelRing";
+export type { TunerGroup } from "./jellyfin/tunerGroups";
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
@@ -126,6 +145,7 @@ export {
   fetchFolderMediaKinds,
   fetchFolderPhotos,
   fetchFolderPreviewItems,
+  fetchLibraryRootCount,
   FOLDER_PREVIEW_COUNT,
   FolderMediaKinds,
   fetchUserViews,
@@ -135,7 +155,9 @@ export {
   isPhoto,
 } from "./jellyfin/library";
 export {
+  deleteItem,
   fetchAllPlaylistItems,
+  fetchIsAdministrator,
   fetchItemDetails,
   fetchItemFolderPath,
   fetchItemsByIds,
@@ -149,7 +171,7 @@ export {
   fetchVideoDetails,
 } from "./jellyfin/items";
 export { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "./jellyfin/facets";
-export { searchVideos } from "./jellyfin/search";
+export { searchLiveTv, searchVideos } from "./jellyfin/search";
 
 export { markItemPlayed, setVideoFavorite, setVideoPlayed } from "./jellyfin/userData";
 export {

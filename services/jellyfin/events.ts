@@ -59,6 +59,47 @@ export function notifyPlayedChange(itemId: string, played: boolean): void {
   playedListeners.forEach((cb) => cb(itemId, played));
 }
 
+// Item-removed pub/sub: fired after a server-side delete lands, so visible lists drop
+// the card in place (the cached reads are evicted separately, see cacheKeys.ts).
+const removedListeners = new Set<(itemId: string) => void>();
+
+/** Subscribe to server-side item deletions. Returns an unsubscribe function. */
+export function subscribeItemRemoved(cb: (itemId: string) => void): () => void {
+  removedListeners.add(cb);
+  return () => removedListeners.delete(cb);
+}
+
+export function notifyItemRemoved(itemId: string): void {
+  removedListeners.forEach((cb) => cb(itemId));
+}
+
+// A delete in flight: `settled` false as it is sent, true once it lands or fails. A paged list
+// holds its next page meanwhile, since the server's positions shift at an unknown moment.
+const removingListeners = new Set<(itemId: string, settled: boolean) => void>();
+
+export function subscribeItemRemoving(cb: (itemId: string, settled: boolean) => void): () => void {
+  removingListeners.add(cb);
+  return () => removingListeners.delete(cb);
+}
+
+export function notifyItemRemoving(itemId: string, settled: boolean): void {
+  removingListeners.forEach((cb) => cb(itemId, settled));
+}
+
+// Recordings-change pub/sub: fired after a timer write lands on the server, so the
+// recordings list and a mounted recordings-library browse refetch in place.
+const recordingsListeners = new Set<() => void>();
+
+/** Subscribe to timer/recording writes. Returns an unsubscribe function. */
+export function subscribeRecordingsChange(cb: () => void): () => void {
+  recordingsListeners.add(cb);
+  return () => recordingsListeners.delete(cb);
+}
+
+export function notifyRecordingsChange(): void {
+  recordingsListeners.forEach((cb) => cb());
+}
+
 // Resume-change pub/sub: fired after the server's resume state for an item was rewritten
 // (playback stop, resume persist, manual clear). Carries the item and, when the app wrote
 // the value itself, the ticks the server now holds; a Stopped report passes through the

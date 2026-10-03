@@ -3,7 +3,7 @@
     "name": "Tomo TV",
     "slug": "tomotv",
     "description": "Stream any video from your Jellyfin server. Automatic transcoding handles incompatible formats so you can just hit play and watch.",
-    "version": "2.2.8",
+    "version": "2.2.9",
     "orientation": "default",
     "icon": "./assets/brand/tomo-tv.png",
     "scheme": "tomotv",
@@ -12,7 +12,7 @@
       "supportsTablet": true,
       "appleTeamId": "64QR53M8C9",
       "bundleIdentifier": "dev.keiver.tomotv",
-      "buildNumber": "5",
+      "buildNumber": "19",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -24,9 +24,7 @@
         "UIBackgroundModes": ["audio"],
         "UIViewControllerBasedStatusBarAppearance": true,
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true,
-          "NSAllowsArbitraryLoadsForMedia": true,
-          "NSAllowsLocalNetworking": true
+          "NSAllowsArbitraryLoads": true
         },
         "NSLocalNetworkUsageDescription": "Tomo TV needs access to your local network to find and connect to your Jellyfin media server and stream your videos."
       }
@@ -61,6 +59,7 @@
       "./plugins/withMacKeyCommands",
       "./plugins/withAudioQueuePlayer",
       "./plugins/withBookRenderer",
+      "./plugins/withLiveSources",
       "./plugins/withFFmpeg",
       "./plugins/withXcodeIdentity",
       [

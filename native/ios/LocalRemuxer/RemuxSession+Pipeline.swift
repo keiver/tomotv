@@ -39,11 +39,50 @@ extension RemuxSession {
 
     static func isPermanentInputError(_ code: Int32) -> Bool { permanentInputErrors.contains(code) }
 
-    /// Interrupt callback: aborts blocking network I/O when the session dies.
+    /// A live input that dropped may have been kicked by its origin for another read this device just opened.
+    func noteLiveInputLost() {
+        stateLock.lock()
+        // A drop on the server's copy says nothing of the origin the lease counts.
+        let lease = inputIsFallback ? nil : inputLease
+        stateLock.unlock()
+        if let lease { LiveConnectionBroker.shared.noteLost(lease) }
+    }
+
+    /// The HTTP answers a provider gives a connection over its cap (401, 403, and 429/458 as 4XX).
+    static let refusalErrors: Set<Int32> = Set(["401", "403", "4XX"].map { tag in
+        let bytes = Array(tag.utf8)
+        return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
+    })
+
+    /// Interrupt callback: aborts blocking network I/O when the session dies. It runs on the pipeline
+    /// thread inside the open, the probe and every read, so it is also where the bytes the input has
+    /// pulled before the read loop get published (`progress()` runs on the bridge queue and may not
+    /// touch the input context itself).
     static let interruptCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
         guard let opaque else { return 0 }
         let session = Unmanaged<RemuxSession>.fromOpaque(opaque).takeUnretainedValue()
+        session.publishInputBytes()
         return session.isCancelled || session.hasFailed ? 1 : 0
+    }
+
+    /// Interrupt callback for a reader on its own thread: the flags alone, since `openingInput` is the
+    /// pipeline thread's.
+    static let cancelCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
+        guard let opaque else { return 0 }
+        let session = Unmanaged<RemuxSession>.fromOpaque(opaque).takeUnretainedValue()
+        return session.isCancelled || session.hasFailed ? 1 : 0
+    }
+
+    /// Bytes the open input's IO has read so far, under the state lock; once a second at most.
+    func publishInputBytes(force: Bool = false) {
+        guard let input = openingInput, let pb = input.pointee.pb else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        guard force || now - lastInputBytesPublish >= 1 else { return }
+        lastInputBytesPublish = now
+        let read = pulledBase + pb.pointee.bytes_read
+        stateLock.lock()
+        if read > pulledBytes { pulledBytes = read }
+        stateLock.unlock()
     }
 
     /// Muxer output goes to the rendition that owns the AVIO context, so the
@@ -54,6 +93,16 @@ extension RemuxSession {
         let rendition = Unmanaged<Rendition>.fromOpaque(opaque).takeUnretainedValue()
         rendition.pending.append(buf, count: Int(size))
         return size
+    }
+
+    /// This process's phys_footprint, what jetsam weighs it by; -1 when the kernel declines.
+    static func footprintMB() -> Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return result == KERN_SUCCESS ? Int(info.phys_footprint / 1_048_576) : -1
     }
 
     /// Byte offset of the first `moof` box, walking the ISO-BMFF box chain
@@ -180,8 +229,46 @@ extension RemuxSession {
         return box
     }()
 
+    /// Writes `lead` then `body` to a temporary file renamed over `url`, so a reader sees the whole
+    /// segment or none, and a 67 MB body is never copied to be prefixed.
+    static func writeSegment(_ body: Data, lead: Data, to url: URL) throws {
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: temporary.path])
+        }
+        do {
+            let handle = try FileHandle(forWritingTo: temporary)
+            do {
+                try handle.write(contentsOf: lead)
+                try handle.write(contentsOf: body)
+            } catch {
+                try? handle.close()
+                throw error
+            }
+            try handle.close()
+            guard rename(temporary.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+    }
+
     /// An empty free box: legal anywhere between a segment's boxes, and skipped by every parser.
     static let freeBox = Data([0, 0, 0, 8] + Array("free".utf8))
+
+    /// Restarts for one segment that each opened past its start before it is published short instead.
+    static let partialOpenLookback = 3
+
+    /// Where a restart for `segment` seeks: its own start, then one segment earlier per opening that
+    /// landed past it. MPEG-TS starts a segment early: its seek lands on a packet, not a keyframe.
+    static func restartSeekSegment(for segment: Int, partialOpens: Int, prerolls: Bool = false) -> Int {
+        max(0, segment - min(partialOpens + (prerolls ? 1 : 0), partialOpenLookback))
+    }
+
+    /// A segment opened past its start is withheld until the lookback is spent, never forever.
+    static func withholdsPartialOpen(partialOpens: Int) -> Bool {
+        partialOpens <= partialOpenLookback
+    }
 
     /// A source that will not open or cannot be planned, before any master has named the copy: a
     /// session whose rungs can carry it alone lets the source go instead of dying.
@@ -550,8 +637,17 @@ extension RemuxSession {
             sample["produceSeconds"] = produced
             sample["readSeconds"] = readSecondsInSegment
         }
+        NSLog("[LocalRemuxer] segment %d took %.2fs for %.2fs (read %.2fs of %.1f MB, dolby vision %.2fs, audio %.2fs, mux %.2fs, flush %.2fs, file %.2fs)%@",
+              n, produced, segmentDurationSeconds(n), readSecondsInSegment, Double(bytesInSegment) / 1_000_000,
+              doviSecondsInSegment, audioSecondsInSegment, muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment,
+              sleptOnCap ? ", held" : first ? ", after a restart" : "")
         bytesInSegment = 0
         readSecondsInSegment = 0
+        doviSecondsInSegment = 0
+        audioSecondsInSegment = 0
+        muxSecondsInSegment = 0
+        flushSecondsInSegment = 0
+        fileSecondsInSegment = 0
         sleptOnCap = false
         onThroughput?(sample)
     }
@@ -575,7 +671,8 @@ extension RemuxSession {
     func progress() -> [String: Any] {
         stateLock.lock()
         defer { stateLock.unlock() }
-        let serverAvailable = !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
+        // Rungs a copy-only master never listed are no supplier AVPlayer can reach.
+        let serverAvailable = !copyOnlyMaster && !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
         return [
             "alive": !cancelled && !failed,
             "bytesRead": pulledBytes,
@@ -882,6 +979,7 @@ extension RemuxSession {
         let tStart = CFAbsoluteTimeGetCurrent()
         func mark(_ stage: String) {
             let elapsed = CFAbsoluteTimeGetCurrent() - tStart
+            publishInputBytes(force: true)
             NSLog("[LocalRemuxer] startup %@ +%.3fs", stage, elapsed)
             onStage?(["token": token, "stage": stage, "elapsed": elapsed])
         }
@@ -980,54 +1078,121 @@ extension RemuxSession {
 
         // ---- Input: opened once; seeks reuse the same context ----
         EngineLog.configure()
-        var inputCtx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
-        guard inputCtx != nil else { return fail("avformat_alloc_context") }
-        inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
+        // A live input holds one of its provider's connections for the session; it goes back once the input closes.
+        var lease: LiveConnectionBroker.Lease?
+        let originKey = config.liveOriginKey ?? URL(string: config.inputUrl)?.host ?? "-"
+        if config.isLive {
+            let key = originKey
+            let yielded: () -> Void = { [weak self] in self?.fail("live input yielded its connection to a higher-priority read") }
+            guard let held = LiveConnectionBroker.shared.acquire(key: key, priority: config.livePriority, timeout: 10, onRevoke: yielded) else {
+                return fail("no connection left on the live origin")
+            }
+            lease = held
+            stateLock.lock()
+            inputLease = held
+            stateLock.unlock()
+            mark("lease")
+        }
+        defer {
+            stateLock.lock()
+            inputLease = nil
+            inputIsFallback = false
+            stateLock.unlock()
+            lease?.release()
+        }
+        var inputCtx: UnsafeMutablePointer<AVFormatContext>?
+        var ret: Int32 = 0
+        var attempt = 0
+        var inputUrl = config.inputUrl
+        var inputHeaders = config.httpHeaders
+        while true {
+            inputCtx = avformat_alloc_context()
+            guard inputCtx != nil else { return fail("avformat_alloc_context") }
+            inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
+            stateLock.lock()
+            pulledBase = pulledBytes
+            stateLock.unlock()
+            openingInput = inputCtx
 
-        var openOpts: OpaquePointer? = nil
-        av_dict_set(&openOpts, "reconnect", "1", 0)
-        av_dict_set(&openOpts, "reconnect_streamed", "1", 0)
-        av_dict_set(&openOpts, "reconnect_delay_max", "5", 0)
-        // A silently wedged read (TCP stall with no RST) otherwise blocks
-        // av_read_frame forever: the interrupt callback only fires on session
-        // cancel, `failed` never gets set, and every segment request starves
-        // out its 20s deadline with the producer looking alive. 15s per I/O
-        // operation turns the stall into an error the reconnect options above
-        // can retry, or a clean fail() the player recovers from.
-        av_dict_set(&openOpts, "rw_timeout", "15000000", 0)
-        // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
-        // tvOS has no trust store to verify against until we ship a CA file.
-        av_dict_set(&openOpts, "tls_verify", "0", 0)
-        for (name, value) in config.httpHeaders {
-            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
-                av_dict_set(&openOpts, "user_agent", value, 0)
-            } else {
-                av_dict_set(&openOpts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+            var openOpts: OpaquePointer? = nil
+            let reconnects = lease.map { !LiveConnectionBroker.shared.sharesUnknownOrigin($0) } ?? true
+            av_dict_set(&openOpts, "reconnect", reconnects ? "1" : "0", 0)
+            av_dict_set(&openOpts, "reconnect_streamed", reconnects ? "1" : "0", 0)
+            av_dict_set(&openOpts, "reconnect_delay_max", "5", 0)
+            // A silently wedged read (TCP stall with no RST) otherwise blocks
+            // av_read_frame forever: the interrupt callback only fires on session
+            // cancel, `failed` never gets set, and every segment request starves
+            // out its 20s deadline with the producer looking alive. 15s per I/O
+            // operation turns the stall into an error the reconnect options above
+            // can retry, or a clean fail() the player recovers from.
+            av_dict_set(&openOpts, "rw_timeout", "15000000", 0)
+            // Reuses a connection where a read finishes its body, as a seek's reads near the file's end do
+            // (an MPEG-TS open and seek measured 11 connections to 5); a new HTTPS one costs about 0.35s.
+            if !config.isLive { av_dict_set(&openOpts, "multiple_requests", "1", 0) }
+            // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
+            // tvOS has no trust store to verify against until we ship a CA file.
+            av_dict_set(&openOpts, "tls_verify", "0", 0)
+            for (name, value) in inputHeaders {
+                if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
+                    av_dict_set(&openOpts, "user_agent", value, 0)
+                } else {
+                    av_dict_set(&openOpts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+                }
             }
-        }
-        // FAST channels serve segments from extension-less URLs (measured on amagi.tv);
-        // the HLS demuxer refuses those unless told not to be picky.
-        if config.isLive { av_dict_set(&openOpts, "extension_picky", "0", 0) }
-        // An origin refusing its segments answers in milliseconds while the open sits on it (measured:
-        // CBC held a session 49s). The check runs beside the open, so a live origin costs no startup.
-        if config.isLive && config.probeOrigin {
-            let inputUrl = config.inputUrl
-            let headers = config.httpHeaders
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let stopped = { [weak self] in self?.isCancelled ?? true }
-                guard let refusal = EndpointProbe.hlsOriginRefusal(inputUrl, headers: headers, timeout: 5, cancelled: stopped) else { return }
-                self?.fail(refusal)
+            // FAST channels serve segments from extension-less URLs (measured on amagi.tv);
+            // the HLS demuxer refuses those unless told not to be picky.
+            if config.isLive { av_dict_set(&openOpts, "extension_picky", "0", 0) }
+            // An origin refusing its segments answers in milliseconds while the open sits on it (measured:
+            // CBC held a session 49s). The check runs beside the open, so a live origin costs no startup.
+            if config.isLive && config.probeOrigin && attempt == 0 && inputUrl == config.inputUrl {
+                let probedUrl = config.inputUrl
+                let headers = config.httpHeaders
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let stopped = { [weak self] in self?.isCancelled ?? true }
+                    guard let refusal = EndpointProbe.hlsOriginRefusal(probedUrl, headers: headers, timeout: 5, cancelled: stopped) else { return }
+                    self?.fail(refusal)
+                }
             }
+            ret = avformat_open_input(&inputCtx, inputUrl, nil, &openOpts)
+            av_dict_free(&openOpts)
+            // A failed open freed the context itself.
+            if ret < 0 { openingInput = nil }
+            if ret >= 0 || !config.isLive || isCancelled { break }
+            // A refusal by the origin while this device holds other connections to it shows its limit: the reads below
+            // this one yield. Just after a yield it is the origin still counting the closed one. Either way, retry.
+            if Self.refusalErrors.contains(ret), attempt < 4, inputUrl == config.inputUrl, let held = lease,
+               LiveConnectionBroker.shared.noteRefusal(of: held) || LiveConnectionBroker.shared.recentlyYielded(key: originKey, within: 15) {
+                Thread.sleep(forTimeInterval: 0.5 * pow(2, Double(attempt)))
+                attempt += 1
+                continue
+            }
+            if let fallback = config.fallbackInputUrl, !fallback.isEmpty, inputUrl != fallback {
+                NSLog("[LocalRemuxer] Live input unopenable (%@), reading it through the server", averr(ret))
+                inputUrl = fallback
+                inputHeaders = [:]
+                attempt = 0
+                stateLock.lock()
+                inputIsFallback = true
+                stateLock.unlock()
+                continue
+            }
+            break
         }
-        var ret = avformat_open_input(&inputCtx, config.inputUrl, nil, &openOpts)
-        av_dict_free(&openOpts)
-        guard ret >= 0, let input = inputCtx else { return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret)) }
+        guard ret >= 0, let input = inputCtx else {
+            return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret))
+        }
         mark("open_input")
         defer {
+            openingInput = nil
             var closing: UnsafeMutablePointer<AVFormatContext>? = input
             avformat_close_input(&closing)
         }
 
+        let inputFormat = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
+        let playlistInput = inputFormat == "hls" || inputFormat == "dash"
+        if let bound = liveProbeBound(format: inputFormat, isLive: config.isLive) {
+            input.pointee.max_analyze_duration = bound
+        }
         ret = probeStreamInfo(input)
         guard ret >= 0 else { return failStartup("find_stream_info: \(averr(ret))", retryable: !Self.isPermanentInputError(ret)) }
         mark("find_stream_info")
@@ -1085,7 +1250,8 @@ extension RemuxSession {
             audioIdentity[stream] = track.index
             audioIndices.append(stream)
         }
-        if audioIndices.isEmpty && config.audioTracks.isEmpty {
+        // Live tracks are configured with the server's Index -1 and match no stream; the demuxer's best audio stands in.
+        if audioIndices.isEmpty && (config.audioTracks.isEmpty || config.isLive) {
             let best = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
             if best >= 0 { audioIndices = [best] }
         }
@@ -1099,7 +1265,13 @@ extension RemuxSession {
             } ?? Array(0..<streamCount)
             audioIndices = audioIndices.filter { candidates.contains($0) }
             for i in candidates where !audioIndices.contains(i) {
-                guard input.pointee.streams[Int(i)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { continue }
+                guard let par = input.pointee.streams[Int(i)]?.pointee.codecpar, par.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { continue }
+                // A PID the PMT declares but that carried no packet in the probe (a silent audio
+                // description track, measured on BBC One) has no rate or layout to build a transcoder from.
+                guard par.pointee.sample_rate > 0, par.pointee.ch_layout.nb_channels > 0 else {
+                    NSLog("[LocalRemuxer] live audio stream %d carries no parameters yet, left out", i)
+                    continue
+                }
                 audioIndices.append(i)
             }
             if audioIndices.isEmpty {
@@ -1178,12 +1350,12 @@ extension RemuxSession {
             }
             if sub.isExternal {
                 guard !sub.serverSupUrl.isEmpty else { return failStartup("external image subtitle \(sub.index) has no producer") }
-                startServerImageSubtitles()
+                startServerImageSubtitles(only: sub.index)
                 continue
             }
             guard let streamIndex = found.stream, let stream = input.pointee.streams[Int(streamIndex)] else {
                 if !sub.serverSupUrl.isEmpty {
-                    startServerImageSubtitles()
+                    startServerImageSubtitles(only: sub.index)
                     continue
                 }
                 return failStartup("configured image subtitle \(found.refusal)")
@@ -1197,7 +1369,7 @@ extension RemuxSession {
                 namePrefix: "pgs\(sub.index)"
             ) else {
                 if !sub.serverSupUrl.isEmpty {
-                    startServerImageSubtitles()
+                    startServerImageSubtitles(only: sub.index)
                     continue
                 }
                 return failStartup("image subtitle \(sub.index) has no decoder")
@@ -1271,6 +1443,7 @@ extension RemuxSession {
                 NSLog("[LocalRemuxer] Transcoding video stream %d via VideoToolbox", videoIn)
                 primaryVideoTranscoder = transcoder
             }
+            mark("video_decode_probe")
         }
 
         // Dual-layer Dolby Vision decodes nowhere on Apple hardware, so a copied profile 7
@@ -1409,6 +1582,7 @@ extension RemuxSession {
                 }
                 av_packet_unref(pkt)
             }
+            mark("parameter_sets")
         }
 
         stateLock.lock()
@@ -1463,6 +1637,10 @@ extension RemuxSession {
         // segment's nominal start, so the segment is short at the head and must
         // not be published; -1 when the opening segment is whole.
         var partialOpenSegment = -1
+        // Openings that landed past each segment's start: the next restart for it seeks earlier.
+        var partialOpens: [Int: Int] = [:]
+        // The requested segment opened past its start and is withheld: restart for it at once.
+        var lateOpenRestart: Int?
 
         // Live: the timing stream's last source PTS (splice detection) and keyframe
         // (interval measurement), where output time resumes after a splice, and the
@@ -1479,8 +1657,19 @@ extension RemuxSession {
         func finishSegment(_ n: Int) {
             for rendition in builtRenditions {
                 guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
-                av_write_frame(ctx, nil) // flush the open fragment
+                let flushStarted = Date()
+                var fileSecondsSpent = 0.0
+                defer { flushSecondsInSegment += Date().timeIntervalSince(flushStarted) - fileSecondsSpent }
+                let flushed = av_write_frame(ctx, nil) // flush the open fragment
                 avio_flush(avio)
+                // A delay_moov muxer flushed before any packet cannot write its moov (the dac3
+                // box needs a packet), and whatever bytes the failed attempt left are header
+                // garbage, never a segment or an init.
+                if flushed < 0 {
+                    NSLog("[LocalRemuxer] segment %d flush failed on %@: %@", n, rendition.prefix.isEmpty ? "primary" : rendition.prefix, averr(flushed))
+                    _ = rendition.takePending()
+                    continue
+                }
                 var data = rendition.takePending()
 
                 // Dolby passthrough (delay_moov): this first cut carried the
@@ -1533,13 +1722,16 @@ extension RemuxSession {
                         offsets[UInt32(outIndex) + 1] = base
                     }
                 }
-                var segment = Self.stypBox + data
                 if !offsets.isEmpty {
-                    Self.patchTfdtToAbsolute(in: &segment, offsets: offsets)
+                    Self.patchTfdtToAbsolute(in: &data, offsets: offsets)
                 }
+                let segmentBytes = Self.stypBox.count + data.count
 
                 do {
-                    try segment.write(to: dir.appendingPathComponent(rendition.segmentName(n)), options: .atomic)
+                    let fileStarted = Date()
+                    try Self.writeSegment(data, lead: Self.stypBox, to: dir.appendingPathComponent(rendition.segmentName(n)))
+                    fileSecondsSpent = Date().timeIntervalSince(fileStarted)
+                    fileSecondsInSegment += fileSecondsSpent
                 } catch {
                     return fail("write \(rendition.segmentName(n)): \(error.localizedDescription)")
                 }
@@ -1548,7 +1740,7 @@ extension RemuxSession {
                 stateLock.lock()
                 rendition.completed.insert(n)
                 if !config.isLive {
-                    renditionBitrates[rendition.prefix, default: SegmentBitrates()].record(index: n, bytes: segment.count, duration: duration)
+                    renditionBitrates[rendition.prefix, default: SegmentBitrates()].record(index: n, bytes: segmentBytes, duration: duration)
                 }
                 sourceRetryAttempts = 0
                 recovering = false
@@ -1582,7 +1774,11 @@ extension RemuxSession {
             let elapsed = Date().timeIntervalSince(lastThroughputLog)
             if elapsed >= 5 {
                 let mbps = Double(inputBytesSinceLog) * 8 / elapsed / 1_000_000
-                NSLog("[LocalRemuxer] segment %d done: cushion %d/%d segs, input %.1f Mb/s", n, max(0, n - playhead), aheadWindow, mbps)
+                stateLock.lock()
+                let playerAhead = playerAheadSeconds ?? -1
+                stateLock.unlock()
+                NSLog("[LocalRemuxer] segment %d done: cushion %d/%d segs, input %.1f Mb/s, footprint %d MB, player ahead %.1fs",
+                      n, max(0, n - playhead), aheadWindow, mbps, Self.footprintMB(), playerAhead)
                 inputBytesSinceLog = 0
                 lastThroughputLog = Date()
             }
@@ -1694,6 +1890,8 @@ extension RemuxSession {
             segmentsInGeneration = 0
             segmentClock = Date()
             sleptOnCap = false
+            (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment) = (0, 0, 0, 0)
+            (muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment) = (0, 0, 0)
             return true
         }
 
@@ -1704,7 +1902,9 @@ extension RemuxSession {
         func restart(at segment: Int, failOnSeekError: Bool = true) -> Bool {
             let restartStart = Date()
             let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
-            let targetUs = Int64(segmentStartSeconds(segment) * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
+            let prerolls = input.pointee.iformat.map { String(cString: $0.pointee.name) == "mpegts" } ?? false
+            let seekSegment = Self.restartSeekSegment(for: segment, partialOpens: partialOpens[segment] ?? 0, prerolls: prerolls)
+            let targetUs = Int64(segmentStartSeconds(seekSegment) * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
             let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
             if seekRet < 0 {
                 if !failOnSeekError {
@@ -1721,6 +1921,8 @@ extension RemuxSession {
                 return false
             }
             guard rebuildRenditions() else { return false }
+            // The seek opened a new connection: a sample begun on the old one would span both.
+            restartLinkSample()
 
             // Provisional: the keyframe block below moves currentSegment back
             // to wherever the seek actually landed. producingSegment keeps
@@ -1735,6 +1937,7 @@ extension RemuxSession {
             keyframeForcedAtSegment = -1
             stateLock.lock()
             producingSegment = segment
+            seekRestarts += 1
             reachedEnd = false
             // The seek skips a region: this generation's read starts a new span.
             archiveReadSpanLocked()
@@ -1744,6 +1947,8 @@ extension RemuxSession {
             segmentsInGeneration = 0
             segmentClock = Date()
             sleptOnCap = false
+            (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment) = (0, 0, 0, 0)
+            (muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment) = (0, 0, 0)
             return true
         }
 
@@ -1768,6 +1973,8 @@ extension RemuxSession {
                    target == producingSegment || (sourceTakeoverSegment == nil && (renditions.first?.completed.contains(target) ?? false)) {
                     seekTo = nil
                 }
+                if seekTo == nil, !stop, let late = lateOpenRestart { seekTo = late }
+                lateOpenRestart = nil
                 // Never sleep while a request waits on a segment inside the
                 // production window: lastRequestedSegment is overwritten by
                 // every request (including ones served instantly from disk),
@@ -1827,11 +2034,13 @@ extension RemuxSession {
             if heldThisPass { restartLinkSample() }
 
             let readStarted = Date()
+            var fromQueue = false
             if let queued = queuedPacket {
                 av_packet_move_ref(pkt, queued)
                 var freeing: UnsafeMutablePointer<AVPacket>? = queued
                 av_packet_free(&freeing)
                 queuedPacket = nil
+                fromQueue = true
                 ret = 0
             } else {
                 ret = av_read_frame(input, pkt)
@@ -1844,6 +2053,7 @@ extension RemuxSession {
             if ret == SWIFT_AVERROR_EOF && config.isLive {
                 // The http layer reconnects on its own (reconnect_streamed). An EOF that reaches
                 // the demuxer means the server closed the live stream; only a new open restores it.
+                noteLiveInputLost()
                 fail("live input ended")
                 break
             }
@@ -1950,6 +2160,7 @@ extension RemuxSession {
                 if allowRecovery {
                     retrySource(because: "read_frame: \(averr(ret))")
                 } else {
+                    if config.isLive { noteLiveInputLost() }
                     fail("read_frame: \(averr(ret))")
                 }
                 break
@@ -1957,9 +2168,13 @@ extension RemuxSession {
             defer { av_packet_unref(pkt) }
             inputBytesSinceLog += Int64(pkt.pointee.size)
             bytesInSegment += Int64(pkt.pointee.size)
-            noteSourceRead(bytes: Int64(pkt.pointee.size), seconds: readTook)
+            // The queued packet crossed the wire before the loop; handing it over took no read time.
+            if !fromQueue { noteSourceRead(bytes: Int64(pkt.pointee.size), seconds: readTook) }
+            // A playlist input reads its segments through sub-contexts, so its packets count the bytes; any
+            // other input's IO counter is the count, and already holds the packets the probe buffered.
+            let ioRead = playlistInput ? nil : input.pointee.pb.map { pulledBase + $0.pointee.bytes_read }
             stateLock.lock()
-            pulledBytes += Int64(pkt.pointee.size)
+            if let ioRead { pulledBytes = max(pulledBytes, ioRead) } else { pulledBytes += Int64(pkt.pointee.size) }
             stateLock.unlock()
 
             // How far the source has actually been read: the subtitle decoders'
@@ -2087,6 +2302,7 @@ extension RemuxSession {
                     lastTimingPtsUs = keyframeUs
                     lastKeyframeUs = keyframeUs
                     awaitingKeyframe = false
+                    if generation == 0 { mark("first_keyframe") }
                 } else {
                 // The session's FIRST generation sets this anchor, so it has to open at
                 // position 0: seek before it and every later segment is labelled by the offset.
@@ -2114,7 +2330,15 @@ extension RemuxSession {
                     break
                 }
                 currentSegment = openSegment
-                partialOpenSegment = openSeconds > segmentStartSeconds(openSegment) ? openSegment : -1
+                let partial = openSeconds > segmentStartSeconds(openSegment)
+                if partial { partialOpens[openSegment, default: 0] += 1 }
+                let opens = partialOpens[openSegment] ?? 0
+                partialOpenSegment = partial && Self.withholdsPartialOpen(partialOpens: opens) ? openSegment : -1
+                if partial && partialOpenSegment < 0 {
+                    NSLog("[LocalRemuxer] segment %d opened past its start %d times, published short at the head", openSegment, opens)
+                }
+                // Now, not at the waiter's re-assert 2s later (measured 2.0s vs 0.8s between restarts).
+                if partialOpenSegment == generationRequestSegment, openSegment > 0 { lateOpenRestart = openSegment }
                 awaitingKeyframe = false
                 }
             }
@@ -2243,6 +2467,8 @@ extension RemuxSession {
             // clock, so the input packet is consumed rather than written.
             if !isVideo, let transcoder = rendition.transcoder {
                 var writeError: Int32 = 0
+                let encodeStarted = Date()
+                defer { audioSecondsInSegment += Date().timeIntervalSince(encodeStarted) }
                 transcoder.process(packet: pkt) { encoded in
                     guard writeError == 0 else { return }
                     av_packet_rescale_ts(encoded, transcoder.encoderTimeBase, outStream.pointee.time_base)
@@ -2262,9 +2488,14 @@ extension RemuxSession {
 
             // Profile 7 to 8.1: the RPU is rewritten and the enhancement layer dropped, before
             // any timestamp work, so the packet the muxer sees is the one it will write.
-            if isVideo, let converter = rendition.dolbyVision, !converter.rewrite(packet: pkt) {
-                fail("Dolby Vision rewrite rejected a malformed video packet")
-                break
+            if isVideo, let converter = rendition.dolbyVision {
+                let rewriteStarted = Date()
+                let rewritten = converter.rewrite(packet: pkt)
+                doviSecondsInSegment += Date().timeIntervalSince(rewriteStarted)
+                if !rewritten {
+                    fail("Dolby Vision rewrite rejected a malformed video packet")
+                    break
+                }
             }
 
             // The ADTS header (9 bytes with its CRC) is not part of an MP4 sample.
@@ -2281,7 +2512,9 @@ extension RemuxSession {
             rendition.repairTimestamps(pkt, streamIndex: outIndex)
             rendition.noteBaseDts(streamIndex: outIndex, dts: pkt.pointee.dts)
 
+            let muxStarted = Date()
             ret = av_write_frame(ctx, pkt)
+            muxSecondsInSegment += Date().timeIntervalSince(muxStarted)
             if ret < 0 {
                 fail("write_frame: \(averr(ret))")
                 break

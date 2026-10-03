@@ -3,14 +3,16 @@
 /cache/transcodes/<id>.ts for as long as it is open, and only a client's close ends it.
 
   leakwatch.py report          what is open, growing, watched, and the disk
-  leakwatch.py watch           cron: report to ntfy on a leak or a low disk, restart under the floor
+  leakwatch.py watch           cron: close leaked streams, report to ntfy on a leak or a low disk, restart under the floor
   leakwatch.py restart         restart jellyfin and the live TV containers, clear the buffers, verify
 Auth is the admin's newest session token off a copy of jellyfin.db (as configure.py). NTFY_TOPIC and
 NTFY_ALWAYS come from /opt/tomotv/livetv/.env.
 """
 
+import calendar
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -21,9 +23,14 @@ import urllib.request
 ROOT = "/opt/tomotv"
 TRANSCODES = f"{ROOT}/jellyfin/cache/transcodes"
 ENV = f"{ROOT}/livetv/.env"
+LOGS = f"{ROOT}/jellyfin/config/log"
 SEEN = "/tmp/leakwatch-seen.json"
 # A buffer growing this long with nobody watching its channel is a leak.
 LEAK_AFTER_S = 120
+# Previews hold a stream for seconds and the channel ring for 30 s past the last flip: an unwatched one this old is closed.
+CLOSE_AFTER_S = 600
+CLOSE_ATTEMPTS = 5
+OPENED = re.compile(r'^\[(\S+ \S+) ([+-]\d\d:\d\d)\].*Live stream opened: .*?LiveStreamFiles/([0-9a-f]{32})/stream\.ts.*?LiveStreamId: "([^"]+)"')
 LOW_GB = 5
 FLOOR_GB = 3
 SAMPLE_S = 10
@@ -58,10 +65,11 @@ def jellyfin():
     finally:
         os.remove(db)
 
-    def call(path):
-        req = urllib.request.Request(f"http://{ip}:8096{path}", headers={"Authorization": "MediaBrowser Token=" + token})
+    def call(path, method="GET"):
+        req = urllib.request.Request(f"http://{ip}:8096{path}", method=method, headers={"Authorization": "MediaBrowser Token=" + token})
         with urllib.request.urlopen(req, timeout=30) as r:
-            return json.load(r)
+            body = r.read()
+            return json.loads(body) if body else None
 
     try:
         call("/System/Info")
@@ -91,7 +99,7 @@ def buffers():
     rows = []
     for name, (size, mtime) in after.items():
         grew = size - before.get(name, (size, 0))[0]
-        rows.append({"id": name[:8], "mb": size / 1e6, "mb_per_min": grew / 1e6 * 60 / SAMPLE_S, "growing": now - mtime < 60, "age_s": now - seen[name]})
+        rows.append({"id": name[:8], "name": name, "mb": size / 1e6, "mb_per_min": grew / 1e6 * 60 / SAMPLE_S, "growing": now - mtime < 60, "age_s": now - seen[name]})
     return sorted(rows, key=lambda r: -r["mb"])
 
 
@@ -110,6 +118,30 @@ def first_seen(names, now):
     except OSError as error:
         print(f"could not write {SEEN}: {error}")
     return seen
+
+
+def opened_streams(names):
+    """Each buffer's live stream id and open time, off Jellyfin's "Live stream opened" line; buffers the kept logs predate are missing."""
+    if not names:
+        return {}
+    patterns = " ".join(f"-e 'LiveStreamFiles/{name[:-3]}/stream.ts'" for name in names)
+    found = {}
+    for line in sh(f"sudo grep -hF {patterns} {LOGS}/log_*.log").splitlines():
+        match = OPENED.match(line)
+        if match:
+            offset = (int(match[2][1:3]) * 3600 + int(match[2][4:6]) * 60) * (1 if match[2][0] == "+" else -1)
+            at = calendar.timegm(time.strptime(match[1][:19], "%Y-%m-%d %H:%M:%S")) - offset
+            found[match[3] + ".ts"] = {"live_stream_id": match[4], "opened_at": at}
+    return found
+
+
+def reported_streams(call):
+    """Live stream ids some session reports playing."""
+    return {s["PlayState"]["LiveStreamId"] for s in call("/Sessions") if (s.get("PlayState") or {}).get("LiveStreamId")} if call else set()
+
+
+def recording(call):
+    return any(t.get("Status") == "InProgress" for t in (call("/LiveTv/Timers") or {}).get("Items", []))
 
 
 def watching(call):
@@ -133,18 +165,54 @@ def report():
     call = jellyfin()
     rows = buffers()
     live = watching(call)
+    reported = reported_streams(call)
+    now = time.time()
+    for r in rows:
+        r.update(opened_streams([r["name"]]).get(r["name"], {}))
+        if "opened_at" in r:
+            r["age_s"] = now - r["opened_at"]
+        r["state"] = "unmapped" if "live_stream_id" not in r else "watched" if r["live_stream_id"] in reported else "unwatched"
     d = disk()
     growing = [r for r in rows if r["growing"]]
-    leaked = [r for r in growing if r["age_s"] > LEAK_AFTER_S] if len(growing) > len(live) else []
+    # A buffer the log does not name falls back to the count: more growing than watched.
+    leaked = [r for r in growing if r["age_s"] > LEAK_AFTER_S and (r["state"] == "unwatched" or (r["state"] == "unmapped" and len(growing) > len(live)))]
     lines = [f"disk: {d['free_gb']:.1f} GB free ({d['used_pct']:.0f}% used), jellyfin {'up' if call else 'DOWN'}"]
     lines.append(f"open tuner buffers: {len(rows)}, growing: {len(growing)}, live sessions: {len(live)}")
     for r in rows:
-        lines.append(f"  {r['id']}  {r['mb']:8.1f} MB  {r['mb_per_min']:6.1f} MB/min  {'growing' if r['growing'] else 'idle   '}  {r['age_s'] / 60:5.1f} min")
+        lines.append(f"  {r['id']}  {r['mb']:8.1f} MB  {r['mb_per_min']:6.1f} MB/min  {'growing' if r['growing'] else 'idle   '}  {r['age_s'] / 60:5.1f} min  {r['state']}")
     for w in live:
         lines.append(f"  watching: {w['user']} on {w['device']}: {w['item']} (check-in {w['checkin']}Z)")
     verdict = "LEAK" if leaked else "ok"
     lines.append(f"verdict: {verdict}" + (f", {len(leaked)} stream(s) growing with nobody watching" if leaked else ""))
-    return "\n".join(lines), verdict, d, call is not None
+    return "\n".join(lines), verdict, d, call, leaked
+
+
+def close_leaks(call, leaked):
+    """Closes each unwatched leak past CLOSE_AFTER_S until its buffer is gone (a close ends one consumer).
+    Returns the lines, what was closed, and what needs a person: unmapped, still open, or held by a recording."""
+    lines, closed, stuck = [], [], []
+    held = call is not None and recording(call)
+    for r in leaked:
+        if r["state"] != "unwatched" or held or call is None:
+            stuck.append(r)
+            lines.append(f"  {r['id']}  left open: " + ("a recording is in progress" if held else "no stream id in the kept logs" if r["state"] == "unmapped" else "jellyfin down"))
+            continue
+        if r["age_s"] < CLOSE_AFTER_S:
+            lines.append(f"  {r['id']}  closes once it is {CLOSE_AFTER_S // 60} min old")
+            continue
+        path = f"{TRANSCODES}/{r['name']}"
+        closes = 0
+        while os.path.exists(path) and closes < CLOSE_ATTEMPTS:
+            call(f"/LiveStreams/Close?liveStreamId={r['live_stream_id']}", "POST")
+            closes += 1
+            time.sleep(2)
+        if os.path.exists(path):
+            stuck.append(r)
+            lines.append(f"  {r['id']}  still open after {closes} close(s)")
+        else:
+            closed.append(r)
+            lines.append(f"  {r['id']}  closed after {closes} close(s), {r['mb']:.0f} MB freed")
+    return lines, closed, stuck
 
 
 def notify(title, body, priority="default", tags="tv"):
@@ -187,20 +255,26 @@ def restart():
 
 def main(mode):
     if mode == "report":
-        text, verdict, _, _ = report()
+        text, verdict, _, _, _ = report()
         print(text)
         sys.exit(2 if verdict == "LEAK" else 0)
     if mode == "restart":
         sys.exit(0 if restart() else 1)
     if mode == "watch":
-        text, verdict, d, up = report()
+        text, verdict, d, call, leaked = report()
+        up = call is not None
+        lines, closed, stuck = close_leaks(call, leaked)
+        if lines:
+            text += "\nauto-close:\n" + "\n".join(lines)
         print(text)
         if d["free_gb"] < FLOOR_GB or not up:
             restart()
             why = "jellyfin was down" if not up else "%.1f GB free was under the floor" % d["free_gb"]
             notify("Demo box: Jellyfin restarted", f"{why}\n\n{text}", "high", "rotating_light")
-        elif verdict == "LEAK" or d["free_gb"] < LOW_GB:
-            notify("Demo box: live TV " + ("leak" if verdict == "LEAK" else "low disk"), text, "high", "warning")
+        elif stuck or d["free_gb"] < LOW_GB:
+            notify("Demo box: live TV " + ("leak" if stuck else "low disk"), text, "high", "warning")
+        elif closed:
+            notify("Demo box: live TV leak closed", text, "default", "broom")
         elif env().get("NTFY_ALWAYS") == "1":
             notify("Demo box: live TV ok", text, "low", "white_check_mark")
         return

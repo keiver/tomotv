@@ -11,7 +11,7 @@ jest.mock("react-native", () => {
 });
 let mockParams = { videoId: "one", videoName: "First", queueMode: "true" };
 const mockRouter = { replace: jest.fn(), setParams: jest.fn() };
-const mockNavigation = { canGoBack: jest.fn(() => true), goBack: jest.fn() };
+const mockNavigation = { dispatch: jest.fn(), getState: () => ({ key: "root" }) };
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useRouter: () => mockRouter, useNavigation: () => mockNavigation }));
 jest.mock("expo-linking", () => ({ addEventListener: jest.fn(() => ({ remove: jest.fn() })) }));
 jest.mock("@/components/dismiss-pan", () => ({ DismissPan: () => null }));
@@ -20,8 +20,6 @@ jest.mock("@/components/player-loading-overlay", () => ({ PlayerLoadingOverlay: 
 jest.mock("@/components/up-next-interstitial", () => ({ UpNextInterstitial: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
-jest.mock("@/hooks/usePlaybackStage", () => ({ stageLabel: () => "" }));
-jest.mock("@/services/playbackStage", () => ({ currentPlaybackStage: () => ({ stage: null }) }));
 jest.mock("@/services/playbackProbe", () => ({ probeEmit: jest.fn() }));
 jest.mock("@/services/itemArtwork", () => ({ posterUri: () => undefined, wantsPosterFrame: () => false }));
 jest.mock("@/services/liveRing", () => ({ recenterLiveRing: jest.fn(), releaseLiveRing: jest.fn() }));
@@ -29,7 +27,14 @@ jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(), cance
 jest.mock("@/services/syncPlayManager", () => ({ isJoined: () => false, requestNextItem: jest.fn() }));
 jest.mock("@/services/libraryManager", () => ({ libraryManager: { getState: () => ({ videos: [] }) } }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn() } }));
-jest.mock("@/services/jellyfinApi", () => ({ fetchMediaSegments: jest.fn(), fetchNextEpisodeAutoPlay: jest.fn(), fetchChannels: jest.fn() }));
+jest.mock("@/services/jellyfinApi", () => ({
+  fetchMediaSegments: jest.fn(),
+  fetchNextEpisodeAutoPlay: jest.fn(),
+  fetchChannelOrder: jest.fn(),
+  fetchChannelWindow: jest.fn(),
+  fetchVideoDetails: jest.fn(async () => null),
+  setVideoFavorite: jest.fn(async () => {}),
+}));
 const mockLoaders = { hideGlobalLoader: jest.fn(), showGlobalLoader: jest.fn() };
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => mockLoaders }));
 const mockQueue = {
@@ -63,8 +68,8 @@ const mockSession = {
 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => mockSession }));
 
-const markers = (startSeconds: number): ItemMediaSegments => ({ intro: null, outro: { startSeconds, endSeconds: 60 } });
-const noMarkers: ItemMediaSegments = { intro: null, outro: null };
+const markers = (startSeconds: number): ItemMediaSegments => ({ intro: null, outro: { startSeconds, endSeconds: 60 }, commercials: [] });
+const noMarkers: ItemMediaSegments = { intro: null, outro: null, commercials: [] };
 const lastConfig = (): PlayerTvConfig => mockSession.setTvConfig.mock.calls.at(-1)![0];
 
 describe("tvOS Up Next timing", () => {

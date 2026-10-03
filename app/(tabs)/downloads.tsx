@@ -1,7 +1,7 @@
 import { EmptyCard } from "@/components/empty-card";
+import { localeScreen } from "@/components/locale-boundary";
 import { AmbientBackground } from "@/components/ambient-background";
-import { SectionFooter } from "@/components/settings/SectionFooter";
-import { DownloadRow, REMOVE_ACTIONS } from "@/components/settings/DownloadRow";
+import { DownloadRow, removeActions } from "@/components/settings/DownloadRow";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
@@ -16,6 +16,7 @@ import { downloadsSupported } from "@/services/downloads/paths";
 import { groupDownloads, locateDownload, totalDownloadedBytes, type DownloadGroup, type DownloadListRow } from "@/services/downloads/grouping";
 import type { DownloadEntry } from "@/services/downloads/manifest";
 import { useDownloadPlayback } from "@/hooks/useDownloadPlayback";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
@@ -81,7 +82,9 @@ const keyOf = (row: ListItem) => row.key;
  * What is on the device, the one screen that needs no server. tvOS has no persistent local
  * storage, so the tab is hidden there (app/(tabs)/_layout.tsx) and this screen says so if reached.
  */
-export default function DownloadsScreen() {
+export default localeScreen(DownloadsScreen);
+
+function DownloadsScreen() {
   // A finished file plays with no server at all, so the list stands alone. What it holds does
   // not: an unfinished transfer needs the session back before it means anything.
   const { isConnected } = useAuth();
@@ -189,7 +192,7 @@ export default function DownloadsScreen() {
   );
 
   const confirmRemove = useCallback((entry: DownloadEntry) => {
-    Alert.alert(entry.item.Name, t("downloads.removeOne"), [
+    Alert.alert(cleanLabel(entry.item.Name), t("downloads.removeOne"), [
       { text: t("common.cancel"), style: "cancel" },
       { text: t("common.remove"), style: "destructive", onPress: () => void downloadManager.remove(entry.itemId) },
     ]);
@@ -261,7 +264,7 @@ export default function DownloadsScreen() {
                 setExpanded(open ? null : group.id);
               }}
               onLongPress={() => confirmRemoveGroup(group)}
-              accessibilityActions={REMOVE_ACTIONS}
+              accessibilityActions={removeActions()}
               onAccessibilityAction={(event) => {
                 if (event.nativeEvent.actionName === "remove") confirmRemoveGroup(group);
               }}
@@ -374,9 +377,7 @@ export default function DownloadsScreen() {
 
                 {/* The card runs out into the gauge rather than stopping above it: square across
                     the top, the card's own corners at the bottom. */}
-                <SectionFooter layout={PANEL_SHIFT}>
-                  <StorageBar used={stored} free={Paths.availableDiskSpace} onClear={confirmRemoveAll} />
-                </SectionFooter>
+                <StorageBar used={stored} free={Paths.availableDiskSpace} onClear={confirmRemoveAll} layout={PANEL_SHIFT} />
               </Animated.View>
             </>
           )}

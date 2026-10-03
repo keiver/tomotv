@@ -12,7 +12,17 @@ import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache
 import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
-import { fetchFavoriteIds, fetchFolderContents, fetchPlaylistContents, fetchUserViews, fetchVideoDetails, subscribePlayedChange, subscribeResumeChange } from "@/services/jellyfinApi";
+import {
+  fetchFavoriteIds,
+  fetchFolderContents,
+  fetchPlaylistContents,
+  fetchUserViews,
+  fetchVideoDetails,
+  subscribeItemRemoved,
+  subscribeItemRemoving,
+  subscribePlayedChange,
+  subscribeResumeChange,
+} from "@/services/jellyfinApi";
 
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
 jest.mock("@/services/connectionRecovery", () => ({ attemptConnectionRecovery: jest.fn() }));
@@ -25,8 +35,11 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchVideoDetails: jest.fn(() => Promise.resolve(null)),
   isLiveChannel: jest.fn((item: { Type?: string } | null | undefined) => item?.Type === "TvChannel"),
   subscribeFavoriteChange: jest.fn(() => jest.fn()),
+  subscribeItemRemoved: jest.fn(() => jest.fn()),
+  subscribeItemRemoving: jest.fn(() => jest.fn()),
   subscribePlayedChange: jest.fn(() => jest.fn()),
   subscribeResumeChange: jest.fn(() => jest.fn()),
+  subscribeRecordingsChange: jest.fn(() => jest.fn()),
   subscribeAuthChange: jest.fn(() => jest.fn()),
 }));
 
@@ -373,6 +386,138 @@ describe("useFolderContents", () => {
       expect(ref.current!.get().hasMoreResults).toBe(false);
     });
 
+    it("starts the next page one earlier after a loaded item is deleted, and not for one it never held", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("c", "d"), total: 3 });
+      const ref = await mount("folder-1");
+      const removed = (subscribeItemRemoved as jest.Mock).mock.calls.at(-1)![0] as (itemId: string) => void;
+      await act(async () => {
+        removed("zz");
+        removed("a");
+      });
+
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+
+      expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 1 });
+    });
+
+    describe("a delete while a page is in flight", () => {
+      const removed = (itemId: string) => ((subscribeItemRemoved as jest.Mock).mock.calls.at(-1)![0] as (itemId: string) => void)(itemId);
+      const removing = (itemId: string, settled: boolean) => ((subscribeItemRemoving as jest.Mock).mock.calls.at(-1)![0] as (itemId: string, settled: boolean) => void)(itemId, settled);
+      const deferred = () => {
+        let resolve!: (page: { items: JellyfinItem[]; total: number }) => void;
+        const promise = new Promise<{ items: JellyfinItem[]; total: number }>((done) => (resolve = done));
+        return { promise, resolve };
+      };
+
+      it("asks again from the corrected offset when the delete lands before the page", async () => {
+        const inFlight = deferred();
+        mockFolder
+          .mockResolvedValueOnce({ items: items("a", "b"), total: 4 })
+          .mockReturnValueOnce(inFlight.promise)
+          .mockResolvedValueOnce({ items: items("c", "d"), total: 3 });
+        const ref = await mount("folder-1");
+        await act(async () => {
+          void ref.current!.get().loadMore();
+        });
+        await act(async () => {
+          removing("a", false);
+          removed("a");
+          removing("a", true);
+        });
+        // Answered after the delete: it skipped c, the item that moved to position 1.
+        await act(async () => inFlight.resolve({ items: items("d"), total: 3 }));
+
+        expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 2 });
+        expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 60, startIndex: 1 });
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c", "d"]);
+      });
+
+      it("drops a page that lands while the delete is still in flight and asks again once it settles", async () => {
+        const inFlight = deferred();
+        mockFolder
+          .mockResolvedValueOnce({ items: items("a", "b"), total: 4 })
+          .mockReturnValueOnce(inFlight.promise)
+          .mockResolvedValueOnce({ items: items("c", "d"), total: 3 });
+        const ref = await mount("folder-1");
+        await act(async () => {
+          void ref.current!.get().loadMore();
+        });
+        await act(async () => removing("a", false));
+        await act(async () => inFlight.resolve({ items: items("d"), total: 3 }));
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b"]);
+        expect(mockFolder).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+          removed("a");
+          removing("a", true);
+        });
+        expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 60, startIndex: 1 });
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c", "d"]);
+      });
+
+      it("a refresh the server answered before a delete is neither shown nor cached, and is read again", async () => {
+        const stale = deferred();
+        mockFolder
+          .mockResolvedValueOnce({ items: items("a", "b"), total: 4 })
+          .mockReturnValueOnce(stale.promise)
+          .mockResolvedValueOnce({ items: items("b", "c"), total: 3 })
+          .mockResolvedValueOnce({ items: items("d"), total: 3 });
+        const ref = await mount("folder-1");
+        await act(async () => ref.current!.get().refresh());
+        await act(async () => {
+          removing("a", false);
+          removed("a");
+          removing("a", true);
+        });
+        await act(async () => stale.resolve({ items: items("a", "b"), total: 4 }));
+
+        expect(mockFolder).toHaveBeenCalledTimes(3);
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c"]);
+        await act(async () => {
+          void ref.current!.get().loadMore();
+        });
+        expect(mockFolder).toHaveBeenNthCalledWith(4, "folder-1", { limit: 60, startIndex: 2 });
+        const again = await mount("folder-1");
+        expect(mockFolder).toHaveBeenCalledTimes(4);
+        expect(again.current!.get().items.map((i) => i.Id)).toEqual(["b", "c"]);
+      });
+
+      it("a refresh that lands while a delete is in flight waits for it to settle", async () => {
+        const stale = deferred();
+        mockFolder
+          .mockResolvedValueOnce({ items: items("a", "b"), total: 4 })
+          .mockReturnValueOnce(stale.promise)
+          .mockResolvedValueOnce({ items: items("b", "c"), total: 3 });
+        const ref = await mount("folder-1");
+        await act(async () => ref.current!.get().refresh());
+        await act(async () => removing("a", false));
+        await act(async () => stale.resolve({ items: items("a", "b"), total: 4 }));
+        expect(mockFolder).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+          removed("a");
+          removing("a", true);
+        });
+        expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 60, startIndex: 0 });
+        expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c"]);
+      });
+
+      it("holds a page asked for during a delete until it settles, and asks from where it leaves the list", async () => {
+        mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("b", "c", "d"), total: 4 });
+        const ref = await mount("folder-1");
+        await act(async () => removing("zz", false));
+        await act(async () => {
+          void ref.current!.get().loadMore();
+        });
+        expect(mockFolder).toHaveBeenCalledTimes(1);
+        // Refused: nothing moved, so the page starts where it would have.
+        await act(async () => removing("zz", true));
+        expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 2 });
+      });
+    });
+
     it("does nothing on loadMore when there are no more results", async () => {
       mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
       const ref = await mount("folder-1");
@@ -381,6 +526,91 @@ describe("useFolderContents", () => {
         ref.current!.get().loadMore();
       });
       expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("focusId (Show In Folder)", () => {
+    // clearAllMocks keeps queued once-values and implementations; these tests leave both behind.
+    beforeEach(() => mockFolder.mockReset());
+    afterEach(() => mockFolder.mockReset());
+
+    async function mountFocused(focusId: string) {
+      const renders: { isLoading: boolean; ids: string[] }[] = [];
+      function Probe() {
+        const state = useFolderContents("folder-1", undefined, undefined, focusId);
+        renders.push({ isLoading: state.isLoading, ids: state.items.map((i) => i.Id) });
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+      return renders;
+    }
+
+    it("reads pages until the target is held, then paints once", async () => {
+      mockFolder
+        .mockResolvedValueOnce({ items: items("a", "b"), total: 6 })
+        .mockResolvedValueOnce({ items: items("c", "d"), total: 6 })
+        .mockResolvedValueOnce({ items: items("e", "f"), total: 6 });
+      const renders = await mountFocused("c");
+
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 2 });
+      const painted = renders.filter((r) => r.ids.length > 0);
+      expect(painted[0].ids).toEqual(["a", "b", "c", "d"]);
+      expect(painted.every((r) => !r.isLoading)).toBe(true);
+    });
+
+    it("keeps paging from where the walk stopped", async () => {
+      mockFolder
+        .mockResolvedValueOnce({ items: items("a", "b"), total: 6 })
+        .mockResolvedValueOnce({ items: items("c", "d"), total: 6 })
+        .mockResolvedValueOnce({ items: items("e", "f"), total: 6 });
+      const ref = React.createRef<HookRef>();
+      const Focused = forwardRef<HookRef>((_, r) => {
+        const result = useFolderContents("folder-1", undefined, undefined, "c");
+        useImperativeHandle(r, () => ({ get: () => result }), [result]);
+        return null;
+      });
+      Focused.displayName = "Focused";
+      await act(async () => {
+        TestRenderer.create(<Focused ref={ref} />);
+      });
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+      expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 60, startIndex: 4 });
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "c", "d", "e", "f"]);
+    });
+
+    it("refuses a cached seed that lacks the target and walks on from it", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 });
+      await mount("folder-1"); // caches page one only
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+      mockFolder.mockResolvedValueOnce({ items: items("c", "d"), total: 4 });
+
+      const renders = await mountFocused("d");
+
+      expect(renders[0]).toEqual({ isLoading: true, ids: [] });
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(mockFolder).toHaveBeenLastCalledWith("folder-1", { limit: 60, startIndex: 2 });
+      expect(renders[renders.length - 1].ids).toEqual(["a", "b", "c", "d"]);
+    });
+
+    it("opens with what arrived when a later page fails", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockRejectedValueOnce(new Error("offline"));
+      const renders = await mountFocused("d");
+
+      const last = renders[renders.length - 1];
+      expect(last).toEqual({ isLoading: false, ids: ["a", "b"] });
+    });
+
+    it("stops at the page budget when the target never turns up", async () => {
+      mockFolder.mockImplementation((_id: string, { startIndex }: { startIndex: number }) => Promise.resolve({ items: items(`p${startIndex}`), total: 1000 }));
+      await mountFocused("missing");
+      expect(mockFolder).toHaveBeenCalledTimes(10);
     });
   });
 

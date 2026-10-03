@@ -13,6 +13,8 @@ const GLOW_PAD = IS_TV ? 24 : 12;
 
 interface MediaShelfProps<T> {
   title: string;
+  /** A red dot after the heading: something on the shelf is live. */
+  dot?: boolean;
   data: readonly T[];
   /** The item's snapped card shape — decides its height in the row (see slotRowHeights). */
   slotShapeFor: (item: T) => ArtworkSlotShape;
@@ -21,15 +23,27 @@ interface MediaShelfProps<T> {
   keyExtractor: (item: T) => string;
 }
 
+/** The shelf's index-mark heading, exported so sibling sections can label themselves alike. */
+export function ShelfHeading({ title, dot = false }: { title: string; dot?: boolean }) {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const spacing = shelfSpacing(IS_TV, windowWidth, windowHeight);
+  return (
+    <View style={[styles.headingRow, { marginBottom: spacing.headingGap }]}>
+      <Text style={[styles.heading, { fontSize: spacing.headingSize, lineHeight: spacing.headingLine }]}>{title}</Text>
+      {dot ? <View style={styles.headingDot} testID="shelf-dot" /> : null}
+    </View>
+  );
+}
+
 /**
  * One horizontal shelf of the home screen: heading plus a card carousel of mixed-shape
  * cards (see fitArtwork on the card components). ONE height per row, never uneven: the row
- * takes the tallest shape present in its data and EVERY card renders at that height — wide
+ * takes the tallest shape present in its data and EVERY card renders at that height: wide
  * cards in a poster row grow to match. An all-wide row stays at the wide height. Purely
- * presentational — data loading, press routing and focus side effects belong to the wrapper
+ * presentational: data loading, press routing and focus side effects belong to the wrapper
  * that instantiates it. Renders null with no items so empty shelves collapse.
  */
-export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtractor }: MediaShelfProps<T>) {
+export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyExtractor }: MediaShelfProps<T>) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -71,8 +85,6 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
   // against this same block, so the shelf still lands where the fill maths put it.
   const spacing = shelfSpacing(IS_TV, windowWidth, windowHeight);
   const containerStyle = useMemo(() => ({ marginBottom: spacing.rowGap }), [spacing]);
-  const headingRowStyle = useMemo(() => ({ marginBottom: spacing.headingGap }), [spacing]);
-  const headingStyle = useMemo(() => ({ fontSize: spacing.headingSize, lineHeight: spacing.headingLine }), [spacing]);
   const rowContentStyle = useMemo(() => ({ paddingVertical: GLOW_PAD, paddingLeft: edgeLeft, paddingRight: edgeRight }), [edgeLeft, edgeRight]);
 
   if (data.length === 0) {
@@ -81,9 +93,7 @@ export function MediaShelf<T>({ title, data, slotShapeFor, renderItem, keyExtrac
 
   return (
     <View style={[styles.container, containerStyle]}>
-      <View style={[styles.headingRow, headingRowStyle]}>
-        <Text style={[styles.heading, headingStyle]}>{title}</Text>
-      </View>
+      <ShelfHeading title={title} dot={dot} />
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
       <View style={rowAreaStyle}>
         <FlatList
@@ -110,6 +120,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "baseline",
     marginLeft: CARD_PADDING,
+  },
+  headingDot: {
+    alignSelf: "center",
+    marginLeft: IS_TV ? 12 : 8,
+    width: IS_TV ? 14 : 8,
+    height: IS_TV ? 14 : 8,
+    borderRadius: IS_TV ? 7 : 4,
+    backgroundColor: COLORS.DESTRUCTIVE,
   },
   // A quiet index mark over the ambient canvas, not a display title: the artwork leads.
   // TV stays at tvOS caption size so it still reads at 10 feet.

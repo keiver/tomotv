@@ -3,13 +3,14 @@ import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
+import { clearFocusedGuideChannel, setFocusedGuideChannel } from "@/services/guideChannelFocus";
+import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { GuideMetrics } from "@/utils/guide";
 import React, { useCallback } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
-import { type Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
@@ -18,14 +19,15 @@ const favoriteMark = (preferences: LiveTvPreferences, channel: JellyfinItem) => 
 
 interface GuideChannelColumnProps {
   channels: JellyfinItem[];
+  recordingChannelIds: Set<string>;
   metrics: GuideMetrics;
   /** The grid scrolls this list while the grid is the one moving, and this handler scrolls the grid back. */
   listRef: AnimatedRef<Animated.FlatList<JellyfinItem>>;
   onScroll: ScrollHandlerProcessed;
-  /** The corner above the column, level with the ruler. */
-  dayLabel: string;
   /** The grid list's measured height, so both lists scroll the same span. */
   listHeight: number;
+  /** TV: where a focus scroll lands the focused channel's top, the same as the grid's rows. */
+  rowSnapOffset?: number;
   /** Bottom padding under the last channel so the tab bar never covers it. */
   contentBottomPad: number;
   /** The column's live width, driven by the resize handle; fixed at the metric on TV. */
@@ -36,9 +38,10 @@ interface GuideChannelColumnProps {
   /** A held card marks the channel a favorite, or unmarks it. */
   onChannelLongPress: (channel: JellyfinItem) => void;
   onChannelFocus?: () => void;
+  /** TV: the first card's native node, the strip's way down into the guide (the canvas cells sit
+      in a scrolled expanse the focus engine cannot enter geometrically). */
+  onFirstHandle?: (handle: number | undefined) => void;
   onEndReached?: () => void;
-  /** Phone: the corner is a second resize handle, the seam grip's pan from useColumnResize. */
-  cornerGesture?: ReturnType<typeof Gesture.Pan>;
 }
 
 /**
@@ -47,36 +50,64 @@ interface GuideChannelColumnProps {
  */
 export function GuideChannelColumn({
   channels,
+  recordingChannelIds,
   metrics,
   listRef,
   onScroll,
-  dayLabel,
   listHeight,
+  rowSnapOffset,
   contentBottomPad,
   columnWidth,
   compact,
   onChannelPress,
   onChannelLongPress,
   onChannelFocus,
+  onFirstHandle,
   onEndReached,
-  cornerGesture,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
-  // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows,
-  // and the TV snap target, so a focused card lands its row on the list's top edge.
+  const { viewabilityConfig, onViewableItemsChanged, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
+  const firstCardRef = useCallback(
+    (node: React.ElementRef<typeof GuideChannelCard> | null) => {
+      onFirstHandle?.(node ? (findNodeHandle(node) ?? undefined) : undefined);
+    },
+    [onFirstHandle],
+  );
+  // The row's cell wears the reel while its card holds focus; the canvas hears the focus too.
+  const cardFocus = useCallback(
+    (video: JellyfinItem) => {
+      setFocusedGuideChannel(video.Id);
+      setLiveFrameFocus(video.Id);
+      onChannelFocus?.();
+    },
+    [onChannelFocus],
+  );
+  const cardBlur = useCallback((video: JellyfinItem) => {
+    clearFocusedGuideChannel(video.Id);
+    clearLiveFrameFocus(video.Id);
+  }, []);
+  // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows.
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
-      <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapAlign={IS_TV ? "start" : undefined}>
+      <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapOffset={rowSnapOffset}>
         {IS_TV ? (
           <GuideChannelCard
+            ref={index === 0 ? firstCardRef : undefined}
             channel={item}
             index={index}
             cardWidth={metrics.channelColumnWidth}
             hideAiring
+            hideNumber
+            flat
+            inset={metrics.cardInset}
             titleIcon={favoriteMark(preferences, item)}
+            recording={recordingChannelIds.has(item.Id)}
             onPress={onChannelPress}
             onLongPress={onChannelLongPress}
-            onItemFocus={onChannelFocus}
+            onItemFocus={cardFocus}
+            onItemBlur={cardBlur}
+            playsClipInView
+            inView={visibleChannelIds.has(item.Id)}
           />
         ) : (
           <ChannelMorph
@@ -85,16 +116,17 @@ export function GuideChannelColumn({
             metrics={metrics}
             columnWidth={columnWidth}
             compact={compact}
+            inView={visibleChannelIds.has(item.Id)}
             titleIcon={favoriteMark(preferences, item)}
+            recording={recordingChannelIds.has(item.Id)}
             onPress={onChannelPress}
             onLongPress={onChannelLongPress}
           />
         )}
       </View>
     ),
-    [metrics, columnWidth, compact, preferences, onChannelPress, onChannelLongPress, onChannelFocus],
+    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, visibleChannelIds],
   );
-  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
     [metrics.rowHeight],
@@ -104,29 +136,16 @@ export function GuideChannelColumn({
 
   return (
     <Animated.View style={[styles.column, widthStyle]}>
-      {cornerGesture ? (
-        <GestureHandlerRootView style={[styles.corner, { height: metrics.rulerHeight }]}>
-          <GestureDetector gesture={cornerGesture}>
-            <View style={styles.cornerHit}>
-              <Text style={styles.cornerLabel} numberOfLines={1}>
-                {dayLabel}
-              </Text>
-            </View>
-          </GestureDetector>
-        </GestureHandlerRootView>
-      ) : (
-        <View style={[styles.corner, { height: metrics.rulerHeight }]}>
-          <Text style={styles.cornerLabel} numberOfLines={1}>
-            {dayLabel}
-          </Text>
-        </View>
-      )}
       <Animated.FlatList
         ref={listRef}
         data={channels}
         renderItem={renderItem}
         keyExtractor={(item) => item.Id}
         getItemLayout={getItemLayout}
+        snapToAlignment={IS_TV ? "item" : undefined}
+        snapToInterval={IS_TV ? metrics.rowHeight : undefined}
+        // The interval snap rests a list past its content end; the mirror must reach the same offset.
+        scrollToOverflowEnabled={IS_TV}
         onScroll={onScroll}
         scrollEventThrottle={16}
         onEndReached={onEndReached}
@@ -134,7 +153,6 @@ export function GuideChannelColumn({
         viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}
         showsVerticalScrollIndicator={false}
-        snapToAlignment={IS_TV ? "item" : undefined}
         removeClippedSubviews={!IS_TV}
         maxToRenderPerBatch={4}
         updateCellsBatchingPeriod={16}
@@ -157,7 +175,9 @@ function ChannelMorph({
   metrics,
   columnWidth,
   compact,
+  inView,
   titleIcon,
+  recording,
   onPress,
   onLongPress,
 }: {
@@ -166,7 +186,9 @@ function ChannelMorph({
   metrics: GuideMetrics;
   columnWidth: SharedValue<number>;
   compact: boolean;
+  inView: boolean;
   titleIcon?: "heart";
+  recording: boolean;
   onPress: (channel: JellyfinItem) => void;
   onLongPress: (channel: JellyfinItem) => void;
 }) {
@@ -182,7 +204,21 @@ function ChannelMorph({
   return (
     <>
       <Animated.View style={[styles.cardLayer, cardStyle]} pointerEvents={compact ? "none" : "auto"}>
-        <GuideChannelCard channel={channel} index={index} cardWidth={metrics.channelColumnWidth} hideAiring titleIcon={titleIcon} onPress={onPress} onLongPress={onLongPress} />
+        <GuideChannelCard
+          channel={channel}
+          index={index}
+          cardWidth={metrics.channelColumnWidth}
+          hideAiring
+          hideNumber
+          flat
+          inset={metrics.cardInset}
+          titleIcon={titleIcon}
+          recording={recording}
+          onPress={onPress}
+          onLongPress={onLongPress}
+          playsClipInView={!compact}
+          inView={inView && !compact}
+        />
       </Animated.View>
       <Animated.View style={[styles.tileLayer, { width: metrics.compactColumnWidth }, tileStyle]} pointerEvents={compact ? "auto" : "none"}>
         <GuideChannelTile channel={channel} metrics={metrics} onPress={onPress} />

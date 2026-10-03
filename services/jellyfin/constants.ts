@@ -26,13 +26,12 @@ export const STORAGE_KEYS = {
   API_KEY: "jellyfin_api_key",
   USER_ID: "jellyfin_user_id",
   VIDEO_QUALITY: "app_video_quality",
-  BITRATE_MEMORY: "app_bitrate_memory",
+  /** Earlier keys hold readings from windows short enough to time a burst allowance, so none carry over. */
+  BITRATE_MEMORY: "app_bitrate_memory_4",
   /** Device-wide subtitle choice from before 2.2.8, read once by the track settings migration. */
   SUBTITLE_PREFERENCE: "app_subtitle_preference",
   TRACK_SETTINGS: "app_track_settings",
   NEXT_EPISODE_AUTOPLAY: "app_next_episode_autoplay",
-  /** Dev builds only: the language the screenshot pipeline captures in. */
-  LOCALE_OVERRIDE: "app_locale_override",
   IS_DEMO_MODE: "jellyfin_is_demo_mode",
   DEVICE_ID: "jellyfin_device_id",
   USER_NAME: "jellyfin_user_name",

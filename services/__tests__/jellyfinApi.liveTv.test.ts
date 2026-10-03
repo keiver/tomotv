@@ -2,7 +2,19 @@
  * Live TV client: the channel list, opening a channel as raw direct play on the address the
  * app signed into (never the server's own bind address), and releasing the tuner.
  */
-import { closeLeftoverOpens, closeLiveStream, fetchChannels, openChannel, refreshConfig, resolveChannel, resolveChannelOrigin } from "../jellyfinApi";
+import {
+  closeLeftoverOpens,
+  closeLiveStream,
+  fetchChannelCategories,
+  fetchChannelOrder,
+  fetchChannels,
+  fetchChannelsByIds,
+  fetchListedChannels,
+  openChannel,
+  refreshConfig,
+  resolveChannel,
+  resolveChannelOrigin,
+} from "../jellyfinApi";
 import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
 import { recordClose, recordedOpens, recordOpen } from "../jellyfin/liveOpens";
 
@@ -16,6 +28,9 @@ jest.mock("../jellyfin/liveOpens", () => {
   };
 });
 const resetLiveOpens = (jest.requireMock("../jellyfin/liveOpens") as { __reset: () => void }).__reset;
+
+const mockAccounts: { serverUrl: string; serverId: string; userId: string; deviceId: string }[] = [];
+jest.mock("../jellyfin/accounts", () => ({ getSavedAccounts: jest.fn(async () => mockAccounts) }));
 
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
@@ -81,6 +96,92 @@ describe("live TV client", () => {
     expect(url).toContain("startIndex=60");
     expect(url).toContain("limit=60");
     expect(url).toContain("enableTotalRecordCount=true");
+  });
+
+  it("reads the lineup order without programmes, in the sort's order and held to a category when given", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [{ Id: "c1", Name: "One", Type: "TvChannel", CurrentProgram: { Name: "News" } }] }) });
+    await expect(fetchChannelOrder()).resolves.toEqual([{ Id: "c1", Name: "One", Type: "TvChannel" }]);
+    let [url] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain("addCurrentProgram=false");
+    expect(url).not.toContain("sortBy=");
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [] }) });
+    await fetchChannelOrder({ sortBy: "Name", category: "sports" });
+    [url] = (global.fetch as jest.Mock).mock.calls[1];
+    expect(url).toContain("sortBy=Name");
+    expect(url).toContain("isSports=true");
+  });
+
+  it("holds a page to a category through the server's flag", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
+    await fetchChannels({ startIndex: 0, limit: 40, category: "kids" });
+    const [url] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain("isKids=true");
+  });
+
+  it("names the categories the server has channels for, one count query each", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => ({ Items: [], TotalRecordCount: url.includes("isKids=true") || url.includes("isSeries=true") ? 1 : 0 }),
+    }));
+    await expect(fetchChannelCategories()).resolves.toEqual(["kids", "series"]);
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url as string);
+    expect(urls).toHaveLength(5);
+    for (const url of urls) expect(url).toContain("limit=0");
+  });
+
+  it("fetches channels by id in chunks of 100 with includeItemTypes, keeping the ids' order and dropping unknown ids", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      const ids = new URL(url).searchParams.get("ids")!.split(",");
+      // The server answers out of order and never knows c7.
+      return {
+        ok: true,
+        json: async () => ({
+          Items: ids
+            .filter((id) => id !== "c7")
+            .reverse()
+            .map((id) => ({ Id: id, Name: id, Type: "TvChannel" })),
+        }),
+      };
+    });
+    const ids = Array.from({ length: 150 }, (_, index) => `c${index}`);
+    const channels = await fetchChannelsByIds(ids);
+    expect(channels.map((channel) => channel.Id)).toEqual(ids.filter((id) => id !== "c7"));
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url as string);
+    expect(urls).toHaveLength(2);
+    for (const url of urls) expect(url).toContain("includeItemTypes=TvChannel");
+    expect(new URL(urls[0]).searchParams.get("ids")!.split(",")).toHaveLength(100);
+    expect(new URL(urls[1]).searchParams.get("ids")!.split(",")).toHaveLength(50);
+    await expect(fetchChannelsByIds([])).resolves.toEqual([]);
+    expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2);
+  });
+
+  it("fetches listed channels by id in one call, and by name where the id answers for another channel", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () =>
+        url.includes("ids=")
+          ? {
+              Items: [
+                { Id: "c1", Name: "KQED", ChannelNumber: "9.1", Type: "TvChannel" },
+                { Id: "c2", Name: "Someone Else", Type: "TvChannel" },
+              ],
+            }
+          : {
+              Items: [
+                { Id: "x", Name: "Al Jazeera English (1080p)", Type: "TvChannel" },
+                { Id: "c9", Name: "Al Jazeera English", Type: "TvChannel" },
+              ],
+            },
+    }));
+    const channels = await fetchListedChannels([
+      { id: "c2", name: "Al Jazeera English" },
+      { id: "c1", number: "9.1", name: "KQED" },
+    ]);
+    expect(channels.map((channel) => channel.Id)).toEqual(["c9", "c1"]);
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url as string);
+    expect(urls[0]).toContain("ids=c2%2Cc1");
+    expect(urls[1]).toContain("searchTerm=Al+Jazeera+English");
+    expect(urls).toHaveLength(2);
   });
 
   it("opens a channel as raw direct play and returns the ids the session needs", async () => {
@@ -303,10 +404,15 @@ describe("live TV client", () => {
       if (url.includes("/Items/c41/PlaybackInfo")) {
         return { ok: true, json: async () => ({ MediaSources: [{ Protocol: "Http", Container: "ts", Path: "http://172.17.0.2:8096/LiveTv/LiveStreamFiles/x/stream.ts" }] }) };
       }
+      if (url.includes("/Items/c42/PlaybackInfo")) {
+        return { ok: true, json: async () => ({ MediaSources: [{ Id: "c42", Protocol: "File", RequiresOpening: true }] }) };
+      }
       return { ok: true, url, text: async () => "#EXTM3U\n#EXTINF:6,\nseg1.ts\n" };
     });
     expect(await resolveChannelOrigin("c40")).toEqual({ url: "https://origin.example/live/master.m3u8", headers: { "User-Agent": "Tuner" } });
     expect(await resolveChannelOrigin("c41")).toBeNull();
+    // The server's placeholder for a channel it lists that no tuner carries.
+    expect(await resolveChannelOrigin("c42")).toBe("untuned");
     const calls = (global.fetch as jest.Mock).mock.calls;
     expect(calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
     expect(calls.filter(([url]) => String(url).includes("/LiveStreams/"))).toHaveLength(0);
@@ -453,6 +559,50 @@ describe("live TV client", () => {
     expect(body.EnableTranscoding).toBe(true);
     expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/c11/master.m3u8?LiveStreamId=ls-11`);
     expect(channel.liveStreamUrl).toBeUndefined();
+    // Auto: the server's own clamps govern the live transcode, as before.
+    expect(body.MaxStreamingBitrate).toBe(200_000_000);
+    expect(body.DeviceProfile.MaxStreamingBitrate).toBe(200_000_000);
+  });
+
+  it("caps the server-only open at a fixed Streaming Quality pick, and leaves the engine-lane open uncapped", async () => {
+    const answer = () => ({
+      ok: true,
+      json: async () => ({
+        PlaySessionId: "ps-12",
+        MediaSources: [
+          {
+            Id: "ms-12",
+            Container: "ts",
+            Path: "http://172.18.0.2:8096/LiveTv/LiveStreamFiles/abc/stream.ts",
+            SupportsDirectPlay: true,
+            SupportsTranscoding: true,
+            TranscodingUrl: "/videos/c12/master.m3u8?LiveStreamId=ls-12",
+            LiveStreamId: "ls-12",
+            MediaStreams: [],
+          },
+        ],
+      }),
+    });
+    const baseConfig: Record<string, string> = {
+      jellyfin_server_url: SERVER,
+      jellyfin_api_key: "test-api-key",
+      jellyfin_user_id: "test-user-id",
+      jellyfin_device_id: "test-device-id",
+      app_video_quality: "3",
+    };
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => Promise.resolve(baseConfig[key] || null));
+    (global.fetch as jest.Mock).mockResolvedValueOnce(answer()).mockResolvedValueOnce(answer());
+
+    await openChannel("c12", { Id: "c12", Name: "Twelve", Type: "TvChannel", Path: "" }, { serverOnly: true });
+    const serverOnly = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(serverOnly.MaxStreamingBitrate).toBe(8_000_000);
+    expect(serverOnly.DeviceProfile.MaxStreamingBitrate).toBe(8_000_000);
+    expect(serverOnly.DeviceProfile.MaxStaticBitrate).toBe(8_000_000);
+
+    await openChannel("c12", { Id: "c12", Name: "Twelve", Type: "TvChannel", Path: "" });
+    const engineLane = JSON.parse((global.fetch as jest.Mock).mock.calls[1][1].body);
+    expect(engineLane.MaxStreamingBitrate).toBe(200_000_000);
+    expect(engineLane.DeviceProfile.MaxStreamingBitrate).toBe(200_000_000);
   });
 
   it("leaves a channel whose server open failed out of the server lane", async () => {
@@ -514,6 +664,24 @@ describe("live TV client", () => {
     expect(recordClose).not.toHaveBeenCalledWith("ls-61");
   });
 
+  it("closes an open on the server that made it after a switch to another", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ MediaSources: [{ Id: "ms-64", Container: "ts", SupportsDirectPlay: true, LiveStreamId: "ls-64", Path: "/LiveTv/LiveStreamFiles/ls-64/stream.ts" }] }),
+    });
+    await openChannel("c64", { Id: "c64", Name: "Sixty-four", Type: "TvChannel", Path: "" });
+    const switched: Record<string, string> = { jellyfin_server_url: "http://127.0.0.1:18096", jellyfin_api_key: "other-key", jellyfin_user_id: "other-user", jellyfin_device_id: "test-device-id" };
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => Promise.resolve(switched[key] || null));
+    await refreshConfig();
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
+    await closeLiveStream("ls-64");
+    const [url, init] = (global.fetch as jest.Mock).mock.calls.at(-1);
+    expect(url).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-64`);
+    expect(init.headers.Authorization).toContain('Token="test-api-key"');
+    expect(recordedOpens()).toEqual({});
+  });
+
   it("releases the open that went through beside a channel fetch that failed", async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({
@@ -554,13 +722,57 @@ describe("live TV client", () => {
     expect(recordedOpens()).toEqual({ "ls-72": { server: SERVER, deviceId: "test-device-id" } });
   });
 
-  it("closes the opens a previous run left on the signed-in server and forgets the rest", async () => {
+  it("closes the opens a previous run left on the signed-in server and forgets those no saved account reaches", async () => {
     recordOpen("ls-70", { server: SERVER, deviceId: "test-device-id" });
     recordOpen("ls-71", { server: "http://elsewhere:8096", deviceId: "other" });
     (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
     await closeLeftoverOpens();
     const closes = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/LiveStreams/Close"));
     expect(closes).toEqual([`${SERVER}/LiveStreams/Close?liveStreamId=ls-70`]);
+    expect(recordedOpens()).toEqual({});
+  });
+
+  it("keeps the record of an open the server answered 5xx for, and sends the close again from the next foreground", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ MediaSources: [{ Id: "ms-80", Container: "ts", SupportsDirectPlay: true, LiveStreamId: "ls-80", Path: "/LiveTv/LiveStreamFiles/ls-80/stream.ts" }] }),
+    });
+    await openChannel("c80", { Id: "c80", Name: "Eighty", Type: "TvChannel", Path: "" });
+    // An open this run still plays is never swept.
+    (global.fetch as jest.Mock).mockClear();
+    await closeLeftoverOpens();
+    expect(global.fetch).not.toHaveBeenCalled();
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 503 });
+    await closeLiveStream("ls-80");
+    expect(recordClose).not.toHaveBeenCalledWith("ls-80");
+    // The refused close leaves the record; the foreground pass sends it again and a 204 ends it.
+    (global.fetch as jest.Mock).mockClear();
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 });
+    await closeLeftoverOpens();
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain("/LiveStreams/Close?liveStreamId=ls-80");
+    expect(recordClose).toHaveBeenCalledWith("ls-80");
+  });
+
+  it("closes an open left on another server with that account's saved token", async () => {
+    recordOpen("ls-90", { server: "http://elsewhere:8096", deviceId: "other-device" });
+    mockAccounts.splice(0, mockAccounts.length, { serverUrl: "http://elsewhere:8096/", serverId: "srv2", userId: "u2", deviceId: "other-device" });
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+      const values: Record<string, string> = {
+        jellyfin_server_url: SERVER,
+        jellyfin_api_key: "test-api-key",
+        jellyfin_user_id: "test-user-id",
+        jellyfin_device_id: "test-device-id",
+        jellyfin_account_token_srv2_u2: "tok-2",
+      };
+      return Promise.resolve(values[key] || null);
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 204 });
+    await closeLeftoverOpens();
+    mockAccounts.length = 0;
+    const [url, init] = (global.fetch as jest.Mock).mock.calls.find(([u]) => String(u).includes("/LiveStreams/Close"))!;
+    expect(url).toBe("http://elsewhere:8096/LiveStreams/Close?liveStreamId=ls-90");
+    expect(init.headers.Authorization).toContain('DeviceId="other-device"');
+    expect(init.headers.Authorization).toContain('Token="tok-2"');
     expect(recordedOpens()).toEqual({});
   });
 

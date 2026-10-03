@@ -110,6 +110,52 @@ final class PosterQueueTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("film-b/\(PosterQueue.fileName)").path))
     }
 
+    func testTheNewestRequestDecodesFirst() throws {
+        let clip = try clip()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = PosterQueue(root: root)
+
+        // A parked block holds the serial queue while both requests line up.
+        let hold = DispatchSemaphore(value: 0)
+        queue.queue.async { hold.wait() }
+        var order: [String] = []
+        let both = XCTestExpectation(description: "both posters")
+        both.expectedFulfillmentCount = 2
+        for itemId in ["film-a", "film-b"] {
+            queue.request(itemId: itemId, inputUrl: clip.absoluteString, milliseconds: 2000) { _ in
+                order.append(itemId)
+                both.fulfill()
+            }
+        }
+        hold.signal()
+        wait(for: [both], timeout: 30)
+
+        XCTAssertEqual(order, ["film-b", "film-a"], "the card that asked last is the one on screen")
+    }
+
+    func testACancelResolvesAPendingJobWithoutWaitingItsTurn() throws {
+        let clip = try clip()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = PosterQueue(root: root)
+
+        let hold = DispatchSemaphore(value: 0)
+        queue.queue.async { hold.wait() }
+        defer { hold.signal() }
+        let done = XCTestExpectation(description: "cancelled")
+        var outcome: PosterQueue.Outcome?
+        queue.request(itemId: "film-b", inputUrl: clip.absoluteString, milliseconds: 2000) {
+            outcome = $0
+            done.fulfill()
+        }
+        queue.cancel(itemId: "film-b")
+        // The queue is still parked: the answer must not have waited for it.
+        wait(for: [done], timeout: 2)
+
+        guard case .cancelled? = outcome else { return XCTFail("expected a cancelled outcome, got \(String(describing: outcome))") }
+    }
+
     func testARequestAfterACancelRunsAgain() throws {
         let clip = try clip()
         let root = try scratchRoot()

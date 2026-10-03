@@ -148,10 +148,18 @@ export interface JellyfinVideoItem {
   LiveStreamId?: string;
   liveStreamUrl?: string;
   liveHttpHeaders?: Record<string, string>;
+  // A raw TS channel read without a server open: its provider's connection budget, and the server's pass-through.
+  liveOriginKey?: string;
+  liveFallbackUrl?: string;
   // The server's HLS transcode of the channel, the rung below the engine.
   liveTranscodeUrl?: string;
   ChannelNumber?: string;
   CurrentProgram?: JellyfinProgram | null;
+  // A Live TV programme found by search (Type "Program"): its airing and its channel.
+  StartDate?: string;
+  EndDate?: string;
+  ChannelId?: string;
+  ChannelName?: string;
   // Only present when the request asked for Fields=Chapters (fetchItemDetails does).
   Chapters?: JellyfinChapter[];
   Type: string;
@@ -235,6 +243,12 @@ export interface JellyfinItem extends JellyfinVideoItem {
   ChildCount?: number;
   RecursiveItemCount?: number;
   CollectionType?: string;
+  // Recordings only; "InProgress" while the server is still writing the file,
+  // TimerId names the timer a DELETE stops.
+  Status?: JellyfinTimer["Status"];
+  TimerId?: string | null;
+  // False for items with no file on disk (a recording's placeholder season); DELETE on those 401s.
+  CanDelete?: boolean;
 }
 
 // Minimal Id/Name shape returned by the /Genres and /Artists endpoints

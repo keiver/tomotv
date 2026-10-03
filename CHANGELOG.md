@@ -2,6 +2,91 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.9]
+
+### Added
+
+- Live TV groups: a band above the guide filters it to Favorites, All, your own groups, the groups a tuner's M3U playlist declares, and the server's News, Sports, Kids, Movies and Series categories. Your own groups are made in Channel Settings, or from the Groups button on a channel's info panel, which adds the channel to them and holds its favorite
+- Guide sources, in Channel Settings: listings for channels the server has none for, from any number of XMLTV guides you add and the guides your tuner playlists declare, asked in order. A channel is matched by its tvg-id, then its tvg-name, then its name, letter case aside. The screen shows each guide's status, how many channels it matched and which, its size on the device and when it last downloaded, turns a guide off, and clears the downloaded files. A downloaded guide is reused for an hour, and Refresh guide downloads the guides again and reports how it went
+- Live TV search: Search lists matching channels and programmes on a Live TV shelf above the library results, channels first, then programmes by start time, ended ones left out. The channel wall has a search of its own
+- Channel health: a channel whose source refuses it twice wears Offline, and Hide offline in Channel Settings leaves those channels out of the guide and the wall
+- Channel cards rest on their channel's newest frame and loop a five-second clip recorded on the device: on Apple TV while they or their guide row hold focus, on iPhone, iPad and Mac every card on screen while the channel column is at full width. A channel with no listings reads "No listings for" its name in the guide, and shows its recent frames under one "Seen at" caption. The clip is encoded on the device at up to 360p, 15 frames a second and 1 Mbps, so a wall of cards loops small files, and a clip cut off while it is written is never looped
+- Dragging the guide's time ruler scrolls the grid, with a fling on release
+- Record from the player on Apple TV: a Record button in the playback controls records the programme on air, and a channel with no guide records for the Recording length set in Channel Settings (30 minutes to 3 hours, 2 hours by default). The button reads Stop Recording while a timer records
+- A heart in the Apple TV playback controls adds the video or live channel to favorites, or removes it
+- The guide opens the info panel for a channel or programme: a programme's panel records it, and a channel's also favorites and groups it. An in-progress recording's panel shows its size, its length so far and a Stop action
+- A channel card wears a red REC pill while a timer records it
+- A recording in progress is marked outside the player: the Home tab's badge on iPhone and iPad, a red dot on the Libraries heading, REC on the Live TV card, and the guide's Schedule glyph badged in red. Scheduled opens a recording's panel from its row, and Stop All Recordings stops every one in progress
+- Short confirmations appear as a one-line strip: a recording started, with its length, or stopped, and a guide refresh starting, finishing or failing
+- Server admins can delete an item and its files from the server in the info panel, after a confirmation
+- On Apple TV, Live TV is a tab of its own when the server has a Live TV library
+- On Apple TV the speed above Streaming Quality in Settings takes focus, and selecting it measures again
+- On a Mac, Escape on a scrolled guide returns it to the first channel before it leaves the screen
+- A grid card's badge carries the watched eye, except on music
+- Commercial skipping, where the server marks commercial segments: a Skip Commercial pill over each break on Apple TV, and on iPhone, iPad and Mac playback seeks past each break itself while Skip commercials is on in Channel Settings (on by default)
+- The Apple TV Top Shelf adds recently played live channels to Continue Watching in one row, in last-played order, each channel's logo whole on the app's channel card
+- A UI section in Settings: Language picks English, Deutsch, Français or Español for every screen at once, System by default, and Show device generated posters (on by default) turned off leaves cards on the server's poster alone
+
+### Changed
+
+- The info panel's secondary actions are glass circles beneath its main buttons
+- On a series programme's info panel, Record Series or Cancel Series is a button beside Watch and Record, and the record buttons wear the gold outline with a red icon
+- The info panel's playback line (Direct Play, Re-encoded on this device, or Transcoded by the server) sits in a Playback section at the end of the panel, so the header reads the same for every file and connection
+- On iPad the info panel's centred card is at most 900 points tall, and a longer panel scrolls inside it
+- The info panel's artwork fills one 16:9 area across the top whatever the picture's shape, and the panel opens once its artwork and buttons are ready, so nothing below moves
+- The guide ruler shows the current time in gold above its labels
+- Names written by a metadata scraper with HTML entities, such as "&amp;", read as the character they stand for in the app's screens
+- Episode cards take the same landscape slot as the other cards in a folder grid, whatever the shape of their still
+- On-device playback runs on FFmpeg 8.1.3
+- A channel the tuner lets clients read directly is read by the device from its source, with no stream held open on the server; the server relays only what the device cannot reach
+- Previews, warm-ups and playback share one budget of connections to a provider, learned from the provider itself, and playback always wins
+- A channel focused for two seconds is already being read when Play is pressed, so playback starts from that instead of opening the channel again
+- Player loading shows a bare spinner for eight seconds, then a status line, and at twelve seconds what it waits on; the error screen says where playback stopped
+- Loading rows are a small gold spinner with its label centred beneath it
+- On iOS, toasts reach down past the navigation bar
+- On a connection that carries a file, playback offers only the device's own copy: the server starts no lower-quality version, audio or transcode for it. The server's versions are offered only on a connection too slow for the original
+- The connection speed in Settings is measured by reading ten seconds of a video on the server, never a test file of the server's own, and playback follows the speed the engine measures on the file it plays: a drop is followed at once, a rise once it holds
+- The guide ends two days out; nothing past that loads or scrolls into view
+
+### Fixed
+
+- On Apple TV a live channel on screen that dies shows its error screen with Retry focused, and Menu from it no longer sends the app to the background
+- A video paused from the playback controls stays paused through a stall, a rebuild after a stream error, an audio track switch and a seek, and one press of the space bar on a Mac resumes it
+- Cancelling one airing of a series keeps Cancel Series on its info panel: the panel reads the server's series rules
+- A long horizontal scroll through the guide no longer piles up cells: a row mounts only the cells within about two viewports either side of the one in view
+- Guide posters load only for the rows in view and the cells on or just past the screen, once the scroll rests, so a fling past them loads none
+- A stream error after the player screen has closed ends playback instead of retrying a player that cannot return
+- Channels either side of the one playing warm up only for 30 seconds after a flip, so they no longer starve the playing channel on a slow connection
+- The guide no longer pulls the focused row to the top on every move
+- After a fast scroll, the posters the engine makes for the cards on screen come first
+- A segment the engine fails to write is dropped instead of being served broken
+- Search results for an earlier query no longer replace those of the latest one when they arrive late
+- A live stream stayed open on the server after a preview or an ended playback; every open is closed by the app that made it, on the server that made it, and sent again at the next launch or return to the app until the server answers it
+- Two viewers of one channel no longer end each other's stream when one leaves
+- Servers on a plain http address outside the home network connect again, in the app and the Apple TV Top Shelf; App Transport Security had been left on since 1.5.0
+- Menu out of the player pops only the player, never the folder beneath it
+- A queue advance under Picture in Picture swaps the next item inside the window's player, and autoplay advances straight into it
+- The guide window restarts at the current half hour on a new sign-in, and grows until it fills a viewport wider than it
+- Picking another channel group opens the guide at its first channel
+- An account whose token is gone or rejected leaves the saved list
+- A deinterlaced transcode keeps the input's clock
+- 4K on a fast connection starts on the device's copy instead of on the server's lower-quality versions first
+- One speed reading that caught a Wi-Fi stall no longer lowers the playback ceiling; the speed moves only when the next reading agrees
+- A server disk waking from sleep no longer makes a fast connection read as slow at the start of playback
+- Show in Folder opens the folder already holding the item, instead of drawing the folder's top first
+- A play queue still being built no longer replaces a newer one started from another folder
+- High-bitrate files no longer run the Apple TV out of memory: the player's forward buffer is held to about 200 MB, and the engine writes each segment without a second full copy
+- A resumed recording no longer waits forever while getting the video ready: a segment that opens past its start restarts a segment earlier at once and is served short after three tries, and an MPEG-TS resume seeks once instead of twice
+- The Settings speed test stops when playback starts or the server or account changes, and a read cut off before its ten seconds is not kept
+- A live preview that finds the picture unchanged no longer counts as a lost connection to its provider
+- Guide and wall cards off screen, on a screen out of focus or during playback hold no preview player
+- A guide refresh drops programmes the server no longer lists, and a guide source that fails keeps its listings
+- A deleted item leaves the search results
+- On Apple TV the heart and Record in a live channel's playback controls no longer wait on a lineup of thousands of channels: the player reads the playing channel and the 29 after it
+- A Live TV channel from a tuner behind Jellyfin 12 plays: the server labels the channel's streams from the tuner lineup (an MP2 soundtrack reads MPEG) and every SD channel was declined on that label; a live channel is now judged by the engine on the stream itself, and a soundtrack the tuner lists but never sends (an audio description track) is left out instead of ending the session
+- A tuner's HD channel starts sooner: the engine's probe of a live MPEG-TS stops after two seconds instead of running to FFmpeg's limits on streams it cannot read
+- The Streaming Quality preset caps a live channel the server transcodes; Auto keeps the server's own cap
+
 ## [2.2.8]
 
 ### Added

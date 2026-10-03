@@ -4,6 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { getBackdropBlurUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -100,7 +101,7 @@ export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, 
 
   useEffect(() => {
     if (!armed) return;
-    AccessibilityInfo.announceForAccessibility(t("player.upNextName").replace("{name}", nextVideo.Name));
+    AccessibilityInfo.announceForAccessibility(t("player.upNextName").replace("{name}", cleanLabel(nextVideo.Name)));
   }, [armed, nextVideo.Name, nextVideo.Id]);
 
   return (
@@ -128,13 +129,13 @@ export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, 
               transition={200}
               cachePolicy="memory-disk"
               accessible={true}
-              accessibilityLabel={t("a11y.poster").replace("{name}", nextVideo.Name)}
+              accessibilityLabel={t("a11y.poster").replace("{name}", cleanLabel(nextVideo.Name))}
             />
           )}
 
-          {nextVideo.SeriesName ? <Text style={styles.seriesName}>{nextVideo.SeriesName}</Text> : null}
+          {nextVideo.SeriesName ? <Text style={styles.seriesName}>{cleanLabel(nextVideo.SeriesName)}</Text> : null}
           <Text style={styles.episodeName} numberOfLines={2}>
-            {seasonEpisode ? `${seasonEpisode} · ${nextVideo.Name}` : nextVideo.Name}
+            {seasonEpisode ? `${seasonEpisode} · ${cleanLabel(nextVideo.Name)}` : cleanLabel(nextVideo.Name)}
           </Text>
 
           {autoAdvance && (

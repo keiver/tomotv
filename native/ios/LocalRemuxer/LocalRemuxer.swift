@@ -57,6 +57,8 @@ class LocalRemuxer: RCTEventEmitter {
     private static let posters = PosterQueue()
     /// Live channel frames for the guide's cards (LiveFrameQueue.swift), one grab at a time.
     private static let liveFrames = LiveFrameQueue()
+    /// The library-file probe in flight: a session starting beside it would time only its share of the link.
+    private static var measuring: RateProbe?
 
     private static var server: LocalHTTPServer?
 
@@ -75,7 +77,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink", "onLiveFrame"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -150,6 +152,14 @@ class LocalRemuxer: RCTEventEmitter {
         if listening { sendEvent(withName: "onEngineSubtitleRequest", body: subtitleRequest) }
     }
 
+    /// A live burst frame just written, sent only while JS listens; the card shows it at once.
+    private func publish(liveFrame: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onLiveFrame", body: liveFrame) }
+    }
+
     // MARK: - Routing
 
     private static func route(_ path: String) -> LocalHTTPResponse {
@@ -210,6 +220,9 @@ class LocalRemuxer: RCTEventEmitter {
     ///   liveSegmentSeconds: Double? : live segment target (default 6)
     ///   httpHeaders: [String: String]? : headers the input origin requires (a live manifest's User-Agent)
     ///   probeOrigin: Bool?         : live input is an origin's HLS playlist; a refusal fails the session
+    ///   liveOriginKey: String?     : the provider whose connection budget a live input spends (its host when absent)
+    ///   fallbackInputUrl: String?  : the channel through the server, opened once when the input itself will not open
+    ///   livePriority: String?      : "playback" (default), "ring" or "preview"; a higher one takes a full budget's slot from a lower
     ///
     /// Everything after durationSeconds comes from Jellyfin's metadata rather
     /// than from the file, because the master playlist is written before FFmpeg
@@ -226,6 +239,7 @@ class LocalRemuxer: RCTEventEmitter {
             reject("invalid_config", "startRemux needs inputUrl and a positive durationSeconds, or isLive", nil)
             return
         }
+        Self.cancelMeasuring()
 
         let rawAudioTracks = (config["audioTracks"] as? [[String: Any]]) ?? []
         let audioTracks: [RemuxAudioTrack] = rawAudioTracks.compactMap { raw in
@@ -330,6 +344,9 @@ class LocalRemuxer: RCTEventEmitter {
                 liveWindowSeconds: (config["liveWindowSeconds"] as? Double) ?? 300.0,
                 httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:],
                 probeOrigin: (config["probeOrigin"] as? Bool) ?? false,
+                liveOriginKey: config["liveOriginKey"] as? String,
+                fallbackInputUrl: config["fallbackInputUrl"] as? String,
+                livePriority: LiveConnectionBroker.Priority(name: (config["livePriority"] as? String) ?? "playback"),
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
                 primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
                 sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,
@@ -551,8 +568,9 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval (seconds), count, shownPts.
-    /// Resolves `{uris, pts}`, `{unchanged}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
+    /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval, clipSpan (seconds),
+    /// count, shownPts, shownUri. Each burst frame is announced as `onLiveFrame` while the burst is read.
+    /// Resolves `{uris, clip, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
     @objc func liveFrame(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -568,18 +586,98 @@ class LocalRemuxer: RCTEventEmitter {
         let span = max(1, (config["span"] as? Double) ?? LiveFrameQueue.defaultSpan)
         let interval = max(0.1, (config["interval"] as? Double) ?? LiveFrameQueue.defaultInterval)
         let count = max(1, (config["count"] as? Int) ?? LiveFrameQueue.defaultCount)
+        let clipSpan = max(0, (config["clipSpan"] as? Double) ?? 0)
         let shownPts = (config["shownPts"] as? NSNumber)?.int64Value
+        let shownFile = (config["shownUri"] as? String).flatMap(URL.init(string:))
         Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline,
-                                span: span, interval: interval, count: count, shownPts: shownPts) { outcome in
+                                span: span, interval: interval, count: count, clipSpan: clipSpan,
+                                originKey: config["originKey"] as? String, priority: LiveConnectionBroker.Priority(name: config["priority"] as? String),
+                                fallbackUrl: config["fallbackUrl"] as? String,
+                                shownPts: shownPts, shownFile: shownFile,
+                                frame: { [weak self] url, index in
+                                    self?.publish(liveFrame: ["channelId": channelId, "uri": url.absoluteString, "index": index])
+                                }) { outcome in
             switch outcome {
-            case .frames(let urls, let pts):
+            case .frames(let urls, let clip, let pts):
                 let shown: Any = pts.map { NSNumber(value: $0) } ?? NSNull()
-                resolve(["uris": urls.map(\.absoluteString), "cancelled": false, "pts": shown])
-            case .unchanged: resolve(["uris": [], "cancelled": false, "unchanged": true])
-            case .none(let opened): resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open"])
+                let clipUri: Any = clip?.absoluteString ?? NSNull()
+                resolve(["uris": urls.map(\.absoluteString), "clip": clipUri, "cancelled": false, "pts": shown])
+            case .unchanged(let onDisk): resolve(["uris": [], "cancelled": false, "unchanged": true, "missing": !onDisk])
+            case .none(let opened, let failure):
+                let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
+                resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed])
             case .cancelled: resolve(["uris": [], "cancelled": true])
             }
         }
+    }
+
+    /// Whether this device reaches a live origin's host at all: "reachable", "refused" or "silent".
+    @objc func probeOriginReach(
+        _ url: NSString,
+        timeoutMs: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            resolve(EndpointProbe.tcpReach(url as String, timeout: max(0.1, timeoutMs.doubleValue / 1000)).rawValue)
+        }
+    }
+
+    /// Times the link to a URL with the engine's own probe: {bps, kind, seconds, low, high, samples}, or null when nothing flowed.
+    @objc func measureLink(
+        _ url: NSString,
+        headers: NSDictionary,
+        budgetMs: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let target = URL(string: url as String) else { return resolve(NSNull()) }
+        let budget = max(0.5, budgetMs.doubleValue / 1000)
+        // The first byte gets the whole budget: the file sits on a disk that may be asleep, and one
+        // answered after 3 s on a fast link (RemuxSession+LinkProbe.linkProbeStartSeconds).
+        let firstByteWithin = budget
+        var request = URLRequest(url: target, timeoutInterval: firstByteWithin + budget)
+        for (name, value) in headers {
+            if let name = name as? String, let value = value as? String { request.setValue(value, forHTTPHeaderField: name) }
+        }
+        // Registered on the module's queue, so a cancel sent after this call always finds it.
+        let probe = RateProbe(request: request, budget: budget, firstByteWithin: firstByteWithin, repeats: true)
+        // One probe at a time: a replaced one would share the link and escape the playback cancel.
+        Self.lock.lock()
+        let previous = Self.measuring
+        Self.measuring = probe
+        Self.lock.unlock()
+        previous?.cancel()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let outcome = probe.run()
+            Self.lock.lock()
+            if Self.measuring === probe { Self.measuring = nil }
+            Self.lock.unlock()
+            guard let reading = outcome.linkReading else { return resolve(NSNull()) }
+            let kind: String
+            switch reading.kind {
+            case .full: kind = "full"
+            case .short: kind = "short"
+            }
+            resolve(["bps": reading.bps, "kind": kind, "seconds": reading.seconds, "low": reading.lowBps, "high": reading.highBps, "samples": outcome.samples])
+        }
+    }
+
+    /// Ends the library-file probe: playback has taken the link.
+    @objc func cancelMeasureLink(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.cancelMeasuring()
+        resolve(nil)
+    }
+
+    private static func cancelMeasuring() {
+        lock.lock()
+        let probe = measuring
+        measuring = nil
+        lock.unlock()
+        probe?.cancel()
     }
 
     @objc func cancelLiveFrame(
@@ -591,7 +689,7 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// The newest burst on disk per channel: `{ channelId: [fileUrl] }` in order, for those that have one.
+    /// The newest valid burst on disk per channel: `{ channelId: { uris, clip, at } }`, `at` the ms its validity counts from.
     @objc func liveFramesOnDisk(
         _ channelIds: NSArray,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -600,7 +698,9 @@ class LocalRemuxer: RCTEventEmitter {
         let ids = (channelIds as? [String]) ?? []
         Self.liveFrames.queue.async {
             let found = Self.liveFrames.latest(channelIds: ids)
-            resolve(found.mapValues { $0.map(\.absoluteString) })
+            resolve(found.mapValues {
+                ["uris": $0.urls.map(\.absoluteString), "clip": $0.clip?.absoluteString ?? NSNull(), "at": NSNumber(value: $0.at)] as [String: Any]
+            })
         }
     }
 
@@ -647,6 +747,36 @@ class LocalRemuxer: RCTEventEmitter {
         Self.lock.unlock()
         session?.setLiveWindow(seconds: seconds.doubleValue)
         resolve(session != nil)
+    }
+
+    /// A session changing hands (a ring neighbour or a preview adopted by the player) takes the new owner's rank.
+    @objc func setLivePriority(
+        _ token: NSString,
+        priority: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        session?.setLivePriority(LiveConnectionBroker.Priority(name: priority as String))
+        resolve(session != nil)
+    }
+
+    /// AVPlayer's buffer past the playhead. Resolves the variant-cap floor the copy needs (0 = none).
+    @objc func setPlayerBuffer(
+        _ token: NSString,
+        aheadSeconds: NSNumber,
+        sinceSeek: Bool,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        guard let session else { return resolve(0) }
+        session.notePlayerBuffer(aheadSeconds: aheadSeconds.doubleValue, sinceSeek: sinceSeek)
+        resolve(session.copyCapFloor())
     }
 
     /// Cancellation flags for repackages in flight, keyed by item id.

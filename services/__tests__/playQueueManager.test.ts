@@ -127,6 +127,74 @@ describe("PlayQueueManager", () => {
     });
   });
 
+  describe("overlapping builds", () => {
+    function deferred() {
+      let resolve!: (value: JellyfinVideoItem[]) => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<JellyfinVideoItem[]>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    it("a slower earlier build never overwrites a later one", async () => {
+      const series = deferred();
+      const season = deferred();
+      mockFetchRecursiveVideos.mockReturnValueOnce(series.promise).mockReturnValueOnce(season.promise);
+
+      const first = playQueueManager.buildQueue("series", "Show", "video1");
+      const second = playQueueManager.buildQueue("season", "Season 1", "video3");
+      season.resolve(mockVideos);
+      await second;
+      series.resolve([mockVideos[0]]);
+      await first;
+
+      const state = playQueueManager.getState();
+      expect(state.queue).toEqual(mockVideos);
+      expect(state.currentIndex).toBe(2);
+      expect(state.sourceFolderId).toBe("season");
+    });
+
+    it("a superseded build that fails leaves the later queue in place", async () => {
+      const series = deferred();
+      mockFetchRecursiveVideos.mockReturnValueOnce(series.promise).mockResolvedValueOnce(mockVideos);
+
+      const first = playQueueManager.buildQueue("series", "Show", "video1");
+      await playQueueManager.buildQueue("season", "Season 1", "video2");
+      series.reject(new Error("timeout"));
+      await first;
+
+      expect(playQueueManager.getState().queue).toEqual(mockVideos);
+      expect(playQueueManager.getState().currentIndex).toBe(1);
+    });
+
+    it("a build in flight at clear() stays cleared", async () => {
+      const pending = deferred();
+      mockFetchRecursiveVideos.mockReturnValueOnce(pending.promise);
+
+      const build = playQueueManager.buildQueue("folder1", "Movies", "video1");
+      playQueueManager.clear();
+      pending.resolve(mockVideos);
+      await build;
+
+      expect(playQueueManager.getState().queue).toEqual([]);
+      expect(playQueueManager.getState().isLoading).toBe(false);
+    });
+
+    it("a queue handed in by buildQueueFromItems wins over a build in flight", async () => {
+      const pending = deferred();
+      mockFetchRecursiveVideos.mockReturnValueOnce(pending.promise);
+
+      const build = playQueueManager.buildQueue("folder1", "Movies", "video1");
+      playQueueManager.buildQueueFromItems([mockVideos[1]], "filtered", "Filtered", "video2");
+      pending.resolve(mockVideos);
+      await build;
+
+      expect(playQueueManager.getState().queue).toEqual([mockVideos[1]]);
+    });
+  });
+
   describe("buildQueueFromItems", () => {
     it("uses the provided items as the queue without fetching", () => {
       playQueueManager.buildQueueFromItems(mockVideos, "folder1", "Music Videos", "video2");

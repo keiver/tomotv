@@ -14,19 +14,32 @@ const ICON_OFF = "rgba(255, 195, 18, 0.5)";
 const MESSAGE_MS = 2200;
 
 interface InfoActionRowProps {
-  isFavorite: boolean;
-  isPlayed: boolean;
+  isFavorite?: boolean;
+  isPlayed?: boolean;
   /** Progress was cleared while this panel has been open, so the snapshot is still restorable. */
-  cleared: boolean;
-  /** Resolve false when the write did not land, so the caption reports what happened. */
-  onToggleFavorite: () => Promise<boolean>;
-  onToggleWatched: () => Promise<boolean>;
+  cleared?: boolean;
+  /** Resolve false when the write did not land, so the caption reports what happened. Omit where no favorite is readable. */
+  onToggleFavorite?: () => Promise<boolean>;
+  /** Omit where an item has no watched state (live channels); the circle goes with it. */
+  onToggleWatched?: () => Promise<boolean>;
   /** Omit when the item has nothing to clear, the third circle disappears with it. */
   onToggleProgress?: () => boolean;
   /** Omit where a download cannot exist (Apple TV, containers, photos); the circle goes with it. */
   downloadState?: DownloadCircleState;
   /** Queues the item if it is not held yet; a held item stays put and reports itself. */
   onToggleDownload?: () => Promise<boolean>;
+  /** Omit unless an in-progress recording can be stopped; the write deletes its timer. */
+  onStopRecording?: () => Promise<boolean>;
+  /** Actions past the panel's two CTAs, after the toggles. Each confirms or navigates on its own. */
+  extras?: InfoExtraAction[];
+}
+
+export interface InfoExtraAction {
+  key: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  destructive?: boolean;
+  onPress: () => void;
 }
 
 export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" | "ready" | "failed";
@@ -55,9 +68,20 @@ const downloadCopy = (): Record<DownloadCircleState, { label: string; done: stri
  * circle's next press will do; on both platforms a press replaces it with what just happened,
  * which is the only readable confirmation a filled-vs-outline glyph swap has at TV distance.
  */
-type ActionKey = "favorite" | "watched" | "progress" | "download";
+type ActionKey = "favorite" | "watched" | "progress" | "download" | "stop" | `extra:${string}`;
 
-export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite, onToggleWatched, onToggleProgress, downloadState, onToggleDownload }: InfoActionRowProps) {
+export function InfoActionRow({
+  isFavorite = false,
+  isPlayed = false,
+  cleared = false,
+  onToggleFavorite,
+  onToggleWatched,
+  onToggleProgress,
+  downloadState,
+  onToggleDownload,
+  onStopRecording,
+  extras = [],
+}: InfoActionRowProps) {
   // Which circle holds focus, never the label itself: tvOS fires the outgoing blur AFTER the
   // incoming focus, so a shared string gets wiped by the button focus just left.
   const [focused, setFocused] = useState<ActionKey | null>(null);
@@ -76,13 +100,29 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   }, []);
 
   const blur = useCallback((key: ActionKey) => setFocused((current) => (current === key ? null : current)), []);
+  // A stopped recording's circle stays, spent, until focus leaves it: unmounting the focused view
+  // would throw tvOS focus off the row.
+  const stopSpent = !onStopRecording && focused === "stop";
 
   // Labels state the press, not the noun, so the caption reads the same way the row acts.
   const favoriteLabel = isFavorite ? t("info.removeFavorite") : t("info.addFavorite");
   const watchedLabel = isPlayed ? t("info.markUnwatched") : t("info.markWatched");
   const progressLabel = cleared ? t("info.restoreProgress") : t("info.clearProgress");
   const download = downloadCopy()[downloadState ?? "none"];
-  const focusLabel = focused === "favorite" ? favoriteLabel : focused === "watched" ? watchedLabel : focused === "progress" ? progressLabel : focused === "download" ? download.label : "";
+  const focusLabel =
+    focused === "favorite"
+      ? favoriteLabel
+      : focused === "watched"
+        ? watchedLabel
+        : focused === "progress"
+          ? progressLabel
+          : focused === "download"
+            ? download.label
+            : focused === "stop"
+              ? stopSpent
+                ? ""
+                : t("liveTv.stopRecording")
+              : (extras.find((extra) => focused === `extra:${extra.key}`)?.label ?? "");
 
   // Awaited: reporting before the write lands claims a success the server can still refuse,
   // and a glyph this small cannot contradict the caption afterwards.
@@ -103,26 +143,44 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        <GlassButton
-          variant="link"
-          style={circleStyle(isFavorite, "favorite")}
-          icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={ICON} color={iconColor(isFavorite, "favorite")} />}
-          accessibilityLabel={favoriteLabel}
-          accessibilityState={{ selected: isFavorite }}
-          onFocus={() => setFocused("favorite")}
-          onBlur={() => blur("favorite")}
-          onPress={press(onToggleFavorite, isFavorite ? t("info.removedFavorite") : t("info.addedFavorite"))}
-        />
-        <GlassButton
-          variant="link"
-          style={circleStyle(isPlayed, "watched")}
-          icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={ICON} color={iconColor(isPlayed, "watched")} />}
-          accessibilityLabel={watchedLabel}
-          accessibilityState={{ selected: isPlayed }}
-          onFocus={() => setFocused("watched")}
-          onBlur={() => blur("watched")}
-          onPress={press(onToggleWatched, isPlayed ? t("info.markedUnwatched") : t("info.markedWatched"))}
-        />
+        {(!!onStopRecording || stopSpent) && (
+          // Always lit and red: one irreversible press, never a toggle. A bare glyph, since the
+          // button is the circle (see the download arrow).
+          <GlassButton
+            variant="link"
+            style={circleStyle(true, "stop")}
+            icon={<Ionicons name="stop" size={ICON} color={focused === "stop" ? COLORS.TEXT_PRIMARY : COLORS.DESTRUCTIVE} />}
+            accessibilityLabel={t("liveTv.stopRecording")}
+            accessibilityState={{ disabled: stopSpent }}
+            onFocus={() => setFocused("stop")}
+            onBlur={() => blur("stop")}
+            onPress={onStopRecording ? press(onStopRecording, t("liveTv.recordingStopped")) : undefined}
+          />
+        )}
+        {!!onToggleFavorite && (
+          <GlassButton
+            variant="link"
+            style={circleStyle(isFavorite, "favorite")}
+            icon={<Ionicons name={isFavorite ? "heart" : "heart-outline"} size={ICON} color={iconColor(isFavorite, "favorite")} />}
+            accessibilityLabel={favoriteLabel}
+            accessibilityState={{ selected: isFavorite }}
+            onFocus={() => setFocused("favorite")}
+            onBlur={() => blur("favorite")}
+            onPress={press(onToggleFavorite, isFavorite ? t("info.removedFavorite") : t("info.addedFavorite"))}
+          />
+        )}
+        {!!onToggleWatched && (
+          <GlassButton
+            variant="link"
+            style={circleStyle(isPlayed, "watched")}
+            icon={<Ionicons name={isPlayed ? "eye" : "eye-off"} size={ICON} color={iconColor(isPlayed, "watched")} />}
+            accessibilityLabel={watchedLabel}
+            accessibilityState={{ selected: isPlayed }}
+            onFocus={() => setFocused("watched")}
+            onBlur={() => blur("watched")}
+            onPress={press(onToggleWatched, isPlayed ? t("info.markedUnwatched") : t("info.markedWatched"))}
+          />
+        )}
         {!!onToggleProgress && (
           // Always lit: this circle renders only when there is progress to act on, so a dim rest
           // state would read as disabled. The fill is the mark, standing until the position goes.
@@ -150,6 +208,21 @@ export function InfoActionRow({ isFavorite, isPlayed, cleared, onToggleFavorite,
             onPress={press(onToggleDownload, download.done)}
           />
         )}
+        {extras.map((extra) => {
+          const key = `extra:${extra.key}` as const;
+          return (
+            <GlassButton
+              key={extra.key}
+              variant="link"
+              style={circleStyle(true, key)}
+              icon={<Ionicons name={extra.icon} size={ICON} color={focused === key ? COLORS.TEXT_PRIMARY : extra.destructive ? COLORS.DESTRUCTIVE : COLORS.ACCENT} />}
+              accessibilityLabel={extra.label}
+              onFocus={() => setFocused(key)}
+              onBlur={() => blur(key)}
+              onPress={extra.onPress}
+            />
+          );
+        })}
       </View>
       {/* Height is reserved, so the panel never reflows as focus enters and leaves the row. */}
       <Text

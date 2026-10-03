@@ -16,10 +16,10 @@ type Row = { ids: string[] };
 const idsOf = (row: Row) => row.ids;
 const token = (item: Row, index: number, isViewable = true): ViewToken<Row> => ({ item, index, isViewable, key: String(index) });
 
-type Handle = { report: (viewableItems: ViewToken<Row>[]) => void };
+type Handle = { report: (viewableItems: ViewToken<Row>[]) => void; visible: ReadonlySet<string> };
 const Probe = forwardRef<Handle, { rows: Row[]; enabled: boolean }>(({ rows, enabled }, ref) => {
-  const { onViewableItemsChanged } = useLiveFrameViewport("wall", enabled, rows, idsOf);
-  useImperativeHandle(ref, () => ({ report: (viewableItems) => onViewableItemsChanged({ viewableItems }) }), [onViewableItemsChanged]);
+  const { onViewableItemsChanged, visibleChannelIds } = useLiveFrameViewport("wall", enabled, rows, idsOf);
+  useImperativeHandle(ref, () => ({ report: (viewableItems) => onViewableItemsChanged({ viewableItems }), visible: visibleChannelIds }), [onViewableItemsChanged, visibleChannelIds]);
   return null;
 });
 Probe.displayName = "Probe";
@@ -51,15 +51,18 @@ describe("useLiveFrameViewport", () => {
 
     act(() => ref.current?.report([token(rows[0], 0)]));
     expect(mockViewable).toHaveBeenLastCalledWith("wall", ["a", "b"]);
+    expect([...ref.current!.visible]).toEqual(["a"]);
 
     const grown = rows.concat({ ids: ["c"] });
     act(() => renderer.update(<Probe ref={ref} rows={grown} enabled />));
     act(() => ref.current?.report([token(grown[1], 1)]));
     expect(mockViewable).toHaveBeenLastCalledWith("wall", ["b", "c"]);
+    expect([...ref.current!.visible]).toEqual(["b"]);
 
     mockFocused = false;
     act(() => renderer.update(<Probe ref={ref} rows={grown} enabled />));
     expect(mockActive).toHaveBeenLastCalledWith("wall", false);
+    expect([...ref.current!.visible]).toEqual([]);
 
     act(() => renderer.unmount());
     expect(mockViewable).toHaveBeenLastCalledWith("wall", []);

@@ -41,7 +41,7 @@ const descentOf = (stack) => {
 
 export const DEVICES = {
   iphone: {
-    simulator: "iPhone 17 Pro Max",
+    simulator: "iPhone 18 Pro Max",
     canvas: [1320, 2868],
     frame: "phone",
     tune: { margin: 0.06, railTop: 0.028, tierGap: 0.012, gap: 0.024, headSize: 0.105, headMax: 0.1, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.92, clearance: 0.028 },

@@ -3,7 +3,7 @@
  * server pictures never asks, audio and photo kinds never ask, and a recycled card drops the
  * previous folder's videos, and a server switch refetches even on the same folder id.
  */
-import { useFolderPreview } from "@/hooks/useFolderPreview";
+import { useFolderPreview, useFolderPreviewState } from "@/hooks/useFolderPreview";
 import { fetchFolderPreviewItems, subscribeAuthChange } from "@/services/jellyfinApi";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import React, { forwardRef, useImperativeHandle } from "react";
@@ -111,6 +111,28 @@ describe("useFolderPreview", () => {
     });
     expect(mockFetch).not.toHaveBeenCalled();
     expect(ref.current!.get()).toEqual([]);
+  });
+
+  it("says settled only once the request answers, and at once for a folder that never asks", async () => {
+    let release!: (items: JellyfinVideoItem[]) => void;
+    mockFetch.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+    const states: boolean[] = [];
+    const StateProbe = ({ item, wanted }: { item: JellyfinItem; wanted: boolean }) => {
+      states.push(useFolderPreviewState(item, wanted).settled);
+      return null;
+    };
+    await act(async () => {
+      TestRenderer.create(<StateProbe item={folder("f1")} wanted />);
+    });
+    expect(states[states.length - 1]).toBe(false);
+    await act(async () => release(VIDEOS));
+    expect(states[states.length - 1]).toBe(true);
+
+    states.length = 0;
+    await act(async () => {
+      TestRenderer.create(<StateProbe item={folder("f2")} wanted={false} />);
+    });
+    expect(states).toEqual([true]);
   });
 
   it("keeps the placeholder when the request fails", async () => {

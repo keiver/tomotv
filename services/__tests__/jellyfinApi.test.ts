@@ -3,7 +3,6 @@ import {
   needsTranscoding,
   audioNeedsRewrap,
   isAudioOnly,
-  formatDuration,
   hasPoster,
   searchVideos,
   fetchFolderContents,
@@ -13,6 +12,7 @@ import {
   fetchRecursiveVideos,
   fetchUserViews,
   fetchViewItemCount,
+  fetchLibraryRootCount,
   setVideoFavorite,
   isFolder,
   isPhoto,
@@ -62,7 +62,6 @@ jest.mock("@/services/libraryManager", () => ({
 // mid-suite and leaks a fetch into whatever test is running by then.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
   warmBitrateMemory: jest.fn(),
-  measureServerBitrate: jest.fn().mockResolvedValue(null),
   rememberedBitrate: jest.fn().mockResolvedValue(null),
   rememberedBitrateStatus: jest.fn().mockResolvedValue(null),
 }));
@@ -324,28 +323,6 @@ describe("jellyfinApi", () => {
 
     it("should return false for null item", () => {
       expect(isAudioOnly(null)).toBe(false);
-    });
-  });
-
-  describe("formatDuration", () => {
-    it("should format hours and minutes", () => {
-      const ticks = 54000000000; // 90 minutes = 1h 30m
-      expect(formatDuration(ticks)).toBe("1h 30m");
-    });
-
-    it("should format minutes only", () => {
-      const ticks = 27000000000; // 45 minutes
-      expect(formatDuration(ticks)).toBe("45m");
-    });
-
-    it("should handle zero minutes", () => {
-      const ticks = 36000000000; // 60 minutes = 1h 0m
-      expect(formatDuration(ticks)).toBe("1h 0m");
-    });
-
-    it("should handle less than a minute", () => {
-      const ticks = 300000000; // 30 seconds
-      expect(formatDuration(ticks)).toBe("0m");
     });
   });
 
@@ -2867,6 +2844,16 @@ describe("jellyfinApi", () => {
       (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("network down"));
 
       await expect(fetchViewItemCount("lib-1")).rejects.toThrow();
+    });
+
+    it("counts the Live TV root by channel total without downloading the channels", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 10985 }) });
+
+      await expect(fetchLibraryRootCount("livetv-view", "livetv")).resolves.toBe(10985);
+
+      const url = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(url.pathname).toBe("/LiveTv/Channels");
+      expect(url.searchParams.get("limit")).toBe("0");
     });
 
     it("requests RecursiveItemCount in Fields when fetching folder contents", async () => {

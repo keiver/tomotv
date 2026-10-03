@@ -19,6 +19,7 @@ import {
   isLiveSource,
   noteOpenFailed,
   openChannel,
+  type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
 import { serverVideoTranscodingAllowed } from "@/services/jellyfin/media";
 import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
@@ -47,6 +48,7 @@ import {
   posterFrameWorkInFlight,
   resolveSubtitlePick,
   offeredTierBandwidths,
+  reportPlayerBuffer,
   slipstreamEligible,
   slipstreamInputBandwidth,
   startLocalRemux,
@@ -64,7 +66,8 @@ import {
   type SubtitleRendition,
   type ThroughputSample,
 } from "@/services/localRemux";
-import { retainLiveSession, takeRingSession } from "@/services/liveRing";
+import { retainLiveSession, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
+import { takeLivePreview } from "@/services/livePreview";
 import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
 import { downloadManager } from "@/services/downloads/manager";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
@@ -84,13 +87,14 @@ import { refreshTrackSettings } from "@/services/jellyfin/trackSettings";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { gatewayMaxBitRate } from "@/services/adaptiveQuality";
-import { measureServerBitrate, rememberedBitrate } from "@/services/jellyfin/bitrateTest";
+import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
 import { getQualitySettings } from "@/services/jellyfin/session";
 import { videoPlayerReducer, type PlaybackMode, type PlaybackTransport, type VideoPlayerState } from "./videoPlayback/machine";
 import { automaticRetryDelay, planErrorRecovery, planLiveErrorRecovery, shouldAutomaticallyRetry } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
+import { segmentSkipTarget } from "./videoPlayback/segmentSkip";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
 import { classifyObservedChoice, planSubtitleApplication, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
@@ -98,6 +102,7 @@ import {
   createPreflightGate,
   dropThroughputWatch,
   EngineInputMissingError,
+  forwardBufferFor,
   keptForReason,
   nextLinkCap,
   linkAffordsChapterFrames,
@@ -111,6 +116,7 @@ import {
   ENGINE_SEGMENT_DEADLINE_MS,
   LIVE_START_DEADLINE_MS,
   LIVE_STALL_DEADLINE_MS,
+  PLAYER_BUFFER_REPORT_MS,
   PLAYHEAD_EPSILON_SEC,
   SLIPSTREAM_FORWARD_BUFFER_SECONDS,
   SUBTITLE_CAPTURE_SETTLE_MS,
@@ -158,8 +164,10 @@ export interface VideoPlaybackConfig {
   startPositionTicks?: number;
   playedAtStart?: boolean;
   onPlaybackEnd?: () => void;
-  /** Regression-suite deep links pass probe=1; records playback events for the driver (dev-only). */
-  probe?: boolean;
+  /** Regression-suite deep links pass probe=1 or the driver's URL; records playback events for it (dev-only). */
+  probe?: string;
+  /** Windows playback seeks past on reaching them (the phone's commercial auto-skip). */
+  skipWindows?: readonly MediaSegmentWindow[];
 }
 
 export interface VideoPlaybackResult {
@@ -239,6 +247,8 @@ export interface VideoPlaybackResult {
   // Playback control
   play: () => void;
   pause: () => void;
+  /** Play/pause by what the viewer sees, including a pause taken in AVKit's controls. */
+  togglePlay: () => void;
   seekBy: (offsetSeconds: number) => void;
   seekTo: (seconds: number, toleranceMs?: number) => void;
 
@@ -272,7 +282,7 @@ export interface VideoPlaybackResult {
  * Handles codec checking, transcoding decisions, and player lifecycle
  */
 export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResult {
-  const { videoId, skip, startPositionTicks, playedAtStart, onPlaybackEnd, probe } = config;
+  const { videoId, skip, startPositionTicks, playedAtStart, onPlaybackEnd, probe, skipWindows } = config;
 
   // State machine
   const [state, dispatch] = useReducer(videoPlayerReducer, { type: "IDLE" });
@@ -280,7 +290,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Arm before the state machine's first FETCH_METADATA effect fires (the actual
   // fetch happens one render pass later, so any first-pass effect is early enough).
   useEffect(() => {
-    setPlaybackProbeEnabled(probe === true, videoId);
+    setPlaybackProbeEnabled(probe ?? null, videoId);
   }, [probe, videoId]);
 
   // Persistent data across states
@@ -317,12 +327,25 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const pinnedCapRef = useRef<number | null>(null);
   // Smallest variant the master lists, the floor every measured cap is held above.
   const capFloorRef = useRef(0);
+  // The copy's declared bandwidth while the engine admits it (0 = none), and the last link reading.
+  const copyFloorRef = useRef(0);
+  const lastLinkBpsRef = useRef(0);
+  // When AVPlayer's buffer was last reported to the engine, and whether a seek emptied it since.
+  const bufferReportRef = useRef({ at: 0, sinceSeek: true });
+  // The playing variant's declared bitrate (0 = none yet). RNV reports only changes and never
+  // resets its last value per source, so neither does this.
+  const variantBpsRef = useRef(0);
   // True while the session rides the Slipstream tier as its survival floor: the
   // engine primary is unproducible on this link by design, so primary-starvation
   // teardowns (stall restart, engineStarving handover) are suppressed. The plain
   // server transcode floor is a HIGHER bitrate than the lowest rung, so falling
   // to it would regress, not recover; the tier + native producer-hold recover.
   const onTierLaneRef = useRef(false);
+  /** The master named the copy alone (the link carries it): no cap may sit under it, and a link that
+   *  then cannot feed it hands the session to the server, the one other route. */
+  const copyOnlyRef = useRef(false);
+  /** The item already rebuilt one starving copy-only session on the engine; the next goes to the server. */
+  const copyRebuiltRef = useRef(false);
   /** The provider this run owns on the non-engine lanes; the engine lane serves its own frames. */
   const frameProviderTokenRef = useRef<string | null>(null);
   const [chapterFrameBaseUrl, setChapterFrameBaseUrl] = useState<string | null>(null);
@@ -367,6 +390,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   useEffect(() => {
     onPlaybackEndRef.current = onPlaybackEnd;
   }, [onPlaybackEnd]);
+  const skipWindowsRef = useRef(skipWindows);
+  useEffect(() => {
+    skipWindowsRef.current = skipWindows;
+  }, [skipWindows]);
 
   // Track stable playback for UI (state triggers re-renders, ref is for sync checks)
   const [hasStablePlayback, setHasStablePlayback] = useState(false);
@@ -389,6 +416,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
+  // A pause the viewer took in AVKit's own controls, which never reaches `paused`.
+  const nativePausedRef = useRef(false);
+  const viewerPaused = useCallback(() => pausedRef.current || nativePausedRef.current, []);
 
   // Audio track state (for tracking selected track)
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
@@ -542,14 +572,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // or an optional chain inside a try block, and bails out of memoizing the hook if it finds one.
     const readDetails = async () => {
       // The ring's session for this channel, ready or still starting, is taken rather than opened twice.
-      const ringSession = await takeRingSession(videoId);
+      const ringSession = (await takeRingSession(videoId)) ?? takeLivePreview(videoId);
       if (ringSession && requestIdRef.current !== currentRequestId) {
         void stopLocalRemux(ringSession.token);
         void closeLiveStream(ringSession.details.LiveStreamId);
         return;
       }
       if (ringSession) adoptedLiveRef.current = { videoId, url: ringSession.url, token: ringSession.token, ready: ringSession.ready };
-      let details = ringSession ? ringSession.details : await fetchVideoDetails(videoId);
+      // A neighbour's quiet resolve is the same shape a fresh one returns, minus two server round trips.
+      const warmDetails = ringSession ? null : takeWarmDetails(videoId);
+      let details = ringSession ? ringSession.details : (warmDetails ?? (await fetchVideoDetails(videoId)));
 
       // Check if this response is stale (videoId changed while fetching)
       if (requestIdRef.current !== currentRequestId) {
@@ -763,7 +795,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         savedPosition: currentPosition,
       });
 
-      resumePausedRef.current = pausedRef.current;
+      resumePausedRef.current = viewerPaused();
       setPaused(true);
 
       // Reset playing state refs so onProgress will detect playback start after restart
@@ -779,7 +811,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       audioStreamIndexForReportingRef.current = newTrackIndex;
       viewerPickedAudioRef.current = newTrackIndex;
     },
-    [videoId, videoDetails],
+    [videoId, videoDetails, viewerPaused],
   );
 
   /**
@@ -815,26 +847,29 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    * recovery goes through here: the player is unmounted with the stream URL so the dead source
    * cannot fire again, and the play/stable edges are re-armed so the next session reports them.
    */
-  const restartAtPlayhead = useCallback((position?: number) => {
-    const attempt = ++requestIdRef.current;
-    if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = pausedRef.current;
-    if (position !== undefined) seekToPositionAfterLoadRef.current = position;
-    if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
-    if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
-    if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
-    if (gatewayRecoveryRef.current) clearTimeout(gatewayRecoveryRef.current.timer);
-    gatewayRecoveryRef.current = null;
-    autoPlayTriggeredRef.current = false;
-    isPlayingRef.current = false;
-    hasStablePlaybackRef.current = false;
-    setHasStablePlayback(false);
-    setStreamUrl(null);
-    streamUrlRef.current = null;
-    setImmediate(() => {
-      if (!isMountedRef.current || requestIdRef.current !== attempt) return;
-      dispatch({ type: "RETRY_WITH_TRANSCODE" });
-    });
-  }, []);
+  const restartAtPlayhead = useCallback(
+    (position?: number) => {
+      const attempt = ++requestIdRef.current;
+      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = viewerPaused();
+      if (position !== undefined) seekToPositionAfterLoadRef.current = position;
+      if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
+      if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
+      if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
+      if (gatewayRecoveryRef.current) clearTimeout(gatewayRecoveryRef.current.timer);
+      gatewayRecoveryRef.current = null;
+      autoPlayTriggeredRef.current = false;
+      isPlayingRef.current = false;
+      hasStablePlaybackRef.current = false;
+      setHasStablePlayback(false);
+      setStreamUrl(null);
+      streamUrlRef.current = null;
+      setImmediate(() => {
+        if (!isMountedRef.current || requestIdRef.current !== attempt) return;
+        dispatch({ type: "RETRY_WITH_TRANSCODE" });
+      });
+    },
+    [viewerPaused],
+  );
 
   /**
    * The engine is losing mid-play: one move to the server at the playhead, before the buffer
@@ -844,10 +879,23 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (details: JellyfinVideoItem, sample: ThroughputSample) => {
       const watch = throughputRef.current;
       // A live channel has no server lane to hand over to.
-      if (!isMountedRef.current || transportRef.current !== "gateway" || watch.handedOver || isLiveRef.current || onTierLaneRef.current || readBound(sample)) return;
+      // A read-bound sample is the link, which the rungs answer; a copy-only master has none, so the server does.
+      if (!isMountedRef.current || transportRef.current !== "gateway" || watch.handedOver || isLiveRef.current || onTierLaneRef.current || (readBound(sample) && !copyOnlyRef.current)) return;
       if (!playsFromDisk(details.Id) && !isAudioOnly(details) && !serverVideoTranscodingAllowed(details)) return;
       watch.handedOver = true;
       const position = currentTimeRef.current;
+      // A copy-only session starving on the link first gets one fresh engine session: it measures the
+      // link again, and a thin one gets the rungs with the copy listed to climb back to.
+      if (copyOnlyRef.current && readBound(sample) && !copyRebuiltRef.current) {
+        copyRebuiltRef.current = true;
+        logger.warn("The link fell under the copy, rebuilding the engine session at the playhead", { service: "useVideoPlayback", position: Math.round(position) });
+        probeEmit("engineRestart", { position: Math.round(position), reason: "copy starved on the link" });
+        stopLocalRemux(localRemuxTokenRef.current);
+        localRemuxTokenRef.current = null;
+        dropThroughputWatch(watch);
+        restartAtPlayhead(position);
+        return;
+      }
       logger.warn("Engine fell below realtime, leaving the engine lane at the playhead", {
         service: "useVideoPlayback",
         position: Math.round(position),
@@ -971,8 +1019,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           if (presetResolved) return preparedPreset;
           const quality = await getQualitySettings();
           if (!ownsAttempt()) return undefined;
-          const need = measurementFor({ stallFallback: stallFallbackRef.current, mode: quality.mode });
-          const measuredBps = need === "none" ? null : need === "remembered" ? await rememberedBitrate() : ((await rememberedBitrate()) ?? (await measureServerBitrate()));
+          const need = measurementFor({ stallFallback: stallFallbackRef.current });
+          const measuredBps = need === "none" ? null : await rememberedBitrate();
           if (!ownsAttempt()) return undefined;
           const plan = planTranscodePreset({
             mode: quality.mode,
@@ -1059,6 +1107,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           const stopThroughput = subscribeEngineThroughput(token, (sample) => {
             if (!ownsAttempt() || localRemuxTokenRef.current !== token) return;
             throughputRef.current.samples = [...throughputRef.current.samples.slice(-7), sample];
+            // A read-bound live segment measured the link at its limit: the playing channel gets it whole.
+            if (isLiveRef.current && readBound(sample)) yieldLiveRing();
             if (preflight.settle(sample)) return;
             // On the tier lane the primary is unproducible by design; its starvation is not
             // a reason to abandon the tier for a higher-bitrate server transcode.
@@ -1072,11 +1122,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             if (!isMountedRef.current || requestIdRef.current !== currentRequestId || localRemuxTokenRef.current !== token) return;
             probeEmit("link", { bps: Math.round(bps), copyListed: copyListed ?? null });
             setLinkAffordsFrames(!serverVideoOnly && linkAffordsChapterFrames(bps, slipstreamInputBandwidth(details)));
-            if (serverVideoDenied || pinnedCapRef.current != null || transportRef.current !== "gateway") return;
+            if (serverVideoDenied || pinnedCapRef.current != null || transportRef.current !== "gateway" || copyOnlyRef.current) return;
             // Never below the smallest variant in the master: a cap under all of them leaves
             // AVPlayer nothing it may play, and it wanders between every one of them without
             // ever showing a frame (drill S5 at 0.6 Mb/s).
-            const cap = nextLinkCap({ bps, currentCap: linkCapRef.current, floorBps: capFloorRef.current });
+            lastLinkBpsRef.current = bps;
+            const cap = nextLinkCap({ bps, currentCap: linkCapRef.current, floorBps: capFloorRef.current, copyFloorBps: copyFloorRef.current });
             if (cap === null) return;
             linkCapRef.current = cap;
             setVideoMaxBitRate(cap);
@@ -1088,8 +1139,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             if (ownsAttempt() && localRemuxTokenRef.current === token) preflight.settle({ failed: failure.message });
           });
           // The engine's startup steps, as they finish: the input is open, the tracks are known.
-          const stopStage = subscribeEngineStage(token, ({ stage }) => {
+          const stopStage = subscribeEngineStage(token, ({ stage, elapsed }) => {
             if (!ownsAttempt() || localRemuxTokenRef.current !== token) return;
+            // Diagnostics reads where a start spent its time; a live channel's open is the usual answer.
+            probeEmit("stage", { stage, elapsed: Math.round(elapsed * 1000) / 1000 });
             if (stage === "open_input") setPlaybackStage("analysing");
             else if (stage === "find_stream_info" || stage === "source_released") setPlaybackStage("preparing");
             if (stage === "source_released") void engineProgress(token).then(updateProcessing);
@@ -1100,6 +1153,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           const stopTier = subscribeEngineTier(token, (report) => {
             if (!ownsAttempt() || localRemuxTokenRef.current !== token) return;
             onTierLaneRef.current = report.state === "listed";
+            copyOnlyRef.current = report.state === "copy";
+            if (copyOnlyRef.current && linkCapRef.current > 0) {
+              linkCapRef.current = 0;
+              setVideoMaxBitRate(pinnedCapRef.current);
+            }
           });
           throughputRef.current.unsubscribe = () => {
             stopThroughput();
@@ -1222,7 +1280,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               stopLocalRemux(token);
               localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
-              throw new Error(sample ? "engine below realtime" : `engine produced no segment within ${waitedMs / 1000}s`);
+              throw new Error(sample ? "engine below realtime" : readNothing ? `the stream delivered no data in ${waitedMs / 1000}s` : `engine produced no segment within ${waitedMs / 1000}s`);
             }
           }
           return true;
@@ -1234,8 +1292,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           if (serverVideoOnly) preparedMode = "transcode";
           linkCapRef.current = 0;
           capFloorRef.current = 0;
+          copyFloorRef.current = 0;
+          lastLinkBpsRef.current = 0;
+          bufferReportRef.current = { at: 0, sinceSeek: true };
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
+          copyOnlyRef.current = false;
           if (!serverVideoDenied && !isLiveRef.current && (serverVideoOnly || slipstreamEligible(details)) && !playsFromDisk(videoId)) {
             const quality = await getQualitySettings();
             if (requestIdRef.current !== currentRequestId) return false;
@@ -1506,13 +1568,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           dropThroughputWatch(throughputRef.current);
           linkCapRef.current = 0;
           capFloorRef.current = 0;
+          copyFloorRef.current = 0;
+          lastLinkBpsRef.current = 0;
+          bufferReportRef.current = { at: 0, sinceSeek: true };
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
+          copyOnlyRef.current = false;
           setVideoMaxBitRate(null);
           setForwardBufferSeconds(null);
         }
         retryProgressStartRef.current = null;
-        setPlaybackStage("player");
+        // The player's wait belongs to what feeds it: the server's stream, the file itself, or the engine.
+        setPlaybackStage(preparedTransport === "server" ? "server" : preparedTransport === "direct" ? "reading" : "player");
         // A new stream remounts the player, which starts paused; a live reload keeps the one player.
         if (!isLiveRef.current) playerPlayingRef.current = false;
         streamGenerationRef.current += 1;
@@ -1615,7 +1682,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     positionSecondsRef: currentTimeRef,
     pendingSeekTargetRef,
     isLiveRef,
-    liveStreamIdRef,
   });
   // Synced post-commit; safe because every reader (stream-rotation effect,
   // unmount cleanup) runs at least one commit after mount, and CREATING_STREAM
@@ -1635,6 +1701,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const attempt = requestIdRef.current;
       const resumePaused = resumePausedRef.current ?? false;
       resumePausedRef.current = null;
+      // The new session's pause rides on `paused`; a native edge from the player before it is spent.
+      nativePausedRef.current = false;
 
       durationRef.current = data.duration;
 
@@ -1693,7 +1761,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // callback, and dispatching synchronously there re-enters render from it.
       // (RN 0.85's InteractionManager, which this replaced, was already a
       // setImmediate stub, it never moved work off the JS thread either.)
-      setPlaybackStage("buffering");
+      setPlaybackStage(transportRef.current === "server" ? "server" : transportRef.current === "direct" ? "reading" : "buffering");
       setImmediate(() => {
         if (!isMountedRef.current || requestIdRef.current !== attempt) return;
         dispatch({ type: "PLAYER_READY" });
@@ -1770,7 +1838,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // edge below that is the only thing dispatching PLAYER_PLAYING.
       if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING") return;
 
-      currentTimeRef.current = data.currentTime;
+      const skipTarget = segmentSkipTarget(skipWindowsRef.current, currentTimeRef.current, data.currentTime);
+      currentTimeRef.current = skipTarget ?? data.currentTime;
+      if (skipTarget !== null) {
+        pendingSeekTargetRef.current = skipTarget;
+        videoRef.current?.seek(skipTarget);
+      }
       if (retryProgressStartRef.current === null) retryProgressStartRef.current = data.currentTime;
       if (data.currentTime - retryProgressStartRef.current >= 30) {
         retryAttemptRef.current = 0;
@@ -1783,6 +1856,23 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
       syncPlayManager.notePosition(data.currentTime);
       probeProgress(data.currentTime);
+
+      // AVPlayer's buffer feeds the engine's copy reservoir; its answer is the cap's copy floor.
+      const bufferToken = localRemuxTokenRef.current;
+      if (bufferToken && transportRef.current === "gateway" && !isLiveRef.current && Date.now() - bufferReportRef.current.at >= PLAYER_BUFFER_REPORT_MS) {
+        const sinceSeek = bufferReportRef.current.sinceSeek;
+        bufferReportRef.current = { at: Date.now(), sinceSeek: false };
+        void reportPlayerBuffer(bufferToken, Math.max(0, data.playableDuration - data.currentTime), sinceSeek).then((copyFloor) => {
+          if (localRemuxTokenRef.current !== bufferToken || copyFloor === copyFloorRef.current) return;
+          copyFloorRef.current = copyFloor;
+          if (linkCapRef.current <= 0 || pinnedCapRef.current != null) return;
+          const cap = nextLinkCap({ bps: lastLinkBpsRef.current, currentCap: linkCapRef.current, floorBps: capFloorRef.current, copyFloorBps: copyFloor });
+          if (cap === null) return;
+          linkCapRef.current = cap;
+          setVideoMaxBitRate(cap);
+          logger.info("Slipstream cap follows the copy's buffer", { service: "useVideoPlayback", copyFloorMbps: Math.round(copyFloor / 100_000) / 10, capMbps: Math.round(cap / 100_000) / 10 });
+        });
+      }
 
       // A playhead advance disarms the direct-lane stall watchdog (safety
       // for a missed isBuffering:false edge).
@@ -1817,10 +1907,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 logger.debug("Stable playback detected, hiding spinner", { service: "useVideoPlayback" });
                 hasStablePlaybackRef.current = true;
                 resetPlaybackStages();
-                // The short forward buffer is a startup device only: once the picture is up
-                // AVPlayer goes back to building the deep buffer a link drop is survived on
-                // (measured with 6s held: the 30 -> 1.5 Mb/s drop stalled 37s).
-                setForwardBufferSeconds(null);
+                // Past startup AVPlayer builds the deep buffer a link drop is survived on (6s held
+                // stalled 37s on 30 -> 1.5 Mb/s), bounded in bytes for a variant rate that exhausts memory.
+                setForwardBufferSeconds(forwardBufferFor(variantBpsRef.current));
                 setImmediate(() => {
                   if (!isMountedRef.current) return;
                   setHasStablePlayback(true);
@@ -1888,7 +1977,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 stallWatchRef.current = null;
                 if (!isMountedRef.current || requestIdRef.current !== attempt || currentModeRef.current !== "direct") return;
                 // A pause freezes the playhead too: keep watching, never re-route a paused session.
-                if (pausedRef.current) {
+                if (viewerPaused()) {
                   arm();
                   return;
                 }
@@ -1911,7 +2000,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
     },
-    [restartAtPlayhead],
+    [restartAtPlayhead, viewerPaused],
   );
 
   // Callback: Video playback ended
@@ -1942,6 +2031,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
 
+      // Read before AVPlayer's own PAUSED edge for this failure, which RNV delivers after the error.
+      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = viewerPaused();
       const currentMode = currentModeRef.current;
       // Extract error message from react-native-video error object
       const originalMessage = error.error?.localizedDescription || error.error?.errorString || String(error.error || "");
@@ -1970,7 +2061,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           stallWatchRef.current = null;
         }
         // With no rung left the Stopped report is what ends the server's transcode for this play.
-        if (!retry) resetPlaybackSessionRef.current?.();
+        if (!retry) {
+          resetPlaybackSessionRef.current?.();
+          // The dead player must leave the window on TV: parked offstage with its stream it keeps
+          // tvOS focus inside AVKit's transport, and no claim can move it to the error buttons.
+          if (Platform.isTV) {
+            streamUrlRef.current = null;
+            setStreamUrl(null);
+          }
+        }
         const attempt = requestIdRef.current;
         setImmediate(() => {
           if (!isMountedRef.current || requestIdRef.current !== attempt) return;
@@ -1980,7 +2079,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
 
       const attempt = requestIdRef.current;
-      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = pausedRef.current;
       if (currentTimeRef.current > 0) seekToPositionAfterLoadRef.current = currentTimeRef.current;
       // The whole ladder decision is pure (see planErrorRecovery); this callback only applies it.
       const decision = planErrorRecovery({
@@ -2144,7 +2242,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       });
     },
-    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead, retryingForMs],
+    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead, retryingForMs, viewerPaused],
   );
 
   const onError = useCallback(
@@ -2499,7 +2597,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // segments don't outlive the screen. The token is per-instance: during a
       // screen transition two players are briefly mounted at once, and passing
       // anything shared here would stop the incoming player's session instead.
-      // A live channel left while playing stays hot in the ring, so flipping back to it is instant.
+      // A live channel left mid-surf stays hot in the ring, so flipping back to it is instant.
       const liveDetails = liveDetailsRef.current;
       const liveToken = localRemuxTokenRef.current;
       const liveUrl = liveSessionUrlRef.current;
@@ -2617,6 +2715,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedCredentialRefresh(false);
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
+    copyRebuiltRef.current = false;
     liveReopenedRef.current = false;
     liveLaneRef.current = "engine";
     dropThroughputWatch(throughputRef.current);
@@ -2630,8 +2729,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     linkCapRef.current = 0;
     pinnedCapRef.current = null;
     capFloorRef.current = 0;
+    copyFloorRef.current = 0;
+    lastLinkBpsRef.current = 0;
+    bufferReportRef.current = { at: 0, sinceSeek: true };
     setForwardBufferSeconds(null);
     onTierLaneRef.current = false;
+    copyOnlyRef.current = false;
     stopFrameProvider(frameProviderTokenRef.current);
     frameProviderTokenRef.current = null;
     setChapterFrameBaseUrl(null);
@@ -2647,6 +2750,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // outlive the route, which makes resetting it here the only thing that does.
     isPlayingRef.current = false;
     autoPlayTriggeredRef.current = false;
+    nativePausedRef.current = false;
     // The reporter reads this as its live position source, without the reset a queue
     // advance would stamp the new video's first reports with the previous video's clock.
     currentTimeRef.current = 0;
@@ -2782,7 +2886,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
     if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
     if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
-    if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = pausedRef.current;
+    if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = viewerPaused();
     if (!isLiveRef.current && currentTimeRef.current > 0) seekToPositionAfterLoadRef.current = currentTimeRef.current;
 
     // A failed DIRECT play gets the engine as its next rung, not the server: AVPlayer refusing
@@ -2821,7 +2925,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (state.autoRetry) retryWindowStartRef.current ??= Date.now();
 
     return () => clearTimeout(retryTimer);
-  }, [skip, state]);
+  }, [skip, state, viewerPaused]);
 
   /**
    * Playback control functions
@@ -2835,6 +2939,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setPaused(true);
     reportPauseChange(true);
   }, [reportPauseChange]);
+
+  const togglePlay = useCallback(() => {
+    if (!viewerPaused()) return pause();
+    play();
+    // After an AVKit pause `paused` is already false, so the prop alone would not change.
+    videoRef.current?.resume();
+  }, [viewerPaused, play, pause]);
 
   // Relative seek for remote-driven skips (tvOS audio-only: AVKit's audio presentation
   // exposes no focusable UI, so left/right remote events must seek from JS).
@@ -2865,11 +2976,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onSeek = useCallback(() => {
     // Seek completed, the player clock is trustworthy again for the reporter.
     pendingSeekTargetRef.current = null;
+    // A seek empties AVPlayer's buffer; it is not a drain the engine should step down on.
+    bufferReportRef.current = { at: 0, sinceSeek: true };
     syncPlayManager.noteSeekCompleted(currentTimeRef.current);
-    if (!pausedRef.current) {
+    if (!viewerPaused()) {
       videoRef.current?.resume();
     }
-  }, []);
+  }, [viewerPaused]);
 
   // A viewer touching AVKit's own transport surfaces here; the manager forwards it to
   // the group. Player changes the manager itself caused are marked and ignored.
@@ -2877,6 +2990,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (event: OnPlaybackStateChangedData) => {
       syncPlayManager.notePlaybackState(event);
       playerPlayingRef.current = event.isPlaying;
+      // RNV's programmatic seek pauses the player itself and reports it with isSeeking.
+      if (event.isPlaying) nativePausedRef.current = false;
+      else if (!event.isSeeking) nativePausedRef.current = true;
       reportPauseChange(!event.isPlaying);
     },
     [reportPauseChange],
@@ -2885,7 +3001,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const onBandwidthUpdate = useCallback((event: OnBandwidthUpdateData) => {
     if (!isMountedRef.current || Platform.OS !== "ios" || !Number.isFinite(event.bitrate) || event.bitrate <= 0) return;
     probeEmit("access", { indicated: event.bitrate, position: currentTimeRef.current });
+    variantBpsRef.current = event.bitrate;
+    logger.info("Variant bitrate", { service: "useVideoPlayback", bps: event.bitrate, stable: hasStablePlaybackRef.current });
+    if (hasStablePlaybackRef.current) setForwardBufferSeconds(forwardBufferFor(event.bitrate));
   }, []);
+
+  useEffect(() => {
+    logger.info("Forward buffer", { service: "useVideoPlayback", seconds: forwardBufferSeconds });
+  }, [forwardBufferSeconds]);
 
   const onReadyForDisplay = useCallback(() => {
     if (!isMountedRef.current) return;
@@ -2917,6 +3040,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedTranscoding(false);
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
+    copyRebuiltRef.current = false;
     liveReopenedRef.current = false;
     liveLaneRef.current = "engine";
     heldEngineSpentRef.current = false;
@@ -3030,6 +3154,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     showLoadingOverlay,
     play,
     pause,
+    togglePlay,
     seekBy,
     seekTo,
     retry,

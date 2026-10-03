@@ -9,6 +9,7 @@ import { ReadingProgress, pageForTicks } from "@/services/books/progress";
 import { t } from "@/services/i18n";
 import { fetchItemDetails } from "@/services/jellyfinApi";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -293,7 +294,7 @@ export default function BookReaderScreen() {
     [uris],
   );
 
-  const title = book?.title || details?.Name || params.name || "";
+  const title = cleanLabel(book?.title || details?.Name || params.name);
 
   if (error) {
     return (

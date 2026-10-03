@@ -9,6 +9,7 @@ import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
 import { t } from "@/services/i18n";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -71,6 +72,8 @@ interface FolderGridItemProps {
    * instead of letterboxing mismatched art in a fixed slot. Shelf rows only.
    */
   fitArtwork?: boolean;
+  /** The Live TV view while the server records a channel: a REC pill in the top-right corner. */
+  recording?: boolean;
 }
 
 const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, FolderGridItemProps>(function FolderGridItemComponent(
@@ -91,6 +94,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     cardWidth,
     cardHeight,
     fitArtwork = false,
+    recording = false,
   },
   ref,
 ) {
@@ -122,6 +126,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
   const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
+
+  const folderName = cleanLabel(folder.Name);
 
   // The Live TV view counts channels, and its empty face is a set, not a folder.
   const isLiveTv = folder.CollectionType === "livetv";
@@ -181,12 +187,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             ? { width: (cardHeight - 2 * CARD_PADDING) * cardRatio + 2 * CARD_PADDING }
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
       ]}
-      accessibilityLabel={folder.Name || t("a11y.folder")}
+      accessibilityLabel={folderName || t("a11y.folder")}
       accessibilityRole="button"
       accessibilityHint={
         itemCount != null
-          ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folder.Name).replace("{count}", String(itemCount))
-          : t("a11y.folderNav").replace("{name}", folder.Name)
+          ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folderName).replace("{count}", String(itemCount))
+          : t("a11y.folderNav").replace("{name}", folderName)
       }>
       <View style={[styles.card, focused && styles.cardFocused]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
@@ -215,18 +221,24 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
+          {recording ? (
+            <View style={styles.recBadge} pointerEvents="none">
+              <CardBadge segments={[{ icon: "videocam-outline", label: t("liveTv.rec") }]} focused={focused} tone="live" />
+            </View>
+          ) : null}
+
           {/* Title bar at the very bottom — same treatment as the video cards.
               Focused: opaque gold bar; resting: glass over the scrimmed art. */}
           {focused ? (
             <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameFocused])}>
-                {folder.Name}
+                {folderName}
               </MarqueeText>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameGold])}>
-                {folder.Name}
+                {folderName}
               </MarqueeText>
             </View>
           )}
@@ -237,7 +249,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               the title bar becomes a sweeping gold progress fill. Mounted only
               around a press (visible lingers past the handoff fade) — idle
               cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={folder.Name || t("a11y.folder")} /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} /> : null}
         </View>
       </View>
     </TouchableOpacity>
@@ -268,6 +280,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.numColumns === next.numColumns &&
     prev.cardWidth === next.cardWidth &&
     prev.cardHeight === next.cardHeight &&
+    prev.recording === next.recording &&
     prev.fitArtwork === next.fitArtwork
   );
 }
@@ -343,6 +356,11 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: CARD_BADGE_INSET,
     left: CARD_BADGE_INSET,
+  },
+  recBadge: {
+    position: "absolute",
+    top: CARD_BADGE_INSET,
+    right: CARD_BADGE_INSET,
   },
   // Opaque sliver at the very bottom showing just the title.
   infoOverlay: {

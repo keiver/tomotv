@@ -81,6 +81,8 @@ final class RawHTTPStub {
         case cutShort(Data, sent: Int)
         /// Answers 200, sends the first `sent` bytes, and then nothing more, the connection left open.
         case stalls(Data, sent: Int)
+        /// Answers with this status line and an empty body.
+        case status(String)
     }
 
     private let listener: NWListener
@@ -149,6 +151,8 @@ final class RawHTTPStub {
                 connection.send(content: head("200 OK", body.count) + body.prefix(sent), completion: .contentProcessed { _ in connection.cancel() })
             case .stalls(let body, let sent):
                 connection.send(content: head("200 OK", body.count) + body.prefix(sent), completion: .contentProcessed { _ in })
+            case .status(let line):
+                connection.send(content: head(line, 0), completion: .contentProcessed { _ in connection.cancel() })
             case nil:
                 connection.send(content: head("404 Not Found", 0), completion: .contentProcessed { _ in connection.cancel() })
             }
@@ -309,7 +313,7 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(actualCodec.hasPrefix("avc1.42"))
         XCTAssertTrue(master.contains("CODECS=\"\(actualCodec),mp4a.40.2\""))
         XCTAssertEqual(session.resolvedAudioCodecs["a0"], "mp4a.40.2")
-        XCTAssertLessThan(try XCTUnwrap(master.range(of: "media.m3u8")).lowerBound, try XCTUnwrap(master.range(of: "t0.m3u8")).lowerBound)
+        XCTAssertFalse(master.contains("t0.m3u8"), "a link that carries the copy lists no rung")
         XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg0.ts"), 0)
         XCTAssertEqual(TierServerStub.hitCount("/Audio/x/main.m3u8"), 0)
         XCTAssertEqual(session.probeSeconds, 0)
@@ -520,8 +524,8 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNil(s.tierPlaylist(rung: 0))
     }
 
-    /// A link three times the source starts on the copy; the rungs stay listed after it for a later drop.
-    func testALinkThatCarriesThePrimaryStartsOnIt() throws {
+    /// A link that carries the copy gets the copy alone: no rung is listed and no rung segment is fetched.
+    func testALinkThatCarriesThePrimaryGetsItAlone() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         let (s, reports) = try session(inputUrl: fixtureUrl.absoluteString, linkCeilingBps: 30_000_000)
@@ -529,9 +533,9 @@ final class TierProbeTests: XCTestCase {
         waitForProbe(s)
         let master = s.masterPlaylist()
         XCTAssertTrue(master.contains("media.m3u8"))
-        XCTAssertTrue(master.contains("t0.m3u8"), "the rung stays listed for a later drop")
-        XCTAssertLessThan(master.range(of: "media.m3u8")!.lowerBound, master.range(of: "t0.m3u8")!.lowerBound, "the copy is the startup variant")
-        XCTAssertEqual(states(reports()), ["listed"])
+        XCTAssertFalse(master.contains("t0.m3u8"))
+        XCTAssertEqual(states(reports()), ["copy"])
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg0.ts"), 0, "no server transcode starts")
     }
 
     // MARK: - The ladder
@@ -712,6 +716,62 @@ final class TierProbeTests: XCTestCase {
 
     // MARK: - A source lost mid-play
 
+    /// A copy-only master has no rung to hand over to: losing the source fails the session, so the app moves to the server.
+    func testASourceLostUnderACopyOnlyMasterFailsTheSession() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                inputUrl: fixtureUrl.absoluteString,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+                tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
+        s.testLinkBps = 30_000_000
+        var failures = 0
+        s.onFailed = { _ in failures += 1 }
+        s.start()
+        defer { s.stop() }
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertFalse(master.contains("t0.m3u8"))
+        s.fail("read_frame: the source went away")
+        XCTAssertTrue(s.hasFailed)
+        XCTAssertEqual(failures, 1, "the app is told, and leaves for the server")
+    }
+
+    func testACopyOnlyMasterNeitherReleasesItsCopyNorReportsUnlistedRungs() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                inputUrl: fixtureUrl.absoluteString,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
+                tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
+        s.testLinkBps = 30_000_000
+        s.start()
+        defer { s.stop() }
+        waitForProbe(s)
+        XCTAssertFalse(s.masterPlaylist().contains("t0.m3u8"))
+        XCTAssertTrue(s.copyOnlyMaster)
+        XCTAssertFalse(s.ladderListed)
+        XCTAssertFalse(s.releaseSource(because: "open failed", unusable: true), "no rung was listed to carry the session")
+        XCTAssertNotEqual(s.sourceState, .unavailable)
+        s.stateLock.lock()
+        s.sourceReady = false
+        s.stateLock.unlock()
+        XCTAssertEqual(s.progress()["hasPlayableSupplier"] as? Bool, false, "rungs the master never listed are no supplier")
+    }
+
+    func testALadderMasterRecordsItsListedRungs() throws {
+        let s = try ladderSession(rung1Playlist: playlist)
+        defer { s.stop() }
+        s.testLinkBps = 600_000
+        s.start()
+        waitForProbe(s)
+        XCTAssertTrue(s.masterPlaylist().contains("t0.m3u8"))
+        XCTAssertTrue(s.ladderListed)
+        XCTAssertFalse(s.copyOnlyMaster)
+    }
+
     private func isGone(_ response: LocalHTTPResponse) -> Bool {
         if case .gone = response { return true }
         return false
@@ -726,7 +786,9 @@ final class TierProbeTests: XCTestCase {
                 inputUrl: fixtureUrl.absoluteString,
                 audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: audioUrl)],
                 tierPlaylistUrl: playlistUrl, tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480))
-        s.testLinkBps = 30_000_000
+        // Under the carry margin with the copy already admitted: the master lists it beside the rungs.
+        s.testLinkBps = 9_000_000
+        s.copyVerdict = .listed
         var failures = 0
         s.onFailed = { _ in failures += 1 }
         s.start()
@@ -854,7 +916,6 @@ final class TierProbeTests: XCTestCase {
         s.noteSourceRead(bytes: 600_000, seconds: 0.5, now: t0.addingTimeInterval(1))
         XCTAssertEqual(s.floorLinkBps ?? 0, 9_600_000, accuracy: 1, "1.2 MB over one shared second")
         XCTAssertNil(s.wireLinkBps)
-        XCTAssertNil(s.pacedLinkBps)
     }
 
     /// A producer that sat out a minute under a rung starts its next sample when it wakes: the
@@ -862,12 +923,69 @@ final class TierProbeTests: XCTestCase {
     func testASampleDoesNotSpanAHold() throws {
         let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { s.stop() }
+        s.finishLinkProbe(8_000_000, reporting: false)
         let t0 = Date()
         s.restartLinkSample(now: t0)
         s.transfers.note(bytes: 3_000_000)
         s.restartLinkSample(now: t0.addingTimeInterval(60))
         s.noteSourceRead(bytes: 600_000, seconds: 1, now: t0.addingTimeInterval(61))
-        XCTAssertEqual(s.wireLinkBps ?? 0, 4_800_000, accuracy: 1, "600 KB read alone in one second is the wire")
+        XCTAssertEqual(s.wireLinkBps ?? 0, 4_800_000, accuracy: 1, "600 KB read alone in one second lowers the wire")
+    }
+
+    /// A producer read made while a probe runs shared the link with it: a floor, never the wire.
+    func testASourceReadBesideAProbeIsAShareNotTheWire() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        s.finishLinkProbe(200_000_000, reporting: false)
+        let t0 = Date()
+        s.restartLinkSample(now: t0)
+        s.transfers.probeStarted()
+        s.noteSourceRead(bytes: 600_000, seconds: 0.5, now: t0.addingTimeInterval(0.5))
+        XCTAssertEqual(s.wireLinkBps, 200_000_000)
+        XCTAssertEqual(s.floorLinkBps ?? 0, 9_600_000, accuracy: 1)
+        XCTAssertFalse(s.reprobeAsked, "a share of a probed link asks for no probe")
+        s.restartLinkSample(now: t0.addingTimeInterval(0.5))
+        s.transfers.probeEnded()
+        s.noteSourceRead(bytes: 600_000, seconds: 0.5, now: t0.addingTimeInterval(1))
+        XCTAssertEqual(s.wireLinkBps, 200_000_000, "the sample that saw the probe end overlapped it")
+    }
+
+    /// Above the reservoir the buffer keeps the copy: a slow read does not take the link down.
+    func testABufferAboveTheReservoirKeepsTheLink() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        s.finishLinkProbe(200_000_000, reporting: false)
+        s.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps, 200_000_000)
+        s.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds - 4, sinceSeek: false)
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps ?? 0, 48_000_000, accuracy: 1, "a buffer draining into the reservoir lets the link fall")
+    }
+
+    /// Until the buffer first fills, and again after a seek, the probe decides.
+    func testBeforeTheBufferFillsTheProbeDecides() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        s.finishLinkProbe(200_000_000, reporting: false)
+        s.notePlayerBuffer(aheadSeconds: 2, sinceSeek: true)
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps, 200_000_000, "an empty buffer at the start is not a drain")
+        s.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds, sinceSeek: false)
+        s.notePlayerBuffer(aheadSeconds: 1, sinceSeek: true)
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps, 200_000_000, "a seek empties the buffer, it does not drain it")
+    }
+
+    /// A player that stopped reporting leaves the reads in charge.
+    func testAStaleBufferReportLeavesTheReadsInCharge() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { s.stop() }
+        s.finishLinkProbe(200_000_000, reporting: false)
+        s.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        s.playerAheadAt = Date().addingTimeInterval(-(RemuxSession.playerReportStaleSeconds + 1))
+        s.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(s.wireLinkBps ?? 0, 48_000_000, accuracy: 1)
     }
 
     /// The server's audio arrives beside a 64px picture (the one route that maps the track asked
@@ -1177,7 +1295,7 @@ final class TierProbeTests: XCTestCase {
         session.copyAnnounced = true
         session.lastRequestedSegment = 1
         session.lastTierRung = 0
-        session.wireLinkBps = 5_000_000
+        session.link = LinkEstimate(bps: 5_000_000, source: .probe, at: Date())
         let token = session.token
 
         XCTAssertTrue(session.wakeSourceIfAffordable())
@@ -1213,6 +1331,9 @@ final class TierProbeTests: XCTestCase {
         session.sourceState = .dormant
         session.testLinkBps = 12_000_000
         session.finishLinkProbe(12_000_000, reporting: true)
+        XCTAssertLessThan(session.wireLinkBps ?? .infinity, 12_000_000, "one faster reading moves it only part way")
+        XCTAssertTrue(session.reprobeAsked, "it asks for the probe that decides")
+        for _ in 0..<5 { session.finishLinkProbe(12_000_000, reporting: true) }
         XCTAssertTrue(session.wakeSourceIfAffordable())
         XCTAssertTrue(session.awaitCopyAdmission(until: Date()))
         XCTAssertTrue(session.copyFollowsLocked())
@@ -1308,7 +1429,7 @@ final class TierProbeTests: XCTestCase {
             try media.mediaSegment.write(to: session.dir.appendingPathComponent(rendition.segmentName(0)))
         }
         session.sourceState = .unavailable
-        session.wireLinkBps = 600_000
+        session.link = LinkEstimate(bps: 600_000, source: .probe, at: Date())
 
         XCTAssertTrue(isFile(session.initResponse()))
         XCTAssertTrue(isFile(session.segmentResponse(0)))
@@ -1341,6 +1462,67 @@ final class TierProbeTests: XCTestCase {
         guard case .temporarilyUnavailable = session.route("t1-seg0.m4s") else { return XCTFail("cold rung media must defer before headers") }
         guard case .streamed = session.initResponse(prefix: "a0") else { return XCTFail("audio init does not require capacity for the whole video") }
         guard case .segment = session.segmentResponse(0, prefix: "a0") else { return XCTFail("audio media does not require capacity for the whole video") }
+    }
+
+    /// Before the player reports at all (T105: the reads took 209 Mb/s to 61 at 2.8s, before the
+    /// player loaded, and the copy's next segment got a 503), the probe decides.
+    func testBeforeThePlayerReportsTheProbeDecides() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.finishLinkProbe(200_000_000, reporting: false)
+        session.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(session.wireLinkBps, 200_000_000)
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        session.playerAheadAt = Date().addingTimeInterval(-(RemuxSession.playerReportStaleSeconds + 1))
+        session.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertLessThan(session.wireLinkBps ?? 0, 200_000_000, "a player that stopped reporting leaves the reads in charge")
+    }
+
+    /// Riding a rung, the producer's reads never lower the link: T106 read 95 Mb/s two seconds after
+    /// a 165.8 Mb/s probe, and the cap that followed kept AVPlayer off a 110 Mb/s copy for the session.
+    func testRidingARungTheProbeNotTheReadsSetsTheLink() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.finishLinkProbe(165_800_000, reporting: false)
+        session.lastTierDemandAt = Date()
+        session.lastPrimaryDemandAt = Date().addingTimeInterval(-20)
+        session.notePlayerBuffer(aheadSeconds: 30, sinceSeek: false)
+        session.noteLinkSample(bytes: 600_000, seconds: 0.05)
+        XCTAssertEqual(session.wireLinkBps, 165_800_000)
+        session.finishLinkProbe(40_000_000, reporting: false)
+        session.finishLinkProbe(40_000_000, reporting: false)
+        XCTAssertLessThan(session.wireLinkBps ?? .infinity, 80_000_000, "probes that agree still lower it")
+    }
+
+    /// A copy AVPlayer holds a full reservoir of is served whatever the link reads, and its
+    /// declared bandwidth is the floor of the app's cap; once the buffer drains the link decides.
+    func testTheBufferNotTheLinkAdmitsACopyInPlay() throws {
+        let session = try ladderSession(rung1Playlist: playlist)
+        defer { session.stop() }
+        session.adoptedStarts = [0, 6, 12]
+        session.adoptedDurations = [6, 6, 6]
+        session.sourceState = .ready
+        session.sourceReady = true
+        session.copyAnnounced = true
+        session.announcedCopyBandwidth = 9_600_000
+        session.testLinkBps = 600_000
+        session.lastPrimaryDemandAt = Date()
+        XCTAssertNotNil(session.copyResponseDeferral())
+        XCTAssertEqual(session.copyCapFloor(), 0)
+
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        XCTAssertNil(session.copyResponseDeferral())
+        XCTAssertTrue(session.awaitCopyAdmission(until: Date()))
+        XCTAssertEqual(session.copyCapFloor(), 9_600_000)
+
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds - 4, sinceSeek: false)
+        XCTAssertNotNil(session.copyResponseDeferral())
+        XCTAssertEqual(session.copyCapFloor(), 0)
+
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        session.lastTierDemandAt = Date()
+        session.lastPrimaryDemandAt = Date().addingTimeInterval(-20)
+        XCTAssertNotNil(session.copyResponseDeferral(), "a buffer on a rung is not the copy's")
     }
 
     func testSegmentWaiterFollowsTheRenditionAfterProducerRecovery() throws {
@@ -1431,7 +1613,7 @@ final class TierProbeTests: XCTestCase {
         let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: audioUrl)
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))
         defer { session.stop() }
-        session.wireLinkBps = 1
+        session.link = LinkEstimate(bps: 1, source: .probe, at: Date())
         session.sourceState = .unavailable
         session.audioLoSegments[0] = [TierSegment(duration: 6, url: "a-seg0.mp4")]
         session.recordSupplierFailure(.audio(0), failure: .http(503))
@@ -1687,16 +1869,14 @@ final class TierProbeTests: XCTestCase {
     }
 
     func testTheProbeDistinguishesTemporaryErrorsFromUnavailableSources() throws {
-        let meter = LinkMeter(wanted: 1024, window: 1.5, settled: 0.75, plentyBps: 0, beside: TransferLedger())
-        let url = try XCTUnwrap(URL(string: "http://tier.test/source"))
-        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 503, httpVersion: nil, headerFields: nil))
-        let task = URLSession.shared.dataTask(with: url)
-        var disposition: URLSession.ResponseDisposition?
-        meter.urlSession(URLSession.shared, dataTask: task, didReceive: response) { disposition = $0 }
-        XCTAssertEqual(meter.failure, .transient(503))
-        XCTAssertFalse(try XCTUnwrap(meter.failure).usesServerTransferFallback)
-        XCTAssertEqual(disposition, .cancel)
-        XCTAssertEqual(meter.done.wait(timeout: .now()), .success)
+        let raw = try RawHTTPStub()
+        defer { raw.stop() }
+        raw.answer("/source", .status("503 Service Unavailable"))
+        let request = URLRequest(url: try XCTUnwrap(URL(string: "\(raw.base)/source")))
+        let outcome = RateProbe(request: request, budget: 1.5, firstByteWithin: 3).run()
+        XCTAssertEqual(outcome.failure, .transient(503))
+        XCTAssertNil(outcome.reading)
+        XCTAssertFalse(try XCTUnwrap(outcome.failure).usesServerTransferFallback)
         XCTAssertEqual(LinkProbeFailure.classify(status: 403), .authentication(403))
         XCTAssertEqual(LinkProbeFailure.classify(status: 404), .unavailable(404))
         XCTAssertEqual(LinkProbeFailure.classify(status: 410), .unavailable(410))
@@ -1725,16 +1905,14 @@ final class TierProbeTests: XCTestCase {
         s.noteFloorSample(bytes: 300_000, from: t0, to: t0.addingTimeInterval(2))
         s.noteFloorSample(bytes: 300_000, from: t0, to: t0.addingTimeInterval(2))
         XCTAssertEqual(s.floorLinkBps ?? 0, 2_400_000, accuracy: 1, "600 KB over a shared 2s, not over 4s")
-        XCTAssertEqual(s.pacedLinkBps, 2_000_000)
+        XCTAssertEqual(s.wireLinkBps, 2_000_000)
         s.noteFloorSample(bytes: 1_000_000, from: t0.addingTimeInterval(3), to: t0.addingTimeInterval(4))
         XCTAssertTrue(s.reprobeAsked)
         XCTAssertEqual(s.wireLinkBps, 2_000_000)
         s.noteFloorSample(bytes: 600_000, from: t0.addingTimeInterval(10), to: t0.addingTimeInterval(16))
-        XCTAssertEqual(s.pacedLinkBps, 2_000_000)
+        XCTAssertEqual(s.wireLinkBps, 2_000_000)
         s.noteLinkSample(bytes: 600_000, seconds: 4)
-        XCTAssertEqual(s.pacedLinkBps ?? 0, 1_200_000, accuracy: 1)
-        XCTAssertEqual(s.wireLinkBps, s.pacedLinkBps)
-        XCTAssertEqual(s.measuredLinkBps, s.wireLinkBps)
+        XCTAssertEqual(s.wireLinkBps ?? 0, 1_200_000, accuracy: 1)
     }
 
     func testProbeCapacityIsTheSameSnapshotReportedToTheApp() throws {
@@ -1745,25 +1923,97 @@ final class TierProbeTests: XCTestCase {
         session.copyAnnounced = true
         session.finishLinkProbe(1_500_000, reporting: true)
         XCTAssertEqual(reports.last?["bps"] as? Double, session.wireLinkBps)
-        XCTAssertEqual(session.wireLinkBps, session.pacedLinkBps)
-        XCTAssertEqual(session.wireLinkBps, session.measuredLinkBps)
         XCTAssertEqual(reports.last?["copyListed"] as? Bool, true)
+        XCTAssertEqual(reports.last?["source"] as? String, "probe")
 
         session.noteLinkSample(bytes: 2_000_000, seconds: 1)
         XCTAssertEqual(session.wireLinkBps, 1_500_000)
         XCTAssertTrue(session.reprobeAsked)
         session.finishLinkProbe(30_000_000, reporting: true)
-        XCTAssertEqual(reports.last?["bps"] as? Double, 30_000_000)
-        XCTAssertEqual(session.wireLinkBps, session.measuredLinkBps)
-        XCTAssertEqual(session.wireLinkBps, session.pacedLinkBps)
+        session.finishLinkProbe(30_000_000, reporting: true)
+        XCTAssertEqual(reports.last?["bps"] as? Double, session.wireLinkBps)
 
         session.cancelled = true
         let count = reports.count
+        let standing = session.wireLinkBps
         session.finishLinkProbe(600_000, reporting: true)
         session.noteLinkSample(bytes: 600_000, seconds: 4)
         session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-4), to: Date())
         XCTAssertEqual(reports.count, count)
-        XCTAssertEqual(session.wireLinkBps, 30_000_000)
+        XCTAssertEqual(session.wireLinkBps, standing)
+    }
+
+    /// Apple TV: reads of 0.7 MB in 0.01s drain the socket, not the wire, and asked for a probe every 10s on a copy.
+    func testReadsPastALinkThatCarriesTheCopyAskForNoProbe() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.finishLinkProbe(190_000_000, reporting: false)
+        session.noteLinkSample(bytes: 5_600_000, seconds: 0.1)
+        XCTAssertFalse(session.reprobeAsked, "the link already admits the copy; a faster one decides nothing")
+
+        let thin = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { thin.stop() }
+        thin.finishLinkProbe(1_500_000, reporting: false)
+        thin.noteLinkSample(bytes: 2_000_000, seconds: 1)
+        XCTAssertTrue(thin.reprobeAsked, "under the copy a faster read may admit it")
+    }
+
+    func testTheStartupProbeReportsAndLaterProbesFollowADrop() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        var reports: [[String: Any]] = []
+        session.onLink = { reports.append($0) }
+        session.finishLinkProbe(80_000_000, reporting: false)
+        XCTAssertEqual(reports.count, 1, "the startup probe reports")
+        XCTAssertEqual(reports.last?["bps"] as? Double, 80_000_000)
+        XCTAssertEqual(reports.last?["source"] as? String, "probe")
+
+        for _ in 0..<6 { session.finishLinkProbe(8_000_000, reporting: true) }
+        XCTAssertLessThan(session.wireLinkBps ?? .infinity, 15_000_000, "the drop is followed")
+    }
+
+    func testServerCapacityIsReportedWithItsSource() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        var reports: [[String: Any]] = []
+        session.onLink = { reports.append($0) }
+        let now = Date()
+        session.finishLinkProbe(nil, reporting: false, failure: .unavailable(404))
+        session.notePlaylistTransfer(bytes: 30_000, from: now, to: now.addingTimeInterval(0.2))
+        XCTAssertEqual(reports.last?["source"] as? String, "playlist")
+        session.noteFloorSample(bytes: 600_000, from: now, to: now.addingTimeInterval(1))
+        XCTAssertEqual(reports.last?["source"] as? String, "rungs")
+    }
+
+    /// hls.js and Shaka: the lower of a fast and a slow EWMA follows a drop at once and a rise only as it holds.
+    func testTheLinkFollowsADropAtOnceAndARiseOnlyAsItHolds() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.finishLinkProbe(209_000_000, reporting: true)
+        XCTAssertEqual(session.wireLinkBps ?? 0, 209_000_000, accuracy: 1)
+        session.finishLinkProbe(95_000_000, reporting: true)
+        let dropped = try XCTUnwrap(session.wireLinkBps)
+        XCTAssertLessThan(dropped, 150_000_000)
+        XCTAssertTrue(session.reprobeAsked, "a reading a quarter off the link asks for the next")
+        session.finishLinkProbe(225_000_000, reporting: true)
+        XCTAssertLessThan(session.wireLinkBps ?? .infinity, 209_000_000, "one fast read does not raise it back")
+        for _ in 0..<10 { session.finishLinkProbe(225_000_000, reporting: true) }
+        XCTAssertGreaterThan(session.wireLinkBps ?? 0, 210_000_000, "a rise that holds is followed")
+    }
+
+    /// A buffer drained into the reservoir is the link now: probes from before it do not vote it back up.
+    func testADrainedBufferClearsTheProbesItOverrules() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
+        defer { session.stop() }
+        session.finishLinkProbe(200_000_000, reporting: false)
+        session.finishLinkProbe(210_000_000, reporting: true)
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds + 8, sinceSeek: false)
+        session.notePlayerBuffer(aheadSeconds: RemuxSession.copyReservoirSeconds - 4, sinceSeek: false)
+        session.noteLinkSample(bytes: 600_000, seconds: 0.1)
+        XCTAssertEqual(session.wireLinkBps ?? 0, 48_000_000, accuracy: 1)
+        XCTAssertEqual(session.link?.source, .reads)
+        session.finishLinkProbe(50_000_000, reporting: true)
+        XCTAssertEqual(session.wireLinkBps, 50_000_000)
     }
 
     func testUnavailableOriginalUsesMeasuredServerTransfersInBothDirections() throws {
@@ -1777,13 +2027,12 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(session.wireLinkBps ?? 0, 4_800_000, accuracy: 1)
         session.noteFloorSample(bytes: 600_000, from: now.addingTimeInterval(10), to: now.addingTimeInterval(18))
         XCTAssertEqual(session.wireLinkBps ?? 0, 600_000, accuracy: 1)
-        XCTAssertEqual(session.wireLinkBps, session.pacedLinkBps)
 
         session.finishLinkProbe(2_000_000, reporting: true)
         XCTAssertNil(session.sourceProbeFailure)
         session.noteFloorSample(bytes: 2_000_000, from: now.addingTimeInterval(30), to: now.addingTimeInterval(31))
         XCTAssertEqual(session.wireLinkBps, 2_000_000)
-        XCTAssertEqual(session.pacedLinkBps, 2_000_000)
+        XCTAssertEqual(session.wireLinkBps, 2_000_000)
     }
 
     func testRetryingSourceUsesServerCapacityWithoutBeingMarkedUnsupported() throws {
@@ -1792,7 +2041,6 @@ final class TierProbeTests: XCTestCase {
         session.retrySource(because: "connection reset")
         session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-2), to: Date())
         XCTAssertNotNil(session.wireLinkBps)
-        XCTAssertEqual(session.wireLinkBps, session.measuredLinkBps)
         XCTAssertFalse(session.sourceUnusable)
     }
 

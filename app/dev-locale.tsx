@@ -3,7 +3,7 @@ import React, { useEffect } from "react";
 import { View } from "react-native";
 
 import { COLORS } from "@/constants/colors";
-import { setLocaleOverride } from "@/services/i18n";
+import { setLanguage, supportedLocale } from "@/services/i18n";
 import { logger } from "@/utils/logger";
 
 /**
@@ -22,11 +22,11 @@ export default function DevLocaleScreen() {
       router.dismissTo("/");
       return;
     }
-    void (async () => {
-      const picked = await setLocaleOverride(lang);
-      logger.info("Locale override applied", { service: "DevLocale", requested: lang, applied: picked });
-      router.dismissTo("/");
-    })();
+    const picked = supportedLocale(lang);
+    if (picked) setLanguage(picked);
+    else logger.warn("Locale override ignored, not a supported language", { service: "DevLocale", requested: lang });
+    logger.info("Locale override applied", { service: "DevLocale", requested: lang, applied: picked });
+    router.dismissTo("/");
   }, [lang, router]);
 
   return <View style={{ flex: 1, backgroundColor: COLORS.BACKGROUND }} />;

@@ -4,12 +4,14 @@ import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
+import { setToastPlayerOnScreen } from "@/services/toast";
 import { isHotChannel } from "@/services/liveRing";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
-import { STAGE_HINT_AFTER_SECONDS, stageHint, stageLabel, usePlaybackStage } from "@/hooks/usePlaybackStage";
+import { stageReason, stageStatus, stageStopped, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { chapterFrameUrl } from "@/services/localRemux";
 import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -87,7 +89,7 @@ export function playerChapters(item: JellyfinVideoItem | null, frameBase: string
       const uri = !artwork ? "" : chapter.ImageTag ? getChapterImageUrl(item.Id, index, chapter.ImageTag) : (chapterFrameUrl(frameBase, start) ?? "");
       return {
         // Jellyfin sends no Name for files whose chapters were never titled, which is most of them.
-        title: chapter.Name?.trim() || t("player.chapterNum").replace("{num}", String(index + 1)),
+        title: cleanLabel(chapter.Name?.trim()) || t("player.chapterNum").replace("{num}", String(index + 1)),
         startTime: start,
         // A chapter ends where the next begins; the last ends at the runtime.
         endTime: position + 1 < markers.length ? markers[position + 1].start : lastEnd,
@@ -114,7 +116,7 @@ interface HostSession {
   videoName?: string;
   startPositionTicks?: number;
   playedAtStart?: boolean;
-  probe?: boolean;
+  probe?: string;
   sessionKey: string;
   isLive?: boolean;
 }
@@ -154,13 +156,15 @@ export function PlayerHost() {
   // source stays on it until the new one lands, so AVKit keeps its player and replaces the item
   // in place (RCTVideo.setSrc) under its own channel interstitial.
   const [liveSwitching, setLiveSwitching] = useState(false);
-  const [heldLiveSource, setHeldLiveSource] = useState<PlayerSource | null>(null);
+  const [heldSource, setHeldSource] = useState<PlayerSource | null>(null);
   // The flip commit still reads the outgoing channel's PLAYING; the flag may only clear once the
   // hook has restarted for the new one.
   const liveFlipRestartedRef = useRef(false);
   // A burst of swipes changes the channel at once but opens only the one it settles on.
   const [liveSettling, setLiveSettling] = useState(false);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // AVKit's channel interstitial is on screen: up from the swipe until the channel plays or the skip is abandoned.
+  const [liveInterstitialUp, setLiveInterstitialUp] = useState(false);
 
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
 
@@ -179,6 +183,9 @@ export function PlayerHost() {
     pipRef.current = next;
     setPipState(next);
   }, []);
+  // A player a PiP window has shown is never remounted for the rest of its session: the window
+  // shares its AVPlayer. Pinned to the key it had, since any change to the key remounts.
+  const [pinnedKey, setPinnedKey] = useState<string | null>(null);
 
   // Closing curtain: opaque black over the inline video. A user ✕/swipe dismissal only
   // reaches native code AFTER the slide-down finished (viewDidDisappear), and the lib
@@ -231,7 +238,7 @@ export function PlayerHost() {
     pause,
     retry,
     videoDetails,
-    play,
+    togglePlay,
     seekBy,
     imageSubtitleSessionUrl,
     activeImageSubtitleStream,
@@ -246,6 +253,7 @@ export function PlayerHost() {
     playedAtStart: session?.playedAtStart,
     onPlaybackEnd: handlePlaybackEnd,
     probe: session?.probe,
+    skipWindows: tvConfig.skipWindows,
   });
 
   // Disarm a teardown that is waiting on a presentation. Called wherever a session is
@@ -272,6 +280,7 @@ export function PlayerHost() {
     applySession(null);
     setTvConfig({});
     setPip("none");
+    setPinnedKey(null);
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = null;
     setLiveSettling(false);
@@ -373,7 +382,7 @@ export function PlayerHost() {
   const sourceMetadata = useMemo(() => {
     if (!videoDetails) return undefined;
     return {
-      title: videoDetails.Name,
+      title: cleanLabel(videoDetails.Name),
       ...(artwork ? { imageUri: artwork.uri } : {}),
       // A channel's image is its logo: the patch bakes it onto the info panel's tile.
       ...(session?.isLive ? { logo: true } : {}),
@@ -399,35 +408,50 @@ export function PlayerHost() {
   // Deliberate cascades: the held source and the flip flag follow the stream and the session.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (streamSource !== null && !showLoadingOverlay) setHeldLiveSource(streamSource);
-    else if (session === null) setHeldLiveSource(null);
+    if (streamSource !== null && !showLoadingOverlay) setHeldSource(streamSource);
+    else if (session === null) setHeldSource(null);
   }, [streamSource, session, showLoadingOverlay]);
-  // The flip ends when the new channel plays, fails with no rung left, or the session goes.
+  // The flip ends when the new channel plays, fails with no rung left, or the session goes. A failure
+  // under the interstitial holds it instead: AVKit only arms the swipe on a playing item, the interstitial's own swipe always.
   const failedForGood = state.type === "ERROR" && !state.canRetryWithTranscode;
+  const liveFlipFailed = Platform.isTV && liveSwitching && liveInterstitialUp && failedForGood;
   useEffect(() => {
     if (!liveSwitching) return;
     if (state.type !== "PLAYING" && state.type !== "ERROR") liveFlipRestartedRef.current = true;
-    if (session === null || (liveFlipRestartedRef.current && (state.type === "PLAYING" || failedForGood))) setLiveSwitching(false);
-  }, [liveSwitching, session, state.type, failedForGood]);
+    const played = liveFlipRestartedRef.current && state.type === "PLAYING";
+    if (played) setLiveInterstitialUp(false);
+    if (session === null || played || (liveFlipRestartedRef.current && failedForGood && !liveFlipFailed)) setLiveSwitching(false);
+  }, [liveSwitching, session, state.type, failedForGood, liveFlipFailed]);
   // A live session keeps its player on stage through every reload, retry and flip, so AVKit holds
   // focus and the channel swipe. The channel on screen failing with no rung left parks it: its error shows.
-  const liveHeld = session?.isLive === true && heldLiveSource !== null && !failedForGood;
-  const shownSource = streamSource ?? (liveHeld ? heldLiveSource : null);
+  const liveHeld = session?.isLive === true && heldSource !== null && (!failedForGood || liveFlipFailed);
+  // Same for a player a PiP window is showing, so an advance or a retry never unmounts it.
+  const pipHeld = pinnedKey !== null && heldSource !== null && !failedForGood;
+  const shownSource = streamSource ?? (liveHeld || pipHeld ? heldSource : null);
   const shownUri = shownSource?.uri ?? null;
-  // What AVKit's channel interstitial says under the channel's name while the flip loads: the
-  // stage, its clock, and the stage's hint on its own line once it has run long.
+  const shownUriRef = useRef<string | null>(null);
+  useEffect(() => {
+    shownUriRef.current = shownUri;
+  }, [shownUri]);
+  // What AVKit's channel interstitial says under the channel's name once a flip runs long: the
+  // status line, and what the current stage waits on on its own line after that.
   const flipStage = usePlaybackStage();
   const liveChannelStage = useMemo(() => {
-    if (!liveSwitching || !flipStage.stage) return undefined;
-    const line = `${stageLabel(flipStage.stage)}${flipStage.elapsedSeconds >= 2 ? `  ${flipStage.elapsedSeconds}s` : ""}`;
-    return flipStage.elapsedSeconds >= STAGE_HINT_AFTER_SECONDS ? `${line}\n${stageHint(flipStage.stage)}` : line;
-  }, [liveSwitching, flipStage.stage, flipStage.elapsedSeconds]);
+    if (liveFlipFailed) return flipStage.stage ? `${t("player.unableToPlay")}\n${stageStopped(flipStage.stage, { live: true })}` : t("player.unableToPlay");
+    if (!liveSwitching || !flipStage.stage || flipStage.phase === "quiet") return undefined;
+    const reason = flipStage.phase === "reason" ? stageReason(flipStage.stage, { live: true }) : null;
+    return reason ? `${stageStatus(true)}\n${reason}` : stageStatus(true);
+  }, [liveFlipFailed, liveSwitching, flipStage.stage, flipStage.phase]);
   const hostVisible =
     session !== null && shownUri !== null && (!showLoadingOverlay || liveHeld) && !ended && (state.type !== "ERROR" || liveHeld) && (pip === "none" || (!Platform.isTV && pip === "active"));
   // For the Menu handler, which always arrives after the commit that set this.
   const hostVisibleRef = useRef(false);
   useEffect(() => {
     hostVisibleRef.current = hostVisible;
+  }, [hostVisible]);
+  useEffect(() => {
+    setToastPlayerOnScreen(hostVisible);
+    return () => setToastPlayerOnScreen(false);
   }, [hostVisible]);
 
   const hostMode: HostMode = useMemo(() => {
@@ -487,8 +511,20 @@ export function PlayerHost() {
             onBandwidthUpdate: ignore,
             onReadyForDisplay: ignore,
           }
-        : videoCallbacks,
-    [showingHeld, videoCallbacks],
+        : {
+            ...videoCallbacks,
+            // No route attached = a detached window. A retry cannot restore one (the rebuild
+            // remounts <Video>), so its error ends the session, same as playback ending does.
+            onError: (error: OnVideoErrorData) => {
+              if (!handlersRef.current) {
+                logger.warn("Player host: stream error with no route attached, ending the session", { service: "PlayerHost" });
+                endSessionRef.current();
+                return;
+              }
+              videoCallbacks.onError(error);
+            },
+          },
+    [showingHeld, videoCallbacks, handlersRef],
   );
   const presentedCallbacks = useMemo(() => {
     if (!PRESENTS_NATIVE_FULLSCREEN) {
@@ -518,7 +554,8 @@ export function PlayerHost() {
       },
       onLoad: (data: OnLoadData) => {
         attemptCallbacks.onLoad(data);
-        if (sessionRef.current) {
+        // Never over a PiP window: this item was swapped inside the player the window shows.
+        if (sessionRef.current && pipRef.current === "none") {
           programmaticDismissRef.current = false;
           presentationRef.current = "pending";
           videoRef.current?.setFullScreen(true);
@@ -547,11 +584,6 @@ export function PlayerHost() {
   const toggleVideoFill = useCallback(() => {
     setFillVideoId((current) => (current === sessionVideoId ? null : sessionVideoId));
   }, [sessionVideoId]);
-
-  const pausedRef = useRef(paused);
-  useEffect(() => {
-    pausedRef.current = paused;
-  }, [paused]);
 
   // Intrinsic video size, needed to place bitmap subtitles: they carry absolute
   // coordinates in the subtitle canvas, and mapping that onto the screen needs the rect the
@@ -665,6 +697,7 @@ export function PlayerHost() {
       pipHandoffArmedRef.current = isActive;
       if (isActive) {
         setPip("active");
+        setPinnedKey((pinned) => pinned ?? shownUriRef.current);
         return;
       }
       // The window closed on its own (the viewer pressed its ✕) with no route
@@ -738,6 +771,8 @@ export function PlayerHost() {
       setCurtainUp(false);
       setEnded(false);
       setPip("none");
+      setPinnedKey(null);
+      setLiveInterstitialUp(false);
       pipHandoffArmedRef.current = false;
       programmaticDismissRef.current = false;
       presentationRef.current = "none";
@@ -777,6 +812,26 @@ export function PlayerHost() {
           // Coming back from a detached window: clear the flag before AVKit
           // reports the stop, or that report reads as "closed with no route".
           setPip("none");
+          return;
+        }
+        // A queue advance under a PiP window swaps the item inside the player the window shows.
+        // The outgoing route's release may land first and leave it "detached"; the window is up either way.
+        if (current !== null && request.advance === true && !current.isLive && pipRef.current !== "none") {
+          logger.info("Player host: advancing inside the PiP window", { service: "PlayerHost", to: request.videoName });
+          applyPending(null);
+          applySession({
+            ...current,
+            videoId: request.videoId,
+            videoName: request.videoName,
+            startPositionTicks: request.startPositionTicks,
+            playedAtStart: request.playedAtStart,
+            probe: request.probe,
+            sessionKey: request.sessionKey,
+          });
+          setEnded(false);
+          clearPresentationWait();
+          setPinnedKey((pinned) => pinned ?? shownUriRef.current);
+          setPip("active");
           return;
         }
         applyPending({
@@ -844,15 +899,10 @@ export function PlayerHost() {
       },
       retry,
       seekBy,
-      // Read through a ref, so the bridge identity does not churn on every play and pause and
-      // re-register itself with the provider each time.
-      togglePlay: () => {
-        if (pausedRef.current) play();
-        else pause();
-      },
+      togglePlay,
       toggleVideoFill,
     }),
-    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, play, retry, seekBy, setPip, toggleVideoFill],
+    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, retry, seekBy, setPip, togglePlay, toggleVideoFill],
   );
 
   useEffect(() => {
@@ -870,8 +920,8 @@ export function PlayerHost() {
       {session !== null && shownSource && (
         <Video
           // Remount on every stream change (direct play to transcoding), except a live channel,
-          // whose flips replace the item inside the one player.
-          key={session.isLive ? "live" : shownSource.uri}
+          // whose flips replace the item inside the one player, and a player a PiP window has shown.
+          key={session.isLive ? "live" : (pinnedKey ?? shownSource.uri)}
           ref={videoRef}
           source={shownSource}
           style={styles.video}
@@ -907,11 +957,26 @@ export function PlayerHost() {
           // tvOS Chapters tab in the same info panel, from this item's markers.
           chapters={chapters}
           onInfoPanelItemSelected={(event) => handlersRef.current?.onInfoPanelItemSelected(event)}
+          // tvOS transport bar: the route's custom buttons (the favorite heart).
+          transportBarButtons={tvConfig.transportBarButtons}
+          onTransportBarButtonSelected={(event) => handlersRef.current?.onTransportBarButtonSelected(event)}
           // tvOS live channel flipping: AVKit's own swipe and interstitial, gated on a live session.
           liveChannelFlip={session.isLive ? tvConfig.liveChannelFlip : undefined}
           liveChannelStage={session.isLive ? liveChannelStage : undefined}
-          onSkipToNextChannel={() => handlersRef.current?.onSkipChannel(1)}
-          onSkipToPreviousChannel={() => handlersRef.current?.onSkipChannel(-1)}
+          liveChannelFailed={session.isLive ? liveFlipFailed : undefined}
+          onSkipToNextChannel={() => {
+            setLiveInterstitialUp(true);
+            handlersRef.current?.onSkipChannel(1);
+          }}
+          onSkipToPreviousChannel={() => {
+            setLiveInterstitialUp(true);
+            handlersRef.current?.onSkipChannel(-1);
+          }}
+          // Menu on the interstitial leaves the player paused under it, so it leaves the player.
+          onChannelSkipAbandoned={() => {
+            setLiveInterstitialUp(false);
+            handlersRef.current?.onRequestBack();
+          }}
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
           // onEnd/onError dismissals — the DID handler closes only for the first two. Will is
           // observed and never acted on; it fires for transitions that get cancelled.

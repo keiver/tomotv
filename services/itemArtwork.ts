@@ -6,6 +6,7 @@
 import { STANDALONE_VIDEO_TYPES } from "@/services/jellyfin/constants";
 import { getCachedConfig, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { posterFrameGeneration, posterFrameIfCached, posterFrameRevision } from "@/services/localRemux";
+import { getUiPreferences } from "@/services/uiPreferences";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 /** The kinds the engine can open for a frame; photos, audio and folders never ask. */
@@ -21,7 +22,7 @@ function serverTag(): string {
 }
 
 /** What the rule reads off an item; every list, detail and queue item carries these. */
-export type PosterItem = Pick<JellyfinVideoItem, "Id" | "Type" | "ImageTags" | "MediaStreams"> & { RunTimeTicks?: number };
+export type PosterItem = Pick<JellyfinVideoItem, "Id" | "Type" | "ImageTags" | "MediaStreams"> & { RunTimeTicks?: number; ChannelId?: string };
 
 /**
  * True only where the streams prove there is no picture to grab: a MusicVideo row that is
@@ -35,12 +36,13 @@ function audioOnly(item: Pick<JellyfinVideoItem, "MediaStreams">): boolean {
 }
 
 /**
- * An item the engine should make a keyframe for: a video the server left without a poster.
- * An audio-only file is excluded, or every card for one opens the file over HTTP and probes
- * it for a video stream it does not have, three times a launch (POSTER_FRAME_ATTEMPTS).
+ * An item the engine should make a keyframe for: a video the server left without a poster,
+ * while Settings shows device generated posters. An audio-only file is excluded, or every card
+ * for one opens the file over HTTP and probes it for a video stream it does not have, three
+ * times a launch (POSTER_FRAME_ATTEMPTS).
  */
 export function wantsPosterFrame(item: Pick<JellyfinVideoItem, "Type" | "ImageTags" | "MediaStreams">): boolean {
-  return !hasPoster(item) && POSTER_FRAME_TYPES.has(item.Type) && !audioOnly(item);
+  return getUiPreferences().devicePosters && !hasPoster(item) && POSTER_FRAME_TYPES.has(item.Type) && !audioOnly(item);
 }
 
 export interface PosterSource {
@@ -55,6 +57,9 @@ export interface PosterSource {
  */
 export function posterSource(item: PosterItem, height: number, frame?: string | null, revision: number = posterFrameRevision(item.Id)): PosterSource | undefined {
   if (hasPoster(item)) return serverPoster(item.Id, item.ImageTags?.Primary, height);
+  // A programme found by search wears its channel's logo.
+  if (item.Type === "Program" && item.ChannelId) return serverPoster(item.ChannelId, "channel", height);
+  if (!getUiPreferences().devicePosters) return undefined;
   const keyframe = frame ?? posterFrameIfCached(item.Id);
   // The pool path repeats across servers and across a decode, so the server, the generation and
   // the revision are what part one picture from the next.
@@ -79,4 +84,20 @@ export function folderPosterSource(folder: FolderPosterItem, height: number): Po
 /** The picture's URL alone, for consumers that take a string. */
 export function posterUri(item: PosterItem, height: number, frame?: string | null): string | null {
   return posterSource(item, height, frame)?.uri ?? null;
+}
+
+const HERO_MAX_UPSCALE = 3;
+
+/**
+ * The info hero's art at its own ratio inside a fixed `width` x `area`: a taller picture full width, its foot
+ * past the area; a wider one covers the area, sides cropped. A logo stays whole; a tiny one stops at 3x.
+ */
+export function heroArtFrame(width: number, area: number, imageWidth: number, imageHeight: number, logo = false): { width: number; height: number } {
+  if (imageWidth * HERO_MAX_UPSCALE < width && imageWidth >= imageHeight) {
+    const scale = Math.min(HERO_MAX_UPSCALE, area / imageHeight);
+    return { width: imageWidth * scale, height: imageHeight * scale };
+  }
+  const height = (width * imageHeight) / imageWidth;
+  if (height < area && !logo) return { width: (area * imageWidth) / imageHeight, height: area };
+  return { width, height };
 }

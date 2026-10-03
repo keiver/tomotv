@@ -6,7 +6,7 @@
  * evaluates it in full instead.
  */
 
-type Node = { isDirectory: boolean; content: string; size: number };
+type Node = { isDirectory: boolean; content: string; size: number; mtime?: number };
 
 export const fakeFs = new Map<string, Node>();
 
@@ -32,6 +32,11 @@ export class Directory {
   delete() {
     for (const key of [...fakeFs.keys()]) if (key === this.uri || key.startsWith(`${this.uri}/`)) fakeFs.delete(key);
   }
+  list(): (Directory | File)[] {
+    return [...fakeFs.entries()]
+      .filter(([key]) => key.startsWith(`${this.uri}/`) && !key.slice(this.uri.length + 1).includes("/"))
+      .map(([key, node]) => (node.isDirectory ? new Directory(key) : new File(key)));
+  }
 }
 
 export class File {
@@ -45,8 +50,22 @@ export class File {
   get size() {
     return fakeFs.get(this.uri)?.size ?? 0;
   }
+  get name() {
+    return this.uri.split("/").pop() ?? "";
+  }
   write(content: string) {
-    fakeFs.set(this.uri, { isDirectory: false, content, size: content.length });
+    fakeFs.set(this.uri, { isDirectory: false, content, size: content.length, mtime: Date.now() });
+  }
+  info() {
+    const node = fakeFs.get(this.uri);
+    return { exists: node !== undefined, modificationTime: node?.mtime };
+  }
+  async move(destination: File) {
+    const node = fakeFs.get(this.uri);
+    if (!node) throw new Error(`move: ${this.uri} does not exist`);
+    fakeFs.set(destination.uri, { ...node });
+    fakeFs.delete(this.uri);
+    this.uri = destination.uri;
   }
   async text() {
     return fakeFs.get(this.uri)?.content ?? "";

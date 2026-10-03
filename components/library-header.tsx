@@ -1,6 +1,7 @@
 import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
 import { FolderStackEntry } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -27,6 +28,8 @@ interface LibraryHeaderProps {
   action?: HeaderAction;
   /** A capsule to the left of `action` (the wall's favorites filter toggle). */
   secondaryAction?: HeaderAction;
+  /** A control leading the bar's right cluster (the wall's Live TV search reveal). */
+  trailing?: React.ReactNode;
 }
 
 export interface HeaderAction {
@@ -57,6 +60,7 @@ function LibraryHeaderComponent({
   onFiltersFocusChange,
   action,
   secondaryAction,
+  trailing,
 }: LibraryHeaderProps) {
   const filtersButtonRef = useCallback(
     (node: View | null) => {
@@ -86,13 +90,14 @@ function LibraryHeaderComponent({
           return (
             <View key={entry.id} style={styles.pathSegment}>
               <Text style={[styles.pathText, isLast && styles.pathTextCurrent]} numberOfLines={1}>
-                {entry.name}
+                {cleanLabel(entry.name)}
               </Text>
               {!isLast && <Ionicons name="chevron-forward" size={22} color={COLORS.TEXT_TERTIARY} style={styles.pathSeparator} />}
             </View>
           );
         })}
       </View>
+      {trailing ?? null}
       {secondaryAction ? (
         <GlassButton title={secondaryAction.title} accessibilityLabel={secondaryAction.accessibilityLabel} onPress={secondaryAction.onPress} icon={actionIcon(secondaryAction.icon)} />
       ) : null}

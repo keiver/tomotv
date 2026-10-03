@@ -1,4 +1,5 @@
 import { useAuthSession } from "@/hooks/useAuthSession";
+import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { wantsPosterFrame, type PosterItem } from "@/services/itemArtwork";
 import { cancelPosterFrame, posterFrameIfCached, requestPosterFrame } from "@/services/localRemux";
 import { useEffect, useState } from "react";
@@ -10,7 +11,9 @@ import { useEffect, useState } from "react";
  */
 export function usePosterFrame(item: PosterItem | null): string | null {
   const itemId = item?.Id ?? "";
-  const eligible = !!item && wantsPosterFrame(item);
+  // Subscribed so a mounted card drops or asks for its frame when the Settings toggle flips.
+  const { devicePosters } = useUiPreferences();
+  const eligible = devicePosters && !!item && wantsPosterFrame(item);
   const runTimeTicks = item?.RunTimeTicks ?? 0;
   // The frame pool is cleared with the other content caches, so after a switch this answers
   // undefined and the request runs again against the new server.

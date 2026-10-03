@@ -84,9 +84,11 @@ enum DeviceDecode {
     static var main10Override: Bool?
     static var main10ForEncoder: Bool { main10Override ?? hevcMain10 }
 
-    /// The JS-side copy of the same answers (services/localRemux.ts videoDecodeSupport).
+    /// The JS-side copy of the same answers (services/localRemux.ts videoDecodeSupport). Reading `h264`
+    /// here pays its VideoToolbox probe at app start, off-thread, instead of inline in the first
+    /// Annex B session's startup (canDecode answers by profile class for MPEG-TS input).
     static func summary() -> [String: Any] {
-        ["hevc": hevc, "hevcMain10": hevcMain10, "av1": av1Hardware, "h264MaxHeight": h264MaxHeight, "hevcMaxHeight": hevcMaxHeight]
+        ["h264": h264, "hevc": hevc, "hevcMain10": hevcMain10, "av1": av1Hardware, "h264MaxHeight": h264MaxHeight, "hevcMaxHeight": hevcMaxHeight]
     }
 
     private static let lock = NSLock()

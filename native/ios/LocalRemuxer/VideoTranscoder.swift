@@ -83,6 +83,9 @@ final class VideoTranscoder {
     /// videotoolboxenc honors pict_type == I via
     /// kVTEncodeFrameOptionKey_ForceKeyFrame.
     private var keyframeRequested = false
+    /// A frame closer than this to the last one encoded is dropped; 0 keeps every frame.
+    private var minFrameTicks: Int64 = 0
+    private var lastEncodedPts: Int64?
 
     /// Unrecoverable processing failure (pixel format mismatch, encoder
     /// rejection). The pipeline checks this after every process() call and
@@ -169,7 +172,11 @@ final class VideoTranscoder {
     ///   pipeline doesn't force one sooner. Segment boundaries always force
     ///   one via forceKeyframeNext(), so this only bounds the GOP between
     ///   boundaries.
-    init?(inputStream: UnsafeMutablePointer<AVStream>, keyframeInterval: Double = 6.0, maxBitrate: Int64 = 12_000_000, openEncoder: Bool = true) {
+    /// - Parameter maxHeight/maxFrameRate: 0 keeps the source's; `hardwareDecode` decodes through VideoToolbox when it can;
+    ///   `quiet` skips the conversion log line, for callers that make one transcoder per short job.
+    init?(inputStream: UnsafeMutablePointer<AVStream>, keyframeInterval: Double = 6.0, maxBitrate: Int64 = 12_000_000, openEncoder: Bool = true,
+          maxHeight: Int32 = 0, maxFrameRate: Int32 = 0, hardwareDecode: Bool = false, quiet: Bool = false) {
+        conversionLogged = quiet
         let params = inputStream.pointee.codecpar!
 
         // Interlaced sources go through the deinterlace pass below. TT and TB
@@ -199,6 +206,20 @@ final class VideoTranscoder {
         // Software decode of VP9/MPEG-2 is the expensive half; let it use every
         // core rather than running single-threaded.
         decCtx.pointee.thread_count = 0
+        // bwdif reads software frames, so an interlaced source keeps the software decode.
+        var device: UnsafeMutablePointer<AVBufferRef>?
+        if hardwareDecode, !deinterlacing, av_hwdevice_ctx_create(&device, AV_HWDEVICE_TYPE_VIDEOTOOLBOX, nil, nil, 0) >= 0 {
+            decCtx.pointee.hw_device_ctx = device
+            decCtx.pointee.thread_count = 1
+            decCtx.pointee.get_format = { context, formats in
+                var at = formats
+                while let format = at?.pointee, format != AV_PIX_FMT_NONE {
+                    if format == AV_PIX_FMT_VIDEOTOOLBOX { return format }
+                    at = at?.successor()
+                }
+                return avcodec_default_get_format(context, formats)
+            }
+        }
         guard avcodec_open2(decCtx, decoderCodec, nil) >= 0 else {
             NSLog("[VideoTranscoder] Failed to open decoder")
             return nil
@@ -234,8 +255,14 @@ final class VideoTranscoder {
         }
         encoder = encCtx
 
-        encCtx.pointee.width = params.pointee.width
-        encCtx.pointee.height = params.pointee.height
+        // A smaller picture keeps the source's shape; the pixel transfer scales into it.
+        if maxHeight > 0, params.pointee.height > maxHeight {
+            encCtx.pointee.width = Int32((Double(params.pointee.width) * Double(maxHeight) / Double(params.pointee.height) / 2).rounded()) * 2
+            encCtx.pointee.height = maxHeight
+        } else {
+            encCtx.pointee.width = params.pointee.width
+            encCtx.pointee.height = params.pointee.height
+        }
         // nv12 and p010 are what VideoToolbox wants natively and what
         // VTPixelTransferSession produces, so the encoder is pinned to them
         // rather than to yuv420p.
@@ -246,7 +273,12 @@ final class VideoTranscoder {
         encCtx.pointee.time_base = inputStream.pointee.time_base
         encoderTimeBase = inputStream.pointee.time_base
 
-        let guessed = av_guess_frame_rate(nil, inputStream, nil)
+        var guessed = av_guess_frame_rate(nil, inputStream, nil)
+        if maxFrameRate > 0, guessed.num <= 0 || guessed.den <= 0 || Double(guessed.num) / Double(guessed.den) > Double(maxFrameRate) {
+            guessed = AVRational(num: maxFrameRate, den: 1)
+            let tb = inputStream.pointee.time_base
+            minFrameTicks = Int64(tb.den) / (Int64(max(tb.num, 1)) * Int64(maxFrameRate))
+        }
         let fps = guessed.den > 0 && guessed.num > 0 ? Double(guessed.num) / Double(guessed.den) : 30.0
         encCtx.pointee.framerate = guessed.num > 0 ? guessed : AVRational(num: 30, den: 1)
         encCtx.pointee.gop_size = Int32(max(1, (fps * keyframeInterval).rounded()))
@@ -347,6 +379,10 @@ final class VideoTranscoder {
     /// Convert one progressive frame to the encoder's format, stamp it `pts`,
     /// and encode it. Only a converter that cannot be built is fatal.
     private func encode(frame source: UnsafeMutablePointer<AVFrame>, pts: Int64, emit: (UnsafeMutablePointer<AVPacket>) -> Void) {
+        if minFrameTicks > 0 {
+            if let last = lastEncodedPts, pts < last + minFrameTicks { return }
+            lastEncodedPts = pts
+        }
         guard let input = converted(from: source) else {
             failed = true
             return
@@ -365,9 +401,18 @@ final class VideoTranscoder {
     /// comparison), so EAGAIN here is the steady state, not an error.
     private func drainFilter(emit: (UnsafeMutablePointer<AVPacket>) -> Void) {
         guard let filterSink, let filtered else { return }
+        // bwdif declares its own output time base (half the input's, pts doubled); the encoder
+        // runs on encoderTimeBase, so every frame is read back onto it, as fftools does.
+        let sinkTimeBase = av_buffersink_get_time_base(filterSink)
         while av_buffersink_get_frame(filterSink, filtered) >= 0 {
             defer { av_frame_unref(filtered) }
-            encode(frame: filtered, pts: filtered.pointee.pts, emit: emit)
+            let pts = filtered.pointee.pts == SWIFT_AV_NOPTS_VALUE_VT
+                ? SWIFT_AV_NOPTS_VALUE_VT
+                : av_rescale_q(filtered.pointee.pts, sinkTimeBase, encoderTimeBase)
+            if filtered.pointee.duration > 0 {
+                filtered.pointee.duration = av_rescale_q(filtered.pointee.duration, sinkTimeBase, encoderTimeBase)
+            }
+            encode(frame: filtered, pts: pts, emit: emit)
             if failed { return }
         }
     }
@@ -434,9 +479,12 @@ final class VideoTranscoder {
                   encoder.pointee.width, encoder.pointee.height, encoder.pointee.pix_fmt.rawValue)
         }
 
-        guard let source = wrapAsPixelBuffer(decoded) else { return nil }
-        // swscale lands in the encoder's own layout; a transfer from that to itself is a copy.
-        if CVPixelBufferGetPixelFormatType(source) == Self.encoderCVFormat(encoder) { return copyOut(source) }
+        guard let source = decoded.pointee.format == AV_PIX_FMT_VIDEOTOOLBOX.rawValue ? hardwareBuffer(decoded) : wrapAsPixelBuffer(decoded) else { return nil }
+        // swscale lands in the encoder's own layout; a transfer from that to itself at the same size is a copy.
+        if CVPixelBufferGetPixelFormatType(source) == Self.encoderCVFormat(encoder),
+           CVPixelBufferGetWidth(source) == Int(encoder.pointee.width), CVPixelBufferGetHeight(source) == Int(encoder.pointee.height) {
+            return copyOut(source)
+        }
         guard let dst = destinationBuffer() else { return nil }
 
         if transfer == nil {
@@ -456,6 +504,13 @@ final class VideoTranscoder {
             return nil
         }
         return copyOut(dst)
+    }
+
+    /// A VideoToolbox-decoded frame carries its CVPixelBuffer in data[3].
+    private func hardwareBuffer(_ frame: UnsafeMutablePointer<AVFrame>) -> CVPixelBuffer? {
+        guard let surface = plane(frame, 3) else { return nil }
+        conversion = "videotoolbox"
+        return Unmanaged<CVPixelBuffer>.fromOpaque(UnsafeRawPointer(surface)).takeUnretainedValue()
     }
 
     /// Wraps a decoded frame's planes as a CVPixelBuffer for the transfer
@@ -583,7 +638,11 @@ final class VideoTranscoder {
             out.pointee.format = encoder.pointee.pix_fmt.rawValue
             out.pointee.width = encoder.pointee.width
             out.pointee.height = encoder.pointee.height
-            guard av_frame_get_buffer(out, 0) >= 0 else { return nil }
+            guard av_frame_get_buffer(out, 0) >= 0 else {
+                var unbuffered: UnsafeMutablePointer<AVFrame>? = out
+                av_frame_free(&unbuffered)
+                return nil
+            }
             converted = out
         }
         guard let dst = converted, av_frame_make_writable(dst) >= 0 else { return nil }

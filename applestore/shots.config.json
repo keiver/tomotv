@@ -1,4 +1,5 @@
 {
+  "$schema": "./shots.schema.json",
   "output": "applestore/generated",
   "background": "acid",
   "locales": {
@@ -16,7 +17,7 @@
     {
       "id": "01-library",
       "title": "YOUR JELLYFIN\nLIBRARY",
-      "spec": "movies · shows · music",
+      "spec": "live tv · movies · shows · music",
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
         "path": "/"
@@ -24,15 +25,15 @@
       "l10n": {
         "de": {
           "title": "DEINE JELLYFIN\nBIBLIOTHEK",
-          "spec": "filme · serien · musik"
+          "spec": "live-tv · filme · serien · musik"
         },
         "fr": {
           "title": "MÉDIATHÈQUE\nJELLYFIN",
-          "spec": "films · séries · musique"
+          "spec": "tv en direct · films · séries · musique"
         },
         "es": {
           "title": "TU BIBLIOTECA\nJELLYFIN",
-          "spec": "películas · series · música"
+          "spec": "tv en vivo · películas · series · música"
         }
       }
     },
@@ -50,18 +51,34 @@
         },
         "ready": "session"
       },
+      "platforms": {
+        "iphone": { "spec": "airplay · audio · subtitles" },
+        "tv": { "title": "RECORD WHAT'S\nON RIGHT NOW", "spec": "one press · from the player" }
+      },
       "l10n": {
         "de": {
           "title": "DER PLAYER\nDEN DU KENNST",
-          "spec": "bild-in-bild · untertitel"
+          "spec": "bild-in-bild · untertitel",
+          "platforms": {
+            "iphone": { "spec": "airplay · audio · untertitel" },
+            "tv": { "title": "NIMM AUF,\nWAS GERADE LÄUFT", "spec": "ein klick · direkt im player" }
+          }
         },
         "fr": {
           "title": "VOTRE LECTEUR\nHABITUEL",
-          "spec": "airplay · sous-titres"
+          "spec": "airplay · sous-titres",
+          "platforms": {
+            "iphone": { "spec": "airplay · audio · sous-titres" },
+            "tv": { "title": "ENREGISTREZ\nCE QUI PASSE", "spec": "un clic · depuis le lecteur" }
+          }
         },
         "es": {
           "title": "REPRODUCTOR\nDE SIEMPRE",
-          "spec": "airplay · subtítulos"
+          "spec": "airplay · subtítulos",
+          "platforms": {
+            "iphone": { "spec": "airplay · audio · subtítulos" },
+            "tv": { "title": "GRABA LO QUE\nESTÁ EN EL AIRE", "spec": "un clic · desde el reproductor" }
+          }
         }
       }
     },
@@ -95,7 +112,7 @@
     {
       "id": "04-livetv",
       "title": "LIVE TV FROM\nYOUR TUNER",
-      "spec": "guide · channels · favorites",
+      "spec": "live previews · groups · xmltv guides",
       "devices": ["iphone", "ipad", "tv"],
       "capture": {
         "path": "/live-tv"
@@ -103,15 +120,15 @@
       "l10n": {
         "de": {
           "title": "LIVE-TV VON\nDEINEM TUNER",
-          "spec": "programm · kanäle · favoriten"
+          "spec": "live-vorschau · gruppen · xmltv-guides"
         },
         "fr": {
           "title": "TV EN DIRECT\nET SON GUIDE",
-          "spec": "guide · chaînes · favoris"
+          "spec": "aperçus en direct · groupes · guides xmltv"
         },
         "es": {
           "title": "TV EN VIVO\nCON GUÍA",
-          "spec": "guía · canales · favoritos"
+          "spec": "vistas en vivo · grupos · guías xmltv"
         }
       }
     },

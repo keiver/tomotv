@@ -28,6 +28,15 @@ async function writeIndex(accounts: SavedAccount[]): Promise<void> {
   await SecureStore.setItemAsync(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
 }
 
+let indexQueue: Promise<unknown> = Promise.resolve();
+
+/** Runs one read-modify-write of the index at a time, so a pruning read never overwrites a save. */
+function withIndex<T>(task: () => Promise<T>): Promise<T> {
+  const run = indexQueue.then(task, task);
+  indexQueue = run.catch(() => {});
+  return run;
+}
+
 /**
  * Read the saved accounts, most-recently-used first.
  *
@@ -36,7 +45,11 @@ async function writeIndex(accounts: SavedAccount[]): Promise<void> {
  * device id, so that id becomes the account's). Sessions predating the stored
  * server Id can't be keyed and get saved on their next login instead.
  */
-export async function getSavedAccounts(): Promise<SavedAccount[]> {
+export function getSavedAccounts(): Promise<SavedAccount[]> {
+  return withIndex(readAccounts);
+}
+
+async function readAccounts(): Promise<SavedAccount[]> {
   const raw = await SecureStore.getItemAsync(STORAGE_KEYS.ACCOUNTS);
 
   if (raw === null) {
@@ -53,7 +66,13 @@ export async function getSavedAccounts(): Promise<SavedAccount[]> {
     accounts = [];
   }
 
-  return accounts.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+  // An account whose token was dropped (server rejected it) can only fail, so it leaves the index.
+  // A throwing read (locked device) is not a missing token and keeps the account.
+  const tokens = await Promise.all(accounts.map((a) => SecureStore.getItemAsync(accountTokenKey(a.serverId, a.userId)).catch(() => "")));
+  const live = accounts.filter((_, i) => tokens[i] !== null);
+  if (live.length !== accounts.length) await writeIndex(live);
+
+  return live.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 }
 
 async function seedFromActiveSession(): Promise<SavedAccount[]> {
@@ -93,27 +112,33 @@ export async function getAccountsForServer(server: SavedServer): Promise<SavedAc
 }
 
 /** Save or refresh one account and its token (keyed by serverId + userId). */
-export async function upsertAccount(account: Omit<SavedAccount, "lastUsedAt">, token: string): Promise<void> {
-  const accounts = await getSavedAccounts();
-  const next = accounts.filter((a) => !(a.serverId === account.serverId && a.userId === account.userId));
-  next.push({ ...account, serverUrl: normalizeUrl(account.serverUrl), lastUsedAt: Date.now() });
-  await SecureStore.setItemAsync(accountTokenKey(account.serverId, account.userId), token);
-  await writeIndex(next);
+export function upsertAccount(account: Omit<SavedAccount, "lastUsedAt">, token: string): Promise<void> {
+  return withIndex(async () => {
+    const accounts = await readAccounts();
+    const next = accounts.filter((a) => !(a.serverId === account.serverId && a.userId === account.userId));
+    next.push({ ...account, serverUrl: normalizeUrl(account.serverUrl), lastUsedAt: Date.now() });
+    await SecureStore.setItemAsync(accountTokenKey(account.serverId, account.userId), token);
+    await writeIndex(next);
+  });
 }
 
 /** Forget one account: its token and its index entry. */
-export async function removeAccount(serverId: string, userId: string): Promise<void> {
-  await SecureStore.deleteItemAsync(accountTokenKey(serverId, userId)).catch(() => {});
-  const accounts = await getSavedAccounts();
-  await writeIndex(accounts.filter((a) => !(a.serverId === serverId && a.userId === userId)));
+export function removeAccount(serverId: string, userId: string): Promise<void> {
+  return withIndex(async () => {
+    await SecureStore.deleteItemAsync(accountTokenKey(serverId, userId)).catch(() => {});
+    const accounts = await readAccounts();
+    await writeIndex(accounts.filter((a) => !(a.serverId === serverId && a.userId === userId)));
+  });
 }
 
 /** Point every account saved on one server (by system Id) at its new address. Tokens are untouched. */
-export async function relocateAccounts(serverId: string, serverUrl: string): Promise<void> {
-  const accounts = await getSavedAccounts();
-  if (!accounts.some((a) => a.serverId === serverId)) return;
-  const url = normalizeUrl(serverUrl);
-  await writeIndex(accounts.map((a) => (a.serverId === serverId ? { ...a, serverUrl: url } : a)));
+export function relocateAccounts(serverId: string, serverUrl: string): Promise<void> {
+  return withIndex(async () => {
+    const accounts = await readAccounts();
+    if (!accounts.some((a) => a.serverId === serverId)) return;
+    const url = normalizeUrl(serverUrl);
+    await writeIndex(accounts.map((a) => (a.serverId === serverId ? { ...a, serverUrl: url } : a)));
+  });
 }
 
 /**
@@ -134,8 +159,7 @@ export type ActivateAccountResult = "connected" | "needs_login" | "unreachable";
  * Adopt a saved account as the active session, validating its token first.
  *
  * - "connected": token confirmed live, active slot rewritten, caches cleared.
- * - "needs_login": no stored token, or the server rejected it (the dead token is
- *   deleted; the metadata stays so the login can be prefilled).
+ * - "needs_login": no stored token, or the server rejected it (the account is removed).
  * - "unreachable": the server didn't answer — nothing is deleted, mirroring the
  *   recovery ladder's rule that a network failure must never destroy credentials.
  */
@@ -165,8 +189,8 @@ export async function activateAccount(account: SavedAccount): Promise<ActivateAc
   const verdict = await validateAccessToken(workingUrl, token, account.deviceId);
   if (verdict === "unreachable") return "unreachable";
   if (verdict === "invalid") {
-    logger.warn("Saved token rejected by server, dropping it", { service: "JellyfinAPI", serverName: account.serverName, userName: account.userName });
-    await SecureStore.deleteItemAsync(accountTokenKey(account.serverId, account.userId)).catch(() => {});
+    logger.warn("Saved token rejected by server, removing the account", { service: "JellyfinAPI", serverName: account.serverName, userName: account.userName });
+    await removeAccount(account.serverId, account.userId);
     return "needs_login";
   }
 

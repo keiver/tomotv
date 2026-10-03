@@ -1,45 +1,57 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { CloseOverlayButton } from "@/components/close-overlay-button";
-import { PAD_SHEET_RATIO, PadSheet } from "@/components/pad-sheet";
+import { PadSheet, padFitWidth } from "@/components/pad-sheet";
 
 import { FocusableButton } from "@/components/FocusableButton";
-import { InfoActionRow } from "@/components/info-action-row";
+import { InfoActionRow, InfoExtraAction } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
 import { LoadingRow } from "@/components/loading-row";
 import { ProgressButton } from "@/components/progress-button";
 import { settingsStyles } from "@/components/settings/styles";
 import {
+  cancelTimer,
   clearResumePosition,
+  deleteItem,
   fetchFolderMediaKinds,
   FolderMediaKinds,
   fetchItemDetails,
   fetchItemFolderPath,
-  formatDuration,
+  fetchLibraryRootCount,
   getBackdropUrl,
   getLogoUrl,
   getPersonImageUrl,
+  hasPoster,
   isAudioItem,
   isFolder,
   isBook,
+  isLiveChannel,
   isPhoto,
   notifyResumeChange,
   setVideoFavorite,
   setVideoPlayed,
 } from "@/services/jellyfinApi";
 import { COLORS } from "@/constants/colors";
+import { RECESS_EDGE } from "@/constants/app";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
-import { useFolderPreview } from "@/hooks/useFolderPreview";
+import { useFolderPreviewState } from "@/hooks/useFolderPreview";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
-import { folderPosterSource } from "@/services/itemArtwork";
+import { folderPosterSource, heroArtFrame } from "@/services/itemArtwork";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
+import { useIsAdministrator } from "@/hooks/useIsAdministrator";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
+import { CATEGORY_LABELS } from "@/hooks/useChannelFilterChoices";
+import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
+import { useRecordActions } from "@/hooks/useRecordActions";
+import { formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
-import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
+import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
+import { formatDuration } from "@/utils/formatDuration";
 import { logger } from "@/utils/logger";
 import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, overviewParagraphs, streamDetailLine } from "@/utils/mediaInfo";
 import { cardResumeProgress } from "@/utils/resumeProgress";
@@ -47,7 +59,8 @@ import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { sharePhoto } from "@/services/sharePhoto";
 import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
+import { BlurView } from "expo-blur";
+import { Image, type ImageRef } from "expo-image";
 
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -61,6 +74,14 @@ const IS_TV = Platform.isTV;
 // iPad presents the panel over the app rather than as a page sheet: UIKit hands out no control
 // over what shows either side of a sheet, so the screen has to own its own backdrop.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
+// Past the inset shadows' reach, so the re-painted rim has no bottom corners inside the hero.
+const HERO_EDGE_OVERRUN = 40;
+// Added to the artwork hero's height, pushing the title and everything under it down.
+const HERO_GROW = 35;
+// TV: the title and CTA row rise this far onto the art, so the CTAs land on its foot.
+const TV_CONTENT_RISE = 120;
+// The fade's one colour, the surface under the hero (TV card SURFACE, phone sheet BACKGROUND), so it never dips darker than the card.
+const HERO_FADE_RGB = IS_TV ? "rgba(44, 44, 46, " : "rgba(20, 20, 20, ";
 
 /**
  * Video Info panel: everything the server knows about one item, plus its
@@ -72,10 +93,12 @@ const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
  */
 export default function VideoInfoScreen() {
   // inFolderId: the folder screen the press came from. fromResume: pressed on a Continue card.
-  const params = useLocalSearchParams<{ videoId: string; name?: string; inFolderId?: string; fromResume?: string }>();
+  // timerId: opened from a Schedule row, so the panel's record state is that timer's.
+  const params = useLocalSearchParams<{ videoId: string; name?: string; inFolderId?: string; fromResume?: string; timerId?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openItem = useOpenShelfItem();
+  const isAdmin = useIsAdministrator();
   const [inGroup, setInGroup] = useState(false);
   useEffect(() => subscribeSyncPlay((snap) => setInGroup(snap.group !== null)), []);
   const { showGlobalLoader } = useLoadingActions();
@@ -87,29 +110,27 @@ export default function VideoInfoScreen() {
   // ratio, and the artwork covers only part of the header.
   // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV and iPad, so
   // the first paint already has the final height and onLayout only refines it.
-  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? Math.round(windowWidth * PAD_SHEET_RATIO) : windowWidth);
-  // Source aspect of the loaded artwork, so a taller-than-box hero anchors at the top.
-  const [heroAspect, setHeroAspect] = useState<number | null>(null);
-  // Seeded heroWidth paints frame one; this says the measured one has landed. A cached image
-  // can fire onLoad before the first layout pass, and the fade must not start on a guess.
+  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? padFitWidth(windowWidth, insets.left + insets.right, "center") : windowWidth);
+  // The last hero load's answer: its image, or null when it failed and the brand face stands in.
+  const [heroLoad, setHeroLoad] = useState<{ uri: string; ref: ImageRef | null }>({ uri: "", ref: null });
+  // Seeded heroWidth paints frame one; this says the measured one has landed, and the fade
+  // must not start on a guess.
   const [heroMeasured, setHeroMeasured] = useState(false);
   const heroFade = useSharedValue(0);
   const reducedMotion = useReducedMotion();
-  const heroHeightFor = (width: number, hasArt: boolean) => {
-    // Landscape phone: width-derived caps exceed the ~440pt window height, so the
-    // hero also clamps to a share of it (no-op in portrait).
-    const phoneCap = windowHeight * 0.42;
-    if (hasArt) return Math.min((width * 9) / 16, IS_TV ? 460 : Math.min(320, phoneCap));
-    // Artless hero: just enough for the inset face plus a tight gap to the title below.
-    return IS_TV ? 388 : Math.min(Math.min(width * 0.8, 380) - 88, phoneCap);
-  };
+  // One art area for every item and state, set by the hero's width alone: 16:9, and on a phone
+  // never past 42% of the window. Art, collage or brand face, nothing that loads late resizes it.
+  const heroArtArea = heroWidth > 0 ? (IS_TV ? (heroWidth * 9) / 16 : Math.min((heroWidth * 9) / 16, windowHeight * 0.42)) : 0;
+  const heroHeight = heroArtArea > 0 ? heroArtArea + HERO_GROW : 0;
+  const heroRise = IS_TV ? TV_CONTENT_RISE : 0;
 
   const [details, setDetails] = useState<JellyfinItem | null>(null);
+  // The clock at the moment details landed; render stays pure and the elapsed line is a snapshot.
+  const [detailsAtMs, setDetailsAtMs] = useState(0);
   const [failed, setFailed] = useState(false);
   const [plan, setPlan] = useState<{ lane: PlaybackLane; smallFeedFirst: boolean } | null>(null);
   // Whether the lane question has been answered at all, prediction failures included, so a
   // reserved row never stays open on an item that will never fill it.
-  const [laneSettled, setLaneSettled] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPlayed, setIsPlayed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -145,11 +166,18 @@ export default function VideoInfoScreen() {
         if (!fetched) throw new Error("Item details unavailable");
         const path = await pathPromise;
         // Same one-paint rule: the play CTAs state what the container actually holds.
-        const kinds = isFolder(fetched) ? await fetchFolderMediaKinds(fetched) : null;
+        const root = fetched.Type === "CollectionFolder" || fetched.Type === "UserView";
+        const [kinds, rootCount] = await Promise.all([
+          isFolder(fetched) ? fetchFolderMediaKinds(fetched) : null,
+          root ? fetchLibraryRootCount(fetched.Id, fetched.CollectionType).catch(() => undefined) : undefined,
+        ]);
         if (cancelled) return;
+        // A library root's ChildCount is a random 1-9; it shows the card badge's count or none.
+        if (root) fetched = { ...fetched, ChildCount: undefined, RecursiveItemCount: rootCount };
         setFolderLeafId(path.length ? path[path.length - 1].id : null);
         setMediaKinds(kinds);
         setDetails(fetched);
+        setDetailsAtMs(Date.now());
         setIsFavorite(!!fetched.UserData?.IsFavorite);
         setIsPlayed(!!fetched.UserData?.Played);
       } catch (error) {
@@ -161,7 +189,7 @@ export default function VideoInfoScreen() {
       // predicting would stamp "Transcoded by the server" on a photo, a series
       // folder, or an item whose sources simply failed to load: three things
       // that are not a transcode.
-      if (!fetched.MediaStreams?.length) return;
+      if (!fetched.MediaStreams?.length || isLiveChannel(fetched)) return;
       // Separate from the load: the lane is one line of the panel, so a failed
       // prediction leaves that line off rather than blanking everything above it.
       try {
@@ -169,8 +197,6 @@ export default function VideoInfoScreen() {
         if (!cancelled) setPlan(predicted);
       } catch (error) {
         logger.warn("Playback lane prediction failed", error, { service: "VideoInfo", videoId: params.videoId });
-      } finally {
-        if (!cancelled) setLaneSettled(true);
       }
     };
     void load();
@@ -301,6 +327,49 @@ export default function VideoInfoScreen() {
     }
   }, [details, sharing, params.videoId]);
 
+  // Admin-only, and irreversible on the server, so the press only opens the confirm.
+  const [deleting, setDeleting] = useState(false);
+  // The DELETE can outlast the panel: leaving through state means a panel already gone never pops what is on top.
+  const [deleted, setDeleted] = useState(false);
+  useEffect(() => {
+    if (deleted) router.back();
+  }, [deleted, router]);
+  const handleDelete = useCallback(() => {
+    if (!details || deleting) return;
+    Alert.alert(cleanLabel(details.Name), t("info.deleteConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("common.delete"),
+        style: "destructive",
+        onPress: () => {
+          setDeleting(true);
+          deleteItem(details.Id)
+            .then(() => setDeleted(true))
+            .catch((error) => {
+              logger.warn("Failed to delete item", error, { service: "VideoInfo", videoId: details.Id });
+              Alert.alert(cleanLabel(details.Name), t("info.deleteFailed"));
+            })
+            .finally(() => setDeleting(false));
+        },
+      },
+    ]);
+  }, [deleting, details]);
+
+  // Stop an in-progress recording: deleting its timer is the stop, the file stays. The flip
+  // is local (`stopped`) because the item's own Status lags the timer delete server-side.
+  const [stopped, setStopped] = useState(false);
+  const handleStopRecording = useCallback(async (): Promise<boolean> => {
+    if (!details?.TimerId) return false;
+    try {
+      await cancelTimer(details.TimerId, details.Id);
+      setStopped(true);
+      return true;
+    } catch (error) {
+      logger.warn("Failed to stop recording", error, { service: "VideoInfo", videoId: details.Id });
+      return false;
+    }
+  }, [details]);
+
   // dismissFirst, not a router.back() here: the panel is a ROOT route and the folder levels
   // live in the tabs' own stack, so the pushes have to be QUEUED after the dismissal reaches
   // the navigation state. The hook owns that wait (see whenRootStateSettles).
@@ -327,7 +396,7 @@ export default function VideoInfoScreen() {
     return true;
   }, [details]);
 
-  const title = details?.Name ?? params.name ?? "";
+  const title = cleanLabel(details?.Name ?? params.name);
   const audio = details ? isAudioItem(details) : false;
   const photo = details ? isPhoto(details) : false;
   const book = details ? isBook(details) : false;
@@ -335,6 +404,35 @@ export default function VideoInfoScreen() {
   // Audio, video or any mix of the two. Gated on what the container actually holds, so a
   // photo album never offers to download a set the downloads screen could not play.
   const canDownloadFolder = isContainer && downloadsSupported() && !!mediaKinds && (mediaKinds.video || mediaKinds.audio);
+  // Admins only; a channel is a tuner's listing, not a library file the server could delete.
+  // A guide programme or a channel: the panel tunes the channel and records instead.
+  const liveProgram = details?.Type === "Program" ? (details as unknown as JellyfinProgram) : null;
+  const liveChannel = !!details && isLiveChannel(details);
+  const live = !!liveProgram || liveChannel;
+  const liveChannelId = (liveProgram ? details?.ChannelId : liveChannel ? details?.Id : undefined) ?? "";
+  const liveChannelName = cleanLabel(liveProgram ? details?.ChannelName : liveChannel ? details?.Name : undefined);
+  const canManage = useLiveTvManagement(live);
+  const recording = useRecordActions(
+    live && canManage && liveChannelId
+      ? { programId: liveProgram ? details?.Id : undefined, channelId: liveChannelId, channelName: liveChannelName, program: liveProgram, timerId: params.timerId }
+      : null,
+  );
+  const recordTimer = recording.timer;
+  const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);
+  const programEnded = !!liveProgram && detailsAtMs > 0 && programTimes(liveProgram).endMs <= detailsAtMs;
+  const watchable = !!liveChannelId && (liveChannel || programAiring);
+  const handleWatch = useCallback(() => {
+    if (!liveChannelId) return;
+    showGlobalLoader();
+    const destination = { pathname: "/player" as const, params: { videoId: liveChannelId, videoName: liveChannelName, live: "1" } };
+    if (IS_TV) router.push(destination);
+    else router.replace(destination);
+  }, [liveChannelId, liveChannelName, router, showGlobalLoader]);
+  const handleChannelGroups = useCallback(() => {
+    if (!details) return;
+    router.push({ pathname: "/channel-groups", params: { channelId: details.Id, channelName: details.Name, channelNumber: details.ChannelNumber ?? "" } });
+  }, [details, router]);
+  const canDelete = isAdmin && details?.CanDelete === true && !live;
 
   // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
   // holding several, each one names its own set. A folder with nothing playable keeps the
@@ -354,27 +452,43 @@ export default function VideoInfoScreen() {
   // The index tail is the same string on both branches, and the same call the cards
   // badge from: an episode's "S01E05", a song's "Disc 2 · Track 5".
   const indexLine = details ? formatIndexLine(details) : "";
-  const contextLine = details ? (photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album, indexLine]) : joinMeta([details.SeriesName, indexLine])) : "";
+  const contextLine = liveProgram
+    ? cleanLabel(liveProgram.EpisodeTitle)
+    : details
+      ? cleanLabel(photo ? (details.Album ?? "") : audio ? joinMeta([details.Artists?.join(", "), details.Album, indexLine]) : joinMeta([details.SeriesName, indexLine]))
+      : "";
   const year = details?.ProductionYear ? String(details.ProductionYear) : "";
   const genresLine = details?.Genres?.length ? details.Genres.join(" · ") : "";
+  const recordingNow = details?.Type === "Recording" && details.Status === "InProgress" && !stopped;
+  // An in-progress recording has no RunTimeTicks; its length so far is the time
+  // since the server began writing the file.
+  const recordingTicks = recordingNow && !details.RunTimeTicks && details.StartDate && detailsAtMs > 0 ? Math.max(0, detailsAtMs - Date.parse(details.StartDate)) * 10000 : 0;
   // A photo has none of the fields the meta line is built from. Its pixel count
   // is the one headline fact it does have, so it takes the runtime's place; the
   // dates and the rest live in the Details table.
+  const liveCategory = liveProgram ? programCategory(liveProgram) : null;
+  const liveTimes = liveProgram ? programTimes(liveProgram) : null;
   const metaLine = !details
     ? ""
-    : photo
-      ? formatPixelSize(details.Width, details.Height)
-      : joinMeta([
-          genresLine,
-          year,
-          // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.
-          details.RunTimeTicks && !book ? formatDuration(details.RunTimeTicks) : "",
-          details.OfficialRating,
-          details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
-          details.CriticRating ? t("info.percentCritics").replace("{percent}", String(Math.round(details.CriticRating))) : "",
-        ]);
-  const tagline = details?.Taglines?.[0];
-  const studiosLine = details?.Studios?.length ? details.Studios.map((studio) => studio.Name).join(" · ") : "";
+    : liveProgram && liveTimes
+      ? joinMeta([
+          liveChannelName,
+          `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", formatClock(liveTimes.startMs)).replace("{end}", formatClock(liveTimes.endMs))}`,
+          liveCategory ? CATEGORY_LABELS[liveCategory]() : "",
+        ])
+      : photo
+        ? formatPixelSize(details.Width, details.Height)
+        : joinMeta([
+            genresLine,
+            year,
+            // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.
+            details.RunTimeTicks && !book ? formatDuration(details.RunTimeTicks) : recordingTicks ? formatDuration(recordingTicks) : "",
+            details.OfficialRating,
+            details.CommunityRating ? `★ ${details.CommunityRating.toFixed(1)}` : "",
+            details.CriticRating ? t("info.percentCritics").replace("{percent}", String(Math.round(details.CriticRating))) : "",
+          ]);
+  const tagline = cleanLabel(details?.Taglines?.[0]) || undefined;
+  const studiosLine = details?.Studios?.length ? details.Studios.map((studio) => cleanLabel(studio.Name)).join(" · ") : "";
   const people = details?.People?.slice(0, IS_TV ? 6 : 15) ?? [];
   const source = details?.MediaSources?.[0];
   const fileName = details?.Path?.split("/").pop() ?? "";
@@ -400,10 +514,6 @@ export default function VideoInfoScreen() {
   const engineTail = plan?.smallFeedFirst ? t("info.laneSmallerFeed") : t("info.laneNoServerWork");
   const laneLabel = lane === null ? "" : lane === "server" ? t("info.laneServer") : lane === "deviceTranscode" ? `${t("info.laneDevice")} · ${engineTail}` : `Direct Play · ${engineTail}`;
   const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;
-  // The lane needs SecureStore and a native probe, so it lands after the panel paints. The row
-  // holds its line from the first frame and the CTAs below it never move. Streams are what the
-  // load effect gates the prediction on, so nothing else reserves a line it will never use.
-  const lanePending = !laneSettled && !!details?.MediaStreams?.length;
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
   const poster = useItemPoster(details, IS_TV ? 600 : 300);
@@ -415,25 +525,47 @@ export default function VideoInfoScreen() {
   const heroSource: { uri: string; cacheKey?: string } | undefined = backdropUri ? { uri: backdropUri } : (poster ?? folderPoster);
   const heroUri = heroSource?.uri ?? "";
   // A folder the server has no picture for wears the same collage its card does.
-  const preview = useFolderPreview(isContainer ? details : null, !heroUri);
+  const { items: preview, settled: previewSettled } = useFolderPreviewState(isContainer ? details : null, !heroUri);
   const showCollage = preview.length > 0;
 
-  const handleHeroLoad = (event: { source?: { width: number; height: number } | null }) => {
-    const source = event.source;
-    if (!source?.width || !source.height) return;
-    setHeroAspect(source.width / source.height);
+  // Loaded before the panel shows, so the art is in place on its first paint. Each load answers
+  // for its own URI: an earlier source's failure never blanks the art that replaced it.
+  const heroCacheKey = heroSource?.cacheKey;
+  useEffect(() => {
+    if (!heroSource) return;
+    let current = true;
+    const uri = heroSource.uri;
+    Image.loadAsync(heroSource).then(
+      (ref) => current && setHeroLoad({ uri, ref }),
+      () => current && setHeroLoad({ uri, ref: null }),
+    );
+    return () => {
+      current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heroUri, heroCacheKey]);
+  const heroRef = heroLoad.uri === heroUri ? heroLoad.ref : null;
+  const heroFailed = !!heroUri && heroLoad.uri === heroUri && !heroLoad.ref;
+  const heroAspect = heroRef && heroRef.height > 0 && !heroFailed ? heroRef.width / heroRef.height : null;
+  // Full width in the fixed area; a portrait's foot runs under the fade and content.
+  // A channel, or a programme wearing its channel's art, shows a logo: never cropped.
+  const heroIsLogo = liveChannel || (!!liveProgram && !!details && !hasPoster(details));
+  const heroArt = heroSource && heroRef && heroArtArea > 0 && heroAspect != null ? heroArtFrame(heroWidth, heroArtArea, heroRef.width, heroRef.height, heroIsLogo) : null;
+  // The fade is opaque by the art area's foot, so the picture's bottom edge never shows.
+  const footPct = heroHeight > 0 ? (heroArtArea / heroHeight) * 100 : 100;
+  const footScrim = {
+    experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) ${footPct * 0.2}%, ${HERO_FADE_RGB}0.45) ${footPct * 0.55}%, ${HERO_FADE_RGB}0.85) ${footPct * 0.8}%, ${HERO_FADE_RGB}1) ${footPct}%)`,
   };
-
-  // Taller than the box: full width at the source's own ratio, pinned to the top, the foot
-  // clipped by the hero. Wider: the plain cover fill, which crops the sides evenly.
-  const heroHeight = heroWidth > 0 ? heroHeightFor(heroWidth, !!heroUri || showCollage) : 0;
   // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
   // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
   const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
-  const heroCropStyle =
-    heroWidth > 0 && heroHeight > 0 && heroAspect != null && heroAspect < heroWidth / heroHeight
-      ? { position: "absolute" as const, top: 0, left: 0, width: heroWidth, height: heroWidth / heroAspect }
-      : StyleSheet.absoluteFill;
+  const heroCropStyle = heroArt
+    ? { position: "absolute" as const, top: Math.max(0, (heroArtArea - heroArt.height) / 2), left: (heroWidth - heroArt.width) / 2, width: heroArt.width, height: heroArt.height }
+    : StyleSheet.absoluteFill;
+  // The panel opens once the hero, the collage and the live CTAs have all answered, so it paints once.
+  const liveSettled = !live || !liveChannelId || canManage === false || (canManage === true && recording.settled);
+  const heroSettled = heroSource ? heroAspect != null || heroFailed : previewSettled;
+  const ready = !!details && heroSettled && liveSettled;
 
   // The artwork is transparent until its crop frame is final, so the first painted frame
   // already sits where it belongs and the fade stands in for the shift. Honors Reduce Motion.
@@ -458,22 +590,81 @@ export default function VideoInfoScreen() {
     );
   };
 
+  // The CTA row holds two buttons, three on live items; every further action is a circle in the row below.
+  const showFolderCta = !live && !!folderLeafId && folderLeafId !== params.inFolderId;
+  const shareable = photo && !IS_TV;
+  const folderInRow = showFolderCta && (!isContainer || folderCtas.length < 2);
+  const seriesSet = !!recording.seriesTimerId;
+  const extras: InfoExtraAction[] = [
+    ...(isContainer ? folderCtas.slice(2).map((cta) => ({ key: cta.kind, icon: cta.icon, label: cta.title, onPress: () => handlePlayFolder(cta.kind) })) : []),
+    ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), onPress: handleShowInFolder }] : []),
+    ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), onPress: () => void handleShare() }] : []),
+    ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), onPress: handleDownloadFolder }] : []),
+    ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), destructive: true, onPress: handleDelete }] : []),
+  ];
+
+  const recordShown = recordTimer !== undefined && (!!recordTimer || !programEnded);
+  const seriesShown = recordTimer !== undefined && !!liveProgram?.IsSeries;
+  // Portrait phone puts Watch and Record side by side, as the TV row does, splitting the gutter width.
+  // A lone button, and iPad's stack, stay content-sized like every other CTA.
+  const livePaired = stackCtas && !IS_PAD && watchable && recordShown;
+  const pairButton = livePaired ? styles.livePairButton : undefined;
+  const livePair = (
+    <>
+      {watchable && (
+        <FocusableButton
+          title={t("liveTv.watch")}
+          variant="primary"
+          hasTVPreferredFocus
+          style={pairButton}
+          icon={<Ionicons name="play" size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
+          onPress={handleWatch}
+        />
+      )}
+      {!recordShown ? null : recordTimer ? (
+        <FocusableButton
+          title={recordTimer.Status === "InProgress" ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
+          variant="record"
+          style={pairButton}
+          hasTVPreferredFocus={!watchable}
+          isLoading={recording.busy === "cancel"}
+          disabled={recording.busy !== null}
+          icon={<Ionicons name={recordTimer.Status === "InProgress" ? "stop-circle-outline" : "close-circle-outline"} size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+          onPress={recording.cancel}
+        />
+      ) : (
+        <FocusableButton
+          title={t("liveTv.record")}
+          variant="record"
+          style={pairButton}
+          hasTVPreferredFocus={!watchable}
+          isLoading={recording.busy === "record"}
+          disabled={recording.busy !== null}
+          icon={<Ionicons name="radio-button-on" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+          onPress={recording.record}
+        />
+      )}
+    </>
+  );
+
   // CTA row through File: one fragment, hosted by both platform layouts.
   const sections = details ? (
     <>
-      <View style={[styles.ctaRow, stackCtas && styles.ctaColumn]}>
+      <View style={[styles.ctaRow, stackCtas && styles.ctaColumn, livePaired && styles.ctaColumnFull]}>
         {isContainer ? (
           folderCtas.length > 0 ? (
-            folderCtas.map((cta, index) => (
-              <FocusableButton
-                key={cta.kind}
-                title={cta.title}
-                variant={index === 0 ? "primary" : "secondary"}
-                hasTVPreferredFocus={index === 0}
-                icon={<Ionicons name={cta.icon} size={IS_TV ? 34 : 22} color={index === 0 ? COLORS.ON_ACCENT : COLORS.ACCENT} />}
-                onPress={() => handlePlayFolder(cta.kind)}
-              />
-            ))
+            folderCtas
+              .slice(0, 2)
+              .map((cta, index) => (
+                <FocusableButton
+                  key={cta.kind}
+                  title={cta.title}
+                  variant={index === 0 ? "primary" : "secondary"}
+                  hasTVPreferredFocus={index === 0}
+                  icon={<Ionicons name={cta.icon} size={IS_TV ? 34 : 22} color={index === 0 ? COLORS.ON_ACCENT : COLORS.ACCENT} />}
+                  onPress={() => handlePlayFolder(cta.kind)}
+                />
+              ))
           ) : (
             <FocusableButton
               title={t("common.open")}
@@ -483,6 +674,30 @@ export default function VideoInfoScreen() {
               onPress={handleOpenFolder}
             />
           )
+        ) : live ? (
+          <>
+            {stackCtas ? <View style={styles.livePair}>{livePair}</View> : livePair}
+            {liveChannel && (
+              <FocusableButton
+                title={t("liveTv.groups")}
+                variant="secondary"
+                hasTVPreferredFocus={!watchable && !recordShown}
+                icon={<Ionicons name="albums-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
+                onPress={handleChannelGroups}
+              />
+            )}
+            {seriesShown && (
+              <FocusableButton
+                title={seriesSet ? t("liveTv.cancelSeries") : t("liveTv.recordSeries")}
+                variant="record"
+                hasTVPreferredFocus={!watchable && !recordShown}
+                isLoading={recording.busy === "series" || recording.busy === "cancelSeries"}
+                disabled={recording.busy !== null}
+                icon={<Ionicons name="repeat" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+                onPress={seriesSet ? recording.cancelSeries : recording.recordSeries}
+              />
+            )}
+          </>
         ) : (
           <ProgressButton
             title={
@@ -506,7 +721,7 @@ export default function VideoInfoScreen() {
           />
         )}
         {/* Photos only, and never on tvOS: React Native compiles the share module out there. */}
-        {photo && !IS_TV && (
+        {shareable && !folderInRow && (
           <FocusableButton
             title={t("common.share")}
             variant="secondary"
@@ -515,14 +730,8 @@ export default function VideoInfoScreen() {
             isLoading={sharing}
           />
         )}
-        {!!folderLeafId && folderLeafId !== params.inFolderId && (
+        {folderInRow && (
           <FocusableButton title={t("info.showInFolder")} variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
-        )}
-        {/* Containers only: a leaf has the download circle in the action row below. "All" in
-            the sense the play CTAs use it, and it stays "All" even where they split by kind:
-            whatever mix of audio and video the folder holds comes down in this one press. */}
-        {canDownloadFolder && (
-          <FocusableButton title={t("info.downloadAll")} variant="secondary" icon={<Ionicons name="arrow-down" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleDownloadFolder} />
         )}
       </View>
 
@@ -532,7 +741,7 @@ export default function VideoInfoScreen() {
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
           is not a flag either: Folder.MarkPlayed sweeps every descendant and resets each
           resume position, which no card here could state. */}
-      {!isContainer && !photo && (
+      {!isContainer && !photo && !live ? (
         <View style={styles.actionRow}>
           <InfoActionRow
             isFavorite={isFavorite}
@@ -545,8 +754,16 @@ export default function VideoInfoScreen() {
             onToggleProgress={!!params.fromResume || (details.UserData?.PlaybackPositionTicks ?? 0) > 0 ? toggleClearProgress : undefined}
             downloadState={book ? undefined : downloadState}
             onToggleDownload={book ? undefined : toggleDownload}
+            onStopRecording={recordingNow && details.TimerId ? handleStopRecording : undefined}
+            extras={extras}
           />
         </View>
+      ) : (
+        extras.length > 0 && (
+          <View style={styles.actionRow}>
+            <InfoActionRow extras={extras} />
+          </View>
+        )
       )}
 
       {!!tagline && <Text style={styles.tagline}>{tagline}</Text>}
@@ -568,14 +785,14 @@ export default function VideoInfoScreen() {
             {people.map((person) => (
               <View key={person.Id} style={styles.castEntry}>
                 {person.PrimaryImageTag ? (
-                  <Image source={{ uri: getPersonImageUrl(person.Id) }} style={styles.castPhoto} contentFit="cover" transition={200} accessible accessibilityLabel={person.Name} />
+                  <Image source={{ uri: getPersonImageUrl(person.Id) }} style={styles.castPhoto} contentFit="cover" transition={200} accessible accessibilityLabel={cleanLabel(person.Name)} />
                 ) : (
                   <View style={[styles.castPhoto, styles.castPhotoEmpty]}>
                     <Ionicons name="person" size={IS_TV ? 40 : 26} color={COLORS.TEXT_SECONDARY} />
                   </View>
                 )}
                 <Text style={styles.castName} numberOfLines={1}>
-                  {person.Name}
+                  {cleanLabel(person.Name)}
                 </Text>
                 {!!(person.Role || person.Type) && (
                   <Text style={styles.castRole} numberOfLines={1}>
@@ -621,11 +838,24 @@ export default function VideoInfoScreen() {
           </InfoFocusRow>
         </>
       )}
+
+      {/* Last, so a lane that differs per file and connection never moves the header. */}
+      {!!laneLabel && (
+        <>
+          <Text style={styles.sectionHeading}>{t("info.playback")}</Text>
+          <InfoFocusRow style={styles.streamRow}>
+            <View style={styles.playbackRow}>
+              <View style={[styles.laneDot, { backgroundColor: laneColor }]} />
+              <Text style={[styles.streamTitle, styles.playbackText]}>{laneLabel}</Text>
+            </View>
+          </InfoFocusRow>
+        </>
+      )}
     </>
   ) : null;
 
   const body = failed ? (
-    <View style={styles.stateWrap}>
+    <View style={[styles.stateWrap, IS_PAD && styles.padState]}>
       <Text style={styles.errorText}>{t("info.couldNotLoadDetails").replace("{title}", title || t("common.thisItem"))}</Text>
       <FocusableButton
         title={t("common.retry")}
@@ -637,38 +867,35 @@ export default function VideoInfoScreen() {
         }}
       />
     </View>
-  ) : !details ? (
+  ) : !ready ? (
     // The spinner is a focus stop on purpose: presenting a screen with nothing focusable on it
     // leaves focus outside the panel until the fetch resolves and a CTA claims it.
-    <View style={styles.stateWrap}>
+    <View style={[styles.stateWrap, IS_PAD && styles.padState]}>
       <InfoFocusRow hasTVPreferredFocus unhighlighted>
         <LoadingRow label={t("info.loadingDetails").replace("{title}", title || t("common.thisItem"))} />
       </InfoFocusRow>
     </View>
   ) : (
-    <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
-      {/* Full-bleed artwork heading on both platforms; the scrim fades it into
+    <ScrollView style={IS_PAD ? styles.padScroll : styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : IS_PAD ? 28 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
+      {/* Artwork heading on both platforms, whole; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
           (layer-front) centered in it, the cards' no-poster mark. */}
       <View
-        style={[styles.hero, heroHeight > 0 && { height: heroHeight }]}
+        style={[styles.hero, heroHeight > 0 && { height: heroHeight }, heroRise > 0 && { marginBottom: -heroRise }]}
         onLayout={(event) => {
           setHeroWidth(event.nativeEvent.layout.width);
           setHeroMeasured(true);
         }}>
-        {heroSource ? (
+        {heroRef && heroArt ? (
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
-            <Image
-              key={heroUri}
-              source={heroSource}
-              style={heroCropStyle}
-              contentFit="cover"
-              transition={0}
-              cachePolicy="memory-disk"
-              onLoad={handleHeroLoad}
-              accessible
-              accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
-            />
+            {/* Art smaller than its area: its own blurred fill takes the rest, never bars. */}
+            {(heroArt.width < heroWidth - 1 || heroArt.height < heroArtArea - 1) && (
+              <>
+                <Image source={heroRef} style={StyleSheet.absoluteFill} contentFit="cover" transition={0} accessible={false} />
+                <BlurView intensity={IS_TV ? 90 : 80} tint="dark" style={StyleSheet.absoluteFill} />
+              </>
+            )}
+            <Image key={heroUri} source={heroRef} style={heroCropStyle} contentFit="cover" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
           </Animated.View>
         ) : showCollage ? (
           <View style={StyleSheet.absoluteFill} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)}>
@@ -684,12 +911,12 @@ export default function VideoInfoScreen() {
             accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
           />
         )}
-        <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />
-        {/* The section's top lip, re-painted above the opaque artwork (settings rowShadowTop
-            move). Overlay is tvOS-safe here: the hero holds no focusables. */}
-        {IS_TV && <View pointerEvents="none" style={[StyleSheet.absoluteFill, settingsStyles.rowShadowTop]} />}
+        <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
+        {/* The card's own lip and rim, re-painted above the opaque artwork and run past the hero's
+            foot so they meet the card's below it. tvOS-safe: the hero holds no focusables. */}
+        {IS_TV && <View pointerEvents="none" style={[styles.heroEdge, { height: heroHeight + HERO_EDGE_OVERRUN }]} />}
       </View>
-      {/* Title sits below the hero on every item, never over the artwork. */}
+      {/* Title sits below the hero; on TV it and the CTAs ride up onto its foot (heroRise). */}
       <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
         {logoUri ? (
           <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
@@ -702,12 +929,11 @@ export default function VideoInfoScreen() {
       </View>
       <View style={IS_TV ? styles.tvPad : { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
-        {(!!laneLabel || lanePending) && (
+        {(recordingNow || !!recordTimer) && (
           <View style={[styles.laneRow, styles.laneBlock]}>
-            {!!laneLabel && <View style={[styles.laneDot, { backgroundColor: laneColor }]} />}
-            {/* A space, not a height: the placeholder is the same line box the label will fill. */}
-            <Text style={styles.laneText} accessibilityElementsHidden={!laneLabel}>
-              {laneLabel || " "}
+            <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
+            <Text style={styles.recordingNowText}>
+              {recordingNow || recordTimer?.Status === "InProgress" ? t("liveTv.recordingNow") : recordTimer?.SeriesTimerId ? t("liveTv.seriesRules") : t("liveTv.record")}
             </Text>
           </View>
         )}
@@ -718,7 +944,7 @@ export default function VideoInfoScreen() {
 
   if (IS_PAD) {
     return (
-      <PadSheet onClose={() => router.back()} closeHint={t("info.closeHint")}>
+      <PadSheet onClose={() => router.back()} closeHint={t("info.closeHint")} fit="center">
         {body}
       </PadSheet>
     );
@@ -781,6 +1007,15 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
   },
+  // iPad's card fits its content: flexGrow 0 keeps the scroll content-sized until the card's max height.
+  padScroll: {
+    flexGrow: 0,
+  },
+  // The fitted card has no height of its own; this keeps loading and error from collapsing it.
+  padState: {
+    flex: 0,
+    minHeight: 320,
+  },
   // Full-bleed artwork heading; the title sits in its bottom-left corner.
   // NO aspectRatio here, ever: Yoga recomputes the WIDTH from it (even against
   // width 100% or an explicit height) and the artwork stops covering the header.
@@ -795,7 +1030,14 @@ const styles = StyleSheet.create({
   },
   // Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone.
   heroScrim: {
-    experimental_backgroundImage: `linear-gradient(to bottom, rgba(20, 20, 20, 0) 35%, rgba(20, 20, 20, 0.45) 72%, ${IS_TV ? COLORS.SURFACE : COLORS.BACKGROUND} 100%)`,
+    experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) 15%, ${HERO_FADE_RGB}0.3) 50%, ${HERO_FADE_RGB}0.7) 80%, ${HERO_FADE_RGB}1) 100%)`,
+  },
+  heroEdge: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    boxShadow: `${RECESS_EDGE.LIP_TOP}, ${RECESS_EDGE.RIM}`,
   },
   // Transparent brand face, contained and inset so it reads as a small centered
   // mark over the hero's dark fill rather than full-bleed art.
@@ -806,9 +1048,9 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     margin: IS_TV ? 80 : 44,
-    // Shallower top/bottom insets keep the face high and the title close below.
+    // Shallower top/bottom insets keep the face high; on TV it clears the risen title.
     marginTop: IS_TV ? 40 : 12,
-    marginBottom: IS_TV ? 48 : 20,
+    marginBottom: IS_TV ? 48 + TV_CONTENT_RISE : 20,
   },
   // Centred on the same axis as the CTA rows below, so the panel reads as one column.
   // Everything from the overview down stays flush left.
@@ -822,8 +1064,7 @@ const styles = StyleSheet.create({
     marginTop: IS_TV ? 5 : 16,
   },
   // A logo rides up into the foot of the artwork on TV, where the scrim has already faded it to
-  // the surface. Text never does: a title over the picture is what the scrim exists to avoid,
-  // and the phone's hero is too short to give any of it away.
+  // the surface; the phone's hero is too short to give any of it away.
   heroLogoBelow: {
     marginTop: IS_TV ? -100 : 10,
   },
@@ -871,18 +1112,24 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     gap: IS_TV ? 10 : 6,
   },
+  playbackRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: IS_TV ? 10 : 6,
+  },
+  playbackText: {
+    flexShrink: 1,
+  },
   laneDot: {
     width: IS_TV ? 10 : 7,
     height: IS_TV ? 10 : 7,
     borderRadius: 999,
   },
-  // Shrinks so a long lane label wraps inside the row instead of pushing the dot off the
-  // centre axis, and centres its own lines the way the meta line above it does.
-  laneText: {
-    flexShrink: 1,
+  // The live-recording tag on the lane-row frame.
+  recordingNowText: {
     fontSize: IS_TV ? 21 : 13,
-    color: COLORS.TEXT_SECONDARY,
-    textAlign: "center",
+    fontWeight: "700",
+    color: COLORS.DESTRUCTIVE_SOFT,
   },
   // Content-sized buttons (FocusableButton's own min width), centered in the panel. A
   // container can carry four (videos, audio, slideshow, show in folder), past the width of
@@ -901,6 +1148,20 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     alignItems: "stretch",
     gap: 22,
+  },
+  ctaColumnFull: {
+    alignSelf: "stretch",
+  },
+  livePair: {
+    flexDirection: "row",
+    gap: 16,
+  },
+  // Content-proportional widths so a long label ("Cancel recording") keeps one line.
+  livePairButton: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    paddingHorizontal: 12,
   },
   actionRow: {
     marginTop: IS_TV ? 52 : 34,

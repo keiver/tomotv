@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import type { ReactVideoProps } from "react-native-video";
 
 import type { VideoPlayerState } from "@/hooks/useVideoPlayback";
+import type { MediaSegmentWindow } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 
 /**
@@ -17,14 +18,17 @@ export type HostMode =
   | "pip-active" // PiP window up, route still mounted
   | "pip-detached"; // PiP window up, route popped — the reason this host exists
 
-/** tvOS AVKit surfaces the route computes and the host hands to <Video>. */
+/** The AVKit surfaces and segment skips the route computes and the host applies. */
 export interface PlayerTvConfig {
+  skipWindows?: readonly MediaSegmentWindow[];
   contentProposal?: ReactVideoProps["contentProposal"];
   contextualActions?: ReactVideoProps["contextualActions"];
   infoPanelItems?: ReactVideoProps["infoPanelItems"];
   infoPanelTitle?: ReactVideoProps["infoPanelTitle"];
   /** Live channel flipping: the neighbours AVKit's interstitial names; unset disables the gesture. */
   liveChannelFlip?: ReactVideoProps["liveChannelFlip"];
+  /** Custom buttons in the transport bar's control row (the favorite heart). */
+  transportBarButtons?: ReactVideoProps["transportBarButtons"];
 }
 
 export interface PlayerSessionRequest {
@@ -35,14 +39,16 @@ export interface PlayerSessionRequest {
   startPositionTicks?: number;
   /** Played flag the launching screen already displayed. */
   playedAtStart?: boolean;
-  /** Regression-suite deep links pass probe=1. */
-  probe?: boolean;
+  /** Regression-suite deep links pass probe=1 or the driver's URL. */
+  probe?: string;
   /** Deep-link nonce of the requesting body; a new one for the same item restarts it. */
   sessionKey: string;
   /** Set by the host's own restore push: adopt the live session, never restart. */
   adopt?: boolean;
   /** A Live TV channel: the player keeps one AVKit instance across channel flips. */
   isLive?: boolean;
+  /** A queue advance: under a PiP window the item swaps inside the one player. */
+  advance?: boolean;
 }
 
 /** Which session a route believes it owns. */
@@ -59,6 +65,8 @@ export interface PlayerSessionHandlers {
   onInfoPanelItemSelected: (event: { id: string }) => void;
   /** tvOS live channel flip: +1 next, -1 previous. */
   onSkipChannel: (direction: 1 | -1) => void;
+  /** tvOS transport bar custom button press, by the button's id. */
+  onTransportBarButtonSelected: (event: { id: string }) => void;
   /** Leave the player: the phone's ✕/swipe, and the tvOS Menu press. */
   onRequestBack: () => void;
 }

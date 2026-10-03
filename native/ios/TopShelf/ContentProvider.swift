@@ -1,17 +1,18 @@
 import Foundation
 import TVServices
+import UIKit
 import os.log
 
-/// Top Shelf "Continue Watching" provider.
+/// Top Shelf provider: Continue Watching and recently played live channels, one list.
 ///
 /// Runs as a separate tvOS app-extension process. Reads the Jellyfin credentials the app
 /// stores via expo-secure-store (shared keychain access group, see TopShelf.entitlements),
-/// fetches the user's resume list, and returns a sectioned shelf with poster cards and
-/// playback-progress bars. Every failure path returns nil, which makes tvOS fall back to
-/// the static Top Shelf image from the app's brand assets.
+/// fetches the user's resume list and recently played channels, and returns a sectioned
+/// shelf. With nothing to show, it returns nil, which makes tvOS fall back to the static
+/// Top Shelf image from the app's brand assets.
 ///
-/// Constraints (Apple): ~16 MB memory cap — never download image data here; hand the
-/// system URLs via setImageURL and let it load them. Keep the single JSON fetch small.
+/// Constraints (Apple): ~16 MB memory cap. Posters go to the system as URLs (setImageURL);
+/// only channel logos are fetched, drawn onto a card in the App Group container and reused by tag.
 class ContentProvider: TVTopShelfContentProvider {
 
   /// Diagnostic logging (Console.app: filter subsystem dev.keiver.tomotv.TopShelf).
@@ -68,35 +69,137 @@ class ContentProvider: TVTopShelfContentProvider {
       forHTTPHeaderField: "Authorization"
     )
 
+    // Recently played channels: the server stamps a channel's LastPlayedDate like any item's.
+    var channelsRequest = request
+    channelsRequest.url = URL(string: "\(base)/Items?userId=\(userId)&includeItemTypes=TvChannel&recursive=true&sortBy=DatePlayed&sortOrder=Descending&Limit=\(Self.limit)&Fields=PrimaryImageAspectRatio%2CImageTags&EnableUserData=true&enableTotalRecordCount=false")
+
+    Self.fetchItems(request) { resume in
+      Self.fetchItems(channelsRequest) { channels in
+        // One list in last-played order, as the app's Continue Watching row reads; never-played channels sort last and drop out.
+        let picked = (resume + channels.filter { $0.UserData?.LastPlayedDate != nil })
+          .enumerated()
+          .sorted { ($0.element.playedKey, -$0.offset) > ($1.element.playedKey, -$1.offset) }
+          .prefix(Self.limit)
+          .map(\.element)
+        guard !picked.isEmpty else {
+          Self.log.error("no items, returning nil (static image fallback)")
+          completionHandler(nil)
+          return
+        }
+        Self.channelCards(for: picked, base: base, apiKey: apiKey) { cards in
+          let items = picked.map { Self.makeShelfItem($0, base: base, apiKey: apiKey, card: cards[$0.Id]) }
+          Self.log.info("returning \(items.count, privacy: .public) items, \(cards.count, privacy: .public) channel cards")
+          completionHandler(TVTopShelfSectionedContent(sections: [TVTopShelfItemCollection(items: items)]))
+        }
+      }
+    }
+  }
+
+  private static let limit = 10
+
+  // MARK: - Channel cards
+
+  /// The card a channel logo sits on in the app (video-grid-item.tsx): #2C2C2E, logo contain-fit in a
+  /// centred 70% x 50% box, RAISED_EDGE's top highlight and hairline. The shelf fills a 16:9 card by
+  /// cropping, so a wide logo shows whole only on an image that is already 16:9.
+  private static let cardSize = CGSize(width: 1280, height: 720)
+  private static let cardVersion = 2
+
+  /// The App Group container: the system process that draws the shelf cannot read this extension's own
+  /// Caches (a card there renders blank, seen on device 2026-10-01). Same layout as NexusPVR's shelf.
+  private static var cardDirectory: URL? {
+    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.keiver.tomotv")?
+      .appendingPathComponent("Library/Caches/topshelf-cards", isDirectory: true)
+  }
+
+  /// Card files by channel id for the picked channels with a logo; a card made for the same logo is reused.
+  private static func channelCards(for picked: [ShelfItemDTO], base: String, apiKey: String, completion: @escaping ([String: URL]) -> Void) {
+    guard let directory = cardDirectory, (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil else {
+      completion([:])
+      return
+    }
+    let wanted = picked.compactMap { item -> (id: String, file: URL, logo: URL)? in
+      guard item.itemType == "TvChannel", let tag = item.ImageTags?["Primary"],
+            let logo = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?ApiKey=\(apiKey)&maxHeight=720&quality=90") else { return nil }
+      // The render version keys the file too, so a card drawn by an older build is replaced.
+      return (item.Id, directory.appendingPathComponent("\(item.Id)-\(tag)-v\(Self.cardVersion).png"), logo)
+    }
+    // Cards for logos no longer on the shelf go.
+    let keep = Set(wanted.map(\.file.lastPathComponent))
+    for stale in (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] where !keep.contains(stale.lastPathComponent) {
+      try? FileManager.default.removeItem(at: stale)
+    }
+    var cards: [String: URL] = [:]
+    let lock = NSLock()
+    let group = DispatchGroup()
+    for entry in wanted {
+      if FileManager.default.fileExists(atPath: entry.file.path) {
+        cards[entry.id] = entry.file
+        continue
+      }
+      group.enter()
+      URLSession.shared.dataTask(with: entry.logo) { data, _, _ in
+        defer { group.leave() }
+        autoreleasepool {
+          guard let data, let logo = UIImage(data: data), let png = renderCard(logo).pngData(), (try? png.write(to: entry.file, options: .atomic)) != nil else { return }
+          lock.lock()
+          cards[entry.id] = entry.file
+          lock.unlock()
+        }
+      }.resume()
+    }
+    group.notify(queue: .global()) { completion(cards) }
+  }
+
+  private static func renderCard(_ logo: UIImage) -> UIImage {
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    format.opaque = true
+    return UIGraphicsImageRenderer(size: cardSize, format: format).image { context in
+      let bounds = CGRect(origin: .zero, size: cardSize)
+      UIColor(red: 0x2C / 255, green: 0x2C / 255, blue: 0x2E / 255, alpha: 1).setFill()
+      context.fill(bounds)
+      let box = CGSize(width: bounds.width * 0.7, height: bounds.height * 0.5)
+      let fit = min(box.width / max(logo.size.width, 1), box.height / max(logo.size.height, 1))
+      let size = CGSize(width: logo.size.width * fit, height: logo.size.height * fit)
+      // logoHalo: a white shadow tracing the logo's own alpha (0.9, 3pt on a TV card), so a dark mark reads.
+      context.cgContext.saveGState()
+      context.cgContext.setShadow(offset: .zero, blur: 14, color: UIColor(white: 1, alpha: 0.9).cgColor)
+      logo.draw(in: CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height))
+      context.cgContext.restoreGState()
+      // RAISED_EDGE on TV is 3px / 1.5px on a ~550pt card: scaled to this canvas.
+      let highlight = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [UIColor(white: 1, alpha: 0.22).cgColor, UIColor(white: 1, alpha: 0).cgColor] as CFArray, locations: [0, 1])!
+      context.cgContext.drawLinearGradient(highlight, start: .zero, end: CGPoint(x: 0, y: 12), options: [])
+      UIColor(white: 1, alpha: 0.07).setStroke()
+      let hairline = UIBezierPath(rect: bounds.insetBy(dx: 1.75, dy: 1.75))
+      hairline.lineWidth = 3.5
+      hairline.stroke()
+    }
+  }
+
+  /// The request's Items, or none on any failure: either list failing leaves the other standing.
+  private static func fetchItems(_ request: URLRequest, completion: @escaping ([ShelfItemDTO]) -> Void) {
     URLSession.shared.dataTask(with: request) { data, response, error in
       if let error = error {
         Self.log.error("fetch transport error: \(error.localizedDescription, privacy: .public)")
       }
       let status = (response as? HTTPURLResponse)?.statusCode ?? -1
       Self.log.info("fetch: status=\(status, privacy: .public) bytes=\(data?.count ?? -1, privacy: .public)")
-
       guard
         let data = data,
         let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-        let payload = try? JSONDecoder().decode(ResumeResponse.self, from: data),
-        let items = payload.Items, !items.isEmpty
+        let payload = try? JSONDecoder().decode(ItemsResponse.self, from: data)
       else {
-        Self.log.error("response guard failed (status/decode/empty) — returning nil (static image fallback)")
-        completionHandler(nil)
+        completion([])
         return
       }
-
-      let shelfItems = items.map { Self.makeShelfItem($0, base: base, apiKey: apiKey) }
-      let section = TVTopShelfItemCollection(items: shelfItems)
-      section.title = "Continue Watching"
-      Self.log.info("returning \(shelfItems.count, privacy: .public) Continue Watching items")
-      completionHandler(TVTopShelfSectionedContent(sections: [section]))
+      completion(payload.Items ?? [])
     }.resume()
   }
 
   // MARK: - Item mapping
 
-  private static func makeShelfItem(_ item: ResumeItem, base: String, apiKey: String) -> TVTopShelfSectionedItem {
+  private static func makeShelfItem(_ item: ShelfItemDTO, base: String, apiKey: String, card: URL?) -> TVTopShelfSectionedItem {
     let shelfItem = TVTopShelfSectionedItem(identifier: item.Id)
 
     let name = item.Name ?? "Untitled"
@@ -120,7 +223,11 @@ class ContentProvider: TVTopShelfContentProvider {
     // media's orientation; artful items snap to the in-app card shapes
     // (artworkSlotShape in constants/app.ts): poster below 0.85, square through
     // 1.25, 16:9 above.
-    if item.ImageTags?["Primary"] != nil {
+    if let card {
+      shelfItem.imageShape = .hdtv
+      shelfItem.setImageURL(card, for: .screenScale1x)
+      shelfItem.setImageURL(card, for: .screenScale2x)
+    } else if item.ImageTags?["Primary"] != nil {
       let aspect = item.PrimaryImageAspectRatio ?? 0
       shelfItem.imageShape = aspect < 0.85 ? .poster : (aspect <= 1.25 ? .square : .hdtv)
       // Poster URL shape mirrors getPosterUrl() in services/jellyfinApi.ts. The SYSTEM
@@ -151,6 +258,10 @@ class ContentProvider: TVTopShelfContentProvider {
       URLQueryItem(name: "videoName", value: name),
       URLQueryItem(name: "ts", value: String(Int(Date().timeIntervalSince1970 * 1000))),
     ]
+    // The params a channel card pushes (app/channels.tsx): the player opens it as a live channel.
+    if item.itemType == "TvChannel" {
+      link.queryItems?.append(URLQueryItem(name: "live", value: "1"))
+    }
     if let linkURL = link.url {
       shelfItem.playAction = TVTopShelfAction(url: linkURL)
       shelfItem.displayAction = TVTopShelfAction(url: linkURL)
@@ -191,11 +302,11 @@ class ContentProvider: TVTopShelfContentProvider {
 
 // MARK: - Jellyfin response models (subset of JellyfinVideoItem in types/jellyfin.ts)
 
-private struct ResumeResponse: Decodable {
-  let Items: [ResumeItem]?
+private struct ItemsResponse: Decodable {
+  let Items: [ShelfItemDTO]?
 }
 
-private struct ResumeItem: Decodable {
+private struct ShelfItemDTO: Decodable {
   let Id: String
   let Name: String?
   let itemType: String?
@@ -210,9 +321,13 @@ private struct ResumeItem: Decodable {
     case Id, Name, SeriesName, RunTimeTicks, PrimaryImageAspectRatio, ImageTags, UserData
     case itemType = "Type"
   }
+
+  /// LastPlayedDate to the second: the server's ISO-8601 UTC strings order as text once the fraction is cut.
+  var playedKey: String { String((UserData?.LastPlayedDate ?? "").prefix(19)) }
 }
 
 private struct ResumeUserData: Decodable {
   let PlaybackPositionTicks: Double?
   let PlayedPercentage: Double?
+  let LastPlayedDate: String?
 }

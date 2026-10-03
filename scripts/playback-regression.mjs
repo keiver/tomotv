@@ -33,6 +33,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -42,7 +43,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST_PATH = path.join(ROOT, "test", "playback", "manifest.json");
 const BASELINE_DIR = path.join(ROOT, "test", "playback", "baselines");
 const PROBE_FILENAME = "playback-probe.jsonl";
-const VERDICTS_FILENAME = "engine-verdicts.json";
 const HASH_WINDOW_SECONDS = 30;
 
 /** Directories that hold the fixtures, the same three make-test-media.mjs writes.
@@ -100,6 +100,7 @@ export function loadEnv(environment = process.env) {
     "JELLYFIN_DEVICE_ID",
     "BUNDLE_ID",
     "JELLYFIN_FIXTURE_ROOTS",
+    "PROBE_HOST",
   ]) {
     if (environment[key]) env[key] = environment[key];
   }
@@ -348,6 +349,44 @@ async function sessionPosition(env, itemId) {
   }
 }
 
+/** Jellyfin's log directory, readable when the server runs on this Mac. */
+const JELLYFIN_LOG_DIR = process.env.JELLYFIN_LOG_DIR || path.join(os.homedir(), "Library", "Application Support", "jellyfin", "log");
+
+/** Where Jellyfin's current log ends, so an item reads only what its own play wrote; null without a log. */
+export function serverLogMark(dir = JELLYFIN_LOG_DIR) {
+  try {
+    const file = fs
+      .readdirSync(dir)
+      .filter((name) => /^log_\d+\.log$/.test(name))
+      .sort()
+      .at(-1);
+    if (!file) return null;
+    const full = path.join(dir, file);
+    return { file: full, offset: fs.statSync(full).size };
+  } catch {
+    return null;
+  }
+}
+
+/** The ffmpeg jobs Jellyfin started on this file since `mark`: its transcodes and subtitle extractions. */
+export function serverJobsSince(mark, sourcePath) {
+  if (!mark || !sourcePath) return null;
+  let text;
+  try {
+    const fd = fs.openSync(mark.file, "r");
+    const length = Math.max(0, fs.fstatSync(fd).size - mark.offset);
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, mark.offset);
+    fs.closeSync(fd);
+    text = buffer.toString("utf8");
+  } catch {
+    return null;
+  }
+  const name = path.basename(sourcePath);
+  const starts = text.split("\n").filter((line) => line.includes(name) && line.includes('/ffmpeg" '));
+  return { transcodes: starts.filter((line) => line.includes("TranscodeManager:")).length, extractions: starts.filter((line) => line.includes("SubtitleEncoder:")).length };
+}
+
 // ---------- Simulator ----------
 
 export async function simctl(cmdArgs, options = {}) {
@@ -411,58 +450,85 @@ async function assertInstalled(env, target) {
 }
 
 /**
- * The probe file the app writes, as a pair of "wipe it" and "read it" calls.
- *
- * On a device both go through `devicectl device copy`, one file at a time: there
- * is no delete, so a stale probe is overwritten with an empty file instead. The
- * app truncates it itself when playback arms the probe, so an empty file and a
- * missing one mean the same thing to it.
+ * Receives the app's probe events. The deep link names this listener and the app POSTs each
+ * event the moment it happens, so an item ends on the event itself, never on a file read back.
  */
-function probeAccess(env, target, itemId, work) {
-  // The probe rides in Caches, the only directory tvOS guarantees an app can
-  // write; the app keeps its verdicts in Documents on iOS and in Caches on tvOS.
-  const PROBE_PATH = `Library/Caches/${PROBE_FILENAME}`;
-  const VERDICTS_PATHS = [`Documents/${VERDICTS_FILENAME}`, `Library/Caches/${VERDICTS_FILENAME}`];
-
-  if (target.kind === "sim") {
-    let root = null;
-    return {
-      async clear() {
-        const { stdout } = await simctl(["get_app_container", target.udid, env.BUNDLE_ID, "data"]);
-        root = stdout.trim();
-        fs.rmSync(path.join(root, PROBE_PATH), { force: true });
-        for (const verdicts of VERDICTS_PATHS) fs.rmSync(path.join(root, verdicts), { force: true });
-      },
-      read() {
-        return readProbe(path.join(root, PROBE_PATH), itemId);
-      },
-    };
-  }
-
-  const blank = path.join(work, "blank");
-  const pulled = path.join(work, PROBE_FILENAME);
-  const copy = (direction, source, destination) =>
-    devicectl(["device", "copy", direction, "--device", target.name, "--domain-type", "appDataContainer", "--domain-identifier", env.BUNDLE_ID, "--source", source, "--destination", destination]);
+export async function startProbeListener() {
+  const received = [];
+  let wake = null;
+  let unseen = false;
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      try {
+        received.push(JSON.parse(body));
+      } catch {
+        res.writeHead(400).end();
+        return;
+      }
+      res.writeHead(204).end();
+      if (wake) wake();
+      else unseen = true;
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "0.0.0.0", resolve);
+  });
   return {
-    async clear() {
-      fs.mkdirSync(blank, { recursive: true });
-      fs.writeFileSync(path.join(blank, PROBE_FILENAME), "");
-      // An empty verdicts file would throw where the app parses it; "{}" reads as none.
-      fs.writeFileSync(path.join(blank, VERDICTS_FILENAME), "{}");
-      // devicectl has no delete: an empty file is what "cleared" means here, and
-      // the app truncates the probe itself the moment playback arms it.
-      await copy("to", path.join(blank, PROBE_FILENAME), PROBE_PATH).catch(() => {});
-      for (const verdicts of VERDICTS_PATHS) await copy("to", path.join(blank, VERDICTS_FILENAME), verdicts).catch(() => {});
+    port: server.address().port,
+    /** Drops what an earlier item sent, so a late event from it cannot count for the next. */
+    reset() {
+      received.length = 0;
+      unseen = false;
     },
-    async read() {
-      fs.rmSync(pulled, { force: true });
-      // --destination names the FILE, not a directory to drop it in.
-      const ok = await copy("from", PROBE_PATH, pulled)
-        .then(() => true)
-        .catch(() => false);
-      return ok ? readProbe(pulled, itemId) : [];
+    events(itemId) {
+      return received.filter((e) => e.itemId === itemId);
+    },
+    /** Resolves on the next event, or when `ms` runs out. */
+    next(ms) {
+      if (unseen) {
+        unseen = false;
+        return Promise.resolve();
+      }
+      return new Promise((resolve) => {
+        const timer = setTimeout(done, Math.max(0, ms));
+        function done() {
+          clearTimeout(timer);
+          wake = null;
+          resolve();
+        }
+        wake = done;
+      });
+    },
+    close() {
+      server.close();
     },
   };
+}
+
+/**
+ * The Mac's address as the target reaches it: loopback from a simulator; from a device, the
+ * address of the interface that routes to the device's own session on Jellyfin.
+ */
+export async function probeHost(env, target) {
+  if (env.PROBE_HOST) return env.PROBE_HOST;
+  if (target.kind === "sim") return "127.0.0.1";
+  const sessions = await (await jf(env, "/Sessions")).json();
+  // A session from one of this Mac's own addresses is a simulator, whatever interface it came in on.
+  const own = new Set(Object.values(os.networkInterfaces()).flatMap((list) => (list ?? []).map((a) => a.address)));
+  const remote = sessions
+    .map((s) => ({ ...s, ip: (s.RemoteEndPoint ?? "").replace(/^::ffff:/, "") }))
+    .filter((s) => (s.Client ?? "").toLowerCase().includes("tomo") && s.ip && !own.has(s.ip))
+    .sort((x, y) => Date.parse(y.LastActivityDate ?? 0) - Date.parse(x.LastActivityDate ?? 0))[0];
+  if (!remote) throw new Error(`no device session on ${env.JELLYFIN_URL} to route the probe to; set PROBE_HOST`);
+  const { stdout } = await exec("route", ["-n", "get", remote.ip]);
+  const iface = stdout.match(/interface:\s*(\S+)/)?.[1];
+  const address = iface && os.networkInterfaces()[iface]?.find((a) => a.family === "IPv4" && !a.internal)?.address;
+  if (!address) throw new Error(`no IPv4 address on ${iface ?? "the interface"} that routes to ${remote.ip}; set PROBE_HOST`);
+  return address;
 }
 
 /** Throws rather than exiting, so --preflight can report it beside the other checks. */
@@ -491,28 +557,6 @@ export async function pickSimulator() {
     );
   }
   return booted[0];
-}
-
-// ---------- Probe ----------
-
-function readProbe(probePath, itemId) {
-  let raw;
-  try {
-    raw = fs.readFileSync(probePath, "utf8");
-  } catch {
-    return [];
-  }
-  const events = [];
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const e = JSON.parse(line);
-      if (e.itemId === itemId) events.push(e);
-    } catch {
-      // partial trailing line mid-write; ignore
-    }
-  }
-  return events;
 }
 
 // ---------- ffmpeg validation ----------
@@ -646,15 +690,11 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     problems.push("no enginePlan event: the remux engine did not report its decisions (native emitter or its JS listener is broken)");
   }
 
-  if (expect.videoRange || expect.subtitles !== undefined || expect.tierVariant !== undefined || expect.imageSubtitleSets !== undefined) {
+  if (expect.videoRange || expect.subtitles !== undefined || expect.tier !== undefined || expect.imageSubtitleSets !== undefined) {
     const master = await (await fetch(masterUrl, { signal: AbortSignal.timeout(10000) })).text();
     if (expect.videoRange && !master.includes(`VIDEO-RANGE=${expect.videoRange}`)) problems.push(`master playlist missing VIDEO-RANGE=${expect.videoRange}`);
 
-    // Slipstream gateway shape. tierVariant pins whether the master offers server rungs at all
-    // (eligibility is video + audio + a server source, HDR included). The rungs
-    // ride their own low audio group by design; what must hold is that a switch between them never
-    // moves the viewer's subtitles, and that each BANDWIDTH counts the group it plays with
-    // (RFC 8216 4.3.4.2). The harness link is fast, so the copy is listed beside them.
+    // The harness link carries every fixture, so a ladder-eligible item's master names the copy alone.
     const variants = [];
     {
       const lines = master.split("\n");
@@ -671,26 +711,11 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
         });
       }
     }
-    if (expect.tierVariant !== undefined) {
+    if (expect.tier === "copy") {
       const rungs = variants.filter((v) => /^t\d+\.m3u8$/.test(v.uri));
-      if (expect.tierVariant && rungs.length === 0) problems.push("master playlist offers no Slipstream rung");
-      if (!expect.tierVariant && rungs.length > 0) problems.push(`master playlist offers ${rungs.length} Slipstream rungs for an ineligible item`);
-      if (expect.tierVariant && rungs.length > 0) {
-        const copy = variants.find((v) => v.uri === "media.m3u8");
-        if (!copy) problems.push("master playlist withholds the on-device copy on a link that carries it");
-        if (copy && new Set([copy, ...rungs].map((v) => v.subs)).size > 1) problems.push("variants name different SUBTITLES groups: a switch would drop subtitles");
-        if (rungs.some((rung) => rung.audio !== "audio-lo")) problems.push("a rung does not name the audio-lo group, so its audio comes from the engine it exists to relieve");
-        const declared = new Set(
-          master
-            .split("\n")
-            .filter((line) => line.startsWith("#EXT-X-MEDIA:TYPE=AUDIO"))
-            .map((line) => /GROUP-ID="([^"]*)"/.exec(line)?.[1]),
-        );
-        if (rungs.some((rung) => !declared.has(rung.audio))) problems.push("a rung names an audio group the master does not declare");
-        if (rungs.some((rung) => rung.codecs && !rung.codecs.includes(","))) problems.push("a rung's CODECS omits the audio codec of its group");
-        const ascending = rungs.every((rung, i) => i === 0 || rung.bandwidth > rungs[i - 1].bandwidth);
-        if (!ascending) problems.push(`rung BANDWIDTHs are not ascending: ${rungs.map((r) => r.bandwidth).join(", ")}`);
-      }
+      if (rungs.length > 0) problems.push(`master playlist lists ${rungs.length} server rungs on a link that carries the copy`);
+      if (master.includes('GROUP-ID="audio-lo"')) problems.push("master playlist declares the server audio group on a link that carries the copy");
+      if (!variants.some((v) => v.uri === "media.m3u8")) problems.push("master playlist withholds the on-device copy on a link that carries it");
     }
 
     // Without this, the player cannot rule out captions embedded in the video
@@ -854,16 +879,10 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
 }
 
 /**
- * Server-HLS subtitle-sync invariant (validate: "subsync", mode: transcode).
- *
- * Jellyfin stamps every HLS WebVTT segment with X-TIMESTAMP-MAP=MPEGTS:900000
- * (10s), which players apply against the media segments' internal PTS base.
- * MPEG-TS segments start at ~10s so the delta is zero; fMP4 segments start at
- * 0, which displaced every cue by 10 seconds (the 2026-08-10 Star Trek bug).
- * The app therefore requests SegmentContainer=ts whenever text renditions ride
- * (services/jellyfin/streamUrls.ts). This check fails if that regresses:
- * no subtitle rendition in the master, segments not mpegts, or
- * |timestamp map - first segment PTS| above half a second.
+ * Server-lane subtitle-sync invariant (validate: "subsync", mode: transcode): the WebVTT timestamp
+ * map lands within half a second of the first media segment's time. Two shapes: Jellyfin's own HLS
+ * (MPEG-TS segments, MPEGTS:900000 against a ~10s PTS base, the 2026-08-10 Star Trek bug) and the
+ * engine gateway's server rungs (fMP4 behind EXT-X-MAP, MPEGTS:0 on a timeline that starts at 0).
  */
 async function validateSubtitleSync(masterUrl) {
   const problems = [];
@@ -886,32 +905,48 @@ async function validateSubtitleSync(masterUrl) {
   const videoPlaylistUri = firstUri(master);
   if (!videoPlaylistUri) return ["master playlist has no variant stream"];
   const videoPlaylistUrl = new URL(videoPlaylistUri, masterUrl).href;
-  const segUri = firstUri(await get(videoPlaylistUrl));
+  const mediaPlaylist = await get(videoPlaylistUrl);
+  const segUri = firstUri(mediaPlaylist);
   if (!segUri) return ["video media playlist has no segments yet"];
+  // An fMP4 segment only parses behind its init section, so the pair is probed as one file.
+  const mapUri = mediaPlaylist.match(/#EXT-X-MAP:URI="([^"]+)"/)?.[1];
+  let probeTarget = new URL(segUri, videoPlaylistUrl).href;
+  if (mapUri) {
+    const bytes = async (url) => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
+      if (!res.ok) throw new Error(`GET ${res.status} ${new URL(url).pathname}`);
+      return Buffer.from(await res.arrayBuffer());
+    };
+    const [init, media] = await Promise.all([bytes(new URL(mapUri, videoPlaylistUrl).href), bytes(probeTarget)]);
+    probeTarget = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-subsync-")), "segment.mp4");
+    fs.writeFileSync(probeTarget, Buffer.concat([init, media]));
+  }
 
   // The app session is still alive here, and its AVPlayer read-ahead can trip
   // Jellyfin's gap-seek (kills the from-zero ffmpeg mid-probe -> transient 5XX
   // on segment 0, server-logged as "A task was canceled"). A delayed retry
   // lands after the seek settles and spawns a fresh from-zero job.
-  const probeSegment = () => exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", new URL(segUri, videoPlaylistUrl).href], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+  const probeSegment = () => exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", probeTarget], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
   const { stdout } = await probeSegment().catch(async () => {
     await new Promise((r) => setTimeout(r, 4000));
     return probeSegment();
   });
   const fmt = JSON.parse(stdout).format || {};
   const segStart = Number(fmt.start_time ?? NaN);
-  if (!(fmt.format_name || "").includes("mpegts")) {
-    problems.push(`media segments are "${fmt.format_name}", expected mpegts (SegmentContainer=ts regressed to fMP4, which offsets cues by ~10s)`);
+  const expected = mapUri ? "mp4" : "mpegts";
+  if (!(fmt.format_name || "").includes(expected)) {
+    problems.push(`media segments are "${fmt.format_name}", expected ${expected}${mapUri ? "" : " (SegmentContainer=ts regressed to fMP4, which offsets cues by ~10s)"}`);
   }
 
   const subPlaylistUrl = new URL(subUri, masterUrl).href;
   const vttUri = firstUri(await get(subPlaylistUrl));
   if (!vttUri) return [...problems, "subtitle media playlist has no segments"];
   const vtt = await get(new URL(vttUri, subPlaylistUrl).href);
-  const map = vtt.match(/X-TIMESTAMP-MAP=MPEGTS:(\d+)/);
-  if (!map) return [...problems, "WebVTT segment has no X-TIMESTAMP-MAP (Jellyfin behavior changed; re-derive the sync model before trusting this lane)"];
+  const map = vtt.match(/X-TIMESTAMP-MAP=MPEGTS:(\d+)(?:,LOCAL:(\d+):(\d+):([\d.]+))?/);
+  if (!map) return [...problems, "WebVTT segment has no X-TIMESTAMP-MAP (re-derive the sync model before trusting this lane)"];
 
-  const mapSec = Number(map[1]) / 90000;
+  const local = map[2] ? Number(map[2]) * 3600 + Number(map[3]) * 60 + Number(map[4]) : 0;
+  const mapSec = Number(map[1]) / 90000 - local;
   if (Number.isNaN(segStart)) {
     problems.push("could not read first media segment start_time");
   } else if (Math.abs(mapSec - segStart) > 0.5) {
@@ -972,7 +1007,7 @@ async function validateLiveOutput(masterUrl, item) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function runItem(env, target, item, resolved, updateBaselines, work) {
+async function runItem(env, target, item, resolved, updateBaselines, probe) {
   const { id: itemId, path: sourcePath } = resolved;
   const result = { id: item.id, expected: item.mode, actual: "-", position: 0, validation: "-", problems: [] };
   await terminateApp(env, target);
@@ -984,15 +1019,11 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   await resetResume(env, itemId, item.resumeFrom ?? 0);
   await sleep(1500);
 
-  // The app only truncates the probe when playback ARMS it. An item that never
-  // reaches the player leaves the previous file in place, and an earlier run of the
-  // same id then reads back as a pass — which is how a dead deep link looked green.
-  // A verdict the engine recorded on an earlier run (services/engineVerdicts.ts) goes
-  // too: it would send the item to the server before the lane pick the manifest asserts.
-  const probe = probeAccess(env, target, itemId, work);
-  await probe.clear();
+  // Arming the probe clears the app's engine verdicts (services/playbackProbe.ts).
+  probe.listener.reset();
+  const serverLog = serverLogMark();
 
-  await openDeepLink(env, target, `tomotv://player?videoId=${itemId}&probe=1`);
+  await openDeepLink(env, target, `tomotv://player?videoId=${itemId}&probe=${encodeURIComponent(probe.url)}`);
 
   const startedAt = Date.now();
   const deadline = startedAt + (item.playSeconds + 60) * 1000;
@@ -1005,19 +1036,9 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   // The hash lanes stay post-loop: they compare a filled 30s window against a baseline.
   const probeWhileLive = target.kind === "sim" && item.mode === "localRemux" && item.validate === "none" && Boolean(item.expect);
   let liveValidation = null;
-  // A device relaunches the app for every deep link, and the first of a run pays
-  // the JS bundle load with the link already delivered: it can be consumed before
-  // anything is listening. One re-arm costs a few seconds and turns that into a
-  // pass; the simulator opens links into a running app and never needs it.
-  let rearmedAt = target.kind === "sim" ? Infinity : startedAt + 25000;
   while (Date.now() < deadline) {
-    await sleep(2000);
-    events = await probe.read();
-    if (!events.length && Date.now() > rearmedAt) {
-      rearmedAt = Infinity;
-      console.log("    (no events yet; re-opening the deep link)");
-      await openDeepLink(env, target, `tomotv://player?videoId=${itemId}&probe=1`);
-    }
+    await probe.listener.next(deadline - Date.now());
+    events = probe.listener.events(itemId);
     maxPosition = events.filter((e) => e.event === "progress").reduce((m, e) => Math.max(m, e.position), 0);
     if (probeWhileLive && !liveValidation && !events.some((e) => e.event === "ended")) {
       const live = events.find((e) => e.event === "stream" && e.mode === "localRemux");
@@ -1051,7 +1072,7 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
       result.problems.push(`playback never chose a mode; app reported: ${errors.map((e) => `${e.mode}: ${e.message}`).join(" | ")}`);
     } else {
       result.problems.push(
-        `no probe events arrived (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, or deep link broken; see test/playback/README.md)`,
+        `no probe events arrived at ${probe.url} (app not launching, Metro not running, app not signed in to the server ${env.JELLYFIN_URL} points at, the listener unreachable from the target, or deep link broken; see test/playback/README.md)`,
       );
     }
     return finish(env, target, result);
@@ -1072,6 +1093,17 @@ async function runItem(env, target, item, resolved, updateBaselines, work) {
   if (maxPosition < item.progressMin && !events.some((e) => e.event === "ended")) {
     result.problems.push(`position reached ${maxPosition.toFixed(1)}s, needed ${item.progressMin}s`);
   }
+  // The engine's tier verdict reaches the probe file on a device too, where the master cannot be read.
+  const tier = events.filter((e) => e.event === "tier").at(-1);
+  if (item.mode === "localRemux" && tier?.state === "listed") result.problems.push("engine reports server rungs listed on a link that carries the file");
+  if (item.expect?.tier && tier?.state !== item.expect.tier) result.problems.push(`tier report ${tier?.state ?? "(none)"}, expected ${item.expect.tier}`);
+  // Jellyfin's own log is the proof: a file the device plays never makes the server run ffmpeg on it.
+  const serverJobs = serverJobsSince(serverLog, sourcePath);
+  const lane = item.finalMode ?? item.mode;
+  if (serverJobs && lane !== "transcode" && serverJobs.transcodes + serverJobs.extractions > 0) {
+    result.problems.push(`Jellyfin ran ffmpeg on the file: ${serverJobs.transcodes} transcode(s), ${serverJobs.extractions} subtitle extraction(s)`);
+  }
+  if (serverJobs && lane === "transcode" && serverJobs.transcodes === 0) result.problems.push("expected a server transcode, but Jellyfin started none");
 
   // Cross-check the server saw this playback advancing (reporting path).
   const serverPos = await sessionPosition(env, itemId);
@@ -1300,9 +1332,10 @@ async function main() {
 
   const only = opt("--only")?.split(",");
   const skip = opt("--skip")?.split(",") ?? [];
-  // Manifest-level skips (known platform limitations) run only when --only names them explicitly.
-  const items = manifest.items.filter((i) => (!only || only.includes(i.id)) && !skip.includes(i.id) && (!i.skip || only?.includes(i.id)));
-  for (const i of manifest.items.filter((x) => x.skip && !only && !skip.includes(x.id))) console.log(`SKIP ${i.id}: ${i.skip}`);
+  // Manifest-level skips are simulator limitations: a device runs them, and --only names them anywhere.
+  const onDevice = Boolean(opt("--device"));
+  const items = manifest.items.filter((i) => (!only || only.includes(i.id)) && !skip.includes(i.id) && (!i.skip || onDevice || only?.includes(i.id)));
+  if (!onDevice) for (const i of manifest.items.filter((x) => x.skip && !only && !skip.includes(x.id))) console.log(`SKIP ${i.id}: ${i.skip}`);
   if (!items.length) fail("No manifest items match --only/--skip");
   const updateBaselines = flag("--update-baselines");
 
@@ -1330,15 +1363,23 @@ async function main() {
   await assertAppOnSameServer(env);
   await terminateApp(env, target);
 
+  const listener = await startProbeListener();
+  const host = await probeHost(env, target).catch((e) => fail(e.message));
+  const probe = { listener, url: `http://${host}:${listener.port}/probe` };
+  console.log(`Probe:     ${probe.url}`);
+
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-playback-"));
 
   const results = [];
   for (const item of items) {
     console.log(`\n▶ ${item.id} ${item.title} (expect ${item.mode}, play ${item.playSeconds}s)`);
     const itemWork = fs.mkdtempSync(path.join(work, `${item.id}-`));
-    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, itemWork);
-    const probePath = path.join(itemWork, PROBE_FILENAME);
-    if (fs.existsSync(probePath)) r.probePath = probePath;
+    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, probe);
+    const received = listener.events(ids.get(item.title).id);
+    if (received.length) {
+      r.probePath = path.join(itemWork, PROBE_FILENAME);
+      fs.writeFileSync(r.probePath, received.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    }
     results.push(r);
     console.log(r.problems.length ? `  ✗ ${r.problems.join("\n    ")}` : `  ✓ mode=${r.actual} pos=${r.position}s validation=${r.validation}`);
   }
@@ -1358,6 +1399,7 @@ async function main() {
     console.log(`Wrote ${jsonPath}`);
   }
 
+  listener.close();
   if (failed.length) process.exit(1);
 }
 

@@ -292,6 +292,15 @@ final class FrameGrabberTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: dir.appendingPathComponent("2000.jpg").path), "the frame just written is the newest and stays")
     }
 
+    func testOneTrimWaitsPerPoolUntilItStarts() {
+        var gate = TrimGate()
+        XCTAssertTrue(gate.take("/pool"))
+        XCTAssertFalse(gate.take("/pool"), "a write behind a waiting trim queues no other")
+        XCTAssertTrue(gate.take("/other"), "another pool waits on its own")
+        gate.start("/pool")
+        XCTAssertTrue(gate.take("/pool"), "a write after the trim started queues its own")
+    }
+
     func testAGrabberOutlivingAPurgeAnswersNothing() throws {
         let clip = try fixture("chapters-h264.mp4", [
             "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=20",

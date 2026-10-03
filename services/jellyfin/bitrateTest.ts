@@ -1,33 +1,32 @@
 /**
  * bitrateTest.ts
  *
- * Bandwidth measurement against the configured server via Jellyfin's own
- * /Playback/BitrateTest endpoint (the jellyfin-web pattern: it downloads junk
- * bytes and times them). Staged like jellyfin-apiclient: a small probe first,
- * a larger one only when the link looks fast enough for the small one to be
- * timer-noise.
+ * Link capacity to the configured server, from real media only: between plays the engine's native
+ * probe (RateProbe) times ten seconds of a library file's static stream.
  *
  * A reading is keyed to the server and to the subnet it was taken on: it stands at
  * any age on that subnet, is void on another, and age only drives re-measurement.
  */
 
 import * as SecureStore from "expo-secure-store";
+import { NativeModules } from "react-native";
+import { playsFromDisk } from "@/services/downloads/localSource";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
-import { isPlaybackHeld } from "@/services/playbackHold";
+import { isPlaybackHeld, onPlaybackHoldTaken } from "@/services/playbackHold";
+import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { API_TIMEOUTS, STORAGE_KEYS } from "./constants";
-import { fetchWithTimeout } from "./http";
+import { STORAGE_KEYS } from "./constants";
+import { fetchLibraryVideos } from "./items";
+import { isLiveSource } from "./media";
 import { getAuthHeader, getConfig, type JellyfinConfig } from "./session";
+import { getRemoteVideoStreamUrl } from "./streamUrls";
 
-/** Probe sizes in bytes: quick first stage, refining second stage. */
-const STAGE_SIZES = [500_000, 2_000_000];
-/** A first stage faster than this (seconds) is timer-noise; run the big stage. */
-const REFINE_THRESHOLD_SEC = 0.7;
-/** A first-stage reading below this refines too, whatever its time: a 500 KB probe cannot
- * overcome TCP slow-start and connection setup, so it UNDER-reads a fast link (a 30 Mbps link
- * measured 3.5 in a 1.2s cold sample and was misjudged too slow for direct play). Above this the
- * link is unambiguously fast enough for any realistic source, so the small sample is trusted. */
-const REFINE_BELOW_BPS = 15_000_000;
+/** Newest library videos searched for one the server still has to send. */
+const TARGET_CANDIDATES = 20;
+/** NDT7's ten seconds: a shorter read can sit inside a burst allowance and report it as the link. */
+const PROBE_BUDGET_MS = 10_000;
+/** A read cut off before this share of the budget (a dropped connection) is short enough to be a burst. */
+const FULL_READ_SHARE = 0.9;
 /** Backstop for a reading with no network identity: age is all that is left to judge it by. */
 const UNKNOWN_NETWORK_TTL_MS = 24 * 60 * 60 * 1000;
 /** Past this a trigger re-measures. The reading keeps answering until the new one lands. */
@@ -59,7 +58,9 @@ let probeNonce = 0;
 /** Hosts whose last probe failed. Session-only: a relaunch retries clean. */
 const failedAt = new Map<string, number>();
 /** The memory probe in flight, shared by every caller asking about the same host. */
-let inFlight: { host: string; probe: Promise<number | null> } | null = null;
+let inFlight: { host: string; generation: number; probe: Promise<number | null> } | null = null;
+/** Counts probes started, so a replaced one knows the next has cancelled its read. */
+let probeGeneration = 0;
 let cachedNetworkId: { id: string | null; at: number } | null = null;
 let nudgeTimer: ReturnType<typeof setTimeout> | null = null;
 let lastNudgeAt = 0;
@@ -137,97 +138,118 @@ async function remember(server: string, bps: number, net: string | null): Promis
   }
 }
 
-/** One timed download: the rate plus the two numbers behind it, so a reading can be read back. */
-interface Stage {
+/** What the native probe read: the rate, whether it filled a window, and over how long. */
+interface LinkReading {
   bps: number;
-  bytes: number;
+  kind: "full" | "short";
   seconds: number;
 }
 
-async function timeStage(server: string, deviceId: string, apiKey: string | undefined, size: number): Promise<Stage | null> {
-  const started = Date.now();
-  const url = `${server}/Playback/BitrateTest?Size=${size}&_probe=${Date.now()}-${probeNonce++}`;
-  const response = await fetchWithTimeout(url, { method: "GET", headers: { Authorization: getAuthHeader(deviceId, apiKey) } }, API_TIMEOUTS.NORMAL);
-  if (!response.ok) return null;
-  // React Native's fetch delivers the body fully before resolving json/blob;
-  // arrayBuffer keeps the timing honest without a text decode.
-  const body = await response.arrayBuffer();
-  const seconds = (Date.now() - started) / 1000;
-  if (seconds <= 0 || body.byteLength === 0) return null;
-  return { bps: (body.byteLength * 8) / seconds, bytes: body.byteLength, seconds };
+const engine = () =>
+  NativeModules.LocalRemuxer as { measureLink?: (url: string, headers: Record<string, string>, budgetMs: number) => Promise<LinkReading | null>; cancelMeasureLink?: () => Promise<void> } | undefined;
+
+/** The file the probe reads: the newest library video not already on this device. */
+async function probeTarget(): Promise<JellyfinVideoItem | null> {
+  const remote = (item: JellyfinVideoItem) => !playsFromDisk(item.Id) && !isLiveSource(item);
+  const { items } = await fetchLibraryVideos({ limit: TARGET_CANDIDATES });
+  return items.find(remote) ?? null;
 }
 
-async function runProbe(config: JellyfinConfig, host: string, shouldRemember: boolean): Promise<number | null> {
+async function measureLink(config: JellyfinConfig, generation: number): Promise<LinkReading | null> {
+  const measure = engine()?.measureLink;
+  if (typeof measure !== "function") return null;
+  const item = await probeTarget();
+  // A switch during the lookup: the list is the next server's, and a read would cancel its probe.
+  if (generation !== probeGeneration) return null;
+  const stream = item ? getRemoteVideoStreamUrl(item.Id, item, config) : "";
+  if (!stream || isPlaybackHeld()) return null;
+  const url = `${stream}&_probe=${Date.now()}-${probeNonce++}`;
+  const reading = await measure(url, { Authorization: getAuthHeader(config.deviceId, config.apiKey), Range: "bytes=0-" }, PROBE_BUDGET_MS);
+  return reading != null && Number.isFinite(reading.bps) && reading.bps > 0 && reading.seconds >= (PROBE_BUDGET_MS / 1000) * FULL_READ_SHARE ? reading : null;
+}
+
+async function runProbe(config: JellyfinConfig, host: string, generation: number): Promise<number | null> {
+  // Playback taking the link ends the read: beside it the probe times only its share.
+  let yielded = false;
+  const offTaken = onPlaybackHoldTaken(() => {
+    yielded = true;
+    void engine()
+      ?.cancelMeasureLink?.()
+      ?.catch(() => undefined);
+  });
   try {
-    const stageStart = Date.now();
-    let stage = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[0]);
-    if (stage == null) {
-      if (shouldRemember) failedAt.set(host, Date.now());
+    const reading = await measureLink(config, generation);
+    if (yielded || isPlaybackHeld()) {
+      logger.info("Bitrate test stood down for playback", { service: "BitrateTest", host });
+      return null;
+    }
+    if (generation !== probeGeneration) {
+      logger.info("Bitrate test replaced by a switch or the next probe", { service: "BitrateTest", host });
+      return null;
+    }
+    if (reading == null) {
+      failedAt.set(host, Date.now());
       logger.warn("Bitrate test returned nothing usable", { service: "BitrateTest", host });
       return null;
     }
-    let refined = false;
-    if ((Date.now() - stageStart) / 1000 < REFINE_THRESHOLD_SEC || stage.bps < REFINE_BELOW_BPS) {
-      // A refine that dies keeps the first stage: it measured the same link.
-      try {
-        const bigger = await timeStage(config.server, config.deviceId, config.apiKey, STAGE_SIZES[1]);
-        if (bigger != null) {
-          stage = bigger;
-          refined = true;
-        }
-      } catch (error) {
-        logger.warn("Bitrate refine stage failed, keeping the small-stage reading", error, { service: "BitrateTest" });
-      }
-    }
-    const bps = stage.bps;
-    const net = shouldRemember ? await currentNetworkId() : null;
+    const bps = reading.bps;
+    const net = await currentNetworkId();
     failedAt.delete(host);
     logger.info("Server bitrate measured", {
       service: "BitrateTest",
       host,
       mbps: Math.round(bps / 100_000) / 10,
-      bytes: stage.bytes,
-      seconds: Math.round(stage.seconds * 1000) / 1000,
-      stage: refined ? "refine" : "first",
+      kind: reading.kind,
+      seconds: Math.round(reading.seconds * 1000) / 1000,
       net,
-      remembered: shouldRemember,
     });
-    if (shouldRemember) await remember(config.server, bps, net);
+    await remember(config.server, bps, net);
     return bps;
   } catch (error) {
-    // Only the memory probe feeds the backoff: the in-playback one shares the link.
-    if (shouldRemember) failedAt.set(host, Date.now());
+    if (generation !== probeGeneration) return null;
+    failedAt.set(host, Date.now());
     logger.warn("Bitrate test failed", error, { service: "BitrateTest", host });
     return null;
+  } finally {
+    offTaken();
   }
 }
 
 /**
- * Measure the link to the configured server, in bits/second. Concurrent callers
- * share one download. `remember: false` is the in-playback probe: it measures
- * LEFTOVER bandwidth, so it stays out of both the sharing and the memory.
+ * Measure the link to the configured server, in bits/second, by reading a library file, and keep
+ * the reading. Concurrent callers share one download.
  */
-export async function measureServerBitrate(options?: { remember?: boolean }): Promise<number | null> {
+export async function measureServerBitrate(): Promise<number | null> {
   const config = await getConfig();
   if (!config.server || !config.apiKey) return null;
   const host = serverHost(config.server);
-  if (options?.remember === false) return runProbe(config, host, false);
 
   const failed = failedAt.get(host);
   if (failed != null && Date.now() - failed < FAILURE_BACKOFF_MS) return null;
 
   let current = inFlight;
   if (current?.host !== host) {
+    const generation = ++probeGeneration;
     current = {
       host,
-      probe: runProbe(config, host, true).finally(() => {
-        // A switch mid-probe already installed the next host; leave that one alone.
-        if (inFlight?.host === host) inFlight = null;
+      generation,
+      probe: runProbe(config, host, generation).finally(() => {
+        // A switch mid-probe already installed the next probe, possibly for this same host; leave it alone.
+        if (inFlight?.generation === generation) inFlight = null;
       }),
     };
     inFlight = current;
   }
   return current.probe;
+}
+
+/** Ends every probe on a server or account switch: none is kept or held against the next server. */
+export function cancelBitrateProbes(): void {
+  probeGeneration++;
+  inFlight = null;
+  void engine()
+    ?.cancelMeasureLink?.()
+    ?.catch(() => undefined);
 }
 
 /**
@@ -245,17 +267,17 @@ export async function measureIfIdle(): Promise<number | null> {
   return measureServerBitrate();
 }
 
-/**
- * The Settings tap: a fresh download whatever the reading's age or the host's
- * failure backoff. Playback still owns the link, so a held probe measures nothing.
- */
+/** Settings' select: measures now, past a fresh reading and the failure backoff. A result from before a server switch is dropped. */
 export async function remeasureBitrate(): Promise<number | null> {
   if (isPlaybackHeld()) return null;
   cachedNetworkId = null;
   const config = await getConfig();
   if (!config.server) return null;
-  failedAt.delete(serverHost(config.server));
-  return measureServerBitrate();
+  const host = serverHost(config.server);
+  failedAt.delete(host);
+  const bps = await measureServerBitrate();
+  const now = await getConfig();
+  return now.server && serverHost(now.server) === host ? bps : null;
 }
 
 /**

@@ -1,25 +1,28 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
-import { TimerRow } from "@/components/live-tv/timer-row";
+import { TimerRow, timerPanelTarget } from "@/components/live-tv/timer-row";
 import { LoadingRow } from "@/components/loading-row";
+import { SectionActionBand } from "@/components/settings/SectionActionBand";
 import { settingsStyles } from "@/components/settings/styles";
 import { TVFocusHolder } from "@/components/tv-focus-holder";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { fetchLiveTvManagement, fetchSeriesTimers, fetchTimers } from "@/services/jellyfinApi";
+import { reportRecordingTimers, runningTimers, stopRunningTimers } from "@/services/recordingStatus";
+import { showToast } from "@/services/toast";
 import type { JellyfinSeriesTimer, JellyfinTimer } from "@/types/jellyfin";
 import { isActiveTimer } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
-import { useIsFocused, useRouter } from "expo-router";
+import { Stack, useIsFocused, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Platform, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-type ScheduledEntry = { kind: "heading"; key: string; title: string } | { kind: "timer"; key: string; timer: JellyfinTimer };
+type ScheduledEntry = { kind: "heading"; key: string; title: string } | { kind: "timer"; key: string; timer: JellyfinTimer; series: boolean };
 
 /** A series rule drawn as a row: its next airing is what the viewer recognises it by. */
 function seriesAsTimer(rule: JellyfinSeriesTimer): JellyfinTimer {
@@ -60,6 +63,7 @@ export default function ScheduleScreen() {
     let cancelled = false;
     Promise.all([fetchTimers(), fetchSeriesTimers(), fetchLiveTvManagement()])
       .then(([timers, series, canManage]) => {
+        reportRecordingTimers(timers);
         if (cancelled) return;
         setSchedule({ timers, series, canManage, isLoading: false, error: null });
         setNowMs(Date.now());
@@ -74,32 +78,64 @@ export default function ScheduleScreen() {
   }, [isScreenFocused, reloadKey]);
   const reload = useCallback(() => setReloadKey((n) => n + 1), []);
 
+  const running = useMemo(() => runningTimers(schedule.timers, nowMs), [schedule.timers, nowMs]);
   const scheduled = useMemo<ScheduledEntry[]>(() => {
     const entries: ScheduledEntry[] = [];
-    const live = schedule.timers.filter(isActiveTimer);
-    const running = live.filter((timer) => timer.Status === "InProgress");
-    const upcoming = live.filter((timer) => timer.Status !== "InProgress").sort((a, b) => Date.parse(a.StartDate) - Date.parse(b.StartDate));
+    const runningIds = new Set(running.map((timer) => timer.Id));
+    const upcoming = schedule.timers.filter((timer) => isActiveTimer(timer) && !runningIds.has(timer.Id)).sort((a, b) => Date.parse(a.StartDate) - Date.parse(b.StartDate));
     if (running.length > 0) {
       entries.push({ kind: "heading", key: "running", title: t("liveTv.recordingNow") });
-      for (const timer of running) entries.push({ kind: "timer", key: timer.Id, timer });
+      for (const timer of running) entries.push({ kind: "timer", key: timer.Id, timer, series: false });
     }
     if (upcoming.length > 0) {
       entries.push({ kind: "heading", key: "upcoming", title: t("liveTv.upcoming") });
-      for (const timer of upcoming) entries.push({ kind: "timer", key: timer.Id, timer });
+      for (const timer of upcoming) entries.push({ kind: "timer", key: timer.Id, timer, series: false });
     }
     if (schedule.series.length > 0) {
       entries.push({ kind: "heading", key: "series", title: t("liveTv.seriesRules") });
-      for (const rule of schedule.series) entries.push({ kind: "timer", key: `series-${rule.Id ?? rule.Name}`, timer: seriesAsTimer(rule) });
+      for (const rule of schedule.series) entries.push({ kind: "timer", key: `series-${rule.Id ?? rule.Name}`, timer: seriesAsTimer(rule), series: true });
     }
     return entries;
-  }, [schedule]);
+  }, [schedule, running]);
 
   const handleTimerPress = useCallback(
-    (timer: JellyfinTimer) => {
-      if (!timer.ProgramId) return;
-      router.push({ pathname: "/program-info", params: { programId: timer.ProgramId, channelId: timer.ChannelId ?? "", channelName: timer.ChannelName ?? "" } });
+    (timer: JellyfinTimer, series: boolean) => {
+      const target = timerPanelTarget(timer, series);
+      if (target) router.push({ pathname: "/video-info", params: target });
     },
     [router],
+  );
+
+  // Every running timer deleted at once; the files recorded so far stay on the server.
+  const [stopping, setStopping] = useState(false);
+  const stopAll = useCallback(async () => {
+    setStopping(true);
+    try {
+      const failed = await stopRunningTimers(running);
+      if (failed.length > 0) logger.warn("Stop all recordings left timers running", { screen: "Schedule", failed });
+      showToast(failed.length > 0 ? t("liveTv.recordingFailed") : t("liveTv.recordingsStopped"), failed.length > 0 ? "error" : "success");
+    } finally {
+      setStopping(false);
+      reload();
+    }
+  }, [running, reload]);
+  const confirmStopAll = useCallback(() => {
+    Alert.alert(t("liveTv.stopAllRecordings"), t("liveTv.stopAllRecordingsConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("liveTv.stopAllRecordings"), style: "destructive", onPress: () => void stopAll() },
+    ]);
+  }, [stopAll]);
+  // Phone: Stop All rides the native bar while something records; TV draws it as the band the card ends in.
+  const screenOptions = useMemo<NativeStackNavigationOptions>(
+    () =>
+      IS_TV || running.length === 0
+        ? { unstable_headerRightItems: () => [] }
+        : {
+            unstable_headerRightItems: () => [
+              { type: "button", label: t("liveTv.stopAllRecordings"), icon: { type: "sfSymbol", name: "stop.circle" }, tintColor: COLORS.DESTRUCTIVE, disabled: stopping, onPress: confirmStopAll },
+            ],
+          },
+    [running.length, stopping, confirmStopAll],
   );
 
   const body = (() => {
@@ -138,11 +174,13 @@ export default function ScheduleScreen() {
         </View>
       );
     }
+    // The band closes the card, so the row above it keeps its square corners.
+    const stopAllBand = IS_TV && running.length > 0;
     // The Diagnostics log's card: it takes the height under the bar and scrolls inside.
     return (
       <View style={[styles.page, { paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
         <View style={[settingsStyles.contentContainer, styles.column]} onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}>
-          <View style={[settingsStyles.section, styles.card]}>
+          <View style={[settingsStyles.section, styles.card, { maxHeight: listHeight }]}>
             <FlatList
               data={scheduled}
               keyExtractor={(entry) => entry.key}
@@ -150,13 +188,15 @@ export default function ScheduleScreen() {
                 item.kind === "heading" ? (
                   <Text style={[settingsStyles.sectionNote, styles.groupLabel]}>{item.title}</Text>
                 ) : (
-                  <TimerRow timer={item.timer} nowMs={nowMs} onPress={handleTimerPress} isLast={index === scheduled.length - 1} />
+                  <TimerRow timer={item.timer} nowMs={nowMs} series={item.series} onPress={handleTimerPress} isLast={index === scheduled.length - 1 && !stopAllBand} />
                 )
               }
-              style={{ maxHeight: listHeight }}
+              style={[styles.list, { maxHeight: listHeight }]}
               showsVerticalScrollIndicator={!IS_TV}
               removeClippedSubviews={!IS_TV}
             />
+            {/* TV: the card runs out into the action, as the downloads card ends in its gauge. */}
+            {stopAllBand ? <SectionActionBand icon="stop-circle-outline" label={t("liveTv.stopAllRecordings")} disabled={stopping} onPress={confirmStopAll} /> : null}
           </View>
         </View>
       </View>
@@ -165,6 +205,7 @@ export default function ScheduleScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen options={screenOptions} />
       <AmbientBackground />
       <View style={[styles.container, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12 }]}>{body}</View>
     </View>
@@ -196,6 +237,9 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: 0,
+  },
+  list: {
+    flexShrink: 1,
   },
   // The group's name as a band inside the card, a step up from a footnote so it reads as a heading.
   groupLabel: {

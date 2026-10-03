@@ -3224,3 +3224,18 @@ the engine's live path never reads it: a `sourceStream` miss is skipped on live 
 stream is discovered off the container. The catalogue keeps -1 on a live source, identifies the
 track by ordinal (`c1:live0`), and the bridge admits negative and repeated indexes only when
 `isLive`; a file with no index still throws. Every live test fixture had used `Index: 1`.
+
+## Note: AVKit's Player Customization Is tvOS-Only, So iOS Records From the Info Panel (September 2026)
+
+Every AVPlayerViewController extension slot is `API_UNAVAILABLE(ios)` in the iOS 26/27 SDK
+headers (verified 2026-09-27, AVPlayerViewController.h): `transportBarCustomMenuItems`
+(tvos 15), `customOverlayViewController` (tvos 13), `contextualActions` and
+`customInfoViewControllers` (tvos 15/visionOS). iOS only got the speeds menu, Live Text and
+custom media-selection schemes; the iOS 27 `AVPlaybackUserInterfaceControllable` feeds state
+into the system UI and carries no action slot. `contentOverlayView` sits between video and
+controls and never receives their touches. So the tvOS record button (transport bar,
+39d84a15) has no iOS equivalent inside the presented player, and iOS records from
+program-info instead: guide long-press opens it for any cell, airing included, and without a
+server programId (no-guide and epg: cells) it runs in channel mode, where Record starts a
+manual timer for the settings length via `fetchTimerDefaults()` + ChannelId/Start/End
+(release/2.2.9, 2026-09-27).
