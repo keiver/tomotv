@@ -11,8 +11,8 @@ import os.log
 /// shelf. With nothing to show, it returns nil, which makes tvOS fall back to the static
 /// Top Shelf image from the app's brand assets.
 ///
-/// Constraints (Apple): ~16 MB memory cap — never download image data here; hand the
-/// system URLs via setImageURL and let it load them. Keep the JSON fetches small.
+/// Constraints (Apple): ~16 MB memory cap. Posters go to the system as URLs (setImageURL);
+/// only channel logos are fetched, drawn onto a card in the App Group container and reused by tag.
 class ContentProvider: TVTopShelfContentProvider {
 
   /// Diagnostic logging (Console.app: filter subsystem dev.keiver.tomotv.TopShelf).
