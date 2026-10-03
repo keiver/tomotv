@@ -31,6 +31,7 @@ import type { VideoDecodeSupport } from "@/constants/codecs";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { getAudioTracks } from "../multiAudioLoader";
 import { getCachedConfig } from "@/services/jellyfin/session";
+import { updateUiPreferences } from "@/services/uiPreferences";
 
 const mockStartRemux = jest.fn();
 const mockStopRemux = jest.fn();
@@ -44,6 +45,8 @@ const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEng
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
+  // The device preferences store (the server transcoding level) reads and writes these.
+  Settings: { get: jest.fn(), set: jest.fn() },
   NativeModules: {
     LocalRemuxer: {
       startRemux: (...args: unknown[]) => mockStartRemux(...args),
@@ -1760,6 +1763,56 @@ describe("startLocalRemux Slipstream tier config", () => {
 
     await expect(startLocalRemux(source, undefined, undefined, { serverVideoOnly: true })).rejects.toThrow("Server video transcoding is not permitted");
     expect(mockStartRemux).not.toHaveBeenCalled();
+  });
+
+  describe("the device's server transcoding level", () => {
+    afterEach(() => updateUiPreferences({ serverTranscoding: "linkOrFile" }));
+    const slow = () => item({ MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }] });
+    // XMA is not on the engine's carriable list, so the track needs the server's audio rendition.
+    const xmaAudio = () =>
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "xma2", Index: 1 },
+        ],
+      });
+    const asv1 = () =>
+      item({
+        streams: [
+          { Type: "Video", Codec: "asv1", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1 },
+        ],
+      });
+
+    it("offers no rungs for the link at fileOnly, and still the whole ladder to a server-video gateway", async () => {
+      updateUiPreferences({ serverTranscoding: "fileOnly" });
+      expect(offeredTierRungs(slow())).toEqual([]);
+      expect(offeredTierRungs(slow(), undefined, { serverVideoOnly: true })).toHaveLength(7);
+      await startLocalRemux(slow());
+      expect(mockStartRemux.mock.calls[0][0].tiers).toEqual([]);
+      await expect(canRemuxLocally(xmaAudio())).resolves.toBe(true);
+      await expect(predictPlaybackLane(asv1())).resolves.toEqual({ lane: "server", smallFeedFirst: false });
+    });
+
+    it("asks the server for nothing at never: no rungs, no gateway, no audio supplier, and the file that needs it is unplayable", async () => {
+      updateUiPreferences({ serverTranscoding: "never" });
+      expect(offeredTierRungs(slow(), undefined, { serverVideoOnly: true })).toEqual([]);
+      await expect(startLocalRemux(slow(), undefined, undefined, { serverVideoOnly: true })).rejects.toThrow("Server video transcoding is not permitted");
+      mockProbeEmit.mockClear();
+      await expect(canRemuxLocally(xmaAudio())).resolves.toBe(false);
+      expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "audio track requires an unavailable server supplier" }));
+      await expect(startLocalRemux(xmaAudio())).rejects.toThrow("Audio track requires an unavailable server supplier");
+      await expect(predictPlaybackLane(asv1())).resolves.toEqual({ lane: "unplayable", smallFeedFirst: false });
+      await expect(predictPlaybackLane(xmaAudio())).resolves.toEqual({ lane: "unplayable", smallFeedFirst: false });
+    });
+
+    it("hands an uncarriable track to the server's audio rendition at the default level", async () => {
+      await expect(canRemuxLocally(xmaAudio())).resolves.toBe(true);
+      await startLocalRemux(xmaAudio());
+      const track = mockStartRemux.mock.calls[0][0].audioTracks[0];
+      expect(track.usesServerAudio).toBe(true);
+      expect(track.serverAudioUrl).toContain("/Videos/item1/main.m3u8");
+    });
   });
 
   it("keeps local playback and every track without ladder audio when video transcoding is forbidden", async () => {

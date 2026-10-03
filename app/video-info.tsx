@@ -512,8 +512,17 @@ export default function VideoInfoScreen() {
   const lane = plan?.lane ?? null;
   // const lane = __DEV__ && plan?.lane === "deviceTranscode" ? "copy" : (plan?.lane ?? null);
   const engineTail = plan?.smallFeedFirst ? t("info.laneSmallerFeed") : t("info.laneNoServerWork");
-  const laneLabel = lane === null ? "" : lane === "server" ? t("info.laneServer") : lane === "deviceTranscode" ? `${t("info.laneDevice")} · ${engineTail}` : `Direct Play · ${engineTail}`;
-  const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;
+  const laneLabel =
+    lane === null
+      ? ""
+      : lane === "server"
+        ? t("info.laneServer")
+        : lane === "unplayable"
+          ? t("info.laneUnplayable")
+          : lane === "deviceTranscode"
+            ? `${t("info.laneDevice")} · ${engineTail}`
+            : `Direct Play · ${engineTail}`;
+  const laneColor = lane === "server" ? COLORS.TEXT_SECONDARY : lane === "unplayable" ? COLORS.DESTRUCTIVE_SOFT : lane === "deviceTranscode" ? COLORS.ACCENT : COLORS.SUCCESS;
 
   const logoUri = details?.ImageTags?.Logo ? getLogoUrl(details.Id, 200, details.ImageTags.Logo) : "";
   const poster = useItemPoster(details, IS_TV ? 600 : 300);

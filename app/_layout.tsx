@@ -519,6 +519,38 @@ export default function RootLayout() {
                               }
                         }
                       />
+                      <Stack.Screen
+                        name="quality"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("settings.qualityRow"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("settings.title"),
+                                animation: "fade",
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="transcoding"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("settings.transcodingRow"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("settings.title"),
+                                animation: "fade",
+                              }
+                        }
+                      />
                     </Stack>
                   </ThemeProvider>
                 </LibraryFiltersProvider>

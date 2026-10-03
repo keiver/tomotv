@@ -112,6 +112,8 @@ export interface LiveErrorInput {
   hasReopened: boolean;
   /** Which rung the channel is on. */
   lane: "engine" | "server";
+  /** False when the device or the server rules the server rung out. */
+  serverTranscodingAllowed?: boolean;
 }
 
 export interface LiveErrorDecision {
@@ -129,6 +131,6 @@ export function planLiveErrorRecovery(input: LiveErrorInput): LiveErrorDecision 
   // A 401 fails every rung the same way; a reopen would only spend two cold opens on it.
   const retriable = input.errorType !== PlaybackErrorType.UNAUTHORIZED;
   const reopen = retriable && engineLane && !input.hasReopened;
-  const toServer = retriable && engineLane && !reopen && input.lane === "engine";
+  const toServer = retriable && engineLane && !reopen && input.lane === "engine" && input.serverTranscodingAllowed !== false;
   return { reopen, toServer, retry: reopen || toServer };
 }

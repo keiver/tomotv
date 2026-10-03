@@ -9,6 +9,7 @@ import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 import { logger } from "@/utils/logger";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 
+/** The account's own permission for this item, as the server wrote it: video transcoding for a video, audio transcoding for an audio item. */
 export function serverVideoTranscodingAllowed(item: JellyfinVideoItem | null | undefined): boolean {
   return item?.MediaSources?.[0]?.SupportsTranscoding !== false;
 }

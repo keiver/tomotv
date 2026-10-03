@@ -283,6 +283,33 @@ carries that state, and it appears in **both** the remux condition and the
 transcode condition — without the second, a file the engine declines falls back
 to direct play and fails identically forever.
 
+## The server transcoding setting
+
+Settings > Streaming > Server transcoding, stored per device as
+`serverTranscoding` in `services/uiPreferences.ts`, read through the two
+predicates in `services/transcodePolicy.ts`. The server's own per-user
+permission (`SupportsTranscoding`, which Jellyfin writes from
+`EnableVideoPlaybackTranscoding` for a video and `EnableAudioPlaybackTranscoding`
+for an audio item) caps every level; `services/jellyfin/transcodePermissions.ts`
+reads the same policy off `/Users/Me` so the setting page can say so out loud.
+
+| Level                  | Rungs for the link | Files the device cannot play | Live server rung                      | Convert and Download | Uncarriable audio supplier |
+| ---------------------- | ------------------ | ---------------------------- | ------------------------------------- | -------------------- | -------------------------- |
+| `linkOrFile` (default) | yes                | yes                          | yes                                   | yes                  | yes                        |
+| `fileOnly`             | no                 | yes                          | yes                                   | yes                  | yes                        |
+| `never`                | no                 | no: the item is unplayable   | no: error after the one engine reopen | hidden               | no: the item is unplayable |
+
+`fileOnly` is `linkRungsAllowed` false: `offeredTierRungs` declares no rung
+unless the session is a server-video gateway, so the master is the copy alone,
+the engine skips its startup link probe (`RemuxSession+LinkProbe`, empty
+ladder), no tier report arrives and `copyOnlyRef` stays false, so a read-bound
+sample never hands over (`handOverToServer`). A produce-bound stall still does:
+that is the device, not the link. `never` is `serverTranscodeAllowed` false:
+`serverDenied` in `useVideoPlayback`, `canRemuxLocally` declining an
+uncarriable track, `openLiveServerRung` answering null, `planLiveErrorRecovery`
+and `planLaneGates` taking `serverTranscodingAllowed`, `predictPlaybackLane`
+reporting `"unplayable"` for the item panel and the download sheet.
+
 ## Rules of engagement
 
 1. `ios/` and `tvos/` are generated and gitignored. Native edits go in

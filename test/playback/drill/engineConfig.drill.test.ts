@@ -13,6 +13,7 @@ const mockCaptured: { config?: unknown } = {};
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
+  Settings: { get: jest.fn(), set: jest.fn() },
   NativeModules: {
     LocalRemuxer: {
       startRemux: async (config: unknown) => {

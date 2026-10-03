@@ -21,7 +21,7 @@ import {
   openChannel,
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
-import { serverVideoTranscodingAllowed } from "@/services/jellyfin/media";
+import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
 import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
@@ -636,6 +636,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         hasTriedTranscoding,
         heldEngineSpent: heldEngineSpentRef.current,
         liveLane: liveLaneRef.current,
+        serverTranscodingAllowed: serverTranscodeAllowed(details),
       });
       const { audioOnly, hasTextSubs, textSubtitles, burnInStream } = gates;
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
@@ -669,7 +670,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       // A file the engine measured below realtime on this device goes to the server from the
       // first request (engineVerdicts.ts); Diagnostics reads the reason like any decline.
-      const remembered = gates.asksRememberedVerdict && (audioOnly || serverVideoTranscodingAllowed(details)) ? await rememberedVerdict(details) : null;
+      const remembered = gates.asksRememberedVerdict && serverTranscodeAllowed(details) ? await rememberedVerdict(details) : null;
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
       if (remembered)
         probeEmit("decline", { reason: "engine below realtime on an earlier play", produceSeconds: remembered.produceSeconds, segmentSeconds: remembered.segmentSeconds, at: remembered.at });
@@ -881,7 +882,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // A live channel has no server lane to hand over to.
       // A read-bound sample is the link, which the rungs answer; a copy-only master has none, so the server does.
       if (!isMountedRef.current || transportRef.current !== "gateway" || watch.handedOver || isLiveRef.current || onTierLaneRef.current || (readBound(sample) && !copyOnlyRef.current)) return;
-      if (!playsFromDisk(details.Id) && !isAudioOnly(details) && !serverVideoTranscodingAllowed(details)) return;
+      if (!playsFromDisk(details.Id) && !serverTranscodeAllowed(details)) return;
       watch.handedOver = true;
       const position = currentTimeRef.current;
       // A copy-only session starving on the link first gets one fresh engine session: it measures the
@@ -940,7 +941,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // An item change reaches this effect before the reset below moves the request id, with the
     // previous item's state and the new videoId. Nothing of the old item starts for the new one.
     if (details.Id !== videoId) return;
-    const serverVideoDenied = !isLiveRef.current && !playsFromDisk(videoId) && !isAudioOnly(details) && !serverVideoTranscodingAllowed(details);
+    const serverDenied = !isLiveRef.current && !playsFromDisk(videoId) && !serverTranscodeAllowed(details);
     // Capture current request ID to check for stale responses
     const currentRequestId = ++requestIdRef.current;
 
@@ -1002,6 +1003,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         const openLiveServerRung = () => {
           if (liveServerRung !== null) return liveServerRung;
           liveServerRung = (async () => {
+            if (!serverTranscodeAllowed(details)) return null;
             if (details.liveTranscodeUrl) return details.liveTranscodeUrl;
             try {
               return await openChannelOnServer();
@@ -1122,7 +1124,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             if (!isMountedRef.current || requestIdRef.current !== currentRequestId || localRemuxTokenRef.current !== token) return;
             probeEmit("link", { bps: Math.round(bps), copyListed: copyListed ?? null });
             setLinkAffordsFrames(!serverVideoOnly && linkAffordsChapterFrames(bps, slipstreamInputBandwidth(details)));
-            if (serverVideoDenied || pinnedCapRef.current != null || transportRef.current !== "gateway" || copyOnlyRef.current) return;
+            if (serverDenied || pinnedCapRef.current != null || transportRef.current !== "gateway" || copyOnlyRef.current) return;
             // Never below the smallest variant in the master: a cap under all of them leaves
             // AVPlayer nothing it may play, and it wanders between every one of them without
             // ever showing a frame (drill S5 at 0.6 Mb/s).
@@ -1235,7 +1237,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               liveHasServerRung: under && isLiveRef.current && !readBound(sample) ? (await openLiveServerRung()) !== null : false,
               tierDeclared: tierDeclaredFor(token),
               readBound: sample !== null && readBound(sample),
-              serverTranscodingAllowed: !serverVideoDenied,
+              serverTranscodingAllowed: !serverDenied,
             });
             if (requestIdRef.current !== currentRequestId) {
               stopLocalRemux(token);
@@ -1298,7 +1300,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
           copyOnlyRef.current = false;
-          if (!serverVideoDenied && !isLiveRef.current && (serverVideoOnly || slipstreamEligible(details)) && !playsFromDisk(videoId)) {
+          if (!serverDenied && !isLiveRef.current && (serverVideoOnly || (slipstreamEligible(details) && linkRungsAllowed(details))) && !playsFromDisk(videoId)) {
             const quality = await getQualitySettings();
             if (requestIdRef.current !== currentRequestId) return false;
             pinnedCapRef.current = gatewayMaxBitRate(quality) ?? null;
@@ -1359,7 +1361,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         };
 
         const openServerLane = async (): Promise<void> => {
-          if (serverVideoDenied) fail("Server video transcoding is not permitted for this source");
+          if (serverDenied) fail("Server transcoding is not permitted for this source");
           // One transcode job, where the gateway's rungs and audio carriers each decode the source.
           const singleTranscode = await needsSingleServerTranscode(details);
           if (!ownsAttempt()) return;
@@ -1455,7 +1457,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // A run the viewer already left: its session is torn down, and every ref below belongs
             // to the item that replaced it.
             if (requestIdRef.current !== currentRequestId) return false;
-            if (serverVideoDenied) throw remuxError;
+            if (serverDenied) throw remuxError;
             const liveServerUrl = isLiveRef.current ? await openLiveServerRung() : null;
             if (requestIdRef.current !== currentRequestId) return false;
             if (liveServerUrl) {
@@ -1639,11 +1641,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           },
           mode,
           hasTriedTranscode: hasTriedTranscodingRef.current,
-          ...(serverVideoDenied && mode === "localRemux" ? { retryGateway: true } : {}),
+          ...(serverDenied && mode === "localRemux" ? { retryGateway: true } : {}),
           ...(!isLiveRef.current && !playsFromDisk(videoId)
             ? {
                 autoRetry:
-                  !(serverVideoDenied && mode === "transcode") &&
+                  !(serverDenied && mode === "transcode") &&
                   shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: classifyPlaybackError(error), ladderSpent: hasTriedTranscodingRef.current, retryingForMs: retryingForMs() }),
               }
             : {}),
@@ -2044,6 +2046,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           errorType,
           hasReopened: liveReopenedRef.current,
           lane: liveLaneRef.current,
+          serverTranscodingAllowed: !videoDetails || serverTranscodeAllowed(videoDetails),
         });
         if (reopen) liveReopenedRef.current = true;
         if (toServer) liveLaneRef.current = "server";
@@ -2092,7 +2095,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         heldOnDisk: playsFromDisk(videoId),
         hasDroppedSubtitles: heldEngineSpentRef.current,
         networkGateway: transportRef.current === "gateway" && !playsFromDisk(videoId),
-        serverTranscodingAllowed: !videoDetails || isAudioOnly(videoDetails) || serverVideoTranscodingAllowed(videoDetails),
+        serverTranscodingAllowed: !videoDetails || serverTranscodeAllowed(videoDetails),
       });
       const { willRetryWithTranscode } = decision;
 

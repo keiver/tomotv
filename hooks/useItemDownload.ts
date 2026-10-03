@@ -96,6 +96,11 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       // it on the way down instead, which is what the second button queues.
       const { lane } = await predictPlaybackLane(details);
       const free = Paths.availableDiskSpace;
+      // Neither the device nor, by this device's setting, the server plays it: nothing to queue.
+      if (lane === "unplayable") {
+        Alert.alert(details.Name ?? "This item", "This device can't play this file on its own, and server transcoding is off in Settings, so a download of it won't play.", [{ text: "OK" }]);
+        return true;
+      }
       if (lane === "server") {
         const estimate = estimatedConvertedBytes(details, await conversionRung());
         if (estimate > 0 && free - estimate < DISK_HEADROOM_BYTES) {

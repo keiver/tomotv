@@ -28,7 +28,8 @@ import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
 import { audioCatalogue, playbackMediaStreams, sourcePosition, type AudioCatalogueTrack, type SourcePosition } from "@/services/jellyfin/audioTracks";
 import { generatePlaySessionId, getCachedConfig } from "@/services/jellyfin/session";
 import { getSubtitleUrl, isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
-import { deviceDecodes, isLiveSource, serverVideoTranscodingAllowed, sourceVideoRange } from "@/services/jellyfin/media";
+import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
+import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
@@ -281,8 +282,10 @@ export function slipstreamInputBandwidth(videoItem: JellyfinVideoItem): number {
  * (audio-heavy tiny files), where AVPlayer would rightly refuse the rung.
  */
 export function offeredTierRungs(videoItem: JellyfinVideoItem, preferredAudioStreamIndex?: number, options: SlipstreamOptions = {}): TierRung[] {
-  if (!serverVideoTranscodingAllowed(videoItem)) return [];
+  if (!serverTranscodeAllowed(videoItem)) return [];
   const serverVideoOnly = options.serverVideoOnly === true && !isLiveSource(videoItem) && !playsFromDisk(videoItem.Id) && playbackMediaStreams(videoItem).some((stream) => stream.Type === "Video");
+  // The rungs answer a slow link; a device that asks the server only for what it cannot play offers none.
+  if (!serverVideoOnly && !linkRungsAllowed(videoItem)) return [];
   if (!slipstreamEligible(videoItem)) return serverVideoOnly ? [...SLIPSTREAM_LADDER] : [];
   const tracks = audioCatalogue(videoItem, preferredAudioStreamIndex);
   const audioBandwidth = Math.max(0, ...tracks.map((track) => audioOutput(track.stream).bandwidth));
@@ -986,7 +989,7 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
     return declineRemux("invalid audio catalogue", { error: String(error) });
   }
   const needsServerAudio = audioTracks.some((track) => !isAudioTrackCarriable(track.stream.Codec));
-  if (needsServerAudio && (audioOnly || playsFromDisk(videoItem.Id))) {
+  if (needsServerAudio && (audioOnly || playsFromDisk(videoItem.Id) || !serverTranscodeAllowed(videoItem))) {
     return declineRemux("audio track requires an unavailable server supplier");
   }
 
@@ -1014,8 +1017,8 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
   return declineRemux("video codec unsupported", { codec });
 }
 
-/** Predicted engine treatment for an item, from metadata alone. */
-export type PlaybackLane = "copy" | "deviceTranscode" | "server";
+/** Predicted engine treatment for an item, from metadata alone. "unplayable": it needs the server, which is not to be asked. */
+export type PlaybackLane = "copy" | "deviceTranscode" | "server" | "unplayable";
 
 /**
  * Which lane playback would take, without opening a session: the same gates the
@@ -1027,15 +1030,16 @@ export type PlaybackLane = "copy" | "deviceTranscode" | "server";
  */
 export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): Promise<{ lane: PlaybackLane; smallFeedFirst: boolean }> {
   const lane = await (async (): Promise<PlaybackLane> => {
+    const serverLane = (): PlaybackLane => (serverTranscodeAllowed(videoItem) ? "server" : "unplayable");
     // A verdict describes streaming this file. A held file has no link to lose to, and the
     // server lane is exactly what a download exists to do without.
-    if (videoItem && !playsFromDisk(videoItem.Id) && !isLiveSource(videoItem) && (await rememberedVerdict(videoItem))) return "server";
-    if (!(await canRemuxLocally(videoItem, { record: false }))) return "server";
+    if (videoItem && !playsFromDisk(videoItem.Id) && !isLiveSource(videoItem) && (await rememberedVerdict(videoItem))) return serverLane();
+    if (!(await canRemuxLocally(videoItem, { record: false }))) return serverLane();
     const videoStream = videoItem ? playbackMediaStreams(videoItem).find((stream) => stream.Type === "Video") : undefined;
     if (!videoStream) return "copy";
     return (await copiesVideo(videoStream)) ? "copy" : "deviceTranscode";
   })();
-  if (lane === "server" || videoItem == null) return { lane, smallFeedFirst: false };
+  if (lane === "server" || lane === "unplayable" || videoItem == null) return { lane, smallFeedFirst: false };
   // Item-page hint only: whether the stored link reading suggests this play opens on the smaller
   // server feed. Best-effort from the remembered bitrate; the runtime always offers the ladder and
   // lets AVPlayer decide. A held file reads off disk; a live channel has no server tier.
@@ -1447,7 +1451,7 @@ export async function startLocalRemux(
   if (serverVideoOnly && (live || playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
     throw new Error("Server-video gateway requires network VOD video");
   }
-  if (serverVideoOnly && !serverVideoTranscodingAllowed(videoItem)) {
+  if (serverVideoOnly && !serverTranscodeAllowed(videoItem)) {
     throw new Error("Server video transcoding is not permitted for this source");
   }
   const inputUrl = videoItem.liveStreamUrl ?? getVideoStreamUrl(videoItem.Id, videoItem);
@@ -1463,7 +1467,7 @@ export async function startLocalRemux(
     ...(!live && track.source ? { source: track.source } : {}),
     ...(serverVideoOnly ? { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH } : live ? liveAudioOutput(track.stream) : audioOutput(track.stream)),
   }));
-  if (audioTracks.some((track) => track.usesServerAudio) && (playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
+  if (audioTracks.some((track) => track.usesServerAudio) && (playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video") || !serverTranscodeAllowed(videoItem))) {
     throw new Error("Audio track requires an unavailable server supplier");
   }
   // Built by the shared helper so the app's ordinal lookup sees exactly this

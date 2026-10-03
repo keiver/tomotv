@@ -291,4 +291,9 @@ describe("planLiveErrorRecovery", () => {
   it("does not reopen from the server lane, which is the last rung", () => {
     expect(planLiveErrorRecovery({ ...base, mode: "transcode", lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
   });
+
+  it("ends at the error after the one reopen when the server rung is ruled out", () => {
+    expect(planLiveErrorRecovery({ ...base, serverTranscodingAllowed: false })).toEqual({ reopen: true, toServer: false, retry: true });
+    expect(planLiveErrorRecovery({ ...base, hasReopened: true, serverTranscodingAllowed: false })).toEqual({ reopen: false, toServer: false, retry: false });
+  });
 });

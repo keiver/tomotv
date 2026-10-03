@@ -28,6 +28,7 @@ function pick(details: JellyfinVideoItem, options: Options = {}): { mode: Playba
     hasTriedTranscoding: false,
     heldEngineSpent: false,
     liveLane: "engine",
+    serverTranscodingAllowed: true,
     ...gateInput,
   });
   const lane = selectLane(gates, { canRemux: gates.engineGate && engineAccepts, subtitlesOff });
@@ -201,6 +202,13 @@ describe("lane selection", () => {
 
     it("refuses a channel neither lane can play rather than picking one", () => {
       expect(pick(channel({}), { engineAccepts: false }).unplayable).toMatch(/cannot reach the engine/);
+    });
+
+    it("leaves the server's transcode untaken when the server is not to be asked, whichever rung the channel is on", () => {
+      const offered = channel({ liveStreamUrl: "http://origin/live.ts", liveTranscodeUrl: "http://server/live.m3u8" });
+      expect(pick(offered, { engineAccepts: false, serverTranscodingAllowed: false }).unplayable).toMatch(/server offers no transcode/);
+      expect(pick(offered, { liveLane: "server", engineAccepts: false, serverTranscodingAllowed: false }).unplayable).toMatch(/server offers no transcode/);
+      expect(pick(offered, { engineAccepts: false }).mode).toBe("transcode");
     });
   });
 });

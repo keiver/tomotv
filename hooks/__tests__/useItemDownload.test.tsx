@@ -232,6 +232,19 @@ describe("useItemDownload", () => {
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
   });
 
+  it("offers nothing for a file that needs a server this device will not ask", async () => {
+    (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "unplayable", smallFeedFirst: false });
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const alert = (Alert.alert as jest.Mock).mock.calls.at(-1);
+    expect(alert?.[1]).toContain("server transcoding is off");
+    expect(alert?.[2].map((button: { text: string }) => button.text)).toEqual(["OK"]);
+    expect(manager.enqueue).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
   it("refuses a conversion the estimate says will not fit, before offering it", async () => {
     (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "server", smallFeedFirst: false });
     mockEstimate.mockReturnValue(200 * 1024 * 1024 * 1024);

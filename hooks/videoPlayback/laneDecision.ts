@@ -27,6 +27,8 @@ export interface LaneGatesInput {
   heldEngineSpent: boolean;
   /** Which rung a live channel is on. */
   liveLane: "engine" | "server";
+  /** The server may be asked to transcode this item (services/transcodePolicy.ts). */
+  serverTranscodingAllowed: boolean;
 }
 
 export interface LaneGates {
@@ -102,8 +104,8 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
   const leavesDirectPlay = networkVideo || live || cannotDirectPlay || subtitlesWantEngine;
 
   // A live channel takes the server's transcode once the engine is spent on it, or when the
-  // open gave the engine nothing to read.
-  const liveServerUrl = live ? (details.liveTranscodeUrl ?? null) : null;
+  // open gave the engine nothing to read. Never when the server is not to be asked.
+  const liveServerUrl = live && input.serverTranscodingAllowed ? (details.liveTranscodeUrl ?? null) : null;
   const liveWantsServer = liveServerUrl !== null && (input.liveLane === "server" || !details.liveStreamUrl);
 
   return {

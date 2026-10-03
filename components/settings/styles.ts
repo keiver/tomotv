@@ -25,13 +25,13 @@ export const TITLE_LINE_HEIGHT = pick(36, 26, 24);
 // the label's 2pt gap) is taller than ROW_CONTENT_MIN_HEIGHT and that floor never binds:
 // LIST_ROW_HEIGHT does not describe these rows. Their line heights are pinned rather than
 // left to the font's own metrics, which is what makes QUALITY_ROW_HEIGHT arithmetic instead
-// of an estimate — the section's height cap is derived from it. Both land within a point of
-// what SF renders at these sizes, so pinning them moves nothing on screen. Applied in
-// app/(tabs)/settings.tsx; the shared listItemSubtitle stays unpinned because ServerRow
-// resizes the subtitle and would inherit the wrong leading.
+// of an estimate, and the credits list's height cap is derived from it. Both land within a
+// point of what SF renders at these sizes, so pinning them moves nothing on screen. Applied in
+// app/quality.tsx and app/licenses.tsx; the shared listItemSubtitle stays unpinned because
+// ServerRow resizes the subtitle and would inherit the wrong leading.
 export const QUALITY_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
 // The description runs at the shared subtitle size (qualityDescription in
-// settings.tsx), pinned so the row-height arithmetic holds.
+// quality.tsx), pinned so the row-height arithmetic holds.
 export const QUALITY_SUBTITLE_LINE_HEIGHT = pick(26, 18, 16);
 const TITLE_GAP = 2; // listItemTitle's marginBottom
 
@@ -42,12 +42,6 @@ export const MARK_HEIGHT = Platform.isTV ? 22 : 16;
 
 /** Exact height of one Video Quality row: 120 on TV, 70 on iPad, 66 on phone. */
 export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
-
-// Rows a capped, internally-scrolling list shows before it clips. Phone stands 5 whole rows
-// (350): a part-row peek looked like a rendering fault, and only 480p sits below the cut.
-//
-// TV keeps the ~2.9 it already had, the server card above it eating the rest of that screen.
-const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 
 /** A row's subtitle line (ListRow), pinned so a title-over-subtitle row's height is arithmetic. */
 export const SUBTITLE_LINE_HEIGHT = pick(26, 17, 16);
@@ -236,12 +230,6 @@ export const settingsStyles = StyleSheet.create({
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
     boxShadow: `${LIP_BOTTOM}, ${RIM_SIDES}`,
-  },
-  // Video Quality is the one section long enough to run past the bottom of the
-  // screen, so it caps its height and scrolls internally. The cap is derived, not
-  // dialled in by eye: see QUALITY_ROW_HEIGHT and VISIBLE_QUALITY_ROWS above.
-  sectionScrollable: {
-    maxHeight: Math.round(QUALITY_ROW_HEIGHT * VISIBLE_QUALITY_ROWS),
   },
   // The destinations half of the JELLYFIN SERVER card, capped so the rows past
   // VISIBLE_SERVER_ROWS scroll instead of pushing the people strip off screen.
