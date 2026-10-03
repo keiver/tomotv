@@ -275,6 +275,23 @@ describe("canRemuxLocally", () => {
     await expect(canRemuxLocally(live)).resolves.toBe(true);
   });
 
+  it("takes a server-opened live channel whatever the server's audio label, since the engine reads the real tracks off the stream", async () => {
+    mockProbeEmit.mockClear();
+    // A tuner channel Jellyfin never probed: the HDHomeRun lineup's own labels, "MPEG" for MP2 audio (issue 89).
+    const tuner = item({
+      RunTimeTicks: undefined,
+      MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1" }],
+      LiveStreamId: "ls-1",
+      liveStreamUrl: "http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k",
+      streams: [
+        { Type: "Video", Codec: "mpeg2video", Index: -1, IsInterlaced: true },
+        { Type: "Audio", Codec: "MPEG", Index: -1 },
+      ],
+    });
+    await expect(canRemuxLocally(tuner)).resolves.toBe(true);
+    expect(mockProbeEmit).not.toHaveBeenCalledWith("decline", expect.anything());
+  });
+
   it("accepts HEVC", async () => {
     const hevc = item({
       streams: [
@@ -2272,6 +2289,17 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.httpHeaders).toBeUndefined();
     // Read through the server's open, not from an origin: nothing for the engine to check.
     expect(config.probeOrigin).toBeUndefined();
+  });
+
+  it("hands a tuner's unprobed audio label to the engine as a carried track, never a server-fed one", async () => {
+    // The HDHomeRun lineup's "MPEG" (issue 89): the engine discovers the real MP2 off the stream.
+    const tuner = { ...live(), MediaStreams: [live().MediaStreams![0], { Type: "Audio", Codec: "MPEG", Index: -1 }] };
+    await startLocalRemux(tuner as typeof tuner & JellyfinVideoItem, undefined, 120);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks).toHaveLength(1);
+    expect(config.audioTracks[0].usesServerAudio).toBe(false);
+    expect(config.audioTracks[0].codecs).toBe("");
+    expect(config.audioTracks[0].serverAudioUrl).toBeUndefined();
   });
 
   it("asks the engine to check an origin the channel is read from directly", async () => {

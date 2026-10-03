@@ -17,21 +17,27 @@ import { accountTokenKey, API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
-import { didConfigReadFail, getAuthHeader, getConfig, throwRequestError } from "./session";
+import { didConfigReadFail, getAuthHeader, getConfig, getQualitySettings, throwRequestError } from "./session";
 
 const LIVE_BITRATE_CAP = 200_000_000;
+
+/** A fixed Streaming Quality pick caps the server's live transcode; Auto leaves the server its own clamps (live has no link reading). */
+async function liveTranscodeBitrate(): Promise<number> {
+  const quality = await getQualitySettings();
+  return quality.mode === "fixed" ? quality.bitrate : LIVE_BITRATE_CAP;
+}
 
 /**
  * Every codec the engine copies or decodes, declared as direct play on MPEG-TS. The one transcoding
  * profile is what the server answers with a TranscodingUrl: live HLS is TS-only on Jellyfin (an fMP4
  * profile is ignored and the reply degrades to a progressive stream), and AVPlayer plays HEVC in TS.
  */
-function liveDeviceProfile() {
+function liveDeviceProfile(maxBitrate: number = LIVE_BITRATE_CAP) {
   const { video, audio } = engineCodecAllowlists();
   return {
     Name: "Tomo TV live",
-    MaxStreamingBitrate: LIVE_BITRATE_CAP,
-    MaxStaticBitrate: LIVE_BITRATE_CAP,
+    MaxStreamingBitrate: maxBitrate,
+    MaxStaticBitrate: maxBitrate,
     DirectPlayProfiles: [
       { Type: "Video", Container: "ts,mpegts", VideoCodec: video.join(","), AudioCodec: audio.join(",") },
       { Type: "Audio", Container: "ts,mpegts,mp3,aac,adts", AudioCodec: audio.join(",") },
@@ -420,22 +426,24 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
 /**
  * Open a channel's live stream and describe it as a playable item: the raw tuner bytes,
  * every stream the server probed, and the ids the reports and the close need.
- * `serverOnly` opens it for the server's transcode alone, the lane a channel takes when the engine cannot play it.
+ * `serverOnly` opens it for the server's transcode alone, the lane a channel takes when the engine cannot play it;
+ * that open carries the Streaming Quality preset as its bitrate ceiling, the way the file transcode does.
  */
 export async function openChannel(channelId: string, item?: JellyfinVideoItem, options: { quiet?: boolean; serverOnly?: boolean } = {}): Promise<JellyfinVideoItem> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const headers = { Accept: "application/json", "Content-Type": "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
   const origin: LiveOrigin = { server: config.server, deviceId: config.deviceId, apiKey: config.apiKey };
+  const maxBitrate = options.serverOnly ? await liveTranscodeBitrate() : LIVE_BITRATE_CAP;
   const body = {
     UserId: config.userId,
-    DeviceProfile: liveDeviceProfile(),
+    DeviceProfile: liveDeviceProfile(maxBitrate),
     // The server builds a TranscodingUrl only for a source it will not direct play.
     EnableDirectPlay: !options.serverOnly,
     EnableDirectStream: !options.serverOnly,
     EnableTranscoding: true,
     AutoOpenLiveStream: true,
-    MaxStreamingBitrate: LIVE_BITRATE_CAP,
+    MaxStreamingBitrate: maxBitrate,
   };
   // The open probes the origin on the server (measured 11.8s cold), longer than a normal call; the
   // fallback's open is capped at the normal budget, above that.

@@ -545,6 +545,50 @@ describe("live TV client", () => {
     expect(body.EnableTranscoding).toBe(true);
     expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/c11/master.m3u8?LiveStreamId=ls-11`);
     expect(channel.liveStreamUrl).toBeUndefined();
+    // Auto: the server's own clamps govern the live transcode, as before.
+    expect(body.MaxStreamingBitrate).toBe(200_000_000);
+    expect(body.DeviceProfile.MaxStreamingBitrate).toBe(200_000_000);
+  });
+
+  it("caps the server-only open at a fixed Streaming Quality pick, and leaves the engine-lane open uncapped", async () => {
+    const answer = () => ({
+      ok: true,
+      json: async () => ({
+        PlaySessionId: "ps-12",
+        MediaSources: [
+          {
+            Id: "ms-12",
+            Container: "ts",
+            Path: "http://172.18.0.2:8096/LiveTv/LiveStreamFiles/abc/stream.ts",
+            SupportsDirectPlay: true,
+            SupportsTranscoding: true,
+            TranscodingUrl: "/videos/c12/master.m3u8?LiveStreamId=ls-12",
+            LiveStreamId: "ls-12",
+            MediaStreams: [],
+          },
+        ],
+      }),
+    });
+    const baseConfig: Record<string, string> = {
+      jellyfin_server_url: SERVER,
+      jellyfin_api_key: "test-api-key",
+      jellyfin_user_id: "test-user-id",
+      jellyfin_device_id: "test-device-id",
+      app_video_quality: "3",
+    };
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => Promise.resolve(baseConfig[key] || null));
+    (global.fetch as jest.Mock).mockResolvedValueOnce(answer()).mockResolvedValueOnce(answer());
+
+    await openChannel("c12", { Id: "c12", Name: "Twelve", Type: "TvChannel", Path: "" }, { serverOnly: true });
+    const serverOnly = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(serverOnly.MaxStreamingBitrate).toBe(8_000_000);
+    expect(serverOnly.DeviceProfile.MaxStreamingBitrate).toBe(8_000_000);
+    expect(serverOnly.DeviceProfile.MaxStaticBitrate).toBe(8_000_000);
+
+    await openChannel("c12", { Id: "c12", Name: "Twelve", Type: "TvChannel", Path: "" });
+    const engineLane = JSON.parse((global.fetch as jest.Mock).mock.calls[1][1].body);
+    expect(engineLane.MaxStreamingBitrate).toBe(200_000_000);
+    expect(engineLane.DeviceProfile.MaxStreamingBitrate).toBe(200_000_000);
   });
 
   it("leaves a channel whose server open failed out of the server lane", async () => {

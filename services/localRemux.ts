@@ -258,6 +258,15 @@ function audioOutput(stream: JellyfinMediaStream): { usesServerAudio: boolean; c
   return { usesServerAudio: false, codecs: codec ? "fLaC,mp4a.40.2" : "", bandwidth: encodedBandwidth };
 }
 
+/**
+ * A live track is always carried: the engine discovers the real codec off the stream and copies or
+ * re-encodes it there, so a label it would not carry (a tuner's unprobed "MPEG") declares no CODECS.
+ */
+function liveAudioOutput(stream: JellyfinMediaStream): { usesServerAudio: boolean; codecs: string; bandwidth: number } {
+  const carried = audioOutput(stream);
+  return { usesServerAudio: false, codecs: carried.usesServerAudio ? "" : carried.codecs, bandwidth: carried.bandwidth };
+}
+
 export function slipstreamInputBandwidth(videoItem: JellyfinVideoItem): number {
   const sourceBandwidth = sourceBandwidthForItem(videoItem);
   if (sourceBandwidth > 0) return sourceBandwidth;
@@ -954,8 +963,10 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
     logger.warn("Local remux declined: native module unavailable", { service: "LocalRemux" });
     return false;
   }
-  // A channel read from its origin carries no server probe; the engine's own open decides what it plays.
-  if (isLiveSource(videoItem) && videoItem?.liveStreamUrl && !videoItem.LiveStreamId) return true;
+  // A live channel's metadata is a label, not a probe: a tuner's lineup string for a channel the server
+  // never probed. The engine reads every stream off the demuxer itself (RemuxSession+Pipeline, isLive), so
+  // its own open decides what it plays, and a channel it cannot take fails at startup to the server rung.
+  if (isLiveSource(videoItem) && videoItem?.liveStreamUrl) return true;
   if (!videoItem) return declineRemux("no media streams");
   const mediaStreams = playbackMediaStreams(videoItem);
   if (mediaStreams.length === 0) return declineRemux("no media streams");
@@ -975,7 +986,7 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
     return declineRemux("invalid audio catalogue", { error: String(error) });
   }
   const needsServerAudio = audioTracks.some((track) => !isAudioTrackCarriable(track.stream.Codec));
-  if (needsServerAudio && (audioOnly || isLiveSource(videoItem) || playsFromDisk(videoItem.Id))) {
+  if (needsServerAudio && (audioOnly || playsFromDisk(videoItem.Id))) {
     return declineRemux("audio track requires an unavailable server supplier");
   }
 
@@ -1450,9 +1461,9 @@ export async function startLocalRemux(
     language: track.stream.Language || "und",
     isDefault: track.stream.IsDefault === true,
     ...(!live && track.source ? { source: track.source } : {}),
-    ...(serverVideoOnly ? { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH } : audioOutput(track.stream)),
+    ...(serverVideoOnly ? { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH } : live ? liveAudioOutput(track.stream) : audioOutput(track.stream)),
   }));
-  if (audioTracks.some((track) => track.usesServerAudio) && (live || playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
+  if (audioTracks.some((track) => track.usesServerAudio) && (playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
     throw new Error("Audio track requires an unavailable server supplier");
   }
   // Built by the shared helper so the app's ordinal lookup sees exactly this
