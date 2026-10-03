@@ -15,8 +15,10 @@ subscription, AirPlay included."**
 Every clause targets a competitor's weak point: Swiftfin's dual-player split,
 Infuse's price and paywalled AirPlay, Plex's price shocks. Never claim "plays
 everything" absolutely: Infuse plays everything too (own engine), and Moonfin's
-engine reached Apple on 2026-07-31. The cell nobody else occupies is doing it
-INSIDE AVPlayerViewController, with the system's own transport, Up Next cards,
+engine reached Apple on 2026-07-31. AVKit-native alone is not unique either:
+Stingray and Plezy present AVPlayerViewController and let the server transcode.
+The cell nobody else occupies is an on-device engine feeding the presented
+AVPlayerViewController, with the system's own transport, Up Next cards,
 chapters, info panel and AirPlay picker. Anything AVPlayer already does well
 (playback speed, scrubbing, the transport bar, subtitle styling) is not a
 feature we build; we ship the file into the player and let the player be the
@@ -32,7 +34,9 @@ player.
 | Swiftfin 1.5 (official)                                       | ✓           | 3.8★ / 263           | Free, OSS                        | AVKit OR VLCKit (user picks) | Native UI, Live TV, multi-user                                                                                                         | Reviews cite: no downloads, no Atmos/DTS/DV, ATV4K perf, missing subtitle controls                       |
 | Streamyfin                                                    | ✓ (new)     | small                | Free, OSS                        | VLC on tvOS                  | Downloads, intro-skip, trickplay, Chromecast, Jellyseerr, TopShelf                                                                     | RN+Expo like us but chose VLC over native player                                                         |
 | JellyTV                                                       | ✓           | new                  | $19.99–39.99 life                | ?                            | Seerr, downloads, Trakt/AniList, push notifications, admin tools                                                                       | Paid, closed, unproven                                                                                   |
-| Moonfin                                                       | ✓ (Flutter) | 600 stars            | Free, OSS                        | AetherEngine (third party)   | On-device engine since 2.3.2 (2026-07-31), DV profile 7 to 8.1 via libdovi, Atmos, downloads, Seerr, themes, Live TV, SMB, 9 platforms | Engine is a third-party dependency, 43-decoder allowlist grown one per release, Flutter chrome not AVKit |
+| Moonfin 2.5.1 (App Store since 2026-04-02, id6761283970)      | ✓ (Flutter) | 4.6★ / 75, 782 stars | Free, OSS                        | AetherEngine (third party)   | On-device engine since 2.3.2 (2026-07-31), DV profile 7 to 8.1 via libdovi, Atmos, downloads, Seerr, themes, Live TV, SMB, 9 platforms | Engine is a third-party dependency, 43-decoder allowlist grown one per release, Flutter chrome not AVKit |
+| Stingray 1.4.0                                                | ✓ (only)    | 0 ratings, 250 stars | Free, OSS (MIT)                  | AVKit, server transcodes     | Presented AVPlayerViewController, PiP, profiles with PIN, iCloud sync                                                                  | No engine (older Apple TVs are gated off HEVC), no Live TV, music or trickplay                           |
+| Plezy 2.22.0                                                  | ✓           | 4.5★ / 109           | $5.99 once                       | Native                       | Plex/Jellyfin/Emby, Live TV guide and DVR rules, downloads with auto rules, profiles with PIN                                          | Paid, closed, multi-backend                                                                              |
 | Mediora / Filebar / HamHub / MrMC / JellySee                  | ✓           | tail                 | mixed                            | mixed                        | niche                                                                                                                                  | none                                                                                                     |
 | Jellyflix / iPlay / Fladder / Phyn / official Jellyfin Mobile | iOS only    | tail                 | mostly free                      | mixed                        | none                                                                                                                                   | none                                                                                                     |
 
