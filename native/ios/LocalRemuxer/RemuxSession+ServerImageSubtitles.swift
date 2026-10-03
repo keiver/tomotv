@@ -65,7 +65,7 @@ extension RemuxSession {
     private func readServerImageSubtitlesOnce(_ track: RemuxSubtitle) -> Bool {
         var ctx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
         guard ctx != nil else { return false }
-        ctx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
+        ctx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.cancelCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
         var opts: OpaquePointer? = nil
         av_dict_set(&opts, "rw_timeout", "600000000", 0)
         av_dict_set(&opts, "tls_verify", "0", 0)

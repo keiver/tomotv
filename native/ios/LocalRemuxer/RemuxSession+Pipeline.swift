@@ -65,13 +65,21 @@ extension RemuxSession {
         return session.isCancelled || session.hasFailed ? 1 : 0
     }
 
+    /// Interrupt callback for a reader on its own thread: the flags alone, since `openingInput` is the
+    /// pipeline thread's.
+    static let cancelCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
+        guard let opaque else { return 0 }
+        let session = Unmanaged<RemuxSession>.fromOpaque(opaque).takeUnretainedValue()
+        return session.isCancelled || session.hasFailed ? 1 : 0
+    }
+
     /// Bytes the open input's IO has read so far, under the state lock; once a second at most.
     func publishInputBytes(force: Bool = false) {
         guard let input = openingInput, let pb = input.pointee.pb else { return }
         let now = CFAbsoluteTimeGetCurrent()
         guard force || now - lastInputBytesPublish >= 1 else { return }
         lastInputBytesPublish = now
-        let read = pb.pointee.bytes_read
+        let read = pulledBase + pb.pointee.bytes_read
         stateLock.lock()
         if read > pulledBytes { pulledBytes = read }
         stateLock.unlock()
@@ -1101,6 +1109,9 @@ extension RemuxSession {
             inputCtx = avformat_alloc_context()
             guard inputCtx != nil else { return fail("avformat_alloc_context") }
             inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
+            stateLock.lock()
+            pulledBase = pulledBytes
+            stateLock.unlock()
             openingInput = inputCtx
 
             var openOpts: OpaquePointer? = nil
@@ -1144,6 +1155,8 @@ extension RemuxSession {
             }
             ret = avformat_open_input(&inputCtx, inputUrl, nil, &openOpts)
             av_dict_free(&openOpts)
+            // A failed open freed the context itself.
+            if ret < 0 { openingInput = nil }
             if ret >= 0 || !config.isLive || isCancelled { break }
             // A refusal by the origin while this device holds other connections to it shows its limit: the reads below
             // this one yield. Just after a yield it is the origin still counting the closed one. Either way, retry.
@@ -1166,8 +1179,6 @@ extension RemuxSession {
             break
         }
         guard ret >= 0, let input = inputCtx else {
-            // A failed open freed the context itself.
-            openingInput = nil
             return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret))
         }
         mark("open_input")
@@ -1178,6 +1189,7 @@ extension RemuxSession {
         }
 
         let inputFormat = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
+        let playlistInput = inputFormat == "hls" || inputFormat == "dash"
         if let bound = liveProbeBound(format: inputFormat, isLive: config.isLive) {
             input.pointee.max_analyze_duration = bound
         }
@@ -2158,8 +2170,11 @@ extension RemuxSession {
             bytesInSegment += Int64(pkt.pointee.size)
             // The queued packet crossed the wire before the loop; handing it over took no read time.
             if !fromQueue { noteSourceRead(bytes: Int64(pkt.pointee.size), seconds: readTook) }
+            // A playlist input reads its segments through sub-contexts, so its packets count the bytes; any
+            // other input's IO counter is the count, and already holds the packets the probe buffered.
+            let ioRead = playlistInput ? nil : input.pointee.pb.map { pulledBase + $0.pointee.bytes_read }
             stateLock.lock()
-            pulledBytes += Int64(pkt.pointee.size)
+            if let ioRead { pulledBytes = max(pulledBytes, ioRead) } else { pulledBytes += Int64(pkt.pointee.size) }
             stateLock.unlock()
 
             // How far the source has actually been read: the subtitle decoders'

@@ -180,6 +180,8 @@ final class RemuxSession {
     /// The input context from its open until its close, pipeline thread only: the interrupt callback
     /// reads its IO byte count for `pulledBytes` while the open, the probe and the keyframe hunt run.
     var openingInput: UnsafeMutablePointer<AVFormatContext>?
+    /// `pulledBytes` when the current input was opened: its IO counter starts at zero.
+    var pulledBase: Int64 = 0
     var lastInputBytesPublish: CFAbsoluteTime = 0
     /// Whether the startup link probe has answered.
     var linkProbeDone = false
