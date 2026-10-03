@@ -72,6 +72,8 @@ interface FolderGridItemProps {
    * instead of letterboxing mismatched art in a fixed slot. Shelf rows only.
    */
   fitArtwork?: boolean;
+  /** The Live TV view while the server records a channel: a REC pill in the top-right corner. */
+  recording?: boolean;
 }
 
 const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpacity>, FolderGridItemProps>(function FolderGridItemComponent(
@@ -92,6 +94,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     cardWidth,
     cardHeight,
     fitArtwork = false,
+    recording = false,
   },
   ref,
 ) {
@@ -218,6 +221,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
+          {recording ? (
+            <View style={styles.recBadge} pointerEvents="none">
+              <CardBadge segments={[{ icon: "videocam-outline", label: t("liveTv.rec") }]} focused={focused} tone="live" />
+            </View>
+          ) : null}
+
           {/* Title bar at the very bottom — same treatment as the video cards.
               Focused: opaque gold bar; resting: glass over the scrimmed art. */}
           {focused ? (
@@ -271,6 +280,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.numColumns === next.numColumns &&
     prev.cardWidth === next.cardWidth &&
     prev.cardHeight === next.cardHeight &&
+    prev.recording === next.recording &&
     prev.fitArtwork === next.fitArtwork
   );
 }
@@ -346,6 +356,11 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: CARD_BADGE_INSET,
     left: CARD_BADGE_INSET,
+  },
+  recBadge: {
+    position: "absolute",
+    top: CARD_BADGE_INSET,
+    right: CARD_BADGE_INSET,
   },
   // Opaque sliver at the very bottom showing just the title.
   infoOverlay: {

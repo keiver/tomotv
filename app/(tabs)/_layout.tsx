@@ -6,6 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import { t } from "@/services/i18n";
 import { useLocale } from "@/hooks/useLocale";
+import { useIsRecording } from "@/hooks/useRecordingStatus";
 
 // SDK 56: Icon/Label moved under NativeTabs.Trigger.
 const { Icon, Label, Badge } = NativeTabs.Trigger;
@@ -85,10 +86,13 @@ const TAB_TINT = Platform.isTV ? undefined : COLORS.ACCENT;
 export default function TabLayout() {
   // SyncPlay membership: the tab bar is on every screen, so this is the one global indicator.
   // A childless Badge sends badgeValue " ", which UIKit draws as a bare dot; a value would put
-  // a number where the point is only that a group is live. Phone only, per the static-trigger
-  // rule above.
+  // a number where the point is only that a group is live. A badge is a tab item prop like the
+  // label, not a trigger flip.
   const [inGroup, setInGroup] = useState(false);
   useEffect(() => subscribeSyncPlay((snap) => setInGroup(snap.group !== null)), []);
+  // A recording in progress: phone only, on the Home tab that leads to the Libraries shelf.
+  // tvOS draws its top-bar badge too large; the TV reads it off the guide's Schedule cell.
+  const recording = useIsRecording();
 
   // The server's Live TV presence, persisted across launches (updated where the views land).
   // It reaches the Live TV trigger only through the navigator's key: a change remounts the
@@ -103,6 +107,7 @@ export default function TabLayout() {
       <NativeTabs.Trigger name="(library)" disablePopToTop={DISABLE_TAB_RESELECT_EFFECTS} disableScrollToTop={DISABLE_TAB_RESELECT_EFFECTS}>
         <Icon sf="house.fill" />
         <Label>{t("tab.home")}</Label>
+        {!Platform.isTV && <Badge hidden={!recording} />}
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="livetv" hidden={!showLiveTvTab}>

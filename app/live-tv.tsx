@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
-import { GuideCornerActions, HUD_ACTION_ICON, HudAction } from "@/components/live-tv/guide-corner-actions";
+import { GuideCornerActions, HUD_ACTION_ICON, HudAction, scheduleSymbol } from "@/components/live-tv/guide-corner-actions";
 import { GuideHud } from "@/components/live-tv/guide-hud";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { gridEdgePadding, LIBRARY_ROOT_TITLE } from "@/constants/app";
@@ -12,6 +12,7 @@ import { useAuthSession } from "@/hooks/useAuthSession";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { useGuide } from "@/hooks/useGuide";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import { showToast } from "@/services/toast";
@@ -78,6 +79,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   const preferences = useLiveTvPreferences();
   // The Channels pill wears the filled filter symbol while a filter holds the channels.
   const filtered = preferences.filter !== "all";
+  const recording = useIsRecording();
   const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
   // A refresh's first load announces its outcome; the passive loads (first open, paging, window growth) stay silent.
   const refreshToastArmed = useRef(refreshed);
@@ -147,10 +149,17 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
                 onPress: openChannels,
               },
               { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
-              { type: "button", label: t("liveTv.scheduled"), icon: { type: "sfSymbol", name: "calendar" }, tintColor: COLORS.ACCENT, onPress: openSchedule },
+              // Badged and red while a recording runs: the Schedule screen behind it is where it stops.
+              {
+                type: "button",
+                label: t("liveTv.scheduled"),
+                icon: { type: "sfSymbol", name: scheduleSymbol(recording) },
+                tintColor: recording ? COLORS.DESTRUCTIVE : COLORS.ACCENT,
+                onPress: openSchedule,
+              },
             ],
           },
-    [params.name, openRecordings, openChannels, openSchedule],
+    [params.name, openRecordings, openChannels, openSchedule, recording],
   );
   // Built apart from the canvas so the compiler keys it on the band's own inputs, not every guide render.
   const hudRow = (
@@ -165,6 +174,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
             onSchedule={openSchedule}
             onRefreshGuide={refreshGuide}
             refreshing={guide.isUpdating}
+            recording={recording}
             onFirstRef={handleFirstActionRef}
           />
         ) : (
