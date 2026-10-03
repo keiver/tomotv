@@ -8,7 +8,7 @@ import { TVFocusHolder } from "@/components/tv-focus-holder";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { fetchLiveTvManagement, fetchSeriesTimers, fetchTimers } from "@/services/jellyfinApi";
-import { runningTimers, stopRunningTimers } from "@/services/recordingStatus";
+import { reportRecordingTimers, runningTimers, stopRunningTimers } from "@/services/recordingStatus";
 import { showToast } from "@/services/toast";
 import type { JellyfinSeriesTimer, JellyfinTimer } from "@/types/jellyfin";
 import { isActiveTimer } from "@/utils/guide";
@@ -63,6 +63,7 @@ export default function ScheduleScreen() {
     let cancelled = false;
     Promise.all([fetchTimers(), fetchSeriesTimers(), fetchLiveTvManagement()])
       .then(([timers, series, canManage]) => {
+        reportRecordingTimers(timers);
         if (cancelled) return;
         setSchedule({ timers, series, canManage, isLoading: false, error: null });
         setNowMs(Date.now());

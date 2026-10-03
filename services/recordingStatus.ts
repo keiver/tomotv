@@ -108,9 +108,20 @@ export async function refreshRecordingStatus(): Promise<void> {
     return;
   }
   if (mine !== generation) return;
+  apply(timers);
+}
+
+/** A timer read made by a screen becomes the shared reading: a stop from another device clears every mark on the next screen that looks. */
+export function reportRecordingTimers(timers: JellyfinTimer[]): void {
+  generation++;
+  apply(timers);
+}
+
+function apply(timers: JellyfinTimer[]): void {
   const running = runningTimers(timers, Date.now());
   if (running.length !== status.running.length || running.some((timer, index) => timer.Id !== status.running[index]?.Id)) publish({ running });
-  armBoundary(timers);
+  if (listeners.size > 0) armBoundary(timers);
+  else clearBoundary();
 }
 
 function handleAppState(next: AppStateStatus): void {

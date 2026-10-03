@@ -17,6 +17,7 @@ import { useHealthGeneration } from "@/hooks/useChannelHealth";
 import { healthFor } from "@/services/channelHealth";
 import { t } from "@/services/i18n";
 import { fetchTimers, searchLiveTv } from "@/services/jellyfinApi";
+import { reportRecordingTimers } from "@/services/recordingStatus";
 import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
 import type { FolderStackEntry, JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { activeRecordTimer } from "@/utils/guide";
@@ -104,7 +105,10 @@ export default function ChannelsScreen() {
     if (!isFocused) return;
     let stale = false;
     fetchTimers()
-      .then((next) => !stale && setTimers(next))
+      .then((next) => {
+        reportRecordingTimers(next);
+        if (!stale) setTimers(next);
+      })
       .catch((err) => logger.warn("Timers refresh failed", err, { screen: "Channels" }));
     return () => {
       stale = true;

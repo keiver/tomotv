@@ -1,5 +1,14 @@
 /** The shared recording reading: what counts as running, when it re-reads by itself, and what wakes it. */
-import { getRecordingStatus, recordingBoundary, refreshRecordingStatus, resetRecordingStatusForTests, runningTimers, stopRunningTimers, subscribeRecordingStatus } from "@/services/recordingStatus";
+import {
+  getRecordingStatus,
+  recordingBoundary,
+  refreshRecordingStatus,
+  reportRecordingTimers,
+  resetRecordingStatusForTests,
+  runningTimers,
+  stopRunningTimers,
+  subscribeRecordingStatus,
+} from "@/services/recordingStatus";
 import { cancelTimer, fetchTimers, subscribeAuthChange, subscribeRecordingsChange } from "@/services/jellyfinApi";
 import { getLiveTvAvailability, subscribeLiveTvAvailability } from "@/services/liveTvAvailability";
 import type { JellyfinTimer } from "@/types/jellyfin";
@@ -143,6 +152,22 @@ describe("recordingStatus", () => {
     await flush();
     expect(fetchTimers).toHaveBeenCalledTimes(2);
     expect(getRecordingStatus().running.map((entry) => entry.Id)).toEqual(["a"]);
+  });
+
+  it("a screen's own timer read replaces the reading and re-arms the boundary", async () => {
+    jest.mocked(fetchTimers).mockResolvedValue([timer({ Id: "a" })]);
+    const listener = jest.fn();
+    subscribeRecordingStatus(listener);
+    await flush();
+    expect(getRecordingStatus().running).toHaveLength(1);
+    reportRecordingTimers([timer({ Id: "a", Status: "Cancelled" }), timer({ Id: "b", Status: "New", StartDate: at(5), EndDate: at(35) })]);
+    expect(getRecordingStatus().running).toEqual([]);
+    expect(listener).toHaveBeenCalledTimes(2);
+    jest.mocked(fetchTimers).mockResolvedValue([timer({ Id: "b", StartDate: at(5), EndDate: at(35) })]);
+    jest.advanceTimersByTime(5 * 60_000 + 2_000);
+    await flush();
+    expect(fetchTimers).toHaveBeenCalledTimes(2);
+    expect(getRecordingStatus().running.map((entry) => entry.Id)).toEqual(["b"]);
   });
 
   it("skips the server while it offers no Live TV", async () => {

@@ -1,6 +1,7 @@
 import { t } from "@/services/i18n";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
+import { reportRecordingTimers } from "@/services/recordingStatus";
 import { showToast } from "@/services/toast";
 import type { JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer } from "@/types/jellyfin";
 import { activeRecordTimer, durationLabel, isActiveTimer, isAiring, programTimes } from "@/utils/guide";
@@ -40,6 +41,7 @@ export function useRecordActions(target: RecordTarget | null) {
   const programEnd = program?.EndDate;
   const readState = useCallback(async () => {
     const [timers, rules] = await Promise.all([fetchTimers(), fetchSeriesTimers()]);
+    reportRecordingTimers(timers);
     const pinned = timerId ? timers.find((candidate) => candidate.Id === timerId && isActiveTimer(candidate)) : undefined;
     return {
       timer: pinned ?? activeRecordTimer(timers, { programId, channelId, program: { StartDate: programStart, EndDate: programEnd } }, Date.now()),

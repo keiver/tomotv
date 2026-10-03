@@ -4,6 +4,7 @@ import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
 import { useHealthGeneration } from "@/hooks/useChannelHealth";
 import { healthFor } from "@/services/channelHealth";
 import { fetchChannels, fetchChannelsByIds, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
+import { reportRecordingTimers } from "@/services/recordingStatus";
 import { activeGuideUrls, fetchExternalProgramWindow } from "@/services/externalGuide";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
@@ -277,6 +278,7 @@ export function useGuide(): GuideState {
     fetchTimers()
       .then((timers) => {
         if (sessionRef.current !== session) return;
+        reportRecordingTimers(timers);
         // The clock moves with the timers: a recording started since the last minute tick is on already.
         setNowMs(Date.now());
         setTimers(timers);
