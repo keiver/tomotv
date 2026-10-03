@@ -54,11 +54,27 @@ extension RemuxSession {
         return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
     })
 
-    /// Interrupt callback: aborts blocking network I/O when the session dies.
+    /// Interrupt callback: aborts blocking network I/O when the session dies. It runs on the pipeline
+    /// thread inside the open, the probe and every read, so it is also where the bytes the input has
+    /// pulled before the read loop get published (`progress()` runs on the bridge queue and may not
+    /// touch the input context itself).
     static let interruptCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
         guard let opaque else { return 0 }
         let session = Unmanaged<RemuxSession>.fromOpaque(opaque).takeUnretainedValue()
+        session.publishInputBytes()
         return session.isCancelled || session.hasFailed ? 1 : 0
+    }
+
+    /// Bytes the open input's IO has read so far, under the state lock; once a second at most.
+    func publishInputBytes(force: Bool = false) {
+        guard let input = openingInput, let pb = input.pointee.pb else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        guard force || now - lastInputBytesPublish >= 1 else { return }
+        lastInputBytesPublish = now
+        let read = pb.pointee.bytes_read
+        stateLock.lock()
+        if read > pulledBytes { pulledBytes = read }
+        stateLock.unlock()
     }
 
     /// Muxer output goes to the rendition that owns the AVIO context, so the
@@ -955,6 +971,7 @@ extension RemuxSession {
         let tStart = CFAbsoluteTimeGetCurrent()
         func mark(_ stage: String) {
             let elapsed = CFAbsoluteTimeGetCurrent() - tStart
+            publishInputBytes(force: true)
             NSLog("[LocalRemuxer] startup %@ +%.3fs", stage, elapsed)
             onStage?(["token": token, "stage": stage, "elapsed": elapsed])
         }
@@ -1066,6 +1083,7 @@ extension RemuxSession {
             stateLock.lock()
             inputLease = held
             stateLock.unlock()
+            mark("lease")
         }
         defer {
             stateLock.lock()
@@ -1083,6 +1101,7 @@ extension RemuxSession {
             inputCtx = avformat_alloc_context()
             guard inputCtx != nil else { return fail("avformat_alloc_context") }
             inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
+            openingInput = inputCtx
 
             var openOpts: OpaquePointer? = nil
             let reconnects = lease.map { !LiveConnectionBroker.shared.sharesUnknownOrigin($0) } ?? true
@@ -1146,13 +1165,22 @@ extension RemuxSession {
             }
             break
         }
-        guard ret >= 0, let input = inputCtx else { return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret)) }
+        guard ret >= 0, let input = inputCtx else {
+            // A failed open freed the context itself.
+            openingInput = nil
+            return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret))
+        }
         mark("open_input")
         defer {
+            openingInput = nil
             var closing: UnsafeMutablePointer<AVFormatContext>? = input
             avformat_close_input(&closing)
         }
 
+        let inputFormat = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
+        if let bound = liveProbeBound(format: inputFormat, isLive: config.isLive) {
+            input.pointee.max_analyze_duration = bound
+        }
         ret = probeStreamInfo(input)
         guard ret >= 0 else { return failStartup("find_stream_info: \(averr(ret))", retryable: !Self.isPermanentInputError(ret)) }
         mark("find_stream_info")
@@ -1210,7 +1238,8 @@ extension RemuxSession {
             audioIdentity[stream] = track.index
             audioIndices.append(stream)
         }
-        if audioIndices.isEmpty && config.audioTracks.isEmpty {
+        // Live tracks are configured with the server's Index -1 and match no stream; the demuxer's best audio stands in.
+        if audioIndices.isEmpty && (config.audioTracks.isEmpty || config.isLive) {
             let best = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
             if best >= 0 { audioIndices = [best] }
         }
@@ -1224,7 +1253,13 @@ extension RemuxSession {
             } ?? Array(0..<streamCount)
             audioIndices = audioIndices.filter { candidates.contains($0) }
             for i in candidates where !audioIndices.contains(i) {
-                guard input.pointee.streams[Int(i)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { continue }
+                guard let par = input.pointee.streams[Int(i)]?.pointee.codecpar, par.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { continue }
+                // A PID the PMT declares but that carried no packet in the probe (a silent audio
+                // description track, measured on BBC One) has no rate or layout to build a transcoder from.
+                guard par.pointee.sample_rate > 0, par.pointee.ch_layout.nb_channels > 0 else {
+                    NSLog("[LocalRemuxer] live audio stream %d carries no parameters yet, left out", i)
+                    continue
+                }
                 audioIndices.append(i)
             }
             if audioIndices.isEmpty {
@@ -1396,6 +1431,7 @@ extension RemuxSession {
                 NSLog("[LocalRemuxer] Transcoding video stream %d via VideoToolbox", videoIn)
                 primaryVideoTranscoder = transcoder
             }
+            mark("video_decode_probe")
         }
 
         // Dual-layer Dolby Vision decodes nowhere on Apple hardware, so a copied profile 7
@@ -1534,6 +1570,7 @@ extension RemuxSession {
                 }
                 av_packet_unref(pkt)
             }
+            mark("parameter_sets")
         }
 
         stateLock.lock()
@@ -2250,6 +2287,7 @@ extension RemuxSession {
                     lastTimingPtsUs = keyframeUs
                     lastKeyframeUs = keyframeUs
                     awaitingKeyframe = false
+                    if generation == 0 { mark("first_keyframe") }
                 } else {
                 // The session's FIRST generation sets this anchor, so it has to open at
                 // position 0: seek before it and every later segment is labelled by the offset.

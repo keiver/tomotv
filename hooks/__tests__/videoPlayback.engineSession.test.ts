@@ -73,6 +73,19 @@ describe("stillPullingInput", () => {
   it("stops waiting when the engine answers nothing at all", () => {
     expect(stillPullingInput(null, 1_000, 0.5)).toBe(false);
   });
+
+  it("never extends a session that has read nothing, even on its first check", () => {
+    expect(stillPullingInput({ ...progress, bytesRead: 0, readSeconds: 20 }, -1, 0.5)).toBe(false);
+  });
+
+  it("extends a start still opening or probing its input on bytes growing alone: no read loop runs yet to make a read share", () => {
+    expect(stillPullingInput({ ...progress, sourceState: "warming", readSeconds: 0 }, 1_000, 0.5)).toBe(true);
+    expect(stillPullingInput({ ...progress, sourceState: "warming", readSeconds: 0, bytesRead: 1_000 }, 1_000, 0.5)).toBe(false);
+  });
+
+  it("holds the read share to a source that is ready", () => {
+    expect(stillPullingInput({ ...progress, sourceState: "ready", readSeconds: 2 }, 1_000, 0.5)).toBe(false);
+  });
 });
 
 describe("forwardBufferFor", () => {

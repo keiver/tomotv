@@ -66,6 +66,13 @@ func probeStreamInfo(_ ctx: UnsafeMutablePointer<AVFormatContext>) -> Int32 {
     return ret
 }
 
+/// A tuner's MPEG-TS carries PIDs the probe can never parameterise (a packet-less AD track, DSM-CC and
+/// private sections), so it runs to FFmpeg's 7 s / 5 MB limits; every keyframe measured arrives inside 2 s.
+func liveProbeBound(format: String, isLive: Bool) -> Int64? {
+    guard isLive, format == "mpegts" else { return nil }
+    return 2_000_000
+}
+
 /// A single remux session: FFmpeg pipeline + segment store + playlist model.
 /// One session exists at a time (mirrors MultiAudioResourceLoader's model).
 final class RemuxSession {
@@ -170,6 +177,10 @@ final class RemuxSession {
     /// The pull since the pipeline started, for the app's pre-flight (progress(); under stateLock).
     var pulledBytes: Int64 = 0
     var pulledReadSeconds: Double = 0
+    /// The input context from its open until its close, pipeline thread only: the interrupt callback
+    /// reads its IO byte count for `pulledBytes` while the open, the probe and the keyframe hunt run.
+    var openingInput: UnsafeMutablePointer<AVFormatContext>?
+    var lastInputBytesPublish: CFAbsoluteTime = 0
     /// Whether the startup link probe has answered.
     var linkProbeDone = false
     var linkWindowBytes: Int64 = 0

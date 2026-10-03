@@ -77,14 +77,19 @@ export interface EngineProgressReading {
   bytesRead: number;
   elapsedSeconds: number;
   readSeconds: number;
+  /** The engine's source state; anything but "ready" is a start still opening, probing or hunting a keyframe. */
+  sourceState?: string;
 }
 
 /**
  * A deadline that finds the session alive and still pulling bytes at the link's pace is the
- * link's deadline, not the engine's.
+ * link's deadline, not the engine's. Before the source is ready no read loop runs, so the bytes
+ * the open and the probe pull are the only measure; once it runs, the read share is.
  */
 export function stillPullingInput<T extends EngineProgressReading>(progress: T | null | undefined, bytesSeen: number, readBoundShare: number): progress is T {
-  return progress != null && progress.alive && progress.bytesRead > bytesSeen && progress.elapsedSeconds > 0 && progress.readSeconds / progress.elapsedSeconds >= readBoundShare;
+  if (progress == null || !progress.alive || progress.bytesRead <= 0 || progress.bytesRead <= bytesSeen || progress.elapsedSeconds <= 0) return false;
+  if (progress.sourceState !== undefined && progress.sourceState !== "ready") return true;
+  return progress.readSeconds / progress.elapsedSeconds >= readBoundShare;
 }
 
 /**

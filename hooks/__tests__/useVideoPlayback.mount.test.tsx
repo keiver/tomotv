@@ -630,7 +630,7 @@ describe("useVideoPlayback (mounted)", () => {
         await act(flush);
 
         expect(recordTimeoutVerdict).not.toHaveBeenCalled();
-        expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine produced no segment within 20s" });
+        expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "the stream delivered no data in 20s" });
         expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/master.m3u8");
       });
     });

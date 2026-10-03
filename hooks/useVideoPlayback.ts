@@ -1139,8 +1139,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             if (ownsAttempt() && localRemuxTokenRef.current === token) preflight.settle({ failed: failure.message });
           });
           // The engine's startup steps, as they finish: the input is open, the tracks are known.
-          const stopStage = subscribeEngineStage(token, ({ stage }) => {
+          const stopStage = subscribeEngineStage(token, ({ stage, elapsed }) => {
             if (!ownsAttempt() || localRemuxTokenRef.current !== token) return;
+            // Diagnostics reads where a start spent its time; a live channel's open is the usual answer.
+            probeEmit("stage", { stage, elapsed: Math.round(elapsed * 1000) / 1000 });
             if (stage === "open_input") setPlaybackStage("analysing");
             else if (stage === "find_stream_info" || stage === "source_released") setPlaybackStage("preparing");
             if (stage === "source_released") void engineProgress(token).then(updateProcessing);
@@ -1278,7 +1280,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               stopLocalRemux(token);
               localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
-              throw new Error(sample ? "engine below realtime" : `engine produced no segment within ${waitedMs / 1000}s`);
+              throw new Error(sample ? "engine below realtime" : readNothing ? `the stream delivered no data in ${waitedMs / 1000}s` : `engine produced no segment within ${waitedMs / 1000}s`);
             }
           }
           return true;
