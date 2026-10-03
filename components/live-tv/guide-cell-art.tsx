@@ -7,10 +7,10 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-na
 /** The poster steps back while the channel's grabbed frames show over it. */
 const ART_UNDER_REEL_OPACITY = 0.12;
 
-/** Clear over the floor, the cell's black at the poster's edge, clear again at its right end. */
+/** Clear over the floor, the cell's own grey at the poster's edge, clear again at its right end. */
 export function artFadeGradient(lead: number, artWidth: number): string {
   const edge = Math.round((lead / (lead + artWidth)) * 100);
-  return `linear-gradient(to right, rgba(20, 20, 20, 0) 0%, ${COLORS.BACKGROUND} ${edge}%, rgba(20, 20, 20, 0) 100%)`;
+  return `linear-gradient(to right, rgba(44, 44, 46, 0) 0%, ${COLORS.SURFACE} ${edge}%, rgba(44, 44, 46, 0) 100%)`;
 }
 
 interface GuideCellArtProps {

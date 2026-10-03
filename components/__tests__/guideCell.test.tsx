@@ -155,7 +155,7 @@ describe("GuideCell", () => {
     const lead = Math.min(artWidth, 400 - artWidth);
     const fade = StyleSheet.flatten(hostById(tree, "guide-cell-art-fade").props.style);
     expect(fade).toEqual(expect.objectContaining({ right: 0, width: lead + artWidth, experimental_backgroundImage: artFadeGradient(lead, artWidth) }));
-    expect(artFadeGradient(100, 300)).toBe("linear-gradient(to right, rgba(20, 20, 20, 0) 0%, #141414 25%, rgba(20, 20, 20, 0) 100%)");
+    expect(artFadeGradient(100, 300)).toBe("linear-gradient(to right, rgba(44, 44, 46, 0) 0%, #2C2C2E 25%, rgba(44, 44, 46, 0) 100%)");
   });
 
   it("draws the programme lines without text shadows, the scrim carries the contrast", () => {

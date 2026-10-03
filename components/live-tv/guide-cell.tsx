@@ -24,8 +24,8 @@ const AnimatedPressable = RNAnimated.createAnimatedComponent(Pressable);
 /** The first half hour of a cell is text alone: the art is clipped out of it, so a short cell shows none. */
 const PX_PER_MINUTE = guideMetrics(IS_TV).pxPerMinute;
 const ART_START = PX_PER_MINUTE * TICK_MINUTES;
-/** A deeper black than the art's fade, so a scrimmed label still reads apart from the neighbouring cell's floor. */
-const SCRIM_FADE = "linear-gradient(to right, " + COLORS.BACKGROUND_DEEP + " 0%, rgba(13, 13, 15, 0) 100%)";
+/** The cell's own floor, so the label reads on its floor over the poster and the fade ends in the same grey. */
+const SCRIM_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 44, 46, 0) 100%)";
 /** The corner box: one line, a sliver of padding, its bottom rule. */
 const SEEN_LINE = IS_TV ? 16 : 10;
 const SEEN_PAD = IS_TV ? 2 : 1;
@@ -345,14 +345,14 @@ const styles = StyleSheet.create({
   text: {
     gap: IS_TV ? 4 : 2,
   },
-  // Black under the label from just inside the focus ring's left line, trailing off across a cell's width.
+  // The floor under the label from just inside the focus ring's left line, trailing off across a cell's width.
   scrim: {
     position: "absolute",
     top: 0,
     bottom: 0,
     left: RING_WIDTH - 1,
     right: 0,
-    backgroundColor: COLORS.BACKGROUND_DEEP,
+    backgroundColor: COLORS.SURFACE,
   },
   // The ring sits behind the label: the scrim clears its top and bottom lines.
   scrimFocused: {
@@ -381,7 +381,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: -0.5,
     width: 1,
-    backgroundColor: COLORS.BACKGROUND_DEEP,
+    backgroundColor: COLORS.SURFACE,
   },
   reelScrimTail: {
     position: "absolute",
