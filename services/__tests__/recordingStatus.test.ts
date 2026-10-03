@@ -72,8 +72,12 @@ describe("recordingStatus", () => {
     ];
     expect(recordingBoundary(timers, now)).toBe(now + 18 * 60_000);
     expect(recordingBoundary([timer({ Id: "a", EndDate: at(90), PostPaddingSeconds: 600 })], now)).toBe(now + 100 * 60_000);
-    expect(recordingBoundary([timer({ Id: "a", EndDate: at(-1) })], now)).toBeNull();
+    expect(recordingBoundary([timer({ Id: "a", Status: "New", EndDate: at(-1) })], now)).toBeNull();
     expect(recordingBoundary([], now)).toBeNull();
+  });
+
+  it("a timer still InProgress past its padded end is looked at again half a minute later", () => {
+    expect(recordingBoundary([timer({ Id: "a", Status: "InProgress", EndDate: at(-1) })], now)).toBe(now + 30_000);
   });
 
   it("reads on the first subscriber and re-reads at the running timer's end", async () => {

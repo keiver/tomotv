@@ -21,6 +21,8 @@ const BOUNDARY_GRACE_MS = 1_500;
 const MAX_SLEEP_MS = 24 * 60 * 60 * 1_000;
 /** A failed read tries again: a boot read can run before the session is usable. */
 const RETRY_MS = 60_000;
+/** A timer still InProgress past its padded end is closing on the server; look again soon. */
+const OVERRUN_RECHECK_MS = 30_000;
 
 const EMPTY: RecordingStatus = { running: [] };
 let status: RecordingStatus = EMPTY;
@@ -60,7 +62,8 @@ export function recordingBoundary(timers: JellyfinTimer[], nowMs: number): numbe
   for (const timer of timers) {
     if (!isActiveTimer(timer)) continue;
     const { startMs, endMs } = recordingWindow(timer);
-    const edge = startMs > nowMs ? startMs : endMs;
+    let edge = startMs > nowMs ? startMs : endMs;
+    if (edge <= nowMs && timer.Status === "InProgress") edge = nowMs + OVERRUN_RECHECK_MS;
     if (!Number.isFinite(edge) || edge <= nowMs) continue;
     if (next === null || edge < next) next = edge;
   }
