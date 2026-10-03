@@ -973,9 +973,9 @@ export function PlayerHost() {
             handlersRef.current?.onSkipChannel(-1);
           }}
           // Menu on the interstitial leaves the player paused under it, so it leaves the player.
-          onChannelSkipAbandoned={(event) => {
+          onChannelSkipAbandoned={() => {
             setLiveInterstitialUp(false);
-            if (event.reason === "menu") handlersRef.current?.onRequestBack();
+            handlersRef.current?.onRequestBack();
           }}
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
           // onEnd/onError dismissals — the DID handler closes only for the first two. Will is

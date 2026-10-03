@@ -1259,7 +1259,7 @@ index 5f2f5f6..d8f6b10 100644
      private var _videoURL: NSURL?
  
      /* Required to publish events */
-@@ -132,6 +136,411 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -132,6 +136,399 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -1505,8 +1505,7 @@ index 5f2f5f6..d8f6b10 100644
 +    // JS swaps the source in place and the pending completion resolves when that item is ready.
 +    @objc var onSkipToNextChannel: RCTDirectEventBlock?
 +    @objc var onSkipToPreviousChannel: RCTDirectEventBlock?
-+    // A skip that ends without its channel playing: {reason: "menu"} when Menu dismissed the
-+    // interstitial, {reason: "timeout"} when the watchdog did. Either way the player is left paused.
++    // A skip Menu dismissed before its channel played: the player is left paused under it.
 +    @objc var onChannelSkipAbandoned: RCTDirectEventBlock?
 +    private var _liveChannelFlip: NSDictionary?
 +    // liveChannelStage: the line under the interstitial's spinner, "stage\nhint" for two lines.
@@ -1535,16 +1534,11 @@ index 5f2f5f6..d8f6b10 100644
 +        #if os(tvOS)
 +            _liveChannelFailed = liveChannelFailed
 +            _channelInterstitial?.setFailed(liveChannelFailed)
-+            if liveChannelFailed {
-+                _pendingChannelSkipWatchdog?.cancel()
-+                _pendingChannelSkipWatchdog = nil
-+            }
 +        #endif
 +    }
 +
 +    #if os(tvOS)
 +        private var _pendingChannelSkip: ((Bool) -> Void)?
-+        private var _pendingChannelSkipWatchdog: DispatchWorkItem?
 +        private weak var _channelSkipItem: AVPlayerItem?
 +        // The interstitial AVKit last asked for; AVKit owns it, this only feeds it the stage line.
 +        private weak var _channelInterstitial: RCTChannelInterstitialViewController?
@@ -1554,12 +1548,8 @@ index 5f2f5f6..d8f6b10 100644
 +            // A newer request supersedes the one in flight (AVKit: each call advances one
 +            // channel even before the prior completes); its interstitial is dismissed as done.
 +            _pendingChannelSkip?(true)
-+            _pendingChannelSkipWatchdog?.cancel()
 +            _pendingChannelSkip = completion
 +            _channelSkipItem = _playerItem
-+            let watchdog = DispatchWorkItem { [weak self] in self?.abandonChannelSkip(reason: "timeout") }
-+            _pendingChannelSkipWatchdog = watchdog
-+            DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: watchdog)
 +            let event: [String: Any] = ["target": reactTag as Any]
 +            if direction > 0 { onSkipToNextChannel?(event) } else { onSkipToPreviousChannel?(event) }
 +        }
@@ -1588,15 +1578,13 @@ index 5f2f5f6..d8f6b10 100644
 +        }
 +
 +        /// The new item is ready: dismiss the interstitial. Ignored for the item the skip left. A failed
-+        /// channel holds it; the watchdog and Menu are the only false.
++        /// channel holds it; Menu and the player leaving are the only false.
 +        private func resolveChannelSkipIfReady() {
 +            guard _pendingChannelSkip != nil, let item = _playerItem, item !== _channelSkipItem else { return }
 +            resolveChannelSkip(true)
 +        }
 +
 +        private func resolveChannelSkip(_ success: Bool) {
-+            _pendingChannelSkipWatchdog?.cancel()
-+            _pendingChannelSkipWatchdog = nil
 +            _channelSkipItem = nil
 +            guard let completion = _pendingChannelSkip else { return }
 +            _pendingChannelSkip = nil
@@ -2171,7 +2159,7 @@ index c24fa11..7edc6e3 100644
 +    onSkipToNextChannel?: () => void;
 +    onSkipToPreviousChannel?: () => void;
 +    onChannelSkipAbandoned?: (e: {
-+        reason: 'menu' | 'timeout';
++        reason: 'menu';
 +    }) => void;
 +    onTransportBarButtonSelected?: (e: {
 +        id: string;
@@ -2285,9 +2273,9 @@ index 789d915..d8e2109 100644
 +    );
 +
 +    const _onChannelSkipAbandoned = useCallback(
-+      (e: NativeSyntheticEvent<{reason: string}>) => {
++      () => {
 +        onChannelSkipAbandoned?.({
-+          reason: e.nativeEvent.reason === 'menu' ? 'menu' : 'timeout',
++          reason: 'menu',
 +        });
 +      },
 +      [onChannelSkipAbandoned],
@@ -2412,7 +2400,7 @@ index 027fd5b..c7f9698 100644
 +  onInfoPanelItemSelected?: (e: {id: string}) => void; // tvOS (TomoTV patch)
 +  onSkipToNextChannel?: () => void; // tvOS (TomoTV patch)
 +  onSkipToPreviousChannel?: () => void; // tvOS (TomoTV patch)
-+  onChannelSkipAbandoned?: (e: {reason: 'menu' | 'timeout'}) => void; // tvOS (TomoTV patch)
++  onChannelSkipAbandoned?: (e: {reason: 'menu'}) => void; // tvOS (TomoTV patch)
 +  onTransportBarButtonSelected?: (e: {id: string}) => void; // tvOS (TomoTV patch)
    onEnd?: () => void; //All
    onError?: (e: OnVideoErrorData) => void; //Android, iOS

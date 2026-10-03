@@ -374,15 +374,6 @@ describe("PlayerHost", () => {
       expect(onRequestBack).toHaveBeenCalledTimes(1);
     });
 
-    it("parks the player once the interstitial is gone, so its error shows", async () => {
-      await swipeOntoDeadChannel();
-      await act(async () => {
-        renderer.root.findByType(Video).props.onChannelSkipAbandoned({ reason: "timeout" });
-      });
-      expect(renderer.root.findAllByType(Video)).toHaveLength(0);
-      expect(onRequestBack).not.toHaveBeenCalled();
-    });
-
     it("parks a channel picked from the info panel that fails, as no interstitial is up", async () => {
       await flipFromPlayingChannel();
       stateType = "ERROR";
