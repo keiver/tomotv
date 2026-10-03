@@ -265,14 +265,17 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertFalse(LiveFrameQueue.touch(burstOf: nil, in: root.appendingPathComponent("chan-none", isDirectory: true), now: now))
     }
 
-    /// The clip as AVFoundation opens it: its one video track's codec and its duration in seconds.
-    private func playable(_ url: URL) throws -> (tracks: Int, codec: String, seconds: Double) {
+    /// The clip as AVFoundation opens it: its one video track's codec, its duration in seconds and where its
+    /// first media segment starts (over zero means an empty edit leads the file; timeRange.start stays 0 for one).
+    private func playable(_ url: URL) throws -> (tracks: Int, codec: String, seconds: Double, start: Double) {
         let asset = AVURLAsset(url: url)
         let tracks = asset.tracks(withMediaType: .video)
         let format = tracks.first?.formatDescriptions.first.map { $0 as! CMFormatDescription }
         let fourcc = format.map { CMFormatDescriptionGetMediaSubType($0) } ?? 0
         let codec = String(bytes: [24, 16, 8, 0].map { UInt8((fourcc >> $0) & 0xFF) }, encoding: .ascii) ?? ""
-        return (asset.tracks.count, codec, CMTimeGetSeconds(asset.duration))
+        let media = tracks.first?.segments.first { !$0.isEmpty }
+        let start = media.map { CMTimeGetSeconds($0.timeMapping.target.start) } ?? -1
+        return (asset.tracks.count, codec, CMTimeGetSeconds(asset.duration), start)
     }
 
     private func grab(_ queue: LiveFrameQueue, _ stream: URL, clipSpan: TimeInterval) -> LiveFrameQueue.Outcome? {
@@ -315,8 +318,34 @@ final class LiveFrameQueueTests: XCTestCase {
         guard case .frames(_, let clip?, _)? = grab(queue, stream, clipSpan: 2) else { return XCTFail("no clip") }
         let opened = try playable(clip)
         XCTAssertEqual(opened.codec, "avc1")
-        // B-frames hold presentation a few frames behind decode; the clip carries that delay.
         XCTAssertEqual(opened.seconds, 2, accuracy: 0.25)
+        // B-frames hold the keyframe's presentation behind its decode time; the clip's zero is its presentation.
+        XCTAssertEqual(opened.start, 0, "no empty edit leads the clip")
+    }
+
+    func testAClipCutShortOfThreeOfItsFiveSecondsIsNotWritten() throws {
+        // The stream ends 2.4 s in, the way a watchdog stop, a cancel or a timestamp wrap cuts a read.
+        let short = try fixture("shortgop-2s.ts", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2.4",
+            "-c:v", "libx264", "-g", "25", "-keyint_min", "25", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let enough = try fixture("shortgop-4s.ts", [
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=4",
+            "-c:v", "libx264", "-g", "25", "-keyint_min", "25", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-an",
+        ])
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .frames(let urls, let clip, _)? = grab(queue, short, clipSpan: 5) else { return XCTFail("no burst") }
+        XCTAssertFalse(urls.isEmpty, "the burst still lands")
+        XCTAssertNil(clip, "2.4 s of a 5 s clip would loop a fraction of a second")
+        let left = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("chan-a").path)
+        XCTAssertFalse(left.contains { $0.contains("clip") }, "neither the clip nor its .part stays: \(left)")
+
+        guard case .frames(_, let kept?, _)? = grab(queue, enough, clipSpan: 5) else { return XCTFail("no clip") }
+        let opened = try playable(kept)
+        XCTAssertEqual(opened.seconds, 4, accuracy: 0.25, "three of the five seconds is enough")
     }
 
     func testAnHevcChannelsClipIsEncodedToH264AVFoundationPlays() throws {

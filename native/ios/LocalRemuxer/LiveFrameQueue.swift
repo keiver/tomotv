@@ -166,7 +166,9 @@ final class LiveFrameQueue {
             let stoppedMidway = cancelled.contains(channelId)
             lock.unlock()
             if stoppedMidway {
-                // Frames already written stay: the card was told about each as it landed.
+                // Frames already written stay: the card was told about each as it landed. The clip was not,
+                // and a reload would serve it as the newest on disk.
+                if case .frames(_, let clip?, _) = result { try? FileManager.default.removeItem(at: clip) }
                 NSLog("[LiveFrame] %@", String(format: "%@ cancelled %.2fs %lld bytes", channelId, elapsed, grabber.bytesRead))
                 outcome = .cancelled
                 return

@@ -89,6 +89,9 @@ final class FrameGrabber {
     private static let clipMaxBitrate: Int64 = 1_000_000
     private static let clipMaxHeight: Int32 = 360
     private static let clipFrameRate: Int32 = 15
+    /// A clip holding less than this share of its span is not written: a read cut short by the watchdog,
+    /// a cancel or a timestamp wrap would loop a fraction of a second on the card.
+    private static let clipMinShare = 0.6
     /// The simulator has no hardware decoder; asking for one there fails every clip with -12906 before falling back.
     #if targetEnvironment(simulator)
     private static let clipHardwareDecode = false
@@ -279,24 +282,34 @@ final class FrameGrabber {
         let inTb = inStream.pointee.time_base
         let outTb = outStream.pointee.time_base
         let toTicks = { (seconds: Double) in Int64((seconds * Double(inTb.den) / Double(inTb.num)).rounded()) }
-        let origin = keyPacket.pointee.dts != SWIFT_AV_NOPTS_VALUE ? keyPacket.pointee.dts : first.pts
+        // The clip's zero is the keyframe's presentation time: a decode-time zero puts its reorder delay
+        // in the file as an empty leading edit, a hole at the head of every loop. The span is read on
+        // decode time, which climbs where presentation does not.
+        let origin = first.pts
+        let decodeOrigin = keyPacket.pointee.dts != SWIFT_AV_NOPTS_VALUE ? keyPacket.pointee.dts : first.pts
         let spanTicks = toTicks(span)
+        let minTicks = toTicks(span * Self.clipMinShare)
         let keyStep = toTicks(interval)
         var nextKey = first.pts + keyStep
         var keysLeft = keys
         var written = 0
+        var lastPts: Int64 = 0
         func write(_ packet: UnsafeMutablePointer<AVPacket>) {
             guard let copy = av_packet_clone(packet) else { return }
             var owned: UnsafeMutablePointer<AVPacket>? = copy
             defer { av_packet_free(&owned) }
             copy.pointee.stream_index = 0
+            let pts = copy.pointee.pts
             av_packet_rescale_ts(copy, packetTb, outTb)
-            if av_interleaved_write_frame(output, copy) >= 0 { written += 1 }
+            if av_interleaved_write_frame(output, copy) >= 0 {
+                written += 1
+                if pts != SWIFT_AV_NOPTS_VALUE { lastPts = max(lastPts, pts) }
+            }
         }
         /// Onto the clip's own timeline from zero, then copied or transcoded; false once past the span.
         func take(_ packet: UnsafeMutablePointer<AVPacket>) -> Bool {
             let dts = packet.pointee.dts != SWIFT_AV_NOPTS_VALUE ? packet.pointee.dts : packet.pointee.pts
-            guard dts - origin < spanTicks else { return false }
+            guard dts - decodeOrigin < spanTicks else { return false }
             guard let shifted = av_packet_clone(packet) else { return true }
             var owned: UnsafeMutablePointer<AVPacket>? = shifted
             defer { av_packet_free(&owned) }
@@ -331,7 +344,7 @@ final class FrameGrabber {
             transcoder.process(packet: nil) { write($0) }
             guard !transcoder.failed else { return nil }
         }
-        guard written > 1, av_write_trailer(output) >= 0 else { return nil }
+        guard lastPts >= minTicks, av_write_trailer(output) >= 0 else { return nil }
         avio_closep(&output.pointee.pb)
         avformat_free_context(output)
         committed = true
