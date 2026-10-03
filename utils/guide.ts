@@ -283,6 +283,11 @@ export function adjacentChannelId<T extends { Id: string }>(channels: T[], curre
   return channels[next].Id;
 }
 
+/** The ring with the playing channel in it: one tuned from outside the shown list is appended, so a flip from it lands in the list. */
+export function ringWithCenter<T extends { Id: string }>(ring: readonly T[], center: T): T[] {
+  return ring.some((entry) => entry.Id === center.Id) ? [...ring] : [...ring, center];
+}
+
 /**
  * The ids the player shows around the playing channel: the previous one (a flip back), then it and up
  * to `ahead` after it, wrapping, each once. Just the playing channel until the lineup has it.

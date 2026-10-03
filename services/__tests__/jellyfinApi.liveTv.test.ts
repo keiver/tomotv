@@ -6,6 +6,7 @@ import {
   closeLeftoverOpens,
   closeLiveStream,
   fetchChannelCategories,
+  fetchChannelOrder,
   fetchChannels,
   fetchChannelsByIds,
   fetchListedChannels,
@@ -95,6 +96,19 @@ describe("live TV client", () => {
     expect(url).toContain("startIndex=60");
     expect(url).toContain("limit=60");
     expect(url).toContain("enableTotalRecordCount=true");
+  });
+
+  it("reads the lineup order without programmes, in the sort's order and held to a category when given", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [{ Id: "c1", Name: "One", Type: "TvChannel", CurrentProgram: { Name: "News" } }] }) });
+    await expect(fetchChannelOrder()).resolves.toEqual([{ Id: "c1", Name: "One", Type: "TvChannel" }]);
+    let [url] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain("addCurrentProgram=false");
+    expect(url).not.toContain("sortBy=");
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [] }) });
+    await fetchChannelOrder({ sortBy: "Name", category: "sports" });
+    [url] = (global.fetch as jest.Mock).mock.calls[1];
+    expect(url).toContain("sortBy=Name");
+    expect(url).toContain("isSports=true");
   });
 
   it("holds a page to a category through the server's flag", async () => {

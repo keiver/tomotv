@@ -11,7 +11,7 @@ import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
 import {
   cancelTimer,
   createTimer,
-  fetchChannelOrder,
+  fetchChannelRing,
   fetchChannelWindow,
   fetchLiveTvManagement,
   fetchMediaSegments,
@@ -28,7 +28,7 @@ import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { showToast } from "@/services/toast";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { activeRecordTimer, adjacentChannelId, channelWindow, durationLabel, programTimes } from "@/utils/guide";
+import { activeRecordTimer, adjacentChannelId, channelWindow, durationLabel, programTimes, ringWithCenter } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { playsFromDisk } from "@/services/downloads/localSource";
 import { stageStopped } from "@/hooks/usePlaybackStage";
@@ -48,15 +48,13 @@ import { t } from "@/services/i18n";
 /** Upcoming queue items whose keyframe is asked for ahead of the Up Next surfaces. */
 const UPCOMING_FRAMES = 5;
 
-/** How long AVKit's channel skip waits for an answer before the patch's watchdog refuses it. */
-const CHANNEL_SKIP_WATCHDOG_MS = 20_000;
-
 /** The error screen re-claims focus this often, for this long, while no error button holds it. */
 const ERROR_FOCUS_CLAIM_EVERY_MS = 300;
 const ERROR_FOCUS_CLAIM_WINDOW_MS = 5_000;
 
 /** Channels after the playing one that the info panel's strip shows (30 with it). */
 const CHANNEL_WINDOW_AHEAD = 29;
+const EMPTY_RING: JellyfinItem[] = [];
 
 /** Past the playing channel's airing end before its lineup is read again, so the server names the next programme. */
 const AIRING_END_SLACK_MS = 5_000;
@@ -222,19 +220,26 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     });
   }, [requestSession, sessionKey, videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel, params.advance]);
 
-  // tvOS channel flipping rides AVKit's own swipe: the channel ring in tuner order (ids and names,
-  // the lineup's order only) names the neighbours, and a flip swaps the channel under the one player.
-  const [channelRing, setChannelRing] = useState<JellyfinItem[]>([]);
-  // A swipe before the ring loads waits here; a failed load is retried by that swipe.
-  const pendingFlipRef = useRef<{ direction: 1 | -1; at: number } | null>(null);
+  // tvOS channel flipping rides AVKit's own swipe: the channel ring is the list the channel was tuned
+  // from (the filter and sort at open), and a flip swaps the channel under the one player.
+  const [ringPreferences] = useState(() => getLiveTvPreferences());
+  const [loadedRing, setLoadedRing] = useState<JellyfinItem[] | null>(null);
+  // Swipes before the ring loads wait here in order; a failed load is retried by the next swipe.
+  const pendingFlipsRef = useRef<(1 | -1)[]>([]);
   const ringFailedRef = useRef(false);
+  // The channel a swipe walks from, moved as each flip is issued: swipes queued while React is
+  // behind chain one step each instead of all leaving the channel still on screen.
+  const flipCenterRef = useRef<JellyfinItem>({ Id: videoId, Name: params.videoName ?? "", Type: "TvChannel" } as JellyfinItem);
+  useEffect(() => {
+    flipCenterRef.current = { Id: videoId, Name: params.videoName ?? "", Type: "TvChannel" } as JellyfinItem;
+  }, [videoId, params.videoName]);
   const [ringAttempt, setRingAttempt] = useState(0);
   useEffect(() => {
     if (!Platform.isTV || !isLiveChannel) return;
     let cancelled = false;
     ringFailedRef.current = false;
-    fetchChannelOrder()
-      .then((items) => !cancelled && setChannelRing(items))
+    fetchChannelRing(ringPreferences)
+      .then((items) => !cancelled && setLoadedRing(items))
       .catch((err) => {
         if (!cancelled) ringFailedRef.current = true;
         logger.warn("Channel ring load failed", err, { service: "VideoPlayer" });
@@ -242,7 +247,12 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     return () => {
       cancelled = true;
     };
-  }, [isLiveChannel, ringAttempt]);
+  }, [isLiveChannel, ringAttempt, ringPreferences]);
+  // Empty until loaded; the playing channel is in it from then on, listed or not.
+  const channelRing = useMemo(
+    () => (loadedRing === null ? EMPTY_RING : ringWithCenter(loadedRing, { Id: videoId, Name: params.videoName ?? "", Type: "TvChannel" } as JellyfinItem)),
+    [loadedRing, videoId, params.videoName],
+  );
   // What the player shows of the ring, read in full: art, number and the programme airing. The playing
   // channel is in it from the first render, so the heart and Record never wait on the lineup.
   const windowKey = channelWindow(channelRing, videoId, CHANNEL_WINDOW_AHEAD).join(",");
@@ -289,30 +299,33 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   }, [isLiveChannel, channelRing, windowChannels, videoId]);
   const handleSkipChannel = useCallback(
     (direction: 1 | -1) => {
-      if (channelRing.length === 0) {
-        pendingFlipRef.current = { direction, at: Date.now() };
+      if (loadedRing === null) {
+        pendingFlipsRef.current.push(direction);
         if (ringFailedRef.current) setRingAttempt((n) => n + 1);
         return;
       }
-      const targetId = adjacentChannelId(channelRing, videoId, direction);
-      const target = targetId ? channelRing.find((entry) => entry.Id === targetId) : undefined;
+      const from = flipCenterRef.current;
+      const ring = ringWithCenter(loadedRing, from);
+      const targetId = adjacentChannelId(ring, from.Id, direction);
+      const target = targetId ? ring.find((entry) => entry.Id === targetId) : undefined;
       if (!target) return;
+      flipCenterRef.current = target;
       logger.info("Live TV: flipping channel", { service: "VideoPlayer", direction, to: target.Name });
-      probeEmit("flip", { direction, from: videoId, to: target.Id });
+      probeEmit("flip", { direction, from: from.Id, to: target.Id });
       switchLiveChannel({ videoId: target.Id, videoName: target.Name });
       // The route follows the host, so its request adopts the flipped session and its release
       // names the channel that is playing.
       router.setParams({ videoId: target.Id, videoName: target.Name });
     },
-    [channelRing, videoId, switchLiveChannel, router],
+    [loadedRing, switchLiveChannel, router],
   );
-  // The ring arrived: a waiting swipe flips, unless the watchdog has already refused it.
+  // The ring arrived: the waiting swipes flip in order.
   useEffect(() => {
-    const pending = pendingFlipRef.current;
-    if (!pending || channelRing.length === 0) return;
-    pendingFlipRef.current = null;
-    if (Date.now() - pending.at < CHANNEL_SKIP_WATCHDOG_MS) handleSkipChannel(pending.direction);
-  }, [channelRing, handleSkipChannel]);
+    if (loadedRing === null || pendingFlipsRef.current.length === 0) return;
+    const pending = pendingFlipsRef.current;
+    pendingFlipsRef.current = [];
+    for (const direction of pending) handleSkipChannel(direction);
+  }, [loadedRing, handleSkipChannel]);
 
   // The host keeps the session when a tvOS PiP window is up. Released by identity:
   // an advance remounts this body, so two screens exist for one commit.
@@ -797,6 +810,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         if (!channel || channel.Id === videoId) return;
         logger.info("Live TV: channel picked from the panel", { service: "VideoPlayer", to: channel.Name });
         probeEmit("flip", { direction: 0, from: videoId, to: channel.Id });
+        flipCenterRef.current = channel;
         switchLiveChannel({ videoId: channel.Id, videoName: channel.Name });
         router.setParams({ videoId: channel.Id, videoName: channel.Name });
         return;

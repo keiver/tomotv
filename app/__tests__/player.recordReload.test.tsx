@@ -4,7 +4,7 @@ import type { PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import {
   cancelTimer,
   createTimer,
-  fetchChannelOrder,
+  fetchChannelRing,
   fetchChannelWindow,
   fetchLiveTvManagement,
   fetchMediaSegments,
@@ -43,7 +43,7 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn() 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchMediaSegments: jest.fn(),
   fetchNextEpisodeAutoPlay: jest.fn(),
-  fetchChannelOrder: jest.fn(async () => []),
+  fetchChannelRing: jest.fn(async () => []),
   fetchChannelWindow: jest.fn(async () => []),
   fetchVideoDetails: jest.fn(async () => null),
   setVideoFavorite: jest.fn(async () => {}),
@@ -96,7 +96,7 @@ describe("transport bar record after a failed re-read", () => {
     mockSession.sessionVideoId = "ch1";
     jest.mocked(fetchNextEpisodeAutoPlay).mockResolvedValue(true);
     jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null, commercials: [] });
-    jest.mocked(fetchChannelOrder).mockResolvedValue([{ Id: "ch1", Name: "News" }] as never);
+    jest.mocked(fetchChannelRing).mockResolvedValue([{ Id: "ch1", Name: "News" }] as never);
     jest.mocked(fetchChannelWindow).mockResolvedValue([{ Id: "ch1", Name: "News" }] as never);
     jest.mocked(fetchLiveTvManagement).mockResolvedValue(true);
     jest.mocked(fetchTimers).mockResolvedValue([]);
@@ -148,7 +148,7 @@ describe("transport bar record across a programme boundary", () => {
 
   it("records the programme on air now, not the one airing when the player opened", async () => {
     const now = Date.now();
-    jest.mocked(fetchChannelOrder).mockResolvedValue([{ Id: "ch1", Name: "News" }] as never);
+    jest.mocked(fetchChannelRing).mockResolvedValue([{ Id: "ch1", Name: "News" }] as never);
     jest.mocked(fetchChannelWindow).mockResolvedValue([{ Id: "ch1", Name: "News", CurrentProgram: airing("p1", now - 60_000, now + 60_000) }] as never);
     await act(async () => {
       renderer = TestRenderer.create(<VideoPlayerScreen />);
@@ -160,7 +160,7 @@ describe("transport bar record across a programme boundary", () => {
     });
     // The airing ended: the window is read again, never the whole lineup.
     expect(fetchChannelWindow).toHaveBeenCalledTimes(reads + 1);
-    expect(fetchChannelOrder).toHaveBeenCalledTimes(1);
+    expect(fetchChannelRing).toHaveBeenCalledTimes(1);
     await act(async () => lastHandlers().onTransportBarButtonSelected({ id: "record" }));
     expect(fetchTimerDefaults).toHaveBeenCalledWith("p2");
   });

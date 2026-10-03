@@ -79,6 +79,7 @@ export {
 export { editDisplayPreferences, getDisplayPreferences, removeDisplayPreference, updateDisplayPreferences } from "./jellyfin/displayPreferences";
 export type { ChannelOrigin } from "./jellyfin/liveTv";
 export { fetchTunerGroups, lastKnownTunerData } from "./jellyfin/tunerGroups";
+export { fetchChannelRing } from "./jellyfin/channelRing";
 export type { TunerGroup } from "./jellyfin/tunerGroups";
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";

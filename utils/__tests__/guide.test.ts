@@ -20,6 +20,7 @@ import {
   programCategory,
   revealOffset,
   rewindsStandIn,
+  ringWithCenter,
   rowSnap,
   rulerTicks,
   standInChannelId,
@@ -227,6 +228,14 @@ describe("guide geometry", () => {
     expect(adjacentChannelId(list, "missing", 1)).toBeNull();
     expect(adjacentChannelId([{ Id: "only" }], "only", 1)).toBeNull();
     expect(adjacentChannelId([], "x", 1)).toBeNull();
+  });
+
+  it("appends a playing channel the shown list does not hold, so a flip from it lands in the list", () => {
+    const list = [{ Id: "a" }, { Id: "b" }];
+    expect(ringWithCenter(list, { Id: "b" })).toEqual([{ Id: "a" }, { Id: "b" }]);
+    expect(ringWithCenter(list, { Id: "z" })).toEqual([{ Id: "a" }, { Id: "b" }, { Id: "z" }]);
+    expect(ringWithCenter([], { Id: "z" })).toEqual([{ Id: "z" }]);
+    expect(adjacentChannelId(ringWithCenter(list, { Id: "z" }), "z", 1)).toBe("a");
   });
 
   it("windows the lineup around the playing channel: the previous one, then it and the ones after", () => {

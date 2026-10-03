@@ -210,13 +210,21 @@ export async function fetchChannels(
 }
 
 /**
- * The whole lineup in the server's channel order, ids and names only. No programmes, art or user data:
- * measured 0.2 s and 2.9 MB on an 11k-channel server, where the full read took 5.5 s and timed out cold.
+ * The whole lineup in the order the guide shows for the sort, held to a category when given; ids and names
+ * only. Measured 0.2 s and 2.9 MB on an 11k-channel server, where the full read took 5.5 s and timed out cold.
  */
-export async function fetchChannelOrder(): Promise<JellyfinItem[]> {
+export async function fetchChannelOrder(order: { sortBy?: "SortName" | "Name"; category?: LiveTvCategory } = {}): Promise<JellyfinItem[]> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
-  const query = new URLSearchParams({ userId: config.userId, addCurrentProgram: "false", enableUserData: "false", enableImages: "false", enableTotalRecordCount: "false" });
+  const query = new URLSearchParams({
+    userId: config.userId,
+    addCurrentProgram: "false",
+    enableUserData: "false",
+    enableImages: "false",
+    enableTotalRecordCount: "false",
+    ...(order.sortBy ? { sortBy: order.sortBy } : {}),
+    ...(order.category ? { [CATEGORY_PARAMS[order.category]]: "true" } : {}),
+  });
   const response = await fetchWithTimeout(
     `${config.server}/LiveTv/Channels?${query.toString()}`,
     { headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
