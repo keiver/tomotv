@@ -54,7 +54,7 @@ final class LiveFrameQueue {
     /// One open yields a burst: a keyframe, then one per `defaultInterval` stream seconds across `defaultSpan`.
     static let defaultSpan: TimeInterval = 36
     static let defaultInterval: TimeInterval = 3
-    static let defaultCount = 12
+    static let defaultCount = 8
 
     enum Outcome {
         /// The burst in order, its preview clip when one was written, the first keyframe's pts.

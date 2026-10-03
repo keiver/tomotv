@@ -25,7 +25,7 @@ export const LIVE_FRAME_SPACING_MS = 1_000;
 /** One open covers this much stream time after its first keyframe, a keyframe per interval. */
 export const LIVE_FRAME_BURST_S = 36;
 export const LIVE_FRAME_BURST_INTERVAL_S = 3;
-export const LIVE_FRAME_BURST_COUNT = 12;
+export const LIVE_FRAME_BURST_COUNT = 8;
 /** Wall clock per grab, the keyframe wait included; the engine's watchdog stops the read at it. */
 export const LIVE_FRAME_DEADLINE_S = 12;
 /**
