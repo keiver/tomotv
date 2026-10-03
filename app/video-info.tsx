@@ -93,7 +93,8 @@ const HERO_FADE_RGB = IS_TV ? "rgba(44, 44, 46, " : "rgba(20, 20, 20, ";
  */
 export default function VideoInfoScreen() {
   // inFolderId: the folder screen the press came from. fromResume: pressed on a Continue card.
-  const params = useLocalSearchParams<{ videoId: string; name?: string; inFolderId?: string; fromResume?: string }>();
+  // timerId: opened from a Schedule row, so the panel's record state is that timer's.
+  const params = useLocalSearchParams<{ videoId: string; name?: string; inFolderId?: string; fromResume?: string; timerId?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openItem = useOpenShelfItem();
@@ -412,7 +413,9 @@ export default function VideoInfoScreen() {
   const liveChannelName = cleanLabel(liveProgram ? details?.ChannelName : liveChannel ? details?.Name : undefined);
   const canManage = useLiveTvManagement(live);
   const recording = useRecordActions(
-    live && canManage && liveChannelId ? { programId: liveProgram ? details?.Id : undefined, channelId: liveChannelId, channelName: liveChannelName, program: liveProgram } : null,
+    live && canManage && liveChannelId
+      ? { programId: liveProgram ? details?.Id : undefined, channelId: liveChannelId, channelName: liveChannelName, program: liveProgram, timerId: params.timerId }
+      : null,
   );
   const recordTimer = recording.timer;
   const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);

@@ -59,6 +59,20 @@ describe("useRecordActions", () => {
     expect(cancelTimer).not.toHaveBeenCalled();
   });
 
+  it("a timer id pins the read to that timer while it is live, then falls back once it is cancelled", async () => {
+    const future = { Id: "t9", Name: "News", ChannelId: "ch1", Status: "New", StartDate: new Date(now + 3_600_000).toISOString(), EndDate: new Date(now + 7_200_000).toISOString() };
+    jest.mocked(fetchTimers).mockResolvedValue([future] as never);
+    const ref = React.createRef<{ get: () => Actions }>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} target={{ channelId: "ch1", channelName: "News", timerId: "t9" }} />);
+    });
+    expect(ref.current!.get().timer).toMatchObject({ Id: "t9" });
+    jest.mocked(fetchTimers).mockResolvedValue([{ ...future, Status: "Cancelled" }] as never);
+    await act(async () => ref.current!.get().cancel());
+    expect(cancelTimer).toHaveBeenCalledWith("t9");
+    expect(ref.current!.get().timer).toBeNull();
+  });
+
   it("settles after the first read, a failed one included", async () => {
     expect((await mount()).current!.get().settled).toBe(true);
     jest.mocked(fetchTimers).mockRejectedValueOnce(new Error("offline"));

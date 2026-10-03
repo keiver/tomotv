@@ -3,7 +3,7 @@ import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSe
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { showToast } from "@/services/toast";
 import type { JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer } from "@/types/jellyfin";
-import { activeRecordTimer, durationLabel, isAiring, programTimes } from "@/utils/guide";
+import { activeRecordTimer, durationLabel, isActiveTimer, isAiring, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useState } from "react";
 
@@ -18,6 +18,8 @@ export interface RecordTarget {
   channelId: string;
   channelName: string;
   program?: Pick<JellyfinProgram, "StartDate" | "EndDate"> | null;
+  /** A known timer (a Schedule row): read by id while it is live, so a future manual timer is found. */
+  timerId?: string;
 }
 
 /** The timer covering the target (undefined until read) and the writes that start or end it. */
@@ -26,6 +28,7 @@ export function useRecordActions(target: RecordTarget | null) {
   const channelId = target?.channelId ?? "";
   const channelName = target?.channelName ?? "";
   const program = target?.program ?? null;
+  const timerId = target?.timerId;
   const [timer, setTimer] = useState<JellyfinTimer | null | undefined>(undefined);
   const [seriesTimerId, setSeriesTimerId] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState<RecordBusy>(null);
@@ -37,11 +40,12 @@ export function useRecordActions(target: RecordTarget | null) {
   const programEnd = program?.EndDate;
   const readState = useCallback(async () => {
     const [timers, rules] = await Promise.all([fetchTimers(), fetchSeriesTimers()]);
+    const pinned = timerId ? timers.find((candidate) => candidate.Id === timerId && isActiveTimer(candidate)) : undefined;
     return {
-      timer: activeRecordTimer(timers, { programId, channelId, program: { StartDate: programStart, EndDate: programEnd } }, Date.now()),
+      timer: pinned ?? activeRecordTimer(timers, { programId, channelId, program: { StartDate: programStart, EndDate: programEnd } }, Date.now()),
       seriesTimerId: programSeriesTimerId(timers, rules, programId),
     };
-  }, [programId, channelId, programStart, programEnd]);
+  }, [timerId, programId, channelId, programStart, programEnd]);
   const loadTimer = useCallback(async () => {
     const state = await readState();
     setTimer(state.timer);
