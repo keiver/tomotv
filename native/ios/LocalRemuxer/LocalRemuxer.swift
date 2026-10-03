@@ -633,12 +633,15 @@ class LocalRemuxer: RCTEventEmitter {
     ) {
         guard let target = URL(string: url as String) else { return resolve(NSNull()) }
         let budget = max(0.5, budgetMs.doubleValue / 1000)
-        var request = URLRequest(url: target, timeoutInterval: RemuxSession.linkProbeStartSeconds + budget)
+        // The first byte gets the whole budget: the file sits on a disk that may be asleep, and one
+        // answered after 3 s on a fast link (RemuxSession+LinkProbe.linkProbeStartSeconds).
+        let firstByteWithin = budget
+        var request = URLRequest(url: target, timeoutInterval: firstByteWithin + budget)
         for (name, value) in headers {
             if let name = name as? String, let value = value as? String { request.setValue(value, forHTTPHeaderField: name) }
         }
         // Registered on the module's queue, so a cancel sent after this call always finds it.
-        let probe = RateProbe(request: request, budget: budget, firstByteWithin: RemuxSession.linkProbeStartSeconds, repeats: true)
+        let probe = RateProbe(request: request, budget: budget, firstByteWithin: firstByteWithin, repeats: true)
         // One probe at a time: a replaced one would share the link and escape the playback cancel.
         Self.lock.lock()
         let previous = Self.measuring
