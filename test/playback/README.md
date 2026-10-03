@@ -398,6 +398,43 @@ TOMO_LIVE_SERVER_MASTER="http://127.0.0.1:8096/videos/<id>/master.m3u8?...&LiveS
 Measured on Jellyfin 12.0: an fMP4 (`mp4`) live transcoding profile is ignored and the reply degrades to
 a progressive `/stream` URL, so the profile is TS; HEVC copied into TS plays in AVPlayer.
 
+### A tuner behind Jellyfin (issue 89's shape)
+
+`scripts/demo-livetv/rig.mjs` stands up a throwaway Jellyfin container on this Mac fed by `relay.py`; with
+`--tuner hdhomerun` the relay also answers as an HDHomeRun (`discover.json`, `lineup.json`, `/auto/v<n>`), so
+Jellyfin describes each channel from the lineup's labels, opens it on the server and serves it back as
+`/LiveTv/LiveStreamFiles/<id>/stream.ts`, the path a real tuner takes. Captures go out as their own bytes,
+looped and paced at their container bitrate, every PID kept (an ffmpeg re-mux would drop the audio
+description and renumber PIDs); the first loop boundary is a PTS splice the engine rolls a generation on.
+
+```bash
+# ~/Movies/development-videos/live-captures/: real UK broadcasts (samples.ffmpeg.org), each *.ts beside a
+# <name>.json with the labels the tuner's lineup carries for it: {"name","videoCodec","audioCodec","hd"}
+node scripts/demo-livetv/rig.mjs 12.1 18112 --tuner hdhomerun --captures ~/Movies/development-videos/live-captures \
+  --tuners 4 --placeholder-probe            # the server state of issue 89 section 1: labels verbatim, Index -1, no transcode offered
+  --probesize 5M                            # the reporter's JELLYFIN_FFmpeg__probesize; unset keeps Jellyfin's 1G
+  --pace 0.5:40                             # each tuner reader at half the live rate for its first 40 s (a slow tuner link)
+  --video-delay 8                           # the tuner's video PID withheld for a reader's first 8 s
+```
+
+`--placeholder-probe` writes Jellyfin's own live probe cache (`/cache/mediainfo/<md5(OpenToken)>.json`) with the
+lineup placeholders, so every open answers the way a failed probe leaves it (jellyfin/jellyfin#18055). Measured
+on 12.1 with ffprobe 8.1.2: the real captures probe cleanly, with or without `--probesize`, and a video PID
+withheld during the probe comes back as width 0 rather than absent, so the probe crash itself does not reproduce
+here; the cache is what reproduces its outcome. The rig prints each channel's Jellyfin id; `GET /stats` on the
+tuner port counts readers (`readers:<channel>`), the fifth concurrent open answers 500 from Jellyfin.
+
+The engine on this Mac against a held open, startup marks in the log:
+
+```bash
+TOMO_LIVE_SOURCE_H264="http://127.0.0.1:18112/LiveTv/LiveStreamFiles/<id>/stream.ts?ApiKey=<RIG_TOKEN>" \
+  npm run test:engine -- --filter LivePipelineTests/testAnH264TransportStreamCopiesWithParameterSetsInItsInit
+```
+
+The test's own 1280-wide assertion fails on a 1440 or 1920 capture; the marks (`[LocalRemuxer] startup ...`)
+and the segment lines are the measurement. On the Apple TV: sign the dev build into the rig
+(`tomotv://dev-session`), play each channel, read the same marks off the device log.
+
 ## Regenerating baselines
 
 Only from a build you trust: `npm run test:playback -- --update-baselines`. Baselines are per-machine-class stable (H.264/HEVC decode is spec-exact; packet hashes are copy-exact) and were recorded on the tvOS simulator against the FFmpeg build `scripts/ffmpeg/ffmpeg-lock.json` pins; an FFmpeg bump that changes muxing is EXPECTED to diff the copy hashes, and that diff is the review signal, not noise to be blindly regenerated away.
