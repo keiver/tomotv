@@ -45,6 +45,7 @@ All notable changes to Tomo TV are documented here.
 - On iOS, toasts reach down past the navigation bar
 - On a connection that carries a file, playback offers only the device's own copy: the server starts no lower-quality version, audio or transcode for it. The server's versions are offered only on a connection too slow for the original
 - The connection speed in Settings is measured by reading ten seconds of a video on the server, never a test file of the server's own, and playback follows the speed the engine measures on the file it plays: a drop is followed at once, a rise once it holds
+- The guide ends two days out; nothing past that loads or scrolls into view
 
 ### Fixed
 
@@ -81,6 +82,9 @@ All notable changes to Tomo TV are documented here.
 - A guide refresh drops programmes the server no longer lists, and a guide source that fails keeps its listings
 - A deleted item leaves the search results
 - On Apple TV the heart and Record in a live channel's playback controls no longer wait on a lineup of thousands of channels: the player reads the playing channel and the 29 after it
+- A Live TV channel from a tuner behind Jellyfin 12 plays: the server labels the channel's streams from the tuner lineup (an MP2 soundtrack reads MPEG) and every SD channel was declined on that label; a live channel is now judged by the engine on the stream itself, and a soundtrack the tuner lists but never sends (an audio description track) is left out instead of ending the session
+- A tuner's HD channel starts sooner: the engine's probe of a live MPEG-TS stops after two seconds instead of running to FFmpeg's limits on streams it cannot read
+- The Streaming Quality preset caps a live channel the server transcodes; Auto keeps the server's own cap
 
 ## [2.2.8]
 
