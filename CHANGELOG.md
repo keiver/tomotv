@@ -16,6 +16,7 @@ All notable changes to Tomo TV are documented here.
 - A heart in the Apple TV playback controls adds the video or live channel to favorites, or removes it
 - The guide opens the info panel for a channel or programme: a programme's panel records it, and a channel's also favorites and groups it. An in-progress recording's panel shows its size, its length so far and a Stop action
 - A channel card wears a red REC pill while a timer records it
+- A recording in progress is marked outside the player: the Home tab's badge on iPhone and iPad, a red dot on the Libraries heading, REC on the Live TV card, and the guide's Schedule glyph badged in red. Scheduled opens a recording's panel from its row, and Stop All Recordings stops every one in progress
 - Short confirmations appear as a one-line strip: a recording started, with its length, or stopped, and a guide refresh starting, finishing or failing
 - Server admins can delete an item and its files from the server in the info panel, after a confirmation
 - On Apple TV, Live TV is a tab of its own when the server has a Live TV library
