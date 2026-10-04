@@ -340,6 +340,22 @@ export default function RootLayout() {
                         }
                       />
                       <Stack.Screen
+                        name="guide-channels"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : Platform.OS === "ios" && Platform.isPad
+                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
+                              : {
+                                  headerShown: true,
+                                  headerTransparent: true,
+                                  headerShadowVisible: false,
+                                  headerTitle: t("liveTv.matchedChannels"),
+                                  headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                }
+                        }
+                      />
+                      <Stack.Screen
                         name="channel-groups"
                         options={
                           Platform.isTV

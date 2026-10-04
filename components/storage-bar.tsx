@@ -32,10 +32,12 @@ interface StorageBarProps {
   used: number;
   /** Bytes still free on the device. */
   free: number;
-  /** Clears what `used` counts, behind a confirmation. */
-  onClear: () => void;
+  /** Clears what `used` counts, behind a confirmation. Omitted, the band is a reading only. */
+  onClear?: () => void;
   /** Replaces the downloads wording of the used part. */
   usedLabel?: string;
+  /** Replaces the whole reading. */
+  label?: string;
   hint?: string;
   layout?: ComponentProps<typeof SectionFooter>["layout"];
 }
@@ -46,12 +48,19 @@ interface StorageBarProps {
  * It is its card's footer: phone wraps it in SectionFooter, tvOS leaves it bare because the
  * footer's overlay would occlude it from focus. Pressing it clears everything.
  */
-export function StorageBar({ used, free, onClear, usedLabel, hint, layout }: StorageBarProps) {
+export function StorageBar({ used, free, onClear, usedLabel, label: reading, hint, layout }: StorageBarProps) {
   const { percent, accessibleNow } = storageBarFill(used, free);
   const usedPart = usedLabel ?? (used > 0 ? t("downloads.usedDownloaded").replace("{size}", formatFileSize(used)) : t("downloads.nothingDownloaded"));
-  const label = t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
+  const label = reading ?? t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
 
-  const bar = (
+  const bar = !onClear ? (
+    <View style={styles.track} accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: accessibleNow }}>
+      <View style={[styles.fill, { width: `${percent}%` }]} />
+      <View style={styles.row}>
+        <Text style={styles.label}>{label}</Text>
+      </View>
+    </View>
+  ) : (
     <Pressable
       style={styles.track}
       onPress={onClear}

@@ -1,34 +1,29 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { FocusableButton } from "@/components/FocusableButton";
 import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
+import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { forgetGuide, guideSourceStatuses, preloadGuide, subscribeGuideSources } from "@/services/externalGuide";
 import { guideFileInfo } from "@/services/guideFileCache";
 import { t } from "@/services/i18n";
-import type { StringKey } from "@/services/i18n/strings";
 import { fetchTunerData, lastKnownTunerData } from "@/services/jellyfin/tunerGroups";
 import { removeGuideUrl, setGuideSourceEnabled } from "@/services/liveTvPreferences";
-import type { MatchVia } from "@/utils/guideMatch";
 import { guideChannelRows, guideHost, guideLabel, guideOrigin, guideSourceSummary, guideUpdatedAt } from "@/utils/guideSources";
 import { logger } from "@/utils/logger";
 import { formatFileSize } from "@/utils/mediaInfo";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Alert, FlatList, Platform, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 const COPIED_MS = 1500;
 
-const VIA_LABEL: Record<MatchVia, StringKey> = {
-  id: "liveTv.matchedById",
-  tvgName: "liveTv.matchedByTvgName",
-  name: "liveTv.matchedByName",
-};
-
-/** One guide: the switch that uses it, every channel asked of it, where it comes from, and removal for the viewer's own. */
+/** One guide: the switch that uses it, its matched channels, where it comes from, and removal for the viewer's own. */
 export default function GuideSourceScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -100,9 +95,7 @@ export default function GuideSourceScreen() {
     }
   }, []);
 
-  const [expanded, setExpanded] = useState(false);
   const summary = guideSourceSummary(status, enabled, t);
-  const open = expanded && channels.length > 0;
 
   const sourceRows = [
     ...origin.playlists.map((playlist) => ({ key: playlist, icon: "list-outline" as const, title: t("liveTv.guideFromPlaylist"), value: playlist })),
@@ -110,15 +103,41 @@ export default function GuideSourceScreen() {
     { key: "url", icon: "link-outline" as const, title: t("liveTv.guideAddress"), value: url },
   ];
 
+  // Phone: the host names the screen; the back button already says Guide sources.
+  const screenOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      headerTitle: guideHost(url),
+      unstable_headerRightItems: () =>
+        origin.own
+          ? [
+              {
+                type: "custom",
+                element: (
+                  <FocusableButton
+                    title={t("liveTv.removeGuide")}
+                    variant="link"
+                    icon={<Ionicons name="trash-outline" size={16} color={COLORS.DESTRUCTIVE_SOFT} />}
+                    textStyle={screenStyles.removeText}
+                    onPress={remove}
+                    accessibilityHint={t("liveTv.removeGuideHint")}
+                  />
+                ),
+              },
+            ]
+          : [],
+    }),
+    [url, origin.own, remove],
+  );
+
   return (
     <View style={settingsStyles.screenContainer}>
-      {/* Phone: the host names the screen; the back button already says Guide sources. */}
-      {IS_TV ? null : <Stack.Screen options={{ headerTitle: guideHost(url) }} />}
+      {IS_TV ? null : <Stack.Screen options={screenOptions} />}
       <AmbientBackground />
-      {/* The channel list is the screen's own scroller: a virtualised list inside a ScrollView of
-          the same axis is a dev error and keeps every row mounted. */}
-      <View style={[screenStyles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
-        <View style={[settingsStyles.contentContainer, screenStyles.column]}>
+      <ScrollView
+        style={settingsStyles.scrollView}
+        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        showsVerticalScrollIndicator={false}>
+        <View style={settingsStyles.contentContainer}>
           {IS_TV ? (
             <View style={settingsStyles.sectionHeader}>
               <Text style={settingsStyles.sectionHeaderText} numberOfLines={1}>
@@ -129,7 +148,7 @@ export default function GuideSourceScreen() {
           <View style={settingsStyles.sectionHeader}>
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSourceSettings")}</Text>
           </View>
-          <View style={[settingsStyles.section, screenStyles.card]}>
+          <View style={settingsStyles.section}>
             <ListRow
               icon="checkmark-circle-outline"
               title={t("liveTv.useGuide")}
@@ -143,78 +162,48 @@ export default function GuideSourceScreen() {
               icon="tv-outline"
               title={t("liveTv.matchedChannels")}
               subtitle={summary.subtitle}
-              meter={summary.meter}
-              trailingIcon={channels.length === 0 || open ? undefined : "chevron-down"}
-              onPress={channels.length > 0 ? () => setExpanded(!expanded) : undefined}
-              accessibilityState={{ expanded: open }}
-              isLast={!open}
+              trailingIcon={channels.length === 0 ? undefined : "chevron-forward"}
+              onPress={channels.length > 0 ? () => router.push({ pathname: "/guide-channels", params: { url } }) : undefined}
+              isLast
             />
-            {/* Capped and virtualised: a catalog playlist asks thousands of channels of one guide. */}
-            {open ? (
-              <FlatList
-                data={channels}
-                keyExtractor={channelKey}
-                renderItem={({ item, index }) => (
-                  <ListRow
-                    icon={item.via ? "tv-outline" : "close-circle-outline"}
-                    title={item.name}
-                    subtitle={t(item.via ? VIA_LABEL[item.via] : "liveTv.notMatched")}
-                    nested
-                    isLast={index === channels.length - 1}
-                  />
-                )}
-                style={settingsStyles.creditsScrollable}
-                initialNumToRender={12}
-                maxToRenderPerBatch={8}
-                windowSize={5}
-                showsVerticalScrollIndicator={false}
-                focusable={false}
-              />
-            ) : null}
           </View>
 
           <View style={settingsStyles.sectionHeader}>
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideOrigin")}</Text>
           </View>
           <View style={settingsStyles.section}>
-            {sourceRows.map((row, index) => (
-              <ListRow
-                key={row.key}
-                icon={row.icon}
-                title={row.value !== null && copied === row.value ? t("common.copied") : row.title}
-                subtitle={row.value ?? undefined}
-                subtitleLines={0}
-                onPress={!IS_TV && row.value !== null ? () => void copy(row.value) : undefined}
-                accessibilityHint={!IS_TV && row.value !== null ? t("liveTv.copyUrlHint") : undefined}
-                isFirst={index === 0}
-                isLast={index === sourceRows.length - 1}
-              />
-            ))}
+            {sourceRows.map((row, index) => {
+              const copyable = !IS_TV && row.value !== null;
+              return (
+                <ListRow
+                  key={row.key}
+                  icon={row.icon}
+                  title={row.value !== null && copied === row.value ? t("common.copied") : row.title}
+                  subtitle={row.value ?? undefined}
+                  subtitleLines={0}
+                  trailingIcon={copyable ? (copied === row.value ? "checkmark" : "copy-outline") : undefined}
+                  onPress={copyable ? () => void copy(row.value as string) : undefined}
+                  accessibilityHint={copyable ? t("liveTv.copyUrlHint") : undefined}
+                  isFirst={index === 0}
+                  isLast={index === sourceRows.length - 1}
+                />
+              );
+            })}
           </View>
 
-          {origin.own ? (
+          {IS_TV && origin.own ? (
             <View style={settingsStyles.section}>
               <ListRow icon="trash-outline" tone="destructive" title={t("liveTv.removeGuide")} onPress={remove} accessibilityHint={t("liveTv.removeGuideHint")} isFirst isLast />
             </View>
           ) : null}
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
-const channelKey = (channel: { channelId: string }) => channel.channelId;
-
 const screenStyles = StyleSheet.create({
-  page: {
-    flex: 1,
-    alignItems: "center",
-  },
-  // Shrink rather than overflow: the card with the capped list gives before Source runs off screen.
-  column: {
-    flexShrink: 1,
-  },
-  card: {
-    flexShrink: 1,
+  removeText: {
+    color: COLORS.DESTRUCTIVE_SOFT,
   },
 });
