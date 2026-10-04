@@ -22,7 +22,7 @@ Pod::Spec.new do |s|
   s.author       = "Keiver"
   s.source       = { :path => "." }
 
-  s.ios.deployment_target  = "15.1"
+  s.ios.deployment_target  = "16.4"
   s.tvos.deployment_target = "16.4"
 
   # In sync with scripts/ffmpeg/build.sh and ffmpeg-lock.json.
