@@ -91,7 +91,6 @@ export default function GuideSourcesScreen() {
         icon="calendar-outline"
         title={guideLabel(url)}
         subtitle={summary.subtitle}
-        meter={summary.meter}
         trailingIcon="chevron-forward"
         onPress={() => openGuide(url)}
         hasTVPreferredFocus={preferred}
