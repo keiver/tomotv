@@ -99,6 +99,27 @@ class LiveSources: NSObject {
         }
     }
 
+    /// The programmes on the channels in the window that carry every word of the query, matched here
+    /// so a search never ships the whole guide across the bridge.
+    @objc func searchGuide(_ config: NSDictionary, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let token = config["token"] as? String, let channelIds = config["channelIds"] as? [String], let query = config["query"] as? String else {
+            reject("invalid_config", "searchGuide needs token, channelIds and query", nil)
+            return
+        }
+        guard case let .success(window?) = Self.window(config, required: true) else {
+            reject("invalid_config", "searchGuide needs finite from and to", nil)
+            return
+        }
+        let limit = (config["limit"] as? NSNumber)?.intValue ?? 50
+        Self.queue.async {
+            guard let store = Self.guides[token] else {
+                reject("closed", "Guide \(token) is not open", nil)
+                return
+            }
+            resolve(store.search(channelIds: channelIds, window: window, query: query, limit: limit).map(Self.dictionary))
+        }
+    }
+
     @objc func closeGuide(_ token: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter _: @escaping RCTPromiseRejectBlock) {
         Self.queue.async {
             Self.closeGuide(token)

@@ -5,6 +5,7 @@ import {
   fetchExternalPrograms,
   fetchExternalProgramWindow,
   forgetGuide,
+  searchExternalPrograms,
   guideSourcesBusy,
   guideSourceStatuses,
   preloadGuide,
@@ -20,6 +21,7 @@ jest.mock("@keiver/tomo-engine", () => ({
   loadGuide: jest.fn(),
   guideChannels: jest.fn(),
   guideProgrammes: jest.fn(),
+  searchGuide: jest.fn(),
   closeGuide: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock("@keiver/tomo-live/src/guideFileCache", () => ({
@@ -33,6 +35,7 @@ const native = jest.requireMock("@keiver/tomo-engine") as {
   loadGuide: jest.Mock;
   guideChannels: jest.Mock;
   guideProgrammes: jest.Mock;
+  searchGuide: jest.Mock;
   closeGuide: jest.Mock;
 };
 const cache = jest.requireMock("@keiver/tomo-live/src/guideFileCache") as { cachedGuideFile: jest.Mock; clearGuideFileCache: jest.Mock };
@@ -295,6 +298,55 @@ describe("fetchExternalPrograms", () => {
     native.loadGuide.mockRejectedValueOnce(new Error("not xml"));
     await expect(preloadGuide(OTHER)).resolves.toBeUndefined();
     expect(guideSourceStatuses()[OTHER].state).toBe("error");
+  });
+});
+
+describe("searchExternalPrograms", () => {
+  let tokens = 0;
+  const hit = (channel: string, start: number, title: string, desc: string) => ({ ...programme(channel, start, title), desc });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetExternalGuide();
+    tokens = 0;
+    cache.cachedGuideFile.mockImplementation(async (url: string) => `file:///cache/${encodeURIComponent(url)}`);
+    native.loadGuide.mockImplementation(async () => ({ token: `tok-${++tokens}`, stats: { channels: 2, programmes: 4 } }));
+    native.guideChannels.mockResolvedValue([
+      { id: "A.us", displayNames: ["Alpha"], icon: null },
+      { id: "B.us", displayNames: ["Bravo"], icon: null },
+    ]);
+    native.searchGuide.mockResolvedValue([]);
+  });
+
+  it("asks the native store for the paired channels and maps each hit onto its app channel, earliest first", async () => {
+    native.searchGuide.mockResolvedValue([hit("B.us", WINDOW.from + 5_000, "Late Game", "Yankees again."), hit("A.us", WINDOW.from, "MLB Baseball", "Yankees at Rays.")]);
+    const programs = await searchExternalPrograms(
+      [URL],
+      [
+        { channelId: "c1", tvgId: "A.us", name: "Alpha" },
+        { channelId: "c2", name: "Bravo" },
+        { channelId: "c3", name: "Nobody" },
+      ],
+      WINDOW,
+      "yankees",
+      30,
+    );
+    expect(native.searchGuide).toHaveBeenCalledWith("tok-1", ["A.us", "B.us"], WINDOW, "yankees", 30);
+    expect(programs.map((program) => [program.ChannelId, program.Name])).toEqual([
+      ["c1", "MLB Baseball"],
+      ["c2", "Late Game"],
+    ]);
+    expect(programs[0]).toMatchObject({ Id: `${EXTERNAL_GUIDE_PREFIX}c1:${WINDOW.from}`, Overview: "Yankees at Rays." });
+  });
+
+  it("asks a later guide only for the channels earlier ones did not pair, and skips a guide that fails", async () => {
+    await searchExternalPrograms([URL, OTHER], [{ channelId: "c1", tvgId: "A.us", name: "Alpha" }], WINDOW, "yankees", 30);
+    expect(native.searchGuide).toHaveBeenCalledTimes(1);
+    native.searchGuide.mockClear();
+    resetExternalGuide();
+    native.loadGuide.mockRejectedValueOnce(new Error("not xml"));
+    native.searchGuide.mockResolvedValue([hit("A.us", WINDOW.from, "MLB Baseball", "Yankees.")]);
+    const programs = await searchExternalPrograms([URL, OTHER], [{ channelId: "c1", tvgId: "A.us", name: "Alpha" }], WINDOW, "yankees", 30);
+    expect(programs.map((program) => program.ChannelId)).toEqual(["c1"]);
   });
 });
 

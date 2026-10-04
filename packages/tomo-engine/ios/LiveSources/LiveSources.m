@@ -24,6 +24,11 @@ RCT_EXTERN_METHOD(guideProgrammes
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(searchGuide
+                  : (NSDictionary *)config resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(closeGuide
                   : (nonnull NSString *)token resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

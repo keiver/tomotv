@@ -6,7 +6,7 @@
  * streams into the native store once per window, and is asked in order: a channel an earlier
  * guide covered is not asked again. Every guide reports its own status and what it matched.
  */
-import { closeGuide, engineLog, guideChannels, guideProgrammes, isLiveSourcesAvailable, loadGuide, type GuideProgramme } from "@keiver/tomo-engine";
+import { closeGuide, engineLog, guideChannels, guideProgrammes, isLiveSourcesAvailable, loadGuide, searchGuide, type GuideProgramme } from "@keiver/tomo-engine";
 import { cachedGuideFile, clearGuideFileCache } from "./guideFileCache";
 import { buildGuideIndex, matchChannels, type GuideChannelRequest, type GuideIndex, type MatchVia } from "./guideMatch";
 import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS } from "./time";
@@ -309,4 +309,41 @@ export async function fetchExternalListingWindow(
   // A later guide with listings answers for a failed source. An empty fallback cannot tell us
   // whether the failed source removed its programmes, so retain those channels until a good read.
   return { listings: result, failedChannelIds: remaining.filter((channel) => failed.has(channel.channelId)).map((channel) => channel.channelId) };
+}
+
+/**
+ * Programmes in the window whose title, sub-title or description carries every word of `query`,
+ * from the guides at `urls` asked in order, for the given channels: a channel an earlier guide
+ * pairs is not asked again. Matched natively (searchGuide); a guide that fails logs and gives nothing.
+ */
+export async function searchExternalListings(
+  urls: readonly string[],
+  channels: readonly GuideChannelRequest[],
+  windowMs: { from: number; to: number },
+  query: string,
+  limit: number,
+): Promise<GuideListing[]> {
+  if (urls.length === 0 || channels.length === 0 || !isLiveSourcesAvailable()) return [];
+  const result: GuideListing[] = [];
+  let remaining = channels;
+  for (const url of urls) {
+    if (remaining.length === 0) break;
+    const source = sourceFor(url);
+    let guide: OpenGuide | null = null;
+    try {
+      guide = await ensureOpen(source, windowMs);
+      const matches = matchChannels(guide.index, remaining);
+      if (matches.size === 0) continue;
+      const byGuideId = new Map<string, string[]>();
+      for (const [channelId, { guideId }] of matches) byGuideId.set(guideId, [...(byGuideId.get(guideId) ?? []), channelId]);
+      for (const programme of await searchGuide(guide.token, Array.from(byGuideId.keys()), windowMs, query, limit)) {
+        for (const channelId of byGuideId.get(programme.channel) ?? []) result.push({ channelId, programme });
+      }
+      remaining = remaining.filter((channel) => !matches.has(channel.channelId));
+    } catch (error) {
+      if (guide && source.open === guide) source.open = null;
+      engineLog().warn("External guide search failed", error, { service: "ExternalGuide", url });
+    }
+  }
+  return result.sort((a, b) => a.programme.start - b.programme.start).slice(0, limit);
 }

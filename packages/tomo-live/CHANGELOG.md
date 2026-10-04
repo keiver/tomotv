@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- `searchExternalListings`: the guide sources' programmes in a window matching every word of a query, asked of each guide in order for the channels earlier guides did not pair, through the engine's `searchGuide`. Requires `@keiver/tomo-engine` 1.0.1.
+
 ## 1.0.0
 
 First release, extracted from Tomo TV.

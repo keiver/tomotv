@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- `searchGuide`: a loaded guide's programmes in a window whose title, sub-title or description carries every word of a query, case and accents folded, matched in the native store; a title's earliest airing per channel, earliest first, up to a limit.
+- The TomoEngine, TomoLiveSources and TomoFFmpeg pods target iOS 16.4.
+
 ## 1.0.0
 
 First release, extracted from Tomo TV.
