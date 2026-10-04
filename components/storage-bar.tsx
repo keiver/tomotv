@@ -6,7 +6,7 @@ import React, { type ComponentProps } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
 
-/** A floor wide enough that the red reads as a bar, not a sliver, when little is used. */
+/** A floor wide enough that the fill reads as a bar, not a sliver, when little is used. */
 const MIN_VISIBLE_FRACTION = 0.06;
 
 /** Shorter than a row, so the card's last band reads as a rule rather than another entry. */
@@ -38,6 +38,8 @@ interface StorageBarProps {
   usedLabel?: string;
   /** Replaces the whole reading. */
   label?: string;
+  /** Overrides the red storage fill for readings such as successful channel matches. */
+  fillColor?: string;
   hint?: string;
   layout?: ComponentProps<typeof SectionFooter>["layout"];
 }
@@ -48,14 +50,14 @@ interface StorageBarProps {
  * It is its card's footer: phone wraps it in SectionFooter, tvOS leaves it bare because the
  * footer's overlay would occlude it from focus. Pressing it clears everything.
  */
-export function StorageBar({ used, free, onClear, usedLabel, label: reading, hint, layout }: StorageBarProps) {
+export function StorageBar({ used, free, onClear, usedLabel, label: reading, fillColor = COLORS.DESTRUCTIVE, hint, layout }: StorageBarProps) {
   const { percent, accessibleNow } = storageBarFill(used, free);
   const usedPart = usedLabel ?? (used > 0 ? t("downloads.usedDownloaded").replace("{size}", formatFileSize(used)) : t("downloads.nothingDownloaded"));
   const label = reading ?? t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
 
   const bar = !onClear ? (
     <View style={styles.track} accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: accessibleNow }}>
-      <View style={[styles.fill, { width: `${percent}%` }]} />
+      <View style={[styles.fill, { width: `${percent}%`, backgroundColor: fillColor }]} />
       <View style={styles.row}>
         <Text style={styles.label}>{label}</Text>
       </View>
@@ -73,7 +75,7 @@ export function StorageBar({ used, free, onClear, usedLabel, label: reading, hin
       tvParallaxProperties={{ enabled: false }}>
       {({ focused }) => (
         <>
-          <View style={[styles.fill, { width: `${percent}%` }]} pointerEvents="none" />
+          <View style={[styles.fill, { width: `${percent}%`, backgroundColor: fillColor }]} pointerEvents="none" />
           <View style={styles.row} pointerEvents="none">
             <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.ON_ACCENT} style={styles.mark} />
             {/* Unclamped: at the accessibility text sizes the reading is wider than the band, and
@@ -103,7 +105,6 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: COLORS.DESTRUCTIVE,
   },
   row: {
     flexDirection: "row",

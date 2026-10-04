@@ -1,7 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { RollingFieldRow } from "@/components/settings/RollingFieldRow";
-import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { StorageBar } from "@/components/storage-bar";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -96,6 +95,7 @@ export default function GuideSourcesScreen() {
         trailingIcon="chevron-forward"
         onPress={() => openGuide(url)}
         hasTVPreferredFocus={preferred}
+        isFirst={preferred}
       />
     );
   };
@@ -113,9 +113,6 @@ export default function GuideSourcesScreen() {
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSources")}</Text>
           </View>
           <View style={settingsStyles.section}>
-            <SectionFooter edge="top">
-              <Text style={settingsStyles.sectionNote}>{t("liveTv.guideSourcesAbout")}</Text>
-            </SectionFooter>
             {/* The order guides are asked in: the viewer's own first. */}
             {[...preferences.guideUrls, ...playlistUrls].map((url, index) => sourceRow(url, index === 0))}
             <RollingFieldRow
@@ -126,7 +123,7 @@ export default function GuideSourcesScreen() {
               accessibilityLabel={t("liveTv.addGuide")}
               keyboardType="url"
               autoCapitalize="none"
-              isFirst={false}
+              isFirst={preferences.guideUrls.length === 0 && playlistUrls.length === 0}
               isLast={false}
               value={draft}
               onChangeText={setDraft}

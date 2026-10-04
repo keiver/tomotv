@@ -3,6 +3,7 @@ import { PadSheet } from "@/components/pad-sheet";
 import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
 import { StorageBar } from "@/components/storage-bar";
+import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { guideSourceStatuses, subscribeGuideSources } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
@@ -55,11 +56,11 @@ export default function GuideChannelsScreen() {
   const list = (style: object) => (
     <FlatList data={channels} keyExtractor={channelKey} renderItem={renderItem} style={style} initialNumToRender={12} maxToRenderPerBatch={8} windowSize={5} showsVerticalScrollIndicator={!IS_TV} />
   );
-  // The Downloads gauge, read only: the card runs out into it.
+  // Successful matches fill the read-only gauge green as the card runs out into it.
   const gauge =
     summary.meter !== undefined ? (
       <View onLayout={(event) => setGaugeHeight(event.nativeEvent.layout.height)}>
-        <StorageBar used={summary.meter} free={1 - summary.meter} label={summary.subtitle} />
+        <StorageBar used={summary.meter} free={1 - summary.meter} label={summary.subtitle} fillColor={COLORS.SUCCESS} />
       </View>
     ) : null;
 

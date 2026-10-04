@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { ListRow } from "@/components/settings/ListRow";
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { COLORS } from "@/constants/colors";
@@ -97,11 +98,7 @@ export default function GuideSourceScreen() {
 
   const summary = guideSourceSummary(status, enabled, t);
 
-  const sourceRows = [
-    ...origin.playlists.map((playlist) => ({ key: playlist, icon: "list-outline" as const, title: t("liveTv.guideFromPlaylist"), value: playlist })),
-    ...(origin.own ? [{ key: "own", icon: "person-outline" as const, title: t("liveTv.guideAddedByYou"), value: null }] : []),
-    { key: "url", icon: "link-outline" as const, title: t("liveTv.guideAddress"), value: url },
-  ];
+  const sourceNotes = [...origin.playlists.map((playlist) => `${t("liveTv.guideFromPlaylist")}\n${playlist}`), ...(origin.own ? [t("liveTv.guideAddedByYou")] : [])];
 
   // Phone: the host names the screen; the back button already says Guide sources.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
@@ -150,13 +147,22 @@ export default function GuideSourceScreen() {
           </View>
           <View style={settingsStyles.section}>
             <ListRow
+              icon="link-outline"
+              title={copied === url ? t("common.copied") : t("liveTv.guideAddress")}
+              subtitle={url}
+              subtitleLines={0}
+              trailingIcon={!IS_TV ? (copied === url ? "checkmark" : "copy-outline") : undefined}
+              onPress={!IS_TV ? () => void copy(url) : undefined}
+              accessibilityHint={!IS_TV ? t("liveTv.copyUrlHint") : undefined}
+              isFirst
+            />
+            <ListRow
               icon="checkmark-circle-outline"
               title={t("liveTv.useGuide")}
               subtitle={file ? `${t("liveTv.guideUpdatedAt").replace("{when}", guideUpdatedAt(file.savedAt, openedAt, t))} · ${formatFileSize(file.bytes) || "0 KB"}` : undefined}
               trailingIcon={enabled ? tick : undefined}
               onPress={toggle}
               hasTVPreferredFocus
-              isFirst
             />
             <ListRow
               icon="tv-outline"
@@ -164,31 +170,15 @@ export default function GuideSourceScreen() {
               subtitle={summary.subtitle}
               trailingIcon={channels.length === 0 ? undefined : "chevron-forward"}
               onPress={channels.length > 0 ? () => router.push({ pathname: "/guide-channels", params: { url } }) : undefined}
-              isLast
+              isLast={sourceNotes.length === 0}
             />
-          </View>
-
-          <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideOrigin")}</Text>
-          </View>
-          <View style={settingsStyles.section}>
-            {sourceRows.map((row, index) => {
-              const copyable = !IS_TV && row.value !== null;
-              return (
-                <ListRow
-                  key={row.key}
-                  icon={row.icon}
-                  title={row.value !== null && copied === row.value ? t("common.copied") : row.title}
-                  subtitle={row.value ?? undefined}
-                  subtitleLines={0}
-                  trailingIcon={copyable ? (copied === row.value ? "checkmark" : "copy-outline") : undefined}
-                  onPress={copyable ? () => void copy(row.value as string) : undefined}
-                  accessibilityHint={copyable ? t("liveTv.copyUrlHint") : undefined}
-                  isFirst={index === 0}
-                  isLast={index === sourceRows.length - 1}
-                />
-              );
-            })}
+            {sourceNotes.length > 0 ? (
+              <SectionFooter>
+                <Text style={settingsStyles.sectionNote} selectable={!IS_TV}>
+                  {sourceNotes.join("\n\n")}
+                </Text>
+              </SectionFooter>
+            ) : null}
           </View>
 
           {IS_TV && origin.own ? (
