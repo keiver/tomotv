@@ -17,6 +17,7 @@ import {
 } from "../jellyfinApi";
 import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
 import { recordClose, recordedOpens, recordOpen } from "../jellyfin/liveOpens";
+import { logger } from "@/utils/logger";
 
 jest.mock("../jellyfin/liveOpens", () => {
   const opens = new Map<string, { server: string; deviceId: string }>();
@@ -751,6 +752,17 @@ describe("live TV client", () => {
     await closeLeftoverOpens();
     expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain("/LiveStreams/Close?liveStreamId=ls-80");
     expect(recordClose).toHaveBeenCalledWith("ls-80");
+  });
+
+  it("logs how many leftover opens are still held after a close no server answered", async () => {
+    const info = jest.spyOn(logger, "info");
+    recordOpen("ls-95", { server: SERVER, deviceId: "test-device-id" });
+    recordOpen("ls-96", { server: SERVER, deviceId: "test-device-id" });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 }).mockRejectedValueOnce(new Error("Network request failed"));
+    await closeLeftoverOpens();
+    expect(info).toHaveBeenCalledWith("Live opens left by a previous run", { service: "LiveTv", count: 2, kept: 1 });
+    expect(recordedOpens()).toEqual({ "ls-96": { server: SERVER, deviceId: "test-device-id" } });
+    info.mockRestore();
   });
 
   it("closes an open left on another server with that account's saved token", async () => {

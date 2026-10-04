@@ -574,7 +574,8 @@ export async function closeLeftoverOpens(): Promise<void> {
     if (token) await closeLiveStream(liveStreamId, { ...open, apiKey: token });
     else recordClose(liveStreamId);
   }
-  logger.info("Live opens left by a previous run closed", { service: "LiveTv", count: ids.length });
+  const kept = ids.filter((liveStreamId) => liveStreamId in recordedOpens()).length;
+  logger.info("Live opens left by a previous run", { service: "LiveTv", count: ids.length, kept });
 }
 
 async function liveTvRequest(path: string, init: RequestInit = {}, timeout: number = API_TIMEOUTS.NORMAL): Promise<Response> {
