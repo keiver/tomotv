@@ -270,6 +270,7 @@
   "player.serverOff.device": "Le transcodage par le serveur est désactivé dans Réglages, il ne lui a donc pas été demandé de transcoder ceci",
   "player.serverOff.neededAccount": "Ceci nécessite le transcodage par le serveur, que ton serveur n'autorise pas pour ce compte",
   "player.serverOff.neededDevice": "Ceci nécessite le transcodage par le serveur, qui est désactivé dans Réglages",
+  "player.errorCode": "Code d'erreur",
   "player.error.notFound": "Vidéo introuvable sur le serveur",
   "player.error.unauthorized": "Échec de l'authentification. Ta session a peut-être expiré.",
   "player.error.network": "Impossible de se connecter au serveur Jellyfin",

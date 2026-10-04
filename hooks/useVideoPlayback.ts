@@ -86,6 +86,7 @@ import { audioLanguageToStore, getAudioPreferenceSync, preferredAudioStreamIndex
 import { refreshTrackSettings } from "@/services/jellyfin/trackSettings";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 import { t } from "@/services/i18n";
+import { errorIdOf, formatErrorRef, IdentifiedError, nativeErrorOf, PLAYBACK_ERROR_IDS, type LaneTag, type PlaybackErrorId } from "@/utils/errorIds";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { gatewayMaxBitRate } from "@/services/adaptiveQuality";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
@@ -150,6 +151,20 @@ function fail(message: string): never {
 
 function failServerOff(by: ServerTranscodeBlock): never {
   throw new ServerTranscodeOffError(by);
+}
+
+function failWith(id: PlaybackErrorId, message: string): never {
+  throw new IdentifiedError(id, message);
+}
+
+/** A rejection handler that gives the failure its ID, keeping its message for the classification. */
+const rethrowAs = (id: PlaybackErrorId) => (error: unknown) => failWith(id, error instanceof Error ? error.message : String(error));
+
+/** The lane tag the error ID carries. */
+function laneTagFor(transport: PlaybackTransport, heldOnDisk: boolean): LaneTag {
+  if (transport === "gateway") return "ENG";
+  if (transport === "server") return "SRV";
+  return heldOnDisk ? "DSK" : "DIR";
 }
 
 /** Work of ours on the same cores and the same link, so the sample is not the file's: a
@@ -701,7 +716,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const lane = selectLane(gates, { canRemux, subtitlesOff: getSubtitlePreferenceSync().kind === "off" });
       const serverBlock = lane.mode === "transcode" && !gates.heldOnDisk ? serverTranscodeBlock(details) : null;
       if (serverBlock) failServerOff(serverBlock);
-      if (lane.unplayable) fail(lane.unplayable);
+      if (lane.unplayable) failWith(PLAYBACK_ERROR_IDS.LIVE_NOLANE, lane.unplayable);
       const selectedMode = lane.mode;
       burnInSubtitleIndexRef.current = lane.burnInSubtitleIndex;
 
@@ -780,7 +795,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       probeEmit("error", { mode: "metadata", message: String(err), willRetry: autoRetry });
       dispatch({
         type: "PLAYER_ERROR",
-        error: { message: errorMessage, ...(serverOff ? { serverOff } : {}) },
+        error: { message: errorMessage, ref: { id: errorIdOf(err, PLAYBACK_ERROR_IDS.META) }, ...(serverOff ? { serverOff } : {}) },
         mode: "direct",
         hasTriedTranscode: true,
         autoRetry,
@@ -1246,7 +1261,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
               if (engineInputMissing(outcome.failed) && !playsFromDisk(videoId)) throw new EngineInputMissingError(outcome.failed);
-              throw new Error(`engine failed: ${outcome.failed}`);
+              throw new IdentifiedError(PLAYBACK_ERROR_IDS.ENGINE_FAILED, `engine failed: ${outcome.failed}`);
             }
             const sample = outcome;
             const under = sample !== null && belowRealtime(sample);
@@ -1302,7 +1317,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               stopLocalRemux(token);
               localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
-              throw new Error(sample ? "engine below realtime" : readNothing ? `the stream delivered no data in ${waitedMs / 1000}s` : `engine produced no segment within ${waitedMs / 1000}s`);
+              throw sample
+                ? new IdentifiedError(PLAYBACK_ERROR_IDS.ENGINE_SLOW, "engine below realtime")
+                : readNothing
+                  ? new IdentifiedError(PLAYBACK_ERROR_IDS.ENGINE_NODATA, `the stream delivered no data in ${waitedMs / 1000}s`)
+                  : new IdentifiedError(PLAYBACK_ERROR_IDS.ENGINE_NOSEG, `engine produced no segment within ${waitedMs / 1000}s`);
             }
           }
           return true;
@@ -1352,9 +1371,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               logger.info("Live channel bound to its warming ring session", { service: "useVideoPlayback", videoId });
             } else {
               setPlaybackStage("engine");
-              url = serverVideoOnly
-                ? await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined, { serverVideoOnly: true })
-                : await startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
+              const engineStarted = serverVideoOnly
+                ? startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined, { serverVideoOnly: true })
+                : startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
+              url = await engineStarted.catch(rethrowAs(PLAYBACK_ERROR_IDS.ENGINE_START));
               if (requestIdRef.current !== currentRequestId) {
                 // Stale since the await: a session nobody will play, stopped here instead of at the cap.
                 stopLocalRemux(localRemuxToken(url));
@@ -1502,7 +1522,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               const serverOff = serverOffForError(remuxError, errorType, serverTranscodeBlock(details), false);
               dispatch({
                 type: "PLAYER_ERROR",
-                error: { message: getPlaybackErrorMessage(errorType), ...(serverOff ? { serverOff } : {}) },
+                error: { message: getPlaybackErrorMessage(errorType), ref: { id: errorIdOf(remuxError, PLAYBACK_ERROR_IDS.STREAM), lane: "ENG" }, ...(serverOff ? { serverOff } : {}) },
                 mode: "localRemux",
                 hasTriedTranscode: true,
               });
@@ -1513,7 +1533,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               probeEmit("error", { mode: "localRemux", message: remuxError.message, willRetry: false });
               dispatch({
                 type: "PLAYER_ERROR",
-                error: { message: getPlaybackErrorMessage(PlaybackErrorType.NOT_FOUND) },
+                error: { message: getPlaybackErrorMessage(PlaybackErrorType.NOT_FOUND), ref: { id: remuxError.id, lane: "ENG" } },
                 mode: "direct",
                 hasTriedTranscode: true,
               });
@@ -1660,11 +1680,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         if (serverOff?.needed) resetPlaybackStages();
         const engineSpent = serverDenied && mode === "localRemux" && engineSpentWithoutServer({ errorType, serverTranscodingAllowed: false, hasRetriedGateway: gatewayRetriedRef.current });
         const final = serverOff?.needed === true || engineSpent;
+        // A failure no lane could take has no lane to name.
+        const id = errorIdOf(error, PLAYBACK_ERROR_IDS.STREAM);
+        const ref = serverOff?.needed ? { id } : { id, lane: laneTagFor(transportRef.current, playsFromDisk(videoId)) };
 
         dispatch({
           type: "PLAYER_ERROR",
           error: {
             message: t("player.error.streamFailed"),
+            ref,
             ...(serverOff ? { serverOff } : {}),
           },
           mode,
@@ -1840,6 +1864,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                   type: "PLAYER_ERROR",
                   error: {
                     message: t("player.error.startFailed"),
+                    ref: { id: PLAYBACK_ERROR_IDS.AUTOPLAY, lane: laneTagFor(transportRef.current, playsFromDisk(videoId)), native: nativeErrorOf(error) },
                   },
                   mode: currentModeRef.current,
                   hasTriedTranscode: hasTriedTranscoding,
@@ -1981,7 +2006,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               if (!isMountedRef.current || requestIdRef.current !== attempt) return;
               if (Math.abs(currentTimeRef.current - pos) > PLAYHEAD_EPSILON_SEC) return;
               logger.warn("Live channel stalled", { service: "useVideoPlayback", lane: currentModeRef.current, seconds: LIVE_STALL_DEADLINE_MS / 1000 });
-              playerErrorRef.current?.({ error: { errorString: `live playback stalled for ${LIVE_STALL_DEADLINE_MS / 1000}s` } } as OnVideoErrorData);
+              playerErrorRef.current?.({ error: { errorString: `live playback stalled for ${LIVE_STALL_DEADLINE_MS / 1000}s`, errorId: PLAYBACK_ERROR_IDS.LIVE_STALL } } as OnVideoErrorData);
             }, LIVE_STALL_DEADLINE_MS),
           };
         } else if (!data.isBuffering && stallWatchRef.current != null) {
@@ -2107,7 +2132,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         setImmediate(() => {
           if (!isMountedRef.current || requestIdRef.current !== attempt) return;
           const serverOff = retry ? undefined : serverOffForError(error.error, errorType, serverTranscodeBlock(videoDetails), false);
-          dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType), ...(serverOff ? { serverOff } : {}) }, mode: currentMode, hasTriedTranscode: !retry });
+          const ref = { id: errorIdOf(error.error, PLAYBACK_ERROR_IDS.AVPLAYER), lane: laneTagFor(transportRef.current, false), native: nativeErrorOf(error.error) };
+          dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType), ref, ...(serverOff ? { serverOff } : {}) }, mode: currentMode, hasTriedTranscode: !retry });
         });
         return;
       }
@@ -2224,11 +2250,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
           // If not in demo mode or refresh failed, show the error
           const errorMessage = getPlaybackErrorMessage(errorType);
+          const ref = { id: PLAYBACK_ERROR_IDS.AUTH, lane: laneTagFor(transportRef.current, playsFromDisk(videoId)), native: nativeErrorOf(error.error) };
           setImmediate(() => {
             if (!isMountedRef.current || requestIdRef.current !== attempt) return;
             dispatch({
               type: "PLAYER_ERROR",
-              error: { message: errorMessage },
+              error: { message: errorMessage, ref },
               mode: currentMode,
               hasTriedTranscode: hasTriedTranscodingRef.current,
               autoRetry: false,
@@ -2262,13 +2289,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       const errorMessage = getPlaybackErrorMessage(errorType);
       const serverOff = serverOffForError(error.error, errorType, videoDetails ? serverTranscodeBlock(videoDetails) : null, playsFromDisk(videoId));
+      const ref = { id: errorIdOf(error.error, PLAYBACK_ERROR_IDS.AVPLAYER), lane: laneTagFor(transportRef.current, playsFromDisk(videoId)), native: nativeErrorOf(error.error) };
 
       // Deferred a tick: onError arrives from a native callback.
       setImmediate(() => {
         if (!isMountedRef.current || requestIdRef.current !== attempt) return;
         dispatch({
           type: "PLAYER_ERROR",
-          error: { message: errorMessage, ...(serverOff ? { serverOff } : {}) },
+          error: { message: errorMessage, ref, ...(serverOff ? { serverOff } : {}) },
           mode: currentMode,
           hasTriedTranscode: hasTriedTranscodingRef.current,
           ...(decision.retryGateway ? { retryGateway: true } : {}),
@@ -2907,10 +2935,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         lane: currentModeRef.current,
         seconds: ms / 1000,
       });
-      playerErrorRef.current?.({ error: { errorString: `playback did not start within ${ms / 1000}s` } } as OnVideoErrorData);
+      playerErrorRef.current?.({ error: { errorString: `playback did not start within ${ms / 1000}s`, errorId: PLAYBACK_ERROR_IDS.OPEN_TIMEOUT } } as OnVideoErrorData);
     }, ms);
     return () => clearTimeout(timer);
   }, [skip, state.type, streamUrl]);
+
+  // Diagnostics records the ID the error screen shows, retried detours included.
+  useEffect(() => {
+    if (skip || state.type !== "ERROR" || !state.ref) return;
+    probeEmit("errorCode", { code: formatErrorRef(state.ref, ""), willRetry: state.canRetryWithTranscode });
+  }, [skip, state]);
 
   /**
    * Handle retry with transcoding when direct play fails

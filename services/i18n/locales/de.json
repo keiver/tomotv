@@ -270,6 +270,7 @@
   "player.serverOff.device": "Die Server-Transkodierung ist in den Einstellungen ausgeschaltet, daher wurde der Server nicht darum gebeten",
   "player.serverOff.neededAccount": "Dafür braucht es Server-Transkodierung, die dein Server diesem Konto nicht erlaubt",
   "player.serverOff.neededDevice": "Dafür braucht es Server-Transkodierung, die in den Einstellungen ausgeschaltet ist",
+  "player.errorCode": "Fehlercode",
   "player.error.notFound": "Video auf dem Server nicht gefunden",
   "player.error.unauthorized": "Anmeldung fehlgeschlagen. Deine Sitzung ist möglicherweise abgelaufen.",
   "player.error.network": "Keine Verbindung zum Jellyfin-Server",

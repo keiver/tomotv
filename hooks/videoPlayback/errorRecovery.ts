@@ -1,11 +1,12 @@
 import type { ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { PlaybackErrorType } from "@/utils/errorClassification";
+import { IdentifiedError, PLAYBACK_ERROR_IDS } from "@/utils/errorIds";
 import type { PlaybackMode, ServerOff } from "./machine";
 
 /** No lane takes the item: it needs the server, and the server is off for it. */
-export class ServerTranscodeOffError extends Error {
+export class ServerTranscodeOffError extends IdentifiedError {
   constructor(readonly by: ServerTranscodeBlock) {
-    super("Server transcoding is off for this item");
+    super(PLAYBACK_ERROR_IDS.NOLANE, "Server transcoding is off for this item");
   }
 }
 

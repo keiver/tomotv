@@ -270,6 +270,7 @@
   "player.serverOff.device": "La transcodificación del servidor está desactivada en Ajustes, así que no se le pidió al servidor transcodificar esto",
   "player.serverOff.neededAccount": "Esto necesita transcodificación del servidor, que tu servidor no permite para esta cuenta",
   "player.serverOff.neededDevice": "Esto necesita transcodificación del servidor, que está desactivada en Ajustes",
+  "player.errorCode": "Código de error",
   "player.error.notFound": "No se encontró el video en el servidor",
   "player.error.unauthorized": "Falló la autenticación. Puede que tu sesión haya caducado.",
   "player.error.network": "No se puede conectar con el servidor de Jellyfin",

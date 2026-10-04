@@ -343,7 +343,7 @@ describe("useVideoPlayback (mounted)", () => {
         const mounted = await mount({ videoId: "video-1" });
         const { ref } = mounted;
         renderer = mounted.renderer;
-        const terminalError = { type: "ERROR", error: "Video not found on server", autoRetry: false, canRetryWithTranscode: false };
+        const terminalError = { type: "ERROR", error: "Video not found on server", autoRetry: false, canRetryWithTranscode: false, ref: { id: "PB-META" } };
         expect(ref.current!.get().state).toEqual(terminalError);
         expect(ref.current!.get().showLoadingOverlay).toBe(false);
 
@@ -426,7 +426,7 @@ describe("useVideoPlayback (mounted)", () => {
         const mounted = await mount({ videoId: "video-1" });
         const { ref } = mounted;
         renderer = mounted.renderer;
-        const terminalError = { type: "ERROR", error: "Failed to load video", autoRetry: false, canRetryWithTranscode: false, serverOff: { by: "account", needed: true } };
+        const terminalError = { type: "ERROR", error: "Failed to load video", autoRetry: false, canRetryWithTranscode: false, serverOff: { by: "account", needed: true }, ref: { id: "PB-NOLANE" } };
         expect(ref.current!.get().state).toEqual(terminalError);
         expect(ref.current!.get().showLoadingOverlay).toBe(false);
 
@@ -455,7 +455,8 @@ describe("useVideoPlayback (mounted)", () => {
         mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", SupportsTranscoding: true }] }));
         mockNeedsTranscoding.mockReturnValue(true);
         const { ref, renderer } = await mount({ videoId: "video-1" });
-        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", autoRetry: false, canRetryWithTranscode: false, serverOff: { by: "device", needed: true } });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", autoRetry: false, canRetryWithTranscode: false, serverOff: { by: "device", needed: true }, ref: { id: "PB-NOLANE" } });
+        expect(mockProbeEmit).toHaveBeenCalledWith("errorCode", { code: "PB-NOLANE", willRetry: false });
         expect(mockTranscodeUrl).not.toHaveBeenCalled();
         await act(async () => renderer.unmount());
       } finally {
@@ -476,7 +477,11 @@ describe("useVideoPlayback (mounted)", () => {
           mounted.ref.current!.get().videoCallbacks.onError({ error: { code: -11800, domain: "AVFoundationErrorDomain" } } as never);
         });
         await act(async () => jest.advanceTimersByTime(1));
-        expect(mounted.ref.current!.get().state).toMatchObject({ type: "ERROR", serverOff: { by: "account", needed: false } });
+        expect(mounted.ref.current!.get().state).toMatchObject({
+          type: "ERROR",
+          serverOff: { by: "account", needed: false },
+          ref: { id: "PB-AVPLAYER", lane: "ENG", native: { domain: "AVFoundationErrorDomain", code: -11800 } },
+        });
         expect(mockTranscodeUrl).not.toHaveBeenCalled();
       } finally {
         await act(async () => renderer?.unmount());
@@ -550,7 +555,13 @@ describe("useVideoPlayback (mounted)", () => {
         });
         await failPlayback();
 
-        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false, autoRetry: false, serverOff: { by: "account", needed: false } });
+        expect(ref.current!.get().state).toMatchObject({
+          type: "ERROR",
+          canRetryWithTranscode: false,
+          autoRetry: false,
+          serverOff: { by: "account", needed: false },
+          ref: { id: failureAt === "startup" ? "PB-ENGINE-START" : "PB-AVPLAYER", lane: "ENG" },
+        });
         await act(async () => jest.advanceTimersByTime(AUTOMATIC_RETRY_BUDGET_MS));
         expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
         expect(mockTranscodeUrl).not.toHaveBeenCalled();
@@ -730,7 +741,7 @@ describe("useVideoPlayback (mounted)", () => {
 
       const { ref } = await mount({ videoId: "video-1" });
 
-      expect(ref.current!.get().state).toEqual({ type: "ERROR", error: "Video not found on server", canRetryWithTranscode: false });
+      expect(ref.current!.get().state).toEqual({ type: "ERROR", error: "Video not found on server", canRetryWithTranscode: false, ref: { id: "PB-INPUT-404", lane: "ENG" } });
       expect(mockTranscodeUrl).not.toHaveBeenCalled();
       expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
       expect(recordTimeoutVerdict).not.toHaveBeenCalled();
@@ -983,7 +994,7 @@ describe("useVideoPlayback (mounted)", () => {
         const { ref } = await mount({ videoId: "video-1" });
         expect(openChannel).not.toHaveBeenCalled();
         expect(ref.current!.get().sourceUri).toBeNull();
-        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", serverOff: { by: "device", needed: false } });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", serverOff: { by: "device", needed: false }, ref: { id: "PB-ENGINE-FAILED", lane: "ENG" } });
       } finally {
         updateUiPreferences({ serverTranscoding: "linkOrFile" });
       }

@@ -270,6 +270,7 @@
   "player.serverOff.device": "Server transcoding is off in Settings, so the server was not asked to transcode this",
   "player.serverOff.neededAccount": "This needs server transcoding, which your server does not allow for this account",
   "player.serverOff.neededDevice": "This needs server transcoding, which is off in Settings",
+  "player.errorCode": "Error code",
   "player.error.notFound": "Video not found on server",
   "player.error.unauthorized": "Authentication failed. Your session may have expired.",
   "player.error.network": "Unable to connect to Jellyfin server",

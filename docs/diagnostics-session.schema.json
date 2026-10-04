@@ -13,7 +13,7 @@
     "summary": {
       "type": "object",
       "description": "Derived from `playback` when the document is shown or exported (services/diagnosticsLog.ts summarize). Absent from the stored file and the server slot.",
-      "required": ["item", "started", "outcome", "reachedSeconds", "error", "retriedAfter", "engineDeclined"],
+      "required": ["item", "started", "outcome", "reachedSeconds", "error", "retriedAfter", "engineDeclined", "errorCode"],
       "additionalProperties": false,
       "properties": {
         "item": {
@@ -44,6 +44,10 @@
         "engineDeclined": {
           "type": ["string", "null"],
           "description": "The last decline event's reason."
+        },
+        "errorCode": {
+          "type": ["string", "null"],
+          "description": "The last errorCode event's code: the error ID the screen showed (utils/errorIds.ts)."
         },
         "description": {
           "type": "string",
@@ -263,6 +267,9 @@
         },
         {
           "$ref": "#/$defs/events/qualitySwitch"
+        },
+        {
+          "$ref": "#/$defs/events/errorCode"
         },
         {
           "$ref": "#/$defs/events/other"
@@ -698,6 +705,22 @@
           }
         }
       },
+      "errorCode": {
+        "description": "The error ID the error screen shows, recorded with every error the player reports.",
+        "properties": {
+          "event": {
+            "const": "errorCode"
+          },
+          "code": {
+            "type": "string",
+            "description": "The ID, the lane and the native domain and code (utils/errorIds.ts formatErrorRef), without the build the document's `app` already names.",
+            "examples": ["PB-AVPLAYER · ENG (AVF -11800)", "PB-NOLANE"]
+          },
+          "willRetry": {
+            "type": "boolean"
+          }
+        }
+      },
       "other": {
         "description": "Any event name this schema does not list. The screen prints its payload the same way, so a new emit site needs no schema change to be shown, only to be documented.",
         "properties": {
@@ -722,7 +745,8 @@
                 "qualitySwitch",
                 "link",
                 "tracks",
-                "buffering"
+                "buffering",
+                "errorCode"
               ]
             }
           }

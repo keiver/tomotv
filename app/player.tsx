@@ -37,6 +37,8 @@ import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPl
 import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
+import { formatErrorRef } from "@/utils/errorIds";
+import { APP_BUILD_LABEL } from "@/constants/app";
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
@@ -941,6 +943,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         <Text style={styles.errorText}>{serverOff?.needed ? serverOffText(serverOff) : playbackState.error}</Text>
         {failedStage ? <Text style={styles.errorStage}>{stageStopped(failedStage, { live: isLiveChannel, local: playsFromDisk(videoId) })}</Text> : null}
         {serverOff && !serverOff.needed ? <Text style={styles.errorStage}>{serverOffText(serverOff)}</Text> : null}
+        {playbackState.ref ? <Text style={styles.errorCode}>{`${t("player.errorCode")}: ${formatErrorRef(playbackState.ref, APP_BUILD_LABEL)}`}</Text> : null}
 
         <View style={styles.buttonGroup}>
           <FocusableButton
@@ -1022,6 +1025,13 @@ const styles = StyleSheet.create({
   },
   errorStage: {
     marginTop: 4,
+    fontSize: 16,
+    color: COLORS.TEXT_TERTIARY,
+    textAlign: "center",
+  },
+  errorCode: {
+    marginTop: 8,
+    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
     fontSize: 16,
     color: COLORS.TEXT_TERTIARY,
     textAlign: "center",
