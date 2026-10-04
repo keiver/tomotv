@@ -981,6 +981,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // Capture current request ID to check for stale responses
     const currentRequestId = ++requestIdRef.current;
 
+    // The connection is never a reason to ask the server (Only for files…, Never, or the account): a slow link is waited out.
+    const linkHeld = !isLiveRef.current && !playsFromDisk(videoId) && !linkRungsAllowed(details);
     const generateStreamUrl = async () => {
       // Both halves sit in their own function: a conditional or an optional chain inside a try
       // block is not lowerable, and one there costs the whole hook its memoization.
@@ -1225,8 +1227,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             const startedAlive = await engineProgress(token);
             if (startedAlive !== null && !startedAlive.alive) preflight.settle({ failed: "engine session ended before its pre-flight" });
             // A deadline that finds the session alive and still pulling bytes at the link's pace
-            // is the link's deadline, not the engine's: wait again, up to the cap. With the server
-            // off nothing else can play the file, so any progress waits again, past the cap.
+            // is the link's deadline, not the engine's: wait again, up to the cap, or past it when
+            // the link is no reason to ask the server. With the server off nothing else can play
+            // the file, so any progress waits again.
             let outcome: PreflightOutcome = null;
             let waitedMs = 0;
             let bytesSeen = -1;
@@ -1234,7 +1237,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             while (requestIdRef.current === currentRequestId) {
               outcome = await preflight.next(ENGINE_SEGMENT_DEADLINE_MS);
               waitedMs += ENGINE_SEGMENT_DEADLINE_MS;
-              if (outcome !== null || (!serverDenied && waitedMs >= ENGINE_PREFLIGHT_CAP_MS)) break;
+              if (outcome !== null || (!linkHeld && waitedMs >= ENGINE_PREFLIGHT_CAP_MS)) break;
               const progress = await engineProgress(token);
               readNothing = progress != null && progress.bytesRead === 0;
               const keepsReading = serverDenied ? engineStillReading(progress, bytesSeen) : stillPullingInput(progress, bytesSeen, READ_BOUND_SHARE);
@@ -2334,12 +2337,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         gatewayRecoveryRef.current = null;
         handlePlaybackError(error);
       };
-      // With the server off a restart only starts the read over: a stall the engine is still reading through is waited out.
-      const serverDenied = videoDetails != null && !serverTranscodeAllowed(videoDetails);
+      // On a link that is no reason to ask the server a restart only starts the read over: a stall the engine is still reading through is waited out.
+      const linkHeld = videoDetails != null && currentModeRef.current === "localRemux" && !linkRungsAllowed(videoDetails);
       let bytesSeen = -1;
       const waitOrRecover = () => {
         if (!ownsRecovery()) return;
-        if (!serverDenied) {
+        if (!linkHeld) {
           recoverItem();
           return;
         }
@@ -2951,8 +2954,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     const live = isLiveRef.current;
     const boundsNonLive = transportRef.current === "gateway" || currentModeRef.current === "localRemux" || currentModeRef.current === "direct";
     if (!live && !boundsNonLive) return;
-    // With the server off there is no next lane to bail to: a slow open is waited out.
-    if (!live && videoDetails && !playsFromDisk(videoDetails.Id) && !serverTranscodeAllowed(videoDetails)) return;
+    // The engine reading the original on a link that is no reason to ask the server: a slow open is waited out.
+    if (!live && currentModeRef.current === "localRemux" && videoDetails && !playsFromDisk(videoDetails.Id) && !linkRungsAllowed(videoDetails)) return;
     const attempt = requestIdRef.current;
     const source = streamUrlRef.current;
     const ms = live ? LIVE_START_DEADLINE_MS : VOD_OPEN_DEADLINE_MS;
