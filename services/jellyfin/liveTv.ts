@@ -637,6 +637,25 @@ export async function fetchGuidePrograms({ channelIds, startMs, endMs }: GuideWi
   return (json.Items ?? []) as JellyfinProgram[];
 }
 
+/** When the server's guide ends: the start of its last program, or null for a guide with none. */
+export async function fetchGuideHorizon(): Promise<number | null> {
+  const config = await getConfig();
+  const body = {
+    UserId: config.userId,
+    SortBy: ["StartDate"],
+    SortOrder: ["Descending"],
+    Limit: 1,
+    EnableImages: false,
+    EnableUserData: false,
+    EnableTotalRecordCount: false,
+    Fields: [],
+  };
+  const response = await liveTvRequest("/LiveTv/Programs", { method: "POST", body: JSON.stringify(body) });
+  const json = await response.json();
+  const start = ((json.Items ?? []) as JellyfinProgram[])[0]?.StartDate;
+  return start ? Date.parse(start) : null;
+}
+
 export async function fetchTimers(): Promise<JellyfinTimer[]> {
   const response = await liveTvRequest("/LiveTv/Timers");
   const json = await response.json();

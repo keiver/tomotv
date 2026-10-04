@@ -12,8 +12,43 @@ export const TICK_MINUTES = 30;
 export const MINOR_TICK_MINUTES = 5;
 /** Programs loaded per fetch, and how far the window grows when the canvas nears its end. */
 export const GUIDE_SPAN_MINUTES = 360;
-/** Where the guide ends, counted from the window's start: nothing past it loads or scrolls into view. */
-export const GUIDE_HORIZON_MINUTES = 48 * 60;
+/** Days the day strip offers from today: the deepest guide a provider ships. */
+export const GUIDE_DAYS = 14;
+
+/** Local midnight of the day `ms` falls in. */
+export function dayStartMs(ms: number): number {
+  const day = new Date(ms);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+}
+
+/** Today and the days after it, each by its local midnight; a DST change moves a midnight, never a day. */
+export function guideDays(nowMs: number, count = GUIDE_DAYS): number[] {
+  const today = new Date(dayStartMs(nowMs));
+  return Array.from({ length: count }, (_, i) => new Date(today.getFullYear(), today.getMonth(), today.getDate() + i).getTime());
+}
+
+/**
+ * The window a picked day opens on and where its guide ends: today from the current half hour to
+ * midnight, at least one span so a late evening still shows a stretch; another day midnight to midnight.
+ */
+export function guideDayWindow(dayMs: number, nowMs: number): { startMs: number; horizonMs: number } {
+  const day = new Date(dayMs);
+  const nextMidnight = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
+  if (dayMs !== dayStartMs(nowMs)) return { startMs: dayMs, horizonMs: nextMidnight };
+  const startMs = guideWindowStart(nowMs);
+  return { startMs, horizonMs: Math.max(nextMidnight, startMs + GUIDE_SPAN_MINUTES * MINUTE_MS) };
+}
+
+/**
+ * Whether a day has listings: one a loaded program fell on does; otherwise the server guide runs up
+ * to its last program's start, so days before that have listings and days after have none. Null
+ * before the server has answered.
+ */
+export function dayHasListings(dayMs: number, guideEndMs: number | null, coveredDays: ReadonlySet<number>): boolean | null {
+  if (coveredDays.has(dayMs)) return true;
+  if (guideEndMs === null) return null;
+  return guideEndMs >= dayMs;
+}
 
 export interface GuideMetrics {
   pxPerMinute: number;
@@ -209,6 +244,22 @@ export function formatDayLabel(ms: number, nowMs: number, labels: { today: strin
   if (diff === 0) return labels.today;
   if (diff === 1) return labels.tomorrow;
   return day.toLocaleDateString([], { weekday: "long" });
+}
+
+/** The day strip's heading for a day: "Today", "Tomorrow" or the weekday, then the short date. */
+export function formatDayHeading(ms: number, nowMs: number, labels: { today: string; tomorrow: string }): string {
+  return `${formatDayLabel(ms, nowMs, labels)} · ${new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" })}`;
+}
+
+/** A circle's text: the day of the month, or the month's short name on its first day so 31 then 1 reads. */
+export function formatDayCircle(ms: number): string {
+  const day = new Date(ms);
+  return day.getDate() === 1 ? day.toLocaleDateString([], { month: "short" }) : String(day.getDate());
+}
+
+/** How many circles a strip of `width` holds: whole ones inside the insets, at least one. */
+export function dayStripVisibleCount(width: number, circle: number, gap: number, inset: number): number {
+  return Math.max(1, Math.floor((width - 2 * inset + gap) / (circle + gap)));
 }
 
 /** Id prefix of the stand-in cell a channel without guide data shows; select tunes, nothing else. */

@@ -61,6 +61,7 @@ export {
   fetchChannelWindow,
   fetchListedChannels,
   fetchChannels,
+  fetchGuideHorizon,
   fetchGuidePrograms,
   fetchLiveTvManagement,
   fetchProgram,

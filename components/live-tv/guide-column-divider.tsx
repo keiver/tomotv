@@ -58,15 +58,6 @@ export function useColumnResize({ columnW, canvasW, minWidth, maxWidth, initialC
         runOnJS(onCompactChange)(wantCompact);
       }
     };
-    const corner = Gesture.Pan()
-      .onBegin(() => {
-        "worklet";
-        start.set(columnW.get());
-      })
-      .onUpdate((event) => {
-        "worklet";
-        resize(event.translationX);
-      });
     // One axis per drag, picked by the first movement, so sliding the grip never nudges the width.
     const seam = Gesture.Pan()
       .onBegin(() => {
@@ -88,7 +79,7 @@ export function useColumnResize({ columnW, canvasW, minWidth, maxWidth, initialC
           gripY.set(clamp(gripStartY.get() + event.translationY, -reach, reach));
         }
       });
-    return { seam, corner, gripY, bandH };
+    return { seam, gripY, bandH };
   }, [columnW, canvasW, minWidth, maxWidth, start, compact, onCompactChange, gripY, gripStartY, bandH, axis]);
 }
 

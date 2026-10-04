@@ -798,6 +798,7 @@ describe("guide and DVR calls", () => {
     cancelTimer,
     createSeriesTimer,
     createTimer,
+    fetchGuideHorizon,
     fetchGuidePrograms,
     fetchLiveTvManagement,
     fetchProgram,
@@ -847,6 +848,25 @@ describe("guide and DVR calls", () => {
     ok({ Items: [] });
     await fetchGuidePrograms({ channelIds: [], startMs: 0, endMs: 1 });
     expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)).not.toHaveProperty("ChannelIds");
+  });
+
+  it("reads where the guide ends off its last program's start, one item sorted last first", async () => {
+    ok({ Items: [{ Id: "last", StartDate: "2026-10-17T23:30:00.000Z" }] });
+    await expect(fetchGuideHorizon()).resolves.toBe(Date.parse("2026-10-17T23:30:00.000Z"));
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe(`${SERVER}/LiveTv/Programs`);
+    expect(JSON.parse(init.body)).toEqual({
+      UserId: "test-user-id",
+      SortBy: ["StartDate"],
+      SortOrder: ["Descending"],
+      Limit: 1,
+      EnableImages: false,
+      EnableUserData: false,
+      EnableTotalRecordCount: false,
+      Fields: [],
+    });
+    ok({ Items: [] });
+    await expect(fetchGuideHorizon()).resolves.toBeNull();
   });
 
   it("reads one program and the finished recordings", async () => {

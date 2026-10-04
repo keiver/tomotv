@@ -71,6 +71,8 @@
   "liveTv.noChannels": "Keine Kanäle",
   "liveTv.today": "Heute",
   "liveTv.tomorrow": "Morgen",
+  "liveTv.dayListings": "Programm vorhanden",
+  "liveTv.dayNoListings": "kein Programm",
   "liveTv.timeRange": "{start} bis {end}",
   "liveTv.loadingGuide": "Fernsehprogramm wird geladen",
   "liveTv.channelSettings": "Kanaleinstellungen",

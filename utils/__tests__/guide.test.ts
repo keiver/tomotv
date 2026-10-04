@@ -5,8 +5,16 @@ import {
   cellGeometry,
   cellInSpan,
   channelWindow,
+  dayHasListings,
+  dayStartMs,
+  dayStripVisibleCount,
   durationLabel,
+  formatDayCircle,
+  formatDayHeading,
+  GUIDE_DAYS,
   GUIDE_SPAN_MINUTES,
+  guideDays,
+  guideDayWindow,
   guideMetrics,
   guideRefreshOutcome,
   guideWindowStart,
@@ -342,5 +350,64 @@ describe("durationLabel", () => {
     expect(durationLabel(90 * MINUTE_MS)).toBe("1 Std. 30 Min.");
     __setLocaleForTests("fr");
     expect(durationLabel(90 * MINUTE_MS)).toBe("1 h 30 min");
+  });
+});
+
+describe("the day strip", () => {
+  // Local times: the strip works in the viewer's days, and a DST change on the second day only moves a midnight.
+  const midnight = (y: number, m: number, d: number) => new Date(y, m, d).getTime();
+  const noon = new Date(2026, 9, 24, 12, 0).getTime();
+  const span = GUIDE_SPAN_MINUTES * MINUTE_MS;
+
+  it("finds the local midnight of any moment", () => {
+    expect(dayStartMs(noon)).toBe(midnight(2026, 9, 24));
+    expect(dayStartMs(new Date(2026, 9, 24, 23, 59).getTime())).toBe(midnight(2026, 9, 24));
+  });
+
+  it("offers today and the thirteen days after it by their midnights, across a month end", () => {
+    const days = guideDays(noon);
+    expect(days).toHaveLength(GUIDE_DAYS);
+    expect(days[0]).toBe(midnight(2026, 9, 24));
+    expect(days[7]).toBe(midnight(2026, 9, 31));
+    expect(days[8]).toBe(midnight(2026, 10, 1));
+    expect(guideDays(noon, 3)).toEqual([midnight(2026, 9, 24), midnight(2026, 9, 25), midnight(2026, 9, 26)]);
+  });
+
+  it("opens today on the current half hour and ends at midnight, or one span later when the evening is short", () => {
+    const afternoon = guideDayWindow(midnight(2026, 9, 24), new Date(2026, 9, 24, 14, 20).getTime());
+    expect(afternoon).toEqual({ startMs: new Date(2026, 9, 24, 14, 0).getTime(), horizonMs: midnight(2026, 9, 25) });
+    const late = guideDayWindow(midnight(2026, 9, 24), new Date(2026, 9, 24, 23, 40).getTime());
+    expect(late).toEqual({ startMs: new Date(2026, 9, 24, 23, 30).getTime(), horizonMs: new Date(2026, 9, 24, 23, 30).getTime() + span });
+  });
+
+  it("opens another day at its midnight and ends at the next", () => {
+    expect(guideDayWindow(midnight(2026, 9, 26), noon)).toEqual({ startMs: midnight(2026, 9, 26), horizonMs: midnight(2026, 9, 27) });
+  });
+
+  it("tells a day's listings from the server guide's end, a loaded day, or neither yet", () => {
+    const end = new Date(2026, 9, 30, 22, 0).getTime();
+    expect(dayHasListings(midnight(2026, 9, 24), end, new Set())).toBe(true);
+    expect(dayHasListings(midnight(2026, 9, 30), end, new Set())).toBe(true);
+    expect(dayHasListings(midnight(2026, 9, 31), end, new Set())).toBe(false);
+    expect(dayHasListings(midnight(2026, 9, 31), end, new Set([midnight(2026, 9, 31)]))).toBe(true);
+    expect(dayHasListings(midnight(2026, 9, 24), null, new Set())).toBeNull();
+    expect(dayHasListings(midnight(2026, 9, 24), null, new Set([midnight(2026, 9, 24)]))).toBe(true);
+  });
+
+  it("heads a day by its name and short date, and numbers its circle by the day of the month, the month on the first", () => {
+    const labels = { today: "Today", tomorrow: "Tomorrow" };
+    const short = (ms: number) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
+    expect(formatDayHeading(midnight(2026, 9, 24), noon, labels)).toBe(`Today · ${short(midnight(2026, 9, 24))}`);
+    expect(formatDayHeading(midnight(2026, 9, 25), noon, labels)).toBe(`Tomorrow · ${short(midnight(2026, 9, 25))}`);
+    expect(formatDayHeading(midnight(2026, 9, 27), noon, labels)).toBe(`${new Date(2026, 9, 27).toLocaleDateString([], { weekday: "long" })} · ${short(midnight(2026, 9, 27))}`);
+    expect(formatDayCircle(midnight(2026, 9, 31))).toBe("31");
+    expect(formatDayCircle(midnight(2026, 10, 1))).toBe(new Date(2026, 10, 1).toLocaleDateString([], { month: "short" }));
+  });
+
+  it("holds as many whole circles as the width allows, one at least", () => {
+    expect(dayStripVisibleCount(300, 48, 12, 12)).toBe(4);
+    expect(dayStripVisibleCount(150, 26, 6, 8)).toBe(4);
+    expect(dayStripVisibleCount(77, 26, 6, 8)).toBe(2);
+    expect(dayStripVisibleCount(10, 26, 6, 8)).toBe(1);
   });
 });

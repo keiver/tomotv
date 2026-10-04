@@ -3,6 +3,7 @@ import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
 import { HUD_BAR_HEIGHT } from "@/components/live-tv/guide-hud";
 import { GuideColumnDivider, useColumnResize } from "@/components/live-tv/guide-column-divider";
+import { GuideDayStrip } from "@/components/live-tv/guide-day-strip";
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
 import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler, useRulerScrub } from "@/components/live-tv/guide-time-ruler";
@@ -177,11 +178,12 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     },
     [driver, rowsRef],
   );
-  // Another group opens at its first channel and the window's start; the old rows hold until its first page replaces them.
-  const lastFilterRef = useRef(filter);
+  // Another group, or another day, opens at its first channel and the window's start; the old rows hold until its first page replaces them.
+  const rewindKey = `${filter}|${windowStartMs}`;
+  const lastRewindRef = useRef(rewindKey);
   useEffect(() => {
-    if (lastFilterRef.current === filter) return;
-    lastFilterRef.current = filter;
+    if (lastRewindRef.current === rewindKey) return;
+    lastRewindRef.current = rewindKey;
     if (!gridShown) return;
     rewindToTop(false);
     runOnUI(() => {
@@ -192,7 +194,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       mountPageUi.set(0);
       runOnJS(setMountPage)(0);
     })();
-  }, [filter, gridShown, rewindToTop, stopScrub, gridRef, mountPageUi]);
+  }, [rewindKey, gridShown, rewindToTop, stopScrub, gridRef, mountPageUi]);
 
   // Mac: Escape from a scrolled guide rewinds it to the top; the next press pops as usual.
   useEffect(() => {
@@ -374,7 +376,12 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
 
-  const corner = <Animated.View style={[styles.corner, { height: METRICS.rulerHeight }, cornerWidthStyle]} />;
+  // The day strip fills the corner; the column's seam grip is the phone's one resize handle.
+  const corner = (
+    <Animated.View style={[styles.corner, { height: METRICS.rulerHeight }, cornerWidthStyle]}>
+      <GuideDayStrip days={guide.days} selectedMs={guide.selectedDayMs} nowMs={nowMs} onSelect={guide.selectDay} />
+    </Animated.View>
+  );
   const rulerClip = (
     <View style={styles.rulerClip}>
       <RNAnimated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
@@ -385,13 +392,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   // The ruler band: the corner cell, then the ruler mirroring the rows' horizontal scroll.
   const rulerRow = (
     <View style={[styles.topRow, { height: METRICS.rulerHeight }]}>
-      {IS_TV ? (
-        corner
-      ) : (
-        <GestureHandlerRootView style={styles.cornerHost}>
-          <GestureDetector gesture={resize.corner}>{corner}</GestureDetector>
-        </GestureHandlerRootView>
-      )}
+      {corner}
       {IS_TV ? (
         rulerClip
       ) : (
@@ -533,13 +534,7 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: "hidden",
   },
-  // Unstyled, RNGH's root defaults to flex: 1 and takes half the top row from the ruler.
-  cornerHost: {
-    flexGrow: 0,
-  },
   corner: {
-    justifyContent: "center",
-    alignItems: "center",
     borderBottomWidth: 1,
     borderBottomColor: GRID_LINE,
   },
