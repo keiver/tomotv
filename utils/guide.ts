@@ -251,15 +251,17 @@ export function formatDayHeading(ms: number, nowMs: number, labels: { today: str
   return `${formatDayLabel(ms, nowMs, labels)} · ${new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" })}`;
 }
 
-/** A circle's text: the day of the month, or the month's short name on its first day so 31 then 1 reads. */
-export function formatDayCircle(ms: number): string {
+/** A box's text: the day of the month, or the month's short name on its first day so 31 then 1 reads. */
+export function formatDayBox(ms: number): string {
   const day = new Date(ms);
   return day.getDate() === 1 ? day.toLocaleDateString([], { month: "short" }) : String(day.getDate());
 }
 
-/** How many circles a strip of `width` holds: whole ones inside the insets, at least one. */
-export function dayStripVisibleCount(width: number, circle: number, gap: number, inset: number): number {
-  return Math.max(1, Math.floor((width - 2 * inset + gap) / (circle + gap)));
+/** The first day in view once `index` is: unchanged while it shows, else the crossed edge lands on it. */
+export function dayStripFirst(index: number, first: number, inView: number): number {
+  if (index < first) return index;
+  if (index >= first + inView) return index - inView + 1;
+  return first;
 }
 
 /** Id prefix of the stand-in cell a channel without guide data shows; select tunes, nothing else. */

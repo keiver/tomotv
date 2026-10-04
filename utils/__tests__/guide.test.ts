@@ -7,9 +7,9 @@ import {
   channelWindow,
   dayHasListings,
   dayStartMs,
-  dayStripVisibleCount,
+  dayStripFirst,
   durationLabel,
-  formatDayCircle,
+  formatDayBox,
   formatDayHeading,
   GUIDE_DAYS,
   GUIDE_SPAN_MINUTES,
@@ -394,20 +394,23 @@ describe("the day strip", () => {
     expect(dayHasListings(midnight(2026, 9, 24), null, new Set([midnight(2026, 9, 24)]))).toBe(true);
   });
 
-  it("heads a day by its name and short date, and numbers its circle by the day of the month, the month on the first", () => {
+  it("heads a day by its name and short date, and numbers its box by the day of the month, the month on the first", () => {
     const labels = { today: "Today", tomorrow: "Tomorrow" };
     const short = (ms: number) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
     expect(formatDayHeading(midnight(2026, 9, 24), noon, labels)).toBe(`Today · ${short(midnight(2026, 9, 24))}`);
     expect(formatDayHeading(midnight(2026, 9, 25), noon, labels)).toBe(`Tomorrow · ${short(midnight(2026, 9, 25))}`);
     expect(formatDayHeading(midnight(2026, 9, 27), noon, labels)).toBe(`${new Date(2026, 9, 27).toLocaleDateString([], { weekday: "long" })} · ${short(midnight(2026, 9, 27))}`);
-    expect(formatDayCircle(midnight(2026, 9, 31))).toBe("31");
-    expect(formatDayCircle(midnight(2026, 10, 1))).toBe(new Date(2026, 10, 1).toLocaleDateString([], { month: "short" }));
+    expect(formatDayBox(midnight(2026, 9, 31))).toBe("31");
+    expect(formatDayBox(midnight(2026, 10, 1))).toBe(new Date(2026, 10, 1).toLocaleDateString([], { month: "short" }));
   });
 
-  it("holds as many whole circles as the width allows, one at least", () => {
-    expect(dayStripVisibleCount(300, 48, 12, 12)).toBe(4);
-    expect(dayStripVisibleCount(150, 26, 6, 8)).toBe(4);
-    expect(dayStripVisibleCount(77, 26, 6, 8)).toBe(2);
-    expect(dayStripVisibleCount(10, 26, 6, 8)).toBe(1);
+  it("keeps the strip still for a day in view and lands one past either edge on that edge", () => {
+    expect(dayStripFirst(5, 3, 4)).toBe(3);
+    expect(dayStripFirst(3, 3, 4)).toBe(3);
+    expect(dayStripFirst(6, 3, 4)).toBe(3);
+    expect(dayStripFirst(7, 3, 4)).toBe(4);
+    expect(dayStripFirst(2, 3, 4)).toBe(2);
+    expect(dayStripFirst(0, 9, 4)).toBe(0);
+    expect(dayStripFirst(13, 0, 4)).toBe(10);
   });
 });
