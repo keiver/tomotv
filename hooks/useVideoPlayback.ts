@@ -129,6 +129,7 @@ import {
   LIVE_STALL_DEADLINE_MS,
   PLAYER_BUFFER_REPORT_MS,
   PLAYHEAD_EPSILON_SEC,
+  PLAYHEAD_STEP_MAX_SEC,
   SLIPSTREAM_FORWARD_BUFFER_SECONDS,
   SUBTITLE_CAPTURE_SETTLE_MS,
   VOD_OPEN_DEADLINE_MS,
@@ -343,6 +344,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const stallFallbackRef = useRef(false);
   const retryAttemptRef = useRef(0);
   const retryProgressStartRef = useRef<number | null>(null);
+  // The previous onProgress position of this stream, so a tick can tell a playhead step from a frozen clock.
+  const lastTickRef = useRef<number | null>(null);
   // When the first automatic retry of this run fired; null once 30s of playback lands.
   const retryWindowStartRef = useRef<number | null>(null);
   // The engine took its one fresh session after a failure; with the server ruled out, the next failure is final.
@@ -1629,6 +1632,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           setForwardBufferSeconds(null);
         }
         retryProgressStartRef.current = null;
+        lastTickRef.current = null;
         // The player's wait belongs to what feeds it: the server's stream, the file itself, or the engine.
         setPlaybackStage(preparedTransport === "server" ? "server" : preparedTransport === "direct" ? "reading" : "player");
         // A new stream remounts the player, which starts paused; a live reload keeps the one player.
@@ -1945,8 +1949,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         stallWatchRef.current = null;
       }
 
-      // Update playing state
-      const nowPlaying = !paused;
+      // Update playing state. AVPlayer also fires this observer when playback starts, while it still
+      // waits on its buffer with nothing on screen, so a tick alone is not playing: the player saying
+      // so is, or the playhead stepping forward (that event is swallowed when RNV swaps the item inside
+      // a playing player). A seek's jump is not a step.
+      const lastTick = lastTickRef.current;
+      lastTickRef.current = data.currentTime;
+      const stepped = lastTick !== null && data.currentTime > lastTick && data.currentTime - lastTick < PLAYHEAD_STEP_MAX_SEC;
+      const nowPlaying = !paused && (playerPlayingRef.current || stepped);
       const wasPlaying = isPlayingRef.current;
 
       if (nowPlaying !== wasPlaying) {
@@ -2819,6 +2829,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     retryWindowStartRef.current = null;
     gatewayRetriedRef.current = false;
     retryProgressStartRef.current = null;
+    lastTickRef.current = null;
     resumePausedRef.current = null;
     linkCapRef.current = 0;
     pinnedCapRef.current = null;

@@ -1341,6 +1341,7 @@ describe("useVideoPlayback (mounted)", () => {
         ref.current!.get().play();
       });
       await act(async () => {
+        ref.current!.get().videoCallbacks.onProgress({ currentTime: 0.75, playableDuration: 6, seekableDuration: 0 } as never);
         ref.current!.get().videoCallbacks.onProgress({ currentTime: 1, playableDuration: 6, seekableDuration: 0 } as never);
         await new Promise((resolve) => setTimeout(resolve, 600));
       });
@@ -1891,6 +1892,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onAudioTracks({
             audioTracks: [
@@ -1973,6 +1975,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           jest.advanceTimersByTime(501);
         });
@@ -2040,6 +2043,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           jest.advanceTimersByTime(501);
         });
@@ -2077,6 +2081,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           jest.advanceTimersByTime(501);
         });
@@ -2132,6 +2137,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onAudioTracks({
             audioTracks: [
@@ -2499,11 +2505,72 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().paused).toBe(false);
 
       await act(async () => {
+        ref.current!.get().videoCallbacks.onProgress({ currentTime: 2.75, playableDuration: 30, seekableDuration: 120 } as never);
         ref.current!.get().videoCallbacks.onProgress({ currentTime: 3, playableDuration: 30, seekableDuration: 120 } as never);
         await new Promise((resolve) => setImmediate(resolve));
       });
       expect(ref.current!.get().state).toMatchObject({ type: "PLAYING", mode: "transcode" });
       expect(ref.current!.get().currentTimeRef.current).toBe(3);
+    });
+
+    describe("keeps the spinner over a player still filling its buffer", () => {
+      const tick = (ref: React.RefObject<HookRef | null>, currentTime: number) => ref.current!.get().videoCallbacks.onProgress({ currentTime, playableDuration: 30, seekableDuration: 120 } as never);
+      const unpaused = async (ref: React.RefObject<HookRef | null>) => {
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onLoad({ duration: 120, currentTime: 0, naturalSize: { width: 1920, height: 1080, orientation: "landscape" } } as never);
+        });
+        await act(async () => {
+          ref.current!.get().play();
+        });
+      };
+
+      it("on the start tick AVPlayer sends while it still waits", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          tick(ref, 0);
+          tick(ref, 0);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        });
+        expect(ref.current!.get().state.type).toBe("READY");
+        expect(ref.current!.get().showLoadingOverlay).toBe(true);
+      });
+
+      it("on a seek's jump", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          tick(ref, 0);
+          tick(ref, 1200);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        });
+        expect(ref.current!.get().state.type).toBe("READY");
+        expect(ref.current!.get().showLoadingOverlay).toBe(true);
+      });
+
+      it("and drops it once the player reports playing", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onPlaybackStateChanged({ isPlaying: true, isSeeking: false } as never);
+          tick(ref, 0);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        });
+        expect(ref.current!.get().state.type).toBe("PLAYING");
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+      });
+
+      it("and drops it once the playhead steps without a playing report", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          tick(ref, 1200);
+          tick(ref, 1200.25);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        });
+        expect(ref.current!.get().state.type).toBe("PLAYING");
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+      });
     });
 
     it("re-derives the chapter picture directory when the engine restarts its session", async () => {
@@ -2532,6 +2599,7 @@ describe("useVideoPlayback (mounted)", () => {
             ref.current!.get().play();
           });
           await act(async () => {
+            ref.current!.get().videoCallbacks.onProgress({ currentTime: 11.75, playableDuration: 30, seekableDuration: 120 } as never);
             ref.current!.get().videoCallbacks.onProgress({ currentTime: 12, playableDuration: 30, seekableDuration: 120 } as never);
             jest.advanceTimersByTime(1);
             await hops();
@@ -2705,8 +2773,8 @@ describe("useVideoPlayback (mounted)", () => {
       await load(ref);
       expect(ref.current!.get().paused).toBe(false);
       await act(async () => {
-        callbacks(ref).onProgress({ currentTime: 10, playableDuration: 30, seekableDuration: 120 } as never);
         callbacks(ref).onPlaybackStateChanged(nativePlay as never);
+        callbacks(ref).onProgress({ currentTime: 10, playableDuration: 30, seekableDuration: 120 } as never);
         jest.advanceTimersByTime(501);
       });
     }

@@ -36,3 +36,5 @@ export const DIRECT_STALL_DEADLINE_MS = 12_000;
 export const LIVE_STALL_DEADLINE_MS = 60_000;
 /** Playhead movement that counts as progress rather than a frozen clock. */
 export const PLAYHEAD_EPSILON_SEC = 0.25;
+/** The largest gap between two progress ticks that still reads as playback; a bigger one is a seek. */
+export const PLAYHEAD_STEP_MAX_SEC = 2;
