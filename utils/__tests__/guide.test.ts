@@ -9,6 +9,7 @@ import {
   dayStartMs,
   dayStripFirst,
   durationLabel,
+  exitsToCard,
   formatDayBox,
   formatDayHeading,
   GUIDE_DAYS,
@@ -20,6 +21,7 @@ import {
   guideWindowStart,
   isActiveTimer,
   isAiring,
+  isRowStart,
   keepRange,
   mergePrograms,
   MINUTE_MS,
@@ -27,7 +29,6 @@ import {
   NO_GUIDE_PREFIX,
   programCategory,
   revealOffset,
-  rewindsStandIn,
   ringWithCenter,
   rowSnap,
   rulerTicks,
@@ -108,12 +109,22 @@ describe("guide geometry", () => {
     expect(revealOffset({ left: 2000, width: 2400 }, 1200)).toBeUndefined();
   });
 
-  it("rewinds a scrolled grid on a Left press or swipe while a no-listings row holds focus, and only then", () => {
-    expect(rewindsStandIn("left", true, 900)).toBe(true);
-    expect(rewindsStandIn("swipeLeft", true, 900)).toBe(true);
-    expect(rewindsStandIn("left", true, 0)).toBe(false);
-    expect(rewindsStandIn("left", false, 900)).toBe(false);
-    expect(rewindsStandIn("right", true, 900)).toBe(false);
+  it("hands Left to the channel card from a row's first cell in a scrolled grid, and only then", () => {
+    expect(exitsToCard("left", true, 900)).toBe(true);
+    expect(exitsToCard("swipeLeft", true, 900)).toBe(true);
+    expect(exitsToCard("left", true, 0)).toBe(false);
+    expect(exitsToCard("left", false, 900)).toBe(false);
+    expect(exitsToCard("right", true, 900)).toBe(false);
+  });
+
+  it("calls a cell its row's start when no cell in the row starts before it", () => {
+    const at = (startMin: number, endMin: number, Id: string) => ({ Id, StartDate: new Date(T0 + startMin * MINUTE_MS).toISOString(), EndDate: new Date(T0 + endMin * MINUTE_MS).toISOString() });
+    const cells = [at(30, 60, "b"), at(-30, 30, "a"), at(60, 90, "c")];
+    expect(isRowStart(cells, cells[1])).toBe(true);
+    expect(isRowStart(cells, cells[0])).toBe(false);
+    expect(isRowStart(cells, cells[2])).toBe(false);
+    const standIn = at(0, 360, `${NO_GUIDE_PREFIX}ch1`);
+    expect(isRowStart([standIn], standIn)).toBe(true);
   });
 
   it("clips a cell that runs past the window end", () => {

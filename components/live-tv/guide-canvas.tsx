@@ -11,7 +11,7 @@ import { COLORS } from "@/constants/colors";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { cellAtEdge, cellGeometry, guideMetrics, isAiring, MINUTE_MS, mountSpanFor, programTimes, revealOffset, rewindsStandIn, rowSnap, standInChannelId } from "@/utils/guide";
+import { cellAtEdge, cellGeometry, exitsToCard, guideMetrics, isAiring, isRowStart, MINUTE_MS, mountSpanFor, programTimes, revealOffset, rowSnap } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -259,7 +259,13 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   );
   // The row the last focused cell sat in: a focus in that same row came from Left or Right.
   const lastCellRowRef = useRef<string | null>(null);
-  const standInFocusedRef = useRef(false);
+  // The focused cell's channel while that cell is its row's first, else null.
+  const rowStartChannelRef = useRef<string | null>(null);
+  const cardNodesRef = useRef(new Map<string, unknown>());
+  const handleCardNode = useCallback((channelId: string, node: unknown) => {
+    if (node) cardNodesRef.current.set(channelId, node);
+    else cardNodesRef.current.delete(channelId);
+  }, []);
   const handleCellFocus = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
       if (!IS_TV) return;
@@ -276,7 +282,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         }
       }
       lastCellRowRef.current = channel.Id;
-      standInFocusedRef.current = standInChannelId(program.Id) !== null;
+      const row = rowDataRef.current.find((candidate) => candidate.channel.Id === channel.Id);
+      rowStartChannelRef.current = row && isRowStart(rowCells(row.channel, row.programs, windowStartMs, windowEndMs, METRICS), program) ? channel.Id : null;
       driver.set("grid");
       setFocusLatched(true);
       // A dwell on the row promotes its channel to the sampler's front; its card plays its clip.
@@ -285,20 +292,22 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     },
     [driver, windowStartMs, windowEndMs, scrollX, gridRef],
   );
-  // A no-listings row is one cell: Left finds none before it, and a scrolled grid lets no focus out to the channel card.
+  // The scrolled grid refuses Left out of a row's first cell, so the press rewinds it and hands focus to the row's card.
   useTVEventHandler(
     useCallback(
       (event: { eventType: string }) => {
+        const channelId = rowStartChannelRef.current;
         // Remote events reach every mounted screen: a press on the player over this one is not the guide's.
-        if (!rewindsStandIn(event.eventType, isScreenFocused && standInFocusedRef.current, scrollX.get())) return;
-        // Past a screen away the rewind jumps: an animated one would mount every page it crosses.
-        const animated = scrollX.get() <= viewportWidth;
+        if (!channelId || !exitsToCard(event.eventType, isScreenFocused, scrollX.get())) return;
+        const focusCard = () => (cardNodesRef.current.get(channelId) as { requestTVFocus?: () => void } | undefined)?.requestTVFocus?.();
+        // Instant, then the card: the focus request lands on a grid already at offset 0.
         runOnUI(() => {
           "worklet";
-          scrollTo(gridRef, 0, 0, animated);
+          scrollTo(gridRef, 0, 0, false);
+          runOnJS(focusCard)();
         })();
       },
-      [isScreenFocused, scrollX, gridRef, viewportWidth],
+      [isScreenFocused, scrollX, gridRef],
     ),
   );
   // While focus sits in the cells region the entry guide points back up at the HUD, so both
@@ -307,7 +316,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const handleCellsEnter = useCallback(() => setCellsFocused(true), []);
   const handleCellsLeave = useCallback(() => {
     lastCellRowRef.current = null;
-    standInFocusedRef.current = false;
+    rowStartChannelRef.current = null;
     setCellsFocused(false);
     setLiveFrameFocus(null);
     setFocusedGuideRow(null);
@@ -464,6 +473,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           onChannelLongPress={onChannelLongPress}
           onChannelFocus={handleChannelFocus}
           onFirstHandle={onEntryHandle}
+          onCardNode={IS_TV ? handleCardNode : undefined}
           onEndReached={loadMoreRows}
         />
         <TVFocusGuideView style={styles.scrollHost} onLayout={handleCanvasLayout} onFocusEnter={IS_TV ? handleCellsEnter : undefined} onFocusLeave={IS_TV ? handleCellsLeave : undefined}>

@@ -5,7 +5,7 @@ import { useLiveClip, useLiveFrame } from "@/hooks/useLiveFrame";
 import { usePlaybackHeld } from "@/hooks/usePlaybackHeld";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { useIsFocused } from "expo-router";
-import React, { forwardRef, memo, type ComponentProps, type ElementRef } from "react";
+import React, { forwardRef, memo, useCallback, type ComponentProps, type ElementRef } from "react";
 
 type GuideChannelCardProps = Omit<ComponentProps<typeof VideoGridItem>, "video" | "liveFrame" | "liveClip" | "clipActive" | "slotOrientation" | "offline"> & {
   channel: JellyfinItem;
@@ -13,6 +13,8 @@ type GuideChannelCardProps = Omit<ComponentProps<typeof VideoGridItem>, "video" 
   playsClipInView?: boolean;
   /** Virtualized cards remain mounted outside the viewport, but must release their player. */
   inView?: boolean;
+  /** Reports the card's node by channel, so the guide can hand focus to it. */
+  onNode?: (channelId: string, node: ElementRef<typeof VideoGridItem> | null) => void;
 };
 
 /**
@@ -20,9 +22,18 @@ type GuideChannelCardProps = Omit<ComponentProps<typeof VideoGridItem>, "video" 
  * Memoized: a list's renderItem builds fresh elements the compiler never caches.
  */
 const GuideChannelCardComponent = forwardRef<ElementRef<typeof VideoGridItem>, GuideChannelCardProps>(function GuideChannelCard(
-  { channel, playsClipInView = false, inView = true, ...cardProps },
+  { channel, playsClipInView = false, inView = true, onNode, ...cardProps },
   ref,
 ) {
+  const channelId = channel.Id;
+  const cardRef = useCallback(
+    (node: ElementRef<typeof VideoGridItem> | null) => {
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+      onNode?.(channelId, node);
+    },
+    [ref, onNode, channelId],
+  );
   const liveFrame = useLiveFrame(channel.Id);
   const liveClip = useLiveClip(channel.Id);
   const rowFocused = useGuideRowFocus(channel.Id);
@@ -34,7 +45,7 @@ const GuideChannelCardComponent = forwardRef<ElementRef<typeof VideoGridItem>, G
   const clipActive = canPlay && (rowFocused || playsClipInView);
   // VideoGridItem also plays on its own focus, so withhold the clip when visibility disallows it.
   return (
-    <VideoGridItem ref={ref} video={channel} slotOrientation="landscape" liveFrame={liveFrame} liveClip={canPlay ? liveClip : undefined} clipActive={clipActive} offline={offline} {...cardProps} />
+    <VideoGridItem ref={cardRef} video={channel} slotOrientation="landscape" liveFrame={liveFrame} liveClip={canPlay ? liveClip : undefined} clipActive={clipActive} offline={offline} {...cardProps} />
   );
 });
 

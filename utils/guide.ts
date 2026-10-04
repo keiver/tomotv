@@ -127,12 +127,15 @@ export function revealOffset(cell: CellGeometry, scrollX: number): number | unde
   return cell.left < scrollX ? cell.left : undefined;
 }
 
-/**
- * A Left press or swipe while a no-listings row holds focus in a scrolled grid: the row is one cell with none
- * before it to walk back to, and tvOS lets no focus out of a scrolled grid, so the grid rewinds to the row's start.
- */
-export function rewindsStandIn(eventType: string, standInFocused: boolean, scrollX: number): boolean {
-  return standInFocused && scrollX > 0 && (eventType === "left" || eventType === "swipeLeft");
+/** A Left press or swipe on a row's first cell in a scrolled grid: the scroll view refuses that focus move out, so the canvas makes it. */
+export function exitsToCard(eventType: string, atRowStart: boolean, scrollX: number): boolean {
+  return atRowStart && scrollX > 0 && (eventType === "left" || eventType === "swipeLeft");
+}
+
+/** True when no cell in the row starts before this one: Left from it has no cell to land on. */
+export function isRowStart(cells: Pick<JellyfinProgram, "StartDate" | "EndDate">[], program: Pick<JellyfinProgram, "StartDate" | "EndDate">): boolean {
+  const { startMs } = programTimes(program);
+  return cells.every((cell) => programTimes(cell).startMs >= startMs);
 }
 
 /** True when any part of the cell lies inside the span. */
