@@ -97,7 +97,7 @@ export default function GuideSourceScreen() {
 
   const summary = guideSourceSummary(status, enabled, t);
 
-  const sourceNotes = [...origin.playlists.map((playlist) => `${t("liveTv.guideFromPlaylist")}\n${playlist}`), ...(origin.own ? [t("liveTv.guideAddedByYou")] : [])];
+  const sourceNotes = [...(origin.playlists.length > 0 ? [t("liveTv.guideFromPlaylist")] : []), ...(origin.own ? [t("liveTv.guideAddedByYou")] : [])];
 
   // Phone: the host names the screen; the back button already says Guide sources.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
