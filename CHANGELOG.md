@@ -2,6 +2,26 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.10]
+
+### Added
+
+- Server transcoding, in Settings: when the server may be asked to transcode on this device. "When the connection or the file needs it" (the default) also sends smaller server feeds on a slow connection; "Only for files this device can't play" never transcodes for the connection, so a file plays as it is or buffers; "Never" plays only what the device can. When the server does not allow transcoding for the account, the page says so
+- A day strip over the guide's channel column opens the guide on a picked day, today and the 13 days after it, one day at a time. Days without listings are dimmed
+
+### Changed
+
+- Settings' streaming section is two rows, Quality and Server transcoding, each opening a page of its own
+- The device posters setting reads "Generate missing posters", from a frame of the video
+- The Live TV shelf in Search also finds programmes airing now by their description and episode title
+- The on-device playback engine is its own package, `@keiver/tomo-engine`, in the repository's `packages/` workspace: the remuxer, live sources and the FFmpeg build reach the app as the TomoEngine, TomoLiveSources and TomoFFmpeg pods through the package's config plugin, with their host tests alongside. The engine knows no Jellyfin routes; the app maps its server onto the engine's API, and the tuner groups module stays in the app
+- The live TV services are their own package, `@keiver/tomo-live`, beside the engine: the neighbour channel ring, the focused card's warm session, live frames and clips, channel health, XMLTV guide sources and the `LiveClip` view. The app hands it its channels once through `configureLive`; the engine's per-file verdict store moves into `@keiver/tomo-engine`
+
+### Fixed
+
+- On Apple TV with automatic subtitles on, the subtitle track the system marks On loads
+- A picked channel group keeps its green wash while focused
+
 ## [2.2.9]
 
 ### Added
