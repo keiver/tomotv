@@ -45,7 +45,9 @@ configureLive({
 
 ## Releasing
 
-Bump the version in the PR that carries the change (`npm run release:live -- patch`, from the
-repository root) and add its `CHANGELOG.md` entry. When the PR merges to `main`,
+A commit that touches this package while its version is already on npm gets a patch bump from the
+pre-commit hook (`scripts/package-versions.mjs`), and Test PR fails a change that reached GitHub
+without one. A minor or major bump is `npm run release:live -- minor|major` with a `CHANGELOG.md`
+entry. When the PR merges to `main`,
 `.github/workflows/publish-packages.yml` publishes any version npm does not have yet, with
 provenance, and creates the `tomo-live-v<version>` GitHub release.
