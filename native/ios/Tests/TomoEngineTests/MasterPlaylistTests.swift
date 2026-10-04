@@ -73,6 +73,17 @@ final class MasterPlaylistTests: XCTestCase {
         }
     }
 
+    /// Measured on a device 2026-10-03 (one untagged SUBRIP track, untagged audio): tvOS automatic
+    /// subtitles marked the menu On and never selected an AUTOSELECT=NO rendition.
+    func testEverySubtitleRenditionIsAutoselectable() throws {
+        let out = try playlist(subs: [sub(1, language: ""), sub(2), sub(3, isDefault: true)])
+        let subtitles = out.split(separator: "\n").filter { $0.hasPrefix("#EXT-X-MEDIA:TYPE=SUBTITLES") }
+        XCTAssertEqual(subtitles.count, 3)
+        for line in subtitles {
+            XCTAssertTrue(line.contains("AUTOSELECT=YES"), "not selectable by the system: \(line)")
+        }
+    }
+
     /// Matroska happily flags several subtitle tracks default at once. Emitting
     /// them all costs the whole file, so the first wins and the rest demote.
     func testOnlyOneSubtitleRenditionIsDefault() throws {

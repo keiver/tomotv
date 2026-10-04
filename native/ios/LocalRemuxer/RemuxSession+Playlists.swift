@@ -296,17 +296,10 @@ extension RemuxSession {
             let isDefault = position == defaultSubtitle
             var line = "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"\(name)\""
             line += ",LANGUAGE=\"\(Self.playlistQuotedValue(sub.language.isEmpty ? "und" : sub.language))\""
-            // Same RFC 8216 rule as the audio group: DEFAULT=YES requires
-            // AUTOSELECT=YES. A file carrying a default subtitle (very common
-            // in MKV rips) otherwise makes AVFoundation reject the entire
-            // master playlist with a bare -12642.
-            //
-            // A forced track is AUTOSELECT=YES too, without being DEFAULT: it
-            // must be presentable on its own (it carries dialogue the viewer is
-            // meant to see) but must not switch on a full subtitle track for
-            // someone who never asked for one.
+            // DEFAULT=YES without AUTOSELECT=YES makes AVFoundation reject the master (-12642).
+            // AUTOSELECT=NO hides a track from tvOS automatic subtitles, which then mark it On and draw nothing.
             line += isDefault ? ",DEFAULT=YES" : ",DEFAULT=NO"
-            line += isDefault || sub.isForced ? ",AUTOSELECT=YES" : ",AUTOSELECT=NO"
+            line += ",AUTOSELECT=YES"
             // FORCED=YES is never emitted, whatever the source flags say.
             //
             // AVFoundation treats a forced rendition as something it applies on
