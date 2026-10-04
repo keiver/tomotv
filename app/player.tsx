@@ -217,8 +217,9 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       adopt: params.adopt === "1",
       isLive: isLiveChannel,
       advance: params.advance === "1",
+      queueMode: isQueueMode,
     });
-  }, [requestSession, sessionKey, videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel, params.advance]);
+  }, [requestSession, sessionKey, videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel, params.advance, isQueueMode]);
 
   // tvOS channel flipping rides AVKit's own swipe: the channel ring is the list the channel was tuned
   // from (the filter and sort at open), and a flip swaps the channel under the one player.
@@ -691,6 +692,14 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     popThisScreen();
   }, [pause, popThisScreen, isQueueMode, clear, stopSession]);
 
+  // A PiP window took the video: back to where playback started, the queue kept for the window to roll on.
+  const handlePipStarted = useCallback(() => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
+    stopSession();
+    popThisScreen();
+  }, [popThisScreen, stopSession]);
+
   // Interstitial CTAs, and the tvOS content proposal's Play Now / Close. Play Now
   // (and the countdown expiring) advances the queue — the router.replace updates
   // the params, and the effect above asks the host for the next item.
@@ -844,9 +853,10 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       onSkipChannel: handleSkipChannel,
       onTransportBarButtonSelected: handleTransportBarButtonSelected,
       onRequestBack: handleBack,
+      onPipStarted: handlePipStarted,
     });
     return () => setHandlers(null);
-  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleTransportBarButtonSelected, handleBack]);
+  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleTransportBarButtonSelected, handleBack, handlePipStarted]);
 
   // Handle Android TV back button
   useEffect(() => {

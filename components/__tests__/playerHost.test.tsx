@@ -16,7 +16,26 @@ import { t } from "@/services/i18n";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn() }));
-jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: jest.fn(() => "https://server/poster.jpg"), hasPoster: jest.fn(() => false), subscribeAuthChange: jest.fn(() => () => {}) }));
+const mockAutoPlay = { enabled: true };
+jest.mock("@/services/jellyfinApi", () => ({
+  getPosterUrl: jest.fn(() => "https://server/poster.jpg"),
+  hasPoster: jest.fn(() => false),
+  subscribeAuthChange: jest.fn(() => () => {}),
+  fetchNextEpisodeAutoPlay: jest.fn(async () => mockAutoPlay.enabled),
+}));
+const mockQueue = { queue: [] as { Id: string; Name: string }[], currentIndex: -1 };
+jest.mock("@/services/playQueueManager", () => ({
+  playQueueManager: {
+    getState: () => ({ queue: mockQueue.queue, currentIndex: mockQueue.currentIndex }),
+    hasNext: () => mockQueue.currentIndex >= 0 && mockQueue.currentIndex < mockQueue.queue.length - 1,
+    advanceToNext: () => {
+      if (mockQueue.currentIndex < 0 || mockQueue.currentIndex >= mockQueue.queue.length - 1) return null;
+      mockQueue.currentIndex += 1;
+      return mockQueue.queue[mockQueue.currentIndex];
+    },
+  },
+}));
+jest.mock("@/services/syncPlayManager", () => ({ isJoined: () => false }));
 jest.mock("@/components/image-subtitle-overlay", () => ({ ImageSubtitleOverlay: () => null }));
 jest.mock("@/hooks/useItemPoster", () => ({ useItemPoster: () => undefined }));
 const mockHotChannels = new Set<string>();
@@ -27,7 +46,9 @@ jest.mock("@/components/dismiss-pan", () => {
 });
 
 let registeredBridge: PlayerHostBridge | null = null;
-const handlersRef = { current: null as { onPlaybackEnd: () => void; onLiveChannelFailed?: (fallbackId: string) => boolean } | null };
+const handlersRef = {
+  current: null as { onPlaybackEnd: () => void; onLiveChannelFailed?: (fallbackId: string) => boolean; onPipStarted?: () => void; onRequestBack?: () => void } | null,
+};
 jest.mock("@/contexts/PlayerSessionContext", () => ({
   usePlayerSessionHost: () => ({
     registerHost: (bridge: PlayerHostBridge | null) => {
@@ -139,6 +160,9 @@ describe("PlayerHost", () => {
     canRetry = false;
     details = null;
     mockVideoMounts.count = 0;
+    mockQueue.queue = [];
+    mockQueue.currentIndex = -1;
+    mockAutoPlay.enabled = true;
     mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
       hookCalls.push({ videoId: config.videoId, skip: config.skip });
       return hookResult();
@@ -657,6 +681,142 @@ describe("PlayerHost", () => {
     });
 
     expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+  });
+
+  describe("a PiP window taking over", () => {
+    const video = () => renderer.root.findByType(Video);
+    const lastConfig = () => mockUseVideoPlayback.mock.calls[mockUseVideoPlayback.mock.calls.length - 1][0];
+
+    /** A queue session whose window is up and whose route has left, the way onPipStarted leaves it. */
+    async function detachedQueueWindow() {
+      mockQueue.queue = [
+        { Id: "ep-1", Name: "One" },
+        { Id: "ep-2", Name: "Two" },
+      ];
+      mockQueue.currentIndex = 0;
+      await act(async () => {
+        bridge().requestSession({ videoId: "ep-1", sessionKey: "key-1", queueMode: true });
+      });
+      sourceUri = "http://stream/1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onPictureInPictureStatusChanged({ isActive: true });
+      });
+      await act(async () => {
+        bridge().stopSession();
+        bridge().releaseRoute({ videoId: "ep-1", sessionKey: "key-1" });
+      });
+    }
+
+    it("on tvOS, sends the route back as soon as the window starts", async () => {
+      const rn = require("react-native");
+      Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: true });
+      try {
+        const onPipStarted = jest.fn();
+        handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted };
+        await playWithPipUp();
+        expect(onPipStarted).toHaveBeenCalledTimes(1);
+      } finally {
+        Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: false });
+      }
+    });
+
+    it("on the phone, sends the route back once AVKit's dismissal for the window lands", async () => {
+      const onPipStarted = jest.fn();
+      const onRequestBack = jest.fn();
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted, onRequestBack };
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      sourceUri = "http://stream/1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+        video().props.onPictureInPictureStatusChanged({ isActive: true });
+      });
+      expect(onPipStarted).not.toHaveBeenCalled();
+
+      await act(async () => {
+        video().props.onFullscreenPlayerDidDismiss();
+      });
+
+      expect(onPipStarted).toHaveBeenCalledTimes(1);
+      expect(onRequestBack).not.toHaveBeenCalled();
+    });
+
+    it("rolls a queue into its next item inside a window with no route", async () => {
+      await detachedQueueWindow();
+
+      await act(async () => {
+        lastConfig().onPlaybackEnd();
+      });
+
+      expect(requestedVideoId()).toBe("ep-2");
+      expect(mockVideoMounts.count).toBe(1);
+    });
+
+    it("ends a routeless window at its item's end when autoplay is off", async () => {
+      mockAutoPlay.enabled = false;
+      await detachedQueueWindow();
+
+      await act(async () => {
+        lastConfig().onPlaybackEnd();
+      });
+
+      expect(requestedVideoId()).toBeNull();
+    });
+
+    it("ends a routeless window at its item's end when it plays no queue", async () => {
+      await playWithPipUp();
+      await act(async () => {
+        bridge().stopSession();
+        bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+
+      await act(async () => {
+        lastConfig().onPlaybackEnd();
+      });
+
+      expect(requestedVideoId()).toBeNull();
+    });
+
+    it("reopens a restored window's route with its queue", async () => {
+      const { router } = require("expo-router");
+      await detachedQueueWindow();
+
+      await act(async () => {
+        video().props.onRestoreUserInterfaceForPictureInPictureStop();
+      });
+
+      expect(router.push).toHaveBeenCalledWith({ pathname: "/player", params: expect.objectContaining({ videoId: "ep-1", adopt: "1", queueMode: "true" }) });
+    });
+
+    it("presents the phone player again once a restored window stops", async () => {
+      const videoRef = { current: { setFullScreen: jest.fn(), restoreUserInterfaceForPictureInPictureStopCompleted: jest.fn() } };
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      await detachedQueueWindow();
+      await act(async () => {
+        video().props.onRestoreUserInterfaceForPictureInPictureStop();
+      });
+      handlersRef.current = { onPlaybackEnd: jest.fn() };
+      await act(async () => {
+        bridge().requestSession({ videoId: "ep-1", sessionKey: "key-2", adopt: true, queueMode: true });
+      });
+
+      await act(async () => {
+        video().props.onPictureInPictureStatusChanged({ isActive: false });
+      });
+
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(requestedVideoId()).toBe("ep-1");
+    });
   });
 
   it("tears down as usual for an advance with no PiP window up", async () => {
