@@ -205,7 +205,7 @@
   "settings.transcoding.serverForbidsAudioTitle": "Transcodificación de audio desactivada",
   "settings.transcoding.serverForbidsAudio": "La define tu servidor para esta cuenta. Solo se reproduce el audio que este dispositivo admite",
   "settings.transcoding.serverOff": "Desactivada por tu servidor",
-  "settings.devicePostersHint": "Con un fotograma del video",
+  "settings.devicePostersHint": "En el dispositivo y solo cuando no hay ninguno",
   "settings.language": "Idioma",
   "settings.languageHeader": "IDIOMA",
   "settings.languageSystem": "Sistema",
