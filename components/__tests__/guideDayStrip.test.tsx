@@ -1,6 +1,8 @@
-/** The day strip over the channel column: four day boxes in view, listings told by dimming, a press picks, focus snaps to the edges. */
+/** The day strip over the channel column: four day boxes in view, listings told by dimming, a touch opens the calendar that picks. */
+import { GuideDayPicker } from "@/components/live-tv/guide-day-picker";
 import { DAY_BOX, DAYS_IN_VIEW, GuideDayStrip } from "@/components/live-tv/guide-day-strip";
 import { COLORS } from "@/constants/colors";
+import { DatePicker } from "@expo/ui/swift-ui";
 import { guideDays, guideMetrics } from "@/utils/guide";
 import React from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
@@ -62,14 +64,30 @@ describe("GuideDayStrip", () => {
     expect(boxes()[12].props.accessibilityLabel).toMatch(/liveTv\.dayListings$/);
   });
 
-  it("reads a day without listings only: no press, disabled, still focusable", async () => {
-    const { boxes, onSelect } = await render();
-    expect(boxes()[7].props.onPress).toBeUndefined();
-    expect(boxes()[7].props.accessibilityState.disabled).toBe(true);
-    expect(boxes()[7].props.isTVSelectable).toBe(true);
-    expect(boxes()[12].props.accessibilityState.disabled).toBe(false);
-    boxes()[12].props.onPress();
-    expect(onSelect).toHaveBeenCalledWith(days[12].startMs);
+  it("opens the calendar from any box or the heading, a day without listings too, and picks nothing by itself", async () => {
+    const { boxes, renderer, onSelect } = await render();
+    const picker = () => renderer.root.findByType(GuideDayPicker);
+    expect(picker().props.open).toBe(false);
+    await act(async () => boxes()[7].props.onPress());
+    expect(picker().props.open).toBe(true);
+    await act(async () => picker().props.onOpenChange(false));
+    await act(async () => renderer.root.findAllByType(Text)[0].props.onPress());
+    expect(picker().props.open).toBe(true);
+    expect(boxes()[7].props.accessibilityState.disabled).toBe(false);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("bounds the calendar to the days not known to lack listings and passes a pick on as its midnight, then closes", async () => {
+    const { boxes, renderer, onSelect } = await render();
+    await act(async () => boxes()[0].props.onPress());
+    const calendar = () => renderer.root.findByType(DatePicker);
+    expect(calendar().props.range.start.getTime()).toBe(days[0].startMs);
+    expect(calendar().props.range.end.getTime()).toBe(new Date(2026, 10, 7).getTime() - 1);
+    await act(async () => calendar().props.onDateChange(new Date(days[8].startMs + 3_600_000)));
+    expect(onSelect).not.toHaveBeenCalled();
+    await act(async () => calendar().props.onDateChange(new Date(days[3].startMs + 3_600_000)));
+    expect(onSelect).toHaveBeenCalledWith(days[3].startMs);
+    expect(renderer.root.findByType(GuideDayPicker).props.open).toBe(false);
   });
 
   it("centres the heading in capitals", async () => {
@@ -79,13 +97,11 @@ describe("GuideDayStrip", () => {
     expect(heading.textAlign).toBe("center");
   });
 
-  it("washes the pick like a picked group and passes a press on with the day's midnight", async () => {
-    const { tiles, boxes, onSelect } = await render();
+  it("washes the pick like a picked group", async () => {
+    const { tiles } = await render();
     const background = (index: number) => StyleSheet.flatten(tiles()[index].props.style).backgroundColor;
     expect(background(0)).toBe("rgba(52, 199, 89, 0.2)");
     expect(background(1)).toBe("rgba(0, 0, 0, 0.4)");
-    boxes()[3].props.onPress();
-    expect(onSelect).toHaveBeenCalledWith(days[3].startMs);
   });
 
   it("keeps the green wash under the gold ring when the pick holds focus", async () => {

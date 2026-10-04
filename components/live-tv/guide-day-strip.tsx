@@ -1,3 +1,4 @@
+import { GuideDayPicker } from "@/components/live-tv/guide-day-picker";
 import { HUD_CELL_BACKGROUND } from "@/components/live-tv/guide-group-cell";
 import { COLORS } from "@/constants/colors";
 import type { GuideDay } from "@/hooks/useGuide";
@@ -26,7 +27,8 @@ interface GuideDayStripProps {
 
 /**
  * The day picker over the channel column: the day's heading, then four day boxes styled as the corner
- * actions under them, scrolling box by box. A press opens the guide on that day; today again returns to now.
+ * actions under them, scrolling box by box. TV: a press opens the guide on that day, today again returns to now.
+ * Phone: a touch opens the system calendar, which picks instead.
  */
 export function GuideDayStrip({ days, selectedMs, nowMs, onSelect }: GuideDayStripProps) {
   const scrollRef = useRef<ScrollView>(null);
@@ -58,13 +60,17 @@ export function GuideDayStrip({ days, selectedMs, nowMs, onSelect }: GuideDayStr
     [days, moveFirst],
   );
   const blur = useCallback(() => setFocusedMs(null), []);
+  // Phone: any touch on the strip opens the system calendar instead of picking a box.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const openPicker = useCallback(() => setPickerOpen(true), []);
   const handleSettle = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => moveFirst(Math.round(event.nativeEvent.contentOffset.x / DAY_BOX)), [moveFirst]);
   const labels = { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") };
   const heading = formatDayHeading(focusedMs ?? selectedMs, nowMs, labels);
 
   return (
     <View style={styles.strip}>
-      <Text style={styles.heading} numberOfLines={1}>
+      {IS_TV ? null : <GuideDayPicker days={days} selectedMs={selectedMs} open={pickerOpen} onOpenChange={setPickerOpen} onSelect={onSelect} />}
+      <Text style={styles.heading} numberOfLines={1} onPress={IS_TV ? undefined : openPicker}>
         {heading}
       </Text>
       <View style={styles.boxes}>
@@ -86,7 +92,7 @@ export function GuideDayStrip({ days, selectedMs, nowMs, onSelect }: GuideDayStr
               selected={day.startMs === selectedMs}
               label={formatDayHeading(day.startMs, nowMs, labels)}
               snapOffset={IS_TV ? Math.min(Math.max(index - first, 0), DAYS_IN_VIEW - 1) * DAY_BOX : undefined}
-              onPress={onSelect}
+              onPress={IS_TV ? onSelect : openPicker}
               onFocus={handleFocus}
               onBlur={blur}
             />
@@ -112,12 +118,13 @@ interface DayBoxProps {
 /** One day as a corner action cell: frosted black, square, the cells' gold ring on focus over the groups' wash when picked. */
 function DayBox({ index, day, selected, label, snapOffset, onPress, onFocus, onBlur }: DayBoxProps) {
   const [focused, setFocused] = useState(false);
-  // Read only without listings: focusable so the strip still browses past it, presses drop.
+  // TV: read only without listings, focusable so the strip still browses past it, presses drop.
   const noListings = day.hasListings === false;
+  const readOnly = noListings && IS_TV;
   return (
     <View style={[styles.tile, selected && styles.tileSelected]} scrollSnapOffset={snapOffset}>
       <Pressable
-        onPress={noListings ? undefined : () => onPress(day.startMs)}
+        onPress={readOnly ? undefined : () => onPress(day.startMs)}
         onFocus={() => {
           setFocused(true);
           onFocus(index);
@@ -129,7 +136,7 @@ function DayBox({ index, day, selected, label, snapOffset, onPress, onFocus, onB
         isTVSelectable
         accessibilityRole="button"
         accessibilityLabel={`${label}, ${t(noListings ? "liveTv.dayNoListings" : "liveTv.dayListings")}`}
-        accessibilityState={{ selected, disabled: noListings }}
+        accessibilityState={{ selected, disabled: readOnly }}
         tvParallaxProperties={{ enabled: false }}
         style={styles.hit}>
         {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}

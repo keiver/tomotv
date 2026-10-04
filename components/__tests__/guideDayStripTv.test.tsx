@@ -47,4 +47,19 @@ describe("GuideDayStrip on TV", () => {
     await act(async () => boxes()[5].props.onFocus());
     expect(offsets()).toEqual([0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 3, 3, 3, 3]);
   });
+
+  it("picks on a press and reads a day without listings only: no press, disabled, still focusable", async () => {
+    const onSelect = jest.fn();
+    const mixed = days.map((day, i) => ({ ...day, hasListings: i < 7 }));
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<GuideDayStrip days={mixed} selectedMs={mixed[0].startMs} nowMs={NOW} onSelect={onSelect} />);
+    });
+    const isBox = (node: TestRenderer.ReactTestInstance) => node.props.isTVSelectable === true;
+    const boxes = renderer.root.findAll((node) => isBox(node) && !(node.parent && isBox(node.parent)));
+    expect(boxes[7].props.onPress).toBeUndefined();
+    expect(boxes[7].props.accessibilityState.disabled).toBe(true);
+    boxes[3].props.onPress();
+    expect(onSelect).toHaveBeenCalledWith(mixed[3].startMs);
+  });
 });

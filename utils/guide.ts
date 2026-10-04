@@ -257,6 +257,22 @@ export function dayStripFirst(index: number, first: number, inView: number): num
   return first;
 }
 
+type PickerDay = { startMs: number; hasListings: boolean | null };
+
+/** The calendar's pickable span: the first day to the end of the last one not known to lack listings. */
+export function dayPickerRange(days: readonly PickerDay[]): { start: Date; end: Date } | null {
+  const last = [...days].reverse().find((day) => day.hasListings !== false);
+  if (!days[0] || !last) return null;
+  const lastDay = new Date(last.startMs);
+  return { start: new Date(days[0].startMs), end: new Date(new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate() + 1).getTime() - 1) };
+}
+
+/** The strip's day a calendar pick lands in, null for one outside it or without listings. */
+export function pickedDay(days: readonly PickerDay[], pickedMs: number): number | null {
+  const day = days.find((candidate) => candidate.startMs === dayStartMs(pickedMs));
+  return day && day.hasListings !== false ? day.startMs : null;
+}
+
 /** Id prefix of the stand-in cell a channel without guide data shows; select tunes, nothing else. */
 export const NO_GUIDE_PREFIX = "no-guide:";
 
