@@ -181,8 +181,7 @@ export const LGPL3_NOTE = "The GNU Lesser General Public License version 3 incor
  * harmless imprecision. This corrects the factual description only and asserts
  * nothing about whether the distribution complies; that is a question for counsel.
  */
-export const LGPL_SOURCE_NOTICE =
-  "Tomo TV links these libraries unmodified as static archives. Complete corresponding source code for each library is available from the project links above. The exact binaries in this app are built by scripts/ffmpeg/build.sh in the Tomo TV repository, from the versions pinned in scripts/ffmpeg/sources.sh, and are published with their checksums at github.com/keiver/tomotv.";
+export const LGPL_SOURCE_NOTICE = "Tomo TV uses unmodified, statically linked libraries. Find their source links, build scripts, versions, and checksums at github.com/keiver/tomotv.";
 
 export const LICENSE_TEXTS: Record<LicenseId, string> = {
   "LGPL-2.1":
