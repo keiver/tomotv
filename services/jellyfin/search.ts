@@ -14,6 +14,11 @@ import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, FACET_PREFIX_MIN_CHARS } from ".
 import { getAuthHeader, getConfig, JellyfinConfig } from "./session";
 import { requestLibraryItems } from "./items";
 import { fetchLibraryArtists, fetchLibraryGenres } from "./facets";
+import { fetchTunerData } from "./tunerGroups";
+import { activeGuideUrls, searchExternalPrograms } from "@/services/externalGuide";
+import { getLiveTvPreferences } from "@/services/liveTvPreferences";
+import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
+import { liveTvSearchHorizon, liveTvSearchIndex } from "./liveTvSearchIndex";
 
 /**
  * Parse year(s) from search query
@@ -422,10 +427,23 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
 /** Live TV search results kept on screen. */
 const LIVE_TV_RESULT_CAP = 30;
 
-/** Channels first, then programmes on now, then later ones by start; programmes already over are dropped. */
+/**
+ * Channels first, then programmes by start, one card per title per channel (its next airing). Programmes
+ * already over, or starting after tomorrow, are dropped.
+ */
 export function orderLiveTvResults(items: readonly JellyfinVideoItem[], nowMs: number): JellyfinVideoItem[] {
+  const horizonMs = liveTvSearchHorizon(nowMs);
   const channels = items.filter((item) => item.Type === "TvChannel");
-  const programs = items.filter((item) => item.Type === "Program" && Date.parse(item.EndDate ?? "") > nowMs).sort((a, b) => Date.parse(a.StartDate ?? "") - Date.parse(b.StartDate ?? ""));
+  const shows = new Set<string>();
+  const programs = items
+    .filter((item) => item.Type === "Program" && Date.parse(item.EndDate ?? "") > nowMs && Date.parse(item.StartDate ?? "") < horizonMs)
+    .sort((a, b) => Date.parse(a.StartDate ?? "") - Date.parse(b.StartDate ?? ""))
+    .filter((item) => {
+      const show = `${item.ChannelId}|${foldText(item.Name ?? "")}`;
+      if (shows.has(show)) return false;
+      shows.add(show);
+      return true;
+    });
   return channels.concat(programs).slice(0, LIVE_TV_RESULT_CAP);
 }
 
@@ -485,30 +503,97 @@ async function fetchAiringPrograms(config: JellyfinConfig): Promise<JellyfinVide
 }
 
 /**
- * Channels and programmes matching the term: the server's name matches, plus the programmes airing
- * now whose name, episode title or description carries every word (the server searches names only).
- * /Items ignores hasAired and minEndDate (probed), so ended programmes are dropped here. A server
- * without Live TV answers empty; a failed source keeps the other's results.
+ * Programmes on now and later in the viewer's guide sources (the XMLTV guides Channel Settings adds
+ * and the tuner playlists declare), for the tuner's channels, whose name, episode title or
+ * description carries every word; the server's search never sees them. Matched in the native store.
+ */
+async function searchGuideSources(searchTerm: string): Promise<JellyfinVideoItem[]> {
+  if (foldText(searchTerm).length < DESCRIPTION_MIN_CHARS) return [];
+  const data = await fetchTunerData();
+  const urls = activeGuideUrls(getLiveTvPreferences(), data.tvgUrls);
+  if (urls.length === 0) return [];
+  const ids = new Set([...Object.keys(data.tvgById), ...Object.keys(data.tvgNameById)]);
+  const channels = [...ids].map((channelId) => ({ channelId, tvgId: data.tvgById[channelId], tvgName: data.tvgNameById[channelId], name: data.tvgNameById[channelId] ?? "" }));
+  const now = Date.now();
+  const programs = await searchExternalPrograms(urls, channels, { from: now, to: liveTvSearchHorizon(now) }, searchTerm, LIVE_TV_RESULT_CAP);
+  return programs.map((program) => ({ ...program, Type: "Program", ChannelName: program.ChannelId ? data.tvgNameById[program.ChannelId] : undefined }) as JellyfinVideoItem);
+}
+
+/** The server programmes in the index whose name, episode title or description carries every word, as bare cards. */
+function indexedMatches(config: JellyfinConfig, searchTerm: string): JellyfinVideoItem[] {
+  const folded = foldText(searchTerm);
+  if (folded.length < DESCRIPTION_MIN_CHARS) return [];
+  const programs = liveTvSearchIndex(config);
+  if (!programs) return [];
+  const terms = folded.split(/\s+/);
+  return programs
+    .filter((program) => terms.every((term) => program.text.includes(term)))
+    .map((program) => ({
+      Id: program.id,
+      Name: program.name,
+      Type: "Program",
+      Path: "",
+      ChannelId: program.channelId,
+      StartDate: new Date(program.startMs).toISOString(),
+      EndDate: new Date(program.endMs).toISOString(),
+    }));
+}
+
+/** A shown index card's channel name and artwork, read once per programme. */
+const programDetails = new Map<string, Promise<JellyfinVideoItem | null>>();
+
+function fetchProgramDetails(config: JellyfinConfig, programId: string): Promise<JellyfinVideoItem | null> {
+  let details = programDetails.get(programId);
+  if (!details) {
+    details = fetchWithTimeout(`${config.server}/LiveTv/Programs/${programId}?userId=${config.userId}`, { method: "GET", headers: liveTvHeaders(config) }, API_TIMEOUTS.QUICK)
+      .then(async (response) => (response.ok ? ((await response.json()) as JellyfinVideoItem) : null))
+      .catch(() => null);
+    programDetails.set(programId, details);
+    details.then((found) => {
+      if (!found) programDetails.delete(programId);
+    });
+  }
+  return details;
+}
+
+/**
+ * Channels and programmes matching the term, through tomorrow: the server's name matches; the server's
+ * programmes whose name, episode title or description carries every word (the server searches names
+ * only), from the airing set at once and from the programme index once it is built; and the guide
+ * sources' programmes. /Items ignores hasAired and minEndDate (probed), so ended programmes are dropped
+ * here. Never waits on the index: subscribeLiveTvSearchIndex says when it lands. A failed source keeps
+ * the others.
  */
 export async function searchLiveTv(searchTerm: string): Promise<JellyfinVideoItem[]> {
   const trimmed = searchTerm.trim();
   if (!trimmed) return [];
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) return [];
-  const [names, airing] = await Promise.allSettled([fetchLiveTvNameMatches(config, trimmed), fetchAiringPrograms(config)]);
+  const [names, airing, guideSources] = await Promise.allSettled([fetchLiveTvNameMatches(config, trimmed), fetchAiringPrograms(config), searchGuideSources(trimmed)]);
   const warn = (source: string, settled: PromiseRejectedResult) =>
     logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: settled.reason instanceof Error ? settled.reason.message : "unknown" });
   if (names.status === "rejected") warn("names", names);
   if (airing.status === "rejected") warn("airing", airing);
+  if (guideSources.status === "rejected") warn("guide sources", guideSources);
   const items = names.status === "fulfilled" ? [...names.value] : [];
   const seen = new Set(items.map((item) => item.Id));
-  if (airing.status === "fulfilled") {
-    for (const program of airing.value) {
+  for (const settled of [airing, guideSources]) {
+    if (settled.status !== "fulfilled") continue;
+    for (const program of settled.value) {
       if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && matchesProgramText(program, trimmed)) {
         seen.add(program.Id);
         items.push(program);
       }
     }
   }
-  return orderLiveTvResults(items, Date.now());
+  for (const program of indexedMatches(config, trimmed)) {
+    if (seen.has(program.Id)) continue;
+    seen.add(program.Id);
+    items.push(program);
+  }
+  const shown = orderLiveTvResults(items, Date.now());
+  // Only the cards shown are completed, with their channel and artwork; a read that fails keeps the bare card.
+  return Promise.all(
+    shown.map(async (item) => (item.Type === "Program" && !item.ChannelName && !item.Id.startsWith(EXTERNAL_GUIDE_PREFIX) ? ((await fetchProgramDetails(config, item.Id)) ?? item) : item)),
+  );
 }

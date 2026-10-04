@@ -15,6 +15,7 @@ import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
+import { invalidateLiveTvSearchIndex } from "@/services/jellyfinApi";
 import { showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { guideMetrics, guideRefreshOutcome } from "@/utils/guide";
@@ -41,6 +42,8 @@ export default function LiveTvRoute() {
   const [refreshes, setRefreshes] = useState(0);
   const refreshGuide = useCallback(() => {
     refreshExternalGuide();
+    // Search reads the server's listings again too, so a refreshed guide answers in search at once.
+    invalidateLiveTvSearchIndex();
     setRefreshes((count) => count + 1);
     showToast({ id: "guide-refresh", title: t("liveTv.guideDownloading"), progress: true });
   }, []);

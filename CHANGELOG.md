@@ -13,7 +13,7 @@ All notable changes to Tomo TV are documented here.
 
 - Settings' streaming section is two rows, Quality and Server transcoding, each opening a page of its own
 - The device posters setting reads "Generate missing posters", from a frame of the video
-- The Live TV shelf in Search also finds programmes airing now by their description and episode title
+- Live TV search, on the Search tab and the channel wall, finds programmes through the end of tomorrow by their name, episode title or description, from the server's guide and the guide sources alike, so a game named only in its description shows before it airs. A show repeating on a channel is one card, its next airing. The server's listings are read in the background and the results fill in when they land; a guide refresh reads them again
 - The on-device playback engine is its own package, `@keiver/tomo-engine`, in the repository's `packages/` workspace: the remuxer, live sources and the FFmpeg build reach the app as the TomoEngine, TomoLiveSources and TomoFFmpeg pods through the package's config plugin, with their host tests alongside. The engine knows no Jellyfin routes; the app maps its server onto the engine's API, and the tuner groups module stays in the app
 - The live TV services are their own package, `@keiver/tomo-live`, beside the engine: the neighbour channel ring, the focused card's warm session, live frames and clips, channel health, XMLTV guide sources and the `LiveClip` view. The app hands it its channels once through `configureLive`; the engine's per-file verdict store moves into `@keiver/tomo-engine`
 

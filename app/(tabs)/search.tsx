@@ -15,6 +15,7 @@ import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { useLiveTvSearchRefresh } from "@/hooks/useLiveTvSearchRefresh";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { connectToDemoServer, searchLiveTv, searchVideos } from "@/services/jellyfinApi";
 import { subscribeItemRemoved } from "@/services/jellyfin/events";
@@ -122,6 +123,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
       if (searchDelayRef.current) clearTimeout(searchDelayRef.current);
     };
   }, []);
+  useLiveTvSearchRefresh(query, (_term, items) => setLiveResults(items));
 
   // Doubles as the readiness edge: SwiftUI lays this region out only once NavigationView + .searchable
   // are up, so the first fire is the search bar on screen. RN's wrapper onLayout fires a commit earlier.
@@ -366,6 +368,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
 
   const handleVideoPress = useOpenShelfItem();
   const handleVideoLongPress = useItemLongPress();
+  useLiveTvSearchRefresh(activeQuery, (_term, items) => setLiveResults(items));
 
   const focusFirstResult = useCallback(() => gridRef.current?.focusFirstCard(), []);
 

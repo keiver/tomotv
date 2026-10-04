@@ -8,6 +8,7 @@ import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { useLiveTvSearchRefresh } from "@/hooks/useLiveTvSearchRefresh";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { useChannels } from "@/hooks/useChannels";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -75,6 +76,7 @@ export default function ChannelsScreen() {
       clearTimeout(timer);
     };
   }, [term]);
+  useLiveTvSearchRefresh(term, (answered, items) => setFound({ term: answered, items }));
   const results = searching && found?.term === term ? found.items : [];
   const isSearching = searching && found?.term !== term;
   // A group pick answers over any search: the term drops so the picked list shows at once.
