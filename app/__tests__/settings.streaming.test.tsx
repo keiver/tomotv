@@ -3,11 +3,18 @@ import { StyleSheet, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import SettingsScreen from "@/app/(tabs)/settings";
 import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
+import { ListRow } from "@/components/settings/ListRow";
+import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { updateUiPreferences } from "@/services/uiPreferences";
 
 const mockPush = jest.fn();
+jest.mock("react-native", () => {
+  const reactNative = jest.requireActual("react-native");
+  Object.defineProperty(reactNative.Platform, "isTV", { configurable: true, value: true });
+  return reactNative;
+});
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush }),
   useFocusEffect: (effect: () => (() => void) | undefined) => {
@@ -98,6 +105,24 @@ describe("Settings streaming header", () => {
     const tree = await mount();
     expect(measureIfIdle).toHaveBeenCalledTimes(1);
     expect(text(tree, "80 MBPS")).toBeDefined();
+  });
+
+  it("joins the focused TV heading to its card and restores the card's top edge on blur", async () => {
+    const tree = await mount();
+    const heading = tree.root.findByType(LinkSpeedHeading).findByProps({ accessibilityRole: "button" });
+    const card = tree.root.findByType(ListRow).parent!;
+    const restingStyle = StyleSheet.flatten(card.props.style);
+    expect(restingStyle.boxShadow).toBe(settingsStyles.section.boxShadow);
+
+    act(() => heading.props.onFocus());
+    const joinedStyle = StyleSheet.flatten(card.props.style);
+    expect(joinedStyle.borderTopLeftRadius).toBe(0);
+    expect(joinedStyle.borderTopRightRadius).toBe(0);
+    expect(joinedStyle.borderRadius).toBe(restingStyle.borderRadius);
+    expect(joinedStyle.boxShadow).not.toBe(restingStyle.boxShadow);
+
+    act(() => heading.props.onBlur());
+    expect(StyleSheet.flatten(card.props.style)).toEqual(restingStyle);
   });
 
   it("remeasures when the main streaming heading is pressed", async () => {

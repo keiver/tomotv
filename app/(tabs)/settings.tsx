@@ -47,6 +47,7 @@ function SettingsScreen() {
   const permissions = useTranscodePermissions();
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [measuring, setMeasuring] = useState(false);
+  const [streamingHeadingFocused, setStreamingHeadingFocused] = useState(false);
   const probeRevision = useRef(0);
 
   const loadCurrentState = async (): Promise<ScreenState> => {
@@ -241,8 +242,15 @@ function SettingsScreen() {
 
           {screenState === "CONNECTED" && (
             <>
-              <LinkSpeedHeading title={t("settings.streaming")} measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} />
-              <View style={styles.section}>
+              <LinkSpeedHeading
+                title={t("settings.streaming")}
+                measuredBps={measuredBps}
+                measuring={measuring}
+                onRemeasure={handleRemeasure}
+                onFocus={() => setStreamingHeadingFocused(true)}
+                onBlur={() => setStreamingHeadingFocused(false)}
+              />
+              <View style={[styles.section, Platform.isTV && streamingHeadingFocused && styles.sectionCapped]}>
                 <ListRow
                   icon={SERVER_GLYPH}
                   title={t("settings.transcodingRow")}

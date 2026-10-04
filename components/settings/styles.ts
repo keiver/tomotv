@@ -224,6 +224,12 @@ export const settingsStyles = StyleSheet.create({
     marginBottom: Platform.isTV ? 32 : 12,
     boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM}`,
   },
+  // The focused heading supplies the top corners and lip; the card continues below it.
+  sectionCapped: {
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    boxShadow: `${LIP_BOTTOM}, ${RIM_SIDES}`,
+  },
   // The destinations half of the JELLYFIN SERVER card, capped so the rows past
   // VISIBLE_SERVER_ROWS scroll instead of pushing the people strip off screen.
   serverListScrollable: {

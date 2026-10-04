@@ -1,5 +1,5 @@
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
-import { settingsStyles } from "@/components/settings/styles";
+import { goldRowShadow, settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { carriedRungs } from "@/services/adaptiveQuality";
@@ -18,10 +18,13 @@ interface LinkSpeedHeadingProps {
   measuring: boolean;
   /** A press on the heading asks for a fresh measurement. */
   onRemeasure?: () => void;
+  /** TV focus lets the card below use this heading as its top edge. */
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
-/** A section heading and measured server speed, separate from the card below. */
-export function LinkSpeedHeading({ title, measuredBps, measuring, onRemeasure }: LinkSpeedHeadingProps) {
+/** A section heading and measured server speed that caps its card when focused on TV. */
+export function LinkSpeedHeading({ title, measuredBps, measuring, onRemeasure, onFocus, onBlur }: LinkSpeedHeadingProps) {
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
   const measured = mbps != null && !measuring;
   // Short on purpose: the pending strings share the header line with the title.
@@ -54,7 +57,7 @@ export function LinkSpeedHeading({ title, measuredBps, measuring, onRemeasure }:
       </View>
     );
   }
-  // TV focus stays on this standalone heading; the card below keeps its own edge.
+  // The focused heading carries the card's rounded top corners and inset edge.
   return (
     <Pressable
       style={({ focused, pressed }) => [
@@ -63,9 +66,12 @@ export function LinkSpeedHeading({ title, measuredBps, measuring, onRemeasure }:
         Platform.isTV && styles.tvHeading,
         Platform.isTV && focused && !pressed && settingsStyles.listItemFocused,
         Platform.isTV && pressed && settingsStyles.listItemPressed,
+        Platform.isTV && (focused || pressed) && goldRowShadow(true, false, false),
         !Platform.isTV && pressed && styles.pressed,
       ]}
       onPress={onRemeasure}
+      onFocus={onFocus}
+      onBlur={onBlur}
       disabled={measuring}
       isTVSelectable
       tvParallaxProperties={{ enabled: false }}
@@ -102,7 +108,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   tvHeading: {
-    borderRadius: 16,
-    marginBottom: 12,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
   },
 });
