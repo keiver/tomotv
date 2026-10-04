@@ -16,7 +16,7 @@ module.exports = {
   // layers that happened to be tested and flattered itself accordingly. They are
   // in now, which drops the headline figure but makes it mean something.
   collectCoverageFrom: [
-    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.{ts,tsx}",
     "services/**/*.{ts,tsx}",
     "utils/**/*.{ts,tsx}",
     "hooks/**/*.{ts,tsx}",

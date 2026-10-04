@@ -5,13 +5,11 @@
 import { GRID, slotCardPadding } from "@/constants/app";
 import { t } from "@/services/i18n";
 import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
+import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS, TICK_MINUTES } from "@keiver/tomo-live/src/time";
 
-export const MINUTE_MS = 60_000;
-export const TICK_MINUTES = 30;
+export { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS, TICK_MINUTES };
 /** Minor scale marks between the labelled half hours. */
 export const MINOR_TICK_MINUTES = 5;
-/** Programs loaded per fetch, and how far the window grows when the canvas nears its end. */
-export const GUIDE_SPAN_MINUTES = 360;
 /** Days the day strip offers from today: the deepest guide a provider ships. */
 export const GUIDE_DAYS = 14;
 
@@ -74,14 +72,6 @@ export function guideMetrics(isTV: boolean): GuideMetrics {
   return isTV
     ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 74, cardInset }
     : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 47, cardInset };
-}
-
-/** The window opens on the half hour the current time falls in. */
-export function guideWindowStart(nowMs: number): number {
-  const tick = TICK_MINUTES * MINUTE_MS;
-  // Floored in local time: a 45-minute offset floored in UTC opens on :15 or :45.
-  const offset = -new Date(nowMs).getTimezoneOffset() * MINUTE_MS;
-  return Math.floor((nowMs + offset) / tick) * tick - offset;
 }
 
 export interface CellGeometry {

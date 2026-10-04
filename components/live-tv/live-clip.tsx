@@ -1,4 +1,4 @@
-import { LiveClipView } from "@/modules/live-clip";
+import { LiveClipView } from "@keiver/tomo-live/src/clip";
 import { LIVE_CLIP_SCROLL_SETTLE_MS, type LiveFrame } from "@/services/liveFrames";
 import React, { useEffect, useState } from "react";
 import { StyleSheet } from "react-native";

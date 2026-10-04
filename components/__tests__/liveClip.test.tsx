@@ -3,7 +3,7 @@ import React from "react";
 import * as Reanimated from "react-native-reanimated";
 import TestRenderer, { act } from "react-test-renderer";
 
-jest.mock("@/modules/live-clip", () => ({ LiveClipView: (props: object) => require("react").createElement("LiveClipView", props) }));
+jest.mock("@keiver/tomo-live/src/clip", () => ({ LiveClipView: (props: object) => require("react").createElement("LiveClipView", props) }));
 
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { LIVE_CLIP_SCROLL_SETTLE_MS } from "@/services/liveFrames";

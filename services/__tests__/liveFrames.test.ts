@@ -53,9 +53,10 @@ jest.mock("react-native", () => {
   };
 });
 const mockShowLivePreview = jest.fn();
-jest.mock("@/services/livePreview", () => ({ showLivePreview: (id: string | null) => mockShowLivePreview(id), stopLivePreview: jest.fn() }));
+jest.mock("@keiver/tomo-live/src/livePreview", () => ({ showLivePreview: (id: string | null) => mockShowLivePreview(id), stopLivePreview: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true, nativeEmits: (event: string) => event === "onLiveFrame" }));
+jest.mock("@keiver/tomo-engine", () => ({ ...jest.requireActual("@keiver/tomo-engine"), isLocalRemuxAvailable: () => true, nativeEmits: (event: string) => event === "onLiveFrame" }));
 jest.mock("@/services/liveTvPreferences", () => ({
   getLiveTvPreferences: () => mockPreferences,
   subscribeLiveTvPreferences: (listener: () => void) => {
@@ -73,6 +74,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   closeLiveStream: (id: string) => mockCloseLiveStream(id),
   openRecentlyFailed: (id: string) => mockOpenRecentlyFailed(id),
 }));
+jest.mock("@keiver/tomo-live/src/openFailures", () => ({ noteOpenFailed: jest.fn(), openRecentlyFailed: (id: string) => mockOpenRecentlyFailed(id) }));
 
 import {
   clearLiveFrames,

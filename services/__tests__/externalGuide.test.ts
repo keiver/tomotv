@@ -14,27 +14,28 @@ import {
 } from "../externalGuide";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
 
-jest.mock("@/services/liveSources", () => ({
+jest.mock("@keiver/tomo-engine", () => ({
+  ...jest.requireActual("@keiver/tomo-engine"),
   isLiveSourcesAvailable: jest.fn(() => true),
   loadGuide: jest.fn(),
   guideChannels: jest.fn(),
   guideProgrammes: jest.fn(),
   closeGuide: jest.fn().mockResolvedValue(undefined),
 }));
-jest.mock("@/services/guideFileCache", () => ({
+jest.mock("@keiver/tomo-live/src/guideFileCache", () => ({
   cachedGuideFile: jest.fn(async (url: string) => `file:///cache/${encodeURIComponent(url)}`),
   clearGuideFileCache: jest.fn(),
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
-const native = jest.requireMock("@/services/liveSources") as {
+const native = jest.requireMock("@keiver/tomo-engine") as {
   isLiveSourcesAvailable: jest.Mock;
   loadGuide: jest.Mock;
   guideChannels: jest.Mock;
   guideProgrammes: jest.Mock;
   closeGuide: jest.Mock;
 };
-const cache = jest.requireMock("@/services/guideFileCache") as { cachedGuideFile: jest.Mock; clearGuideFileCache: jest.Mock };
+const cache = jest.requireMock("@keiver/tomo-live/src/guideFileCache") as { cachedGuideFile: jest.Mock; clearGuideFileCache: jest.Mock };
 
 const URL = "http://g/guide.xml.gz";
 const OTHER = "http://g/other.xml";
