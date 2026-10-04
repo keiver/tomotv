@@ -154,6 +154,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     textAlign: "center",
     paddingHorizontal: IS_TV ? 12 : 8,
+    paddingBottom: 4,
     marginBottom: IS_TV ? 0 : 2,
   },
   boxes: {
