@@ -87,8 +87,17 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   // so the resize drag never re-renders the two lists.
   const columnW = useSharedValue(initialCompact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
   const canvasW = useSharedValue(0);
-  const resize = useColumnResize({ columnW, canvasW, minWidth: METRICS.compactColumnWidth, maxWidth: METRICS.channelColumnWidth, initialCompact, onCompactChange: handleCompactChange });
   const [viewportWidth, setViewportWidth] = useState(0);
+  const handleColumnSettle = useCallback((width: number) => setViewportWidth(canvasW.get() - width + SEAM_REACH), [canvasW]);
+  const resize = useColumnResize({
+    columnW,
+    canvasW,
+    minWidth: METRICS.compactColumnWidth,
+    maxWidth: METRICS.channelColumnWidth,
+    initialCompact,
+    onCompactChange: handleCompactChange,
+    onSettle: handleColumnSettle,
+  });
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
     setViewportWidth(event.nativeEvent.layout.width);
