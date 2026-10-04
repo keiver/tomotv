@@ -97,6 +97,11 @@ export function stillPullingInput<T extends EngineProgressReading>(progress: T |
   return progress.readSeconds / progress.elapsedSeconds >= readBoundShare;
 }
 
+/** The session is alive and read more since `bytesSeen`, at any pace: with the server off, the only reason to keep waiting. */
+export function engineStillReading<T extends EngineProgressReading>(progress: T | null | undefined, bytesSeen: number): progress is T {
+  return progress != null && progress.alive && progress.bytesRead > Math.max(0, bytesSeen);
+}
+
 /**
  * The ceiling AVPlayer picks its variant under. Never below the smallest variant the master
  * lists: a cap under all of them leaves AVPlayer nothing it may play and it wanders between

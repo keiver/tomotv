@@ -529,6 +529,59 @@ describe("useVideoPlayback (mounted)", () => {
       }
     });
 
+    it("waits out a slow player open when server video is forbidden, with no next lane to bail to", async () => {
+      jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+      let renderer: TestRenderer.ReactTestRenderer | undefined;
+      try {
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 8_000_000, SupportsTranscoding: false }] }));
+        mockCanRemux.mockResolvedValue(true);
+        const mounted = await mount({ videoId: "video-1" });
+        renderer = mounted.renderer;
+        expect(mounted.ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
+        await act(async () => jest.advanceTimersByTime(VOD_OPEN_DEADLINE_MS * 4));
+        expect(mounted.ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+      } finally {
+        await act(async () => renderer?.unmount());
+        jest.useRealTimers();
+      }
+    });
+
+    it("waits out a stall the engine is still reading through when server video is forbidden, and recovers once the reads stop", async () => {
+      jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+      let renderer: TestRenderer.ReactTestRenderer | undefined;
+      const flush = async () => {
+        for (let hop = 0; hop < 12; hop++) await Promise.resolve();
+      };
+      try {
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 8_000_000, SupportsTranscoding: false }] }));
+        mockCanRemux.mockResolvedValue(true);
+        let bytes = 0;
+        let reading = true;
+        mockProgress = () => ({ alive: true, bytesRead: reading ? (bytes += 500_000) : bytes, readSeconds: 19, elapsedSeconds: 20, recovering: false, hasPlayableSupplier: true });
+        const mounted = await mount({ videoId: "video-1" });
+        renderer = mounted.renderer;
+        mounted.ref.current!.get().currentTimeRef.current = 12;
+        await act(async () => {
+          mounted.ref.current!.get().videoCallbacks.onError({ error: { code: -12889, domain: "CoreMediaErrorDomain" } } as never);
+        });
+        await act(flush);
+        for (let round = 0; round < 3; round += 1) {
+          await act(async () => jest.advanceTimersByTime(ENGINE_SEGMENT_DEADLINE_MS));
+          await act(flush);
+        }
+        expect(mounted.ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER" });
+        reading = false;
+        await act(async () => jest.advanceTimersByTime(ENGINE_SEGMENT_DEADLINE_MS));
+        await act(flush);
+        await act(async () => jest.advanceTimersByTime(1));
+        expect(mounted.ref.current!.get().state).toMatchObject({ type: "ERROR", ref: { id: "PB-AVPLAYER", lane: "ENG" } });
+      } finally {
+        await act(async () => renderer?.unmount());
+        jest.useRealTimers();
+      }
+    });
+
     it.each(["startup", "playback"])("shows the error after one fresh engine session when a %s failure repeats and server video is forbidden", async (failureAt) => {
       jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
       let renderer: TestRenderer.ReactTestRenderer | undefined;
@@ -701,6 +754,51 @@ describe("useVideoPlayback (mounted)", () => {
         expect(recordTimeoutVerdict).toHaveBeenCalledWith(expect.objectContaining({ Id: "video-1" }), 20, { busy: false });
         expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine produced no segment within 20s" });
         expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/master.m3u8");
+      });
+
+      it("with the server off, waits past the cap while bytes keep arriving, at any pace, then plays the segment", async () => {
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 6_000_000, SupportsTranscoding: false }] }));
+        let bytes = 0;
+        mockProgress = () => ({ alive: true, bytesRead: (bytes += 1_000_000), readSeconds: 2, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+        for (let round = 0; round < 4; round += 1) {
+          await act(async () => jest.advanceTimersByTime(20_000));
+          await act(flush);
+        }
+        expect(mockProbeEmit).toHaveBeenCalledWith("preflight", expect.objectContaining({ extendedSeconds: 80 }));
+        expect(ref.current!.get().state.type).toBe("CREATING_STREAM");
+        await act(async () => {
+          throughputListener!({
+            token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+            generation: 0,
+            segment: 0,
+            produceSeconds: 85,
+            segmentSeconds: 6,
+            readSeconds: 84,
+            cushion: 0,
+            throttled: false,
+            thermal: "nominal",
+          });
+        });
+        await act(flush);
+        expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+        expect(recordTimeoutVerdict).not.toHaveBeenCalled();
+        expect(mockRecordVerdict).not.toHaveBeenCalled();
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+      });
+
+      it("with the server off, ends at the error once a round adds no bytes, with no device verdict", async () => {
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 6_000_000, SupportsTranscoding: false }] }));
+        mockProgress = () => ({ alive: true, bytesRead: 5_000_000, readSeconds: 19, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+        await act(async () => jest.advanceTimersByTime(20_000));
+        await act(flush);
+        expect(ref.current!.get().state.type).toBe("CREATING_STREAM");
+        await act(async () => jest.advanceTimersByTime(20_000));
+        await act(flush);
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", ref: { id: "PB-ENGINE-NOSEG", lane: "ENG" } });
+        expect(recordTimeoutVerdict).not.toHaveBeenCalled();
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
       });
 
       it("records no verdict for a session that read nothing", async () => {

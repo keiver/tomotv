@@ -112,6 +112,7 @@ import {
   createPreflightGate,
   dropThroughputWatch,
   EngineInputMissingError,
+  engineStillReading,
   forwardBufferFor,
   keptForReason,
   nextLinkCap,
@@ -1224,7 +1225,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             const startedAlive = await engineProgress(token);
             if (startedAlive !== null && !startedAlive.alive) preflight.settle({ failed: "engine session ended before its pre-flight" });
             // A deadline that finds the session alive and still pulling bytes at the link's pace
-            // is the link's deadline, not the engine's: wait again, up to the cap.
+            // is the link's deadline, not the engine's: wait again, up to the cap. With the server
+            // off nothing else can play the file, so any progress waits again, past the cap.
             let outcome: PreflightOutcome = null;
             let waitedMs = 0;
             let bytesSeen = -1;
@@ -1232,10 +1234,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             while (requestIdRef.current === currentRequestId) {
               outcome = await preflight.next(ENGINE_SEGMENT_DEADLINE_MS);
               waitedMs += ENGINE_SEGMENT_DEADLINE_MS;
-              if (outcome !== null || waitedMs >= ENGINE_PREFLIGHT_CAP_MS) break;
+              if (outcome !== null || (!serverDenied && waitedMs >= ENGINE_PREFLIGHT_CAP_MS)) break;
               const progress = await engineProgress(token);
               readNothing = progress != null && progress.bytesRead === 0;
-              if (!stillPullingInput(progress, bytesSeen, READ_BOUND_SHARE)) break;
+              const keepsReading = serverDenied ? engineStillReading(progress, bytesSeen) : stillPullingInput(progress, bytesSeen, READ_BOUND_SHARE);
+              if (!keepsReading || progress == null) break;
               bytesSeen = progress.bytesRead;
               probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, thermal: "unknown", remembered: false, extendedSeconds: waitedMs / 1000 });
               logger.info("Engine is still pulling the opening segment at the link's pace, waiting on it", {
@@ -1300,8 +1303,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               });
             } else if (!sample || belowRealtime(sample)) {
               // A channel, or a session that read nothing, says nothing about the device: no verdict.
+              // Nor does one the server-off wait ended, which stops only when the reads stop.
               const remembered =
-                isLiveRef.current || (!sample && readNothing)
+                isLiveRef.current || (!sample && (readNothing || serverDenied))
                   ? false
                   : sample
                     ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
@@ -2330,10 +2334,32 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         gatewayRecoveryRef.current = null;
         handlePlaybackError(error);
       };
-      gatewayRecoveryRef.current = { token, attempt, position: currentTimeRef.current, timer: setTimeout(recoverItem, ENGINE_SEGMENT_DEADLINE_MS) };
+      // With the server off a restart only starts the read over: a stall the engine is still reading through is waited out.
+      const serverDenied = videoDetails != null && !serverTranscodeAllowed(videoDetails);
+      let bytesSeen = -1;
+      const waitOrRecover = () => {
+        if (!ownsRecovery()) return;
+        if (!serverDenied) {
+          recoverItem();
+          return;
+        }
+        void engineProgress(token)
+          .then((progress) => {
+            if (!ownsRecovery() || !gatewayRecoveryRef.current) return;
+            if (!engineStillReading(progress, bytesSeen)) {
+              recoverItem();
+              return;
+            }
+            bytesSeen = progress.bytesRead;
+            gatewayRecoveryRef.current.timer = setTimeout(waitOrRecover, ENGINE_SEGMENT_DEADLINE_MS);
+          })
+          .catch(recoverItem);
+      };
+      gatewayRecoveryRef.current = { token, attempt, position: currentTimeRef.current, timer: setTimeout(waitOrRecover, ENGINE_SEGMENT_DEADLINE_MS) };
       void engineProgress(token)
         .then((progress) => {
           if (!ownsRecovery()) return;
+          if (progress?.alive) bytesSeen = progress.bytesRead;
           if (progress?.sourceState === "unavailable" && progress.hasPlayableSupplier) {
             currentModeRef.current = "transcode";
             hasTriedTranscodingRef.current = true;
@@ -2345,12 +2371,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           } else if (progress.recovering && progress.sourceRetryAfterSeconds && gatewayRecoveryRef.current) {
             clearTimeout(gatewayRecoveryRef.current.timer);
             const grace = Math.min(ENGINE_PREFLIGHT_CAP_MS, ENGINE_SEGMENT_DEADLINE_MS + progress.sourceRetryAfterSeconds * 1000);
-            gatewayRecoveryRef.current.timer = setTimeout(recoverItem, Math.max(0, grace - (Date.now() - recoveryStartedAt)));
+            gatewayRecoveryRef.current.timer = setTimeout(waitOrRecover, Math.max(0, grace - (Date.now() - recoveryStartedAt)));
           }
         })
         .catch(recoverItem);
     },
-    [handlePlaybackError, videoId],
+    [handlePlaybackError, videoId, videoDetails],
   );
 
   useEffect(() => {
@@ -2925,6 +2951,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     const live = isLiveRef.current;
     const boundsNonLive = transportRef.current === "gateway" || currentModeRef.current === "localRemux" || currentModeRef.current === "direct";
     if (!live && !boundsNonLive) return;
+    // With the server off there is no next lane to bail to: a slow open is waited out.
+    if (!live && videoDetails && !playsFromDisk(videoDetails.Id) && !serverTranscodeAllowed(videoDetails)) return;
     const attempt = requestIdRef.current;
     const source = streamUrlRef.current;
     const ms = live ? LIVE_START_DEADLINE_MS : VOD_OPEN_DEADLINE_MS;
@@ -2938,7 +2966,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       playerErrorRef.current?.({ error: { errorString: `playback did not start within ${ms / 1000}s`, errorId: PLAYBACK_ERROR_IDS.OPEN_TIMEOUT } } as OnVideoErrorData);
     }, ms);
     return () => clearTimeout(timer);
-  }, [skip, state.type, streamUrl]);
+  }, [skip, state.type, streamUrl, videoDetails]);
 
   // Diagnostics records the ID the error screen shows, retried detours included.
   useEffect(() => {
