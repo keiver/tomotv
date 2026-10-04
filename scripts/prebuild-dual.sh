@@ -30,7 +30,7 @@ project_hash() {
 # only pod install links a new module or registers an added or removed native file.
 pods_hash() {
   {
-    hash_files native/ios/TomoFFmpeg.podspec scripts/ffmpeg/ffmpeg-lock.json
+    hash_files packages/tomo-engine/ios/TomoEngine.podspec packages/tomo-engine/ios/TomoLiveSources.podspec packages/tomo-engine/ios/TomoFFmpeg.podspec packages/tomo-engine/ffmpeg-lock.json
     hash_files $(find modules \( -name expo-module.config.json -o -name '*.podspec' \) -type f | LC_ALL=C sort)
     find modules -path 'modules/*/ios/*' -type f -not -name .DS_Store | LC_ALL=C sort
     pod --version

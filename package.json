@@ -32,8 +32,8 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "postinstall": "patch-package --error-on-fail && node scripts/fetch-ffmpeg.js && node scripts/generate-licenses.mjs --if-stale && bash scripts/check-cocoapods.sh",
-    "fetch:ffmpeg": "node scripts/fetch-ffmpeg.js",
+    "postinstall": "patch-package --error-on-fail && node scripts/generate-licenses.mjs --if-stale && bash scripts/check-cocoapods.sh",
+    "fetch:ffmpeg": "node packages/tomo-engine/scripts/fetch-ffmpeg.js",
     "build:ffmpeg": "bash scripts/ffmpeg/build.sh",
     "prestart": "bash scripts/check-firewall.sh",
     "start": "expo start --dev-client",
@@ -52,7 +52,7 @@
     "report:playback": "node scripts/playback-report.mjs",
     "make:test-media": "node scripts/make-test-media.mjs",
     "probe:codecs": "node scripts/probe-codecs.mjs",
-    "test:engine": "swift test --package-path native/ios",
+    "test:engine": "swift test --package-path packages/tomo-engine && swift test --package-path native/ios",
     "shots": "node scripts/appstore-shots.mjs",
     "shots:upload": "node scripts/appstore-upload-shots.mjs",
     "shots:sims": "node scripts/capture-sims.mjs",
@@ -76,9 +76,13 @@
     "demo:livetv": "scripts/demo-livetv/deploy.sh",
     "demo:livetv:audit": "scripts/demo-livetv/audit.sh"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
     "@expo/vector-icons": "^15.0.2",
+    "@keiver/tomo-engine": "0.1.0",
     "entities": "^6.0.1",
     "expo": "^57.0.0",
     "expo-blur": "~57.0.3",

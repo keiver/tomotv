@@ -2,7 +2,7 @@ name: Build FFmpeg xcframeworks
 
 # Builds the FFmpeg xcframeworks the local remux engine links against and
 # publishes them to a release on this repo. `npm install` only ever downloads
-# them (scripts/fetch-ffmpeg.js); nothing is compiled at install time.
+# them (packages/tomo-engine/scripts/fetch-ffmpeg.js); nothing is compiled at install time.
 #
 # The lock file's `tag` field is the wanted version; `artifacts` are this
 # workflow's output. Bumping FFmpeg = change sources.sh and the lock's tag in
@@ -16,7 +16,7 @@ on:
     paths:
       - "scripts/ffmpeg/build.sh"
       - "scripts/ffmpeg/sources.sh"
-      - "scripts/ffmpeg/ffmpeg-lock.json"
+      - "packages/tomo-engine/ffmpeg-lock.json"
       - ".github/workflows/build-ffmpeg.yml"
   workflow_dispatch:
     inputs:
@@ -45,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ inputs.tag }}"
-          [ -n "$TAG" ] || TAG="$(python3 -c "import json; print(json.load(open('scripts/ffmpeg/ffmpeg-lock.json'))['tag'])")"
+          [ -n "$TAG" ] || TAG="$(python3 -c "import json; print(json.load(open('packages/tomo-engine/ffmpeg-lock.json'))['tag'])")"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           # A draft is a run that died before its lock landed, so it does not
           # count as published and the tag has to be rebuilt.
@@ -109,7 +109,7 @@ jobs:
               artifacts[name] = hashlib.sha256(zip_path.read_bytes()).hexdigest()
           if not artifacts:
               raise SystemExit("no artifacts in .ffmpeg-build/dist")
-          out = pathlib.Path("scripts/ffmpeg/ffmpeg-lock.json")
+          out = pathlib.Path("packages/tomo-engine/ffmpeg-lock.json")
           out.write_text(json.dumps({"repository": repo, "tag": tag, "artifacts": artifacts}, indent=2) + "\n")
           print(out.read_text())
           PY
@@ -133,7 +133,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add scripts/ffmpeg/ffmpeg-lock.json
+          git add packages/tomo-engine/ffmpeg-lock.json
           git diff --cached --quiet && exit 0
           git commit -m "chore(ffmpeg): pin ${{ needs.check.outputs.tag }} artifacts"
           for attempt in 1 2 3 4 5; do

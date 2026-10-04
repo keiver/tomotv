@@ -23,6 +23,7 @@ import {
   subscribeEngineStage,
   subscribeEngineTier,
   subtitleRenditions,
+  tierStopRequests,
   videoCodecTag,
   type ImageSubtitleEvent,
   type ThroughputSample,
@@ -649,6 +650,9 @@ describe("startLocalRemux", () => {
     expect(config.tiers.map((tier: { bandwidth: number }) => tier.bandwidth)).toEqual(offeredTierBandwidths(source, undefined, { serverVideoOnly: true }));
     expect(config.audioTracks[0]).toMatchObject({ index: 1, usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: 120_000 });
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioStreamIndex=1");
+    // One DELETE per server job the session may start: the seven rungs and the audio rendition.
+    expect(config.stopRequests).toHaveLength(8);
+    expect(config.stopRequests[0]).toEqual({ url: expect.stringContaining("/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=test-session&ApiKey="), method: "DELETE" });
     expect(config.subtitles[0].serverVttUrl).toContain("Subtitles/2/Stream.vtt");
     expect(config.primaryVideoCodecs).toBe("");
   });
@@ -2403,5 +2407,22 @@ describe("startLocalRemux on a live channel", () => {
 
   it("predicts the engine lane for a live channel with no verdict lookup", async () => {
     await expect(predictPlaybackLane(live())).resolves.toEqual({ lane: "deviceTranscode", smallFeedFirst: false });
+  });
+});
+
+describe("tierStopRequests", () => {
+  it("names the DELETE that ends each transcode a rung or audio URL started, and skips URLs without a session", () => {
+    expect(
+      tierStopRequests([
+        "https://jf.example:8920/Videos/i/main.m3u8?ApiKey=k&PlaySessionId=p1",
+        "https://jf.example:8920/Audio/i/main.m3u8?PlaySessionId=p2&ApiKey=k",
+        "",
+        "https://jf.example/Videos/i/main.m3u8?ApiKey=k",
+        "not a url",
+      ]),
+    ).toEqual([
+      { url: "https://jf.example:8920/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=p1&ApiKey=k", method: "DELETE" },
+      { url: "https://jf.example:8920/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=p2&ApiKey=k", method: "DELETE" },
+    ]);
   });
 });

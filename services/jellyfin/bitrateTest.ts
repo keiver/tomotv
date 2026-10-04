@@ -8,8 +8,8 @@
  * any age on that subnet, is void on another, and age only drives re-measurement.
  */
 
+import { canMeasureLink, cancelMeasureLink, measureLink as measureEngineLink, type LinkReading } from "@keiver/tomo-engine";
 import * as SecureStore from "expo-secure-store";
-import { NativeModules } from "react-native";
 import { playsFromDisk } from "@/services/downloads/localSource";
 import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIdentity";
 import { isPlaybackHeld, onPlaybackHoldTaken } from "@/services/playbackHold";
@@ -138,16 +138,6 @@ async function remember(server: string, bps: number, net: string | null): Promis
   }
 }
 
-/** What the native probe read: the rate, whether it filled a window, and over how long. */
-interface LinkReading {
-  bps: number;
-  kind: "full" | "short";
-  seconds: number;
-}
-
-const engine = () =>
-  NativeModules.LocalRemuxer as { measureLink?: (url: string, headers: Record<string, string>, budgetMs: number) => Promise<LinkReading | null>; cancelMeasureLink?: () => Promise<void> } | undefined;
-
 /** The file the probe reads: the newest library video not already on this device. */
 async function probeTarget(): Promise<JellyfinVideoItem | null> {
   const remote = (item: JellyfinVideoItem) => !playsFromDisk(item.Id) && !isLiveSource(item);
@@ -156,15 +146,14 @@ async function probeTarget(): Promise<JellyfinVideoItem | null> {
 }
 
 async function measureLink(config: JellyfinConfig, generation: number): Promise<LinkReading | null> {
-  const measure = engine()?.measureLink;
-  if (typeof measure !== "function") return null;
+  if (!canMeasureLink()) return null;
   const item = await probeTarget();
   // A switch during the lookup: the list is the next server's, and a read would cancel its probe.
   if (generation !== probeGeneration) return null;
   const stream = item ? getRemoteVideoStreamUrl(item.Id, item, config) : "";
   if (!stream || isPlaybackHeld()) return null;
   const url = `${stream}&_probe=${Date.now()}-${probeNonce++}`;
-  const reading = await measure(url, { Authorization: getAuthHeader(config.deviceId, config.apiKey), Range: "bytes=0-" }, PROBE_BUDGET_MS);
+  const reading = await measureEngineLink(url, { Authorization: getAuthHeader(config.deviceId, config.apiKey), Range: "bytes=0-" }, PROBE_BUDGET_MS);
   return reading != null && Number.isFinite(reading.bps) && reading.bps > 0 && reading.seconds >= (PROBE_BUDGET_MS / 1000) * FULL_READ_SHARE ? reading : null;
 }
 
@@ -173,9 +162,7 @@ async function runProbe(config: JellyfinConfig, host: string, generation: number
   let yielded = false;
   const offTaken = onPlaybackHoldTaken(() => {
     yielded = true;
-    void engine()
-      ?.cancelMeasureLink?.()
-      ?.catch(() => undefined);
+    void cancelMeasureLink().catch(() => undefined);
   });
   try {
     const reading = await measureLink(config, generation);
@@ -247,9 +234,7 @@ export async function measureServerBitrate(): Promise<number | null> {
 export function cancelBitrateProbes(): void {
   probeGeneration++;
   inFlight = null;
-  void engine()
-    ?.cancelMeasureLink?.()
-    ?.catch(() => undefined);
+  void cancelMeasureLink().catch(() => undefined);
 }
 
 /**

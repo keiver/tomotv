@@ -59,8 +59,8 @@
       "./plugins/withMacKeyCommands",
       "./plugins/withAudioQueuePlayer",
       "./plugins/withBookRenderer",
-      "./plugins/withLiveSources",
-      "./plugins/withFFmpeg",
+      "./plugins/withTunerGroups",
+      "@keiver/tomo-engine",
       "./plugins/withXcodeIdentity",
       [
         "tvos-assets/plugin",

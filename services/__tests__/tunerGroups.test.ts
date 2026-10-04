@@ -5,12 +5,12 @@ import { clearRequestCache } from "../requestCache";
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
 jest.mock("@/services/liveSources", () => ({
-  isLiveSourcesAvailable: jest.fn(() => true),
+  isTunerGroupsAvailable: jest.fn(() => true),
   loadTunerPlaylist: jest.fn(),
   cancelTunerGroups: jest.fn(),
 }));
 const mockLiveSources = jest.requireMock("@/services/liveSources") as {
-  isLiveSourcesAvailable: jest.Mock;
+  isTunerGroupsAvailable: jest.Mock;
   loadTunerPlaylist: jest.Mock;
   cancelTunerGroups: jest.Mock;
 };
@@ -75,7 +75,7 @@ describe("fetchTunerGroups", () => {
   });
 
   it("returns no groups without the native module and never reads the config", async () => {
-    mockLiveSources.isLiveSourcesAvailable.mockReturnValueOnce(false);
+    mockLiveSources.isTunerGroupsAvailable.mockReturnValueOnce(false);
     global.fetch = jest.fn();
     await expect(fetchTunerGroups()).resolves.toEqual([]);
     expect(global.fetch).not.toHaveBeenCalled();

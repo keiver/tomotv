@@ -1,5 +1,9 @@
+import type { SourcePosition } from "@keiver/tomo-engine";
+
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { isLiveSource } from "./media";
+
+export type { SourcePosition };
 
 export interface AudioCatalogueTrack {
   identity: string;
@@ -8,12 +12,6 @@ export interface AudioCatalogueTrack {
   name: string;
   stream: JellyfinMediaStream;
   source: SourcePosition | null;
-}
-
-export interface SourcePosition {
-  ordinal: number;
-  count: number;
-  codec: string;
 }
 
 // The four names Jellyfin rewrites (ProbeResultNormalizer.NormalizeSubtitleCodec); every other Codec is ffprobe's own.

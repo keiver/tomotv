@@ -16,6 +16,7 @@ module.exports = {
   // layers that happened to be tested and flattered itself accordingly. They are
   // in now, which drops the headline figure but makes it mean something.
   collectCoverageFrom: [
+    "packages/*/src/**/*.ts",
     "services/**/*.{ts,tsx}",
     "utils/**/*.{ts,tsx}",
     "hooks/**/*.{ts,tsx}",
@@ -25,10 +26,10 @@ module.exports = {
     "!**/__tests__/**",
     "!**/node_modules/**",
   ],
-  // Measured 61.18 / 52.80 / 56.02 / 62.74 on 2026-09-15. The floor sits a few
+  // Measured 68.82 / 60.93 / 62.77 / 70.54 on 2026-10-03. The floor sits a few
   // points under that so it ratchets upward without failing the build the day it
   // lands. Raise it when coverage rises; never lower it to make a red run green.
   coverageThreshold: {
-    global: { statements: 58, branches: 50, functions: 53, lines: 60 },
+    global: { statements: 65, branches: 57, functions: 59, lines: 67 },
   },
 };

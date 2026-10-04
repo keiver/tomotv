@@ -12,9 +12,8 @@ import { getLiveTvPreferences, subscribeLiveTvPreferences } from "@/services/liv
 import { isLocalRemuxAvailable, nativeEmits } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
-import { AppState, NativeEventEmitter, NativeModules } from "react-native";
-
-const { LocalRemuxer } = NativeModules;
+import { canReadLiveFramesOnDisk, cancelLiveFrame, engineEmitter, liveFrame, liveFramesOnDisk } from "@keiver/tomo-engine";
+import { AppState } from "react-native";
 
 /** A channel is asked again this soon after its picture moved. */
 export const LIVE_FRAME_REFRESH_MS = 120_000;
@@ -161,7 +160,7 @@ function wire(): void {
   if (wired) return;
   wired = true;
   if (nativeEmits("onLiveFrame")) {
-    new NativeEventEmitter(LocalRemuxer).addListener("onLiveFrame", onLiveFrameEvent);
+    engineEmitter().addListener("onLiveFrame", onLiveFrameEvent);
   }
   AppState.addEventListener("change", (state) => {
     if (state === "active") schedule(0);
@@ -204,7 +203,7 @@ function cancelGrabs(keep?: readonly string[]): void {
   for (const channelId of grabbing.keys()) {
     if (keep?.includes(channelId)) continue;
     stopped.add(channelId);
-    void LocalRemuxer?.cancelLiveFrame?.(channelId)?.catch(() => {});
+    cancelLiveFrame(channelId);
   }
 }
 
@@ -283,11 +282,11 @@ function stopTicker(): void {
  */
 async function seedFromDisk(): Promise<void> {
   const asking = viewable.filter((channelId) => !entry(channelId).seeded);
-  if (asking.length === 0 || typeof LocalRemuxer?.liveFramesOnDisk !== "function") return;
+  if (asking.length === 0 || !canReadLiveFramesOnDisk()) return;
   for (const channelId of asking) entry(channelId).seeded = true;
   const gen = generation;
   try {
-    const found: Record<string, { uris: string[]; clip?: string | null; at: number }> = (await LocalRemuxer.liveFramesOnDisk(asking)) ?? {};
+    const found = await liveFramesOnDisk(asking);
     if (gen !== generation) return;
     for (const [channelId, { uris, clip, at }] of Object.entries(found)) {
       const item = entry(channelId);
@@ -379,7 +378,7 @@ function preemptRefreshes(channelId: string): void {
   const refresh = [...grabbing.keys()].find((id) => !needsGrab(id, Date.now()));
   if (!refresh) return;
   stopped.add(refresh);
-  void LocalRemuxer?.cancelLiveFrame?.(refresh)?.catch(() => {});
+  cancelLiveFrame(refresh);
 }
 
 /** A blur that may land after the next row's focus: clears only its own claim. */
@@ -475,16 +474,7 @@ async function grab(channelId: string): Promise<void> {
       } else noteOpenFailure();
       return;
     }
-    const result: {
-      uris?: string[] | null;
-      clip?: string | null;
-      pts?: number | null;
-      unchanged?: boolean;
-      missing?: boolean;
-      cancelled?: boolean;
-      reason?: string;
-      failure?: string | null;
-    } = await LocalRemuxer.liveFrame({
+    const result = await liveFrame({
       channelId,
       inputUrl: input.url,
       httpHeaders: input.headers ?? {},

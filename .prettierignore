@@ -25,3 +25,4 @@ constants/bundled-licenses.ts
 docs/playback-coverage.md
 test/playback/provenance.json
 native/ios/.build/
+packages/tomo-engine/.build/

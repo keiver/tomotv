@@ -1,0 +1,50 @@
+{
+  "name": "@keiver/tomo-engine",
+  "version": "0.1.0",
+  "description": "On-device playback engine for Apple TV and iOS: FFmpeg demux, stream copy or VideoToolbox transcode into HLS for the native player, with XMLTV guide and M3U playlist sources",
+  "license": "MIT",
+  "author": "Keiver Hernandez <contact@keiver.dev>",
+  "homepage": "https://github.com/keiver/tomotv/tree/main/packages/tomo-engine",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/keiver/tomotv.git",
+    "directory": "packages/tomo-engine"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "tvos",
+    "ffmpeg",
+    "hls",
+    "video-player",
+    "xmltv",
+    "m3u"
+  ],
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "files": [
+    "app.plugin.js",
+    "src",
+    "ios/LocalRemuxer",
+    "ios/LiveSources",
+    "ios/TomoEngine.podspec",
+    "ios/TomoLiveSources.podspec",
+    "ios/TomoFFmpeg.podspec",
+    "scripts",
+    "ffmpeg-lock.json",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE.md",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/fetch-ffmpeg.js",
+    "fetch:ffmpeg": "node scripts/fetch-ffmpeg.js",
+    "test": "swift test"
+  },
+  "peerDependencies": {
+    "expo": "*",
+    "expo-file-system": "*",
+    "react-native": "*"
+  }
+}
