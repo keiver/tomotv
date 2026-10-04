@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
  * Build docs/playback-coverage.md from the manifest, the fixtures themselves,
- * and one run record per platform.
+ * and one run record per platform, and docs/playback-fixtures.{md,html} from the fixtures alone.
  *
  * Usage:
  *   node scripts/playback-report.mjs --run tvOS=run-tvos.json --run iPhone=run-iphone.json
+ *   node scripts/playback-report.mjs --fixtures       rewrite docs/playback-fixtures.{md,html} only
  *   node scripts/playback-report.mjs --provenance     rewrite test/playback/provenance.json
  *
  * Every technical column is ffprobed from the fixture at generation time, never
@@ -12,10 +13,13 @@
  * TrueHD) and the report has to be right where the filename is not.
  */
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cell, formatRows, mainVideo, streamRows, streamTable, summaryCells } from "./lib/fixture-facts.mjs";
+import { fixturesPage } from "./lib/fixtures-page.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST = path.join(ROOT, "test", "playback", "manifest.json");
@@ -23,6 +27,9 @@ const PROVENANCE = path.join(ROOT, "test", "playback", "provenance.json");
 const SOURCES = path.join(ROOT, "test", "playback", "media-sources.json");
 const GENERATOR = path.join(ROOT, "scripts", "make-test-media.mjs");
 const OUT = path.join(ROOT, "docs", "playback-coverage.md");
+const FIXTURES_OUT = path.join(ROOT, "docs", "playback-fixtures.md");
+const FIXTURES_HTML = path.join(ROOT, "docs", "playback-fixtures.html");
+const LIVE_PLAYLIST = path.join(ROOT, "test", "playback", "live", "real.m3u");
 const ROOTS = [path.join(os.homedir(), "Movies", "development-videos"), path.join(os.homedir(), "Music", "Development Audio"), path.join(os.homedir(), "Music", "Development Surround")];
 
 const args = process.argv.slice(2);
@@ -40,11 +47,16 @@ function fixturePaths() {
   return byTitle;
 }
 
+const ffprobe = (file, extra) => JSON.parse(execFileSync("ffprobe", ["-v", "quiet", "-print_format", "json", ...extra, file], { maxBuffer: 1e8 }));
+
 function probe(file) {
-  const j = JSON.parse(execFileSync("ffprobe", ["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", file], { maxBuffer: 1e8 }));
-  const v = j.streams.find((s) => s.codec_type === "video");
+  const j = ffprobe(file, ["-show_format", "-show_streams", "-show_chapters"]);
+  const v = mainVideo(j);
   const a = j.streams.find((s) => s.codec_type === "audio");
   const subs = j.streams.filter((s) => s.codec_type === "subtitle");
+  // Scan type and HDR metadata (mastering display, light level, DV RPU) live on frames, not the stream.
+  const frameEntries = "frame=interlaced_frame,top_field_first,side_data_list";
+  const firstFrame = v ? ffprobe(file, ["-select_streams", String(v.index), "-read_intervals", "%+#1", "-show_frames", "-show_entries", frameEntries]).frames?.[0] : undefined;
   return {
     container: path.extname(file).slice(1),
     format: j.format.format_name,
@@ -52,7 +64,111 @@ function probe(file) {
     video: v && { codec: v.codec_name, profile: v.profile, w: v.width, h: v.height, pix: v.pix_fmt },
     audio: a && { codec: a.codec_name, profile: a.profile, channels: a.channels, layout: a.channel_layout },
     subtitles: subs.map((s) => s.codec_name),
+    raw: j,
+    firstFrame,
   };
+}
+
+function sha256(file) {
+  const hash = crypto.createHash("sha256");
+  const buf = Buffer.alloc(1 << 24);
+  const fd = fs.openSync(file, "r");
+  try {
+    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) hash.update(buf.subarray(0, n));
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest("hex");
+}
+
+/** Subtitle files Jellyfin attaches: the name starts with the video's full name, then a dot. */
+function sidecars(file) {
+  const dir = path.dirname(file);
+  const stem = path.basename(file).replace(/\.[^.]+$/, "");
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.startsWith(`${stem}.`) && /\.(srt|ass|ssa|vtt|sub|idx|sup|smi)$/i.test(f))
+    .map((name) => {
+      const p = path.join(dir, name);
+      let codec;
+      try {
+        codec = ffprobe(p, ["-show_streams"]).streams[0]?.codec_name;
+      } catch {}
+      return { name, bytes: fs.statSync(p).size, sha256: sha256(p), codec };
+    });
+}
+
+function collect(manifest) {
+  const prov = read(PROVENANCE).items;
+  const files = fixturePaths();
+  return manifest.items.map((it) => {
+    const file = it.live ? undefined : files.get(it.title);
+    return { item: it, file, probe: file ? probe(file) : null, sidecars: file ? sidecars(file) : [], origin: prov[it.id]?.origin ?? "unverified", provenance: prov[it.id] };
+  });
+}
+
+/** Everything ffprobe reports about each fixture, so a reader without the files can see what was played. */
+function buildFixtures(manifest, rows) {
+  const version = execFileSync("ffprobe", ["-version"], { encoding: "utf8" }).split("\n")[0];
+  const m3u = fs.readFileSync(LIVE_PLAYLIST, "utf8").split("\n");
+  const origins = new Map();
+  m3u.forEach((line, i) => line.startsWith("#EXTINF") && origins.set(line.slice(line.lastIndexOf(",") + 1).trim(), m3u[i + 1]?.trim()));
+  const lede = `Every file the playback suite plays, as ${version.replace(/ Copyright.*/, "")} reads it, generated ${new Date().toISOString().slice(0, 10)}. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described.`;
+  const fixtures = rows.map((r) => {
+    const it = r.item;
+    const f = { id: it.id, title: it.title };
+    if (it.live)
+      return {
+        ...f,
+        live: { url: origins.get(it.title) },
+        expectLine: `Expected lane: ${LANE[it.mode]}, validate ${it.validate}${it.expect ? `, harness expects ${JSON.stringify(it.expect)}` : ""}.`,
+      };
+    if (!r.file) return f;
+    // [label, value, monospace]
+    const facts = [
+      ["File", path.basename(r.file), true],
+      ["Size", `${fs.statSync(r.file).size.toLocaleString("en-US")} bytes`],
+      ["SHA-256", sha256(r.file), true],
+      ...formatRows(r.probe.raw),
+      ["Origin", `${r.origin}${r.provenance?.evidence ? `, ${r.provenance.evidence}` : ""}`],
+      ["Expected lane", `${LANE[it.mode]}, validate ${it.validate}`],
+    ];
+    if (it.expect) facts.push(["Harness expects", JSON.stringify(it.expect), true]);
+    if (it.skip) facts.push(["Skipped", it.skip.replace(/\s+/g, " ")]);
+    return { ...f, facts, streams: streamRows(r.probe.raw, r.probe.firstFrame), sidecars: r.sidecars, probe: r.probe };
+  });
+
+  const L = [
+    "# Playback fixtures",
+    "",
+    `${lede} Browsable with a codec index in [\`playback-fixtures.html\`](playback-fixtures.html); results per file are in [\`playback-coverage.md\`](playback-coverage.md).`,
+    "",
+  ];
+  for (const f of fixtures) {
+    L.push(`### ${f.id}`, "");
+    if (f.live) {
+      L.push(
+        `Live TV channel **${cell(f.title)}**, ${f.live.url ? `origin \`${f.live.url}\` in` : "not found in"} [\`test/playback/live/real.m3u\`](../test/playback/live/real.m3u). Not a file: its streams are whatever the origin sends at run time, so nothing here is probed.`,
+        "",
+        f.expectLine,
+        "",
+      );
+      continue;
+    }
+    if (!f.facts) {
+      L.push(`**${cell(f.title)}**: no file with this title under the fixture roots, so nothing is probed.`, "");
+      continue;
+    }
+    L.push("| | |", "| --- | --- |");
+    for (const [k, val, code] of f.facts) L.push(`| ${k} | ${code ? `\`${val}\`` : cell(val)} |`);
+    L.push("", ...streamTable(f.probe.raw, f.probe.firstFrame, f.sidecars), "");
+  }
+  fs.mkdirSync(path.dirname(FIXTURES_OUT), { recursive: true });
+  fs.writeFileSync(FIXTURES_OUT, L.join("\n"));
+  fs.writeFileSync(FIXTURES_HTML, fixturesPage({ lede, fixtures }));
+  console.log(
+    `wrote ${path.relative(ROOT, FIXTURES_OUT)} and ${path.relative(ROOT, FIXTURES_HTML)} (${rows.filter((r) => r.file).length} files, ${rows.filter((r) => r.item.live).length} live channels)`,
+  );
 }
 
 /** Origin is decided by the generator's own tables and the files' tags, never by hand. */
@@ -126,6 +242,8 @@ function laneCell(item, run) {
 
 function main() {
   if (args.includes("--provenance")) return buildProvenance();
+  const manifest = read(MANIFEST);
+  if (args.includes("--fixtures")) return buildFixtures(manifest, collect(manifest));
 
   const runs = [];
   for (let i = 0; i < args.length; i++) {
@@ -138,16 +256,13 @@ function main() {
     process.exit(1);
   }
 
-  const manifest = read(MANIFEST);
-  const prov = read(PROVENANCE).items;
-  const files = fixturePaths();
-  const rows = manifest.items.map((it) => {
-    const file = files.get(it.title);
-    return { item: it, file, probe: file ? probe(file) : null, origin: prov[it.id]?.origin ?? "unverified" };
-  });
+  const rows = collect(manifest);
+  buildFixtures(manifest, rows);
+  const fileRows = rows.filter((r) => !r.item.live);
+  const liveCount = rows.length - fileRows.length;
 
   const originCounts = {};
-  for (const r of rows) originCounts[r.origin] = (originCounts[r.origin] ?? 0) + 1;
+  for (const r of fileRows) originCounts[r.origin] = (originCounts[r.origin] ?? 0) + 1;
 
   const deep = rows.filter((r) => /10le|10be|12le|p010/.test(r.probe?.video?.pix ?? ""));
   const skipped = manifest.items.filter((it) => it.skip);
@@ -156,7 +271,7 @@ function main() {
   L.push("# Playback coverage");
   L.push("");
   L.push(
-    `Every result cell below is what the shipping app reported when the harness played that file on a simulator, or the reason it did not run; none of it comes from a support table. ${manifest.items.length} fixtures, generated ${new Date().toISOString().slice(0, 10)} by \`npm run report:playback\`.`,
+    `Every result cell below is what the shipping app reported when the harness played that file on a simulator, or the reason it did not run; none of it comes from a support table. ${fileRows.length} files and ${liveCount} live channels, each described stream by stream in [\`playback-fixtures.md\`](playback-fixtures.md), generated ${new Date().toISOString().slice(0, 10)} by \`npm run report:playback\`.`,
   );
   L.push("");
   L.push("The failures are in the table. A coverage page that lists only passes is worth nothing to someone whose file is one of the failures.");
@@ -164,16 +279,16 @@ function main() {
 
   L.push("## Results");
   L.push("");
-  for (const run of runs) L.push(`- **${run.label}**: ${run.passed}/${run.total} passed, on ${run.simulator}`);
+  for (const run of runs) L.push(`- **${run.label}**: ${run.passed}/${run.total} passed, on ${run.target ?? run.simulator}`);
   L.push("");
-  L.push(`| ID | Container | Video | Audio | Expected lane | ${runs.map((r) => r.label).join(" | ")} |`);
-  L.push(`| --- | --- | --- | --- | --- | ${runs.map(() => "---").join(" | ")} |`);
+  L.push(`| ID | File | Container | Video | Audio | Subtitles | Expected lane | ${runs.map((r) => r.label).join(" | ")} |`);
+  L.push(`| --- | --- | --- | --- | --- | --- | --- | ${runs.map(() => "---").join(" | ")} |`);
   for (const r of rows) {
-    const v = r.probe?.video;
-    const a = r.probe?.audio;
-    const video = v ? `${v.codec}${/10le|10be|12le/.test(v.pix) ? " 10-bit" : ""} ${v.w}x${v.h}` : "audio only";
-    const audio = a ? `${a.codec} ${a.channels}ch` : "none";
-    L.push(`| ${r.item.id} | ${r.probe?.container ?? "?"} | ${video} | ${audio} | ${LANE[r.item.mode]} | ${runs.map((run) => laneCell(r.item, run)).join(" | ")} |`);
+    const c = r.probe ? summaryCells(r.probe.raw, r.sidecars) : { video: r.item.live ? "live, not probed" : "file missing", audio: "", subtitles: "" };
+    const container = r.item.live ? "live HLS" : (r.probe?.container ?? "?");
+    L.push(
+      `| [${r.item.id}](playback-fixtures.md#${r.item.id.toLowerCase()}) | ${cell(r.item.title)} | ${container} | ${c.video} | ${c.audio} | ${c.subtitles} | ${LANE[r.item.mode]} | ${runs.map((run) => laneCell(r.item, run)).join(" | ")} |`,
+    );
   }
   L.push("");
 
@@ -205,7 +320,7 @@ function main() {
   L.push("## The corpus");
   L.push("");
   L.push(
-    `${rows.length} fixtures, ${(rows.reduce((n, r) => n + (r.file ? fs.statSync(r.file).size : 0), 0) / 1e9).toFixed(1)} GB, none of it in git. Origin is recorded per file in [\`test/playback/provenance.json\`](../test/playback/provenance.json), from the generator's own tables and the files' embedded tags:`,
+    `${fileRows.length} files, ${(fileRows.reduce((n, r) => n + (r.file ? fs.statSync(r.file).size : 0), 0) / 1e9).toFixed(1)} GB, none of it in git. Origin is recorded per file in [\`test/playback/provenance.json\`](../test/playback/provenance.json), from the generator's own tables and the files' embedded tags:`,
   );
   L.push("");
   L.push("| Origin | Count | Redistributable |");

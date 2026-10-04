@@ -1399,6 +1399,14 @@ async function main() {
     console.log(`Wrote ${jsonPath}`);
   }
 
+  // The fixture inventory (docs/playback-fixtures.{md,html}) is rewritten after every run.
+  try {
+    const { stdout } = await exec(process.execPath, [path.join(ROOT, "scripts", "playback-report.mjs"), "--fixtures"], { maxBuffer: 1e7 });
+    process.stdout.write(stdout);
+  } catch (e) {
+    console.warn(`fixture inventory not written: ${e.message}`);
+  }
+
   listener.close();
   if (failed.length) process.exit(1);
 }
