@@ -8,6 +8,7 @@ import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
+import { foldText } from "@/utils/textFold";
 import { fetchWithTimeout } from "./http";
 import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, FACET_PREFIX_MIN_CHARS } from "./constants";
 import { getAuthHeader, getConfig, JellyfinConfig } from "./session";
@@ -428,38 +429,86 @@ export function orderLiveTvResults(items: readonly JellyfinVideoItem[], nowMs: n
   return channels.concat(programs).slice(0, LIVE_TV_RESULT_CAP);
 }
 
+/** Shorter folded terms match every description; the server's name match covers them. */
+const DESCRIPTION_MIN_CHARS = 3;
+
+/** Every word of the term appears in the programme's name, episode title or description, case and accents folded. */
+export function matchesProgramText(program: Pick<JellyfinVideoItem, "Name" | "EpisodeTitle" | "Overview">, searchTerm: string): boolean {
+  const folded = foldText(searchTerm);
+  if (folded.length < DESCRIPTION_MIN_CHARS) return false;
+  const text = foldText([program.Name, program.EpisodeTitle, program.Overview].filter(Boolean).join(" "));
+  return folded.split(/\s+/).every((term) => text.includes(term));
+}
+
+const liveTvHeaders = (config: JellyfinConfig) => ({ Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) });
+
+/** The server's name matches: channels and programmes. */
+async function fetchLiveTvNameMatches(config: JellyfinConfig, searchTerm: string): Promise<JellyfinVideoItem[]> {
+  const query = new URLSearchParams({
+    userId: config.userId!,
+    recursive: "true",
+    includeItemTypes: "TvChannel,LiveTvProgram",
+    searchTerm,
+    limit: "100",
+    fields: "StartDate,EndDate,ChannelInfo,PrimaryImageAspectRatio",
+    enableImages: "true",
+  });
+  const response = await fetchWithTimeout(`${config.server}/Items?${query.toString()}`, { method: "GET", headers: liveTvHeaders(config) }, API_TIMEOUTS.QUICK);
+  if (!response.ok) throw new Error(`Live TV search failed: ${response.status}`);
+  const data: JellyfinVideosResponse = await response.json();
+  return data.Items ?? [];
+}
+
 /**
- * Channels and programmes matching the term. /Items ignores hasAired and minEndDate (probed), so
- * ended programmes are dropped here. A server without Live TV answers empty; a failure too.
+ * Every programme airing now, one per channel, with the description the server's search never
+ * reads. One read serves a whole typed query (CACHE.LIVE_AIRING_TTL_MS); a server switch clears it.
+ */
+async function fetchAiringPrograms(config: JellyfinConfig): Promise<JellyfinVideoItem[]> {
+  return cachedRequest(
+    `liveAiring:${config.userId}`,
+    async () => {
+      const query = new URLSearchParams({
+        userId: config.userId!,
+        isAiring: "true",
+        fields: "ChannelInfo,Overview,PrimaryImageAspectRatio",
+        enableImages: "true",
+        enableUserData: "false",
+        enableTotalRecordCount: "false",
+      });
+      const response = await fetchWithTimeout(`${config.server}/LiveTv/Programs?${query.toString()}`, { method: "GET", headers: liveTvHeaders(config) }, API_TIMEOUTS.NORMAL);
+      if (!response.ok) throw new Error(`Live TV airing read failed: ${response.status}`);
+      const data: JellyfinVideosResponse = await response.json();
+      return data.Items ?? [];
+    },
+    CACHE.LIVE_AIRING_TTL_MS,
+  );
+}
+
+/**
+ * Channels and programmes matching the term: the server's name matches, plus the programmes airing
+ * now whose name, episode title or description carries every word (the server searches names only).
+ * /Items ignores hasAired and minEndDate (probed), so ended programmes are dropped here. A server
+ * without Live TV answers empty; a failed source keeps the other's results.
  */
 export async function searchLiveTv(searchTerm: string): Promise<JellyfinVideoItem[]> {
   const trimmed = searchTerm.trim();
   if (!trimmed) return [];
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) return [];
-  const query = new URLSearchParams({
-    userId: config.userId,
-    recursive: "true",
-    includeItemTypes: "TvChannel,LiveTvProgram",
-    searchTerm: trimmed,
-    limit: "100",
-    fields: "StartDate,EndDate,ChannelInfo,PrimaryImageAspectRatio",
-    enableImages: "true",
-  });
-  try {
-    const response = await fetchWithTimeout(
-      `${config.server}/Items?${query.toString()}`,
-      { method: "GET", headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
-      API_TIMEOUTS.QUICK,
-    );
-    if (!response.ok) {
-      logger.warn("Live TV search failed", { service: "JellyfinAPI", status: response.status });
-      return [];
+  const [names, airing] = await Promise.allSettled([fetchLiveTvNameMatches(config, trimmed), fetchAiringPrograms(config)]);
+  const warn = (source: string, settled: PromiseRejectedResult) =>
+    logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: settled.reason instanceof Error ? settled.reason.message : "unknown" });
+  if (names.status === "rejected") warn("names", names);
+  if (airing.status === "rejected") warn("airing", airing);
+  const items = names.status === "fulfilled" ? [...names.value] : [];
+  const seen = new Set(items.map((item) => item.Id));
+  if (airing.status === "fulfilled") {
+    for (const program of airing.value) {
+      if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && matchesProgramText(program, trimmed)) {
+        seen.add(program.Id);
+        items.push(program);
+      }
     }
-    const data: JellyfinVideosResponse = await response.json();
-    return orderLiveTvResults(data.Items ?? [], Date.now());
-  } catch (error) {
-    logger.warn("Live TV search failed", { service: "JellyfinAPI", error: error instanceof Error ? error.message : "unknown" });
-    return [];
   }
+  return orderLiveTvResults(items, Date.now());
 }

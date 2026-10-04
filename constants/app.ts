@@ -53,6 +53,8 @@ export const CACHE = {
   RESUME_TTL_MS: 30 * 1000,
   /** TTL for filter facets (genres/artists/years) — rarely change during a session. */
   FACET_TTL_MS: 5 * 60 * 1000,
+  /** TTL for the programmes airing now, which search matches by description: one read serves a whole typed query. */
+  LIVE_AIRING_TTL_MS: 60 * 1000,
 } as const;
 
 /**

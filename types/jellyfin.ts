@@ -160,6 +160,7 @@ export interface JellyfinVideoItem {
   EndDate?: string;
   ChannelId?: string;
   ChannelName?: string;
+  EpisodeTitle?: string;
   // Only present when the request asked for Fields=Chapters (fetchItemDetails does).
   Chapters?: JellyfinChapter[];
   Type: string;
