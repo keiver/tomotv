@@ -94,7 +94,6 @@
   "liveTv.guideSourcesHint": "Guías XMLTV para canales sin programación",
   "liveTv.guideSourcesActive": "Activas: {count}",
   "liveTv.guideSourcesAbout": "Las guías de tus listas del sintonizador, y las que añades, completan la programación de los canales para los que tu servidor no tiene.",
-  "liveTv.yourGuides": "Tus guías",
   "liveTv.addGuide": "Añadir URL de guía",
   "liveTv.guideInvalid": "Escribe una dirección http o https",
   "liveTv.guideWaiting": "Se carga al abrir la guía",

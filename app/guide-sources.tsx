@@ -109,14 +109,8 @@ export default function GuideSourcesScreen() {
         showsVerticalScrollIndicator={false}
         automaticallyAdjustKeyboardInsets>
         <View style={settingsStyles.contentContainer}>
-          {IS_TV ? (
-            <View style={settingsStyles.sectionHeader}>
-              <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSources")}</Text>
-            </View>
-          ) : null}
-
           <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.yourGuides")}</Text>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSources")}</Text>
           </View>
           <View style={settingsStyles.section}>
             <SectionFooter edge="top">

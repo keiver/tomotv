@@ -94,7 +94,6 @@
   "liveTv.guideSourcesHint": "Guides XMLTV pour les chaînes sans programme",
   "liveTv.guideSourcesActive": "Actifs : {count}",
   "liveTv.guideSourcesAbout": "Les guides de vos listes de lecture de tuner, et ceux que vous ajoutez, complètent le programme des chaînes pour lesquelles votre serveur n'en a pas.",
-  "liveTv.yourGuides": "Vos guides",
   "liveTv.addGuide": "Ajouter une URL de guide",
   "liveTv.guideInvalid": "Saisissez une adresse http ou https",
   "liveTv.guideWaiting": "Se charge à l'ouverture du guide",
