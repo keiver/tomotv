@@ -15,8 +15,56 @@ import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, PLAYABLE_ITEM_TYPES, READABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { fetchWithTimeout } from "./http";
+import { invalidateItemRemoved } from "./cacheKeys";
+import { notifyItemRemoving } from "./events";
 import { resolveChannel } from "./liveTv";
 import { didConfigReadFail, getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
+
+/** Whether the signed-in account is a server administrator; gates the panel's Delete action. */
+export async function fetchIsAdministrator(): Promise<boolean> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey) return false;
+  const response = await fetchWithTimeout(
+    `${config.server}/Users/Me`,
+    {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) },
+    },
+    API_TIMEOUTS.QUICK,
+  );
+  if (!response.ok) {
+    throwRequestError(response, `Failed to read user policy: ${response.status}`);
+  }
+  const user = (await response.json()) as { Policy?: { IsAdministrator?: boolean } };
+  return user.Policy?.IsAdministrator === true;
+}
+
+/** Permanently delete an item (a folder takes its descendants with it) and evict every read that could still list it. */
+export async function deleteItem(itemId: string): Promise<void> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+  notifyItemRemoving(itemId, false);
+  try {
+    const response = await fetchWithTimeout(
+      `${config.server}/Items/${itemId}`,
+      {
+        method: "DELETE",
+        headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) },
+      },
+      API_TIMEOUTS.NORMAL,
+    );
+    // Jellyfin answers a refused delete (CanDelete false) with 401, which is not a dead session.
+    if (response.status === 401) throw new Error("Failed to delete item: 401");
+    if (!response.ok) {
+      throwRequestError(response, `Failed to delete item: ${response.status}`);
+    }
+    invalidateItemRemoved(config.userId, itemId);
+  } finally {
+    notifyItemRemoving(itemId, true);
+  }
+}
 
 /**
  * Fetch primary library/view name from Jellyfin
@@ -374,12 +422,14 @@ export async function requestLibraryItems(
     timeoutMs?: number;
   },
 ): Promise<{ items: JellyfinVideoItem[]; total?: number }> {
-  // includeAllTypes (search): every playable and readable kind across all libraries.
+  // includeAllTypes (search): every playable and readable kind across all libraries,
+  // minus TvChannel: channel matches ride the search screens' Live TV shelf
+  // (searchLiveTv), so listing them here duplicated every channel into the grid.
   // Default (flat library list): standalone videos only.
   // Series: only when includeSeries=true (expanded to episodes by the caller).
   // Photos are excluded from both paths — they only surface via folder browsing.
   // See the BaseItemKind allowlists next to isFolder() for the full picture.
-  let itemTypes: string = includeAllTypes ? [...PLAYABLE_ITEM_TYPES, ...READABLE_ITEM_TYPES].join(",") : STANDALONE_VIDEO_TYPES.join(",");
+  let itemTypes: string = includeAllTypes ? [...PLAYABLE_ITEM_TYPES.filter((kind) => kind !== "TvChannel"), ...READABLE_ITEM_TYPES].join(",") : STANDALONE_VIDEO_TYPES.join(",");
   if (includeSeries) {
     itemTypes += ",Series";
   }
@@ -627,13 +677,15 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
           // ItemFields value, the list endpoints do honour it, and naming it
           // costs nothing, so this stays rather than resting on one server
           // version's habit of sending it anyway.
-          const url = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios,Chapters,ParentId&EnableUserData=true`;
+          const url = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios,Chapters,ParentId,CanDelete&EnableUserData=true`;
           const response = await fetchWithTimeout(url, { method: "GET", headers: authHeaders }, API_TIMEOUTS.NORMAL);
           if (!response.ok) {
             throwRequestError(response, `Failed to fetch item details: ${response.status} ${response.statusText}`);
           }
           const item: JellyfinItem = await response.json();
-          if (!PLAYABLE_ITEM_TYPES.includes(item.Type as (typeof PLAYABLE_ITEM_TYPES)[number])) return item;
+          // Recording too: /Items answers an in-progress recording with Size 0 and no
+          // bitrate, while its PlaybackInfo carries the real ones (measured, 12.0.0).
+          if (!PLAYABLE_ITEM_TYPES.includes(item.Type as (typeof PLAYABLE_ITEM_TYPES)[number]) && item.Type !== "Recording") return item;
 
           try {
             // Its own timeout: the metadata timer is already spent by here.

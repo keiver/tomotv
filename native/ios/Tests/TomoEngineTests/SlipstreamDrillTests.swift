@@ -192,7 +192,7 @@ final class SlipstreamDrillTests: XCTestCase {
                 emit("firstFrame", ["position": position])
                 // As the app does: the short forward buffer gets the picture up, then AVPlayer
                 // builds its own depth, which is what a link drop is survived on.
-                item.preferredForwardBufferDuration = 0
+                item.preferredForwardBufferDuration = env["TOMO_DRILL_HOLD_BUFFER"].flatMap(Double.init) ?? 0
             }
             let buffered = item.loadedTimeRanges.map { $0.timeRangeValue }.first { CMTimeRangeContainsTime($0, time: player.currentTime()) }
             let ahead = buffered.map { CMTimeGetSeconds(CMTimeRangeGetEnd($0)) - position } ?? 0
@@ -202,14 +202,14 @@ final class SlipstreamDrillTests: XCTestCase {
                 "status": player.timeControlStatus.rawValue,
                 "waiting": player.reasonForWaitingToPlay?.rawValue ?? "",
                 "advanced": position > lastPosition + 0.05,
-                "linkMbps": (session.pacedLinkBps ?? 0) / 1_000_000,
+                "linkMbps": (session.wireLinkBps ?? 0) / 1_000_000,
                 "width": item.presentationSize.width,
                 "height": item.presentationSize.height,
             ])
             lastPosition = position
             // What the app does with the engine's measurement: cap the variant choice to the
             // measured link, so AVPlayer picks from what the link carries instead of the loopback.
-            if env["TOMO_DRILL_CAP"] == "1", let bps = session.pacedLinkBps {
+            if env["TOMO_DRILL_CAP"] == "1", let bps = session.wireLinkBps {
                 // Same floor as the app: a cap under every variant leaves AVPlayer nothing to play.
                 let floor = Double(session.config.tiers.map(\.bandwidth).min() ?? 0)
                 let cap = max(bps * 0.8, floor)

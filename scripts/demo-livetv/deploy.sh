@@ -24,7 +24,7 @@ rm -rf "$BUILD"
 mkdir -p "$BUILD/logos"
 python3 "$HERE/guide.py" flatten "$HERE" "$BUILD"
 for id in $(python3 -c 'import json, sys; print(" ".join(c["id"] for c in json.load(open(sys.argv[1]))["channels"]))' "$HERE/lineup.json"); do
-  rsvg-convert -w 512 -h 512 "$HERE/logos/$id.svg" -o "$BUILD/logos/$id.png"
+  rsvg-convert --keep-aspect-ratio -w 1024 -h 1024 "$HERE/logos/$id.svg" -o "$BUILD/logos/$id.png"
   echo "logo $id"
 done
 

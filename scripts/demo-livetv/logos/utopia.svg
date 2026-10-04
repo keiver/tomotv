@@ -1,14 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs><clipPath id="u"><path d="M64,48 H196 V290 A60,60 0 0 0 316,290 V48 H448 V290 A192,192 0 0 1 64,290 Z"/></clipPath></defs>
-  <path d="M64,48 H196 V290 A60,60 0 0 0 316,290 V48 H448 V290 A192,192 0 0 1 64,290 Z" fill="#8C3B2E"/>
-  <path d="M214,276 A42,42 0 0 1 298,276 Z" fill="#8C3B2E"/>
-  <g stroke="#8C3B2E" stroke-width="10" stroke-linecap="round">
-    <line x1="256" y1="210" x2="256" y2="180"/>
-    <line x1="222" y1="222" x2="208" y2="200"/>
-    <line x1="290" y1="222" x2="304" y2="200"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="21 177 486 256.5">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E9DCC8"/>
+    </linearGradient>
+  </defs>
+  <text x="257" y="269" text-anchor="middle" font-family="Futura" font-weight="700" font-size="112" letter-spacing="4" fill="#6E2A20">UTOPIA</text>
+  <text x="258" y="270" text-anchor="middle" font-family="Futura" font-weight="700" font-size="112" letter-spacing="4" fill="#6E2A20">UTOPIA</text>
+  <text x="259" y="271" text-anchor="middle" font-family="Futura" font-weight="700" font-size="112" letter-spacing="4" fill="#6E2A20">UTOPIA</text>
+  <text x="260" y="272" text-anchor="middle" font-family="Futura" font-weight="700" font-size="112" letter-spacing="4" fill="#6E2A20">UTOPIA</text>
+  <text x="261" y="273" text-anchor="middle" font-family="Futura" font-weight="700" font-size="112" letter-spacing="4" fill="#6E2A20">UTOPIA</text>
+  <text x="262" y="274" text-anchor="middle" font-family="Futura" font-weight="700" font-size="112" letter-spacing="4" fill="#6E2A20">UTOPIA</text>
+  <text x="263" y="275" text-anchor="middle" font-family="Futura" font-weight="700" font-size="112" letter-spacing="4" fill="#6E2A20">UTOPIA</text>
+  <text x="264" y="276" text-anchor="middle" font-family="Futura" font-weight="700" font-size="112" letter-spacing="4" fill="#6E2A20">UTOPIA</text>
+  <text x="256" y="268" text-anchor="middle" font-family="Futura" font-weight="700" font-size="112" letter-spacing="4" fill="url(#face)">UTOPIA</text>
+  <g fill="#E9DCC8">
+    <path d="M150 382 Q256 336 362 382 Z"/>
+    <path d="M262 364 C258 336 256 318 262 300 C264 318 266 338 268 362 Z"/>
+    <path d="M262 302 C246 290 228 292 214 302 C232 298 248 300 262 306 Z"/>
+    <path d="M262 302 C278 288 298 290 312 300 C294 298 278 300 262 306 Z"/>
+    <path d="M262 302 C252 286 240 280 226 282 C242 288 252 294 262 304 Z"/>
+    <path d="M262 302 C274 284 288 280 300 283 C286 288 274 294 262 304 Z"/>
   </g>
-  <g clip-path="url(#u)" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round">
-    <path d="M40,400 q36,-22 72,0 t72,0 t72,0 t72,0 t72,0 t72,0"/>
-    <path d="M40,442 q36,-22 72,0 t72,0 t72,0 t72,0 t72,0 t72,0"/>
+  <g fill="none" stroke="#E9DCC8" stroke-width="5" stroke-linecap="round">
+    <path d="M118 402 q18 -10 36 0 t36 0 t36 0 t36 0 t36 0 t36 0 t36 0 t36 0"/>
+    <path d="M154 422 q18 -10 36 0 t36 0 t36 0 t36 0 t36 0 t36 0" opacity="0.6"/>
   </g>
 </svg>

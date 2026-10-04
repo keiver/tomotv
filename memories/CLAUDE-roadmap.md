@@ -15,8 +15,10 @@ subscription, AirPlay included."**
 Every clause targets a competitor's weak point: Swiftfin's dual-player split,
 Infuse's price and paywalled AirPlay, Plex's price shocks. Never claim "plays
 everything" absolutely: Infuse plays everything too (own engine), and Moonfin's
-engine reached Apple on 2026-07-31. The cell nobody else occupies is doing it
-INSIDE AVPlayerViewController, with the system's own transport, Up Next cards,
+engine reached Apple on 2026-07-31. AVKit-native alone is not unique either:
+Stingray and Plezy present AVPlayerViewController and let the server transcode.
+The cell nobody else occupies is an on-device engine feeding the presented
+AVPlayerViewController, with the system's own transport, Up Next cards,
 chapters, info panel and AirPlay picker. Anything AVPlayer already does well
 (playback speed, scrubbing, the transport bar, subtitle styling) is not a
 feature we build; we ship the file into the player and let the player be the
@@ -32,7 +34,9 @@ player.
 | Swiftfin 1.5 (official)                                       | ✓           | 3.8★ / 263           | Free, OSS                        | AVKit OR VLCKit (user picks) | Native UI, Live TV, multi-user                                                                                                         | Reviews cite: no downloads, no Atmos/DTS/DV, ATV4K perf, missing subtitle controls                       |
 | Streamyfin                                                    | ✓ (new)     | small                | Free, OSS                        | VLC on tvOS                  | Downloads, intro-skip, trickplay, Chromecast, Jellyseerr, TopShelf                                                                     | RN+Expo like us but chose VLC over native player                                                         |
 | JellyTV                                                       | ✓           | new                  | $19.99–39.99 life                | ?                            | Seerr, downloads, Trakt/AniList, push notifications, admin tools                                                                       | Paid, closed, unproven                                                                                   |
-| Moonfin                                                       | ✓ (Flutter) | 600 stars            | Free, OSS                        | AetherEngine (third party)   | On-device engine since 2.3.2 (2026-07-31), DV profile 7 to 8.1 via libdovi, Atmos, downloads, Seerr, themes, Live TV, SMB, 9 platforms | Engine is a third-party dependency, 43-decoder allowlist grown one per release, Flutter chrome not AVKit |
+| Moonfin 2.5.1 (App Store since 2026-04-02, id6761283970)      | ✓ (Flutter) | 4.6★ / 75, 782 stars | Free, OSS                        | AetherEngine (third party)   | On-device engine since 2.3.2 (2026-07-31), DV profile 7 to 8.1 via libdovi, Atmos, downloads, Seerr, themes, Live TV, SMB, 9 platforms | Engine is a third-party dependency, 43-decoder allowlist grown one per release, Flutter chrome not AVKit |
+| Stingray 1.4.0                                                | ✓ (only)    | 0 ratings, 250 stars | Free, OSS (MIT)                  | AVKit, server transcodes     | Presented AVPlayerViewController, PiP, profiles with PIN, iCloud sync                                                                  | No engine (older Apple TVs are gated off HEVC), no Live TV, music or trickplay                           |
+| Plezy 2.22.0                                                  | ✓           | 4.5★ / 109           | $5.99 once                       | Native                       | Plex/Jellyfin/Emby, Live TV guide and DVR rules, downloads with auto rules, profiles with PIN                                          | Paid, closed, multi-backend                                                                              |
 | Mediora / Filebar / HamHub / MrMC / JellySee                  | ✓           | tail                 | mixed                            | mixed                        | niche                                                                                                                                  | none                                                                                                     |
 | Jellyflix / iPlay / Fladder / Phyn / official Jellyfin Mobile | iOS only    | tail                 | mostly free                      | mixed                        | none                                                                                                                                   | none                                                                                                     |
 
@@ -116,6 +120,7 @@ Version is the one whose changelog carries it.
 | Engine   | Slipstream: copy and the rung ladder in one master, link measured | Implemented | 2.2.7, not yet released                              |
 | Engine   | Stall recovery, seek timestamp repair                             | Shipped     | 2.1.0, 2.2.3                                         |
 | Engine   | Native scrub previews (I-frame playlist)                          | Open        | 3.1.0, nothing built                                 |
+| Engine   | One-request seeks on MPEG-TS (byte-estimated)                     | Open        | 3.1.0, 9.19s per TS seek measured on Apple TV        |
 | Engine   | Host-side engine tests, codec coverage measured                   | Shipped     | `npm run test:engine`, 59/110 proven                 |
 | Player   | Skip Intro / Skip Credits, auto-skip toggle                       | Shipped     | 2.1.0                                                |
 | Player   | Native chapters in the tvOS info panel                            | Shipped     | 2.2.1, device-made images 2.2.2                      |
@@ -186,6 +191,15 @@ Numbered by what each one is, not by when. Pull from any of them.
   its own scrubbing thumbnails with zero server work. Impossible for
   server-HLS clients and for own-engine clients alike. Nothing of it exists
   in native/ or services/ yet.
+- **One-request seeks on MPEG-TS**: a TS file has no index, so FFmpeg's
+  timestamp seek binary-searches it over HTTP, about 15 open-ended range
+  requests on nearly as many new HTTPS connections. Measured on the Daily
+  Dweebs recording: 9.19s per seek on Apple TV, 11.5s through the engine from
+  a Mac, while the server answers each range in 2 to 4 ms. Every Live TV
+  recording resume and scrub pays it. Seek by estimated byte position
+  (`AVSEEK_FLAG_BYTE`, size and duration are known) a little before the
+  target and read forward to the keyframe; a landing past the target steps
+  back instead of failing the session.
 
 ### 3.2.0 "Profiles"
 

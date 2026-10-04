@@ -12,6 +12,7 @@ import Video from "react-native-video";
 import { PlayerHost } from "@/components/player-host";
 import type { PlayerHostBridge } from "@/contexts/PlayerSessionContext";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
+import { t } from "@/services/i18n";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn() }));
@@ -38,6 +39,20 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({
 }));
 
 jest.mock("@/hooks/useVideoPlayback", () => ({ useVideoPlayback: jest.fn() }));
+
+/** Counts <Video> mounts: a remount is what takes a PiP window's AVPlayer down. */
+const mockVideoMounts = { count: 0 };
+jest.mock("react-native-video", () => {
+  const React = require("react");
+  const MockVideo = React.forwardRef(() => {
+    React.useEffect(() => {
+      mockVideoMounts.count += 1;
+    }, []);
+    return null;
+  });
+  MockVideo.displayName = "Video";
+  return MockVideo;
+});
 
 const mockUseVideoPlayback = useVideoPlayback as jest.Mock;
 
@@ -123,6 +138,7 @@ describe("PlayerHost", () => {
     stateType = null;
     canRetry = false;
     details = null;
+    mockVideoMounts.count = 0;
     mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
       hookCalls.push({ videoId: config.videoId, skip: config.skip });
       return hookResult();
@@ -291,6 +307,82 @@ describe("PlayerHost", () => {
       renderer.update(<PlayerHost />);
     });
     expect(renderer.root.findAllByType(Video)).toHaveLength(0);
+  });
+
+  describe("tvOS channel swipe onto a dead channel", () => {
+    const rn = require("react-native");
+    const onRequestBack = jest.fn();
+    beforeEach(() => {
+      Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: true });
+      onRequestBack.mockClear();
+    });
+    afterEach(() => Object.defineProperty(rn.Platform, "isTV", { configurable: true, value: false }));
+
+    /** Play ch-1, swipe (AVKit's interstitial goes up), flip to ch-2 and let it fail for good. */
+    async function swipeOntoDeadChannel() {
+      await act(async () => {
+        bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+      });
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onSkipChannel: () => bridge().switchLiveChannel({ videoId: "ch-2" }), onRequestBack } as never;
+      sourceUri = "http://stream/ch1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      mockHotChannels.add("ch-2");
+      await act(async () => {
+        renderer.root.findByType(Video).props.onSkipToNextChannel();
+      });
+      sourceUri = null;
+      stateType = "IDLE";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      stateType = "ERROR";
+      canRetry = false;
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+    }
+
+    afterEach(() => mockHotChannels.clear());
+
+    it("holds AVKit and its interstitial, which says why and stops loading", async () => {
+      await swipeOntoDeadChannel();
+      const video = renderer.root.findByType(Video);
+      expect(video.props.source.uri).toBe("http://stream/ch1");
+      expect(video.props.liveChannelFailed).toBe(true);
+      expect(video.props.liveChannelStage).toBe(t("player.unableToPlay"));
+    });
+
+    it("a swipe from the held interstitial flips on to the next channel", async () => {
+      await swipeOntoDeadChannel();
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onSkipChannel: () => bridge().switchLiveChannel({ videoId: "ch-3" }), onRequestBack } as never;
+      mockHotChannels.add("ch-3");
+      stateType = "IDLE";
+      await act(async () => {
+        renderer.root.findByType(Video).props.onSkipToNextChannel();
+      });
+      expect(requestedVideoId()).toBe("ch-3");
+      expect(renderer.root.findByType(Video).props.liveChannelFailed).toBe(false);
+    });
+
+    it("Menu on the held interstitial leaves the player", async () => {
+      await swipeOntoDeadChannel();
+      await act(async () => {
+        renderer.root.findByType(Video).props.onChannelSkipAbandoned({ reason: "menu" });
+      });
+      expect(onRequestBack).toHaveBeenCalledTimes(1);
+    });
+
+    it("parks a channel picked from the info panel that fails, as no interstitial is up", async () => {
+      await flipFromPlayingChannel();
+      stateType = "ERROR";
+      canRetry = false;
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      expect(renderer.root.findAllByType(Video)).toHaveLength(0);
+    });
   });
 
   it("starts the requested item", async () => {
@@ -477,5 +569,111 @@ describe("PlayerHost", () => {
     });
 
     expect(requestedVideoId()).toBeNull();
+  });
+
+  it("routes a stream error to the ladder while a route is attached", async () => {
+    handlersRef.current = { onPlaybackEnd: jest.fn() };
+    await act(async () => {
+      bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+    sourceUri = "http://stream/1";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+
+    await act(async () => {
+      renderer.root.findByType(Video).props.onError({ error: { errorString: "gone" } });
+    });
+
+    expect(videoCallbacks.onError).toHaveBeenCalledTimes(1);
+    expect(requestedVideoId()).toBe("movie-1");
+  });
+
+  it("ends a routeless session when its stream errors, instead of retrying it", async () => {
+    await playWithPipUp();
+    await act(async () => {
+      bridge().stopSession();
+      bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+
+    await act(async () => {
+      renderer.root.findByType(Video).props.onError({ error: { errorString: "Could not connect to the server." } });
+    });
+
+    expect(videoCallbacks.onError).not.toHaveBeenCalled();
+    expect(requestedVideoId()).toBeNull();
+  });
+
+  it("carries a PiP window into the next queue item instead of remounting its player", async () => {
+    await playWithPipUp();
+    // The outgoing route's release can land before the incoming request.
+    await act(async () => {
+      bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+      bridge().requestSession({ videoId: "movie-2", sessionKey: "key-1", advance: true });
+    });
+    expect(requestedVideoId()).toBe("movie-2");
+
+    sourceUri = null;
+    stateType = "IDLE";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/1");
+    renderer.root.findByType(Video).props.onEnd();
+    expect(videoCallbacks.onEnd).not.toHaveBeenCalled();
+
+    sourceUri = "http://stream/2";
+    stateType = "PLAYING";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findByType(Video).props.source.uri).toBe("http://stream/2");
+    expect(mockVideoMounts.count).toBe(1);
+
+    // The window stays owned by the route that advanced into it.
+    await act(async () => {
+      bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+    expect(requestedVideoId()).toBe("movie-2");
+  });
+
+  it("never presents the next item over a PiP window", async () => {
+    const videoRef = { current: { setFullScreen: jest.fn() } };
+    mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+      hookCalls.push({ videoId: config.videoId, skip: config.skip });
+      return { ...hookResult(), videoRef };
+    });
+    await playWithPipUp();
+    await act(async () => {
+      bridge().requestSession({ videoId: "movie-2", sessionKey: "key-1", advance: true });
+    });
+    sourceUri = "http://stream/2";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+
+    await act(async () => {
+      renderer.root.findByType(Video).props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+    });
+
+    expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+  });
+
+  it("tears down as usual for an advance with no PiP window up", async () => {
+    await act(async () => {
+      bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+    });
+    sourceUri = "http://stream/1";
+
+    await act(async () => {
+      bridge().requestSession({ videoId: "movie-2", sessionKey: "key-1", advance: true });
+    });
+    expect(requestedVideoId()).toBeNull();
+
+    sourceUri = null;
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(requestedVideoId()).toBe("movie-2");
   });
 });

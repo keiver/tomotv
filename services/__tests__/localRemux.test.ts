@@ -20,6 +20,7 @@ import {
   stopLocalRemux,
   subscribeEngineFailure,
   subscribeEngineLink,
+  subscribeEngineStage,
   subscribeEngineTier,
   subtitleRenditions,
   videoCodecTag,
@@ -39,7 +40,7 @@ const mockDecodeSupport = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
 const mockListeners = new Map<string, (payload: unknown) => void>();
 /** The events the mocked binary declares; a shorter list is an older build. */
-const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineLink"];
+const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineLink", "onEngineStage"];
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -79,7 +80,6 @@ jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => n
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
   rememberedBitrate: async () => 3_000_000,
-  measureServerBitrate: async () => 3_000_000,
 }));
 
 const HOUR_IN_TICKS = 36000000000;
@@ -145,6 +145,33 @@ describe("engine link ownership", () => {
     expect(listener).not.toHaveBeenCalled();
     stop();
     stopAgain();
+  });
+});
+
+describe("engine stage replay", () => {
+  it("hands a late subscriber every step its session reported before it subscribed, in order", async () => {
+    const token = "early-stage-session";
+    const opened = { token, stage: "open_input", elapsed: 0.2 };
+    const probed = { token, stage: "find_stream_info", elapsed: 0.4 };
+    mockStartRemux.mockImplementationOnce(async () => {
+      mockListeners.get("onEngineStage")!(opened);
+      mockListeners.get("onEngineStage")!(probed);
+      return `http://127.0.0.1:5000/${token}/master.m3u8`;
+    });
+    await startLocalRemux(item());
+    const seen: string[] = [];
+    const other = jest.fn();
+    const stop = subscribeEngineStage(token, ({ stage }) => seen.push(stage));
+    const stopOther = subscribeEngineStage("another-session", other);
+    expect(seen).toEqual(["open_input", "find_stream_info"]);
+    expect(other).not.toHaveBeenCalled();
+    stop();
+    stopOther();
+    await stopLocalRemux(token);
+    const afterStop = jest.fn();
+    const stopAfter = subscribeEngineStage(token, afterStop);
+    expect(afterStop).not.toHaveBeenCalled();
+    stopAfter();
   });
 });
 
@@ -246,6 +273,23 @@ describe("canRemuxLocally", () => {
       ],
     });
     await expect(canRemuxLocally(live)).resolves.toBe(true);
+  });
+
+  it("takes a server-opened live channel whatever the server's audio label, since the engine reads the real tracks off the stream", async () => {
+    mockProbeEmit.mockClear();
+    // A tuner channel Jellyfin never probed: the HDHomeRun lineup's own labels, "MPEG" for MP2 audio (issue 89).
+    const tuner = item({
+      RunTimeTicks: undefined,
+      MediaSources: [{ Id: "c1", Container: "ts", IsInfiniteStream: true, LiveStreamId: "ls-1" }],
+      LiveStreamId: "ls-1",
+      liveStreamUrl: "http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k",
+      streams: [
+        { Type: "Video", Codec: "mpeg2video", Index: -1, IsInterlaced: true },
+        { Type: "Audio", Codec: "MPEG", Index: -1 },
+      ],
+    });
+    await expect(canRemuxLocally(tuner)).resolves.toBe(true);
+    expect(mockProbeEmit).not.toHaveBeenCalledWith("decline", expect.anything());
   });
 
   it("accepts HEVC", async () => {
@@ -2247,10 +2291,29 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.probeOrigin).toBeUndefined();
   });
 
+  it("hands a tuner's unprobed audio label to the engine as a carried track, never a server-fed one", async () => {
+    // The HDHomeRun lineup's "MPEG" (issue 89): the engine discovers the real MP2 off the stream.
+    const tuner = { ...live(), MediaStreams: [live().MediaStreams![0], { Type: "Audio", Codec: "MPEG", Index: -1 }] };
+    await startLocalRemux(tuner as typeof tuner & JellyfinVideoItem, undefined, 120);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.audioTracks).toHaveLength(1);
+    expect(config.audioTracks[0].usesServerAudio).toBe(false);
+    expect(config.audioTracks[0].codecs).toBe("");
+    expect(config.audioTracks[0].serverAudioUrl).toBeUndefined();
+  });
+
   it("asks the engine to check an origin the channel is read from directly", async () => {
     const origin = { ...live(), MediaSources: [{ Id: "c1", IsInfiniteStream: true }], LiveStreamId: undefined, liveStreamUrl: "https://origin.example/live/high/index.m3u8" };
     await startLocalRemux(origin, undefined, 120);
     expect(mockStartRemux.mock.calls[0][0].probeOrigin).toBe(true);
+  });
+
+  it("ranks a ring neighbour's origin connection below the channel playing", async () => {
+    await startLocalRemux(live(), undefined, 120, { prewarm: true });
+    expect(mockStartRemux.mock.calls[0][0].livePriority).toBe("ring");
+    mockStartRemux.mockClear();
+    await startLocalRemux(live(), undefined, 120);
+    expect(mockStartRemux.mock.calls[0][0].livePriority).toBeUndefined();
   });
 
   it("carries no text subtitle on a live channel: the engine has no sliding WebVTT window for it", async () => {

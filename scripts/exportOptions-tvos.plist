@@ -25,7 +25,7 @@
 		<key>dev.keiver.tomotv</key>
 		<string>TomoTV tvOS App Store</string>
 		<key>dev.keiver.tomotv.TopShelf</key>
-		<string>TomoTV tvOS TopShelf App Store</string>
+		<string>TomoTV tvOS TopShelf App Store AppGroup</string>
 	</dict>
 	<key>uploadSymbols</key>
 	<true/>

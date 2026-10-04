@@ -11,17 +11,19 @@ import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
+import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { COLORS } from "@/constants/colors";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { findNodeHandle, FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
 
@@ -47,6 +49,9 @@ function getNativeHandle(node: View | null): number | undefined {
 let lastFocusLossAt = 0;
 const CARD_PADDING = slotCardPadding(IS_TV);
 const rowChannelIds = (row: PackedRow<JellyfinItem>) => row.cards.map((card) => card.item.Id);
+/** A channel card loops its clip only while its whole row is on screen. */
+const CLIP_VIEWABILITY = { itemVisiblePercentThreshold: 100 };
+const NO_CLIPS: ReadonlySet<string> = new Set();
 
 interface LibraryGridProps {
   items: JellyfinItem[];
@@ -84,12 +89,20 @@ interface LibraryGridProps {
   liveChannels?: boolean;
   /** Channel wall: the sampler runs while true; off, the cards keep the frames they have. */
   liveFramesEnabled?: boolean;
-  /** Channel wall: the mark a card wears at its title's left end (a favorite's heart). */
+  /** Channel wall: a favorite's heart, worn in the card's badge row. */
   titleIconFor?: (item: JellyfinItem) => keyof typeof Ionicons.glyphMap | undefined;
+  /** Channel wall: whether a timer is recording the card's channel (a REC pill). */
+  recordingFor?: (item: JellyfinItem) => boolean;
   /** TV: the header's trailing capsule when the grid has no Filters (the wall's Settings). */
   headerAction?: HeaderAction;
   /** TV: a capsule left of headerAction (the wall's favorites filter toggle). */
   headerSecondaryAction?: HeaderAction;
+  /** TV: a control leading the bar's right cluster (the wall's Live TV search reveal). */
+  headerTrailing?: React.ReactNode;
+  /** The host screen paints the ambient canvas itself (the wall's phone search head sits on it). */
+  noAmbient?: boolean;
+  /** The loaded-empty body in place of the folder's own, under the same bar (the wall's no-channels state). */
+  emptyContent?: React.ReactNode;
 }
 
 /**
@@ -119,8 +132,12 @@ export function LibraryGrid({
   liveChannels = false,
   liveFramesEnabled = true,
   titleIconFor,
+  recordingFor,
   headerAction,
   headerSecondaryAction,
+  headerTrailing,
+  noAmbient = false,
+  emptyContent,
 }: LibraryGridProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -279,6 +296,9 @@ export function LibraryGrid({
         // A channel card is landscape whatever its logo's shape: its live frame is.
         (item) => {
           if (liveChannels) return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
+          // An episode card is landscape whatever its still's shape: a portrait still is a
+          // scraper anomaly, and honoring it shrinks the card below legibility on phones.
+          if (item.Type === "Episode") return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
           const shape = itemSlotShape(item.PrimaryImageAspectRatio);
           return { ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[shape] };
         },
@@ -286,7 +306,20 @@ export function LibraryGrid({
       ),
     [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels],
   );
-  const { viewabilityConfig, onViewableItemsChanged } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
+  const { viewabilityConfig, onViewableItemsChanged, visibleChannelIds } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
+  const [clipIds, setClipIds] = useState(NO_CLIPS);
+  // Stable for the list's life: a list reads its viewability pairs once, at mount.
+  const viewabilityPairs = useMemo(
+    () => [
+      { viewabilityConfig, onViewableItemsChanged },
+      {
+        viewabilityConfig: CLIP_VIEWABILITY,
+        onViewableItemsChanged: ({ viewableItems }: { viewableItems: ViewToken<PackedRow<JellyfinItem>>[] }) =>
+          setClipIds(new Set(viewableItems.flatMap((token) => (token.isViewable ? rowChannelIds(token.item) : [])))),
+      },
+    ],
+    [viewabilityConfig, onViewableItemsChanged],
+  );
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
   // Global item index of each row's first card (drives image-priority for the first cards).
   const rowStartIndices = useMemo(() => {
@@ -372,20 +405,29 @@ export function LibraryGrid({
   // TV only: the latch exists to retire mount-time focus claims, which phone doesn't have.
   // On phone this same handler is the press-in path, where a state flip would re-render the
   // grid under the finger of a press that is about to navigate.
-  const handleItemFocus = useCallback((item: JellyfinItem) => {
-    if (!IS_TV) return;
-    focusHolderIdRef.current = item.Id;
-    lastFocusedIdRef.current = item.Id;
-    setHandoffDone(true);
-  }, []);
+  const handleItemFocus = useCallback(
+    (item: JellyfinItem) => {
+      if (!IS_TV) return;
+      focusHolderIdRef.current = item.Id;
+      lastFocusedIdRef.current = item.Id;
+      setHandoffDone(true);
+      // A channel card focused past the dwell is promoted, as in the guide's column.
+      if (liveChannels) setLiveFrameFocus(item.Id);
+    },
+    [liveChannels],
+  );
 
   // TV only, like the latch above: holder bookkeeping for the focus recovery. The loss timestamp
   // is what tells a watched pop-reveal apart from a deliberate tab-bar return.
-  const handleItemBlur = useCallback((item: JellyfinItem) => {
-    if (!IS_TV) return;
-    if (focusHolderIdRef.current === item.Id) focusHolderIdRef.current = null;
-    lastFocusLossAt = Date.now();
-  }, []);
+  const handleItemBlur = useCallback(
+    (item: JellyfinItem) => {
+      if (!IS_TV) return;
+      if (focusHolderIdRef.current === item.Id) focusHolderIdRef.current = null;
+      lastFocusLossAt = Date.now();
+      if (liveChannels) clearLiveFrameFocus(item.Id);
+    },
+    [liveChannels],
+  );
 
   const handleFiltersFocusChange = useCallback((focused: boolean) => {
     if (!IS_TV) return;
@@ -521,6 +563,10 @@ export function LibraryGrid({
                   nextFocusDown={nextFocusDown}
                   cardHeight={card.cardHeight}
                   titleIcon={titleIconFor?.(item)}
+                  hideAiring
+                  recording={recordingFor?.(item)}
+                  playsClipInView={clipIds.has(item.Id)}
+                  inView={visibleChannelIds.has(item.Id)}
                 />
               );
             }
@@ -540,7 +586,9 @@ export function LibraryGrid({
                 nextFocusUp={nextFocusUpForRow}
                 nextFocusDown={nextFocusDown}
                 cardHeight={card.cardHeight}
-                fitArtwork
+                // Episodes take the uniform landscape slot the packer allocated them above.
+                fitArtwork={item.Type !== "Episode"}
+                slotOrientation="landscape"
                 progressPercent={cardResumeProgress(item)}
                 titleIcon={recordings ? "videocam-outline" : undefined}
               />
@@ -569,7 +617,10 @@ export function LibraryGrid({
       handleFocusAndLastCellRef,
       recordings,
       liveChannels,
+      clipIds,
+      visibleChannelIds,
       titleIconFor,
+      recordingFor,
     ],
   );
 
@@ -755,13 +806,14 @@ export function LibraryGrid({
       );
     }
 
+    if (emptyContent) return <View style={styles.centerContainer}>{emptyContent}</View>;
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>{activeFilterCount > 0 ? t("library.emptyNoMatch") : t("library.emptyFolder")}</Text>
       </View>
     );
-  }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer]);
+  }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer, emptyContent]);
 
   // TV only: the breadcrumb bar with the Filters suffix action. Phone gets the screen's native
   // navigation bar instead (app/(tabs)/(library)/[folderId].tsx). Rendered in the loaded-empty
@@ -777,6 +829,7 @@ export function LibraryGrid({
         onOpenFilters={onOpenFilters}
         action={headerAction}
         secondaryAction={headerSecondaryAction}
+        trailing={headerTrailing}
         activeFilterCount={activeFilterCount}
         onFiltersButtonRef={handleFiltersButtonRef}
         onFiltersFocusChange={handleFiltersFocusChange}
@@ -819,8 +872,7 @@ export function LibraryGrid({
       onScrollToIndexFailed={handleScrollToIndexFailed}
       onScrollBeginDrag={handleScrollBeginDrag}
       ListFooterComponent={renderFooter}
-      viewabilityConfig={liveChannels ? viewabilityConfig : undefined}
-      onViewableItemsChanged={liveChannels ? onViewableItemsChanged : undefined}
+      viewabilityConfigCallbackPairs={liveChannels ? viewabilityPairs : undefined}
     />
   );
 
@@ -839,7 +891,7 @@ export function LibraryGrid({
 
   return (
     <View style={styles.container}>
-      <AmbientBackground />
+      {noAmbient ? null : <AmbientBackground />}
       {backdropSource !== undefined ? <FolderBackdrop source={backdropSource} /> : null}
       {/* The brand mark, in the bottom-right corner on every platform and orientation. Screen-level
           and out of flow, so it holds that corner while the grid scrolls under it. Before the
@@ -854,7 +906,7 @@ export function LibraryGrid({
       {focusHolder}
       {/* Bottom loading bar: mounted for the whole folder lifetime (outside the empty/grid branch
           switch) so its complete-then-fade handoff plays over the arriving grid. */}
-      <FolderLoadingBar active={isFolderLoading} title={crumbs?.[crumbs.length - 1]?.name ?? ""} />
+      <FolderLoadingBar active={isFolderLoading} title={cleanLabel(crumbs?.[crumbs.length - 1]?.name)} />
     </View>
   );
 }

@@ -1,4 +1,5 @@
 import Darwin
+import Network
 import XCTest
 
 @testable import TomoEngine
@@ -364,5 +365,33 @@ final class EndpointProbeTests: XCTestCase {
         let text = "#EXTM3U\n#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=1,URI=\"iframe.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=2\n\n# note\nhttps://cdn.example/a.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=3\r\nb/c.m3u8\r\n"
         let urls = EndpointProbe.variantURLs(text, base: URL(string: "https://origin.example/live/master.m3u8")!)
         XCTAssertEqual(urls.map(\.absoluteString), ["https://cdn.example/a.m3u8", "https://origin.example/live/b/c.m3u8"])
+    }
+}
+
+/// The TCP reach check the live resolver picks a lane by: a listener, a closed port, an address that never answers.
+final class EndpointProbeReachTests: XCTestCase {
+    func testAListeningPortIsReachable() throws {
+        let listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { $0.cancel() }
+        let ready = XCTestExpectation(description: "listening")
+        listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        listener.start(queue: .global())
+        wait(for: [ready], timeout: 5)
+        defer { listener.cancel() }
+        XCTAssertEqual(EndpointProbe.tcpReach("http://127.0.0.1:\(listener.port!.rawValue)/live.ts", timeout: 2), .reachable)
+    }
+
+    func testAClosedPortIsRefusedAtOnce() {
+        let started = Date()
+        XCTAssertEqual(EndpointProbe.tcpReach("http://127.0.0.1:9/live.ts", timeout: 2), .refused)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+    }
+
+    func testAnAddressThatNeverAnswersIsSilentByTheTimeout() {
+        // TEST-NET-1 (RFC 5737): routed nowhere.
+        let started = Date()
+        let reach = EndpointProbe.tcpReach("http://192.0.2.1:80/live.ts", timeout: 1)
+        XCTAssertTrue(reach == .silent || reach == .refused, "\(reach)")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5)
     }
 }

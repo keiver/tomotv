@@ -1,6 +1,6 @@
 import { setLiveFramesActive, setLiveFrameViewable, type LiveFrameSurface } from "@/services/liveFrames";
 import { useIsFocused } from "expo-router";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ViewToken } from "react-native";
 
 /** Any visible pixel counts, held a beat so a fling past a row never asks for its frame. */
@@ -23,6 +23,7 @@ export function viewportChannelIds<T>(viewableItems: ViewToken<T>[], items: read
  */
 export function useLiveFrameViewport<T>(surface: LiveFrameSurface, enabled: boolean, items: readonly T[], idsOf: (item: T) => string[]) {
   const isScreenFocused = useIsFocused();
+  const [visibleChannelIds, setVisibleChannelIds] = useState<ReadonlySet<string>>(() => new Set());
   const itemsRef = useRef(items);
   const idsOfRef = useRef(idsOf);
   useEffect(() => {
@@ -37,8 +38,14 @@ export function useLiveFrameViewport<T>(surface: LiveFrameSurface, enabled: bool
   useEffect(() => () => setLiveFrameViewable(surface, []), [surface]);
   // Stable for the list's life: a list refuses a new viewability callback once mounted.
   const onViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken<T>[] }) => setLiveFrameViewable(surface, viewportChannelIds(viewableItems, itemsRef.current, idsOfRef.current)),
+    ({ viewableItems }: { viewableItems: ViewToken<T>[] }) => {
+      // Lookahead warms frames only; mounted rows outside the viewport must not own players.
+      setVisibleChannelIds(new Set(viewableItems.filter((token) => token.isViewable).flatMap((token) => idsOfRef.current(token.item))));
+      setLiveFrameViewable(surface, viewportChannelIds(viewableItems, itemsRef.current, idsOfRef.current));
+    },
     [surface],
   );
-  return { viewabilityConfig: LIVE_FRAME_VIEWABILITY, onViewableItemsChanged };
+  return { viewabilityConfig: LIVE_FRAME_VIEWABILITY, onViewableItemsChanged, visibleChannelIds: isScreenFocused ? visibleChannelIds : EMPTY_CHANNEL_IDS };
 }
+
+const EMPTY_CHANNEL_IDS: ReadonlySet<string> = new Set();

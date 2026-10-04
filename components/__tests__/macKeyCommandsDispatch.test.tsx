@@ -15,9 +15,11 @@ jest.mock("@/utils/hostEnvironment", () => ({ IS_MAC: true }));
 
 let mockPress: ((key: MacKey) => void) | null = null;
 const mockKeyClaims: string[] = [];
+const mockEscape = { consumed: false };
 jest.mock("@/services/macKeyCommands", () => ({
   MAC_KEYS: ["escape", "playPause", "previousTrack", "nextTrack", "search", "settings", "previousPhoto", "nextPhoto", "seekBackward", "seekForward"],
   MAC_SEEK_SECONDS: 15,
+  consumeMacEscape: () => mockEscape.consumed,
   claimMacContextKeys: (owner: string, context: string) => {
     mockKeyClaims.push(`${owner}:${context}`);
     return () => {
@@ -73,6 +75,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockSession.hostMode = "idle";
   mockKeyClaims.length = 0;
+  mockEscape.consumed = false;
   mockHandlersRef.current = null;
   mockAudioState.active = false;
   mockAudioState.playing = false;
@@ -111,6 +114,19 @@ describe("Mac key dispatch", () => {
     mount();
     act(() => mockPress?.("escape"));
     expect(mockStopSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("pops the route when nothing claims Escape", () => {
+    mount();
+    act(() => mockPress?.("escape"));
+    expect(mockRouter.back).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a claimed screen consume Escape before the navigator", () => {
+    mockEscape.consumed = true;
+    mount();
+    act(() => mockPress?.("escape"));
+    expect(mockRouter.back).not.toHaveBeenCalled();
   });
 
   it("toggles the queue from whatever it is doing", () => {

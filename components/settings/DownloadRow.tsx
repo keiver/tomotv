@@ -4,6 +4,7 @@ import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { localArtworkUri } from "@/services/downloads/localSource";
 import { downloadManager, type DownloadProgress } from "@/services/downloads/manager";
 import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,7 +14,7 @@ import type { StyleProp, TextStyle } from "react-native";
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
 /** Swiping is no gesture a screen reader has, and the panel it opens is the only Remove button. */
-export const REMOVE_ACTIONS = [{ name: "remove", label: t("common.remove") }] as const;
+export const removeActions = () => [{ name: "remove", label: t("common.remove") }] as const;
 
 interface DownloadRowProps {
   entry: DownloadEntry;
@@ -97,17 +98,17 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, neste
   };
 
   return (
-    <SwipeToRemove label={entry.item.Name} onRemove={onRemove}>
+    <SwipeToRemove label={cleanLabel(entry.item.Name)} onRemove={onRemove}>
       <ListRow
         icon={() => <PosterMark uri={localArtworkUri(entry.itemId)} />}
-        title={entry.item.Name}
+        title={cleanLabel(entry.item.Name)}
         subtitle={line}
         trailingIcon={trailing}
         tone={entry.state === "failed" ? "destructive" : "default"}
         selected={selected}
         onPress={onPress}
         onLongPress={onRemove}
-        accessibilityActions={REMOVE_ACTIONS}
+        accessibilityActions={removeActions()}
         onAccessibilityAction={onAction}
         onFocus={onFocus}
         nested={nested}

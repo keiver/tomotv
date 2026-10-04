@@ -1,4 +1,32 @@
-import { adjacentChannelId, cellAtEdge, cellGeometry, guideMetrics, guideWindowStart, isActiveTimer, isAiring, labelPin, MINUTE_MS, programCategory, rulerTicks } from "../guide";
+import {
+  activeRecordTimer,
+  adjacentChannelId,
+  cellAtEdge,
+  cellGeometry,
+  cellInSpan,
+  channelWindow,
+  durationLabel,
+  GUIDE_SPAN_MINUTES,
+  guideMetrics,
+  guideRefreshOutcome,
+  guideWindowStart,
+  isActiveTimer,
+  isAiring,
+  keepRange,
+  mergePrograms,
+  MINUTE_MS,
+  mountSpanFor,
+  NO_GUIDE_PREFIX,
+  programCategory,
+  revealOffset,
+  rewindsStandIn,
+  ringWithCenter,
+  rowSnap,
+  rulerTicks,
+  standInChannelId,
+  trimPrograms,
+} from "../guide";
+import { __setLocaleForTests } from "@/services/i18n";
 
 const tv = guideMetrics(true);
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
@@ -30,6 +58,56 @@ describe("guide geometry", () => {
     expect(cell).toEqual({ left: 0, width: 240 });
   });
 
+  it("finds a cell in a span by any overlap, its edges included", () => {
+    const span = { fromPx: 1000, toPx: 2000 };
+    expect(cellInSpan({ left: 500, width: 600 }, span)).toBe(true);
+    expect(cellInSpan({ left: 1900, width: 400 }, span)).toBe(true);
+    expect(cellInSpan({ left: 0, width: 5000 }, span)).toBe(true);
+    expect(cellInSpan({ left: 400, width: 600 }, span)).toBe(true);
+    expect(cellInSpan({ left: 0, width: 999 }, span)).toBe(false);
+    expect(cellInSpan({ left: 2001, width: 100 }, span)).toBe(false);
+  });
+
+  it("mounts a whole viewport past either edge of the view anywhere inside its page", () => {
+    const viewport = 1620;
+    for (const page of [0, 1, 4]) {
+      const span = mountSpanFor(page, viewport);
+      for (const scrollX of [page * viewport, (page + 0.5) * viewport, (page + 1) * viewport - 1]) {
+        expect(scrollX - span.fromPx).toBeGreaterThanOrEqual(viewport);
+        expect(span.toPx - (scrollX + viewport)).toBeGreaterThanOrEqual(viewport);
+      }
+      expect(span.toPx - span.fromPx).toBe(4 * viewport);
+    }
+  });
+
+  it("pads the list so its last row lands like any other, on the row grid", () => {
+    for (const listHeight of [800, 657, 219, 1000]) {
+      const { offset, bottomPad } = rowSnap(listHeight, 219);
+      expect(offset % 219).toBe(0);
+      for (const rows of [5, 12, 40]) {
+        const maxOffset = rows * 219 + bottomPad - listHeight;
+        expect(maxOffset).toBe((rows - 1) * 219 - offset);
+        expect(maxOffset % 219).toBe(0);
+      }
+    }
+  });
+
+  it("brings a cell's start into view only when it begins left of the visible edge; the focus engine reveals the rest", () => {
+    expect(revealOffset({ left: 0, width: 300 }, 1200)).toBe(0);
+    expect(revealOffset({ left: 800, width: 300 }, 1200)).toBe(800);
+    expect(revealOffset({ left: 1200, width: 300 }, 1200)).toBeUndefined();
+    expect(revealOffset({ left: 2600, width: 400 }, 1200)).toBeUndefined();
+    expect(revealOffset({ left: 2000, width: 2400 }, 1200)).toBeUndefined();
+  });
+
+  it("rewinds a scrolled grid on a Left press or swipe while a no-listings row holds focus, and only then", () => {
+    expect(rewindsStandIn("left", true, 900)).toBe(true);
+    expect(rewindsStandIn("swipeLeft", true, 900)).toBe(true);
+    expect(rewindsStandIn("left", true, 0)).toBe(false);
+    expect(rewindsStandIn("left", false, 900)).toBe(false);
+    expect(rewindsStandIn("right", true, 900)).toBe(false);
+  });
+
   it("clips a cell that runs past the window end", () => {
     const cell = cellGeometry(WINDOW_END - 30 * MINUTE_MS, WINDOW_END + 60 * MINUTE_MS, T0, WINDOW_END, tv);
     expect(cell?.width).toBe(240);
@@ -55,11 +133,30 @@ describe("guide geometry", () => {
     expect(majors.map((tick) => tick.isHour)).toEqual([true, false, true]);
   });
 
-  it("pins a label to the visible edge without pushing it out of its cell", () => {
-    expect(labelPin(0, 100, 400, 120)).toBe(0);
-    expect(labelPin(250, 100, 400, 120)).toBe(150);
-    expect(labelPin(900, 100, 400, 120)).toBe(280);
-    expect(labelPin(900, 100, 80, 120)).toBe(0);
+  it("lays only the marks inside a span, at the places the whole window gives them", () => {
+    const all = rulerTicks(T0, WINDOW_END, tv);
+    expect(rulerTicks(T0, WINDOW_END, tv, { fromPx: 400, toPx: 800 })).toEqual(all.filter((tick) => tick.left >= 400 && tick.left <= 800));
+    expect(rulerTicks(T0, WINDOW_END, tv, { fromPx: -1600, toPx: 120 })).toEqual(all.slice(0, 4));
+    expect(rulerTicks(T0, WINDOW_END, tv, { fromPx: 2800, toPx: 9000 }).at(-1)).toEqual(all.at(-1));
+  });
+
+  it("keeps the needed stretch widened to whole spans, two more each side, never before the origin", () => {
+    const span = GUIDE_SPAN_MINUTES * MINUTE_MS;
+    expect(keepRange(T0, T0 + 100 * MINUTE_MS, T0 + 500 * MINUTE_MS)).toEqual({ from: T0, to: T0 + 4 * span });
+    expect(keepRange(T0, T0 + 1500 * MINUTE_MS, T0 + 1900 * MINUTE_MS)).toEqual({ from: T0 + 2 * span, to: T0 + 8 * span });
+    expect(keepRange(T0, T0 - 400 * MINUTE_MS, T0 + 360 * MINUTE_MS)).toEqual({ from: T0, to: T0 + 3 * span });
+  });
+
+  it("names the channel a stand-in cell stands for", () => {
+    expect(standInChannelId(`${NO_GUIDE_PREFIX}abc123`)).toBe("abc123");
+    expect(standInChannelId("abc123")).toBeNull();
+    expect(standInChannelId(undefined)).toBeNull();
+  });
+
+  it("tells a finished refresh's outcome: failed, no listings, or updated", () => {
+    expect(guideRefreshOutcome(true, true)).toEqual({ title: "liveTv.guideUnavailable", kind: "error" });
+    expect(guideRefreshOutcome(false, false)).toEqual({ title: "liveTv.noGuide", kind: "info" });
+    expect(guideRefreshOutcome(false, true)).toEqual({ title: "liveTv.guideUpdated", kind: "success" });
   });
 
   it("names the airing program by its dates", () => {
@@ -74,6 +171,35 @@ describe("guide geometry", () => {
     expect(isActiveTimer({ Status: "InProgress" })).toBe(true);
     expect(isActiveTimer({ Status: "Completed" })).toBe(false);
     expect(isActiveTimer({ Status: "Cancelled" })).toBe(false);
+  });
+
+  describe("activeRecordTimer", () => {
+    const span = (from: number, to: number) => ({ StartDate: new Date(T0 + from * MINUTE_MS).toISOString(), EndDate: new Date(T0 + to * MINUTE_MS).toISOString() });
+    const timer = (Id: string, from: number, to: number, ProgramId?: string) => ({ Id, Name: Id, ChannelId: "c1", ProgramId, Status: "InProgress" as const, ...span(from, to) });
+    const now = T0 + 30 * MINUTE_MS;
+    const recordingA = timer("a", 0, 60, "A");
+    const manual = timer("m", 0, 120);
+
+    it("names a program's own timer first", () => {
+      expect(activeRecordTimer([manual, recordingA], { programId: "A", channelId: "c1", program: span(0, 60) }, now)?.Id).toBe("a");
+    });
+
+    it("never hands a program another program's timer on its channel", () => {
+      expect(activeRecordTimer([recordingA], { programId: "B", channelId: "c1", program: span(60, 120) }, now)).toBeNull();
+      expect(activeRecordTimer([recordingA], { programId: "B", channelId: "c1" }, now)).toBeNull();
+    });
+
+    it("falls back to a manual timer over the program's span, or over the clock without one", () => {
+      expect(activeRecordTimer([manual], { programId: "B", channelId: "c1", program: span(60, 120) }, now)?.Id).toBe("m");
+      expect(activeRecordTimer([manual], { programId: "C", channelId: "c1", program: span(150, 180) }, now)).toBeNull();
+      expect(activeRecordTimer([manual], { programId: "A", channelId: "c1" }, now)?.Id).toBe("m");
+      expect(activeRecordTimer([manual], { programId: "A", channelId: "c2" }, now)).toBeNull();
+    });
+
+    it("gives a channel whatever timer records it now", () => {
+      expect(activeRecordTimer([recordingA], { channelId: "c1" }, now)?.Id).toBe("a");
+      expect(activeRecordTimer([recordingA], { channelId: "c1" }, T0 + 90 * MINUTE_MS)).toBeNull();
+    });
   });
 
   it("lands a vertical move on the cell under the edge, else the first after it", () => {
@@ -102,5 +228,119 @@ describe("guide geometry", () => {
     expect(adjacentChannelId(list, "missing", 1)).toBeNull();
     expect(adjacentChannelId([{ Id: "only" }], "only", 1)).toBeNull();
     expect(adjacentChannelId([], "x", 1)).toBeNull();
+  });
+
+  it("appends a playing channel the shown list does not hold, so a flip from it lands in the list", () => {
+    const list = [{ Id: "a" }, { Id: "b" }];
+    expect(ringWithCenter(list, { Id: "b" })).toEqual([{ Id: "a" }, { Id: "b" }]);
+    expect(ringWithCenter(list, { Id: "z" })).toEqual([{ Id: "a" }, { Id: "b" }, { Id: "z" }]);
+    expect(ringWithCenter([], { Id: "z" })).toEqual([{ Id: "z" }]);
+    expect(adjacentChannelId(ringWithCenter(list, { Id: "z" }), "z", 1)).toBe("a");
+  });
+
+  it("windows the lineup around the playing channel: the previous one, then it and the ones after", () => {
+    const list = ["a", "b", "c", "d", "e"].map((Id) => ({ Id }));
+    expect(channelWindow(list, "c", 1)).toEqual(["b", "c", "d"]);
+    expect(channelWindow(list, "a", 1)).toEqual(["e", "a", "b"]);
+    expect(channelWindow(list, "e", 1)).toEqual(["d", "e", "a"]);
+    // A lineup shorter than the window wraps no further than itself.
+    expect(channelWindow(list, "b", 30)).toEqual(["a", "b", "c", "d", "e"]);
+    // Before the lineup arrives, or for a channel it lacks, the window is the playing channel alone.
+    expect(channelWindow([], "x", 30)).toEqual(["x"]);
+    expect(channelWindow(list, "missing", 30)).toEqual(["missing"]);
+  });
+});
+
+describe("mergePrograms", () => {
+  const window = (from: number, to: number) => ({ from: T0 + from * MINUTE_MS, to: T0 + to * MINUTE_MS });
+  const at = (id: string, startMin: number, endMin: number, name = id) => ({
+    Id: id,
+    Name: name,
+    ChannelId: "c1",
+    StartDate: new Date(T0 + startMin * MINUTE_MS).toISOString(),
+    EndDate: new Date(T0 + endMin * MINUTE_MS).toISOString(),
+  });
+
+  it("adds new programmes in start order and keeps one copy of an id", () => {
+    const merged = mergePrograms([at("b", 30, 60)], [at("a", 0, 30), at("b", 30, 60), at("a", 0, 30)], window(0, 60));
+    expect(merged.map((p) => p.Id)).toEqual(["a", "b"]);
+  });
+
+  it("takes the fresh copy of a programme it already holds", () => {
+    const merged = mergePrograms([at("s1", 0, 30, "Old title")], [at("s1", 0, 45, "New title")], window(0, 60));
+    expect(merged).toEqual([at("s1", 0, 45, "New title")]);
+  });
+
+  it("drops removed server and guide-file programmes across the requested window", () => {
+    const before = [at("epg:c1:0", 0, 30), at("epg:c1:30", 30, 60), at("epg:c1:60", 60, 90), at("server", 30, 60)];
+    // The re-downloaded file starts the second show at :40 and no longer lists the third.
+    const merged = mergePrograms(before, [at("epg:c1:0", 0, 40), at("epg:c1:40", 40, 50)], window(0, 90));
+    expect(merged.map((p) => p.Id)).toEqual(["epg:c1:0", "epg:c1:40"]);
+  });
+
+  it("keeps guide-file programmes outside a later window's span", () => {
+    const merged = mergePrograms([at("epg:c1:0", 0, 360)], [at("epg:c1:360", 360, 420)], window(360, 720));
+    expect(merged.map((p) => p.Id)).toEqual(["epg:c1:0", "epg:c1:360"]);
+  });
+
+  it("clears an empty window, including overlapping shows, while preserving adjacent windows", () => {
+    const before = [at("earlier", -30, 0), at("overlap", -10, 10), at("epg:c1:0", 0, 30), at("server", 30, 60), at("later", 60, 90)];
+    expect(mergePrograms(before, [], window(0, 60))).toEqual([before[0], before[4]]);
+    expect(mergePrograms([{ ...at("unknown-end", 0, 30), EndDate: undefined }], [], window(0, 60))).toEqual([]);
+  });
+});
+
+describe("trimPrograms", () => {
+  const at = (id: string, startMin: number, endMin: number) => ({
+    Id: id,
+    Name: id,
+    ChannelId: "c1",
+    StartDate: new Date(T0 + startMin * MINUTE_MS).toISOString(),
+    EndDate: new Date(T0 + endMin * MINUTE_MS).toISOString(),
+  });
+
+  it("drops the programmes wholly outside the range and keeps the ones crossing its edges", () => {
+    const list = [at("before", 0, 60), at("into", 30, 90), at("inside", 90, 120), at("out-of", 150, 240), at("after", 180, 240)];
+    expect(trimPrograms(list, T0 + 60 * MINUTE_MS, T0 + 180 * MINUTE_MS).map((p) => p.Id)).toEqual(["into", "inside", "out-of"]);
+  });
+
+  it("hands back the same list when nothing leaves it", () => {
+    const list = [at("a", 0, 30), at("b", 30, 60)];
+    expect(trimPrograms(list, T0, T0 + 60 * MINUTE_MS)).toBe(list);
+  });
+
+  it("places a programme with no end by its start", () => {
+    const open = { ...at("open", 30, 60), EndDate: undefined };
+    const later = at("later", 90, 120);
+    expect(trimPrograms([open, later], T0, T0 + 60 * MINUTE_MS)).toEqual([open]);
+    expect(trimPrograms([open, later], T0 + 60 * MINUTE_MS, T0 + 120 * MINUTE_MS)).toEqual([later]);
+  });
+
+  it("never empties a channel that has listings: its nearest programme stays, so the row never reads as one without", () => {
+    const list = [at("a", 0, 30), at("b", 30, 60)];
+    expect(trimPrograms(list, T0 + 600 * MINUTE_MS, T0 + 900 * MINUTE_MS).map((p) => p.Id)).toEqual(["b"]);
+    expect(trimPrograms(list, T0 - 900 * MINUTE_MS, T0 - 600 * MINUTE_MS).map((p) => p.Id)).toEqual(["a"]);
+    const kept = [at("b", 30, 60)];
+    expect(trimPrograms(kept, T0 + 600 * MINUTE_MS, T0 + 900 * MINUTE_MS)).toBe(kept);
+    expect(trimPrograms([], T0, T0 + 60 * MINUTE_MS)).toEqual([]);
+  });
+});
+
+describe("durationLabel", () => {
+  afterEach(() => __setLocaleForTests("en"));
+
+  it("prints minutes, hours, or both", () => {
+    expect(durationLabel(45 * MINUTE_MS)).toBe("45m");
+    expect(durationLabel(120 * MINUTE_MS)).toBe("2h");
+    expect(durationLabel(72 * MINUTE_MS)).toBe("1h 12m");
+  });
+
+  it("prints the active language's units", () => {
+    __setLocaleForTests("de");
+    expect(durationLabel(30 * MINUTE_MS)).toBe("30 Min.");
+    expect(durationLabel(180 * MINUTE_MS)).toBe("3 Std.");
+    expect(durationLabel(90 * MINUTE_MS)).toBe("1 Std. 30 Min.");
+    __setLocaleForTests("fr");
+    expect(durationLabel(90 * MINUTE_MS)).toBe("1 h 30 min");
   });
 });

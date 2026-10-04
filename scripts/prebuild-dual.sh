@@ -26,10 +26,13 @@ project_hash() {
 }
 
 # node_modules/.package-lock.json is rewritten by every npm install, which also
-# replaces the ExpoModulesJSI stub that pod install stamps.
+# replaces the ExpoModulesJSI stub that pod install stamps. Local modules/ are pods too:
+# only pod install links a new module or registers an added or removed native file.
 pods_hash() {
   {
     hash_files native/ios/TomoFFmpeg.podspec scripts/ffmpeg/ffmpeg-lock.json
+    hash_files $(find modules \( -name expo-module.config.json -o -name '*.podspec' \) -type f | LC_ALL=C sort)
+    find modules -path 'modules/*/ios/*' -type f -not -name .DS_Store | LC_ALL=C sort
     pod --version
     stat -f '%m' node_modules/.package-lock.json
   } | shasum -a 256 | cut -d' ' -f1

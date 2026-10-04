@@ -14,7 +14,6 @@ extension RemuxSession {
         stateLock.lock()
         pipelineStarted = true
         stateLock.unlock()
-        prefetchServerCues()
         let thread = Thread { [weak self] in
             self?.runPipeline()
         }
@@ -96,7 +95,8 @@ extension RemuxSession {
         awaitGrid()
         guard tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
         stateLock.lock()
-        let free = !cancelled && !failed
+        // A copy-only master listed no rungs to carry the session, so the copy is never let go to them.
+        let free = !cancelled && !failed && !copyOnlyMaster
         if free {
             copyVerdict = .withheld
             sourceState = unusable ? .unavailable : .dormant
@@ -117,13 +117,13 @@ extension RemuxSession {
         return true
     }
 
-    /// A source lost after the master named the copy. That master lists the rungs too, so the
-    /// copy's routes answer 410 from here and AVPlayer carries on with them: the session lives
-    /// where it used to end and leave for the server's single stream. Same test as releaseSource.
+    /// A source lost after the master named the copy beside the rungs: the copy's routes answer 410
+    /// from here and AVPlayer carries on with the rungs. A copy-only master has none, so it fails
+    /// and the app moves to the server. Same test as releaseSource.
     func handOverToRungs(because message: String) -> Bool {
         guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks, tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
         stateLock.lock()
-        let free = copyAnnounced && !sourceReleased && !cancelled && !failed
+        let free = copyAnnounced && !copyOnlyMaster && !sourceReleased && !cancelled && !failed
         if free {
             copyVerdict = .withheld
             sourceState = .unavailable
@@ -148,9 +148,11 @@ extension RemuxSession {
         sourceReady = false
         sourceTakeoverSegment = nil
         recovering = true
+        let rungsListed = ladderListed
         stateLock.unlock()
         NSLog("[LocalRemuxer] source will retry in this session: %@", message)
-        startServerImageSubtitles()
+        // Only rungs carry the session through the retry; without them the copy comes back on its own.
+        if rungsListed { startServerImageSubtitles() }
     }
 
     func wakeSourceIfAffordable(now: Date = Date()) -> Bool {
@@ -158,7 +160,7 @@ extension RemuxSession {
         defer { stateLock.unlock() }
         guard sourceState == .dormant || sourceState == .retryWait,
               !cancelled, !failed, now >= sourceRetryAt else { return false }
-        let hasAlternative = !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
+        let hasAlternative = !copyOnlyMaster && !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
         let wire = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         guard !hasAlternative || sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2 else { return false }
         sourceState = .warming
@@ -174,8 +176,9 @@ extension RemuxSession {
         if sourceState == .unavailable { return .gone }
         guard !config.tiers.isEmpty, !adoptedStarts.isEmpty else { return nil }
         if sourceState == .dormant || sourceState == .retryWait || !sourceReady { return .temporarilyUnavailable }
+        if copyOnlyMaster { return nil }
         let wire = testLinkBps ?? wireLinkBps ?? 0
-        if sourceBandwidth > 0 && wire < Double(sourceBandwidth) * 1.2 { return .temporarilyUnavailable }
+        if sourceBandwidth > 0 && wire < Double(sourceBandwidth) * 1.2 && !copyBufferHoldsLocked() { return .temporarilyUnavailable }
         return nil
     }
 

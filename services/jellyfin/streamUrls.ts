@@ -10,7 +10,7 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { JELLYFIN_TIME, QualityPreset, TRANSCODING } from "./constants";
 import { deviceDecodes, sourceVideoRange } from "./media";
-import { getCachedConfig, getQualitySettings } from "./session";
+import { getCachedConfig, getQualitySettings, type JellyfinConfig } from "./session";
 import { isImageBasedSubtitleCodec } from "./subtitles";
 
 /**
@@ -64,16 +64,16 @@ export function getAudioRenditionUrl(itemId: string, videoItem: JellyfinVideoIte
  *
  * Callers that must reach the server whatever is on disk use this one. The download manager is
  * the only such caller: routing it through getVideoStreamUrl below would make a download of an
- * item read its own partial file.
+ * item read its own partial file. `config` pins the server for a caller that holds its own.
  */
-export function getRemoteVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null): string {
-  if (!getCachedConfig().server || !getCachedConfig().apiKey) {
+export function getRemoteVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem | null, config: Pick<JellyfinConfig, "server" | "apiKey"> = getCachedConfig()): string {
+  if (!config.server || !config.apiKey) {
     logger.warn("getVideoStreamUrl called before config loaded", { service: "JellyfinAPI" });
     return "";
   }
 
   const mediaSourceId = videoItem?.MediaSources?.[0]?.Id || itemId;
-  const url = `${getCachedConfig().server}/Videos/${itemId}/stream` + `?Static=true` + `&MediaSourceId=${mediaSourceId}` + `&ApiKey=${getCachedConfig().apiKey}`;
+  const url = `${config.server}/Videos/${itemId}/stream` + `?Static=true` + `&MediaSourceId=${mediaSourceId}` + `&ApiKey=${config.apiKey}`;
 
   return url;
 }

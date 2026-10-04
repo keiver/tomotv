@@ -3,7 +3,7 @@ import { COLORS } from "@/constants/colors";
 import React, { forwardRef } from "react";
 import { ActivityIndicator, Platform, Pressable, PressableProps, StyleSheet, Text, TextStyle, View, ViewStyle } from "react-native";
 
-export type ButtonVariant = "primary" | "secondary" | "destructive" | "debug" | "retry" | "link";
+export type ButtonVariant = "primary" | "secondary" | "record" | "destructive" | "debug" | "retry" | "link";
 
 /** Transparent ring the pill reserves so a focus border costs no layout shift. */
 export const BUTTON_BORDER_WIDTH = Platform.isTV ? 4 : 3;
@@ -52,6 +52,8 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       variant === "primary" && focused && styles.primaryButtonFocused,
       variant === "secondary" && styles.secondaryButton,
       variant === "secondary" && focused && styles.secondaryButtonFocused,
+      variant === "record" && styles.recordButton,
+      variant === "record" && focused && styles.recordButtonFocused,
       variant === "destructive" && styles.destructiveButton,
       variant === "destructive" && focused && styles.destructiveButtonFocused,
       variant === "debug" && styles.debugButton,
@@ -75,6 +77,7 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       // Variant-specific text styles
       variant === "primary" && styles.primaryButtonText,
       variant === "secondary" && styles.secondaryButtonText,
+      variant === "record" && styles.recordButtonText,
       variant === "destructive" && styles.destructiveButtonText,
       variant === "debug" && styles.debugButtonText,
       variant === "retry" && styles.retryButtonText,
@@ -100,17 +103,17 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
       // not spoken. Falls back to the title, which is what an icon-less button usually wants.
       accessibilityLabel={pressableProps.accessibilityLabel ?? title}
       accessibilityRole="button"
-      // Caller state first: a toggle's selected/checked has to survive, and only the two the
-      // button owns are computed here.
+      // Caller state first: a toggle's selected/checked has to survive, and a caller's disabled
+      // (a spent control that keeps focus) adds to the two the button owns.
       accessibilityState={{
         ...pressableProps.accessibilityState,
-        disabled: disabled || isLoading,
+        disabled: !!pressableProps.accessibilityState?.disabled || !!disabled || !!isLoading,
         busy: isLoading,
       }}
       tvParallaxProperties={pressableProps.tvParallaxProperties ?? { magnification: 1.05, pressMagnification: 1.0 }}>
       <View style={styles.buttonContent}>
         {isLoading ? (
-          <ActivityIndicator color={variant === "primary" ? COLORS.ON_ACCENT : COLORS.ACCENT} size={"small"} />
+          <ActivityIndicator color={variant === "primary" ? COLORS.ON_ACCENT : variant === "record" ? COLORS.DESTRUCTIVE : COLORS.ACCENT} size={"small"} />
         ) : (
           <>
             {icon}
@@ -196,6 +199,22 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   secondaryButtonText: {
+    color: COLORS.ACCENT,
+  },
+
+  // Record variant: the secondary outline; the caller's icon carries the recording red
+  recordButton: {
+    backgroundColor: "transparent",
+    borderColor: COLORS.ACCENT,
+  },
+  recordButtonFocused: {
+    backgroundColor: "rgba(255, 195, 18, 0.15)",
+    borderColor: COLORS.ACCENT_FOCUSED,
+    shadowColor: COLORS.ACCENT,
+    shadowOpacity: 0.4,
+    elevation: 6,
+  },
+  recordButtonText: {
     color: COLORS.ACCENT,
   },
 

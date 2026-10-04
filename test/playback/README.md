@@ -165,15 +165,15 @@ The key is also used to reset each item's resume position before launch, for eve
 
 **A dev build needs Metro.** Run `npm start` first; the suite prewarms the app once per run so the first item does not eat the JS bundle download. The app must be installed on the target simulator (`npm run ios` / `npm run both`).
 
-The prewarm does not cover a COLD bundle for a platform Metro has not built yet. The first iOS run after a tvOS run pays a full iOS bundle build, the deep link is served minutes late, and every item reads "no probe events" while the app is in fact playing correctly. Check the probe file's timestamps against the run: events arriving after the driver gave up is the signature. Run one item first (`--only T01`) to warm the platform, then start the suite.
+The prewarm does not cover a COLD bundle for a platform Metro has not built yet. The first iOS run after a tvOS run pays a full iOS bundle build, the deep link is served minutes late, and every item reads "no probe events" while the app is in fact playing correctly. Check the saved probe events' timestamps against the run: events arriving after the driver gave up is the signature. Run one item first (`--only T01`) to warm the platform, then start the suite.
 
 **Host tools:** `ffmpeg`/`ffprobe` on PATH (`brew install ffmpeg`), Xcode simctl. Host-side validation works because the simulator shares the Mac's network stack, so the engine's `127.0.0.1:<port>` HLS server is reachable from the terminal. This does NOT hold for a physical device; on-device runs get mode and progress assertions only unless validation is reworked.
 
 ## How one item runs
 
 1. Force-quit the app, reset the item's resume position via the API.
-2. `xcrun simctl openurl <sim> "tomotv://player?videoId=<id>&probe=1"` cold-starts the app straight into the real player screen, which autoplays.
-3. `services/playbackProbe.ts` (armed ONLY by `probe=1` and `__DEV__`, inert otherwise) appends events to `Library/Caches/playback-probe.jsonl` in the app container: chosen mode, stream URL, errors, retries, positions. The driver polls it via `simctl get_app_container`.
+2. `xcrun simctl openurl <sim> "tomotv://player?videoId=<id>&probe=<listener URL>"` (on a device, `devicectl device process launch --payload-url`) cold-starts the app straight into the real player screen, which autoplays.
+3. `services/playbackProbe.ts` (armed ONLY by a `probe` param and `__DEV__`, inert otherwise) POSTs each event to the driver's HTTP listener as it happens: chosen mode, stream URL, errors, retries, positions. The item ends on an event (`ended`, a fatal error, or progress past `progressMin`); the only other bound is the play window plus 60s. A simulator reaches the listener on `127.0.0.1`; a device on the Mac address of the interface that routes to the device's Jellyfin session (`PROBE_HOST` overrides it). Each item's events are saved to the run's work directory.
 4. After the play window, with the app still alive so the remux session survives, the driver ffprobes the loopback master playlist and hashes the first 30s, then compares against `baselines/<TNN>.json`.
 5. Force-quit, next item.
 
@@ -181,11 +181,12 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 
 - `title`: Jellyfin item name = filename without extension. The contract between repo and media folder; rename a file and this must follow (the item also gets a new id, which is fine).
 - `mode`: expected playback mode. `allowRetry` + `finalMode`: for items whose real-world behavior is a legitimate auto-retry (T54: AVPlayer has no Ogg demuxer, direct fails, app retries with transcode).
-- `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `subsync` (server-HLS subtitle-sync invariant, see below), `live` (the engine's live window, see Live TV below), `none` (mode + progress only).
+- `validate`: `copy` (exact video packet hashes), `devtc` (tolerant, VideoToolbox re-encode), `subsync` (server-lane subtitle-sync invariant, see below), `live` (the engine's live window, see Live TV below), `none` (mode + progress only).
 - `expect`: post-remux stream layout (codecs, subtitle rendition count, audio rendition count, VIDEO-RANGE). Live items: `audioTracks` (renditions the master must offer) and `discontinuity` (an `EXT-X-DISCONTINUITY` must be in the window after the play).
-- `expect.tierVariant`: whether the master offers Slipstream rungs (`t0.m3u8` and up). True for a file with video and audio played from the server, HDR included, false for an item the ladder excludes (live, audio-only, held on disk). When true the driver also checks the shape a switch depends on: the copy listed beside the rungs on this fast LAN, one subtitle group across every variant, `audio-lo` on the rungs, and ascending BANDWIDTHs that count their audio group.
+- `expect.tier`: the engine's tier report, `copy` for a ladder-eligible file (video and audio from the server, HDR included): the link carries it, so the master names the copy alone, with no `t0.m3u8` rungs and no `audio-lo` group. The report reaches the probe file, so a device checks it too. On every target a `localRemux` item whose engine reports rungs `listed` fails. Rung shape on a thin link is covered by the engine's `MasterPlaylistTests` and the ABR drill.
 - `live`: a Live TV channel, resolved by name from `/LiveTv/Channels` instead of from the fixture roots.
-- `skip`: known limitation; skipped unless named in `--only`. Currently T10 (simulator rejects HDR PQ) and T32, T36, T41 (the simulator has no HEVC encoder); verify them on a device.
+- `skip`: a simulator limitation; skipped on a simulator unless named in `--only`, always run on a `--device` target. Currently T10 (simulator rejects HDR PQ) and T32, T36, T41 (the simulator has no HEVC encoder).
+- Server work, every target: the driver reads the Jellyfin server's log (`JELLYFIN_LOG_DIR`) from where each item starts, and skips the check when no log is readable. An item whose lane is not `transcode` fails if Jellyfin started ffmpeg on its file (`TranscodeManager` or `SubtitleEncoder`); a `transcode` item fails if it started none.
 - `playSeconds` / `progressMin`: play window and minimum position, lowered for short files.
 
 ## Known issues
@@ -197,18 +198,11 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 
 ## T44: the server-HLS subtitle-sync guard (`validate: "subsync"`)
 
-Jellyfin stamps every HLS WebVTT segment with `X-TIMESTAMP-MAP=MPEGTS:900000` (10s). Players apply that map against the media segments' internal PTS base: MPEG-TS segments start at ~10s (delta 0, in sync), fMP4 segments start at 0 (every cue 10s late, the 2026-08-10 Star Trek bug). `getTranscodingStreamUrl` therefore requests `SegmentContainer=ts` whenever text renditions ride. T44 pins that forever: its video is ASUS V1 (`asv1`), a codec outside `TRANSCODABLE_VIDEO_CODECS`, so `video codec unsupported` holds it on the server lane whatever size or hardware is in play, and its embedded SRT forces WebVTT renditions. `services/__tests__/localRemux.test.ts` pins that decline, so growing the allowlist fails there instead of retiring this guard in silence. The title still says Theora because it must match the file on disk. The driver fetches the master the app actually played, and fails on: no subtitle rendition, segments not mpegts, or `|map − first segment PTS| > 0.5s`.
+The server lane has two shapes. Jellyfin's own HLS (8K, live, held files, audio-only) stamps every WebVTT segment with `X-TIMESTAMP-MAP=MPEGTS:900000` (10s) against MPEG-TS segments that start at ~10s (fMP4 segments start at 0: every cue 10s late, the 2026-08-10 cue-offset bug), so `getTranscodingStreamUrl` requests `SegmentContainer=ts` whenever text renditions ride. Network video goes through the engine gateway instead (`serverVideoOnly`): server rungs rewrapped to fMP4 behind `EXT-X-MAP`, on a timeline that starts at 0, with WebVTT at `MPEGTS:0`. T44 pins the invariant: its video is ASUS V1 (`asv1`), a codec outside `TRANSCODABLE_VIDEO_CODECS`, so `video codec unsupported` holds it on the server lane whatever size or hardware is in play, and its embedded SRT forces WebVTT renditions. `services/__tests__/localRemux.test.ts` pins that decline, so growing the allowlist fails there instead of retiring this guard in silence. The title still says Theora because it must match the file on disk. The driver fetches the master the app actually played, probes the first segment (behind its init section when the playlist has `EXT-X-MAP`), and fails on: no subtitle rendition, segments not the shape their playlist declares, or `|map − first segment time| > 0.5s`.
 
 The video carries a burned-in clock and every cue echoes it ("IN SYNC if clock reads 00:00:14 - 00:00:16"), so on a physical device, where host-side validation cannot reach the stream, sync is verifiable by eye, including after seeks.
 
-The current file was made from the previous Theora fixture by re-encoding the video alone, audio and subtitles copied (the original is in `~/backup/subsync-fixtures-*`):
-
-```bash
-"/Applications/Jellyfin.app/Contents/MacOS/ffmpeg" -i "$BACKUP/T44 SERVER Theora SRT subsync.mkv" -map 0 -vf scale=1280:720 -c:v asv1 -q:v 12 -c:a copy -c:s copy \
-  "$HOME/Movies/development-videos/T44 SERVER Theora SRT subsync.mkv"
-```
-
-Regenerate from nothing if the media folder is lost (Jellyfin's ffmpeg has the `asv1` encoder):
+Regenerate it (Jellyfin's ffmpeg has the `asv1` encoder):
 
 ```bash
 python3 -c "
@@ -232,20 +226,19 @@ open('t44.srt', 'w').write('\n'.join(lines))
 
 T44's clock proves the timing mechanically but nobody can judge "does this look right" against a colour-bar pattern. T45 is a 90-second dialogue clip from a broadcast episode carrying its real English SDH track, with the video re-encoded to ASUS V1 (`asv1`) at 1280x960, so `canRemuxLocally` declines it as `video codec unsupported` and the item cannot drift onto the engine lane. The title still says DivX3 because it must match the file on disk. Same `subsync` validation; play it on a device to judge cue timing against actual speech.
 
-Regenerate (the window is the densest 90s of dialogue in that episode; any dialogue-heavy source works):
+Regenerate from any dialogue-heavy episode with an English SDH track, cutting its densest 90 seconds (`START`):
 
 ```bash
-SRC="$HOME/Movies/Star.Trek.Strange.New.Worlds.S04E01.480p.x264-mSD[EZTVx.to].mkv"
+SRC="/path/to/episode.mkv"
+START=1065
 FF="/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
-"$FF" -ss 1065 -t 90 -i "$SRC" -map 0:v:0 -map 0:a:0 -vf scale=1280:960 -c:v asv1 -q:v 10 -c:a copy t45_av.mkv
-"$FF" -ss 1065 -t 90 -i "$SRC" -map 0:s:0 -c:s srt t45_subs.srt   # -t does NOT clamp subs
+"$FF" -ss "$START" -t 90 -i "$SRC" -map 0:v:0 -map 0:a:0 -vf scale=1280:960 -c:v asv1 -q:v 10 -c:a copy t45_av.mkv
+"$FF" -ss "$START" -t 90 -i "$SRC" -map 0:s:0 -c:s srt t45_subs.srt   # -t does NOT clamp subs
 # keep only cues starting before 89s and renumber them, then:
 "$FF" -i t45_av.mkv -i t45_trimmed.srt -map 0:v -map 0:a -map 1:s -c copy \
   -metadata:s:s:0 language=eng -metadata:s:s:0 title="English SDH" \
   "$HOME/Movies/development-videos/T45 SERVER DivX3 SDH subsync.mkv"
 ```
-
-The current file was made from the previous DivX3 fixture the same way T44 was: `-map 0 -vf scale=1280:960 -c:v asv1 -q:v 10 -c:a copy -c:s copy`.
 
 ## The engine decides by doing (the verdict file)
 
@@ -256,9 +249,9 @@ and the player takes the server lane when that segment ran below realtime (`fall
 reason `engine below realtime`, no `error`, no restart), then remembers the file in
 `engine-verdicts.json` (`services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS).
 
-The driver deletes the verdict file from the app container before every item, the way it deletes
-the probe file, so a verdict from an earlier run cannot change the first mode the manifest
-asserts. On a device the file persists: a second play of a remembered item chooses `transcode` at
+Arming the probe with the driver's URL clears the verdicts before every item, so a verdict from an
+earlier run cannot change the first mode the manifest asserts. Outside the suite the file persists:
+a second play of a remembered item chooses `transcode` at
 the lane pick, which Diagnostics shows as a decline with reason `engine below realtime on an
 earlier play`.
 
@@ -273,7 +266,7 @@ looping the file at EOF, once decode + encode and once decode only, and writes
 
 ```
 npm run make:test-media -- --bench                     B01-B09 and B12, scaled from the T40 8K source (minutes per 4K rung)
-npm run bench:transcode                                booted simulator: proves the tooling, the decoders run on this Mac
+npm run bench:transcode                                booted simulator: proves the tooling, the decoders run on the host Mac
 npm run bench:transcode -- --device "Main Bedroom"     paired device by devicectl name; the numbers on real hardware
 npm run bench:transcode -- --only B03,B07 --seconds 45 --no-decode
 ```
@@ -404,6 +397,43 @@ TOMO_LIVE_SERVER_MASTER="http://127.0.0.1:8096/videos/<id>/master.m3u8?...&LiveS
 
 Measured on Jellyfin 12.0: an fMP4 (`mp4`) live transcoding profile is ignored and the reply degrades to
 a progressive `/stream` URL, so the profile is TS; HEVC copied into TS plays in AVPlayer.
+
+### A tuner behind Jellyfin (issue 89's shape)
+
+`scripts/demo-livetv/rig.mjs` stands up a throwaway Jellyfin container on this Mac fed by `relay.py`; with
+`--tuner hdhomerun` the relay also answers as an HDHomeRun (`discover.json`, `lineup.json`, `/auto/v<n>`), so
+Jellyfin describes each channel from the lineup's labels, opens it on the server and serves it back as
+`/LiveTv/LiveStreamFiles/<id>/stream.ts`, the path a real tuner takes. Captures go out as their own bytes,
+looped and paced at their container bitrate, every PID kept (an ffmpeg re-mux would drop the audio
+description and renumber PIDs); the first loop boundary is a PTS splice the engine rolls a generation on.
+
+```bash
+# ~/Movies/development-videos/live-captures/: real UK broadcasts (samples.ffmpeg.org), each *.ts beside a
+# <name>.json with the labels the tuner's lineup carries for it: {"name","videoCodec","audioCodec","hd"}
+node scripts/demo-livetv/rig.mjs 12.1 18112 --tuner hdhomerun --captures ~/Movies/development-videos/live-captures \
+  --tuners 4 --placeholder-probe            # the server state of issue 89 section 1: labels verbatim, Index -1, no transcode offered
+  --probesize 5M                            # the reporter's JELLYFIN_FFmpeg__probesize; unset keeps Jellyfin's 1G
+  --pace 0.5:40                             # each tuner reader at half the live rate for its first 40 s (a slow tuner link)
+  --video-delay 8                           # the tuner's video PID withheld for a reader's first 8 s
+```
+
+`--placeholder-probe` writes Jellyfin's own live probe cache (`/cache/mediainfo/<md5(OpenToken)>.json`) with the
+lineup placeholders, so every open answers the way a failed probe leaves it (jellyfin/jellyfin#18055). Measured
+on 12.1 with ffprobe 8.1.2: the real captures probe cleanly, with or without `--probesize`, and a video PID
+withheld during the probe comes back as width 0 rather than absent, so the probe crash itself does not reproduce
+here; the cache is what reproduces its outcome. The rig prints each channel's Jellyfin id; `GET /stats` on the
+tuner port counts readers (`readers:<channel>`), the fifth concurrent open answers 500 from Jellyfin.
+
+The engine on this Mac against a held open, startup marks in the log:
+
+```bash
+TOMO_LIVE_SOURCE_H264="http://127.0.0.1:18112/LiveTv/LiveStreamFiles/<id>/stream.ts?ApiKey=<RIG_TOKEN>" \
+  npm run test:engine -- --filter LivePipelineTests/testAnH264TransportStreamCopiesWithParameterSetsInItsInit
+```
+
+The test's own 1280-wide assertion fails on a 1440 or 1920 capture; the marks (`[LocalRemuxer] startup ...`)
+and the segment lines are the measurement. On the Apple TV: sign the dev build into the rig
+(`tomotv://dev-session`), play each channel, read the same marks off the device log.
 
 ## Regenerating baselines
 

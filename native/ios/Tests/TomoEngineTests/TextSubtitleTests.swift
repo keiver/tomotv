@@ -341,6 +341,69 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertTrue(body.contains("server first window"))
     }
 
+    func testACopyOnlySessionNeverAsksTheServerForCues() throws {
+        var subtitle = engineSub(2)
+        subtitle.serverVttUrl = "http://127.0.0.1:9/2.vtt"
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [subtitle]))
+        defer { session.stop() }
+        session.textSubtitles[2] = try decodedTrack()
+        session.subtitleDecodersBuilt = true
+        session.copyOnlyMaster = true
+        session.prefetchServerCues()
+        XCTAssertFalse(session.serverCueSource(subtitle))
+        XCTAssertNil(session.serverCues(streamIndex: 2, deadline: 0))
+        XCTAssertTrue(session.serverCueFetches.isEmpty, "a session reading its source makes the server extract nothing")
+    }
+
+    func testALadderSessionOrATrackWithoutADecoderMayAskTheServer() throws {
+        var subtitle = engineSub(2)
+        subtitle.serverVttUrl = "http://127.0.0.1:9/2.vtt"
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [subtitle]))
+        defer { session.stop() }
+        session.subtitleDecodersBuilt = true
+        XCTAssertTrue(session.serverCueSource(subtitle), "no engine decoder for the track: the server is its only producer")
+        session.textSubtitles[2] = try decodedTrack()
+        XCTAssertFalse(session.serverCueSource(subtitle))
+        session.ladderListed = true
+        XCTAssertTrue(session.serverCueSource(subtitle), "a listed ladder means the link may not carry the copy")
+    }
+
+    private func imageSub(_ index: Int) -> RemuxSubtitle {
+        RemuxSubtitle(
+            index: index, name: "PGS \(index)", language: "eng", vttUrl: "", localVtt: "",
+            isDefault: false, isForced: false, isImage: true, isEngineText: false)
+    }
+
+    func testServerImageReadersStartPerTrackAndOnce() throws {
+        let tracks = [3, 4].map { index -> RemuxSubtitle in
+            var track = imageSub(index)
+            track.serverSupUrl = "http://127.0.0.1:9/\(index).sup"
+            return track
+        }
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: tracks))
+        defer { session.stop() }
+        session.startServerImageSubtitles(only: 3)
+        XCTAssertEqual(session.serverImageSubtitleTracks, [3])
+        session.startServerImageSubtitles()
+        session.startServerImageSubtitles()
+        XCTAssertEqual(session.serverImageSubtitleTracks, [3, 4])
+    }
+
+    func testASourceRetryStartsServerImageReadersOnlyUnderAListedLadder() throws {
+        var track = imageSub(3)
+        track.serverSupUrl = "http://127.0.0.1:9/3.sup"
+        let alone = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [track]))
+        defer { alone.stop() }
+        alone.retrySource(because: "read_frame: test")
+        XCTAssertTrue(alone.serverImageSubtitleTracks.isEmpty, "the copy recovers on its own; nothing asks the server")
+
+        let laddered = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [track]))
+        defer { laddered.stop() }
+        laddered.ladderListed = true
+        laddered.retrySource(because: "read_frame: test")
+        XCTAssertEqual(laddered.serverImageSubtitleTracks, [3])
+    }
+
     func testUncoveredWindowIsNotPublishedAsAnEmptySuccessfulSubtitle() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [engineSub(2)]))
         defer { session.stop() }

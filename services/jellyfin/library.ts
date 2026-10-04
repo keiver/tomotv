@@ -9,6 +9,7 @@
  */
 import { EMPTY_FILTERS, JellyfinFolderResponse, JellyfinItem, JellyfinVideoItem, JellyfinVideosResponse, LibraryFilters } from "@/types/jellyfin";
 import { addFavoriteIds, getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
+import { updateLiveTvAvailability } from "@/services/liveTvAvailability";
 import { getPlayedOverrides } from "@/services/playedCache";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
@@ -19,6 +20,7 @@ import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_S
 import { filtersCacheKey } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
 import { fetchAllPlaylistItems } from "./items";
+import { fetchChannels } from "./liveTv";
 import { isAudioItem } from "./media";
 import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
@@ -164,6 +166,14 @@ export async function fetchViewItemCount(viewId: string): Promise<number> {
   );
 }
 
+/** A library root's count, never its ChildCount. Live TV counts channels, which no item query sees. */
+export async function fetchLibraryRootCount(viewId: string, collectionType: string | undefined): Promise<number> {
+  if (collectionType !== "livetv") return fetchViewItemCount(viewId);
+  const { total } = await fetchChannels({ limit: 0 });
+  if (total === undefined) throw new Error("Channel count unavailable");
+  return total;
+}
+
 async function resolveViewItemCount(config: JellyfinConfig, viewId: string): Promise<number | undefined> {
   const recursiveCount = await fetchMediaCount(config, viewId, true);
   if (recursiveCount === undefined || recursiveCount > 0) {
@@ -297,6 +307,8 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
       // recursive count loads lazily per card (fetchViewItemCount) so this list never
       // waits on the count walk.
       const items: JellyfinItem[] = result.items.map((view: JellyfinItem) => ({ ...view, ChildCount: undefined }));
+
+      updateLiveTvAvailability(items.some((view) => view.CollectionType === "livetv"));
 
       return { items, total: result.total };
     },

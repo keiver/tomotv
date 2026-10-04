@@ -4,12 +4,11 @@ import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constan
 export type QualityMode = "auto" | "fixed";
 
 /** What the plan needs measured before it can be made. */
-export type MeasurementNeed = "none" | "remembered" | "rememberedOrFresh";
+export type MeasurementNeed = "none" | "remembered";
 
-export function measurementFor(input: { stallFallback: boolean; mode: QualityMode }): MeasurementNeed {
-  if (input.stallFallback) return "none";
-  // jellyfin-web's startup pattern: measure once, remembered per server.
-  return input.mode === "auto" ? "rememberedOrFresh" : "remembered";
+/** Never a fresh probe: a read short enough to wait on reads a burst, so a cold start takes the floor like every player's. */
+export function measurementFor(input: { stallFallback: boolean }): MeasurementNeed {
+  return input.stallFallback ? "none" : "remembered";
 }
 
 export interface PresetPlanInput {

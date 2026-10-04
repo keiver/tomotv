@@ -1,0 +1,35 @@
+{
+  "simulator": "iPhone 18 Pro Max",
+  "canvas": [1320, 2868],
+  "time": "2024-01-09T14:41:00.000Z",
+  "zones": {
+    "left": {
+      "ink": {
+        "left": 215,
+        "right": 321,
+        "top": 76,
+        "bottom": 117
+      },
+      "box": {
+        "left": 209,
+        "right": 327,
+        "top": 70,
+        "bottom": 123
+      }
+    },
+    "right": {
+      "ink": {
+        "left": 906,
+        "right": 1181,
+        "top": 74,
+        "bottom": 120
+      },
+      "box": {
+        "left": 900,
+        "right": 1187,
+        "top": 68,
+        "bottom": 126
+      }
+    }
+  }
+}

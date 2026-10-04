@@ -52,16 +52,18 @@ jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }))
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
-jest.mock("expo-image", () => ({ Image: () => null }));
+jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: async () => ({ width: 16, height: 9 }) }) }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
 jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
+  deleteItem: jest.fn(async () => {}),
+  fetchIsAdministrator: jest.fn(async () => false),
+  isLiveChannel: () => false,
   fetchItemDetails: jest.fn(),
   fetchFolderMediaKinds: jest.fn(async () => null),
   fetchItemFolderPath: jest.fn(async () => []),
-  formatDuration: () => "",
   getBackdropUrl: () => null,
   getLogoUrl: () => null,
   getPersonImageUrl: () => null,

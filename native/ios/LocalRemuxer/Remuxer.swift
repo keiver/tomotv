@@ -66,6 +66,13 @@ func probeStreamInfo(_ ctx: UnsafeMutablePointer<AVFormatContext>) -> Int32 {
     return ret
 }
 
+/// A tuner's MPEG-TS carries PIDs the probe can never parameterise (a packet-less AD track, DSM-CC and
+/// private sections), so it runs to FFmpeg's 7 s / 5 MB limits; every keyframe measured arrives inside 2 s.
+func liveProbeBound(format: String, isLive: Bool) -> Int64? {
+    guard isLive, format == "mpegts" else { return nil }
+    return 2_000_000
+}
+
 /// A single remux session: FFmpeg pipeline + segment store + playlist model.
 /// One session exists at a time (mirrors MultiAudioResourceLoader's model).
 final class RemuxSession {
@@ -90,6 +97,10 @@ final class RemuxSession {
     /// Live: segments listed and kept on disk, under stateLock. A hot neighbour starts short and
     /// widens when a player adopts it.
     var liveKeepSegments: Int
+    /// The live input's connection lease while the input is open; guarded by stateLock.
+    var inputLease: LiveConnectionBroker.Lease?
+    /// The live input reads `fallbackInputUrl`, not the origin its lease counts; guarded by stateLock.
+    var inputIsFallback = false
 
     let token = UUID().uuidString
     let config: RemuxConfig
@@ -108,6 +119,8 @@ final class RemuxSession {
     var renditionBitrates: [String: SegmentBitrates] = [:]
     var indexedSourcePeak: Int?
     var producingSegment = 0
+    /// Seeks the pipeline restarted on, under the lock.
+    var seekRestarts = 0
     /// The segment AVPlayer asked for most recently — the playhead. Note this
     /// is NOT a high-water mark: after seeking backwards it must move back, or
     /// the producer would stay throttled and freshly written segments would be
@@ -138,6 +151,13 @@ final class RemuxSession {
     /// Wall time blocked in av_read_frame while making the current segment, and the bytes that
     /// arrived in it: together one link-rate sample per segment (pipeline thread).
     var readSecondsInSegment: Double = 0
+    /// Time the segment spent in the Dolby Vision rewrite and the audio encoder, beside the reads.
+    var doviSecondsInSegment: Double = 0
+    var audioSecondsInSegment: Double = 0
+    /// The muxer's per-packet writes, the fragment flush at the cut, and the segment file write.
+    var muxSecondsInSegment: Double = 0
+    var flushSecondsInSegment: Double = 0
+    var fileSecondsInSegment: Double = 0
     var bytesInSegment: Int64 = 0
     /// Bytes and read time since the last link sample (one every 512KB; pipeline thread).
     var bytesSinceLinkSample: Int64 = 0
@@ -145,14 +165,26 @@ final class RemuxSession {
     var besideAtLinkSample: Int64 = 0
     var linkSampleStartedAt = Date()
     var readSecondsSinceLinkSample: Double = 0
+    /// The probe mark (TransferLedger.probeMark) the running source sample began under.
+    var probeMarkAtLinkSample = 0
+    /// Seconds AVPlayer holds past its playhead, as the app last reported them, and whether that
+    /// buffer has reached the reservoir since the last seek (under stateLock).
+    var playerAheadSeconds: Double?
+    var playerAheadAt = Date.distantPast
+    var playerBufferFilled = false
+    /// The copy's declared BANDWIDTH once a master names it (under stateLock).
+    var announcedCopyBandwidth: Int?
     /// The pull since the pipeline started, for the app's pre-flight (progress(); under stateLock).
     var pulledBytes: Int64 = 0
     var pulledReadSeconds: Double = 0
-    /// The source link rate probeLink measured (nil = nothing flowed), and whether it has answered.
-    var measuredLinkBps: Double?
+    /// The input context from its open until its close, pipeline thread only: the interrupt callback
+    /// reads its IO byte count for `pulledBytes` while the open, the probe and the keyframe hunt run.
+    var openingInput: UnsafeMutablePointer<AVFormatContext>?
+    /// `pulledBytes` when the current input was opened: its IO counter starts at zero.
+    var pulledBase: Int64 = 0
+    var lastInputBytesPublish: CFAbsoluteTime = 0
+    /// Whether the startup link probe has answered.
     var linkProbeDone = false
-    /// Link rate as the current window measured it, the pacing rate for served media.
-    var pacedLinkBps: Double?
     var linkWindowBytes: Int64 = 0
     var linkWindowBusySeconds: Double = 0
     var linkWindowStart = Date()
@@ -167,7 +199,8 @@ final class RemuxSession {
     /// PGS tracks decoded from the server's raw stream, by source index, and how far each has read.
     var serverImageSubtitles: [Int32: ImageSubtitleDecoder] = [:]
     var serverImageReadUpTo: [Int32: Double] = [:]
-    var serverImageSubtitlesStarted = false
+    /// Image tracks whose server reader has started, by source index.
+    var serverImageSubtitleTracks: Set<Int> = []
 
     /// Text subtitle decoders, same lifetime and locking as the image ones.
     var textSubtitles: [Int32: TextSubtitleDecoder] = [:]
@@ -226,6 +259,11 @@ final class RemuxSession {
     var openingRungResolved = false
     /// The master leads with a rung, so the opening segment is a rung's and not the copy's.
     var rungLeads = false
+    /// The master named the copy alone: there is no other variant to defer AVPlayer to.
+    var copyOnlyMaster = false
+    /// The master lists server rungs, so the link may not carry the copy: only then may the server's
+    /// WebVTT and image streams stand in for the demuxer.
+    var ladderListed = false
     /// The rung AVPlayer last asked a segment of, and when the producer last moved to follow it.
     var lastTierRung = 0
     var lastFollowSeekAt = Date.distantPast
@@ -362,9 +400,12 @@ final class RemuxSession {
     let transfers = TransferLedger()
     /// Server rendition transfers inside the link window, as the spans they arrived over.
     var floorSamples: [(start: Date, end: Date, bytes: Int64)] = []
-    /// The last reading of the wire itself (a probe, or the source read), and the newest floor
-    /// the server renditions put under it, with when that floor was seen.
-    var wireLinkBps: Double?
+    /// The link rate every decision reads (under stateLock), and the newest floor the server
+    /// renditions put under it, with when that floor was seen.
+    var link: LinkEstimate?
+    /// The probe readings the link follows (under stateLock).
+    var linkEwma = LinkEwma()
+    var wireLinkBps: Double? { link?.bps }
     var floorLinkBps: Double?
     var floorSeenAt = Date.distantPast
     var lastLinkProbeAt = Date.distantPast

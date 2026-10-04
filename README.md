@@ -59,16 +59,19 @@ server for 30 minutes.
   the receiver untouched. TrueHD, DTS-HD, PCM, MP3, Opus and the rest are decoded
   to lossless FLAC, up to 7.1. Switching audio tracks does not restart playback.
 - **Subtitles** never send a file to the server's transcoder. Embedded text
-  tracks become WebVTT on the device, sidecar files are read from the server as
-  they are, and image tracks (PGS, VobSub, DVB, XSUB) are decoded to bitmaps
-  drawn over the native player.
-- **Quality.** Auto plays the original when the connection can carry it, and
-  otherwise a smaller server stream (stereo AAC), if the account is allowed to
-  transcode. Both can sit in one playlist, so AVPlayer switches between them
-  without a restart. Fixed presets cap either path.
+  tracks become WebVTT on the device, sidecar text files arrive as the server's
+  WebVTT and sidecar image files as they are, and image tracks (PGS, VobSub,
+  DVB, XSUB) are decoded to bitmaps drawn over the native player.
+- **Quality.** Auto plays the original alone when the connection can carry it,
+  and the server transcodes nothing. On a slower connection the playlist adds
+  smaller server streams (stereo AAC), if the account is allowed to transcode,
+  and AVPlayer switches between them and the original without a restart. A fixed
+  preset applies only when the server has to transcode. The connection is timed on
+  real files: the engine reads the one playing, and Settings reads ten seconds of
+  one in the library.
 - **Live TV** uses the same engine. HLS and DASH origins are read directly, tuner
-  streams arrive through the server untouched, and the server's live transcode
-  is the fallback.
+  streams are read from their source when the device can reach it, otherwise
+  through the server untouched, and the server's live transcode is the fallback.
 - **FFmpeg** is built in this repo from pinned sources, with every native decoder
   enabled, published by CI and fetched on `npm install`. DivX 3, RealVideo,
   Theora, DV and Cinepak all play on the device; the measured list is in
@@ -78,24 +81,28 @@ server for 30 minutes.
 
 - **Live TV.** A guide by time and channel, a wall of every channel with live
   previews, and Recordings with filters. Accounts allowed to manage recordings
-  also get the schedule and record controls. Hold a channel to make it a
-  favorite. On Apple TV, the remote's channel-skip gesture flips channels, and
-  the channels on either side keep running, ready for the flip.
+  also get the schedule and record controls. Hold a channel for its info
+  panel, to record, favorite or group it. On Apple TV, the remote's channel-skip
+  gesture flips channels, and for 30 seconds after a flip the channels on either
+  side keep running.
 - **Books.** PDF, comics (CBZ, CBR, CBT, CB7), EPUB, MOBI and Kindle AZW/AZW3 in a
   full-screen reader, with the reading position saved to the server.
 - **Downloads** on iPhone and iPad: an item or a whole folder, playable with no
   server in reach, with watch positions synced back later.
 - **SyncPlay**, Jellyfin's watch-together. The Apple TV shows a join code; a
   phone signed in to the same server scans it with the camera to join.
-- **Apple TV.** Skip Intro and Skip Credits from Jellyfin's Media Segments,
-  chapter thumbnails, the Up Next panel, and Continue Watching on the Top Shelf.
+- **Apple TV.** Skip Intro, Skip Credits and Skip Commercial from Jellyfin's
+  Media Segments, chapter thumbnails, the Up Next panel, and Continue Watching
+  with recently played channels on the Top Shelf. iPhone and iPad skip
+  commercials on their own.
 - **Music** keeps playing while you browse, with Now Playing controls.
 - **Diagnostics.** The last playback as a versioned JSON document
   ([schema](docs/diagnostics-session.schema.json)): the lane, why the engine
   chose it, the streams, every error, and what the device decodes in hardware.
   Share it from the phone, or send it from the Apple TV to your phone through
   your own account on the server. Nothing goes anywhere else.
-- **Languages.** English, German, French and Spanish, following the device.
+- **Languages.** English, German, French and Spanish, following the device or
+  picked in Settings.
 
 ## Getting started
 
@@ -137,12 +144,13 @@ services/
   localRemux.ts         lane choice, engine codec allowlists, engine sessions
   jellyfin/             API client, split by concern
   syncPlayManager.ts    SyncPlay groups and command scheduling
-  liveRing.ts           Live TV channels kept running for flips
+  liveRing.ts           Live TV neighbours kept running after a flip
   downloads/            offline store
   books/                book formats and reading position
   i18n/                 strings: en, de, fr, es
 native/ios/
   LocalRemuxer/         the engine: remux, transcode, loopback server, subtitles, Dolby Vision, live
+  LiveSources/          XMLTV guides and M3U playlists, loaded and parsed natively
   MultiAudioResourceLoader/   HLS manifests, audio track switching
   AudioQueuePlayer/     music queue, Now Playing, tvOS Up Next panel
   BookRenderer/         PDF, comic, EPUB and MOBI pages
@@ -184,6 +192,24 @@ every effect, and no scale animations on grid items.
 - **Downloads** are iPhone and iPad only: tvOS gives apps no persistent storage.
 - **Server.** Jellyfin only.
 - **Network.** HTTP is allowed on every network. Use HTTPS beyond your LAN.
+
+## Disclaimer
+
+Tomo TV is a player. It hosts, distributes and ships no media, channels,
+playlists or guides: it plays what your Jellyfin server and the sources you add
+provide, and you are responsible for having the right to access them. It is
+provided as is, without warranty, under the MIT License.
+
+Tomo TV is an independent client, not affiliated with or endorsed by the
+Jellyfin project. Jellyfin is a trademark of its respective owner. Apple, Apple
+TV, iPhone, iPad and AirPlay are trademarks of Apple Inc. Dolby, Dolby Vision and
+Dolby Atmos are trademarks of Dolby Laboratories Licensing Corporation. All other
+marks belong to their owners.
+
+The screenshot above shows Big Buck Bunny, © 2008 Blender Foundation |
+bigbuckbunny.org, and Tears of Steel, (CC) Blender Foundation |
+mango.blender.org, both under CC BY 3.0. Rights concerns go to
+<contact@keiver.dev>.
 
 ## A Note on AI
 

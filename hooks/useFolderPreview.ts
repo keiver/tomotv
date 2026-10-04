@@ -14,6 +14,11 @@ const NONE: JellyfinVideoItem[] = [];
  * folder's videos (useAuthSession).
  */
 export function useFolderPreview(folder: Pick<JellyfinItem, "Id" | "Type"> | null, wanted: boolean): JellyfinVideoItem[] {
+  return useFolderPreviewState(folder, wanted).items;
+}
+
+/** The preview plus whether it has answered (true at once for a folder that never asks). */
+export function useFolderPreviewState(folder: Pick<JellyfinItem, "Id" | "Type"> | null, wanted: boolean): { items: JellyfinVideoItem[]; settled: boolean } {
   const folderId = folder?.Id ?? "";
   const eligible = wanted && !!folder && PREVIEW_TYPES.has(folder.Type);
   const key = `${useAuthSession()}:${folderId}`;
@@ -35,5 +40,6 @@ export function useFolderPreview(folder: Pick<JellyfinItem, "Id" | "Type"> | nul
     };
   }, [key, folderId, eligible]);
 
-  return eligible && result.key === key ? result.items : NONE;
+  const settled = !eligible || result.key === key;
+  return { items: eligible && result.key === key ? result.items : NONE, settled };
 }

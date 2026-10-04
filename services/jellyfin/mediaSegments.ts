@@ -4,10 +4,10 @@
  * "Credits" type — Outro is the credits marker.
  *
  * Consumers: the tvOS Up Next content proposal (Outro start = when the
- * proposal appears) and the tvOS Skip Intro / Skip Credits contextual pills.
- * Both are tvOS-only, and markers only exist on 10.10+ servers running a
- * segments provider plugin. A missing marker only changes timing/affordances,
- * never playback — so every failure path returns nulls rather than throwing.
+ * proposal appears), the tvOS skip pills, and the phone's commercial auto-skip.
+ * Markers only exist on 10.10+ servers running a segments provider plugin. A
+ * missing marker only changes timing/affordances, never playback, so every
+ * failure path returns empty markers rather than throwing.
  */
 import { logger } from "@/utils/logger";
 import { fetchWithTimeout } from "./http";
@@ -30,14 +30,15 @@ export interface MediaSegmentWindow {
 export interface ItemMediaSegments {
   intro: MediaSegmentWindow | null;
   outro: MediaSegmentWindow | null;
+  /** Every Commercial break, in time order. */
+  commercials: MediaSegmentWindow[];
 }
 
-const NO_SEGMENTS: ItemMediaSegments = { intro: null, outro: null };
+const NO_SEGMENTS: ItemMediaSegments = { intro: null, outro: null, commercials: [] };
 
 /**
- * The item's first Intro and Outro segments in seconds. Both null when the
- * server has no markers (no segments plugin, pre-10.10 server → 404, network
- * failure).
+ * The item's first Intro and Outro segments and its Commercial breaks, in seconds.
+ * Empty when the server has no markers (no segments plugin, pre-10.10 → 404, network failure).
  */
 export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegments> {
   const config = await getConfig();
@@ -49,7 +50,7 @@ export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegme
   try {
     const response = await fetchWithTimeout(
       // Repeated keys: ASP.NET binds them to the IEnumerable includeSegmentTypes param.
-      `${config.server}/MediaSegments/${itemId}?includeSegmentTypes=Intro&includeSegmentTypes=Outro`,
+      `${config.server}/MediaSegments/${itemId}?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Commercial`,
       {
         method: "GET",
         headers: {
@@ -79,6 +80,11 @@ export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegme
     return {
       intro: toWindow(segments.find((segment) => segment.Type === "Intro")),
       outro: toWindow(segments.find((segment) => segment.Type === "Outro")),
+      commercials: segments
+        .filter((segment) => segment.Type === "Commercial")
+        .map(toWindow)
+        .filter((window): window is MediaSegmentWindow => window !== null)
+        .sort((a, b) => a.startSeconds - b.startSeconds),
     };
   } catch (error) {
     logger.debug("Media segments fetch failed; skip/proposal features degrade", { service: "JellyfinAPI", itemId, error: String(error) });

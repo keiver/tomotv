@@ -33,7 +33,7 @@ jest.mock("react-native", () => ({
 }));
 jest.mock("@/services/playbackProbe", () => ({ probeEmit: () => undefined, noteDeviceDecode: () => undefined }));
 jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => null }));
-jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: async () => null, measureServerBitrate: async () => null }));
+jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: async () => null }));
 jest.mock("@/services/jellyfin/session", () => ({
   getCachedConfig: () => ({ server: "${JELLYFIN_URL}", apiKey: "${JELLYFIN_API_KEY}", userId: "drill" }),
   generatePlaySessionId: () => `drill${Math.random().toString(36).slice(2, 10)}`,

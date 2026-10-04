@@ -130,6 +130,8 @@ extension RemuxSession {
         if !config.isLive && (n < producing || n > producing + Self.seekAheadSegments) {
             stateLock.lock()
             pendingSeekSegment = n
+            // A jump empties AVPlayer's buffer; refilling it is a start, not a drain.
+            playerBufferFilled = false
             stateLock.unlock()
         }
 
@@ -204,9 +206,9 @@ extension RemuxSession {
         while true {
             stateLock.lock()
             let dead = failed || cancelled || sourceUnusable
-            let hasAlternative = !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
+            let hasAlternative = !copyOnlyMaster && !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
             let wire = testLinkBps ?? wireLinkBps ?? 0
-            let affordable = !hasAlternative || sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2
+            let affordable = !hasAlternative || sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2 || copyBufferHoldsLocked()
             let ready = !sourceReleased && affordable
             stateLock.unlock()
             if dead || request?.isAbandoned == true { return false }

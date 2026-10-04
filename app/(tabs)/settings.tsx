@@ -1,5 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
+import { localeScreen } from "@/components/locale-boundary";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { LoadingRow } from "@/components/loading-row";
@@ -11,6 +12,7 @@ import { LinkLadder } from "@/components/settings/LinkLadder";
 import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { UiSection } from "@/components/settings/UiSection";
 import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
 import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, presetNeedsMbps } from "@/services/adaptiveQuality";
 import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
@@ -68,7 +70,9 @@ function qualityTick({ color }: { color: string }) {
   return <Ionicons name="checkmark" size={TRAILING_SIZE} color={color === COLORS.TEXT_TERTIARY ? COLORS.SUCCESS : color} />;
 }
 
-export default function SettingsScreen() {
+export default localeScreen(SettingsScreen);
+
+function SettingsScreen() {
   const router = useRouter();
 
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
@@ -118,6 +122,7 @@ export default function SettingsScreen() {
   // capacity marks. On focus, not on mount: the tab stays mounted across a server switch.
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [measuring, setMeasuring] = useState(false);
+  const [headingFocused, setHeadingFocused] = useState(false);
   const [syncPlay, setSyncPlay] = useState<SyncPlaySnapshot | null>(null);
 
   useEffect(() => subscribeSyncPlay(setSyncPlay), []);
@@ -189,9 +194,8 @@ export default function SettingsScreen() {
     [],
   );
 
-  // Every subtitle says what the row plays on the measured connection, off the
-  // player's own entry pick (pickStartupIndex), so menu and player cannot
-  // disagree. Every line is sized to the ~237pt subtitle budget on a 375pt
+  // Every subtitle says what the row plays on the measured connection when the server transcodes,
+  // off that lane's own entry pick (pickStartupIndex); the engine measures each play itself. Every line is sized to the ~237pt subtitle budget on a 375pt
   // phone (33 characters at most): these rows never wrap.
   const carried = carriedRungs(measuredBps);
   const rowSubtitle = (preset: { value: number }) => {
@@ -329,14 +333,14 @@ export default function SettingsScreen() {
 
           {screenState === "CONNECTED" && (
             <>
-              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} />
+              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} onFocus={() => setHeadingFocused(true)} onBlur={() => setHeadingFocused(false)} />
 
               {/* The preset list is taller than the space left under the server card, so it
                   scrolls inside the section instead of running off the bottom of the screen.
                   The wrapper carries the section's radius + overflow: hidden (clipping rows to
                   the card corners) and its inset shadow, which stays pinned to the card edges
                   while the transparent rows scroll over it. */}
-              <View style={styles.section}>
+              <View style={[styles.section, headingFocused && styles.sectionCapped]}>
                 <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
                   {QUALITY_PRESETS.map((preset, index) => {
                     const selected = videoQuality === preset.value;
@@ -371,9 +375,10 @@ export default function SettingsScreen() {
             </>
           )}
 
-          {/* In both states, as the stand-in every other tab renders logged out. Connected, its
-              first row is what pinListToBottom exists for, being the first focusable below the
+          {/* In both states, as the stand-in every other tab renders logged out. Connected, the
+              UI row is what pinListToBottom exists for, being the first focusable below the
               nested quality ScrollView. */}
+          <UiSection />
           {/* No version line under this: the Open Source page carries it. */}
           <AboutSection showDiagnostics={screenState === "CONNECTED"} />
         </View>

@@ -5,6 +5,7 @@
 import { useItemPoster } from "@/hooks/useItemPoster";
 import type { PosterItem } from "@/services/itemArtwork";
 import { requestPosterFrame } from "@/services/localRemux";
+import { updateUiPreferences } from "@/services/uiPreferences";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
@@ -40,7 +41,10 @@ async function mount(item: PosterItem | null) {
 }
 
 describe("useItemPoster", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    updateUiPreferences({ devicePosters: true });
+  });
 
   it("answers the server poster at once and never asks the engine", async () => {
     expect(await mount({ Id: "a", Type: "Movie", ImageTags: { Primary: "tag" }, RunTimeTicks: 0 })).toEqual({

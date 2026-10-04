@@ -59,9 +59,10 @@ describe("fetchMediaSegments", () => {
     expect(segments).toEqual({
       intro: { startSeconds: 5, endSeconds: 95 },
       outro: { startSeconds: 2500, endSeconds: 2600 },
+      commercials: [],
     });
     const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
-    expect(url).toBe("http://192.168.1.100:8096/MediaSegments/item-1?includeSegmentTypes=Intro&includeSegmentTypes=Outro");
+    expect(url).toBe("http://192.168.1.100:8096/MediaSegments/item-1?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Commercial");
     expect((init.headers as Record<string, string>).Authorization).toContain("test-api-key");
   });
 
@@ -80,18 +81,37 @@ describe("fetchMediaSegments", () => {
     expect(await fetchMediaSegments("item-1")).toEqual({
       intro: { startSeconds: 10, endSeconds: 90 },
       outro: null,
+      commercials: [],
     });
+  });
+
+  it("returns every Commercial window in time order, empty ones dropped", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        Items: [
+          { Id: "c2", ItemId: "item-1", Type: "Commercial", StartTicks: 1200 * TICKS, EndTicks: 1380 * TICKS },
+          { Id: "c1", ItemId: "item-1", Type: "Commercial", StartTicks: 600 * TICKS, EndTicks: 720 * TICKS },
+          { Id: "c3", ItemId: "item-1", Type: "Commercial", StartTicks: 1500 * TICKS, EndTicks: 1500 * TICKS },
+        ],
+      }),
+    });
+
+    expect((await fetchMediaSegments("item-1")).commercials).toEqual([
+      { startSeconds: 600, endSeconds: 720 },
+      { startSeconds: 1200, endSeconds: 1380 },
+    ]);
   });
 
   it("returns nulls on 404 (pre-10.10 server)", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 404 });
 
-    expect(await fetchMediaSegments("item-1")).toEqual({ intro: null, outro: null });
+    expect(await fetchMediaSegments("item-1")).toEqual({ intro: null, outro: null, commercials: [] });
   });
 
   it("returns nulls on network failure without throwing", async () => {
     (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("network down"));
 
-    await expect(fetchMediaSegments("item-1")).resolves.toEqual({ intro: null, outro: null });
+    await expect(fetchMediaSegments("item-1")).resolves.toEqual({ intro: null, outro: null, commercials: [] });
   });
 });

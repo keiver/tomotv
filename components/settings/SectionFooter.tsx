@@ -7,6 +7,8 @@ interface SectionFooterProps {
   children: ReactNode;
   /** The card's own transition, so the footer travels with the end it marks instead of snapping. */
   layout?: ComponentProps<typeof Animated.View>["layout"];
+  /** "top" heads the card instead: the card's top edge casts into the note. */
+  edge?: "top" | "bottom";
 }
 
 /**
@@ -14,7 +16,8 @@ interface SectionFooterProps {
  * the card running out into it, rounded by the card's own clip. Nothing inside is pressable,
  * which is what lets it carry an overlay at all.
  */
-export function SectionFooter({ children, layout }: SectionFooterProps) {
+export function SectionFooter({ children, layout, edge = "bottom" }: SectionFooterProps) {
+  const shadow = edge === "top" ? [styles.shadowClipTop, settingsStyles.noteShadowTop] : [styles.shadowClip, settingsStyles.noteShadow];
   return (
     // No clip of its own: a second mask on the card's curve lets the card's light rim bleed
     // through the antialiased corner pixels.
@@ -24,7 +27,7 @@ export function SectionFooter({ children, layout }: SectionFooterProps) {
           card's bottom lip and side rim re-painted above the opaque band that covers them. Its own
           shadow (noteShadow), not a row's: the note drops below the rows, and the recess's light
           rim would disappear on this darker band. */}
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.shadowClip, settingsStyles.noteShadow]} />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, ...shadow]} />
     </Animated.View>
   );
 }
@@ -35,5 +38,9 @@ const styles = StyleSheet.create({
   shadowClip: {
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
+  },
+  shadowClipTop: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
   },
 });

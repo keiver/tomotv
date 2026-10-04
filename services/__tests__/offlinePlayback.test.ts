@@ -87,6 +87,10 @@ describe("getVideoStreamUrl", () => {
     expect(getRemoteVideoStreamUrl("a", null)).toContain("https://jf/Videos/a/stream");
   });
 
+  it("builds the server URL from a config the caller pins", () => {
+    expect(getRemoteVideoStreamUrl("a", null, { server: "https://other", apiKey: "k2" })).toBe("https://other/Videos/a/stream?Static=true&MediaSourceId=a&ApiKey=k2");
+  });
+
   // The manifest outlives the media: a reinstall moves the container, and the row still says
   // ready. Playback has to reach the server rather than open a path that is not there.
   it("streams from the server when the manifest says ready but the file is missing", () => {

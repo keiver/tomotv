@@ -468,7 +468,7 @@ class AudioPlayerManager {
   /** Audio owns its own player, so it has to feed the same probe the video lane does, or the
    *  Diagnostics screen answers a music bug report with a stale video session. */
   private recordTrack(item: JellyfinVideoItem): void {
-    setPlaybackProbeEnabled(false, item.Id);
+    setPlaybackProbeEnabled(null, item.Id);
     probeEmit("mode", { mode: "audio", held: playsFromDisk(item.Id) });
     probeEmit("source", sourceSummary(item));
     probeEmit("stream", { mode: "audio", url: getVideoStreamUrl(item.Id, item) });

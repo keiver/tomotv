@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 24, 2026
+**Last Updated:** September 27, 2026
 
 ## Quick Reference
 
@@ -96,6 +96,35 @@ PRIVACY
 No analytics. No tracking. No ads. No account with us. Your credentials stay in the device Keychain, and video streams straight from your server to your device.
 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
+```
+
+### What's New (2.2.9), iOS (535 / 4000)
+
+```text
+- 4K remuxes play at full quality on a fast network instead of dropping to a lower one
+- Filter the Live TV guide by favorites, your own groups, playlist groups and categories
+- Add XMLTV guides for channels with no listings, and see which channels each one matched
+- Search finds Live TV channels and programmes
+- Channel cards show live frames, and offline channels can be hidden
+- Record, favorite and group a channel from its info panel
+- Admins can delete items from the server
+- Settings shows the real speed of a fast connection
+```
+
+### What's New (2.2.9), tvOS (781 / 4000)
+
+```text
+- 4K remuxes start sooner, play at full quality on a fast network, and no longer close the app mid-movie
+- Live TV has its own tab
+- Record what is on, and add to favorites, from the playback controls
+- Filter the Live TV guide by favorites, your own groups, playlist groups and categories
+- Add XMLTV guides for channels with no listings, and see which channels each one matched
+- Search finds Live TV channels and programmes
+- Channel cards show live frames, and offline channels can be hidden
+- Record, favorite and group a channel from its info panel
+- Admins can delete items from the server
+- Settings shows the real speed of your connection, and measures it again when you select it
+- A live channel that stops no longer sends the app to the background from its error screen
 ```
 
 ### What's New (2.2.8), iOS (332 / 4000)
@@ -335,6 +364,35 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.9), iOS (651 / 4000 chars)
+
+```text
+- 4K-Remuxe laufen bei schnellem Netzwerk in voller Qualität, statt auf eine niedrigere zu wechseln
+- Filtere den Live-TV-Guide nach Favoriten, deinen eigenen Gruppen, Wiedergabelistengruppen und Kategorien
+- Füge XMLTV-Guides für Kanäle ohne Programm hinzu und sieh, welche Kanäle jeder zugeordnet hat
+- Die Suche findet Live-TV-Kanäle und -Programme
+- Kanalkarten zeigen Live-Bilder, und Offline-Kanäle lassen sich ausblenden
+- Nimm einen Kanal auf, markiere ihn als Favoriten und ordne ihn Gruppen zu, direkt im Info-Bereich
+- Admins können Elemente vom Server löschen
+- Die Einstellungen zeigen die echte Geschwindigkeit einer schnellen Verbindung
+```
+
+#### What's New (2.2.9), tvOS (950 / 4000 chars)
+
+```text
+- 4K-Remuxe starten schneller, laufen bei schnellem Netzwerk in voller Qualität und schließen die App nicht mehr mitten im Film
+- Live-TV hat eine eigene Registerkarte
+- Nimm auf, was gerade läuft, und füge es über die Wiedergabesteuerung zu den Favoriten hinzu
+- Filtere den Live-TV-Guide nach Favoriten, deinen eigenen Gruppen, Wiedergabelistengruppen und Kategorien
+- Füge XMLTV-Guides für Kanäle ohne Programm hinzu und sieh, welche Kanäle jeder zugeordnet hat
+- Die Suche findet Live-TV-Kanäle und -Programme
+- Kanalkarten zeigen Live-Bilder, und Offline-Kanäle lassen sich ausblenden
+- Nimm einen Kanal auf, markiere ihn als Favoriten und ordne ihn Gruppen zu, direkt im Info-Bereich
+- Admins können Elemente vom Server löschen
+- Die Einstellungen zeigen die echte Geschwindigkeit deiner Verbindung und messen sie neu, wenn du sie auswählst
+- Ein Live-Kanal, der stoppt, schickt die App von seinem Fehlerbildschirm nicht mehr in den Hintergrund
+```
+
 #### What's New (2.2.8), iOS (383 / 4000 chars)
 
 ```text
@@ -506,6 +564,35 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.9), iOS (712 / 4000 chars)
+
+```text
+- Les remux 4K sont lus en pleine qualité sur un réseau rapide au lieu de passer à une qualité inférieure
+- Filtrez le guide de TV en direct par favoris, vos propres groupes, groupes de listes de lecture et catégories
+- Ajoutez des guides XMLTV pour les chaînes sans programme et voyez à quelles chaînes chacun correspond
+- La recherche trouve les chaînes et programmes de TV en direct
+- Les cartes des chaînes montrent des images en direct, et les chaînes hors ligne peuvent être masquées
+- Enregistrez une chaîne, ajoutez-la aux favoris et à des groupes depuis son panneau d'informations
+- Les administrateurs peuvent supprimer des éléments du serveur
+- Réglages affiche la vraie vitesse d'une connexion rapide
+```
+
+#### What's New (2.2.9), tvOS (1006 / 4000 chars)
+
+```text
+- Les remux 4K démarrent plus vite, sont lus en pleine qualité sur un réseau rapide et ne ferment plus l'application en plein film
+- TV en direct a son propre onglet
+- Enregistrez ce qui passe et ajoutez aux favoris depuis les contrôles de lecture
+- Filtrez le guide de TV en direct par favoris, vos propres groupes, groupes de listes de lecture et catégories
+- Ajoutez des guides XMLTV pour les chaînes sans programme et voyez à quelles chaînes chacun correspond
+- La recherche trouve les chaînes et programmes de TV en direct
+- Les cartes des chaînes montrent des images en direct, et les chaînes hors ligne peuvent être masquées
+- Enregistrez une chaîne, ajoutez-la aux favoris et à des groupes depuis son panneau d'informations
+- Les administrateurs peuvent supprimer des éléments du serveur
+- Réglages affiche la vraie vitesse de votre connexion et la mesure à nouveau quand vous la sélectionnez
+- Une chaîne en direct qui s'arrête n'envoie plus l'application en arrière-plan depuis son écran d'erreur
+```
+
 #### What's New (2.2.8), iOS (438 / 4000 chars)
 
 ```text
@@ -675,6 +762,35 @@ PRIVACIDAD
 Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenciales se quedan en el llavero del dispositivo, y el vídeo va directo de tu servidor a tu dispositivo.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.9), iOS (682 / 4000 chars)
+
+```text
+- Los remux 4K se reproducen con calidad completa en una red rápida en lugar de bajar a una menor
+- Filtra la guía de Televisión en vivo por favoritos, tus propios grupos, grupos de listas de reproducción y categorías
+- Añade guías XMLTV para canales sin programación y mira con qué canales coincidió cada una
+- La búsqueda encuentra canales y programas de Televisión en vivo
+- Las tarjetas de los canales muestran fotogramas en vivo, y los canales fuera de línea se pueden ocultar
+- Graba un canal, márcalo como favorito y agrúpalo desde su panel de información
+- Los administradores pueden eliminar elementos del servidor
+- Ajustes muestra la velocidad real de una conexión rápida
+```
+
+#### What's New (2.2.9), tvOS (980 / 4000 chars)
+
+```text
+- Los remux 4K empiezan antes, se reproducen con calidad completa en una red rápida y ya no cierran la app a mitad de la película
+- Televisión en vivo tiene su propia pestaña
+- Graba lo que se está emitiendo y añádelo a favoritos desde los controles de reproducción
+- Filtra la guía de Televisión en vivo por favoritos, tus propios grupos, grupos de listas de reproducción y categorías
+- Añade guías XMLTV para canales sin programación y mira con qué canales coincidió cada una
+- La búsqueda encuentra canales y programas de Televisión en vivo
+- Las tarjetas de los canales muestran fotogramas en vivo, y los canales fuera de línea se pueden ocultar
+- Graba un canal, márcalo como favorito y agrúpalo desde su panel de información
+- Los administradores pueden eliminar elementos del servidor
+- Ajustes muestra la velocidad real de tu conexión y la vuelve a medir cuando la seleccionas
+- Un canal en vivo que deja de funcionar ya no envía la app al fondo desde su pantalla de error
 ```
 
 #### What's New (2.2.8), iOS (411 / 4000 chars)

@@ -1,7 +1,7 @@
 import { CARD_FOCUS, DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import React, { forwardRef } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
@@ -14,13 +14,14 @@ interface FilterChipProps {
 }
 
 /**
- * A focusable on/off pill for the library Filters panel (status, genre, artist, shuffle).
+ * A focusable on/off pill for the library Filters panel and the Live TV group strip.
  * Sized to its label so sections can wrap several per row. Focus feedback is color/border
  * only — no scale animation (grid performance rule).
  */
-function FilterChipComponent({ label, selected, onToggle, hasTVPreferredFocus = false }: FilterChipProps) {
+const FilterChipComponent = forwardRef<View, FilterChipProps>(function FilterChipComponent({ label, selected, onToggle, hasTVPreferredFocus = false }, ref) {
   return (
     <Pressable
+      ref={ref}
       onPress={onToggle}
       isTVSelectable
       hasTVPreferredFocus={hasTVPreferredFocus}
@@ -39,7 +40,7 @@ function FilterChipComponent({ label, selected, onToggle, hasTVPreferredFocus = 
       )}
     </Pressable>
   );
-}
+});
 
 export const FilterChip = React.memo(FilterChipComponent);
 

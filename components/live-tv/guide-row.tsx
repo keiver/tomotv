@@ -2,10 +2,9 @@ import { GRID_LINE, GuideCell, type RecordingMark } from "@/components/live-tv/g
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
-import { cellGeometry, NO_GUIDE_PREFIX, programTimes, type GuideMetrics } from "@/utils/guide";
-import React, { useCallback, useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
-import type { SharedValue } from "react-native-reanimated";
+import { cellGeometry, cellInSpan, NO_GUIDE_PREFIX, programTimes, type CanvasSpan, type GuideMetrics } from "@/utils/guide";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import { Platform, type Animated, StyleSheet, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
@@ -27,8 +26,17 @@ interface GuideRowProps {
   spanPx: number;
   nowMs: number;
   timersByProgramId: Map<string, JellyfinTimer>;
-  scrollX: SharedValue<number>;
+  /** The grid's native-driven horizontal offset, for the cells' pins. */
+  scrollX: Animated.Value;
+  /** The rows' visible width: a reel longer than the screen fades at its edge. */
+  viewportWidth: number;
+  /** Only cells overlapping this horizontal span mount; undefined mounts every cell. */
+  mountSpan?: CanvasSpan;
+  /** Cells overlapping this span show their poster and reel; the canvas hands it to the rows in view alone, undefined shows none. */
+  artSpan?: CanvasSpan;
   rowIndex: number;
+  /** TV: where a focus scroll lands this row's top in the list (react-native-tvos item snap). */
+  snapOffset?: number;
   /** Top row only: Up leaves the canvas for the screen's actions above it. */
   nextFocusUp?: number;
   /** TV: asked on a cell's focus; the answer rides that cell until it blurs. */
@@ -42,11 +50,11 @@ interface GuideRowProps {
 }
 
 /** A window-wide stand-in cell; select tunes the channel, and it has no program panel. */
-function noGuideProgram(channelId: string, windowStartMs: number, windowEndMs: number): JellyfinProgram {
+function noGuideProgram(channel: JellyfinItem, windowStartMs: number, windowEndMs: number): JellyfinProgram {
   return {
-    Id: `${NO_GUIDE_PREFIX}${channelId}`,
+    Id: `${NO_GUIDE_PREFIX}${channel.Id}`,
     Name: t("liveTv.noGuide"),
-    EpisodeTitle: t("liveTv.noGuideHint"),
+    EpisodeTitle: IS_TV ? t("liveTv.noGuideHint") : undefined,
     StartDate: new Date(windowStartMs).toISOString(),
     EndDate: new Date(windowEndMs).toISOString(),
   };
@@ -58,7 +66,7 @@ export function rowCells(channel: JellyfinItem, programs: JellyfinProgram[], win
     const { startMs, endMs } = programTimes(program);
     return !!program.Id && cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics) !== null;
   });
-  return placed.length > 0 ? placed : [noGuideProgram(channel.Id, windowStartMs, windowEndMs)];
+  return placed.length > 0 ? placed : [noGuideProgram(channel, windowStartMs, windowEndMs)];
 }
 
 function recordingMark(program: JellyfinProgram, timers: Map<string, JellyfinTimer>): RecordingMark {
@@ -78,7 +86,11 @@ function GuideRowComponent({
   nowMs,
   timersByProgramId,
   scrollX,
+  viewportWidth,
+  mountSpan,
+  artSpan,
   rowIndex,
+  snapOffset,
   nextFocusUp,
   targetsFor,
   focusProgramId,
@@ -90,48 +102,71 @@ function GuideRowComponent({
   const cellHeight = metrics.rowHeight - 1;
   // Row-local, so a focus move re-renders this row and the one it left, never the canvas.
   const [focusTargets, setFocusTargets] = useState<FocusTargets | undefined>(undefined);
+  const focusedIdRef = useRef<string | null>(null);
   const press = useCallback((program: JellyfinProgram) => onProgramPress(program, channel), [onProgramPress, channel]);
   const longPress = useCallback((program: JellyfinProgram) => onProgramLongPress(program, channel), [onProgramLongPress, channel]);
   const focus = useCallback(
     (program: JellyfinProgram) => {
-      if (targetsFor && program.Id) setFocusTargets({ programId: program.Id, ...targetsFor(rowIndex, program) });
+      if (targetsFor && program.Id) {
+        const programId = program.Id;
+        focusedIdRef.current = programId;
+        // A tick later: the mount claim's focus event lands inside React's commit, where
+        // targetsFor may not read the scroll offset's shared value.
+        setTimeout(() => {
+          if (focusedIdRef.current === programId) setFocusTargets({ programId, ...targetsFor(rowIndex, program) });
+        }, 0);
+      }
       onCellFocus?.(program, channel);
     },
     [targetsFor, rowIndex, onCellFocus, channel],
   );
-  const blur = useCallback((program: JellyfinProgram) => setFocusTargets((current) => (current?.programId === program.Id ? undefined : current)), []);
+  // Placed once per listing change: the canvas re-renders every row on each page step and art settle.
+  const placed = useMemo(
+    () =>
+      rowCells(channel, programs, windowStartMs, windowEndMs, metrics).flatMap((program) => {
+        const { startMs, endMs } = programTimes(program);
+        const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
+        return geometry && program.Id ? [{ program, programId: program.Id, geometry, startMs, endMs }] : [];
+      }),
+    [channel, programs, windowStartMs, windowEndMs, metrics],
+  );
+  const blur = useCallback((program: JellyfinProgram) => {
+    if (focusedIdRef.current === program.Id) focusedIdRef.current = null;
+    setFocusTargets((current) => (current?.programId === program.Id ? undefined : current));
+  }, []);
   return (
-    // TV: a focused cell lands its row on the list's top edge (snapToAlignment="item" on the list).
-    <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapAlign={IS_TV ? "start" : undefined}>
+    <View style={[styles.row, { height: metrics.rowHeight, width: spanPx }]} scrollSnapOffset={snapOffset}>
       <View style={styles.line} pointerEvents="none" />
-      {(() => {
-        return rowCells(channel, programs, windowStartMs, windowEndMs, metrics).map((program) => {
-          const { startMs, endMs } = programTimes(program);
-          const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
-          if (!geometry || !program.Id) return null;
-          const targets = focusTargets?.programId === program.Id ? focusTargets : undefined;
-          return (
-            <GuideCell
-              key={program.Id}
-              program={program}
-              left={geometry.left}
-              width={geometry.width}
-              height={cellHeight}
-              nowMs={nowMs}
-              recording={recordingMark(program, timersByProgramId)}
-              scrollX={scrollX}
-              nextFocusUp={targets?.up ?? nextFocusUp}
-              nextFocusDown={targets?.down}
-              hasTVPreferredFocus={focusProgramId === program.Id}
-              onFocus={focus}
-              onBlur={IS_TV ? blur : undefined}
-              onHandle={onCellHandle}
-              onPress={press}
-              onLongPress={longPress}
-            />
-          );
-        });
-      })()}
+      {placed.map(({ program, programId, geometry, startMs, endMs }) => {
+        if (mountSpan && !cellInSpan(geometry, mountSpan)) return null;
+        const showArt = artSpan !== undefined && cellInSpan(geometry, artSpan);
+        const targets = focusTargets?.programId === programId ? focusTargets : undefined;
+        return (
+          <GuideCell
+            key={programId}
+            program={program}
+            left={geometry.left}
+            width={geometry.width}
+            height={cellHeight}
+            startMs={startMs}
+            endMs={endMs}
+            past={endMs <= nowMs}
+            airing={startMs <= nowMs && nowMs < endMs}
+            recording={recordingMark(program, timersByProgramId)}
+            scrollX={scrollX}
+            viewportWidth={viewportWidth}
+            showArt={showArt}
+            nextFocusUp={targets?.up ?? nextFocusUp}
+            nextFocusDown={targets?.down}
+            hasTVPreferredFocus={focusProgramId === programId}
+            onFocus={focus}
+            onBlur={IS_TV ? blur : undefined}
+            onHandle={onCellHandle}
+            onPress={press}
+            onLongPress={longPress}
+          />
+        );
+      })}
     </View>
   );
 }

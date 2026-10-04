@@ -1,5 +1,6 @@
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
-import { settingsStyles } from "@/components/settings/styles";
+import { goldRowShadow, settingsStyles } from "@/components/settings/styles";
+import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { carriedRungs } from "@/services/adaptiveQuality";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,8 +15,11 @@ interface LinkSpeedHeadingProps {
   measuredBps: number | null;
   /** A probe is running right now, so the figure reads as sampling. */
   measuring: boolean;
-  /** Touch platforms only: a tap on the heading asks for a fresh measurement. */
+  /** A press on the heading asks for a fresh measurement. */
   onRemeasure?: () => void;
+  /** TV focus, so the card below can take the gold heading as its top edge. */
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 /**
@@ -24,7 +28,7 @@ interface LinkSpeedHeadingProps {
  * the rows scroll under it and the per-row "needs N Mbps" marks keep a
  * reference. What that speed buys is the Auto row's meter, not this line.
  */
-export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSpeedHeadingProps) {
+export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure, onFocus, onBlur }: LinkSpeedHeadingProps) {
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
   const measured = mbps != null && !measuring;
   // Short on purpose: the pending strings share the header line with the title.
@@ -35,37 +39,49 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure }: LinkSp
   // connected card's, in the same ink, so the figure reads as that server's speed.
   const rateInk = !measured ? undefined : carriedRungs(measuredBps) === 0 ? COLORS.DESTRUCTIVE : COLORS.SUCCESS;
 
-  const content = (
+  const content = (onGold: boolean) => (
     <>
-      <Text style={[settingsStyles.sectionHeaderText, styles.title]} numberOfLines={1}>
+      <Text style={[settingsStyles.sectionHeaderText, styles.title, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
         {t("settings.streamingQuality")}
       </Text>
       <View style={styles.rate}>
-        {rateInk != null ? <Ionicons name={SERVER_GLYPH} size={GLYPH} color={rateInk} /> : null}
-        <Text style={[settingsStyles.sectionHeaderText, rateInk != null && { color: rateInk }]} numberOfLines={1}>
+        {rateInk != null ? <Ionicons name={SERVER_GLYPH} size={GLYPH} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : rateInk} /> : null}
+        <Text style={[settingsStyles.sectionHeaderText, rateInk != null && { color: rateInk }, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
           {rate.toUpperCase()}
         </Text>
       </View>
     </>
   );
 
-  // TV keeps a plain view so the heading never competes with the row list for focus.
-  if (Platform.isTV || onRemeasure == null) {
+  if (onRemeasure == null) {
     return (
       <View style={[settingsStyles.sectionHeader, styles.headingRow]} accessibilityLabel={spoken}>
-        {content}
+        {content(false)}
       </View>
     );
   }
+  // On TV focus fills the heading with the rows' gold as the card's top edge, the way a focused first row fills it.
   return (
     <Pressable
-      style={({ pressed }) => [settingsStyles.sectionHeader, styles.headingRow, pressed && styles.pressed]}
+      style={({ focused, pressed }) => [
+        settingsStyles.sectionHeader,
+        styles.headingRow,
+        Platform.isTV && styles.tvHeading,
+        Platform.isTV && focused && !pressed && settingsStyles.listItemFocused,
+        Platform.isTV && pressed && settingsStyles.listItemPressed,
+        Platform.isTV && (focused || pressed) && goldRowShadow(true, false, false),
+        !Platform.isTV && pressed && styles.pressed,
+      ]}
       onPress={onRemeasure}
+      onFocus={onFocus}
+      onBlur={onBlur}
       disabled={measuring}
+      isTVSelectable
+      tvParallaxProperties={{ enabled: false }}
       accessibilityRole="button"
       accessibilityLabel={spoken}
       accessibilityHint={t("settings.measureAgain")}>
-      {content}
+      {({ focused, pressed }) => content(Platform.isTV && (focused || pressed))}
     </Pressable>
   );
 }
@@ -90,5 +106,9 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.6,
+  },
+  tvHeading: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
   },
 });

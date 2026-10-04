@@ -5,6 +5,7 @@ import { COLORS } from "@/constants/colors";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
 import { t } from "@/services/i18n";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { queueTrackProgress } from "@/utils/resumeProgress";
 import React, { useEffect, useState } from "react";
 import { Dimensions, Platform, StyleSheet, View } from "react-native";
@@ -54,7 +55,7 @@ export function NowPlayingTitleBar({ video, focused, kind, progressPercent = 0, 
           <LevelBars size={BARS} playing={isPlaying} />
         </View>
         <MarqueeText active={focused} style={styles.infoTitle}>
-          {video.Name || t("common.unknown")}
+          {cleanLabel(video.Name) || t("common.unknown")}
         </MarqueeText>
       </View>
     </View>

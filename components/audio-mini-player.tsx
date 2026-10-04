@@ -3,6 +3,7 @@ import { LevelBars } from "@/components/level-bars";
 import { COLORS } from "@/constants/colors";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
 import { playbackArtworkUri } from "@/services/downloads/localSource";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { joinMeta } from "@/utils/mediaInfo";
 import { queueTrackProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
@@ -95,7 +96,7 @@ export function AudioMiniPlayer() {
   const { canPrevious, canNext } = transportReach(state);
   const artwork = track ? playbackArtworkUri(track, 200) : null;
   const showArtwork = artwork !== null && artwork !== failedArtwork;
-  const subtitle = track ? joinMeta([track.Artists?.length ? track.Artists.join(", ") : track.AlbumArtist, track.Album]) : "";
+  const subtitle = track ? cleanLabel(joinMeta([track.Artists?.length ? track.Artists.join(", ") : track.AlbumArtist, track.Album])) : "";
   const percent = track ? Math.round(queueTrackProgress(track, state.position) * 100) : 0;
 
   // The bars move only while the queue is actually playing, so the notch reports state as
@@ -138,7 +139,7 @@ export function AudioMiniPlayer() {
           accessibilityLabel={t("player.openPlayer")}
           accessibilityValue={{ min: 0, max: 100, now: percent, text: t("a11y.percentPlayed").replace("{percent}", String(percent)) }}>
           <Text style={styles.title} numberOfLines={1}>
-            {track?.Name ?? ""}
+            {cleanLabel(track?.Name)}
           </Text>
           {subtitle ? (
             <Text style={styles.subtitle} numberOfLines={1}>

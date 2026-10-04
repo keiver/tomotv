@@ -258,6 +258,15 @@ function audioOutput(stream: JellyfinMediaStream): { usesServerAudio: boolean; c
   return { usesServerAudio: false, codecs: codec ? "fLaC,mp4a.40.2" : "", bandwidth: encodedBandwidth };
 }
 
+/**
+ * A live track is always carried: the engine discovers the real codec off the stream and copies or
+ * re-encodes it there, so a label it would not carry (a tuner's unprobed "MPEG") declares no CODECS.
+ */
+function liveAudioOutput(stream: JellyfinMediaStream): { usesServerAudio: boolean; codecs: string; bandwidth: number } {
+  const carried = audioOutput(stream);
+  return { usesServerAudio: false, codecs: carried.usesServerAudio ? "" : carried.codecs, bandwidth: carried.bandwidth };
+}
+
 export function slipstreamInputBandwidth(videoItem: JellyfinVideoItem): number {
   const sourceBandwidth = sourceBandwidthForItem(videoItem);
   if (sourceBandwidth > 0) return sourceBandwidth;
@@ -512,10 +521,11 @@ function watchEnginePlan(): void {
   });
 }
 
-/** What the session did with its Slipstream tier: the master's verdict once, then a drop if the server stops delivering. */
+/** What the session did with its Slipstream tier: the master's verdict once, then a drop if the server stops delivering.
+ *  "copy" is a ladder left out because the link carries the copy alone. */
 export interface EngineTierReport {
   token: string;
-  state: "listed" | "declined" | "dropped";
+  state: "listed" | "declined" | "dropped" | "copy";
   reason?: string;
   /** How long the opening segment took to fetch and rewrap. */
   probeSeconds?: number;
@@ -528,7 +538,7 @@ const tierListeners = new Map<string, Set<TierListener>>();
 
 /** Whether the running binary declares an event. A Metro reload can carry JS that knows one the
  *  installed native build does not, and subscribing to it there breaks the module outright. */
-function nativeEmits(event: string): boolean {
+export function nativeEmits(event: string): boolean {
   const events = (LocalRemuxer as { events?: unknown } | undefined)?.events;
   return Array.isArray(events) && events.includes(event);
 }
@@ -562,8 +572,8 @@ export function subscribeEngineTier(token: string, listener: TierListener): () =
   };
 }
 
-/** The link rate the engine measured behind the loopback, in bits per second. */
-export type EngineLinkReport = { token: string; bps: number; copyListed?: boolean };
+/** The link rate the engine measured behind the loopback, in bits per second, and what read it. */
+export type EngineLinkReport = { token: string; bps: number; copyListed?: boolean; source?: "probe" | "reads" | "rungs" | "playlist" };
 
 type LinkListener = (report: EngineLinkReport) => void;
 const linkListeners = new Map<string, Set<LinkListener>>();
@@ -755,22 +765,29 @@ export type EngineStage = { token: string; stage: string; elapsed: number };
 
 type StageListener = (stage: EngineStage) => void;
 const stageListeners = new Map<string, Set<StageListener>>();
+/** Every step a session has reported, so a subscriber arriving after startRemux resolves misses none. */
+const stageReports = new Map<string, EngineStage[]>();
 let stageSubscription: { remove: () => void } | null = null;
 
 function watchEngineStage(): void {
   if (stageSubscription || !isLocalRemuxAvailable() || !nativeEmits("onEngineStage")) return;
   const emitter = new NativeEventEmitter(LocalRemuxer);
   stageSubscription = emitter.addListener("onEngineStage", (stage: EngineStage) => {
+    const seen = stageReports.get(stage.token) ?? [];
+    stageReports.delete(stage.token);
+    stageReports.set(stage.token, [...seen, stage]);
+    if (stageReports.size > 32) stageReports.delete(stageReports.keys().next().value!);
     stageListeners.get(stage.token)?.forEach((listener) => listener(stage));
   });
 }
 
-/** One session's startup steps, until the returned function runs. Never fires on a native build without the event. */
+/** One session's startup steps, the ones already reported first, until the returned function runs. Never fires on a native build without the event. */
 export function subscribeEngineStage(token: string, listener: StageListener): () => void {
   watchEngineStage();
   const listeners = stageListeners.get(token) ?? new Set<StageListener>();
   listeners.add(listener);
   stageListeners.set(token, listeners);
+  stageReports.get(token)?.forEach(listener);
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) stageListeners.delete(token);
@@ -946,8 +963,10 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
     logger.warn("Local remux declined: native module unavailable", { service: "LocalRemux" });
     return false;
   }
-  // A channel read from its origin carries no server probe; the engine's own open decides what it plays.
-  if (isLiveSource(videoItem) && videoItem?.liveStreamUrl && !videoItem.LiveStreamId) return true;
+  // A live channel's metadata is a label, not a probe: a tuner's lineup string for a channel the server
+  // never probed. The engine reads every stream off the demuxer itself (RemuxSession+Pipeline, isLive), so
+  // its own open decides what it plays, and a channel it cannot take fails at startup to the server rung.
+  if (isLiveSource(videoItem) && videoItem?.liveStreamUrl) return true;
   if (!videoItem) return declineRemux("no media streams");
   const mediaStreams = playbackMediaStreams(videoItem);
   if (mediaStreams.length === 0) return declineRemux("no media streams");
@@ -967,7 +986,7 @@ export async function canRemuxLocally(videoItem: JellyfinVideoItem | null, { rec
     return declineRemux("invalid audio catalogue", { error: String(error) });
   }
   const needsServerAudio = audioTracks.some((track) => !isAudioTrackCarriable(track.stream.Codec));
-  if (needsServerAudio && (audioOnly || isLiveSource(videoItem) || playsFromDisk(videoItem.Id))) {
+  if (needsServerAudio && (audioOnly || playsFromDisk(videoItem.Id))) {
     return declineRemux("audio track requires an unavailable server supplier");
   }
 
@@ -1411,7 +1430,7 @@ export async function startLocalRemux(
   preferredAudioStreamIndex?: number,
   startOffsetSeconds?: number,
   // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
-  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean } = {},
+  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring" } = {},
 ): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
@@ -1442,9 +1461,9 @@ export async function startLocalRemux(
     language: track.stream.Language || "und",
     isDefault: track.stream.IsDefault === true,
     ...(!live && track.source ? { source: track.source } : {}),
-    ...(serverVideoOnly ? { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH } : audioOutput(track.stream)),
+    ...(serverVideoOnly ? { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH } : live ? liveAudioOutput(track.stream) : audioOutput(track.stream)),
   }));
-  if (audioTracks.some((track) => track.usesServerAudio) && (live || playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
+  if (audioTracks.some((track) => track.usesServerAudio) && (playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
     throw new Error("Audio track requires an unavailable server supplier");
   }
   // Built by the shared helper so the app's ordinal lookup sees exactly this
@@ -1554,6 +1573,7 @@ export async function startLocalRemux(
   if (!options.prewarm) probeEmit("variant", { videoRange: declaredRange, codecs, supplementalCodecs: supplementalCodecs || "(none)", audioTracks: audioTracks.length, tierOffered });
 
   watchEngineLink();
+  watchEngineStage();
   const url: string = await LocalRemuxer.startRemux({
     inputUrl,
     itemId: videoItem.Id,
@@ -1581,8 +1601,13 @@ export async function startLocalRemux(
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
     ...(live && options.liveWindowSeconds ? { liveWindowSeconds: options.liveWindowSeconds } : {}),
     ...(live && videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
-    // Read straight from its origin, never through a server open: the engine checks it answers.
-    ...(live && videoItem.liveStreamUrl && !videoItem.LiveStreamId ? { probeOrigin: true } : {}),
+    // Read straight from its origin, never through a server open: the engine checks a manifest answers. A raw TS
+    // origin is not probed, since a probe costs a second provider connection.
+    ...(live && videoItem.liveStreamUrl && !videoItem.LiveStreamId && !videoItem.liveOriginKey ? { probeOrigin: true } : {}),
+    ...(live && videoItem.liveOriginKey ? { liveOriginKey: videoItem.liveOriginKey } : {}),
+    ...(live && videoItem.liveFallbackUrl ? { fallbackInputUrl: videoItem.liveFallbackUrl } : {}),
+    // A neighbour or a card preview yields its origin connection to the channel playing (the engine's connection budget).
+    ...(live && (options.livePriority || options.prewarm) ? { livePriority: options.livePriority ?? "ring" } : {}),
   });
 
   // The token is the path segment of the master URL (…/<token>/master.m3u8).
@@ -1768,6 +1793,7 @@ export async function stopLocalRemux(token: string | null): Promise<void> {
   if (!isLocalRemuxAvailable() || !token) return;
   rememberLink(token, null);
   linkListeners.delete(token);
+  stageReports.delete(token);
   try {
     await LocalRemuxer.stopRemux(token);
   } catch (error) {
@@ -1782,6 +1808,31 @@ export async function setLiveWindow(token: string | null, seconds: number): Prom
     await LocalRemuxer.setLiveWindow(token, seconds);
   } catch (error) {
     logger.warn("Failed to resize a live window", error, { service: "LocalRemux", token });
+  }
+}
+
+/** A session changing hands (a ring neighbour or a card preview adopted by the player) takes the player's rank. */
+export async function setLiveSessionPriority(token: string | null, priority: "playback" | "ring" | "preview"): Promise<void> {
+  if (!isLocalRemuxAvailable() || !token || typeof LocalRemuxer.setLivePriority !== "function") return;
+  try {
+    await LocalRemuxer.setLivePriority(token, priority);
+  } catch (error) {
+    logger.warn("Failed to rank a live session", error, { service: "LocalRemux", token });
+  }
+}
+
+/**
+ * AVPlayer's buffer past the playhead, for the engine's copy reservoir. Resolves the floor the
+ * variant cap keeps while the engine admits the copy, in bits per second (0 = none).
+ */
+export async function reportPlayerBuffer(token: string, aheadSeconds: number, sinceSeek: boolean): Promise<number> {
+  if (!isLocalRemuxAvailable() || typeof LocalRemuxer.setPlayerBuffer !== "function" || !Number.isFinite(aheadSeconds)) return 0;
+  try {
+    const floor: unknown = await LocalRemuxer.setPlayerBuffer(token, aheadSeconds, sinceSeek);
+    return typeof floor === "number" && Number.isFinite(floor) && floor > 0 ? floor : 0;
+  } catch (error) {
+    logger.debug("Player buffer report failed", { service: "LocalRemux", token, error: String(error) });
+    return 0;
   }
 }
 

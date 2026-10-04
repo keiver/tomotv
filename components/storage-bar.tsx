@@ -1,7 +1,8 @@
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { COLORS } from "@/constants/colors";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import React, { type ComponentProps } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
 
@@ -31,21 +32,26 @@ interface StorageBarProps {
   used: number;
   /** Bytes still free on the device. */
   free: number;
-  /** Clears every download, behind a confirmation. The only route to downloadManager.removeAll in the app. */
+  /** Clears what `used` counts, behind a confirmation. */
   onClear: () => void;
+  /** Replaces the downloads wording of the used part. */
+  usedLabel?: string;
+  hint?: string;
+  layout?: ComponentProps<typeof SectionFooter>["layout"];
 }
 
 /**
  * How much of the device the downloads hold, drawn as the band a section card ends in: a gold
  * track the used fraction fills red across its full height, the reading centred over it.
- * Square-cornered; the SectionFooter it sits in owns the shape. Pressing it clears everything.
+ * It is its card's footer: phone wraps it in SectionFooter, tvOS leaves it bare because the
+ * footer's overlay would occlude it from focus. Pressing it clears everything.
  */
-export function StorageBar({ used, free, onClear }: StorageBarProps) {
+export function StorageBar({ used, free, onClear, usedLabel, hint, layout }: StorageBarProps) {
   const { percent, accessibleNow } = storageBarFill(used, free);
-  const usedPart = used > 0 ? t("downloads.usedDownloaded").replace("{size}", formatFileSize(used)) : t("downloads.nothingDownloaded");
+  const usedPart = usedLabel ?? (used > 0 ? t("downloads.usedDownloaded").replace("{size}", formatFileSize(used)) : t("downloads.nothingDownloaded"));
   const label = t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
 
-  return (
+  const bar = (
     <Pressable
       style={styles.track}
       onPress={onClear}
@@ -53,17 +59,25 @@ export function StorageBar({ used, free, onClear }: StorageBarProps) {
       hitSlop={{ top: TOUCH_SLOP, bottom: TOUCH_SLOP }}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint={t("downloads.removeAllHint")}
-      accessibilityValue={{ min: 0, max: 100, now: accessibleNow }}>
-      <View style={[styles.fill, { width: `${percent}%` }]} pointerEvents="none" />
-      <View style={styles.row} pointerEvents="none">
-        <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.ON_ACCENT} style={styles.mark} />
-        {/* Unclamped: at the accessibility text sizes the reading is wider than the band, and
-            wrapping it is the difference between a long reading and half a reading. */}
-        <Text style={styles.label}>{label}</Text>
-      </View>
+      accessibilityHint={hint ?? t("downloads.removeAllHint")}
+      accessibilityValue={{ min: 0, max: 100, now: accessibleNow }}
+      tvParallaxProperties={{ enabled: false }}>
+      {({ focused }) => (
+        <>
+          <View style={[styles.fill, { width: `${percent}%` }]} pointerEvents="none" />
+          <View style={styles.row} pointerEvents="none">
+            <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.ON_ACCENT} style={styles.mark} />
+            {/* Unclamped: at the accessibility text sizes the reading is wider than the band, and
+                wrapping it is the difference between a long reading and half a reading. */}
+            <Text style={styles.label}>{label}</Text>
+          </View>
+          {/* tvOS: the band is gold at rest, so focus is a ring rather than a fill. */}
+          {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
+        </>
+      )}
     </Pressable>
   );
+  return Platform.isTV ? bar : <SectionFooter layout={layout}>{bar}</SectionFooter>;
 }
 
 const styles = StyleSheet.create({
@@ -89,6 +103,17 @@ const styles = StyleSheet.create({
     gap: Platform.isTV ? 12 : 7,
     paddingHorizontal: Platform.isTV ? 28 : 16,
     paddingVertical: Platform.isTV ? 10 : 6,
+  },
+  focusRing: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderWidth: 4,
+    borderColor: COLORS.BORDER_FOCUSED,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
   // The glyph's own bowl sits low against the label's cap height.
   mark: {

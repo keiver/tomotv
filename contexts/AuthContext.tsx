@@ -1,4 +1,5 @@
 import { isAuthenticated, subscribeAuthChange, waitForConfig } from "@/services/jellyfinApi";
+import { getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { router } from "expo-router";
 import React, { createContext, ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 
@@ -22,6 +23,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Resolve the saved session once at launch, then keep in sync with login/logout.
     waitForConfig().then(() => {
+      // An earlier build's lists go to whoever is signed in at its first launch, not to an account switched to later.
+      getLiveTvPreferences();
       if (cancelled) return;
       setIsConnected(isAuthenticated());
       setIsReady(true);

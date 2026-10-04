@@ -1,9 +1,9 @@
 /**
- * The stage line under the spinner: nothing for a load that settles in the first second, one label
- * swapped in place after it, and a burst of stages jumps to the newest instead of queueing.
+ * The line under the spinner: nothing for a load that settles before the status threshold, one
+ * status line after it, and what the current stage waits on once the attempt runs longer still.
  */
-import { DWELL_MS, OUT_MS, PlayerLoadingOverlay, REVEAL_AFTER_MS } from "@/components/player-loading-overlay";
-import { STAGE_HINT_AFTER_SECONDS } from "@/hooks/usePlaybackStage";
+import { PlayerLoadingOverlay } from "@/components/player-loading-overlay";
+import { REASON_AFTER_MS, STATUS_AFTER_MS } from "@/hooks/usePlaybackStage";
 import { resetPlaybackStages, setPlaybackStage } from "@/services/playbackStage";
 import React from "react";
 import { Text } from "react-native";
@@ -14,17 +14,16 @@ const texts = (renderer: TestRenderer.ReactTestRenderer) =>
     .findAllByType(Text)
     .map((text) => text.props.children)
     .filter((child): child is string => typeof child === "string");
-const labels = (renderer: TestRenderer.ReactTestRenderer) => texts(renderer).filter((child) => /^[A-Z]/.test(child));
-const clocks = (renderer: TestRenderer.ReactTestRenderer) => texts(renderer).filter((child) => /^\d+s$/.test(child));
 
-describe("PlayerLoadingOverlay stage line", () => {
+describe("PlayerLoadingOverlay line", () => {
   let renderer!: TestRenderer.ReactTestRenderer;
+  const mount = (element: React.ReactElement = <PlayerLoadingOverlay />) =>
+    act(() => {
+      renderer = TestRenderer.create(element);
+    });
   beforeEach(() => {
     jest.useFakeTimers();
     resetPlaybackStages();
-    act(() => {
-      renderer = TestRenderer.create(<PlayerLoadingOverlay />);
-    });
   });
   afterEach(() => {
     act(() => resetPlaybackStages());
@@ -32,68 +31,79 @@ describe("PlayerLoadingOverlay stage line", () => {
     jest.useRealTimers();
   });
 
-  it("shows the bare spinner for the first second, then the current stage", () => {
+  it("shows the bare spinner until the status threshold, then the status line", () => {
+    mount();
     act(() => setPlaybackStage("details"));
-    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS - 1));
-    expect(labels(renderer)).toEqual([]);
+    act(() => jest.advanceTimersByTime(STATUS_AFTER_MS - 1));
+    expect(texts(renderer)).toEqual([]);
     act(() => jest.advanceTimersByTime(1));
-    expect(labels(renderer)).toEqual(["Connecting to the server"]);
+    expect(texts(renderer)).toEqual(["Still getting your video ready"]);
   });
 
-  it("never shows a load that settles before the reveal", () => {
+  it("never shows a load that settles before the threshold", () => {
+    mount();
     act(() => setPlaybackStage("details"));
-    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS / 2));
+    act(() => jest.advanceTimersByTime(STATUS_AFTER_MS - 1000));
     act(() => resetPlaybackStages());
-    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
-    expect(labels(renderer)).toEqual([]);
+    act(() => jest.advanceTimersByTime(REASON_AFTER_MS));
+    expect(texts(renderer)).toEqual([]);
   });
 
-  it("holds a label for its dwell, then jumps past the stages that went by to the current one", () => {
-    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
+  it("counts from the attempt's first stage, however often the stage changes", () => {
+    mount();
     act(() => setPlaybackStage("details"));
-    const seen = new Set<string>();
-    act(() => {
-      setPlaybackStage("engine");
-      setPlaybackStage("reading");
-    });
-    for (let ms = 0; ms < DWELL_MS + OUT_MS; ms += 10) {
-      labels(renderer).forEach((label) => seen.add(label));
-      act(() => jest.advanceTimersByTime(10));
-    }
-    expect(labels(renderer)).toEqual(["Reading the stream"]);
-    expect([...seen]).toEqual(["Connecting to the server"]);
-  });
-
-  it("swaps a label that already held its dwell after just the fade", () => {
-    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
-    act(() => setPlaybackStage("details"));
-    act(() => jest.advanceTimersByTime(DWELL_MS));
+    act(() => jest.advanceTimersByTime(3000));
     act(() => setPlaybackStage("engine"));
-    act(() => jest.advanceTimersByTime(OUT_MS - 1));
-    expect(labels(renderer)).toEqual(["Connecting to the server"]);
-    act(() => jest.advanceTimersByTime(1));
-    expect(labels(renderer)).toEqual(["Starting the engine"]);
-  });
-
-  it("keeps the label when its stage returns during the fade", () => {
-    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
-    act(() => setPlaybackStage("details"));
-    act(() => jest.advanceTimersByTime(DWELL_MS));
-    act(() => resetPlaybackStages());
-    act(() => jest.advanceTimersByTime(OUT_MS / 2));
-    act(() => setPlaybackStage("details"));
-    act(() => jest.advanceTimersByTime(OUT_MS * 2));
-    expect(labels(renderer)).toEqual(["Connecting to the server"]);
-  });
-
-  it("runs the clock after two seconds and adds the hint once the stage runs long", () => {
+    act(() => jest.advanceTimersByTime(3000));
     act(() => setPlaybackStage("reading"));
-    act(() => jest.advanceTimersByTime(REVEAL_AFTER_MS));
-    expect(clocks(renderer)).toEqual([]);
-    act(() => jest.advanceTimersByTime(1000));
-    // The clock and its invisible twin.
-    expect(clocks(renderer)).toEqual(["2s", "2s"]);
-    act(() => jest.advanceTimersByTime((STAGE_HINT_AFTER_SECONDS - 2) * 1000));
-    expect(labels(renderer)).toEqual(["Reading the stream", "Waiting on the stream's first bytes"]);
+    act(() => jest.advanceTimersByTime(STATUS_AFTER_MS - 6000));
+    expect(texts(renderer)).toEqual(["Still getting your video ready"]);
+    act(() => jest.advanceTimersByTime(REASON_AFTER_MS - STATUS_AFTER_MS));
+    expect(texts(renderer)).toEqual(["Still getting your video ready", "Waiting for the video to arrive"]);
+  });
+
+  it("names a reason only while the current stage pins one", () => {
+    mount();
+    act(() => setPlaybackStage("reading"));
+    act(() => jest.advanceTimersByTime(REASON_AFTER_MS));
+    expect(texts(renderer)).toEqual(["Still getting your video ready", "Waiting for the video to arrive"]);
+    act(() => setPlaybackStage("preparing"));
+    expect(texts(renderer)).toEqual(["Still getting your video ready"]);
+    act(() => setPlaybackStage("server"));
+    expect(texts(renderer)).toEqual(["Still getting your video ready", "Your server is preparing this video"]);
+  });
+
+  it("names no network wait for a file read off this device", () => {
+    mount(<PlayerLoadingOverlay local />);
+    act(() => setPlaybackStage("reading"));
+    act(() => jest.advanceTimersByTime(REASON_AFTER_MS));
+    expect(texts(renderer)).toEqual(["Still getting your video ready"]);
+  });
+
+  it("speaks of the channel for a live attempt", () => {
+    mount(<PlayerLoadingOverlay live />);
+    act(() => setPlaybackStage("server"));
+    act(() => jest.advanceTimersByTime(REASON_AFTER_MS));
+    expect(texts(renderer)).toEqual(["Still tuning in", "Your server is preparing this channel"]);
+  });
+
+  it("shows the line at once when it mounts on an attempt already past the threshold", () => {
+    act(() => setPlaybackStage("details"));
+    act(() => jest.advanceTimersByTime(STATUS_AFTER_MS + 500));
+    mount();
+    expect(texts(renderer)).toEqual(["Still getting your video ready"]);
+    act(() => jest.advanceTimersByTime(REASON_AFTER_MS - STATUS_AFTER_MS));
+    expect(texts(renderer)).toEqual(["Still getting your video ready", "Waiting for your server to respond"]);
+  });
+
+  it("starts the next attempt quiet", () => {
+    mount();
+    act(() => setPlaybackStage("details"));
+    act(() => jest.advanceTimersByTime(REASON_AFTER_MS));
+    act(() => resetPlaybackStages());
+    act(() => setPlaybackStage("details"));
+    expect(texts(renderer)).toEqual([]);
+    act(() => jest.advanceTimersByTime(STATUS_AFTER_MS));
+    expect(texts(renderer)).toEqual(["Still getting your video ready"]);
   });
 });

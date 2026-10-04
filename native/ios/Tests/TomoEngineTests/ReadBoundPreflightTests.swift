@@ -160,4 +160,25 @@ final class ReadBoundPreflightTests: XCTestCase {
         session.stop()
         XCTAssertEqual(session.progress()["alive"] as? Bool, false)
     }
+
+    /// The bytes the pre-flight reads are the input's own IO count, so a clip read to its end reports
+    /// its size: the packets the probe buffered are not counted again when the read loop drains them.
+    func testBytesReadAreTheInputsOwnCount() throws {
+        guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else { throw XCTSkip("no ffmpeg at \(Self.ffmpeg)") }
+        guard let fixture = Self.fixture, let bytes = try? Data(contentsOf: fixture) else { throw XCTSkip("libx264 produced no fixture") }
+        let server = try ThrottledFileServer(data: bytes, bytesPerSecond: bytes.count * 4)
+        defer { server.stop() }
+        let session = try RemuxSession(config: makeConfig(durationSeconds: Self.seconds, inputUrl: "http://127.0.0.1:\(server.port)/clip.mp4", width: 1280, height: 720))
+        session.start()
+        defer { session.stop() }
+
+        let deadline = Date().addingTimeInterval(30)
+        var read: Int64 = 0
+        while Date() < deadline, read < Int64(bytes.count) {
+            usleep(100_000)
+            read = session.progress()["bytesRead"] as? Int64 ?? 0
+        }
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(session.progress()["bytesRead"] as? Int64, Int64(bytes.count))
+    }
 }

@@ -71,6 +71,25 @@ export function claimMacContextKeys(owner: string, context: MacKeyContext): () =
 }
 
 /**
+ * Claim the bare Escape ahead of the navigator pop. The newest claim answers;
+ * returning false lets the press fall through to goBack.
+ */
+const escapeClaims: { owner: string; handler: () => boolean }[] = [];
+
+export function claimMacEscape(owner: string, handler: () => boolean): () => void {
+  const claim = { owner, handler };
+  escapeClaims.push(claim);
+  return () => {
+    const index = escapeClaims.indexOf(claim);
+    if (index !== -1) escapeClaims.splice(index, 1);
+  };
+}
+
+export function consumeMacEscape(): boolean {
+  return escapeClaims[escapeClaims.length - 1]?.handler() ?? false;
+}
+
+/**
  * Listen for a key press. Returns the unsubscribe, always safe to call.
  */
 export function subscribeMacKeyCommand(handler: (key: MacKey) => void): () => void {

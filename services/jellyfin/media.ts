@@ -1,6 +1,6 @@
 /**
  * Pure decisions about a media item: can AVPlayer decode it as-is, is it audio-only,
- * must it go through the HLS endpoint, and how long is it.
+ * must it go through the HLS endpoint.
  *
  * Leaf module: no config, no network, no other jellyfin module. Every function here is
  * a pure function of the item it's handed, which is why they're trivially testable.
@@ -8,7 +8,6 @@
 import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 import { logger } from "@/utils/logger";
 import { JellyfinVideoItem } from "@/types/jellyfin";
-import { JELLYFIN_TIME } from "./constants";
 
 export function serverVideoTranscodingAllowed(item: JellyfinVideoItem | null | undefined): boolean {
   return item?.MediaSources?.[0]?.SupportsTranscoding !== false;
@@ -163,23 +162,4 @@ export function needsTranscoding(videoItem: JellyfinVideoItem | null, device?: V
   });
 
   return !supported || unsupportedContainer;
-}
-
-/**
- * Format duration from RunTimeTicks to readable format
- * RunTimeTicks are in 100-nanosecond intervals
- * @param ticks - RunTimeTicks from Jellyfin
- * @returns Formatted string like "1h 23m" or "45m"
- */
-export function formatDuration(ticks: number): string {
-  const totalSeconds = ticks / JELLYFIN_TIME.TICKS_PER_SECOND;
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  } else {
-    return `${minutes}m`;
-  }
 }

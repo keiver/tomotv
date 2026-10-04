@@ -14,8 +14,22 @@ extension RemuxSession {
             && (Date().timeIntervalSince(lastPrimaryDemandAt) > 10 || copyAbandonedAt >= lastPrimaryDemandAt)
     }
 
-    /// The track's server cues, fetched once per session; nil when the track has no server source
-    /// or the fetch did not finish inside `deadline`.
+    /// Whether the server may extract this track's cues: the master lists rungs, so the link may not
+    /// carry the copy, or the engine built no decoder for the track. Caller holds stateLock.
+    func serverCuesMayFetchLocked(_ index: Int) -> Bool {
+        ladderListed || (subtitleDecodersBuilt && textSubtitles[Int32(index)] == nil)
+    }
+
+    /// Whether this track's cues can come from the server: fetched already, or allowed to be.
+    func serverCueSource(_ sub: RemuxSubtitle) -> Bool {
+        guard !sub.serverVttUrl.isEmpty else { return false }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return serverCues[sub.index] != nil || serverCuesMayFetchLocked(sub.index)
+    }
+
+    /// The track's server cues, fetched once per session; nil when the track has no server source,
+    /// the session may not ask the server for it, or the fetch did not finish inside `deadline`.
     func serverCues(streamIndex: Int, deadline: Double) -> [ServerCue]? {
         guard let sub = config.subtitles.first(where: { $0.index == streamIndex }), let url = URL(string: sub.serverVttUrl), !sub.serverVttUrl.isEmpty else { return nil }
         stateLock.lock()
@@ -23,7 +37,7 @@ extension RemuxSession {
             stateLock.unlock()
             return cached
         }
-        if cancelled || failed {
+        if cancelled || failed || !serverCuesMayFetchLocked(streamIndex) {
             stateLock.unlock()
             return nil
         }
@@ -48,7 +62,7 @@ extension RemuxSession {
         for sub in config.subtitles where sub.isEngineText && !sub.serverVttUrl.isEmpty && (sub.isDefault || sub.isForced) {
             guard let url = URL(string: sub.serverVttUrl) else { continue }
             stateLock.lock()
-            let owner = serverCues[sub.index] == nil && serverCueFetches.insert(sub.index).inserted
+            let owner = serverCues[sub.index] == nil && serverCuesMayFetchLocked(sub.index) && serverCueFetches.insert(sub.index).inserted
             stateLock.unlock()
             if owner { fetchServerCues(streamIndex: sub.index, url: url) }
         }

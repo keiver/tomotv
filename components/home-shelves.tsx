@@ -9,6 +9,7 @@ import { VideoGridItem } from "@/components/video-grid-item";
 import { ArtworkSlotShape, GRID, gridEdgePadding, itemSlotShape } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { fetchFavoriteItems, fetchLatestItems, isFolder, signOut } from "@/services/jellyfinApi";
 import { JellyfinItem } from "@/types/jellyfin";
@@ -83,6 +84,10 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
   // row carries it; on a library root Show In Folder alerts gracefully (no ancestor path).
   const onItemLongPress = useItemLongPress();
 
+  // A recording in progress marks the Libraries heading and the Live TV card.
+  const recording = useIsRecording();
+  const recordingShelf = recording && libraries.some((item) => item.CollectionType === "livetv");
+
   const renderLibrary = useCallback(
     (item: JellyfinItem, index: number, cardHeight: number) => {
       const claimsFocusOnMount = index === 0 && isScreenFocused && !focusClaimed;
@@ -97,6 +102,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
           cardHeight={cardHeight}
           fitArtwork
           slotOrientation="landscape"
+          recording={recording && item.CollectionType === "livetv"}
         />
       ) : (
         <VideoGridItem
@@ -113,7 +119,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         />
       );
     },
-    [onLibraryPress, onItemLongPress, handleItemFocus, isScreenFocused, focusClaimed],
+    [onLibraryPress, onItemLongPress, handleItemFocus, isScreenFocused, focusClaimed, recording],
   );
 
   const keyExtractor = useCallback((item: JellyfinItem) => item.Id, []);
@@ -191,7 +197,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         status
       ) : (
         <ScrollView contentContainerStyle={scrollContentStyle} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false}>
-          <MediaShelf title={t("library.libraries")} data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
+          <MediaShelf title={t("library.libraries")} dot={recordingShelf} data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
           <ContinueWatchingRow onItemFocus={handleItemFocus} />
           <ItemShelf title={t("library.favorites")} fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />
           <ItemShelf title={t("library.new")} fetch={fetchLatestItems} onItemFocus={handleItemFocus} />

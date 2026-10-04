@@ -9,13 +9,15 @@ export interface PlaybackStageState {
   stage: PlaybackStage | null;
   /** When the current stage began, epoch ms. */
   since: number;
+  /** When this attempt's first stage began, epoch ms. */
+  startedAt: number;
   /** The stages this attempt went through before the current one, in order. */
   passed: PlaybackStage[];
 }
 
 type Listener = (state: PlaybackStageState) => void;
 
-const EMPTY: PlaybackStageState = { stage: null, since: 0, passed: [] };
+const EMPTY: PlaybackStageState = { stage: null, since: 0, startedAt: 0, passed: [] };
 let state: PlaybackStageState = EMPTY;
 const listeners = new Set<Listener>();
 
@@ -25,7 +27,8 @@ function emit(): void {
 
 export function setPlaybackStage(stage: PlaybackStage): void {
   if (state.stage === stage) return;
-  state = { stage, since: Date.now(), passed: state.stage ? [...state.passed, state.stage] : state.passed };
+  const now = Date.now();
+  state = { stage, since: now, startedAt: state.stage ? state.startedAt : now, passed: state.stage ? [...state.passed, state.stage] : state.passed };
   emit();
 }
 

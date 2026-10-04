@@ -3,7 +3,7 @@
  * engine service, so every decision here is testable without the native module.
  */
 import type { ThroughputSample } from "@/services/localRemux";
-import { LINK_CAP_HYSTERESIS, LINK_CAP_SHARE, LINK_CLIMB_MARGIN } from "./constants";
+import { FORWARD_BUFFER_AUTOMATIC_SECONDS, FORWARD_BUFFER_BYTES, LINK_CAP_HYSTERESIS, LINK_CAP_SHARE, LINK_CLIMB_MARGIN, SLIPSTREAM_FORWARD_BUFFER_SECONDS } from "./constants";
 
 /** One session's throughput samples and the subscription feeding them. */
 export type ThroughputWatch = { samples: ThroughputSample[]; unsubscribe: (() => void) | null; handedOver: boolean };
@@ -77,26 +77,45 @@ export interface EngineProgressReading {
   bytesRead: number;
   elapsedSeconds: number;
   readSeconds: number;
+  /** The engine's source state; anything but "ready" is a start still opening, probing or hunting a keyframe. */
+  sourceState?: string;
 }
 
 /**
  * A deadline that finds the session alive and still pulling bytes at the link's pace is the
- * link's deadline, not the engine's.
+ * link's deadline, not the engine's. Before the source is ready no read loop runs, so the bytes
+ * the open and the probe pull are the only measure; once it runs, the read share is.
  */
 export function stillPullingInput<T extends EngineProgressReading>(progress: T | null | undefined, bytesSeen: number, readBoundShare: number): progress is T {
-  return progress != null && progress.alive && progress.bytesRead > bytesSeen && progress.elapsedSeconds > 0 && progress.readSeconds / progress.elapsedSeconds >= readBoundShare;
+  if (progress == null || !progress.alive || progress.bytesRead <= 0 || progress.bytesRead <= bytesSeen || progress.elapsedSeconds <= 0) return false;
+  if (progress.sourceState !== undefined && progress.sourceState !== "ready") return true;
+  return progress.readSeconds / progress.elapsedSeconds >= readBoundShare;
 }
 
 /**
  * The ceiling AVPlayer picks its variant under. Never below the smallest variant the master
  * lists: a cap under all of them leaves AVPlayer nothing it may play and it wanders between
- * every one without showing a frame (drill S5 at 0.6 Mb/s). Null when the move is too small
- * to be worth re-evaluating the variant for.
+ * every one without showing a frame (drill S5 at 0.6 Mb/s). Never below the copy while the engine
+ * admits it (`copyFloorBps`). Null when the move is too small to be worth re-evaluating the variant for.
  */
-export function nextLinkCap(input: { bps: number; currentCap: number; floorBps: number }): number | null {
-  const cap = Math.max(Math.round(input.bps * LINK_CAP_SHARE), input.floorBps);
-  if (input.currentCap > 0 && Math.abs(cap - input.currentCap) < input.currentCap * LINK_CAP_HYSTERESIS) return null;
+export function nextLinkCap(input: { bps: number; currentCap: number; floorBps: number; copyFloorBps?: number }): number | null {
+  const copyFloor = input.copyFloorBps ?? 0;
+  const cap = Math.max(Math.round(input.bps * LINK_CAP_SHARE), input.floorBps, copyFloor);
+  // A cap below the copy the engine admits is lifted however small the move.
+  const liftsToCopy = copyFloor > input.currentCap;
+  if (input.currentCap > 0 && !liftsToCopy && Math.abs(cap - input.currentCap) < input.currentCap * LINK_CAP_HYSTERESIS) return null;
   return cap;
+}
+
+/**
+ * Forward buffer for the variant playing at `bps`: the byte budget in seconds, never under the
+ * startup depth. Null (automatic) when the variant is unknown or the budget reaches automatic.
+ */
+export function forwardBufferFor(bps: number): number | null {
+  if (!Number.isFinite(bps) || bps <= 0) return null;
+  const seconds = (FORWARD_BUFFER_BYTES * 8) / bps;
+  if (seconds >= FORWARD_BUFFER_AUTOMATIC_SECONDS) return null;
+  return Math.max(SLIPSTREAM_FORWARD_BUFFER_SECONDS, Math.round(seconds));
 }
 
 /**

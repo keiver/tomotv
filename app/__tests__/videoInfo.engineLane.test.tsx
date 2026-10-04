@@ -40,10 +40,10 @@ jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ show
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/close-overlay-button", () => ({ CloseOverlayButton: () => null }));
 jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }));
-jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
+jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
-jest.mock("expo-image", () => ({ Image: () => null }));
+jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: async () => ({ width: 16, height: 9 }) }) }));
 jest.mock("expo-blur", () => ({ BlurView: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
@@ -51,10 +51,12 @@ jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({
 jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
+  deleteItem: jest.fn(async () => {}),
+  fetchIsAdministrator: jest.fn(async () => false),
+  isLiveChannel: () => false,
   fetchItemDetails: jest.fn(),
   fetchFolderMediaKinds: jest.fn(async () => null),
   fetchItemFolderPath: jest.fn(async () => []),
-  formatDuration: () => "",
   getBackdropUrl: () => null,
   getLogoUrl: () => null,
   getPersonImageUrl: () => null,
@@ -95,12 +97,12 @@ describe("the engine line on the item panel", () => {
   });
 
   it("says a smaller server feed opens the session when the link cannot carry the file", async () => {
-    expect(await laneLine({ lane: "copy", smallFeedFirst: true })).toBe("Direct Play · starts on a smaller server feed for your connection");
+    expect(await laneLine({ lane: "copy", smallFeedFirst: true })).toBe("Direct Play · starts on a smaller server feed on slow connections");
   });
 
   it("carries the same tail on the device's own re-encode", async () => {
     expect(await laneLine({ lane: "deviceTranscode", smallFeedFirst: false })).toBe("Re-encoded on this device · no server work");
-    expect(await laneLine({ lane: "deviceTranscode", smallFeedFirst: true })).toBe("Re-encoded on this device · starts on a smaller server feed for your connection");
+    expect(await laneLine({ lane: "deviceTranscode", smallFeedFirst: true })).toBe("Re-encoded on this device · starts on a smaller server feed on slow connections");
   });
 
   it("names the server outright when the whole file goes through it", async () => {

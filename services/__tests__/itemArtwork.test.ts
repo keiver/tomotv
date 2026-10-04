@@ -15,9 +15,27 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 jest.mock("@/services/localRemux", () => ({ posterFrameIfCached: (id: string) => mockCached(id), posterFrameGeneration: () => mockGeneration(), posterFrameRevision: () => mockRevision() }));
 
-import { folderPosterSource, posterSource, posterUri, wantsPosterFrame } from "../itemArtwork";
+import { folderPosterSource, heroArtFrame, posterSource, posterUri, wantsPosterFrame } from "../itemArtwork";
+import { updateUiPreferences } from "@/services/uiPreferences";
 
 const item = (extra: Record<string, unknown> = {}) => ({ Id: "a", Type: "Movie", RunTimeTicks: 0, ...extra });
+
+beforeEach(() => updateUiPreferences({ devicePosters: true }));
+
+describe("with device generated posters off", () => {
+  beforeEach(() => updateUiPreferences({ devicePosters: false }));
+
+  it("never asks for a keyframe and never shows a settled one", () => {
+    mockCached.mockReturnValue("file:///pool/a/poster.jpg");
+    expect(wantsPosterFrame({ Type: "Movie" })).toBe(false);
+    expect(posterSource(item(), 300)).toBeUndefined();
+    expect(posterSource(item(), 300, "file:///pool/a/poster.jpg")).toBeUndefined();
+  });
+
+  it("still takes the server poster", () => {
+    expect(posterSource(item({ ImageTags: { Primary: "tag1" } }), 300)?.uri).toBe("https://jf/Items/a/Images/Primary?maxHeight=300");
+  });
+});
 
 describe("posterSource", () => {
   beforeEach(() => {
@@ -32,6 +50,12 @@ describe("posterSource", () => {
       uri: "https://jf/Items/a/Images/Primary?maxHeight=300",
       cacheKey: expect.stringMatching(/^[a-z0-9]+-a-tag1-300$/),
     });
+  });
+
+  it("draws a programme without art with its channel's picture, never a keyframe", () => {
+    mockCached.mockReturnValue("file:///pool/p/poster.jpg");
+    expect(posterSource(item({ Id: "p", Type: "Program", ChannelId: "ch1" }), 300)?.uri).toBe("https://jf/Items/ch1/Images/Primary?maxHeight=300");
+    expect(wantsPosterFrame({ Type: "Program" })).toBe(false);
   });
 
   it("falls back to the keyframe the engine has settled", () => {
@@ -84,6 +108,45 @@ describe("folderPosterSource", () => {
   it("answers nothing when the server has no picture for the folder", () => {
     expect(folderPosterSource({ Id: "f1" }, 300)).toBeUndefined();
     expect(folderPosterSource({ Id: "f1", SeriesId: "show" }, 300)).toBeUndefined();
+  });
+});
+
+describe("heroArtFrame", () => {
+  // The area is fixed by the hero's width, never by the picture, so a late picture moves nothing.
+  it("fills the fixed area with a 16:9 backdrop", () => {
+    const backdrop = heroArtFrame(1100, 618.75, 1920, 1080);
+    expect(backdrop.width).toBe(1100);
+    expect(backdrop.height).toBeCloseTo(618.75);
+  });
+
+  // The foot sits under the fade and the content, as a poster page does.
+  it("draws a portrait or square picture full width, taller than the area", () => {
+    expect(heroArtFrame(1100, 618.75, 400, 600)).toEqual({ width: 1100, height: 1650 });
+    expect(heroArtFrame(1100, 618.75, 1000, 1000)).toEqual({ width: 1100, height: 1100 });
+  });
+
+  // Sintel's programme still is 640x272: drawn full width it leaves a band over its top.
+  it("covers the area with a picture wider than 16:9, its sides cropped", () => {
+    const still = heroArtFrame(1100, 618.75, 640, 272);
+    expect(still.height).toBe(618.75);
+    expect(still.width).toBeCloseTo(1455.88);
+    expect(heroArtFrame(1100, 618.75, 4000, 1000)).toEqual({ width: 2475, height: 618.75 });
+  });
+
+  it("keeps a wide logo whole, full width and shorter than the area", () => {
+    expect(heroArtFrame(1100, 618.75, 4000, 1000, true)).toEqual({ width: 1100, height: 275 });
+    expect(heroArtFrame(1100, 618.75, 503, 125, true).width).toBe(1100);
+  });
+
+  // .black (576p)'s logo is 68x16: drawn full width it is a 16x blow-up.
+  it("stops a tiny landscape picture at 3x its own size", () => {
+    expect(heroArtFrame(1100, 618.75, 68, 16)).toEqual({ width: 204, height: 48 });
+  });
+
+  // A 940pt-wide backdrop on the TV card, a 533pt one on a landscape phone: full width, never boxed.
+  it("draws a landscape picture a little narrower than the hero full width", () => {
+    expect(heroArtFrame(1100, 618.75, 940, 627).width).toBe(1100);
+    expect(heroArtFrame(852, 165, 533, 300).width).toBe(852);
   });
 });
 
