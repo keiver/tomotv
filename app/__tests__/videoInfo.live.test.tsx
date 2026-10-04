@@ -4,7 +4,20 @@ import TestRenderer, { act } from "react-test-renderer";
 import { useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
 import VideoInfoScreen from "@/app/video-info";
-import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchItemDetails, fetchLiveTvManagement, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
+import {
+  cancelSeriesTimer,
+  cancelTimer,
+  createSeriesTimer,
+  createTimer,
+  fetchItemDetails,
+  fetchItemFolderPath,
+  fetchLiveTvManagement,
+  fetchSeriesTimers,
+  fetchTimerDefaults,
+  fetchTimers,
+} from "@/services/jellyfinApi";
+import { programInfoParams } from "@/utils/programInfo";
+import { formatClock } from "@/utils/guide";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -33,7 +46,7 @@ jest.mock("@/components/info-action-row", () => ({
     return extras.map((extra) => <Text key={extra.key} testID={`circle:${extra.label}`} />);
   },
 }));
-jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
+jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
 jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: jest.fn(async () => ({ width: 16, height: 9 })) }) }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
@@ -98,8 +111,8 @@ async function settle() {
   }
 }
 
-async function mount(item: object) {
-  (useLocalSearchParams as jest.Mock).mockReturnValue({ videoId: (item as { Id: string }).Id });
+async function mount(item: object, params = { videoId: (item as { Id: string }).Id }) {
+  (useLocalSearchParams as jest.Mock).mockReturnValue(params);
   (fetchItemDetails as jest.Mock).mockResolvedValue(item);
   let tree: TestRenderer.ReactTestRenderer | undefined;
   await act(async () => {
@@ -130,6 +143,77 @@ describe("Video info: live items", () => {
     (cancelSeriesTimer as jest.Mock).mockResolvedValue(undefined);
     (fetchSeriesTimers as jest.Mock).mockResolvedValue([]);
     (fetchLiveTvManagement as jest.Mock).mockResolvedValue(true);
+  });
+
+  const external = { ...later, Id: "epg:c1:1", Name: "Evening News", EpisodeTitle: "World Report", Overview: "The day's headlines.", Genres: ["News"] };
+
+  it("renders the external programme's metadata and channel logo without fetching a server item", async () => {
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    const tree = await mount(channel, programInfoParams(external, channel));
+    const rendered = JSON.stringify(tree.toJSON());
+    for (const text of [external.Name, external.EpisodeTitle, external.Overview, "News", formatClock(Date.parse(external.StartDate)), formatClock(Date.parse(external.EndDate))]) {
+      expect(rendered).toContain(text);
+    }
+    expect(Image.loadAsync).toHaveBeenCalledWith(expect.objectContaining({ uri: "https://jf/Items/c1/Images/Primary" }));
+    expect(fetchItemDetails).not.toHaveBeenCalled();
+    expect(fetchItemFolderPath).not.toHaveBeenCalled();
+    expect(buttons(tree)).toEqual(["Record"]);
+  });
+
+  it("schedules and cancels an external programme by channel and times, never a synthetic ProgramId", async () => {
+    (fetchTimers as jest.Mock)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ Id: "manual-1", ChannelId: "c1", StartDate: external.StartDate, EndDate: external.EndDate, Status: "New" }])
+      .mockResolvedValue([]);
+    (fetchTimerDefaults as jest.Mock).mockResolvedValue({ PrePaddingSeconds: 0 });
+    const tree = await mount(channel, programInfoParams(external, channel));
+    await press(tree, "Record");
+    expect(fetchTimerDefaults).toHaveBeenCalledWith();
+    expect(createTimer).toHaveBeenCalledWith({ PrePaddingSeconds: 0, ChannelId: "c1", Name: external.Name, Overview: external.Overview, StartDate: external.StartDate, EndDate: external.EndDate });
+    expect(buttons(tree)).toEqual(["Cancel Recording"]);
+    await press(tree, "Cancel Recording");
+    expect(cancelTimer).toHaveBeenCalledWith("manual-1");
+    expect(buttons(tree)).toEqual(["Record"]);
+  });
+
+  it("watches an airing external programme on its channel and records only to its end", async () => {
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    (fetchTimerDefaults as jest.Mock).mockResolvedValue({});
+    const current = { ...external, StartDate: airing.StartDate, EndDate: airing.EndDate };
+    const tree = await mount(channel, programInfoParams(current, channel));
+    expect(buttons(tree)).toEqual(["Watch", "Record"]);
+    const beforeRecord = Date.now();
+    await press(tree, "Record");
+    const timer = (createTimer as jest.Mock).mock.calls[0][0];
+    expect(timer).toMatchObject({ ChannelId: "c1", EndDate: current.EndDate });
+    expect(timer.ProgramId).toBeUndefined();
+    expect(Date.parse(timer.StartDate)).toBeGreaterThanOrEqual(beforeRecord);
+    expect(Date.parse(timer.StartDate)).toBeLessThanOrEqual(Date.now());
+    await press(tree, "Watch");
+    expect(mockReplace).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
+  });
+
+  it("shows an external synopsis with incomplete times without waiting for recording state", async () => {
+    const tree = await mount(channel, programInfoParams({ ...external, EndDate: undefined }, channel));
+    expect(JSON.stringify(tree.toJSON())).toContain(external.Overview);
+    expect(JSON.stringify(tree.toJSON())).not.toContain("Invalid Date");
+    expect(buttons(tree)).toEqual([]);
+    expect(fetchTimers).not.toHaveBeenCalled();
+  });
+
+  it("keeps an ended external programme readable without Watch or Record", async () => {
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    const ended = { ...external, StartDate: new Date(now - 120_000).toISOString(), EndDate: new Date(now - 60_000).toISOString() };
+    const tree = await mount(channel, programInfoParams(ended, channel));
+    expect(JSON.stringify(tree.toJSON())).toContain(external.Overview);
+    expect(buttons(tree)).toEqual([]);
+  });
+
+  it.each(["not json", JSON.stringify({ ...external, ChannelId: "other-channel" })])("falls back to the channel for invalid guide route data: %s", async (guideProgram) => {
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    const tree = await mount(channel, { videoId: "c1", ...{ guideProgram } });
+    expect(fetchItemDetails).toHaveBeenCalledWith("c1");
+    expect(buttons(tree)).toEqual(["Watch", "Record", "Groups"]);
   });
 
   it("offers only Watch when the account may not manage recordings, and never Delete or Show in Folder", async () => {

@@ -219,6 +219,14 @@ describe("guide geometry", () => {
       expect(activeRecordTimer([recordingA], { channelId: "c1" }, now)?.Id).toBe("a");
       expect(activeRecordTimer([recordingA], { channelId: "c1" }, T0 + 90 * MINUTE_MS)).toBeNull();
     });
+
+    it("matches an external programme by its scheduled span instead of the current clock", () => {
+      const future = timer("future", 150, 180);
+      const target = { channelId: "c1", program: span(150, 180) };
+      expect(activeRecordTimer([manual, recordingA], target, now)).toBeNull();
+      expect(activeRecordTimer([manual, future], target, now)?.Id).toBe("future");
+      expect(activeRecordTimer([{ ...future, Status: "Cancelled" }], target, now)).toBeNull();
+    });
   });
 
   it("lands a vertical move on the cell under the edge, else the first after it", () => {

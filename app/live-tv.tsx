@@ -17,7 +17,8 @@ import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import { showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { EXTERNAL_GUIDE_PREFIX, guideMetrics, guideRefreshOutcome, NO_GUIDE_PREFIX } from "@/utils/guide";
+import { guideMetrics, guideRefreshOutcome } from "@/utils/guide";
+import { programInfoParams } from "@/utils/programInfo";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -102,9 +103,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   );
   const openProgram = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
-      // No-guide and external-guide cells are not server programs: the panel opens on the channel.
-      const serverProgram = !!program.Id && !program.Id.startsWith(NO_GUIDE_PREFIX) && !program.Id.startsWith(EXTERNAL_GUIDE_PREFIX);
-      router.push({ pathname: "/video-info", params: serverProgram ? { videoId: program.Id, name: program.Name } : { videoId: channel.Id, name: channel.Name } });
+      router.push({ pathname: "/video-info", params: programInfoParams(program, channel) });
     },
     [router],
   );

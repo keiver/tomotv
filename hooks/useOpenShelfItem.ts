@@ -3,6 +3,7 @@ import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { isAudioItem, isBook, isFolder, isLiveChannel, isPhoto } from "@/services/jellyfinApi";
 import { isJoined, playForGroup } from "@/services/syncPlayManager";
 import { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
+import { programInfoParams } from "@/utils/programInfo";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import { Platform } from "react-native";
@@ -41,7 +42,7 @@ export function useOpenShelfItem() {
           showGlobalLoader();
           router.push({ pathname: "/player", params: { videoId: item.ChannelId, videoName: item.ChannelName ?? item.Name, live: "1" } });
         } else {
-          router.push({ pathname: "/video-info", params: { videoId: item.Id, name: item.Name } });
+          router.push({ pathname: "/video-info", params: programInfoParams(item, { Id: item.ChannelId, Name: item.ChannelName ?? item.Name }) });
         }
         return;
       }

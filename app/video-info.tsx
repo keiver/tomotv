@@ -47,7 +47,8 @@ import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { CATEGORY_LABELS } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { useRecordActions } from "@/hooks/useRecordActions";
-import { formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
+import { EXTERNAL_GUIDE_PREFIX, formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
+import { readGuideProgram } from "@/utils/programInfo";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
@@ -63,7 +64,7 @@ import { BlurView } from "expo-blur";
 import { Image, type ImageRef } from "expo-image";
 
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
@@ -94,7 +95,8 @@ const HERO_FADE_RGB = IS_TV ? "rgba(44, 44, 46, " : "rgba(20, 20, 20, ";
 export default function VideoInfoScreen() {
   // inFolderId: the folder screen the press came from. fromResume: pressed on a Continue card.
   // timerId: opened from a Schedule row, so the panel's record state is that timer's.
-  const params = useLocalSearchParams<{ videoId: string; name?: string; inFolderId?: string; fromResume?: string; timerId?: string }>();
+  const params = useLocalSearchParams<{ videoId: string; name?: string; inFolderId?: string; fromResume?: string; timerId?: string; guideProgram?: string }>();
+  const guideProgram = useMemo(() => readGuideProgram(params.guideProgram, params.videoId), [params.guideProgram, params.videoId]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openItem = useOpenShelfItem();
@@ -158,10 +160,10 @@ export default function VideoInfoScreen() {
       // Resolved alongside the details so the CTA row paints once, with "Show in Folder"
       // already decided. [] on failure, and [] for a library root, whose only ancestor is the
       // server root the app never browses; the link there could do nothing but alert.
-      const pathPromise = fetchItemFolderPath(params.videoId).catch(() => []);
+      const pathPromise = guideProgram ? Promise.resolve([]) : fetchItemFolderPath(params.videoId).catch(() => []);
       let fetched: JellyfinItem | null = null;
       try {
-        fetched = await fetchItemDetails(params.videoId);
+        fetched = guideProgram ?? (await fetchItemDetails(params.videoId));
         if (cancelled) return;
         if (!fetched) throw new Error("Item details unavailable");
         const path = await pathPromise;
@@ -203,7 +205,7 @@ export default function VideoInfoScreen() {
     return () => {
       cancelled = true;
     };
-  }, [params.videoId, attempt]);
+  }, [params.videoId, guideProgram, attempt]);
 
   // Leaving the panel performs it. Ref-only and idempotent so the play paths can commit before
   // pushing (tvOS keeps this screen mounted under the player), with unmount as the backstop for
@@ -407,14 +409,17 @@ export default function VideoInfoScreen() {
   // Admins only; a channel is a tuner's listing, not a library file the server could delete.
   // A guide programme or a channel: the panel tunes the channel and records instead.
   const liveProgram = details?.Type === "Program" ? (details as unknown as JellyfinProgram) : null;
+  const externalProgram = !!liveProgram?.Id?.startsWith(EXTERNAL_GUIDE_PREFIX);
+  const liveTimes = liveProgram ? programTimes(liveProgram) : null;
+  const timedProgram = !!liveTimes && Number.isFinite(liveTimes.startMs) && Number.isFinite(liveTimes.endMs) && liveTimes.endMs > liveTimes.startMs;
   const liveChannel = !!details && isLiveChannel(details);
   const live = !!liveProgram || liveChannel;
   const liveChannelId = (liveProgram ? details?.ChannelId : liveChannel ? details?.Id : undefined) ?? "";
   const liveChannelName = cleanLabel(liveProgram ? details?.ChannelName : liveChannel ? details?.Name : undefined);
   const canManage = useLiveTvManagement(live);
   const recording = useRecordActions(
-    live && canManage && liveChannelId
-      ? { programId: liveProgram ? details?.Id : undefined, channelId: liveChannelId, channelName: liveChannelName, program: liveProgram, timerId: params.timerId }
+    live && canManage && liveChannelId && (!externalProgram || timedProgram)
+      ? { programId: liveProgram && !externalProgram ? details?.Id : undefined, channelId: liveChannelId, channelName: liveChannelName, program: liveProgram, timerId: params.timerId }
       : null,
   );
   const recordTimer = recording.timer;
@@ -467,14 +472,17 @@ export default function VideoInfoScreen() {
   // is the one headline fact it does have, so it takes the runtime's place; the
   // dates and the rest live in the Details table.
   const liveCategory = liveProgram ? programCategory(liveProgram) : null;
-  const liveTimes = liveProgram ? programTimes(liveProgram) : null;
   const metaLine = !details
     ? ""
     : liveProgram && liveTimes
       ? joinMeta([
           liveChannelName,
-          `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", formatClock(liveTimes.startMs)).replace("{end}", formatClock(liveTimes.endMs))}`,
+          timedProgram
+            ? `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", formatClock(liveTimes.startMs)).replace("{end}", formatClock(liveTimes.endMs))}`
+            : "",
           liveCategory ? CATEGORY_LABELS[liveCategory]() : "",
+          genresLine,
+          details.OfficialRating,
         ])
       : photo
         ? formatPixelSize(details.Width, details.Height)
@@ -572,7 +580,7 @@ export default function VideoInfoScreen() {
     ? { position: "absolute" as const, top: Math.max(0, (heroArtArea - heroArt.height) / 2), left: (heroWidth - heroArt.width) / 2, width: heroArt.width, height: heroArt.height }
     : StyleSheet.absoluteFill;
   // The panel opens once the hero, the collage and the live CTAs have all answered, so it paints once.
-  const liveSettled = !live || !liveChannelId || canManage === false || (canManage === true && recording.settled);
+  const liveSettled = !live || !liveChannelId || (externalProgram && !timedProgram) || canManage === false || (canManage === true && recording.settled);
   const heroSettled = heroSource ? heroAspect != null || heroFailed : previewSettled;
   const ready = !!details && heroSettled && liveSettled;
 
@@ -613,7 +621,7 @@ export default function VideoInfoScreen() {
   ];
 
   const recordShown = recordTimer !== undefined && (!!recordTimer || !programEnded);
-  const seriesShown = recordTimer !== undefined && !!liveProgram?.IsSeries;
+  const seriesShown = recordTimer !== undefined && !!liveProgram?.IsSeries && !externalProgram;
   // Portrait phone puts Watch and Record side by side, as the TV row does, splitting the gutter width.
   // A lone button, and iPad's stack, stay content-sized like every other CTA.
   const livePaired = stackCtas && !IS_PAD && watchable && recordShown;

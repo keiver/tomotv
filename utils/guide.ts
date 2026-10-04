@@ -196,7 +196,7 @@ export function activeRecordTimer(
 ): JellyfinTimer | null {
   const byProgram = target.programId ? timers.find((candidate) => candidate.ProgramId === target.programId && isActiveTimer(candidate)) : undefined;
   if (byProgram) return byProgram;
-  const span = target.programId && target.program ? programTimes(target.program) : null;
+  const span = target.program ? programTimes(target.program) : null;
   return (
     timers.find((candidate) => {
       if (candidate.ChannelId !== target.channelId || !isActiveTimer(candidate)) return false;

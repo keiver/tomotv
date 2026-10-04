@@ -1,9 +1,11 @@
 /** The refresh press remounts the Live TV screen and its first load tells the viewer how it ended. */
 import LiveTvRoute from "@/app/live-tv";
+import { NO_GUIDE_PREFIX } from "@/utils/guide";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
 let mockCanvasMounts = 0;
+const mockPush = jest.fn();
 const mockGuide = { rows: [] as { programs: unknown[] }[], isLoading: false, isUpdating: false, error: null as string | null, nowMs: 0 };
 jest.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ isConnected: true, isReady: true }) }));
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn() }) }));
@@ -30,11 +32,53 @@ jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => n
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@/services/externalGuide", () => ({ refreshExternalGuide: jest.fn() }));
 jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
-jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useLocalSearchParams: () => ({}), useRouter: () => ({ push: jest.fn() }) }));
+jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useLocalSearchParams: () => ({}), useRouter: () => ({ push: mockPush }) }));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
 jest.mock("react-native-safe-area-context", () => {
   const { View } = jest.requireActual("react-native");
   return { SafeAreaListener: View, useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) };
+});
+
+describe("Live TV program info navigation", () => {
+  const channel = { Id: "c1", Name: "One", Type: "TvChannel" };
+  const program = { Id: "epg:c1:1", Name: "Evening News", Overview: "The day's headlines.", StartDate: new Date(60_000).toISOString(), EndDate: new Date(120_000).toISOString() };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.assign(mockGuide, { nowMs: 90_000, rows: [{ programs: [program] }], isLoading: false, isUpdating: false, error: null });
+  });
+
+  async function canvas() {
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(<LiveTvRoute />);
+    });
+    return tree.root.findByType(GuideCanvas).props;
+  }
+
+  it("preserves the selected external programme on long press and a future programme on press", async () => {
+    const props = await canvas();
+    props.onProgramLongPress(program, channel);
+    const destination = mockPush.mock.calls[0][0];
+    expect(destination).toMatchObject({ pathname: "/video-info", params: { videoId: "c1", name: "Evening News" } });
+    expect(JSON.parse(destination.params.guideProgram)).toEqual({ ...program, ChannelId: "c1", ChannelName: "One" });
+    const later = { ...program, Id: "epg:c1:2", Name: "Late News", StartDate: new Date(180_000).toISOString(), EndDate: new Date(240_000).toISOString() };
+    props.onProgramPress(later, channel);
+    expect(JSON.parse(mockPush.mock.calls[1][0].params.guideProgram)).toMatchObject(later);
+  });
+
+  it("keeps an airing programme's press tuned to its channel", async () => {
+    (await canvas()).onProgramPress(program, channel);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
+  });
+
+  it("still fetches a server programme by id and opens a no-guide cell on the channel", async () => {
+    const props = await canvas();
+    props.onProgramLongPress({ ...program, Id: "server-program" }, channel);
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/video-info", params: { videoId: "server-program", name: "Evening News" } });
+    props.onProgramLongPress({ ...program, Id: `${NO_GUIDE_PREFIX}c1` }, channel);
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/video-info", params: { videoId: "c1", name: "One" } });
+  });
 });
 
 const { GuideCanvas } = jest.requireMock("@/components/live-tv/guide-canvas") as { GuideCanvas: React.ComponentType };
