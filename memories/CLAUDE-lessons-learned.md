@@ -2587,9 +2587,10 @@ from ~750ms of black to 150ms.
 - A timer that waits for a native callback is only sound if that callback can
   still be delivered. Check where the delegate is detached before trusting the
   wait.
-- Phone PiP never reports `isActive: false` after a hand-off for this same
-  reason, which is why the route cannot be popped while keeping the session
-  alive on iOS (`releaseRoute` detaches on tvOS only).
+- The same detach cut the hand-off window's stop and restore callbacks. The
+  react-native-video patch keeps the delegate on the controller AVKit hands
+  PiP to (`playerViewControllerWillStartPictureInPicture`) until the window
+  stops, so both reach JS and the route leaves on PiP start on both platforms.
 
 ### Files
 
