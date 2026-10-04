@@ -34,6 +34,8 @@
   "scripts": {
     "postinstall": "patch-package --error-on-fail && node scripts/generate-licenses.mjs --if-stale && bash scripts/check-cocoapods.sh",
     "fetch:ffmpeg": "node packages/tomo-engine/scripts/fetch-ffmpeg.js",
+    "release:engine": "npm version --no-git-tag-version -w packages/tomo-engine",
+    "release:live": "npm version --no-git-tag-version -w packages/tomo-live",
     "build:ffmpeg": "bash scripts/ffmpeg/build.sh",
     "prestart": "bash scripts/check-firewall.sh",
     "start": "expo start --dev-client",
@@ -82,8 +84,8 @@
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
     "@expo/vector-icons": "^15.0.2",
-    "@keiver/tomo-engine": "0.1.0",
-    "@keiver/tomo-live": "0.1.0",
+    "@keiver/tomo-engine": "^1.0.0",
+    "@keiver/tomo-live": "^1.0.0",
     "entities": "^6.0.1",
     "expo": "^57.0.0",
     "expo-blur": "~57.0.3",

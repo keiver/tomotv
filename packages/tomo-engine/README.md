@@ -35,3 +35,10 @@ playlist loader directly. See `NOTICE.md` for the licenses of the linked librari
 ```sh
 swift test --package-path packages/tomo-engine
 ```
+
+## Releasing
+
+Bump the version in the PR that carries the change (`npm run release:engine -- patch`, from the
+repository root) and add its `CHANGELOG.md` entry. When the PR merges to `main`,
+`.github/workflows/publish-packages.yml` publishes any version npm does not have yet, with
+provenance, and creates the `tomo-engine-v<version>` GitHub release.

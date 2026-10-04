@@ -1,0 +1,70 @@
+name: Publish packages
+
+# Publishes @keiver/tomo-engine and @keiver/tomo-live when their package.json carries a
+# version npm does not have yet. The bump lands in the PR (npm run release:engine -- patch);
+# this workflow never commits, so main's protection stays as it is. Auth is npm trusted
+# publishing (OIDC), configured per package on npmjs.com against this workflow file.
+
+on:
+  push:
+    branches: [main]
+    paths: ["packages/*/package.json"]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to publish at the version in its package.json
+        type: choice
+        options: [tomo-engine, tomo-live]
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: publish-packages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      # Engine first: tomo-live peer-depends on it.
+      - name: Publish what npm does not have
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ONLY: ${{ inputs.package }}
+        run: |
+          for pkg in tomo-engine tomo-live; do
+            if [ -n "$ONLY" ] && [ "$ONLY" != "$pkg" ]; then continue; fi
+            dir="packages/$pkg"
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on npm"
+              continue
+            fi
+            npm publish -w "$dir"
+            awk -v v="## $version" '$0 == v {found=1; next} found && /^## / {exit} found {print}' "$dir/CHANGELOG.md" > notes.md
+            gh release create "$pkg-v$version" --target "$GITHUB_SHA" --title "$name $version" --notes-file notes.md
+          done

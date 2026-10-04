@@ -42,3 +42,10 @@ configureLive({
 
 `LiveChannels` in `src/config.ts` documents each member. Logging goes through the engine's
 `configureEngine({ log })`.
+
+## Releasing
+
+Bump the version in the PR that carries the change (`npm run release:live -- patch`, from the
+repository root) and add its `CHANGELOG.md` entry. When the PR merges to `main`,
+`.github/workflows/publish-packages.yml` publishes any version npm does not have yet, with
+provenance, and creates the `tomo-live-v<version>` GitHub release.
