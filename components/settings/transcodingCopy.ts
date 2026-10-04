@@ -1,4 +1,4 @@
-/** The Server transcoding setting's copy: one title and hint per level, and what the server's own policy adds. */
+/** The Server transcoding setting's copy: one title and hint per level, and what the server itself allows this account. */
 import { t } from "@/services/i18n";
 import type { StringKey } from "@/services/i18n/strings";
 import type { TranscodePermissions } from "@/services/jellyfin/transcodePermissions";
@@ -18,12 +18,18 @@ export function transcodingLevelHint(level: ServerTranscoding): string {
   return t(LEVEL_KEYS[level].hint);
 }
 
-/** What the server forbids this account, in the server's words; null while allowed or unread. */
-export function serverTranscodingNotice(permissions: TranscodePermissions | null): string | null {
+/** The server's own setting for this account, as the page's status row states it; null until read. */
+export interface ServerTranscodingStatus {
+  state: "on" | "off" | "audioOff";
+  title: string;
+  subtitle: string;
+}
+
+export function serverTranscodingStatus(permissions: TranscodePermissions | null): ServerTranscodingStatus | null {
   if (!permissions) return null;
-  if (!permissions.video) return t("settings.transcoding.serverForbidsVideo");
-  if (!permissions.audio) return t("settings.transcoding.serverForbidsAudio");
-  return null;
+  if (!permissions.video) return { state: "off", title: t("settings.transcoding.serverForbidsVideoTitle"), subtitle: t("settings.transcoding.serverForbidsVideo") };
+  if (!permissions.audio) return { state: "audioOff", title: t("settings.transcoding.serverForbidsAudioTitle"), subtitle: t("settings.transcoding.serverForbidsAudio") };
+  return { state: "on", title: t("settings.transcoding.serverOn"), subtitle: t("settings.transcoding.serverOnHint") };
 }
 
 /** The Settings tab row's second line: the server's refusal leads, the device's level otherwise. */

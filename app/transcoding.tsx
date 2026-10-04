@@ -1,11 +1,9 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
-import { SectionFooter } from "@/components/settings/SectionFooter";
 import { StreamingQuality } from "@/components/settings/StreamingQuality";
 import { settingsStyles, TV_PUSHED_HEADER_TOP } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
-import { serverTranscodingNotice, transcodingLevelHint, transcodingLevelTitle } from "@/components/settings/transcodingCopy";
-import { COLORS } from "@/constants/colors";
+import { serverTranscodingStatus, transcodingLevelHint, transcodingLevelTitle } from "@/components/settings/transcodingCopy";
 import { useTranscodePermissions } from "@/hooks/useTranscodePermissions";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { t } from "@/services/i18n";
@@ -26,9 +24,10 @@ export default function TranscodingScreen() {
   const [qualityTop, setQualityTop] = useState(0);
   const { serverTranscoding } = useUiPreferences();
   const permissions = useTranscodePermissions();
-  // The server's own refusal heads the card: whatever is chosen below, it rules.
-  const notice = serverTranscodingNotice(permissions);
-  const showQuality = serverTranscoding !== "never" && permissions?.video !== false;
+  // The server's own setting heads the page: whatever is chosen below, it rules.
+  const status = serverTranscodingStatus(permissions);
+  const serverOff = status?.state === "off";
+  const showQuality = serverTranscoding !== "never" && !serverOff;
 
   useEffect(() => {
     void refreshTranscodePermissions();
@@ -40,17 +39,29 @@ export default function TranscodingScreen() {
 
   const content = (
     <View style={settingsStyles.contentContainer}>
+      {status ? (
+        <>
+          <View style={settingsStyles.sectionHeader}>
+            <Text style={settingsStyles.sectionHeaderText}>{t("settings.transcoding.serverHeader")}</Text>
+          </View>
+          <View style={settingsStyles.section} accessibilityRole={status.state === "on" ? undefined : "alert"}>
+            <ListRow
+              icon={status.state === "on" ? "checkmark-circle" : status.state === "off" ? "close-circle" : "alert-circle"}
+              title={status.title}
+              subtitle={status.subtitle}
+              subtitleLines={0}
+              tone={status.state === "off" ? "destructive" : "default"}
+              hasTVPreferredFocus={serverOff}
+              isFirst
+              isLast
+            />
+          </View>
+        </>
+      ) : null}
       <View style={settingsStyles.sectionHeader}>
         <Text style={settingsStyles.sectionHeaderText}>{t("settings.transcoding.header")}</Text>
       </View>
       <View style={settingsStyles.section}>
-        {notice ? (
-          <SectionFooter edge="top">
-            <Text style={[settingsStyles.sectionNote, styles.notice]} accessibilityRole="alert">
-              {notice}
-            </Text>
-          </SectionFooter>
-        ) : null}
         {SERVER_TRANSCODING_LEVELS.map((level, index) => {
           const selected = serverTranscoding === level;
           return (
@@ -61,9 +72,11 @@ export default function TranscodingScreen() {
               subtitleLines={0}
               trailingIcon={selected ? tick : undefined}
               onPress={() => pick(level)}
-              hasTVPreferredFocus={selected}
-              accessibilityState={{ selected }}
-              isFirst={index === 0 && !notice}
+              // The server has the last word: its refusal leaves nothing here to choose.
+              disabled={serverOff}
+              hasTVPreferredFocus={selected && !serverOff}
+              accessibilityState={{ selected, disabled: serverOff }}
+              isFirst={index === 0}
               isLast={index === SERVER_TRANSCODING_LEVELS.length - 1}
             />
           );
@@ -97,9 +110,5 @@ const styles = StyleSheet.create({
   },
   page: {
     alignItems: "center",
-  },
-  // The softer red: the one that clears 4.5:1 on the sunken band (ListRow's destructive ink).
-  notice: {
-    color: COLORS.DESTRUCTIVE_SOFT,
   },
 });

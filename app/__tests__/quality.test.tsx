@@ -86,10 +86,10 @@ describe("Streaming quality", () => {
     const tree = await mount();
     expect(ticked(tree, "Up to 1080p")).toBe(true);
 
-    await act(async () => row(tree, "Never").props.onPress());
+    await act(async () => row(tree, "Off").props.onPress());
     expect(tree.root.findAllByProps({ testID: "row:Up to 1080p" })).toHaveLength(0);
 
-    await act(async () => row(tree, "Only for files this device can't play").props.onPress());
+    await act(async () => row(tree, "Only for unsupported files").props.onPress());
     expect(ticked(tree, "Up to 1080p")).toBe(true);
     expect(SecureStore.setItemAsync).not.toHaveBeenCalled();
   });
