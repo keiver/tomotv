@@ -18,7 +18,7 @@ Pod::Spec.new do |s|
   s.author       = package["author"]
   s.source       = { :path => "." }
 
-  s.ios.deployment_target  = "15.1"
+  s.ios.deployment_target  = "16.4"
   s.tvos.deployment_target = "16.4"
   s.swift_versions = ["5.0"]
 
