@@ -10,3 +10,4 @@ First release, extracted from Tomo TV.
 - Config plugin that places the three pods in the generated Podfile.
 - Typed JS API: `startSession` and the session calls, engine events, codec tables, link and origin probes, live frame grabs, poster frames, repackaging, subtitle resolution, image subtitle manifests, CODECS builders, guide and playlist wrappers, `probeInput`.
 - A session's stop requests are the app's: the engine fires what it is handed and knows no server route.
+- Verdict store: below-realtime measurements per file on this device, under the app's key and build label, held after two agree, 30 minutes.

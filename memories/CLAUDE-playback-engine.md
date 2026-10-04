@@ -87,8 +87,9 @@ by the session itself.
   (`preflight.keptForTier`): the master opens on a rung, so the engine's own
   segment 0 is not the startup gate and a slow link is not a verdict against
   the device. See `memories/CLAUDE-slipstream.md`.
-- **Remembered per file.** `services/engineVerdicts.ts` keeps
-  `Documents/engine-verdicts.json`, keyed by server, item and media source. A
+- **Remembered per file.** `packages/tomo-engine/src/verdicts.ts` keeps
+  `Documents/engine-verdicts.json`, keyed by server, item and media source
+  (`services/engineVerdicts.ts` builds the key). A
   verdict is written only from a clean sample (thermal nominal or fair, no
   download repackage running); a session that produced no segment within
   the deadline is remembered too (`recordTimeoutVerdict`). A verdict only

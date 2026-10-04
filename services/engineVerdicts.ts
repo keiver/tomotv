@@ -1,73 +1,19 @@
 /**
- * engineVerdicts.ts
- *
- * What the engine measured about a file on this device. A session that ran below realtime is
- * remembered, and once two of them agree the next play takes the server lane from the first
- * request. Two, because a segment's time includes reading the source, so one slow measurement can
- * be the link rather than the device. A verdict expires (VERDICT_TTL_MS) so the live pre-flight
- * probe measures again: a device's decode speed is stable but a link is not. A verdict from another
- * app build does not count.
+ * Tomo's keys over the engine's verdict store (@keiver/tomo-engine): item ids repeat across
+ * servers, so the server is part of the key, and the running build stamps every verdict.
  */
 import { APP_BUILD_LABEL } from "@/constants/app";
 import { getConfig } from "@/services/jellyfin/session";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { File, Paths } from "expo-file-system";
-import { Platform } from "react-native";
+import { sampleIsClean, storedVerdict, storeVerdict, type EngineVerdict, type VerdictSample } from "@keiver/tomo-engine";
 
-/** The regression driver clears it before every item: the simulator run deletes it, a probe URL arming clears it. */
-export const VERDICTS_FILENAME = "engine-verdicts.json";
+export { clearVerdicts, sampleIsClean, VERDICT_STRIKES, VERDICT_TTL_MS, VERDICTS_FILENAME, type EngineVerdict } from "@keiver/tomo-engine";
 
-/** Measurements that agreed before a file is held to the server lane. */
-export const VERDICT_STRIKES = 2;
-
-/** A verdict older than this stops counting; the next play re-probes the link live. */
-export const VERDICT_TTL_MS = 30 * 60 * 1000;
-
-export type EngineVerdict = { app: string; at: number; reason: string; produceSeconds: number; segmentSeconds: number; thermal: string; strikes: number };
-
-type VerdictSample = { produceSeconds?: number; segmentSeconds: number; thermal: string };
 type VerdictItem = Pick<JellyfinVideoItem, "Id" | "MediaSources">;
 
-let verdicts: Record<string, EngineVerdict> | null = null;
-
-function verdictsFile(): File {
-  // tvOS grants an app no writable Documents; its caches are the persistent store it has.
-  return new File(Platform.isTV ? Paths.cache : Paths.document, VERDICTS_FILENAME);
-}
-
-function load(): Record<string, EngineVerdict> {
-  if (verdicts) return verdicts;
-  try {
-    const file = verdictsFile();
-    verdicts = file.exists ? (JSON.parse(file.textSync()) as Record<string, EngineVerdict>) : {};
-  } catch (error) {
-    logger.warn("Engine verdicts read failed", error, { service: "EngineVerdicts" });
-    verdicts = {};
-  }
-  return verdicts;
-}
-
-function save(): void {
-  try {
-    const file = verdictsFile();
-    if (file.exists) file.delete();
-    file.create();
-    file.write(JSON.stringify(verdicts ?? {}));
-  } catch (error) {
-    logger.warn("Engine verdicts write failed", error, { service: "EngineVerdicts" });
-  }
-}
-
-/** Item ids repeat across servers, so the server is part of the key. */
 export function verdictKey(server: string, item: VerdictItem): string {
   return `${server}:${item.Id}:${item.MediaSources?.[0]?.Id ?? ""}`;
-}
-
-/** A sample counts only when nothing else loaded the device: a throttled box measures its
- *  throttle, and a download repackage shares the cores. */
-export function sampleIsClean(sample: VerdictSample, busy: boolean): boolean {
-  return sample.produceSeconds != null && !busy && (sample.thermal === "nominal" || sample.thermal === "fair");
 }
 
 /** The verdict this build recorded for the item on this device, or null while it stands alone.
@@ -75,19 +21,11 @@ export function sampleIsClean(sample: VerdictSample, busy: boolean): boolean {
 export async function rememberedVerdict(item: VerdictItem): Promise<EngineVerdict | null> {
   try {
     const { server } = await getConfig();
-    const verdict = load()[verdictKey(server, item)];
-    const fresh = verdict != null && Date.now() - verdict.at <= VERDICT_TTL_MS;
-    return fresh && verdict.app === APP_BUILD_LABEL && verdict.strikes >= VERDICT_STRIKES ? verdict : null;
+    return storedVerdict(verdictKey(server, item), APP_BUILD_LABEL);
   } catch (error) {
     logger.warn("Engine verdict lookup failed", error, { service: "EngineVerdicts" });
     return null;
   }
-}
-
-function strikesFor(key: string): number {
-  const stored = load()[key];
-  if (!stored || stored.app !== APP_BUILD_LABEL || Date.now() - stored.at > VERDICT_TTL_MS) return 0;
-  return stored.strikes;
 }
 
 /** Records a below-realtime measurement; false when the sample was not clean enough to keep. */
@@ -95,17 +33,7 @@ export async function recordVerdict(item: VerdictItem, sample: VerdictSample, re
   if (!sampleIsClean(sample, busy)) return false;
   try {
     const { server } = await getConfig();
-    const key = verdictKey(server, item);
-    load()[key] = {
-      app: APP_BUILD_LABEL,
-      at: Date.now(),
-      reason,
-      produceSeconds: sample.produceSeconds as number,
-      segmentSeconds: sample.segmentSeconds,
-      thermal: sample.thermal,
-      strikes: strikesFor(key) + 1,
-    };
-    save();
+    storeVerdict(verdictKey(server, item), APP_BUILD_LABEL, { reason, produceSeconds: sample.produceSeconds as number, segmentSeconds: sample.segmentSeconds, thermal: sample.thermal });
     return true;
   } catch (error) {
     logger.warn("Engine verdict record failed", error, { service: "EngineVerdicts" });
@@ -119,25 +47,10 @@ export async function recordTimeoutVerdict(item: VerdictItem, deadlineSeconds: n
   if (busy) return false;
   try {
     const { server } = await getConfig();
-    const key = verdictKey(server, item);
-    load()[key] = {
-      app: APP_BUILD_LABEL,
-      at: Date.now(),
-      reason: `no segment within ${deadlineSeconds}s`,
-      produceSeconds: deadlineSeconds,
-      segmentSeconds: 0,
-      thermal: "unknown",
-      strikes: strikesFor(key) + 1,
-    };
-    save();
+    storeVerdict(verdictKey(server, item), APP_BUILD_LABEL, { reason: `no segment within ${deadlineSeconds}s`, produceSeconds: deadlineSeconds, segmentSeconds: 0, thermal: "unknown" });
     return true;
   } catch (error) {
     logger.warn("Engine verdict record failed", error, { service: "EngineVerdicts" });
     return false;
   }
-}
-
-export function clearVerdicts(): void {
-  verdicts = {};
-  save();
 }

@@ -247,7 +247,7 @@ The engine lane has one size gate: 8K video the device does not copy (`needsSing
 that the engine times segment 0 before the player is bound
 and the player takes the server lane when that segment ran below realtime (`fallback` event,
 reason `engine below realtime`, no `error`, no restart), then remembers the file in
-`engine-verdicts.json` (`services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS).
+`engine-verdicts.json` (stored by `packages/tomo-engine/src/verdicts.ts`, keyed by `services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS).
 
 Arming the probe with the driver's URL clears the verdicts before every item, so a verdict from an
 earlier run cannot change the first mode the manifest asserts. Outside the suite the file persists:

@@ -9,3 +9,4 @@ export * from "./session";
 export * from "./subtitles";
 export * from "./tags";
 export * from "./throughput";
+export * from "./verdicts";
