@@ -35,6 +35,14 @@ interface TunerHost {
   UserAgent?: string;
 }
 
+const LOOPBACK_ORIGIN = /^(https?:\/\/)(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?=[:/?#]|$)/i;
+
+/** A tuner the server reads on its own loopback is at the server's host for this device. */
+function reachableTunerUrl(tunerUrl: string, server: string): string {
+  const host = /^https?:\/\/([^/?#:]+|\[[^\]]+\])/i.exec(server)?.[1];
+  return host ? tunerUrl.replace(LOOPBACK_ORIGIN, `$1${host}`) : tunerUrl;
+}
+
 const TUNER_GROUPS_TTL_MS = 60 * 60 * 1000;
 /** A failed read is not retried before this passes, or every screen mount re-streams the playlists. */
 const TUNER_GROUPS_FAILURE_TTL_MS = 5 * 60 * 1000;
@@ -110,7 +118,7 @@ export async function fetchTunerData(options: { revalidate?: boolean } = {}): Pr
           const tunerKey = `${key}|${tuner.Url}`;
           let playlist: TunerPlaylist | undefined;
           try {
-            playlist = await loadTunerPlaylist(`tuner-${++requestSeq}`, tuner.Url!, tuner.UserAgent);
+            playlist = await loadTunerPlaylist(`tuner-${++requestSeq}`, tuner.Url!, tuner.UserAgent, reachableTunerUrl(tuner.Url!, config.server));
             if (gen === generation) lastPlaylist.set(tunerKey, playlist);
           } catch (error) {
             logger.warn("Tuner playlist read failed", error, { service: "TunerGroups" });

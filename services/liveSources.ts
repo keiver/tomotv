@@ -37,10 +37,11 @@ export function isTunerGroupsAvailable(): boolean {
 
 /**
  * Streams the M3U tuner at `url` natively and resolves its `group-title` groups and per-channel
- * tvg-ids, keyed by the item ids the server gave the entries. `cancelTunerGroups` stops a load.
+ * tvg-ids, keyed by the item ids the server gave the entries. `fetchUrl` is where this device reads
+ * it when that differs from the stored `url` the ids hash. `cancelTunerGroups` stops a load.
  */
-export async function loadTunerPlaylist(requestId: string, url: string, userAgent?: string): Promise<TunerPlaylist> {
-  const result = (await TunerGroups.loadTunerGroups({ requestId, url, ...(userAgent ? { userAgent } : {}) })) as { groups?: unknown; channels?: unknown; tvgUrls?: unknown } | null;
+export async function loadTunerPlaylist(requestId: string, url: string, userAgent?: string, fetchUrl: string = url): Promise<TunerPlaylist> {
+  const result = (await TunerGroups.loadTunerGroups({ requestId, url, fetchUrl, ...(userAgent ? { userAgent } : {}) })) as { groups?: unknown; channels?: unknown; tvgUrls?: unknown } | null;
   const groups = result?.groups;
   if (!Array.isArray(groups)) throw new Error("The tuner groups module returned no groups.");
   return {

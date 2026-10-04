@@ -18,7 +18,8 @@ class TunerGroupsModule: NSObject {
     @objc static func requiresMainQueueSetup() -> Bool { false }
 
     @objc func loadTunerGroups(_ config: NSDictionary, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-        guard let requestId = config["requestId"] as? String, let text = config["url"] as? String, let url = URL(string: text) else {
+        guard let requestId = config["requestId"] as? String, let text = config["url"] as? String,
+              let url = URL(string: config["fetchUrl"] as? String ?? text) else {
             reject("invalid_config", "loadTunerGroups needs requestId and url", nil)
             return
         }
