@@ -34,6 +34,7 @@ export function UiSection() {
         <ListRow
           icon="image"
           title={t("settings.devicePosters")}
+          subtitle={t("settings.devicePostersHint")}
           trailingIcon={devicePosters ? tick : undefined}
           onPress={toggleDevicePosters}
           isLast
