@@ -31,7 +31,8 @@ const FilterChipComponent = forwardRef<View, FilterChipProps>(function FilterChi
       tvParallaxProperties={{ magnification: 1.01 }}
       style={({ focused, pressed }) => [styles.chip, selected && styles.chipSelected, focused && styles.chipFocused, pressed && styles.chipPressed]}>
       {({ focused }) => (
-        <View style={styles.content}>
+        // Kept in the native tree: flattened, the optional checkmark renumbers the focusable's children.
+        <View style={styles.content} collapsable={false}>
           {selected && <Ionicons name="checkmark" size={IS_TV ? 22 : 16} color={focused ? CARD_FOCUS.TITLE_TEXT_FOCUSED : CARD_FOCUS.GLOW_COLOR} />}
           <Text style={[styles.label, selected && styles.labelSelected, focused && styles.labelFocused]} numberOfLines={1}>
             {label}

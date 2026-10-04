@@ -45,7 +45,8 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure, onFocus,
         {t("settings.streamingQuality")}
       </Text>
       <View style={styles.rate}>
-        {rateInk != null ? <Ionicons name={SERVER_GLYPH} size={GLYPH} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : rateInk} /> : null}
+        {/* Always mounted, shown by opacity: a focusable's children never come and go (see ListRow). */}
+        <Ionicons name={SERVER_GLYPH} size={GLYPH} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : (rateInk ?? COLORS.SUCCESS)} style={rateInk == null && styles.glyphHidden} />
         <Text style={[settingsStyles.sectionHeaderText, rateInk != null && { color: rateInk }, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
           {rate.toUpperCase()}
         </Text>
@@ -103,6 +104,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Platform.isTV ? 10 : 6,
+  },
+  glyphHidden: {
+    opacity: 0,
   },
   pressed: {
     opacity: 0.6,

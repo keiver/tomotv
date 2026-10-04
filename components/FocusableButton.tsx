@@ -111,7 +111,8 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
         busy: isLoading,
       }}
       tvParallaxProperties={pressableProps.tvParallaxProperties ?? { magnification: 1.05, pressMagnification: 1.0 }}>
-      <View style={styles.buttonContent}>
+      {/* Kept in the native tree: flattened, the spinner swap and optional title renumber the focusable's children. */}
+      <View style={styles.buttonContent} collapsable={false}>
         {isLoading ? (
           <ActivityIndicator color={variant === "primary" ? COLORS.ON_ACCENT : variant === "record" ? COLORS.DESTRUCTIVE : COLORS.ACCENT} size={"small"} />
         ) : (
