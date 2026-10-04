@@ -70,6 +70,27 @@ describe("network gateway item recovery", () => {
     },
   );
 
+  it.each([PlaybackErrorType.DECODE, PlaybackErrorType.CORRUPT, PlaybackErrorType.UNKNOWN])("ends at the error when the engine fails %s again after its one fresh session", (errorType) => {
+    expect(planErrorRecovery({ ...base, networkGateway: true, serverTranscodingAllowed: false, hasRetriedGateway: true, errorType, hasTriedRemuxRestart: true })).toMatchObject({
+      retryGateway: false,
+      engineSpent: true,
+      latchTranscodeUpFront: false,
+      willRetryWithTranscode: false,
+      action: { kind: "reportError" },
+    });
+  });
+
+  it.each([PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT])("keeps retrying the engine after %s, which the link can outlast", (errorType) => {
+    expect(planErrorRecovery({ ...base, networkGateway: true, serverTranscodingAllowed: false, hasRetriedGateway: true, errorType, hasTriedRemuxRestart: true })).toMatchObject({
+      retryGateway: true,
+      engineSpent: false,
+    });
+  });
+
+  it("never spends the engine while the server is still a rung", () => {
+    expect(planErrorRecovery({ ...base, networkGateway: true, hasRetriedGateway: true }).engineSpent).toBe(false);
+  });
+
   it("preserves credential refresh when server video is forbidden", () => {
     expect(planErrorRecovery({ ...base, networkGateway: true, serverTranscodingAllowed: false, errorType: PlaybackErrorType.UNAUTHORIZED }).action).toEqual({ kind: "refreshCredentials" });
   });

@@ -21,7 +21,7 @@ import {
   openChannel,
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
-import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
+import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock, type ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
@@ -85,13 +85,22 @@ import {
 import { audioLanguageToStore, getAudioPreferenceSync, preferredAudioStreamIndex, readAudioPreference, saveAudioPreference } from "@/services/audioPreference";
 import { refreshTrackSettings } from "@/services/jellyfin/trackSettings";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
+import { t } from "@/services/i18n";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { gatewayMaxBitRate } from "@/services/adaptiveQuality";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
 import { getQualitySettings } from "@/services/jellyfin/session";
 import { videoPlayerReducer, type PlaybackMode, type PlaybackTransport, type VideoPlayerState } from "./videoPlayback/machine";
-import { automaticRetryDelay, planErrorRecovery, planLiveErrorRecovery, shouldAutomaticallyRetry } from "./videoPlayback/errorRecovery";
+import {
+  automaticRetryDelay,
+  engineSpentWithoutServer,
+  planErrorRecovery,
+  planLiveErrorRecovery,
+  ServerTranscodeOffError,
+  serverOffForError,
+  shouldAutomaticallyRetry,
+} from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
 import { segmentSkipTarget } from "./videoPlayback/segmentSkip";
@@ -137,6 +146,10 @@ export type { ErrorRecoveryDecision, ErrorRecoveryInput } from "./videoPlayback/
  */
 function fail(message: string): never {
   throw new Error(message);
+}
+
+function failServerOff(by: ServerTranscodeBlock): never {
+  throw new ServerTranscodeOffError(by);
 }
 
 /** Work of ours on the same cores and the same link, so the sample is not the file's: a
@@ -316,6 +329,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const retryProgressStartRef = useRef<number | null>(null);
   // When the first automatic retry of this run fired; null once 30s of playback lands.
   const retryWindowStartRef = useRef<number | null>(null);
+  // The engine took its one fresh session after a failure; with the server ruled out, the next failure is final.
+  const gatewayRetriedRef = useRef(false);
   const retryingForMs = useCallback(() => (retryWindowStartRef.current === null ? 0 : Date.now() - retryWindowStartRef.current), []);
   const resumePausedRef = useRef<boolean | null>(null);
   const gatewayRecoveryRef = useRef<{ token: string; attempt: number; position: number; timer: ReturnType<typeof setTimeout> } | null>(null);
@@ -684,6 +699,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
 
       const lane = selectLane(gates, { canRemux, subtitlesOff: getSubtitlePreferenceSync().kind === "off" });
+      const serverBlock = lane.mode === "transcode" && !gates.heldOnDisk ? serverTranscodeBlock(details) : null;
+      if (serverBlock) failServerOff(serverBlock);
       if (lane.unplayable) fail(lane.unplayable);
       const selectedMode = lane.mode;
       burnInSubtitleIndexRef.current = lane.burnInSubtitleIndex;
@@ -748,6 +765,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // Classify error and provide user-friendly message
       const errorType = classifyPlaybackError(err);
       const errorMessage = getPlaybackErrorMessage(errorType);
+      const serverOff = serverOffForError(err, errorType, null, playsFromDisk(videoId));
 
       if (openedLiveStreamId) {
         void closeLiveStream(openedLiveStreamId);
@@ -756,11 +774,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       // An attempt the viewer already left: its failure belongs to no channel on screen.
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
-      const autoRetry = shouldAutomaticallyRetry({ live: isLiveRef.current, heldOnDisk: playsFromDisk(videoId), errorType, ladderSpent: true, retryingForMs: retryingForMs() });
+      // No lane takes the item, so no stage stopped and no retry can change the answer.
+      if (serverOff) resetPlaybackStages();
+      const autoRetry = !serverOff && shouldAutomaticallyRetry({ live: isLiveRef.current, heldOnDisk: playsFromDisk(videoId), errorType, ladderSpent: true, retryingForMs: retryingForMs() });
       probeEmit("error", { mode: "metadata", message: String(err), willRetry: autoRetry });
       dispatch({
         type: "PLAYER_ERROR",
-        error: { message: errorMessage },
+        error: { message: errorMessage, ...(serverOff ? { serverOff } : {}) },
         mode: "direct",
         hasTriedTranscode: true,
         autoRetry,
@@ -1361,7 +1381,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         };
 
         const openServerLane = async (): Promise<void> => {
-          if (serverDenied) fail("Server transcoding is not permitted for this source");
+          if (serverDenied) failServerOff(serverTranscodeBlock(details) ?? "device");
           // One transcode job, where the gateway's rungs and audio carriers each decode the source.
           const singleTranscode = await needsSingleServerTranscode(details);
           if (!ownsAttempt()) return;
@@ -1478,9 +1498,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               probeEmit("error", { mode: "localRemux", message: remuxError instanceof Error ? remuxError.message : String(remuxError), willRetry: false });
               void closeLiveStream(liveStreamIdRef.current);
               liveStreamIdRef.current = null;
+              const errorType = classifyPlaybackError(remuxError);
+              const serverOff = serverOffForError(remuxError, errorType, serverTranscodeBlock(details), false);
               dispatch({
                 type: "PLAYER_ERROR",
-                error: { message: getPlaybackErrorMessage(classifyPlaybackError(remuxError)) },
+                error: { message: getPlaybackErrorMessage(errorType), ...(serverOff ? { serverOff } : {}) },
                 mode: "localRemux",
                 hasTriedTranscode: true,
               });
@@ -1633,20 +1655,27 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         }
 
         logger.error("Error generating stream URL", error, { service: "useVideoPlayback" });
+        const errorType = classifyPlaybackError(error);
+        const serverOff = serverOffForError(error, errorType, serverDenied ? serverTranscodeBlock(details) : null, false);
+        if (serverOff?.needed) resetPlaybackStages();
+        const engineSpent = serverDenied && mode === "localRemux" && engineSpentWithoutServer({ errorType, serverTranscodingAllowed: false, hasRetriedGateway: gatewayRetriedRef.current });
+        const final = serverOff?.needed === true || engineSpent;
 
         dispatch({
           type: "PLAYER_ERROR",
           error: {
-            message: "Failed to create video stream. Please check your settings.",
+            message: t("player.error.streamFailed"),
+            ...(serverOff ? { serverOff } : {}),
           },
           mode,
           hasTriedTranscode: hasTriedTranscodingRef.current,
-          ...(serverDenied && mode === "localRemux" ? { retryGateway: true } : {}),
+          ...(serverDenied && mode === "localRemux" && !final ? { retryGateway: true } : {}),
           ...(!isLiveRef.current && !playsFromDisk(videoId)
             ? {
                 autoRetry:
                   !(serverDenied && mode === "transcode") &&
-                  shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType: classifyPlaybackError(error), ladderSpent: hasTriedTranscodingRef.current, retryingForMs: retryingForMs() }),
+                  !final &&
+                  shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType, ladderSpent: hasTriedTranscodingRef.current, retryingForMs: retryingForMs() }),
               }
             : {}),
         });
@@ -1810,7 +1839,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 dispatch({
                   type: "PLAYER_ERROR",
                   error: {
-                    message: "Failed to start video playback. The video file may be corrupted or incompatible.",
+                    message: t("player.error.startFailed"),
                   },
                   mode: currentModeRef.current,
                   hasTriedTranscode: hasTriedTranscoding,
@@ -1850,6 +1879,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (data.currentTime - retryProgressStartRef.current >= 30) {
         retryAttemptRef.current = 0;
         retryWindowStartRef.current = null;
+        gatewayRetriedRef.current = false;
       }
       const recovery = gatewayRecoveryRef.current;
       if (recovery && data.currentTime > recovery.position + PLAYHEAD_EPSILON_SEC) {
@@ -2076,7 +2106,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         const attempt = requestIdRef.current;
         setImmediate(() => {
           if (!isMountedRef.current || requestIdRef.current !== attempt) return;
-          dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType) }, mode: currentMode, hasTriedTranscode: !retry });
+          const serverOff = retry ? undefined : serverOffForError(error.error, errorType, serverTranscodeBlock(videoDetails), false);
+          dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType), ...(serverOff ? { serverOff } : {}) }, mode: currentMode, hasTriedTranscode: !retry });
         });
         return;
       }
@@ -2096,6 +2127,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         hasDroppedSubtitles: heldEngineSpentRef.current,
         networkGateway: transportRef.current === "gateway" && !playsFromDisk(videoId),
         serverTranscodingAllowed: !videoDetails || serverTranscodeAllowed(videoDetails),
+        hasRetriedGateway: gatewayRetriedRef.current,
       });
       const { willRetryWithTranscode } = decision;
 
@@ -2229,18 +2261,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
 
       const errorMessage = getPlaybackErrorMessage(errorType);
+      const serverOff = serverOffForError(error.error, errorType, videoDetails ? serverTranscodeBlock(videoDetails) : null, playsFromDisk(videoId));
 
       // Deferred a tick: onError arrives from a native callback.
       setImmediate(() => {
         if (!isMountedRef.current || requestIdRef.current !== attempt) return;
         dispatch({
           type: "PLAYER_ERROR",
-          error: { message: errorMessage },
+          error: { message: errorMessage, ...(serverOff ? { serverOff } : {}) },
           mode: currentMode,
           hasTriedTranscode: hasTriedTranscodingRef.current,
           ...(decision.retryGateway ? { retryGateway: true } : {}),
           ...(!playsFromDisk(videoId)
-            ? { autoRetry: shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType, ladderSpent: !willRetryWithTranscode, retryingForMs: retryingForMs() }) }
+            ? { autoRetry: !decision.engineSpent && shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType, ladderSpent: !willRetryWithTranscode, retryingForMs: retryingForMs() }) }
             : {}),
         });
       });
@@ -2727,6 +2760,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     stallFallbackRef.current = false;
     retryAttemptRef.current = 0;
     retryWindowStartRef.current = null;
+    gatewayRetriedRef.current = false;
     retryProgressStartRef.current = null;
     resumePausedRef.current = null;
     linkCapRef.current = 0;
@@ -2902,6 +2936,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         hasTriedTranscodingRef.current = true;
       }
     }
+    if (state.retryGateway) gatewayRetriedRef.current = true;
     autoPlayTriggeredRef.current = false;
     isPlayingRef.current = false;
     hasStablePlaybackRef.current = false;
@@ -3051,6 +3086,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     stallFallbackRef.current = false;
     retryAttemptRef.current = 0;
     retryWindowStartRef.current = null;
+    gatewayRetriedRef.current = false;
     setHasStablePlayback(false);
     hasStablePlaybackRef.current = false;
     autoPlayTriggeredRef.current = false;

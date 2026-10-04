@@ -1,5 +1,23 @@
+import type { ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { PlaybackErrorType } from "@/utils/errorClassification";
-import type { PlaybackMode } from "./machine";
+import type { PlaybackMode, ServerOff } from "./machine";
+
+/** No lane takes the item: it needs the server, and the server is off for it. */
+export class ServerTranscodeOffError extends Error {
+  constructor(readonly by: ServerTranscodeBlock) {
+    super("Server transcoding is off for this item");
+  }
+}
+
+/** Failures a server transcode would not have answered: the server, the item or the account is the problem. */
+const SERVER_WOULD_NOT_HELP: readonly PlaybackErrorType[] = [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED, PlaybackErrorType.NETWORK];
+
+/** What the error screen says about the server lane: who turned it off, when it was the rung this failure skipped. */
+export function serverOffForError(error: unknown, errorType: PlaybackErrorType, by: ServerTranscodeBlock | null, heldOnDisk: boolean): ServerOff | undefined {
+  if (error instanceof ServerTranscodeOffError) return { by: error.by, needed: true };
+  if (!by || heldOnDisk || SERVER_WOULD_NOT_HELP.includes(errorType)) return undefined;
+  return { by, needed: false };
+}
 
 /** Automatic retries stop after this long unless 30s of playback lands in between. */
 export const AUTOMATIC_RETRY_BUDGET_MS = 120_000;
@@ -39,10 +57,22 @@ export interface ErrorRecoveryInput {
   hasDroppedSubtitles: boolean;
   networkGateway?: boolean;
   serverTranscodingAllowed?: boolean;
+  /** The engine already took its one fresh session for this item. */
+  hasRetriedGateway?: boolean;
+}
+
+/** Failures of the link, which a later attempt can outlast. */
+const LINK_FAILURES: readonly PlaybackErrorType[] = [PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT];
+
+/** With the server ruled out the engine is the last rung: one fresh session, then the error, unless the link failed. */
+export function engineSpentWithoutServer(input: { errorType: PlaybackErrorType; serverTranscodingAllowed?: boolean; hasRetriedGateway?: boolean }): boolean {
+  return input.serverTranscodingAllowed === false && input.hasRetriedGateway === true && !LINK_FAILURES.includes(input.errorType);
 }
 
 export interface ErrorRecoveryDecision {
   retryGateway: boolean;
+  /** Nothing is left to try: the error is final. */
+  engineSpent: boolean;
   /** A localRemux failure heading to the server spends the engine rung up front. */
   latchTranscodeUpFront: boolean;
   /** The auto-retry-effect eligibility, as the reducer expects it. */
@@ -64,17 +94,15 @@ export interface ErrorRecoveryDecision {
  */
 export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecision {
   const midPlayback = input.currentTimeSec > 1;
-  const retryGateway =
-    input.networkGateway === true &&
-    !input.hasTriedTranscoding &&
-    (input.serverTranscodingAllowed === false || [PlaybackErrorType.STALLED, PlaybackErrorType.NETWORK, PlaybackErrorType.TIMEOUT].includes(input.errorType));
+  const engineSpent = input.networkGateway === true && !input.hasTriedTranscoding && engineSpentWithoutServer(input);
+  const retryGateway = input.networkGateway === true && !input.hasTriedTranscoding && !engineSpent && (input.serverTranscodingAllowed === false || LINK_FAILURES.includes(input.errorType));
   const restartRemux = input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && midPlayback && !input.hasTriedRemuxRestart;
   // A held file's engine failure spends its subtitles rather than the transcode rung: the film
   // comes back as direct play off the disk, which is the whole reason it was downloaded.
   const dropSubtitles = input.mode === "localRemux" && input.heldOnDisk && !input.hasDroppedSubtitles && !restartRemux;
   // Reads "a retry is coming", which is what carries the playhead into it. The reducer decides
   // the retry itself; narrowing this only ever cost the resume position.
-  const willRetryWithTranscode = (input.mode === "direct" || input.mode === "localRemux") && !input.hasTriedTranscoding;
+  const willRetryWithTranscode = (input.mode === "direct" || input.mode === "localRemux") && !input.hasTriedTranscoding && !engineSpent;
   // Spent up front so the retry's lane pick cannot loop back into the engine, except when the
   // engine restart rung is taking this error, which must leave the ladder intact. Never for a
   // held file, whose ladder is engine then its own disk.
@@ -93,6 +121,7 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
 
   return {
     retryGateway,
+    engineSpent,
     latchTranscodeUpFront,
     willRetryWithTranscode,
     // Any mid-playback rung change resumes at the playhead. The credential-refresh path keeps

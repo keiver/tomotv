@@ -1,5 +1,5 @@
 /** The server transcoding predicates: the item's server permission, capped by the device level. */
-import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
+import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock } from "@/services/transcodePolicy";
 import { updateUiPreferences } from "@/services/uiPreferences";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -31,5 +31,15 @@ describe("transcodePolicy", () => {
     expect(serverTranscodeAllowed(item(true))).toBe(false);
     expect(linkRungsAllowed(item(true))).toBe(false);
     expect(serverTranscodeAllowed(null)).toBe(false);
+  });
+
+  it("names the account when the server forbids it, whatever the device level", () => {
+    expect(serverTranscodeBlock(item(true))).toBeNull();
+    expect(serverTranscodeBlock(item(false))).toBe("account");
+    updateUiPreferences({ serverTranscoding: "never" });
+    expect(serverTranscodeBlock(item(false))).toBe("account");
+    expect(serverTranscodeBlock(item(true))).toBe("device");
+    updateUiPreferences({ serverTranscoding: "fileOnly" });
+    expect(serverTranscodeBlock(item(true))).toBeNull();
   });
 });

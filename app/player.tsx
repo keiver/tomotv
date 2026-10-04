@@ -31,7 +31,7 @@ import { cleanLabel } from "@/utils/cleanLabel";
 import { activeRecordTimer, adjacentChannelId, channelWindow, durationLabel, programTimes, ringWithCenter } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { playsFromDisk } from "@/services/downloads/localSource";
-import { stageStopped } from "@/hooks/usePlaybackStage";
+import { serverOffText, stageStopped } from "@/hooks/usePlaybackStage";
 import { currentPlaybackStage } from "@/services/playbackStage";
 import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPlayManager";
 import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
@@ -933,12 +933,14 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     // Only show error UI if retry is not possible or has already failed. The failing stage stays
     // on the store until the next attempt, so the screen can say where it stopped.
     const failedStage = currentPlaybackStage().stage;
+    const { serverOff } = playbackState;
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
         <Text style={styles.errorTitle}>{t("player.unableToPlay")}</Text>
-        <Text style={styles.errorText}>{playbackState.error}</Text>
+        <Text style={styles.errorText}>{serverOff?.needed ? serverOffText(serverOff) : playbackState.error}</Text>
         {failedStage ? <Text style={styles.errorStage}>{stageStopped(failedStage, { live: isLiveChannel, local: playsFromDisk(videoId) })}</Text> : null}
+        {serverOff && !serverOff.needed ? <Text style={styles.errorStage}>{serverOffText(serverOff)}</Text> : null}
 
         <View style={styles.buttonGroup}>
           <FocusableButton

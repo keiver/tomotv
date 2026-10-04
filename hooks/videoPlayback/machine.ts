@@ -1,3 +1,4 @@
+import type { ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 
@@ -20,10 +21,17 @@ export type VideoPlayerState =
   | { type: "INITIALIZING_PLAYER"; mode: PlaybackMode; streamUrl: string }
   | { type: "READY"; mode: PlaybackMode }
   | { type: "PLAYING"; mode: PlaybackMode }
-  | { type: "ERROR"; error: string; canRetryWithTranscode: boolean; autoRetry?: boolean; retryGateway?: boolean };
+  | { type: "ERROR"; error: string; canRetryWithTranscode: boolean; autoRetry?: boolean; retryGateway?: boolean; serverOff?: ServerOff };
+
+/** The server lane was skipped and who turned it off. `needed`: no other lane could take the item at all. */
+export interface ServerOff {
+  by: ServerTranscodeBlock;
+  needed: boolean;
+}
 
 export interface PlaybackError {
   message: string;
+  serverOff?: ServerOff;
 }
 
 export type VideoPlayerAction =
@@ -99,6 +107,7 @@ function reduce(state: VideoPlayerState, action: VideoPlayerAction): VideoPlayer
         canRetryWithTranscode: canRetry,
         ...(action.autoRetry !== undefined ? { autoRetry: action.autoRetry } : {}),
         ...(action.retryGateway ? { retryGateway: true } : {}),
+        ...(action.error?.serverOff ? { serverOff: action.error.serverOff } : {}),
       };
     }
 
