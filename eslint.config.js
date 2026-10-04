@@ -39,7 +39,7 @@ module.exports = defineConfig([
   {
     // Tooling that runs in Node, not in the app: build scripts, config plugins,
     // and the ESLint/Jest/Metro config files themselves.
-    files: ["scripts/**", "plugins/**", "*.config.js", "*.config.mjs", "jest.setup.js"],
+    files: ["scripts/**", "plugins/**", "packages/*/scripts/**", "packages/*/app.plugin.js", "*.config.js", "*.config.mjs", "jest.setup.js"],
     languageOptions: { globals: globals.node },
   },
   {

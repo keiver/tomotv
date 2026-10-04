@@ -2,16 +2,14 @@
  * Where the engine reads a raw MPEG-TS channel: its own origin when the server allows direct play and this device
  * reaches the host, else the server's pass-through of the same stream. Neither opens anything on the server.
  */
-import { NativeModules } from "react-native";
+import { canProbeOrigin, probeOriginReach, type OriginReach } from "@keiver/tomo-engine";
 import type { JellyfinMediaSource } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-
-const engine = () => NativeModules.LocalRemuxer;
 
 const REACH_TIMEOUT_MS = 1500;
 const REACH_TTL_MS = 2 * 60_000;
 
-export type OriginReach = "reachable" | "refused" | "silent";
+export type { OriginReach };
 
 export interface RawLiveInput {
   url: string;
@@ -25,7 +23,7 @@ export interface RawLiveInput {
 
 const reachByHost = new Map<string, { reach: OriginReach; at: number }>();
 
-/** `url|User-Agent=x&Referer=y`, split as native/ios/LiveSources/M3uParser.swift splits it. */
+/** `url|User-Agent=x&Referer=y`, split as packages/tomo-engine/ios/LiveSources/M3uParser.swift splits it. */
 export function splitPipeHeaders(raw: string): { url: string; headers: Record<string, string> } {
   const pipe = raw.indexOf("|");
   if (pipe < 0) return { url: raw, headers: {} };
@@ -64,7 +62,7 @@ function mergeHeaders(base: Record<string, string> | undefined, own: Record<stri
 
 /** The origin lane needs the engine's reach check and connection broker; a build without them keeps the server open. */
 export function isOriginLaneAvailable(): boolean {
-  return typeof engine()?.probeOriginReach === "function" && typeof engine()?.setLivePriority === "function";
+  return canProbeOrigin();
 }
 
 async function reachOf(url: string): Promise<OriginReach> {
@@ -73,7 +71,7 @@ async function reachOf(url: string): Promise<OriginReach> {
   if (held && Date.now() - held.at < REACH_TTL_MS) return held.reach;
   let reach: OriginReach = "silent";
   try {
-    reach = (await engine().probeOriginReach(url, REACH_TIMEOUT_MS)) as OriginReach;
+    reach = await probeOriginReach(url, REACH_TIMEOUT_MS);
   } catch (error) {
     logger.warn("Live origin reach check failed", error, { service: "LiveInput", host });
   }

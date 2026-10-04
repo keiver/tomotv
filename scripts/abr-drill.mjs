@@ -128,7 +128,7 @@ async function captureConfig(env, item, outPath) {
 }
 
 async function hostRun(env, configPath, scenario, timelinePath, logPath) {
-  const child = spawn("swift", ["test", "--package-path", "native/ios", "--filter", "SlipstreamDrillTests"], {
+  const child = spawn("swift", ["test", "--package-path", "packages/tomo-engine", "--filter", "SlipstreamDrillTests"], {
     cwd: ROOT,
     env: {
       ...process.env,

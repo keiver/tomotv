@@ -119,7 +119,7 @@
         },
         "decode": {
           "type": ["object", "null"],
-          "description": "What this device's VideoToolbox opens (native/ios/LocalRemuxer/DeviceDecode.swift). Null until the engine has asked.",
+          "description": "What this device's VideoToolbox opens (packages/tomo-engine/ios/LocalRemuxer/DeviceDecode.swift). Null until the engine has asked.",
           "required": ["hevc", "hevcMain10", "av1"],
           "additionalProperties": false,
           "properties": {

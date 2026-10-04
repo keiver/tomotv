@@ -1,6 +1,6 @@
 /**
  * Captures the exact engine config the app's startLocalRemux hands the native bridge, for the
- * host Slipstream drill (native/ios/Tests/TomoEngineTests/SlipstreamDrillTests.swift). Skipped
+ * host Slipstream drill (packages/tomo-engine/Tests/TomoEngineTests/SlipstreamDrillTests.swift). Skipped
  * unless DRILL_ITEM_ID is set; scripts/abr-drill.mjs sets the rest.
  *
  */

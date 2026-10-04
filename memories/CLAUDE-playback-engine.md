@@ -122,8 +122,8 @@ says the software decoder, not the encode, is the ceiling on that box.
 **We build FFmpeg ourselves.** `scripts/ffmpeg/build.sh` compiles upstream
 FFmpeg (version pinned in `scripts/ffmpeg/sources.sh`) plus mbedTLS, dav1d,
 uavs3d and the libass font stack, for seven slices; CI publishes the
-xcframeworks and `scripts/fetch-ffmpeg.js` downloads them against the SHA256s in
-`scripts/ffmpeg/ffmpeg-lock.json`. **Nothing compiles on `npm install`.**
+xcframeworks and `packages/tomo-engine/scripts/fetch-ffmpeg.js` downloads them against the SHA256s in
+`packages/tomo-engine/ffmpeg-lock.json`. **Nothing compiles on `npm install`.**
 
 **dav1d ships under a private symbol prefix (`tomo_dav1d_`).** `expo-image` pulls
 `libavif/libdav1d` into the same binary, and a static link has one flat symbol
@@ -177,7 +177,7 @@ server.
 
 ## The video path, and why it used to be narrow
 
-`native/ios/LocalRemuxer/VideoTranscoder.swift` decodes in software and encodes
+`packages/tomo-engine/ios/LocalRemuxer/VideoTranscoder.swift` decodes in software and encodes
 with VideoToolbox. Its input contract is the whole story:
 
 - `h264_videotoolbox` accepts **8-bit `yuv420p` or `nv12`, nothing else**.
@@ -285,8 +285,8 @@ to direct play and fails identically forever.
 
 ## Rules of engagement
 
-1. `ios/` and `tvos/` are generated and gitignored. Native edits go in
-   `native/ios/`, and every one needs `npm run prebuild:tv`, which is Keiver's
+1. `ios/` and `tvos/` are generated and gitignored. Engine edits go in
+   `packages/tomo-engine/ios/`, Tomo-only native edits in `native/ios/`, and every one needs `npm run prebuild:tv`, which is Keiver's
    command to run, never Claude's.
 2. Verify codec availability with `npm run probe:codecs`, never from memory and
    never from `nm`.

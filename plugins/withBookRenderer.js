@@ -5,7 +5,7 @@
  * book reader's page renderer. Copies the sources into the generated ios/ project and
  * registers them for compilation. The bridging header and SWIFT_VERSION come from
  * withMultiAudioResourceLoader, which runs before this plugin in app.json; the
- * Libarchive framework it links comes from the TomoFFmpeg pod (withFFmpeg).
+ * Libarchive framework it links comes from the TomoFFmpeg pod (@keiver/tomo-engine's plugin).
  */
 
 const { withDangerousMod, withXcodeProject } = require("@expo/config-plugins");

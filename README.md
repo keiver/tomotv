@@ -27,7 +27,7 @@ it serves on loopback.
 Jellyfin server
     |  the original file
     v
-Engine on the device        native/ios/LocalRemuxer, with its own FFmpeg
+Engine on the device        packages/tomo-engine (@keiver/tomo-engine), with its own FFmpeg
     |  copies the streams, or decodes and re-encodes through VideoToolbox
     |  decodes subtitles, rewrites Dolby Vision profile 7 to 8.1
     v
@@ -148,14 +148,18 @@ services/
   downloads/            offline store
   books/                book formats and reading position
   i18n/                 strings: en, de, fr, es
+packages/tomo-engine/   the @keiver/tomo-engine package: TomoEngine, TomoLiveSources and TomoFFmpeg pods, config plugin
+  ios/LocalRemuxer/     the engine: remux, transcode, loopback server, subtitles, Dolby Vision, live
+  ios/LiveSources/      XMLTV guides and M3U playlists, loaded and parsed natively
+  src/                  the typed JS API over both native modules
+  Package.swift         SwiftPM package for the engine tests
 native/ios/
-  LocalRemuxer/         the engine: remux, transcode, loopback server, subtitles, Dolby Vision, live
-  LiveSources/          XMLTV guides and M3U playlists, loaded and parsed natively
+  TunerGroups/          a Jellyfin tuner's groups and channel ids, over the engine's playlist loader
   MultiAudioResourceLoader/   HLS manifests, audio track switching
   AudioQueuePlayer/     music queue, Now Playing, tvOS Up Next panel
   BookRenderer/         PDF, comic, EPUB and MOBI pages
   TopShelf/             tvOS Top Shelf extension
-  Package.swift         SwiftPM package for the engine and book tests
+  Package.swift         SwiftPM package for the book tests
 constants/codecs.ts     the direct-play codec list
 test/playback/          the playback regression suite
 ```
