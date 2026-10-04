@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, TV_PUSHED_HEADER_TOP } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { serverTranscodingNotice, transcodingLevelHint, transcodingLevelTitle } from "@/components/settings/transcodingCopy";
 import { COLORS } from "@/constants/colors";
@@ -32,46 +32,55 @@ export default function TranscodingScreen() {
 
   const pick = (level: ServerTranscoding) => updateUiPreferences({ serverTranscoding: level });
 
+  const pagePadding = { paddingTop: IS_TV ? TV_PUSHED_HEADER_TOP + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom };
+
+  const content = (
+    <View style={settingsStyles.contentContainer}>
+      <View style={settingsStyles.sectionHeader}>
+        <Text style={settingsStyles.sectionHeaderText}>{t("settings.transcoding.header")}</Text>
+      </View>
+      <View style={settingsStyles.section}>
+        {notice ? (
+          <SectionFooter edge="top">
+            <Text style={[settingsStyles.sectionNote, styles.notice]} accessibilityRole="alert">
+              {notice}
+            </Text>
+          </SectionFooter>
+        ) : null}
+        {SERVER_TRANSCODING_LEVELS.map((level, index) => {
+          const selected = serverTranscoding === level;
+          return (
+            <ListRow
+              key={level}
+              title={transcodingLevelTitle(level)}
+              subtitle={transcodingLevelHint(level)}
+              subtitleLines={0}
+              trailingIcon={selected ? tick : undefined}
+              onPress={() => pick(level)}
+              hasTVPreferredFocus={selected}
+              accessibilityState={{ selected }}
+              isFirst={index === 0 && !notice}
+            />
+          );
+        })}
+        <SectionFooter>
+          <Text style={settingsStyles.sectionNote}>{t("settings.transcoding.about")}</Text>
+        </SectionFooter>
+      </View>
+    </View>
+  );
+
+  // TV holds the page still under the tab screens' header line, as the pushed server list does.
   return (
     <View style={styles.container}>
       <AmbientBackground />
-      <ScrollView
-        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
-        showsVerticalScrollIndicator={false}>
-        <View style={settingsStyles.contentContainer}>
-          <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("settings.transcoding.header")}</Text>
-          </View>
-          <View style={settingsStyles.section}>
-            {notice ? (
-              <SectionFooter edge="top">
-                <Text style={[settingsStyles.sectionNote, styles.notice]} accessibilityRole="alert">
-                  {notice}
-                </Text>
-              </SectionFooter>
-            ) : null}
-            {SERVER_TRANSCODING_LEVELS.map((level, index) => {
-              const selected = serverTranscoding === level;
-              return (
-                <ListRow
-                  key={level}
-                  title={transcodingLevelTitle(level)}
-                  subtitle={transcodingLevelHint(level)}
-                  subtitleLines={0}
-                  trailingIcon={selected ? tick : undefined}
-                  onPress={() => pick(level)}
-                  hasTVPreferredFocus={selected}
-                  accessibilityState={{ selected }}
-                  isFirst={index === 0 && !notice}
-                />
-              );
-            })}
-            <SectionFooter>
-              <Text style={settingsStyles.sectionNote}>{t("settings.transcoding.about")}</Text>
-            </SectionFooter>
-          </View>
-        </View>
-      </ScrollView>
+      {IS_TV ? (
+        <View style={[styles.page, pagePadding]}>{content}</View>
+      ) : (
+        <ScrollView contentContainerStyle={[styles.page, pagePadding]} showsVerticalScrollIndicator={false}>
+          {content}
+        </ScrollView>
+      )}
     </View>
   );
 }

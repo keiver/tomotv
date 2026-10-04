@@ -5,7 +5,7 @@ import { ListRow } from "@/components/settings/ListRow";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { QUALITY_ROWS, qualityLabel, qualityRowSubtitle } from "@/components/settings/qualityRows";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles, TV_PUSHED_HEADER_TOP } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { carriedRungs, ORIGINAL_INDEX } from "@/services/adaptiveQuality";
 import { t } from "@/services/i18n";
@@ -75,45 +75,53 @@ export default function QualityScreen() {
   };
 
   const carried = carriedRungs(measuredBps);
+  const pagePadding = { paddingTop: IS_TV ? TV_PUSHED_HEADER_TOP + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom };
 
+  const content = (
+    <View style={settingsStyles.contentContainer}>
+      <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} onFocus={() => setHeadingFocused(true)} onBlur={() => setHeadingFocused(false)} />
+      <View style={[settingsStyles.section, headingFocused && settingsStyles.sectionCapped]}>
+        {QUALITY_ROWS.map((value, index) => {
+          const selected = videoQuality === value;
+          const subtitle = qualityRowSubtitle(value, measuredBps);
+          return (
+            <ListRow
+              key={value}
+              icon={({ color }) => (value === ORIGINAL_INDEX ? <LinkLadder carried={carried} color={color} /> : <QualityMark value={value} color={color} />)}
+              title={qualityLabel(value)}
+              subtitle={subtitle}
+              titleStyle={styles.qualityLabel}
+              subtitleStyle={styles.qualityDescription}
+              // The tick alone marks the choice: gold at rest would make this the one
+              // list in Settings that fills a row before anyone touches it.
+              trailingIcon={selected ? tick : undefined}
+              onPress={() => handleQualityChange(value)}
+              hasTVPreferredFocus={selected}
+              isFirst={index === 0}
+              accessibilityLabel={qualityLabel(value)}
+              accessibilityHint={subtitle}
+              accessibilityState={{ selected }}
+            />
+          );
+        })}
+        <SectionFooter>
+          <Text style={settingsStyles.sectionNote}>{t("settings.transcodeFooter")}</Text>
+        </SectionFooter>
+      </View>
+    </View>
+  );
+
+  // TV holds the page still under the tab screens' header line, as the pushed server list does.
   return (
     <View style={styles.container}>
       <AmbientBackground />
-      <ScrollView
-        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
-        showsVerticalScrollIndicator={false}>
-        <View style={settingsStyles.contentContainer}>
-          <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} onFocus={() => setHeadingFocused(true)} onBlur={() => setHeadingFocused(false)} />
-          <View style={[settingsStyles.section, headingFocused && settingsStyles.sectionCapped]}>
-            {QUALITY_ROWS.map((value, index) => {
-              const selected = videoQuality === value;
-              const subtitle = qualityRowSubtitle(value, measuredBps);
-              return (
-                <ListRow
-                  key={value}
-                  icon={({ color }) => (value === ORIGINAL_INDEX ? <LinkLadder carried={carried} color={color} /> : <QualityMark value={value} color={color} />)}
-                  title={qualityLabel(value)}
-                  subtitle={subtitle}
-                  titleStyle={styles.qualityLabel}
-                  subtitleStyle={styles.qualityDescription}
-                  // The tick alone marks the choice: gold at rest would make this the one
-                  // list in Settings that fills a row before anyone touches it.
-                  trailingIcon={selected ? tick : undefined}
-                  onPress={() => handleQualityChange(value)}
-                  hasTVPreferredFocus={selected}
-                  isFirst={index === 0}
-                  accessibilityLabel={qualityLabel(value)}
-                  accessibilityHint={subtitle}
-                  accessibilityState={{ selected }}
-                />
-              );
-            })}
-            <SectionFooter>
-              <Text style={settingsStyles.sectionNote}>{t("settings.transcodeFooter")}</Text>
-            </SectionFooter>
-          </View>
-        </View>
-      </ScrollView>
+      {IS_TV ? (
+        <View style={[styles.page, pagePadding]}>{content}</View>
+      ) : (
+        <ScrollView contentContainerStyle={[styles.page, pagePadding]} showsVerticalScrollIndicator={false}>
+          {content}
+        </ScrollView>
+      )}
     </View>
   );
 }
