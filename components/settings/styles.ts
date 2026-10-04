@@ -27,7 +27,7 @@ export const TITLE_LINE_HEIGHT = pick(36, 26, 24);
 // left to the font's own metrics, which is what makes QUALITY_ROW_HEIGHT arithmetic instead
 // of an estimate, and the credits list's height cap is derived from it. Both land within a
 // point of what SF renders at these sizes, so pinning them moves nothing on screen. Applied in
-// app/quality.tsx and app/licenses.tsx; the shared listItemSubtitle stays unpinned because
+// StreamingQuality and app/licenses.tsx; the shared listItemSubtitle stays unpinned because
 // ServerRow resizes the subtitle and would inherit the wrong leading.
 export const QUALITY_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
 // The description runs at the shared subtitle size (qualityDescription in
@@ -65,9 +65,8 @@ export const STRIP_INSET = Platform.isTV ? 25 : 13;
 /** TV: the people column on the card's right side, one cell wide plus its insets. */
 export const PEOPLE_PANEL_WIDTH = AVATAR_CELL_WIDTH + STRIP_INSET * 2;
 
-// The Open Source credits, capped at whole rows on both platforms so Bundled Packages and the
-// source notice stay on the first screen. A credit row is a title over a subtitle at the quality
-// list's pinned leading, so QUALITY_ROW_HEIGHT is its height too: 480 on TV, 350 on phone.
+// Open Source caps its package list at whole rows so the source notice stays on screen.
+// Each row uses the quality list's pinned leading and QUALITY_ROW_HEIGHT.
 const VISIBLE_CREDIT_ROWS = Platform.isTV ? 4 : 5;
 
 // --- Downloads rows ---
@@ -224,12 +223,6 @@ export const settingsStyles = StyleSheet.create({
     // Phone: 12 + the next header's 10 top padding = 22 between sections.
     marginBottom: Platform.isTV ? 32 : 12,
     boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM}`,
-  },
-  // A card whose gold heading holds focus: the heading is its top edge, so no top corners or lip at the seam.
-  sectionCapped: {
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    boxShadow: `${LIP_BOTTOM}, ${RIM_SIDES}`,
   },
   // The destinations half of the JELLYFIN SERVER card, capped so the rows past
   // VISIBLE_SERVER_ROWS scroll instead of pushing the people strip off screen.

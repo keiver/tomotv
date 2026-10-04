@@ -1,6 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
+import { StreamingQuality } from "@/components/settings/StreamingQuality";
 import { settingsStyles, TV_PUSHED_HEADER_TOP } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { serverTranscodingNotice, transcodingLevelHint, transcodingLevelTitle } from "@/components/settings/transcodingCopy";
@@ -11,20 +12,23 @@ import { t } from "@/services/i18n";
 import { refreshTranscodePermissions } from "@/services/jellyfin/transcodePermissions";
 import { SERVER_TRANSCODING_LEVELS, updateUiPreferences, type ServerTranscoding } from "@/services/uiPreferences";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-/** What the server may be asked to transcode on this device. A press applies at once and the page stays. */
+/** When the server may transcode, followed by its output quality while video transcoding is allowed. */
 export default function TranscodingScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [qualityTop, setQualityTop] = useState(0);
   const { serverTranscoding } = useUiPreferences();
   const permissions = useTranscodePermissions();
   // The server's own refusal heads the card: whatever is chosen below, it rules.
   const notice = serverTranscodingNotice(permissions);
+  const showQuality = serverTranscoding !== "never" && permissions?.video !== false;
 
   useEffect(() => {
     void refreshTranscodePermissions();
@@ -60,27 +64,29 @@ export default function TranscodingScreen() {
               hasTVPreferredFocus={selected}
               accessibilityState={{ selected }}
               isFirst={index === 0 && !notice}
+              isLast={index === SERVER_TRANSCODING_LEVELS.length - 1}
             />
           );
         })}
-        <SectionFooter>
-          <Text style={settingsStyles.sectionNote}>{t("settings.transcoding.about")}</Text>
-        </SectionFooter>
       </View>
+      {showQuality ? (
+        <View onLayout={IS_TV ? (event) => setQualityTop(event.nativeEvent.layout.y) : undefined}>
+          <StreamingQuality availableHeight={IS_TV ? Math.max(0, viewportHeight - pagePadding.paddingTop - pagePadding.paddingBottom - qualityTop) : undefined} />
+        </View>
+      ) : null}
     </View>
   );
 
-  // TV holds the page still under the tab screens' header line, as the pushed server list does.
   return (
     <View style={styles.container}>
       <AmbientBackground />
-      {IS_TV ? (
-        <View style={[styles.page, pagePadding]}>{content}</View>
-      ) : (
-        <ScrollView contentContainerStyle={[styles.page, pagePadding]} showsVerticalScrollIndicator={false}>
-          {content}
-        </ScrollView>
-      )}
+      <ScrollView
+        contentContainerStyle={[styles.page, pagePadding]}
+        onLayout={IS_TV ? (event) => setViewportHeight(event.nativeEvent.layout.height) : undefined}
+        showsVerticalScrollIndicator={false}
+        focusable={false}>
+        {content}
+      </ScrollView>
     </View>
   );
 }

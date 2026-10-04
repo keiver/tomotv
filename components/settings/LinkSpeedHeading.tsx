@@ -1,5 +1,5 @@
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
-import { goldRowShadow, settingsStyles } from "@/components/settings/styles";
+import { settingsStyles } from "@/components/settings/styles";
 import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { carriedRungs } from "@/services/adaptiveQuality";
@@ -11,24 +11,17 @@ import { t } from "@/services/i18n";
 const GLYPH = Platform.isTV ? 28 : 16;
 
 interface LinkSpeedHeadingProps {
+  title?: string;
   /** Measured speed to the connected server, bits/second; null = not measured. */
   measuredBps: number | null;
   /** A probe is running right now, so the figure reads as sampling. */
   measuring: boolean;
   /** A press on the heading asks for a fresh measurement. */
   onRemeasure?: () => void;
-  /** TV focus, so the card below can take the gold heading as its top edge. */
-  onFocus?: () => void;
-  onBlur?: () => void;
 }
 
-/**
- * The Streaming Quality section heading: the label and the measured server
- * speed. It sits outside the row list's scroll, so the figure stays put while
- * the rows scroll under it and the per-row "needs N Mbps" marks keep a
- * reference. What that speed buys is the Auto row's meter, not this line.
- */
-export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure, onFocus, onBlur }: LinkSpeedHeadingProps) {
+/** A section heading and measured server speed, separate from the card below. */
+export function LinkSpeedHeading({ title, measuredBps, measuring, onRemeasure }: LinkSpeedHeadingProps) {
   const mbps = measuredBps != null ? Math.round(measuredBps / 100_000) / 10 : null;
   const measured = mbps != null && !measuring;
   // Short on purpose: the pending strings share the header line with the title.
@@ -42,7 +35,7 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure, onFocus,
   const content = (onGold: boolean) => (
     <>
       <Text style={[settingsStyles.sectionHeaderText, styles.title, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
-        {t("settings.streamingQuality")}
+        {title ?? t("settings.streamingQuality")}
       </Text>
       <View style={styles.rate}>
         {/* Always mounted, shown by opacity: a focusable's children never come and go (see ListRow). */}
@@ -61,7 +54,7 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure, onFocus,
       </View>
     );
   }
-  // On TV focus fills the heading with the rows' gold as the card's top edge, the way a focused first row fills it.
+  // TV focus stays on this standalone heading; the card below keeps its own edge.
   return (
     <Pressable
       style={({ focused, pressed }) => [
@@ -70,12 +63,9 @@ export function LinkSpeedHeading({ measuredBps, measuring, onRemeasure, onFocus,
         Platform.isTV && styles.tvHeading,
         Platform.isTV && focused && !pressed && settingsStyles.listItemFocused,
         Platform.isTV && pressed && settingsStyles.listItemPressed,
-        Platform.isTV && (focused || pressed) && goldRowShadow(true, false, false),
         !Platform.isTV && pressed && styles.pressed,
       ]}
       onPress={onRemeasure}
-      onFocus={onFocus}
-      onBlur={onBlur}
       disabled={measuring}
       isTVSelectable
       tvParallaxProperties={{ enabled: false }}
@@ -112,7 +102,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   tvHeading: {
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
+    borderRadius: 16,
+    marginBottom: 12,
   },
 });

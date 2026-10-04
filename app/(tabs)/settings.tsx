@@ -4,10 +4,8 @@ import { localeScreen } from "@/components/locale-boundary";
 import { LoadingRow } from "@/components/loading-row";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
-import { LinkLadder } from "@/components/settings/LinkLadder";
+import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
-import { QualityMark } from "@/components/settings/QualityMark";
-import { qualityLabel } from "@/components/settings/qualityRows";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "@/components/settings/styles";
@@ -15,8 +13,7 @@ import { transcodingRowSubtitle } from "@/components/settings/transcodingCopy";
 import { UiSection } from "@/components/settings/UiSection";
 import { useTranscodePermissions } from "@/hooks/useTranscodePermissions";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
-import { carriedRungs, ORIGINAL_INDEX } from "@/services/adaptiveQuality";
-import { rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
+import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
 import { refreshTranscodePermissions } from "@/services/jellyfin/transcodePermissions";
 import { DEMO_USERNAME, getStoredUserName, getUserImageUrl, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
@@ -33,7 +30,6 @@ const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
   API_KEY: "jellyfin_api_key",
   USER_ID: "jellyfin_user_id",
-  VIDEO_QUALITY: "app_video_quality",
 };
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
@@ -47,25 +43,21 @@ function SettingsScreen() {
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
   const [connectedUserName, setConnectedUserName] = useState("");
   const [connectedUserId, setConnectedUserId] = useState("");
-  // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the row's line matches
-  // what playback actually uses before a choice is saved. The Quality page writes it; this
-  // tab re-reads it on focus.
-  const [videoQuality, setVideoQuality] = useState(5);
   const { serverTranscoding } = useUiPreferences();
   const permissions = useTranscodePermissions();
+  const [measuredBps, setMeasuredBps] = useState<number | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  const probeRevision = useRef(0);
 
   const loadCurrentState = async (): Promise<ScreenState> => {
     try {
-      const [savedUrl, savedKey, savedUserId, savedQuality, savedUserName, demoActive] = await Promise.all([
+      const [savedUrl, savedKey, savedUserId, savedUserName, demoActive] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
         SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
         SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
-        SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY),
         getStoredUserName(),
         isDemoMode(),
       ]);
-
-      if (savedQuality) setVideoQuality(parseInt(savedQuality, 10));
 
       // A stored session shows the connected card + Switch Server (and the streaming rows).
       // This only reads saved creds, it never pings the server, preserving the
@@ -89,10 +81,6 @@ function SettingsScreen() {
     }
   };
 
-  // The remembered link to the connected server lights the Auto mark's rungs. Memory only: the
-  // Quality page is where a measurement runs. On focus, not on mount: the tab stays mounted
-  // across a server switch.
-  const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [syncPlay, setSyncPlay] = useState<SyncPlaySnapshot | null>(null);
 
   useEffect(() => subscribeSyncPlay(setSyncPlay), []);
@@ -100,6 +88,8 @@ function SettingsScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      probeRevision.current++;
+      setMeasuring(false);
       void (async () => {
         const state = await loadCurrentState();
         if (cancelled || state !== "CONNECTED") return;
@@ -107,15 +97,31 @@ function SettingsScreen() {
         void refreshTranscodePermissions();
         const status = await rememberedBitrateStatus();
         if (cancelled) return;
-        // Replaces the previous server's reading outright: null until measured.
         setMeasuredBps(status?.bps ?? null);
+        if (status?.fresh) return;
+        setMeasuring(true);
+        const bps = await measureIfIdle();
+        if (cancelled) return;
+        if (bps != null) setMeasuredBps(bps);
+        setMeasuring(false);
       })();
       return () => {
         cancelled = true;
+        probeRevision.current++;
         Keyboard.dismiss();
       };
     }, []),
   );
+
+  const handleRemeasure = useCallback(async () => {
+    if (measuring) return;
+    const revision = probeRevision.current;
+    setMeasuring(true);
+    const bps = await remeasureBitrate();
+    if (revision !== probeRevision.current) return;
+    if (bps != null) setMeasuredBps(bps);
+    setMeasuring(false);
+  }, [measuring]);
 
   // Sign-out fires from the pushed server list with this screen mounted behind it, so a state
   // read on focus arrives a whole pop too late: the connected card is what the user watches the
@@ -172,8 +178,6 @@ function SettingsScreen() {
       </View>
     );
   }
-
-  const carried = carriedRungs(measuredBps);
 
   return (
     <View style={styles.screenContainer}>
@@ -237,26 +241,15 @@ function SettingsScreen() {
 
           {screenState === "CONNECTED" && (
             <>
-              <View style={[styles.sectionHeader, screenStyles.streamingHeader]}>
-                <Text style={styles.sectionHeaderText}>{t("settings.streaming")}</Text>
-              </View>
+              <LinkSpeedHeading title={t("settings.streaming")} measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} />
               <View style={styles.section}>
-                {/* The preset's own mark, as its row on the Quality page draws it: the link's
-                    rungs on Auto, the picture block on a pinned rung. */}
-                <ListRow
-                  icon={({ color }) => (videoQuality === ORIGINAL_INDEX ? <LinkLadder carried={carried} color={color} /> : <QualityMark value={videoQuality} color={color} />)}
-                  title={t("settings.qualityRow")}
-                  subtitle={qualityLabel(videoQuality)}
-                  trailingIcon="chevron-forward"
-                  onPress={() => router.push("/quality")}
-                  isFirst
-                />
                 <ListRow
                   icon={SERVER_GLYPH}
                   title={t("settings.transcodingRow")}
                   subtitle={transcodingRowSubtitle(serverTranscoding, permissions)}
                   trailingIcon="chevron-forward"
                   onPress={() => router.push("/transcoding")}
+                  isFirst
                   isLast
                 />
               </View>
@@ -277,10 +270,6 @@ const screenStyles = StyleSheet.create({
   // Phone only: 4pt more air under the screen title than sectionHeaderFirst gives.
   serverHeader: {
     paddingTop: 12,
-  },
-  // Matches the UI and About headers below it.
-  streamingHeader: {
-    paddingTop: Platform.isTV ? 16 : 14,
   },
   loadingContainer: {
     flex: 1,

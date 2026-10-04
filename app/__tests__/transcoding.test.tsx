@@ -11,6 +11,7 @@ jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/settings/SectionFooter", () => ({ SectionFooter: ({ children }: { children: React.ReactNode }) => children }));
+jest.mock("@/components/settings/StreamingQuality", () => ({ StreamingQuality: () => null }));
 
 let mockPermissions: { server: string; video: boolean; audio: boolean } | null = null;
 jest.mock("@/services/jellyfin/transcodePermissions", () => ({
@@ -22,7 +23,11 @@ jest.mock("@/services/jellyfin/transcodePermissions", () => ({
 jest.mock("@/components/settings/ListRow", () => ({
   ListRow: ({ title, onPress, trailingIcon }: { title: string; onPress: () => void; trailingIcon?: unknown }) => {
     const { Text } = require("react-native");
-    return <Text testID={`row:${title}`} accessibilityState={{ checked: !!trailingIcon }} onPress={onPress} />;
+    return (
+      <Text testID={`row:${title}`} accessibilityState={{ checked: !!trailingIcon }} onPress={onPress}>
+        {title}
+      </Text>
+    );
   },
 }));
 
@@ -36,11 +41,14 @@ const notes = (tree: TestRenderer.ReactTestRenderer) =>
     .map((node) => node.props.children)
     .filter((child): child is string => typeof child === "string");
 
+const mounted: TestRenderer.ReactTestRenderer[] = [];
+
 function mount() {
   let tree: TestRenderer.ReactTestRenderer | undefined;
   act(() => {
     tree = TestRenderer.create(<TranscodingScreen />);
   });
+  mounted.push(tree!);
   return tree!;
 }
 
@@ -49,6 +57,10 @@ describe("Server transcoding page", () => {
     jest.clearAllMocks();
     mockPermissions = null;
     updateUiPreferences({ serverTranscoding: "linkOrFile" });
+  });
+
+  afterEach(() => {
+    act(() => mounted.splice(0).forEach((tree) => tree.unmount()));
   });
 
   it("lists the three levels with the device's choice ticked, and asks the server for its policy", () => {
@@ -67,10 +79,9 @@ describe("Server transcoding page", () => {
     expect(ticked(tree, "When the connection or the file needs it")).toBe(false);
   });
 
-  it("explains what still reaches the server, and says nothing about the server while it allows transcoding", () => {
+  it("shows no restriction notice while the server allows transcoding", () => {
     mockPermissions = { server: "http://a:8096", video: true, audio: true };
     const lines = notes(mount());
-    expect(lines.some((line) => line.startsWith("Your files play as they are."))).toBe(true);
     expect(lines.some((line) => line.includes("does not allow"))).toBe(false);
   });
 
@@ -78,8 +89,7 @@ describe("Server transcoding page", () => {
     mockPermissions = { server: "http://a:8096", video: false, audio: true };
     const lines = notes(mount());
     const notice = lines.findIndex((line) => line.startsWith("Your server does not allow video transcoding"));
-    const about = lines.findIndex((line) => line.startsWith("Your files play as they are."));
     expect(notice).toBeGreaterThan(-1);
-    expect(notice).toBeLessThan(about);
+    expect(notice).toBeLessThan(lines.indexOf("When the connection or the file needs it"));
   });
 });

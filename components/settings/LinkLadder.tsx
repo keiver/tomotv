@@ -25,8 +25,7 @@ interface LinkLadderProps {
 
 /**
  * The Auto row's leading mark: one bar per preset rung, bar n lit when the
- * connection carries that preset. It states in a glance what the row's
- * subtitle states in words, off the same carriedRungs call.
+ * connection carries that preset, based on the latest connection measurement.
  */
 export function LinkLadder({ carried, color }: LinkLadderProps) {
   return (
