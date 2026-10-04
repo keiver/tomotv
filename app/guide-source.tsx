@@ -18,7 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Clipboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -83,11 +83,10 @@ export default function GuideSourceScreen() {
     },
     [],
   );
-  // Required inside the handler: expo-clipboard's podspec is iOS and macOS only, so tvOS never loads it.
-  const copy = useCallback(async (value: string) => {
+  // Same native clipboard path as Quick Connect, without loading a module on the copy tap.
+  const copy = useCallback((value: string) => {
     try {
-      const Clipboard = await import("expo-clipboard");
-      await Clipboard.setStringAsync(value);
+      Clipboard.setString(value);
       setCopied(value);
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       copiedTimer.current = setTimeout(() => setCopied(null), COPIED_MS);
