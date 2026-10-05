@@ -19,6 +19,10 @@ extension RemuxSession {
             return .data(Data(mediaPlaylist().utf8), contentType: m3u8)
         case "init.mp4":
             return initResponse()
+        case "iframes.m3u8":
+            return iframePlaylistResponse()
+        case "if-init.mp4":
+            return iframeInitResponse()
         default:
             break
         }
@@ -103,6 +107,9 @@ extension RemuxSession {
                     return tierSegmentResponse(rung: rung, n)
                 }
             }
+        }
+        if name.hasPrefix("kf"), name.hasSuffix(".m4s"), let k = Int(name.dropFirst(2).dropLast(4)) {
+            return iframeFragmentResponse(k)
         }
         if name.hasPrefix("seg"), name.hasSuffix(".m4s"),
            let n = Int(name.dropFirst(3).dropLast(4)) {

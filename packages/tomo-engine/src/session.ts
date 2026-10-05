@@ -216,15 +216,18 @@ export async function liveSubtitleRenditions(token: string | null): Promise<Subt
 
 /**
  * Playlist shim for a remote HLS lane: its playlists re-served through the loopback, with
- * EXT-X-START injected for a resume and, with `sdrInit`, every avc1 init segment retagged
- * BT.709 (PlaylistShim.swift). Null when the module is missing or the shim fails; callers use
- * the raw URL. The token (localRemuxToken on the URL) owns the shim; hand it to stopPlaylistShim.
+ * EXT-X-START injected for a resume, with `sdrInit` every avc1 init segment retagged BT.709,
+ * and `iframeStreamInf` appended to the master (PlaylistShim.swift). Null when the module is
+ * missing or the shim fails; callers use the raw URL. The token (localRemuxToken on the URL)
+ * owns the shim; hand it to stopPlaylistShim.
  */
-export async function startPlaylistShim(masterUrl: string, startOffsetSeconds: number, options: { sdrInit?: boolean } = {}): Promise<string | null> {
+export async function startPlaylistShim(masterUrl: string, startOffsetSeconds: number, options: { sdrInit?: boolean; iframeStreamInf?: string } = {}): Promise<string | null> {
   const sdrInit = options.sdrInit === true;
-  if (!isLocalRemuxAvailable() || (!(startOffsetSeconds > 0) && !sdrInit)) return null;
+  const iframeStreamInf = options.iframeStreamInf ?? "";
+  if (!isLocalRemuxAvailable() || (!(startOffsetSeconds > 0) && !sdrInit && !iframeStreamInf)) return null;
   try {
-    return await engineModule().startPlaylistShim({ masterUrl, startOffsetSeconds: Math.max(0, startOffsetSeconds), sdrInit });
+    const config = { masterUrl, startOffsetSeconds: Math.max(0, startOffsetSeconds), sdrInit };
+    return await engineModule().startPlaylistShim(iframeStreamInf ? { ...config, iframeStreamInf } : config);
   } catch (error) {
     engineLog().warn("Failed to start playlist shim", error, { service: "LocalRemux" });
     return null;
@@ -240,15 +243,19 @@ export async function stopPlaylistShim(token: string | null): Promise<void> {
   }
 }
 
+/** The server lanes' I-frame rendition: frames re-encoded or copied, over the item's length. */
+export type ProviderIFrames = { transcode: boolean; durationSeconds: number };
+
 /**
  * Chapter keyframes for the lanes that run no session, resolved as the base URL they answer
- * under, or null when the engine cannot start one. The caller owns the token on that URL and
- * hands it to stopFrameProvider.
+ * under, or null when the engine cannot start one. With `iframes` the provider also serves an
+ * I-frame rendition at `iframes.m3u8` under that base. The caller owns the token on that URL
+ * and hands it to stopFrameProvider.
  */
-export async function startFrameProvider(inputUrl: string, itemId: string): Promise<string | null> {
+export async function startFrameProvider(inputUrl: string, itemId: string, iframes?: ProviderIFrames): Promise<string | null> {
   if (!isLocalRemuxAvailable() || !inputUrl) return null;
   try {
-    return await engineModule().startFrameProvider({ inputUrl, itemId });
+    return await engineModule().startFrameProvider(iframes ? { inputUrl, itemId, iframes } : { inputUrl, itemId });
   } catch (error) {
     engineLog().warn("Failed to start frame provider", error, { service: "LocalRemux" });
     return null;

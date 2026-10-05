@@ -24,6 +24,15 @@ final class ThrottledFileServer {
 
     var port: UInt16 { listener.port?.rawValue ?? 0 }
 
+    /// Requests answered so far, each one a connection the client opened.
+    private let countLock = NSLock()
+    private var answered = 0
+    var requestCount: Int {
+        countLock.lock()
+        defer { countLock.unlock() }
+        return answered
+    }
+
     func stop() { listener.cancel() }
 
     private func serve(_ connection: NWConnection) {
@@ -44,6 +53,9 @@ final class ThrottledFileServer {
     }
 
     private func respond(_ connection: NWConnection, request: String) {
+        countLock.lock()
+        answered += 1
+        countLock.unlock()
         var start = 0
         if let line = request.split(separator: "\r\n").first(where: { $0.lowercased().hasPrefix("range: bytes=") }),
            let from = Int(line.dropFirst("range: bytes=".count).split(separator: "-").first ?? "") {

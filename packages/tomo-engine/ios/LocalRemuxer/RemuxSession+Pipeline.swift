@@ -20,6 +20,7 @@ private let SWIFT_AVERROR_EXIT: Int32 = -1_414_092_869 // FFERRTAG('E','X','I','
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
 private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
+private let SWIFT_AVSEEK_FLAG_BYTE: Int32 = 2
 
 private func averr(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 128)
@@ -253,6 +254,13 @@ extension RemuxSession {
         }
     }
 
+    /// 'hvc1' for HEVC, the muxer's default for everything else (see buildMuxer).
+    static func mp4VideoTag(_ codecId: AVCodecID) -> UInt32 {
+        codecId == AV_CODEC_ID_HEVC
+            ? (UInt32(UInt8(ascii: "h")) | UInt32(UInt8(ascii: "v")) << 8 | UInt32(UInt8(ascii: "c")) << 16 | UInt32(UInt8(ascii: "1")) << 24)
+            : 0
+    }
+
     /// An empty free box: legal anywhere between a segment's boxes, and skipped by every parser.
     static let freeBox = Data([0, 0, 0, 8] + Array("free".utf8))
 
@@ -261,6 +269,12 @@ extension RemuxSession {
 
     /// Where a restart for `segment` seeks: its own start, then one segment earlier per opening that
     /// landed past it. MPEG-TS starts a segment early: its seek lands on a packet, not a keyframe.
+    /// A byte-estimated TS seek aims this far before its target, each retry this much further.
+    static let byteSeekLead = 1.0
+    /// A landing further than this before the target seeks again rather than reading forward to it.
+    static let byteSeekSlack = 18.0
+    static let byteSeekTries = 3
+
     static func restartSeekSegment(for segment: Int, partialOpens: Int, prerolls: Bool = false) -> Int {
         max(0, segment - min(partialOpens + (prerolls ? 1 : 0), partialOpenLookback))
     }
@@ -528,10 +542,7 @@ extension RemuxSession {
             // because the default there is 'avc1'). Apple requires 'hvc1'
             // (parameter sets in the sample entry), which is valid here
             // because demuxed MKV/MP4 sources always carry hvcC extradata.
-            outStream.pointee.codecpar.pointee.codec_tag =
-                outStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
-                    ? (UInt32(UInt8(ascii: "h")) | UInt32(UInt8(ascii: "v")) << 8 | UInt32(UInt8(ascii: "c")) << 16 | UInt32(UInt8(ascii: "1")) << 24)
-                    : 0
+            outStream.pointee.codecpar.pointee.codec_tag = Self.mp4VideoTag(outStream.pointee.codecpar.pointee.codec_id)
             // The record was copied from the source and still says profile 7. The packets this
             // rendition writes will not.
             if codecType == AVMEDIA_TYPE_VIDEO, rendition.dolbyVision != nil {
@@ -1243,6 +1254,12 @@ extension RemuxSession {
             }
         }
         let hasVideo = videoIn >= 0
+        if !config.isLive, hasVideo, let map = ByteTimeMap.forInput(input) {
+            stateLock.lock()
+            if byteMap == nil { byteMap = map }
+            frameGrabber?.byteMap = byteMap
+            stateLock.unlock()
+        }
 
         // Resolve the audio tracks to carry, in the order the playlist will
         // advertise them. Several tracks: each becomes an audio-only rendition
@@ -1483,6 +1500,13 @@ extension RemuxSession {
             indexedSourcePeak = peak
             stateLock.unlock()
         }
+        if !config.isLive, hasVideo {
+            let keyframes = KeyframeIndex.read(input: input, streamIndex: videoIn)
+            stateLock.lock()
+            if keyframeIndex == nil { keyframeIndex = keyframes }
+            iframeTranscodes = primaryVideoTranscoder != nil
+            stateLock.unlock()
+        }
 
         var builtRenditions: [Rendition] = []
         // Slipstream sessions always de-mux audio into its own rendition group
@@ -1641,6 +1665,8 @@ extension RemuxSession {
         // files with B-frames.
         var sessionAnchorUs: Int64? = nil
         var timelineAnchorUs: Int64 = 0
+        /// A restart that seeked an MPEG-TS input by byte estimate: its target (source seconds) and tries.
+        var byteSeek: (target: Double, tries: Int)?
 
         // Segment this generation was restarted for. The generation opens on
         // the keyframe at or before it, which can belong to an earlier segment.
@@ -1917,7 +1943,18 @@ extension RemuxSession {
             let prerolls = input.pointee.iformat.map { String(cString: $0.pointee.name) == "mpegts" } ?? false
             let seekSegment = Self.restartSeekSegment(for: segment, partialOpens: partialOpens[segment] ?? 0, prerolls: prerolls)
             let targetUs = Int64(segmentStartSeconds(seekSegment) * Double(SWIFT_AV_TIME_BASE)) + containerStartUs
-            let seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
+            let targetSeconds = Double(targetUs) / Double(SWIFT_AV_TIME_BASE)
+            let seekRet: Int32
+            stateLock.lock()
+            let map = byteMap
+            stateLock.unlock()
+            if let pos = map?.position(forSeconds: targetSeconds - Self.byteSeekLead) {
+                seekRet = avformat_seek_file(input, -1, Int64.min, pos, pos, SWIFT_AVSEEK_FLAG_BYTE)
+                byteSeek = (targetSeconds, 1)
+            } else {
+                seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
+                byteSeek = nil
+            }
             if seekRet < 0 {
                 if !failOnSeekError {
                     NSLog("[LocalRemuxer] Recovery seek to segment %d failed: %@", segment, averr(seekRet))
@@ -2249,6 +2286,9 @@ extension RemuxSession {
 
             let isVideo = hasVideo && pkt.pointee.stream_index == videoIn
             let isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+            if isVideo, isKey, !awaitingKeyframe, let map = byteMap, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+                map.record(pos: pkt.pointee.pos, seconds: Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base))
+            }
             // Which stream drives the timeline: video where there is one, the
             // carried audio track otherwise. Anchoring and segment boundaries
             // both key off it, so an audio-only session cuts on its own packets
@@ -2333,6 +2373,36 @@ extension RemuxSession {
                 // before it and that segment still ends up fully covered.
                 let openSeconds = Double(keyframeUs - anchor) / Double(SWIFT_AV_TIME_BASE)
                 let openSegment = segmentIndex(atSeconds: openSeconds)
+                // A byte-estimated seek that landed past its segment, or far before it, seeks again on a
+                // map the landing just sharpened; after three tries FFmpeg's own search finds it.
+                if let landing = byteSeek {
+                    let landedSeconds = Double(keyframeUs) / Double(SWIFT_AV_TIME_BASE)
+                    byteMap?.record(pos: pkt.pointee.pos, seconds: landedSeconds)
+                    // Past the requested segment's start is late too: that opening would be withheld and restarted.
+                    let late = openSegment > generationRequestSegment
+                        || (openSegment == generationRequestSegment && openSeconds > segmentStartSeconds(openSegment))
+                    let early = landedSeconds < landing.target - Self.byteSeekSlack
+                    if late || early {
+                        if landing.tries < Self.byteSeekTries,
+                           let pos = byteMap?.position(forSeconds: landing.target - Self.byteSeekLead * Double(landing.tries + 1)),
+                           avformat_seek_file(input, -1, Int64.min, pos, pos, SWIFT_AVSEEK_FLAG_BYTE) >= 0 {
+                            byteSeek = (landing.target, landing.tries + 1)
+                            continue
+                        }
+                        if late {
+                            byteSeek = nil
+                            let ts = Int64(landing.target * Double(SWIFT_AV_TIME_BASE))
+                            guard avformat_seek_file(input, -1, Int64.min, ts, ts, SWIFT_AVSEEK_FLAG_BACKWARD) >= 0 else {
+                                fail("seek for segment \(generationRequestSegment) failed after byte estimates")
+                                break
+                            }
+                            continue
+                        }
+                    }
+                    NSLog("[LocalRemuxer] Byte seek for segment %d landed %.2fs before its target in %d seek(s)",
+                          generationRequestSegment, landing.target - landedSeconds, landing.tries)
+                    byteSeek = nil
+                }
                 if openSegment > generationRequestSegment {
                     // Only reachable through a defective index that seeks past
                     // the target. Producing from here would stamp the wrong

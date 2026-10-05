@@ -33,8 +33,11 @@ import {
   startFrameProvider,
   startPlaylistShim,
   startSession,
+  stopFrameProvider,
   stopLocalRemux,
+  stopPlaylistShim,
 } from "../src/session";
+import { iframeStreamInf } from "../src/tags";
 
 const MASTER = "http://127.0.0.1:52000/tok123/master.m3u8";
 const warn = jest.fn();
@@ -200,6 +203,13 @@ describe("startPlaylistShim", () => {
     mockRemuxer!.startPlaylistShim = jest.fn().mockRejectedValue(new Error("x"));
     await expect(startPlaylistShim("http://server/master.m3u8", 30)).resolves.toBeNull();
   });
+
+  it("starts for an I-frame line alone and hands it to the master", async () => {
+    mockRemuxer!.startPlaylistShim = jest.fn().mockResolvedValue("http://127.0.0.1/shim/master.m3u8");
+    const line = '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=1,URI="http://127.0.0.1/frame-x/iframes.m3u8"';
+    await expect(startPlaylistShim("http://server/master.m3u8", 0, { iframeStreamInf: line })).resolves.toBe("http://127.0.0.1/shim/master.m3u8");
+    expect(mockRemuxer!.startPlaylistShim).toHaveBeenCalledWith({ masterUrl: "http://server/master.m3u8", startOffsetSeconds: 0, sdrInit: false, iframeStreamInf: line });
+  });
 });
 
 describe("startFrameProvider", () => {
@@ -213,5 +223,62 @@ describe("startFrameProvider", () => {
     mockRemuxer!.startFrameProvider = jest.fn().mockResolvedValue("http://127.0.0.1/frames/");
     await expect(startFrameProvider("http://origin/file.mkv", "item1")).resolves.toBe("http://127.0.0.1/frames/");
     expect(mockRemuxer!.startFrameProvider).toHaveBeenCalledWith({ inputUrl: "http://origin/file.mkv", itemId: "item1" });
+  });
+
+  it("is null when the provider will not start", async () => {
+    mockRemuxer!.startFrameProvider = jest.fn().mockRejectedValue(new Error("x"));
+    await expect(startFrameProvider("http://origin/file.mkv", "item1")).resolves.toBeNull();
+    expect(warn).toHaveBeenCalledWith("Failed to start frame provider", expect.any(Error), expect.anything());
+  });
+
+  it("passes an I-frame rendition when asked for one", async () => {
+    mockRemuxer!.startFrameProvider = jest.fn().mockResolvedValue("http://127.0.0.1/frames/");
+    await startFrameProvider("http://origin/file.mkv", "item1", { transcode: true, durationSeconds: 600 });
+    expect(mockRemuxer!.startFrameProvider).toHaveBeenCalledWith({ inputUrl: "http://origin/file.mkv", itemId: "item1", iframes: { transcode: true, durationSeconds: 600 } });
+  });
+});
+
+describe("stopping a shim or a provider", () => {
+  it("does nothing without a token", async () => {
+    mockRemuxer!.stopPlaylistShim = jest.fn();
+    mockRemuxer!.stopFrameProvider = jest.fn();
+    await stopPlaylistShim(null);
+    await stopFrameProvider(null);
+    expect(mockRemuxer!.stopPlaylistShim).not.toHaveBeenCalled();
+    expect(mockRemuxer!.stopFrameProvider).not.toHaveBeenCalled();
+  });
+
+  it("stops by token, and logs a refusal instead of throwing", async () => {
+    mockRemuxer!.stopPlaylistShim = jest.fn().mockResolvedValue(undefined);
+    mockRemuxer!.stopFrameProvider = jest.fn().mockRejectedValue(new Error("gone"));
+    await stopPlaylistShim("shim-1");
+    await expect(stopFrameProvider("frame-1")).resolves.toBeUndefined();
+    expect(mockRemuxer!.stopPlaylistShim).toHaveBeenCalledWith("shim-1");
+    expect(warn).toHaveBeenCalledWith("Failed to stop frame provider", expect.any(Error), expect.objectContaining({ token: "frame-1" }));
+    mockRemuxer!.stopPlaylistShim = jest.fn().mockRejectedValue(new Error("gone"));
+    await expect(stopPlaylistShim("shim-1")).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith("Failed to stop playlist shim", expect.any(Error), expect.objectContaining({ token: "shim-1" }));
+  });
+});
+
+describe("iframeStreamInf", () => {
+  const line = { bandwidth: 5_616_603.4, codecs: "avc1.640028", supplementalCodecs: "", width: 1920, height: 1080, videoRange: "SDR" };
+
+  it("names the provider's playlist with what the frames are", () => {
+    expect(iframeStreamInf("http://127.0.0.1:9/frame-a/", line)).toBe(
+      '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=5616603,CODECS="avc1.640028",RESOLUTION=1920x1080,VIDEO-RANGE=SDR,URI="http://127.0.0.1:9/frame-a/iframes.m3u8"',
+    );
+  });
+
+  it("leaves CODECS and SUPPLEMENTAL-CODECS out for re-encoded frames, and an unknown size", () => {
+    expect(iframeStreamInf("http://h/", { ...line, codecs: "", supplementalCodecs: "dvh1.08.06/db1p", width: 0, videoRange: "" })).toBe(
+      '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=5616603,URI="http://h/iframes.m3u8"',
+    );
+  });
+
+  it("carries Dolby Vision beside its CODECS", () => {
+    expect(iframeStreamInf("http://h/", { ...line, codecs: "hvc1.2.4.L150.B0", supplementalCodecs: "dvh1.08.06/db1p", videoRange: "PQ" })).toContain(
+      'CODECS="hvc1.2.4.L150.B0",SUPPLEMENTAL-CODECS="dvh1.08.06/db1p",RESOLUTION=1920x1080,VIDEO-RANGE=PQ',
+    );
   });
 });

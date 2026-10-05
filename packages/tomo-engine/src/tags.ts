@@ -102,3 +102,27 @@ export function dolbyVisionSupplementalCodecs(video: VideoStreamInfo | undefined
   if (!brand) return "";
   return `dvh1.08.${String(level).padStart(2, "0")}/${brand}`;
 }
+
+/** What a server master's I-frame line says about the frames a frame provider serves. */
+export interface IFrameLine {
+  /** The source's peak, an upper bound on any keyframe over the gap to the next. */
+  bandwidth: number;
+  /** Empty for re-encoded frames, whose tag only exists once the encoder runs. */
+  codecs: string;
+  supplementalCodecs: string;
+  width: number;
+  height: number;
+  videoRange: string;
+}
+
+/** The EXT-X-I-FRAME-STREAM-INF line naming a frame provider's rendition, from its base URL. */
+export function iframeStreamInf(base: string, line: IFrameLine): string {
+  let out = `#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=${Math.max(1, Math.round(line.bandwidth))}`;
+  if (line.codecs) {
+    out += `,CODECS="${line.codecs}"`;
+    if (line.supplementalCodecs) out += `,SUPPLEMENTAL-CODECS="${line.supplementalCodecs}"`;
+  }
+  if (line.width > 0 && line.height > 0) out += `,RESOLUTION=${line.width}x${line.height}`;
+  if (line.videoRange) out += `,VIDEO-RANGE=${line.videoRange}`;
+  return `${out},URI="${base}iframes.m3u8"`;
+}

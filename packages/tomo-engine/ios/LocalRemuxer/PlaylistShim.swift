@@ -38,10 +38,14 @@ final class PlaylistShim {
     private var mediaCache: [Int: String] = [:]
     private var initCache: [Int: Data] = [:]
 
-    init(masterUrl: URL, startOffsetSeconds: Double, sdrInit: Bool = false) {
+    /// The I-frame line a frame provider serves (ProviderIFrames.swift), appended to the master as given.
+    private let iframeStreamInf: String
+
+    init(masterUrl: URL, startOffsetSeconds: Double, sdrInit: Bool = false, iframeStreamInf: String = "") {
         self.masterUrl = masterUrl
         self.startOffsetSeconds = startOffsetSeconds
         self.sdrInit = sdrInit
+        self.iframeStreamInf = iframeStreamInf
     }
 
     private func fetchData(_ url: URL) -> Data? {
@@ -97,7 +101,11 @@ final class PlaylistShim {
                 out.append(line)
             }
         }
-        let rewritten = out.joined(separator: "\n")
+        var rewritten = out.joined(separator: "\n")
+        if !iframeStreamInf.isEmpty {
+            if !rewritten.hasSuffix("\n") { rewritten += "\n" }
+            rewritten += iframeStreamInf + "\n"
+        }
         lock.lock()
         mediaUrls = urls
         sdrVariants = sdr

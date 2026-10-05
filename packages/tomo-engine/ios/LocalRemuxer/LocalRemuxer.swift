@@ -186,6 +186,7 @@ class LocalRemuxer: RCTEventEmitter {
             return .notFound
         }
         if let provider {
+            if let response = provider.iframes?.route(parts[1]) { return response }
             if let ms = RemuxSession.frameMilliseconds(parts[1]), let url = provider.grabber.chapterFrame(atMilliseconds: ms) {
                 return .file(url, contentType: "image/jpeg")
             }
@@ -432,9 +433,10 @@ class LocalRemuxer: RCTEventEmitter {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let sdrInit = config["sdrInit"] as? Bool ?? false
+        let iframeStreamInf = config["iframeStreamInf"] as? String ?? ""
         guard let raw = config["masterUrl"] as? String, let masterUrl = URL(string: raw),
-              let offset = config["startOffsetSeconds"] as? Double, offset >= 0, offset > 0 || sdrInit else {
-            reject("invalid_config", "startPlaylistShim needs masterUrl and a positive startOffsetSeconds or sdrInit", nil)
+              let offset = config["startOffsetSeconds"] as? Double, offset >= 0, offset > 0 || sdrInit || !iframeStreamInf.isEmpty else {
+            reject("invalid_config", "startPlaylistShim needs masterUrl and a positive startOffsetSeconds, sdrInit or iframeStreamInf", nil)
             return
         }
         Self.lock.lock()
@@ -445,7 +447,7 @@ class LocalRemuxer: RCTEventEmitter {
         }
         do {
             let port = try Self.ensureServer()
-            let shim = PlaylistShim(masterUrl: masterUrl, startOffsetSeconds: offset, sdrInit: sdrInit)
+            let shim = PlaylistShim(masterUrl: masterUrl, startOffsetSeconds: offset, sdrInit: sdrInit, iframeStreamInf: iframeStreamInf)
             Self.shims[shim.token] = shim
             Self.shimOrder.append(shim.token)
             NSLog("[LocalRemuxer] Playlist shim started (offset %.1fs, sdr init %@)", offset, sdrInit ? "on" : "off")
@@ -499,7 +501,9 @@ class LocalRemuxer: RCTEventEmitter {
 
     /// Starts a frame provider (FrameGrabber.swift) over `inputUrl`, the original file,
     /// for a player that runs no remux session. `itemId` keys the frame pool. Resolves with
-    /// the base URL under which `frame-{ms}.jpg` answers; the path's token stops it.
+    /// the base URL under which `frame-{ms}.jpg` answers; the path's token stops it. With
+    /// `iframes: {transcode, durationSeconds}` it also serves the server lanes' I-frame
+    /// rendition under that base (`iframes.m3u8`).
     @objc func startFrameProvider(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -517,7 +521,10 @@ class LocalRemuxer: RCTEventEmitter {
         }
         do {
             let port = try Self.ensureServer()
-            let provider = try FrameProvider(inputUrl: inputUrl, itemId: (config["itemId"] as? String) ?? "")
+            let iframes = (config["iframes"] as? NSDictionary).map {
+                (transcode: $0["transcode"] as? Bool ?? false, durationSeconds: $0["durationSeconds"] as? Double ?? 0)
+            }
+            let provider = try FrameProvider(inputUrl: inputUrl, itemId: (config["itemId"] as? String) ?? "", iframes: iframes)
             Self.frameProviders[provider.token] = provider
             Self.frameOrder.append(provider.token)
             resolve("http://127.0.0.1:\(port)/\(provider.token)/")

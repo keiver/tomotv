@@ -59,13 +59,17 @@ final class FrameGrabber {
     private let epoch: Int
     /// One context answers every request in turn. Concurrent chapter requests queue
     /// here, each on its own routing thread.
-    private let queue = DispatchQueue(label: "tv.tomo.framegrab", qos: .utility)
+    let queue = DispatchQueue(label: "tv.tomo.framegrab", qos: .utility)
     private let lock = NSLock()
     private var cancelled = false
 
-    private var input: UnsafeMutablePointer<AVFormatContext>?
+    var input: UnsafeMutablePointer<AVFormatContext>?
     private var decoder: UnsafeMutablePointer<AVCodecContext>?
-    private var videoIndex: Int32 = -1
+    var videoIndex: Int32 = -1
+    /// The I-frame rendition's track, built on its first request (FrameGrabber+IFrames.swift).
+    var iframeTrack: IFrameTrack?
+    /// An MPEG-TS source's byte map, shared with the session's pipeline: seeks land by estimate.
+    var byteMap: ByteTimeMap?
     private var sws: UnsafeMutablePointer<SwsContext>?
     /// A source that would not open is not retried: every chapter would pay the same failure.
     private var openFailed = false
@@ -113,7 +117,7 @@ final class FrameGrabber {
 
     deinit { close() }
 
-    private var isCancelled: Bool {
+    var isCancelled: Bool {
         lock.lock()
         defer { lock.unlock() }
         return cancelled
@@ -434,13 +438,13 @@ final class FrameGrabber {
 
     // MARK: - FFmpeg
 
-    private func readPacket(_ input: UnsafeMutablePointer<AVFormatContext>, _ packet: UnsafeMutablePointer<AVPacket>) -> Int32 {
+    func readPacket(_ input: UnsafeMutablePointer<AVFormatContext>, _ packet: UnsafeMutablePointer<AVPacket>) -> Int32 {
         let result = av_read_frame(input, packet)
         if live, result < 0, !isCancelled { liveReadEnded = true }
         return result
     }
 
-    private func open() -> Bool {
+    func open() -> Bool {
         if input != nil { return true }
         if openFailed { return false }
         openFailed = true
@@ -511,23 +515,8 @@ final class FrameGrabber {
         return true
     }
 
-    /// The same terms the remux pipeline opens with (Remuxer.swift): reconnects on a dropped link,
-    /// a bounded wait per I/O call, no trust store to verify against, and the origin's headers.
     private func httpOptions() -> OpaquePointer? {
-        var opts: OpaquePointer? = nil
-        av_dict_set(&opts, "reconnect", reconnects ? "1" : "0", 0)
-        av_dict_set(&opts, "reconnect_streamed", reconnects ? "1" : "0", 0)
-        av_dict_set(&opts, "reconnect_delay_max", "5", 0)
-        av_dict_set(&opts, "rw_timeout", "15000000", 0)
-        av_dict_set(&opts, "tls_verify", "0", 0)
-        for (name, value) in httpHeaders {
-            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
-                av_dict_set(&opts, "user_agent", value, 0)
-            } else {
-                av_dict_set(&opts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
-            }
-        }
-        return opts
+        sourceHttpOptions(headers: httpHeaders, reconnects: reconnects)
     }
 
     /// A playlist input read through FFmpeg's own HTTP (no App Transport Security in the way): a
@@ -1133,7 +1122,10 @@ final class FrameProvider {
     let grabber: FrameGrabber
     private let privateDirectory: URL?
 
-    init(inputUrl: String, itemId: String) throws {
+    /// The server lanes' I-frame rendition, when the provider was started with one.
+    private(set) var iframes: ProviderIFrames?
+
+    init(inputUrl: String, itemId: String, iframes: (transcode: Bool, durationSeconds: Double)? = nil) throws {
         if let pooled = ChapterFramePool.directory(for: itemId) {
             privateDirectory = nil
             grabber = FrameGrabber(inputUrl: inputUrl, directory: pooled, pool: ChapterFramePool.root)
@@ -1144,9 +1136,13 @@ final class FrameProvider {
             privateDirectory = dir
             grabber = FrameGrabber(inputUrl: inputUrl, directory: dir)
         }
+        if let iframes, iframes.durationSeconds > 0 {
+            self.iframes = ProviderIFrames(grabber: grabber, transcode: iframes.transcode, durationSeconds: iframes.durationSeconds)
+        }
     }
 
     func stop() {
+        iframes?.stop()
         grabber.stop()
         if let privateDirectory { try? FileManager.default.removeItem(at: privateDirectory) }
     }

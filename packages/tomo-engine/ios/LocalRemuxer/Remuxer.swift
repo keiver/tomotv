@@ -66,6 +66,25 @@ func probeStreamInfo(_ ctx: UnsafeMutablePointer<AVFormatContext>) -> Int32 {
     return ret
 }
 
+/// The terms a source read opens with: reconnects on a dropped link, a bounded wait per I/O call, no
+/// trust store to verify against, and the origin's headers.
+func sourceHttpOptions(headers: [String: String], reconnects: Bool = true) -> OpaquePointer? {
+    var opts: OpaquePointer? = nil
+    av_dict_set(&opts, "reconnect", reconnects ? "1" : "0", 0)
+    av_dict_set(&opts, "reconnect_streamed", reconnects ? "1" : "0", 0)
+    av_dict_set(&opts, "reconnect_delay_max", "5", 0)
+    av_dict_set(&opts, "rw_timeout", "15000000", 0)
+    av_dict_set(&opts, "tls_verify", "0", 0)
+    for (name, value) in headers {
+        if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
+            av_dict_set(&opts, "user_agent", value, 0)
+        } else {
+            av_dict_set(&opts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+        }
+    }
+    return opts
+}
+
 /// A tuner's MPEG-TS carries PIDs the probe can never parameterise (a packet-less AD track, DSM-CC and
 /// private sections), so it runs to FFmpeg's 7 s / 5 MB limits; every keyframe measured arrives inside 2 s.
 func liveProbeBound(format: String, isLive: Bool) -> Int64? {
@@ -111,6 +130,15 @@ final class RemuxSession {
     /// Chapter keyframes for the tvOS info panel, from a context of their own; the
     /// pipeline never sees them. Built on the first request, under the lock.
     var frameGrabber: FrameGrabber?
+    /// The source's keyframes when its demuxer indexes them; the I-frame rendition falls back to the segment grid.
+    var keyframeIndex: KeyframeIndex?
+    /// Whether the I-frame rendition transcodes its frames, once the pipeline has planned the video; nil
+    /// leaves the rendition out (live, audio-only, or a source not yet open).
+    var iframeTranscodes: Bool?
+    /// Serves the I-frame rendition through `frameGrabber`. Built on the first request, under the lock.
+    var iframeStore: IFrameStore?
+    /// Byte positions of an MPEG-TS input's times, shared by the pipeline's seeks and the grabber's.
+    var byteMap: ByteTimeMap?
     let poolEpoch = ChapterFramePool.epoch
     /// Primary rendition first, then one per alternate audio track. Built on
     /// the pipeline thread before production starts; the serving side reads it
