@@ -946,12 +946,10 @@ export default function VideoInfoScreen() {
       </View>
       <View style={IS_TV ? styles.tvPad : { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
-        {(recordingNow || !!recordTimer) && (
+        {(recordingNow || recordTimer?.Status === "InProgress" || !!recordTimer?.SeriesTimerId) && (
           <View style={[styles.laneRow, styles.laneBlock]}>
             <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
-            <Text style={styles.recordingNowText}>
-              {recordingNow || recordTimer?.Status === "InProgress" ? t("liveTv.recordingNow") : recordTimer?.SeriesTimerId ? t("liveTv.seriesRules") : t("liveTv.record")}
-            </Text>
+            <Text style={styles.recordingNowText}>{recordingNow || recordTimer?.Status === "InProgress" ? t("liveTv.recordingNow") : t("liveTv.seriesRules")}</Text>
           </View>
         )}
         {sections}
