@@ -21,7 +21,8 @@ export interface ResumeDecision {
  * fails its first load.
  */
 export function resolveResume(input: ResumeInput): ResumeDecision {
-  if (input.live || input.pendingSeekSec !== null) return { seconds: null, source: null };
+  // An explicit 0 is a start-over request: it outranks the server's resume point.
+  if (input.live || input.pendingSeekSec !== null || input.startPositionTicks === 0) return { seconds: null, source: null };
   if (input.startPositionTicks && input.startPositionTicks > 0) {
     return { seconds: input.startPositionTicks / JELLYFIN_TIME.TICKS_PER_SECOND, source: "caller" };
   }

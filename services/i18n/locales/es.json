@@ -384,6 +384,7 @@
   "info.laneNoServerWork": "sin trabajo en el servidor",
   "info.playForGroup": "Reproducir para el grupo",
   "info.resume": "Reanudar",
+  "info.startOverHint": "Mantén pulsado para reproducir desde el principio",
   "info.play": "Reproducir",
   "info.watched": "Visto",
   "info.folder": "Carpeta",

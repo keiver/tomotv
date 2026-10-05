@@ -384,6 +384,7 @@
   "info.laneNoServerWork": "keine Serverarbeit",
   "info.playForGroup": "Für Gruppe abspielen",
   "info.resume": "Fortsetzen",
+  "info.startOverHint": "Gedrückt halten, um von vorne abzuspielen",
   "info.play": "Abspielen",
   "info.watched": "Angesehen",
   "info.folder": "Ordner",

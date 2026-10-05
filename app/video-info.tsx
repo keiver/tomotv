@@ -262,6 +262,14 @@ export default function VideoInfoScreen() {
     openItem(item, { replace: !IS_TV });
   }, [commitClearProgress, details, folderLeafId, openItem, params.inFolderId, router, showGlobalLoader]);
 
+  // Long press on Resume plays from the beginning; the resume point stays until playback reports.
+  const handleStartOver = useCallback(async () => {
+    if (!details) return;
+    if (pendingClearRef.current) showGlobalLoader();
+    await commitClearProgress();
+    openItem(details, { replace: !IS_TV, fromStart: true });
+  }, [commitClearProgress, details, openItem, showGlobalLoader]);
+
   // Play everything of one kind under a container. Same phone/TV rule as handlePlay.
   const handlePlayFolder = useCallback(
     (kind: FolderPlayKind) => {
@@ -402,6 +410,8 @@ export default function VideoInfoScreen() {
   const audio = details ? isAudioItem(details) : false;
   const photo = details ? isPhoto(details) : false;
   const book = details ? isBook(details) : false;
+  // The Resume label's own condition: a long press on it starts over.
+  const startOver = !photo && !book && !inGroup && !!details?.UserData?.PlaybackPositionTicks;
   const isContainer = details ? isFolder(details) : false;
   // Audio, video or any mix of the two. Gated on what the container actually holds, so a
   // photo album never offers to download a set the downloads screen could not play.
@@ -734,6 +744,8 @@ export default function VideoInfoScreen() {
             hasTVPreferredFocus
             icon={<Ionicons name={photo ? "expand" : book ? "book-outline" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
             onPress={handlePlay}
+            onLongPress={startOver ? handleStartOver : undefined}
+            accessibilityHint={startOver ? t("info.startOverHint") : undefined}
             progress={cardResumeProgress(details)}
           />
         )}

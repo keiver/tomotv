@@ -26,7 +26,8 @@ export function useOpenShelfItem() {
     // caller is a presented modal (video-info sheet): react-native-screens gives a screen
     // pushed after a modal a zero-frame modal presentation, and AVKit presenting out of that
     // crashes the app.
-    (item: JellyfinItem, options?: { replace?: boolean }) => {
+    // fromStart: open at 0 even when the item has a resume point.
+    (item: JellyfinItem, options?: { replace?: boolean; fromStart?: boolean }) => {
       // The Live TV view is a screen of its own (the guide), not a folder.
       if (item.CollectionType === "livetv") {
         if (Platform.isTV) router.navigate("/livetv");
@@ -81,7 +82,7 @@ export function useOpenShelfItem() {
       // In a SyncPlay group, hand a video to the server: its queue push opens the player
       // for everyone, us included. Audio has its own native player and stays local.
       if (!isAudioItem(item) && isJoined()) {
-        void playForGroup([item as JellyfinVideoItem], 0, item.UserData?.PlaybackPositionTicks ?? 0);
+        void playForGroup([item as JellyfinVideoItem], 0, options?.fromStart ? 0 : (item.UserData?.PlaybackPositionTicks ?? 0));
         return;
       }
       showGlobalLoader();
@@ -95,7 +96,7 @@ export function useOpenShelfItem() {
           videoId: item.Id,
           videoName: item.Name,
           ...(queueParent ? { queueMode: "true" } : {}),
-          ...(item.UserData?.PlaybackPositionTicks ? { startTicks: String(item.UserData.PlaybackPositionTicks) } : {}),
+          ...(options?.fromStart ? { startTicks: "0" } : item.UserData?.PlaybackPositionTicks ? { startTicks: String(item.UserData.PlaybackPositionTicks) } : {}),
           played: item.UserData?.Played ? "true" : "false",
         },
       };
