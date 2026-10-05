@@ -67,7 +67,7 @@ export const PEOPLE_PANEL_WIDTH = AVATAR_CELL_WIDTH + STRIP_INSET * 2;
 
 // Open Source caps its package list at whole rows so the source notice stays on screen.
 // Each row uses the quality list's pinned leading and QUALITY_ROW_HEIGHT.
-const VISIBLE_CREDIT_ROWS = Platform.isTV ? 4 : 5;
+const VISIBLE_CREDIT_ROWS = Platform.isTV ? 5 : 6;
 
 // --- Downloads rows ---
 // The list holds whatever is on the device and an expanded folder adds its members inline, so it
