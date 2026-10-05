@@ -24,7 +24,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { LinearTransition } from "react-native-reanimated";
+import Animated, { LinearTransition, withTiming, type LayoutAnimation, type LayoutAnimationsValues } from "react-native-reanimated";
 import { t } from "@/services/i18n";
 
 // A removed row leaves and the stack closes over it, which is the one list animation UIKit does
@@ -34,6 +34,15 @@ const ROW_SHIFT = LinearTransition.duration(220);
 // The panel's height changes with its rows and Yoga hands it the new height in one frame; without
 // this the card, the list's clip and the footer snap while the rows move under them.
 const PANEL_SHIFT = LinearTransition.duration(220);
+// The card takes its new place at once and animates only its size: Reanimated holds a view at
+// its old frame until a transition advances, and a held card sits over the header above it.
+const PANEL_RESIZE = (values: LayoutAnimationsValues): LayoutAnimation => {
+  "worklet";
+  return {
+    initialValues: { originX: values.targetOriginX, originY: values.targetOriginY, width: values.currentWidth, height: values.currentHeight },
+    animations: { width: withTiming(values.targetWidth, { duration: 220 }), height: withTiming(values.targetHeight, { duration: 220 }) },
+  };
+};
 
 /** A folder wears the first artwork it holds: its own cover, in practice, for an album or a season. */
 function groupArtwork(group: DownloadGroup): string | null {
@@ -352,7 +361,7 @@ function DownloadsScreen() {
               {/* Capped at whole rows (8 on phone, 4 on TV) and scrolling inside the card, so a
                   device full of downloads, or an expanded folder, cannot run off the bottom of
                   the screen. The wrapper keeps the radius, the clipping and the inset shadow. */}
-              <Animated.View style={[styles.section, screenStyles.card]} layout={PANEL_SHIFT}>
+              <Animated.View style={[styles.section, screenStyles.card]} layout={PANEL_RESIZE}>
                 {/* The rows swipe, and a GestureDetector throws in dev without a root above it.
                     Styled, because the default is flex: 1 and this sits in a content-sized card. */}
                 <GestureHandlerRootView style={screenStyles.gestureRoot}>
