@@ -385,6 +385,8 @@
   "info.playForGroup": "Für Gruppe abspielen",
   "info.resume": "Fortsetzen",
   "info.startOverHint": "Gedrückt halten, um von vorne abzuspielen",
+  "info.startOverConfirm": "Von vorne abspielen?",
+  "info.startOver": "Von vorne",
   "info.play": "Abspielen",
   "info.watched": "Angesehen",
   "info.folder": "Ordner",

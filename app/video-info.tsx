@@ -270,6 +270,14 @@ export default function VideoInfoScreen() {
     openItem(details, { replace: !IS_TV, fromStart: true });
   }, [commitClearProgress, details, openItem, showGlobalLoader]);
 
+  const confirmStartOver = useCallback(() => {
+    if (!details) return;
+    Alert.alert(cleanLabel(details.Name), t("info.startOverConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("info.startOver"), onPress: () => void handleStartOver() },
+    ]);
+  }, [details, handleStartOver]);
+
   // Play everything of one kind under a container. Same phone/TV rule as handlePlay.
   const handlePlayFolder = useCallback(
     (kind: FolderPlayKind) => {
@@ -744,7 +752,7 @@ export default function VideoInfoScreen() {
             hasTVPreferredFocus
             icon={<Ionicons name={photo ? "expand" : book ? "book-outline" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
             onPress={handlePlay}
-            onLongPress={startOver ? handleStartOver : undefined}
+            onLongPress={startOver ? confirmStartOver : undefined}
             accessibilityHint={startOver ? t("info.startOverHint") : undefined}
             progress={cardResumeProgress(details)}
           />

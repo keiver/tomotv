@@ -385,6 +385,8 @@
   "info.playForGroup": "Reproducir para el grupo",
   "info.resume": "Reanudar",
   "info.startOverHint": "Mantén pulsado para reproducir desde el principio",
+  "info.startOverConfirm": "¿Reproducir desde el principio?",
+  "info.startOver": "Empezar de nuevo",
   "info.play": "Reproducir",
   "info.watched": "Visto",
   "info.folder": "Carpeta",

@@ -385,6 +385,8 @@
   "info.playForGroup": "Play for Group",
   "info.resume": "Resume",
   "info.startOverHint": "Press and hold to play from the beginning",
+  "info.startOverConfirm": "Play from the beginning?",
+  "info.startOver": "Start Over",
   "info.play": "Play",
   "info.watched": "Watched",
   "info.folder": "Folder",
