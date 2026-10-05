@@ -194,6 +194,8 @@
   "downloads.alreadyBody": "Everything here is already on this device.",
   "downloads.nothingTitle": "Nothing to download",
   "downloads.nothingBody": "This folder holds no audio or video.",
+  "downloads.smallerNeedsTranscoding": "Smaller sizes need server transcoding, which is off in Settings.",
+  "downloads.smallerAccountBlocked": "Smaller sizes need server transcoding, which your server account doesn't allow.",
   "settings.title": "Settings",
   "settings.loading": "Loading settings",
   "settings.jellyfinServer": "JELLYFIN SERVER",

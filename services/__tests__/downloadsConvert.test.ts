@@ -8,7 +8,7 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 
 import { needsTranscoding } from "@/services/jellyfin/media";
 import { getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
-import { CONVERT_AUDIO_BITRATE, conversionAudioIndex, convertedItem, downloadRungs, estimatedConvertedBytes, sizeChoice } from "@/services/downloads/convert";
+import { CONVERT_AUDIO_BITRATE, conversionAudioIndex, convertedItem, downloadRungs, estimatedConvertedBytes } from "@/services/downloads/convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const RUNG = { label: "1080p", bitrate: 8000000, width: 1920, height: 1080 };
@@ -51,6 +51,12 @@ describe("downloadRungs", () => {
     expect(downloadRungs(videoAt(720, 1_000_000))).toEqual([]);
   });
 
+  // A scope film cropped to 1920x1040 is 1080p: the rung is judged by the box, either side.
+  it("offers 1080p for a letterboxed 1920x1040 film", () => {
+    const letterboxed = { ...videoAt(1040, 5_251_115), MediaStreams: [{ Index: 0, Type: "Video", Codec: "hevc", Width: 1920, Height: 1040, BitRate: 25_000_000 }] } as unknown as JellyfinVideoItem;
+    expect(downloadRungs(letterboxed).map((rung) => rung.label)).toEqual(["1080p", "720p", "480p"]);
+  });
+
   it("offers nothing to shrink an audio track or an unknown-height video", () => {
     expect(downloadRungs({ Id: "a", MediaStreams: [{ Index: 0, Type: "Audio", Codec: "flac" }] } as unknown as JellyfinVideoItem)).toEqual([]);
     expect(downloadRungs(videoAt(0))).toEqual([]);
@@ -59,13 +65,6 @@ describe("downloadRungs", () => {
   it("always offers the lowest rung when the original cannot be kept", () => {
     expect(downloadRungs(videoAt(720, 1_000_000), false).map((rung) => rung.label)).toEqual(["720p", "480p"]);
     expect(downloadRungs(videoAt(360), false).map((rung) => rung.label)).toEqual(["480p"]);
-  });
-});
-
-describe("sizeChoice", () => {
-  it("joins the label and the size, and stands alone when the size is unknown", () => {
-    expect(sizeChoice("1080p", 1.1 * 1024 ** 3)).toBe("1080p · 1.10 GB");
-    expect(sizeChoice("Original", 0)).toBe("Original");
   });
 });
 

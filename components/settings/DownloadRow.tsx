@@ -1,7 +1,7 @@
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
-import { sizeChoice } from "@/services/downloads/convert";
+import { sizeChoice } from "@/services/downloads/sizeSheet";
 import { localArtworkUri } from "@/services/downloads/localSource";
 import { downloadManager, type DownloadProgress } from "@/services/downloads/manager";
 import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";

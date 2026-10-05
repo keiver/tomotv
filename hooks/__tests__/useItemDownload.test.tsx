@@ -10,6 +10,7 @@ import { downloadManager } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { fetchVideoDetails } from "@/services/jellyfinApi";
 import { predictPlaybackLane } from "@/services/localRemux";
+import { serverTranscodeBlock } from "@/services/transcodePolicy";
 import { Alert } from "react-native";
 import type { DownloadsUIState } from "@/services/downloads/manager";
 
@@ -57,9 +58,21 @@ const mockRungs = jest.fn((): (typeof RUNG)[] => []);
 jest.mock("@/services/downloads/convert", () => ({
   downloadRungs: (...args: unknown[]) => mockRungs(...(args as [])),
   estimatedConvertedBytes: (item: unknown, rung: { bitrate: number }) => mockEstimate(item, rung),
-  sizeChoice: (label: string, bytes: number) => (bytes > 0 ? `${label} · ${bytes} B` : label),
 }));
-jest.mock("@/services/transcodePolicy", () => ({ serverTranscodeAllowed: jest.fn(() => true) }));
+jest.mock("@/services/transcodePolicy", () => ({ serverTranscodeBlock: jest.fn(() => null) }));
+// The sheet is replayed as an Alert so one helper reads both: a disabled size keeps no onPress.
+jest.mock("@/services/downloads/sizeSheet", () => {
+  const actual = jest.requireActual("@/services/downloads/sizeSheet");
+  const { Alert } = require("react-native");
+  return {
+    ...actual,
+    showSizeSheet: (title: string, message: string, choices: { text: string; disabled?: boolean; onPress: () => void }[]) =>
+      Alert.alert(title, message, [
+        ...choices.map((choice) => ({ text: choice.text, disabled: choice.disabled, onPress: choice.disabled ? undefined : choice.onPress })),
+        { text: "Cancel", style: "cancel" },
+      ]),
+  };
+});
 
 const manager = downloadManager as jest.Mocked<typeof downloadManager>;
 let listener: ((state: DownloadsUIState) => void) | null = null;
@@ -96,6 +109,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockEstimate.mockReturnValue(0);
   mockRungs.mockReturnValue([]);
+  (serverTranscodeBlock as jest.Mock).mockReturnValue(null);
   mockEntries.length = 0;
   listener = null;
   (downloadsSupported as jest.Mock).mockReturnValue(true);
@@ -267,6 +281,26 @@ describe("useItemDownload", () => {
     await confirm("1080p");
     expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { convert: RUNG });
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
+  });
+
+  // Server transcoding off in Settings: the smaller sizes stay listed, greyed, and the sheet says why.
+  it("greys the smaller sizes and names the setting when transcoding is off on this device", async () => {
+    (serverTranscodeBlock as jest.Mock).mockReturnValue("device");
+    mockRungs.mockReturnValue([RUNG]);
+    mockEstimate.mockReturnValue(4000);
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const [, body, buttons] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
+    expect(body).toContain("off in Settings");
+    expect(buttons.map((button: { text: string; disabled?: boolean }) => [button.text, !!button.disabled])).toEqual([
+      ["Original · 10 B", false],
+      ["1080p · 4000 B", true],
+      ["Cancel", false],
+    ]);
+    await confirm("1080p · 4000 B");
+    expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
   it("offers nothing for a file that needs a server this device will not ask", async () => {

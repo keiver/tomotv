@@ -10,7 +10,7 @@ import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { downloadManager } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { fetchAllPlaylistItems, fetchRecursiveDownloadables } from "@/services/jellyfinApi";
-import { serverTranscodeAllowed } from "@/services/transcodePolicy";
+import { serverTranscodeBlock } from "@/services/transcodePolicy";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Paths } from "expo-file-system";
 
@@ -42,7 +42,20 @@ jest.mock("@/services/jellyfinApi", () => ({
   isPhoto: (item: { Type?: string }) => item?.Type === "Photo",
 }));
 
-jest.mock("@/services/transcodePolicy", () => ({ serverTranscodeAllowed: jest.fn(() => true) }));
+jest.mock("@/services/transcodePolicy", () => ({ serverTranscodeBlock: jest.fn(() => null) }));
+// The sheet is replayed as an Alert so one helper reads both: a disabled size keeps no onPress.
+jest.mock("@/services/downloads/sizeSheet", () => {
+  const actual = jest.requireActual("@/services/downloads/sizeSheet");
+  const { Alert } = require("react-native");
+  return {
+    ...actual,
+    showSizeSheet: (title: string, message: string, choices: { text: string; disabled?: boolean; onPress: () => void }[]) =>
+      Alert.alert(title, message, [
+        ...choices.map((choice) => ({ text: choice.text, disabled: choice.disabled, onPress: choice.disabled ? undefined : choice.onPress })),
+        { text: "Cancel", style: "cancel" },
+      ]),
+  };
+});
 
 const GB = 1024 ** 3;
 const manager = downloadManager as jest.Mocked<typeof downloadManager>;
@@ -95,6 +108,7 @@ async function confirm(label = "Original") {
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  (serverTranscodeBlock as jest.Mock).mockReturnValue(null);
   (downloadsSupported as jest.Mock).mockReturnValue(true);
   manager.has.mockReturnValue(false);
   (Paths as { availableDiskSpace: number }).availableDiskSpace = 50 * GB;
@@ -134,11 +148,16 @@ describe("useFolderDownload", () => {
     expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { group: { id: "folder-1", name: "Veckatimest" } });
   });
 
-  it("offers no smaller size when the server may not transcode for this account", async () => {
-    (serverTranscodeAllowed as jest.Mock).mockReturnValue(false);
+  it("greys the smaller sizes and says why when the account may not transcode", async () => {
+    (serverTranscodeBlock as jest.Mock).mockReturnValue("account");
     (fetchRecursiveDownloadables as jest.Mock).mockResolvedValue([episode("e", 18 * GB)]);
-    await run();
-    expect(offered()).toEqual(["Original · 18.00 GB", "Cancel"]);
+    const [, body, buttons] = (await run()) as [string, string, { text: string; disabled?: boolean }[]];
+    expect(body).toContain("your server account doesn't allow");
+    expect(buttons.filter((button) => button.disabled).map((button) => button.text.split(" ")[0])).toEqual(["1080p", "720p", "480p"]);
+    await confirm("720p");
+    expect(manager.enqueue).not.toHaveBeenCalled();
+    await confirm("Original");
+    expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "e" }), { group: { id: "folder-1", name: "Veckatimest" } });
   });
 
   it("queues every item once the confirmation is accepted", async () => {

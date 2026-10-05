@@ -1,10 +1,11 @@
 import type { DownloadCircleState } from "@/components/info-action-row";
-import { downloadRungs, estimatedConvertedBytes, sizeChoice, type ConversionRung } from "@/services/downloads/convert";
+import { downloadRungs, estimatedConvertedBytes, type ConversionRung } from "@/services/downloads/convert";
 import { downloadManager } from "@/services/downloads/manager";
 import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
+import { blockedSizesNote, showSizeSheet, sizeChoice } from "@/services/downloads/sizeSheet";
 import { fetchVideoDetails, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { predictPlaybackLane } from "@/services/localRemux";
-import { serverTranscodeAllowed } from "@/services/transcodePolicy";
+import { serverTranscodeBlock } from "@/services/transcodePolicy";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { logger } from "@/utils/logger";
@@ -25,6 +26,7 @@ interface SizeChoice {
   text: string;
   bytes: number;
   convert?: ConversionRung;
+  disabled?: boolean;
 }
 
 /** What the manager holds for one item right now; the manifest is the source of truth. */
@@ -111,26 +113,31 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
         Alert.alert(name, t("downloads.unplayableOffline"), [{ text: t("common.ok") }]);
         return true;
       }
+      // The server lane is only reached when the server may transcode, so a block greys the
+      // smaller sizes of a playable file and the sheet says why.
+      const block = lane === "server" ? null : serverTranscodeBlock(details);
       const choices: SizeChoice[] = [];
       if (lane !== "server") choices.push({ text: sizeChoice(t("downloads.original"), sizeOf(details)), bytes: sizeOf(details) });
-      if (lane === "server" || serverTranscodeAllowed(details)) {
-        for (const rung of downloadRungs(details, lane !== "server")) {
-          choices.push({ text: sizeChoice(rung.label, estimatedConvertedBytes(details, rung)), bytes: estimatedConvertedBytes(details, rung), convert: rung });
-        }
+      for (const rung of downloadRungs(details, lane !== "server")) {
+        const bytes = estimatedConvertedBytes(details, rung);
+        choices.push({ text: sizeChoice(rung.label, bytes), bytes, convert: rung, disabled: block !== null });
       }
 
       // The one place a single press commits real storage, so every button carries its size.
       // An undeclared size admits itself rather than claiming zero.
       const offered = choices.filter((choice) => choice.bytes <= 0 || free - choice.bytes >= DISK_HEADROOM_BYTES);
-      if (offered.length === 0) {
-        const smallest = Math.min(...choices.map((choice) => choice.bytes));
+      if (!offered.some((choice) => !choice.disabled)) {
+        const smallest = Math.min(...choices.filter((choice) => !choice.disabled).map((choice) => choice.bytes));
         Alert.alert(t("downloads.notEnoughSpace"), t("downloads.needsSpace").replace("{size}", formatFileSize(smallest)).replace("{free}", formatFileSize(free)));
         return true;
       }
-      Alert.alert(name, lane === "server" ? t("downloads.convertOnly") : t("downloads.chooseSize").replace("{free}", formatFileSize(free)), [
-        ...offered.map((choice) => ({ text: choice.text, onPress: () => queue(choice.convert) })),
-        { text: t("common.cancel"), style: "cancel" as const },
-      ]);
+      const body = lane === "server" ? t("downloads.convertOnly") : t("downloads.chooseSize").replace("{free}", formatFileSize(free));
+      const note = offered.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
+      showSizeSheet(
+        name,
+        note ? `${body}\n\n${note}` : body,
+        offered.map((choice) => ({ text: choice.text, disabled: choice.disabled, onPress: () => queue(choice.convert) })),
+      );
       return true;
     } catch (error) {
       logger.warn("Download action failed", error, { service: "Downloads", itemId });

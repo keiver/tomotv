@@ -1,8 +1,9 @@
-import { downloadRungs, estimatedConvertedBytes, sizeChoice, type ConversionRung } from "@/services/downloads/convert";
+import { downloadRungs, estimatedConvertedBytes, type ConversionRung } from "@/services/downloads/convert";
 import { downloadManager } from "@/services/downloads/manager";
 import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
+import { blockedSizesNote, showSizeSheet, sizeChoice } from "@/services/downloads/sizeSheet";
 import { fetchAllPlaylistItems, fetchRecursiveDownloadables, isPhoto } from "@/services/jellyfinApi";
-import { serverTranscodeAllowed } from "@/services/transcodePolicy";
+import { serverTranscodeBlock } from "@/services/transcodePolicy";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { logger } from "@/utils/logger";
@@ -18,11 +19,12 @@ interface SizeChoice {
   /** 0 when any item's size is unknown: the total admits itself rather than claiming a number. */
   bytes: number;
   convert?: ConversionRung;
+  disabled?: boolean;
 }
 
 /** The rung an item of the set converts to under a choice: videos that the rung shrinks, nothing else. */
 function rungFor(item: JellyfinVideoItem, rung: ConversionRung | undefined): ConversionRung | undefined {
-  if (!rung || !serverTranscodeAllowed(item)) return undefined;
+  if (!rung) return undefined;
   return downloadRungs(item).some((candidate) => candidate.label === rung.label) ? rung : undefined;
 }
 
@@ -85,15 +87,19 @@ export function useFolderDownload() {
         }
         return sum;
       };
-      const rungs = pending.flatMap((item) => (serverTranscodeAllowed(item) ? downloadRungs(item) : [])).filter((rung, index, all) => all.findIndex((other) => other.label === rung.label) === index);
+      const shrinkable = pending.filter((item) => downloadRungs(item).length > 0);
+      const rungs = shrinkable.flatMap((item) => downloadRungs(item)).filter((rung, index, all) => all.findIndex((other) => other.label === rung.label) === index);
+      // The smaller sizes stay listed when the server may not transcode, greyed, with the reason.
+      const blocks = shrinkable.map((item) => serverTranscodeBlock(item));
+      const block = blocks.length > 0 && blocks.every((reason) => reason !== null) ? (blocks.includes("account") ? "account" : "device") : null;
       const choices: SizeChoice[] = [
         { text: sizeChoice(t("downloads.original"), total(undefined)), bytes: total(undefined) },
-        ...rungs.sort((a, b) => b.bitrate - a.bitrate).map((rung) => ({ text: sizeChoice(rung.label, total(rung)), bytes: total(rung), convert: rung })),
+        ...rungs.sort((a, b) => b.bitrate - a.bitrate).map((rung) => ({ text: sizeChoice(rung.label, total(rung)), bytes: total(rung), convert: rung, disabled: block !== null })),
       ];
 
       const offered = choices.filter((choice) => choice.bytes <= 0 || free - choice.bytes >= DISK_HEADROOM_BYTES);
-      if (offered.length === 0) {
-        const smallest = Math.min(...choices.map((choice) => choice.bytes));
+      if (!offered.some((choice) => !choice.disabled)) {
+        const smallest = Math.min(...choices.filter((choice) => !choice.disabled).map((choice) => choice.bytes));
         Alert.alert(
           t("downloads.notEnoughSpace"),
           t("downloads.needsSpaceItems").replace("{count}", String(pending.length)).replace("{size}", formatFileSize(smallest)).replace("{free}", formatFileSize(free)),
@@ -118,7 +124,7 @@ export function useFolderDownload() {
             try {
               // Tagged with the container, so the Downloads screen shows one row for the
               // whole set rather than one per track.
-              const convert = rungFor(item, rung);
+              const convert = serverTranscodeBlock(item) === null ? rungFor(item, rung) : undefined;
               await downloadManager.enqueue(item, { group: { id: folder.Id, name: folder.Name }, ...(convert ? { convert } : {}) });
             } catch (error) {
               logger.warn("Could not queue a folder item", error, { service: "Downloads", itemId: item.Id });
@@ -127,12 +133,14 @@ export function useFolderDownload() {
         })();
       };
 
-      Alert.alert(
+      const body = t(pending.length === 1 ? "downloads.chooseSizeItem" : "downloads.chooseSizeItems")
+        .replace("{count}", String(pending.length))
+        .replace("{free}", formatFileSize(free));
+      const note = offered.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
+      showSizeSheet(
         folder.Name,
-        t(pending.length === 1 ? "downloads.chooseSizeItem" : "downloads.chooseSizeItems")
-          .replace("{count}", String(pending.length))
-          .replace("{free}", formatFileSize(free)),
-        [...offered.map((choice) => ({ text: choice.text, onPress: () => queue(choice.convert) })), { text: t("common.cancel"), style: "cancel" as const }],
+        note ? `${body}\n\n${note}` : body,
+        offered.map((choice) => ({ text: choice.text, disabled: choice.disabled, onPress: () => queue(choice.convert) })),
       );
     },
     [router],

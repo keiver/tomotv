@@ -194,6 +194,8 @@
   "downloads.alreadyBody": "Todo lo de aquí ya está en este dispositivo.",
   "downloads.nothingTitle": "Nada que descargar",
   "downloads.nothingBody": "Esta carpeta no contiene audio ni vídeo.",
+  "downloads.smallerNeedsTranscoding": "Los tamaños más pequeños necesitan la transcodificación del servidor, que está desactivada en Ajustes.",
+  "downloads.smallerAccountBlocked": "Los tamaños más pequeños necesitan la transcodificación del servidor, que tu cuenta del servidor no permite.",
   "settings.title": "Ajustes",
   "settings.loading": "Cargando ajustes",
   "settings.jellyfinServer": "SERVIDOR JELLYFIN",
