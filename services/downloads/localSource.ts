@@ -12,7 +12,7 @@
 import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { manifestEntries, manifestEntry, readyFileUri } from "./manifest";
-import { artworkFile, subtitleFile } from "./paths";
+import { artworkFile, imageSubtitleFile, subtitleFile } from "./paths";
 
 /** The downloaded media file, or null when the item is not on disk and complete. */
 export function localMediaUri(itemId: string): string | null {
@@ -92,6 +92,16 @@ export function localSubtitleUri(itemId: string, streamIndex: number): string | 
   if (manifestEntry(itemId)?.state !== "ready") return null;
   const file = subtitleFile(itemId, streamIndex);
   return file.exists ? file.uri : null;
+}
+
+/** A conversion's bitmap track saved beside it, as a filesystem path: the engine opens it with FFmpeg, not as a URL. */
+export function localImageSubtitlePath(itemId: string, streamIndex: number): string | null {
+  if (manifestEntry(itemId)?.state !== "ready") return null;
+  for (const format of ["pgssub", "mks"] as const) {
+    const file = imageSubtitleFile(itemId, streamIndex, format);
+    if (file.exists) return decodeURIComponent(file.uri.replace(/^file:\/\//, ""));
+  }
+  return null;
 }
 
 /**

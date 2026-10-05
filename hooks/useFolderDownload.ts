@@ -1,4 +1,4 @@
-import { preferredAudioIndexIn, readAudioPreference } from "@/services/audioPreference";
+import { conversionTracks } from "@/services/downloads/conversionTracks";
 import { downloadRungs, estimatedConvertedBytes, type ConversionRung } from "@/services/downloads/convert";
 import { downloadManager } from "@/services/downloads/manager";
 import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
@@ -121,14 +121,12 @@ export function useFolderDownload() {
 
         // Queued in order; the manager runs two at a time and holds the rest.
         void (async () => {
-          const language = rung ? await readAudioPreference() : null;
           for (const item of pending) {
             try {
               // Tagged with the container, so the Downloads screen shows one row for the
-              // whole set rather than one per track. A conversion keeps the viewer's audio language.
+              // whole set rather than one per track.
               const convert = serverTranscodeBlock(item) === null ? rungFor(item, rung) : undefined;
-              const audioIndex = convert ? preferredAudioIndexIn(item.MediaStreams ?? [], language) : undefined;
-              await downloadManager.enqueue(item, { group: { id: folder.Id, name: folder.Name }, ...(convert ? { convert } : {}), ...(audioIndex !== undefined ? { audioIndex } : {}) });
+              await downloadManager.enqueue(item, { group: { id: folder.Id, name: folder.Name }, ...(convert ? { convert, ...(await conversionTracks(item)) } : {}) });
             } catch (error) {
               logger.warn("Could not queue a folder item", error, { service: "Downloads", itemId: item.Id });
             }

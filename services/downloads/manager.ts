@@ -14,17 +14,29 @@ import { DownloadTask, File, Paths, type DownloadPauseState } from "expo-file-sy
 import { API_TIMEOUTS } from "@/services/jellyfin/constants";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
-import { getAuthHeader, getConfig } from "@/services/jellyfin/session";
+import { generatePlaySessionId, getAuthHeader, getConfig } from "@/services/jellyfin/session";
 import { getConvertedDownloadUrl, getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
 import { wantsPosterFrame } from "@/services/itemArtwork";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
-import { conversionAudioIndex, convertedItem, type ConversionRung } from "./convert";
+import { conversionAudioIndex, convertedItem, rawImageSubtitleFormat, type ConversionRung } from "./convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
-import { artworkFile, subtitleFile, DISK_HEADROOM_BYTES, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory, repackagedFile, resolveItemFile } from "./paths";
+import {
+  artworkFile,
+  imageSubtitleFile,
+  subtitleFile,
+  DISK_HEADROOM_BYTES,
+  downloadsSupported,
+  ensureDownloadsRoot,
+  ensureItemDirectory,
+  mediaFile,
+  removeItemDirectory,
+  repackagedFile,
+  resolveItemFile,
+} from "./paths";
 import { cancelRepackage, containerOf, needsRepackage, repackageDownload, rewrapLeftNothingPlayable } from "./repackage";
 
 /** Concurrent transfers. Two keeps a phone's link busy without starving playback. */
@@ -105,7 +117,7 @@ class DownloadManager {
           // so the screen offers a re-download instead of the row failing at play time.
           if (!file.exists) patchEntry(entry.itemId, { state: "failed", error: "No longer on this device" });
           else {
-            void this.cacheSubtitles(entry.item);
+            void this.cacheSubtitles(entry.item, entry.converted !== undefined);
             if (!entry.artworkUri) void this.cacheArtwork(entry.item);
           }
           continue;
@@ -192,7 +204,7 @@ class DownloadManager {
    * Queue an item for download. Re-queuing something already known is a no-op, so a
    * double-tap on the download button cannot start two transfers for one item.
    */
-  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string }; convert?: ConversionRung; audioIndex?: number } = {}): Promise<void> {
+  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string }; convert?: ConversionRung; audioIndex?: number; burnSubtitleIndex?: number } = {}): Promise<void> {
     if (!downloadsSupported()) throw new Error("Downloads need an iPhone or iPad");
     await this.hydrate();
     if (manifestEntry(item.Id)) return;
@@ -219,11 +231,12 @@ class DownloadManager {
       addedAt: Date.now(),
       group: options.group,
       converted: rung,
+      burnedSubtitle: rung ? options.burnSubtitleIndex : undefined,
       item: stored,
     });
     this.notify();
     void this.cacheArtwork(item);
-    void this.cacheSubtitles(stored);
+    void this.cacheSubtitles(stored, rung !== undefined);
     this.pump();
   }
 
@@ -359,6 +372,8 @@ class DownloadManager {
         this.notify();
         await this.runRepackage(entry, file);
         logger.info("Download complete", { service: "Downloads", itemId: entry.itemId });
+        // Jellyfin's extraction outlives a request that timed out at enqueue; by now it is cached.
+        if (entry.converted) void this.cacheSubtitles(entry.item, true);
       }
     } catch (error) {
       this.tasks.delete(entry.itemId);
@@ -504,10 +519,10 @@ class DownloadManager {
   /**
    * Every text subtitle track, converted to WebVTT by the server while it is still reachable.
    * The engine hands AVPlayer a URL for these rather than serving them itself, so a held file
-   * without them plays with no subtitles. Image tracks are decoded from the media by the
-   * engine and need nothing here.
+   * without them plays with no subtitles. An original's image tracks are decoded from the media;
+   * a conversion carries none, so its PGS and DVD tracks are saved as Jellyfin's raw copies.
    */
-  private async cacheSubtitles(item: JellyfinVideoItem): Promise<void> {
+  private async cacheSubtitles(item: JellyfinVideoItem, converted = false): Promise<void> {
     const text = getTextSubtitleStreams(item).filter((stream) => stream.Index !== undefined);
     for (const stream of text) {
       const index = stream.Index as number;
@@ -516,6 +531,18 @@ class DownloadManager {
         await File.downloadFileAsync(getRemoteSubtitleUrl(item.Id, index, "vtt"), subtitleFile(item.Id, index), { idempotent: true });
       } catch (error) {
         logger.warn("Could not cache a download subtitle track", error, { service: "Downloads", itemId: item.Id, index });
+      }
+    }
+    if (!converted) return;
+    for (const stream of item.MediaStreams ?? []) {
+      const format = stream.Type === "Subtitle" && stream.IsExternal === true && stream.Index !== undefined ? rawImageSubtitleFormat(stream.Codec) : null;
+      if (!format || stream.Index === undefined) continue;
+      const file = imageSubtitleFile(item.Id, stream.Index, format);
+      if (file.exists) continue;
+      try {
+        await File.downloadFileAsync(getRemoteSubtitleUrl(item.Id, stream.Index, format), file, { idempotent: true });
+      } catch (error) {
+        logger.warn("Could not cache a download bitmap subtitle track", error, { service: "Downloads", itemId: item.Id, index: stream.Index });
       }
     }
   }
@@ -634,7 +661,9 @@ async function downloadUrl(entry: DownloadEntry): Promise<string> {
   const config = await getConfig();
   if (!config.server || !config.apiKey) throw new Error(NO_SESSION_ERROR);
   const { item } = entry;
-  if (entry.converted) return getConvertedDownloadUrl(item.Id, item, entry.converted, conversionAudioIndex(item));
+  if (entry.converted) {
+    return getConvertedDownloadUrl(item.Id, item, entry.converted, conversionAudioIndex(item), { playSessionId: generatePlaySessionId(), burnSubtitleIndex: entry.burnedSubtitle });
+  }
   return (await contentDownloadingAllowed(config.server)) ? `${config.server}/Items/${item.Id}/Download` : getRemoteVideoStreamUrl(item.Id, item);
 }
 

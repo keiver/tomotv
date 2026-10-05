@@ -42,7 +42,7 @@ import {
   subscribeAuthChange,
 } from "../jellyfinApi";
 import { EMPTY_FILTERS, JellyfinVideoItem } from "@/types/jellyfin";
-import { serverVideoCodecs, sourceIsHdr } from "@/services/jellyfin/streamUrls";
+import { getConvertedDownloadUrl, serverVideoCodecs, sourceIsHdr } from "@/services/jellyfin/streamUrls";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -1446,6 +1446,24 @@ describe("jellyfinApi", () => {
 
         expect(url).toContain("https://jellyfin.example.com");
         expect(url).toContain("/Videos/video123/stream");
+      });
+    });
+
+    describe("getConvertedDownloadUrl", () => {
+      const rung = { label: "480p", bitrate: 1500000, width: 854, height: 480 };
+      const item = { Id: "video123", MediaSources: [{ Id: "ms-1" }] } as never;
+
+      // Jellyfin names the output from media path, device and play session only.
+      it("carries its own play session, so it is never handed another conversion's file", () => {
+        const url = getConvertedDownloadUrl("video123", item, rung, 2, { playSessionId: "ps-1" });
+        expect(url).toContain("&PlaySessionId=ps-1");
+        expect(url).toContain("&AudioStreamIndex=2&VideoBitrate=1500000");
+        expect(url).not.toContain("SubtitleMethod");
+      });
+
+      it("asks the server to burn a DVB track into the picture", () => {
+        const url = getConvertedDownloadUrl("video123", item, rung, undefined, { playSessionId: "ps-2", burnSubtitleIndex: 3 });
+        expect(url).toContain("&SubtitleMethod=Encode&SubtitleStreamIndex=3");
       });
     });
 

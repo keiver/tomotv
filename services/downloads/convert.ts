@@ -6,7 +6,7 @@
  */
 
 import { JELLYFIN_TIME, QUALITY_PRESETS } from "@/services/jellyfin/constants";
-import { isImageBasedSubtitleCodec } from "@/services/jellyfin/subtitles";
+import { isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 
 export const CONVERT_AUDIO_BITRATE = 128000;
@@ -50,6 +50,18 @@ export function conversionAudioIndex(item: JellyfinVideoItem, picked?: number): 
   return (audio.find((stream) => stream.Index === picked) ?? audio.find((stream) => stream.IsDefault) ?? audio[0])?.Index;
 }
 
+/** How Jellyfin hands a bitmap track over raw, or null for one it has no raw route for (DVB, XSUB). */
+export function rawImageSubtitleFormat(codec: string | undefined): "pgssub" | "mks" | null {
+  return isPgsCodec(codec) ? "pgssub" : isDvdSubCodec(codec) ? "mks" : null;
+}
+
+/** The shown track, when it is DVB: no file of its own, so the conversion burns it into the picture (measured on Jellyfin). */
+export function subtitleToBurn(item: JellyfinVideoItem, shown: number | undefined): number | undefined {
+  const stream = (item.MediaStreams ?? []).find((candidate) => candidate.Type === "Subtitle" && candidate.Index === shown);
+  const codec = (stream?.Codec ?? "").toLowerCase();
+  return codec === "dvbsub" || codec === "dvb_subtitle" ? shown : undefined;
+}
+
 /** Bytes the rung produces over the runtime. Unknown runtime gives 0, which admits itself. */
 export function estimatedConvertedBytes(item: JellyfinVideoItem, rung: ConversionRung): number {
   const seconds = (item.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
@@ -66,7 +78,8 @@ function fitted(width: number | undefined, height: number | undefined, rung: Con
 
 /**
  * The item as the converted file is: mp4, one H.264 stream at the rung, one AAC track at the
- * source's channel count capped at two, text subtitles kept for the sidecars, image ones gone.
+ * source's channel count capped at two, text subtitles kept for the sidecars, PGS and DVD ones as
+ * external files beside it, DVB and XSUB gone.
  * Fields the encode does not fix (profile, level, HDR metadata) are dropped, never invented.
  */
 export function convertedItem(item: JellyfinVideoItem, rung: ConversionRung, pickedAudio?: number): JellyfinVideoItem {
@@ -109,7 +122,10 @@ export function convertedItem(item: JellyfinVideoItem, rung: ConversionRung, pic
     });
   }
   for (const stream of streams) {
-    if (stream.Type === "Subtitle" && stream.Index !== undefined && !isImageBasedSubtitleCodec(stream.Codec)) converted.push(stream);
+    if (stream.Type !== "Subtitle" || stream.Index === undefined) continue;
+    if (!isImageBasedSubtitleCodec(stream.Codec)) converted.push(stream);
+    // A PGS or DVD track is saved beside the file as Jellyfin's raw copy, so it is external here.
+    else if (rawImageSubtitleFormat(stream.Codec)) converted.push({ ...stream, IsExternal: true });
   }
 
   const source = item.MediaSources?.[0];

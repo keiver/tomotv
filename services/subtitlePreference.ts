@@ -259,6 +259,28 @@ export function subtitlePreferenceFrom(settings: TrackSettings, playingAudioLang
 export function getSubtitlePreferenceSync(playingAudioLanguage?: string | null): SubtitlePreference {
   return subtitlePreferenceFrom(getTrackSettingsSync(), playingAudioLanguage);
 }
+
+type SubtitleStream = { Type?: string; Index?: number; Language?: string | null; IsForced?: boolean; IsDefault?: boolean };
+
+/**
+ * The subtitle track a viewer would see under `preference`, for a download that has to decide it up
+ * front. System follows AVKit's automatic pick: the device language under audio in another, else forced.
+ */
+export function subtitleShownFor(streams: SubtitleStream[], preference: SubtitlePreference, audioLanguage: string | null | undefined, deviceLanguage: string): number | undefined {
+  const subtitles = streams.filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
+  const inLanguage = (tag: string | null) => {
+    const wanted = knownLanguage(tag);
+    const matches = wanted ? subtitles.filter((stream) => knownLanguage(stream.Language) === wanted) : [];
+    const full = matches.filter((stream) => stream.IsForced !== true);
+    return (full.find((stream) => stream.IsDefault) ?? full[0] ?? matches[0])?.Index;
+  };
+  if (preference.kind === "off") return undefined;
+  if (preference.kind === "language") return inLanguage(preference.tag);
+  const audio = knownLanguage(audioLanguage);
+  const device = knownLanguage(deviceLanguage);
+  if (audio && device && audio !== device) return inLanguage(deviceLanguage);
+  return subtitles.find((stream) => stream.IsForced === true && (!audio || knownLanguage(stream.Language) === audio))?.Index;
+}
 /** `tag` is Jellyfin's spelling of the stream's language, the one its settings expect. */
 export async function saveSubtitlePreference(preference: SubtitlePreference): Promise<void> {
   if (preference.kind !== "system") recordSubtitlePick(preference);

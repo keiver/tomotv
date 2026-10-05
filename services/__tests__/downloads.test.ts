@@ -19,6 +19,7 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 jest.mock("@/services/jellyfin/session", () => ({
   getConfig: jest.fn(async () => ({ server: "https://jf", apiKey: "key", userId: "u", deviceId: "d" })),
   getAuthHeader: jest.fn(() => 'MediaBrowser Token="key"'),
+  generatePlaySessionId: jest.fn(() => `session-${Math.random()}`),
 }));
 
 jest.mock("@/services/jellyfin/constants", () => ({ API_TIMEOUTS: { QUICK: 10000 } }));
@@ -34,6 +35,7 @@ const RUNG = { label: "1080p", bitrate: 8000000, width: 1920, height: 1080 };
 jest.mock("@/services/downloads/convert", () => ({
   conversionAudioIndex: jest.fn(() => 1),
   convertedItem: jest.fn((item: { MediaSources: { Id: string }[] }) => ({ ...item, Container: "mp4", MediaSources: [{ Id: item.MediaSources[0].Id, Container: "mp4" }] })),
+  rawImageSubtitleFormat: (codec: string) => (codec === "DVDSUB" ? "mks" : codec === "PGSSUB" ? "pgssub" : null),
 }));
 jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "https://jf/poster"), hasPoster: jest.fn(() => true) }));
 jest.mock("@/services/itemArtwork", () => ({ wantsPosterFrame: jest.fn(() => false) }));
@@ -45,7 +47,9 @@ jest.mock("@/services/jellyfin/subtitles", () => ({
 }));
 
 import { downloadManager, resetDownloadPolicyCache } from "@/services/downloads/manager";
-import { localArtworkUri, localSubtitleUri, playbackArtworkUri } from "@/services/downloads/localSource";
+import { localArtworkUri, localImageSubtitlePath, localSubtitleUri, playbackArtworkUri } from "@/services/downloads/localSource";
+import { getRemoteSubtitleUrl } from "@/services/jellyfin/subtitles";
+import { getConvertedDownloadUrl } from "@/services/jellyfin/streamUrls";
 import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache } from "@/services/downloads/manifest";
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
 import { hasPoster } from "@/services/jellyfin/images";
@@ -411,6 +415,42 @@ describe("a server conversion", () => {
     await downloadManager.pause("a");
     expect(paused).not.toHaveBeenCalled();
     expect(manifestEntry("a")?.state).toBe("downloading");
+  });
+
+  // A conversion carries no subtitle track, so each PGS or DVD track is saved as Jellyfin's raw
+  // copy beside it, for the engine to read by path.
+  it("saves each bitmap track beside it and hands playback its path", async () => {
+    const dvd = { Index: 3, Type: "Subtitle", Codec: "DVDSUB", Language: "eng", IsExternal: true };
+    await downloadManager.enqueue({ ...(ITEM("a") as object), MediaStreams: [dvd] } as never, { convert: RUNG });
+    await settle();
+    expect(getRemoteSubtitleUrl).toHaveBeenCalledWith("a", 3, "mks");
+    tasks[0].complete(2048);
+    await settle();
+    expect(manifestEntry("a")?.state).toBe("ready");
+    expect(localImageSubtitlePath("a", 3)).toBe("/doc/downloads/a/sub.3.mks");
+  });
+
+  // Jellyfin names a transcode's file from the media path, device and play session only, so a
+  // fetch without its own session could be handed an earlier conversion's file at another size.
+  it("fetches under a fresh play session each time, burning the DVB track it was asked to", async () => {
+    await downloadManager.enqueue(ITEM("a"), { convert: RUNG, burnSubtitleIndex: 3 });
+    await settle();
+    expect(manifestEntry("a")?.burnedSubtitle).toBe(3);
+    const first = (getConvertedDownloadUrl as jest.Mock).mock.calls.at(-1)?.[4];
+    expect(first).toEqual({ playSessionId: expect.stringMatching(/^session-/), burnSubtitleIndex: 3 });
+
+    await downloadManager.enqueue(ITEM("b"), { convert: RUNG });
+    await settle();
+    const second = (getConvertedDownloadUrl as jest.Mock).mock.calls.at(-1)?.[4];
+    expect(second.burnSubtitleIndex).toBeUndefined();
+    expect(second.playSessionId).not.toBe(first.playSessionId);
+  });
+
+  it("leaves an original's bitmap tracks to the media it holds", async () => {
+    const dvd = { Index: 3, Type: "Subtitle", Codec: "DVDSUB", Language: "eng", IsExternal: true };
+    await downloadManager.enqueue({ ...(ITEM("a") as object), MediaStreams: [dvd] } as never);
+    await settle();
+    expect(getRemoteSubtitleUrl).not.toHaveBeenCalledWith("a", 3, "mks");
   });
 });
 

@@ -67,6 +67,11 @@ export function locale(): Locale {
   return active;
 }
 
+/** The device's first language as a base tag ("pt", "ja"), any language, not only the ones the app ships. */
+export function deviceLanguage(): string {
+  return deviceTag();
+}
+
 /** The language the device asks for, as the app resolves it: the default when nothing is picked. */
 export function systemLocale(): Locale {
   return system;
