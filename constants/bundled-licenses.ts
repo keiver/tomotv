@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: a5e639b87cdda493
+ * fingerprint: 968fce6e129ac907
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -315,12 +315,12 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "escape-string-regexp", version: "4.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"] },
   { name: "etag", version: "1.8.1", license: "MIT", body: "L8", copyright: ["Copyright (c) 2014-2016 Douglas Christopher Wilson"] },
   { name: "event-target-shim", version: "5.0.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015 Toru Nagashima"] },
-  { name: "expo", version: "57.0.25", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
+  { name: "expo", version: "57.0.26", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-asset", version: "57.0.18", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-blur", version: "57.0.3", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-build-properties", version: "57.0.22", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-clipboard", version: "57.0.2", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
-  { name: "expo-constants", version: "57.0.19", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
+  { name: "expo-constants", version: "57.0.20", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-file-system", version: "57.0.7", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-font", version: "57.0.4", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-glass-effect", version: "57.0.4", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
@@ -328,7 +328,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "expo-keep-awake", version: "57.0.2", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-linking", version: "57.0.11", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-modules-autolinking", version: "57.0.13", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
-  { name: "expo-modules-core", version: "57.0.19", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
+  { name: "expo-modules-core", version: "57.0.20", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-modules-jsi", version: "57.1.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-secure-store", version: "57.0.4", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-server", version: "57.0.3", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
@@ -563,7 +563,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
 export const BUNDLED_PACKAGES_DECLARED_ONLY: DeclaredOnlyPackage[] = [
   { name: "@expo/devcert", version: "1.2.1", license: "MIT", url: "https://github.com/expo/devcert" },
   { name: "@expo/sdk-runtime-versions", version: "1.0.0", license: "MIT", url: null },
-  { name: "@expo/ui", version: "57.0.20", license: "MIT", url: "https://github.com/expo/expo" },
+  { name: "@expo/ui", version: "57.0.21", license: "MIT", url: "https://github.com/expo/expo" },
   { name: "@expo/ws-tunnel", version: "2.0.0", license: "MIT", url: null },
   { name: "@expo/xcpretty", version: "4.4.5", license: "BSD-3-Clause", url: "https://github.com/expo/expo-cli" },
   { name: "@react-native-tvos/virtualized-lists", version: "0.86.3-0", license: "MIT", url: "https://github.com/react/react-native" },
@@ -584,7 +584,7 @@ export const BUNDLED_PACKAGES_DECLARED_ONLY: DeclaredOnlyPackage[] = [
   { name: "bplist-parser", version: "0.3.1", license: "MIT", url: "https://github.com/nearinfinity/node-bplist-parser" },
   { name: "bser", version: "2.1.1", license: "Apache-2.0", url: "https://github.com/facebook/watchman" },
   { name: "client-only", version: "0.0.1", license: "MIT", url: "https://reactjs.org/" },
-  { name: "expo-router", version: "57.0.23", license: "MIT", url: "https://github.com/expo/expo" },
+  { name: "expo-router", version: "57.0.24", license: "MIT", url: "https://github.com/expo/expo" },
   { name: "fb-dotslash", version: "0.5.8", license: "(MIT OR Apache-2.0)", url: "https://github.com/facebook/dotslash" },
   { name: "fb-watchman", version: "2.0.2", license: "Apache-2.0", url: "git@github.com:facebook/watchman" },
   { name: "hermes-compiler", version: "250829098.0.17", license: "MIT", url: "ssh://git@github.com/facebook/hermes" },
