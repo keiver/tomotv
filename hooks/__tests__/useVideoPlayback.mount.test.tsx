@@ -118,6 +118,7 @@ const mockPlaysFromDisk = jest.fn((_itemId: string) => false);
 jest.mock("@/services/downloads/localSource", () => ({
   playsFromDisk: (id: string) => mockPlaysFromDisk(id),
   playsRepackaged: jest.fn(() => false),
+  playsConverted: jest.fn(() => false),
   heldImageSubtitleForOrdinal: jest.fn(() => null),
 }));
 

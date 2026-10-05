@@ -20,6 +20,8 @@ export interface LaneGatesInput {
   heldOnDisk: boolean;
   /** That download was rewrapped to MP4, so its container is ours, not the metadata's. */
   heldAsMp4: boolean;
+  /** That download is a server conversion: its text subtitles are sidecars only, never in the file. */
+  heldConverted?: boolean;
   /** Direct play already errored for this item. */
   directPlayFailed: boolean;
   hasTriedTranscoding: boolean;
@@ -98,8 +100,10 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
   // Why the engine is worth reaching for, and never a reason to reach the server: a subtitle
   // track is not worth re-encoding a film over. Inside a held file text tracks are mov_text,
   // which AVPlayer draws itself, so only a sidecar needs the engine to attach it.
-  const heldNeedsEngineForSubs = hasImageSubs || textSubtitles.some((stream) => stream.IsExternal === true);
-  const subtitlesWantEngine = !heldAsMp4 && !input.heldEngineSpent && (heldOnDisk ? heldNeedsEngineForSubs : hasImageSubs || hasTextSubs);
+  // A server conversion carries no subtitle track at all, so every text track is a sidecar.
+  const heldConverted = heldOnDisk && input.heldConverted === true;
+  const heldNeedsEngineForSubs = hasImageSubs || (heldConverted ? hasTextSubs : textSubtitles.some((stream) => stream.IsExternal === true));
+  const subtitlesWantEngine = (!heldAsMp4 || heldConverted) && !input.heldEngineSpent && (heldOnDisk ? heldNeedsEngineForSubs : hasImageSubs || hasTextSubs);
 
   const leavesDirectPlay = networkVideo || live || cannotDirectPlay || subtitlesWantEngine;
 

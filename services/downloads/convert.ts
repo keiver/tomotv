@@ -44,10 +44,10 @@ export function downloadRungs(item: JellyfinVideoItem, mustShrink = true): Conve
   return fitting.length > 0 ? fitting : [rungs[rungs.length - 1]];
 }
 
-/** The audio track the server encodes: its default, else its first. */
-export function conversionAudioIndex(item: JellyfinVideoItem): number | undefined {
+/** The audio track the server encodes: the one picked at download time when it exists, else the default, else the first. */
+export function conversionAudioIndex(item: JellyfinVideoItem, picked?: number): number | undefined {
   const audio = (item.MediaStreams ?? []).filter((stream) => stream.Type === "Audio" && stream.Index !== undefined);
-  return (audio.find((stream) => stream.IsDefault) ?? audio[0])?.Index;
+  return (audio.find((stream) => stream.Index === picked) ?? audio.find((stream) => stream.IsDefault) ?? audio[0])?.Index;
 }
 
 /** Bytes the rung produces over the runtime. Unknown runtime gives 0, which admits itself. */
@@ -69,10 +69,10 @@ function fitted(width: number | undefined, height: number | undefined, rung: Con
  * source's channel count capped at two, text subtitles kept for the sidecars, image ones gone.
  * Fields the encode does not fix (profile, level, HDR metadata) are dropped, never invented.
  */
-export function convertedItem(item: JellyfinVideoItem, rung: ConversionRung): JellyfinVideoItem {
+export function convertedItem(item: JellyfinVideoItem, rung: ConversionRung, pickedAudio?: number): JellyfinVideoItem {
   const streams = item.MediaStreams ?? [];
   const video = streams.find((stream) => stream.Type === "Video");
-  const audioIndex = conversionAudioIndex(item);
+  const audioIndex = conversionAudioIndex(item, pickedAudio);
   const audio = streams.find((stream) => stream.Type === "Audio" && stream.Index === audioIndex);
 
   const converted: JellyfinMediaStream[] = [];

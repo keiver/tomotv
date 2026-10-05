@@ -1,4 +1,5 @@
 import type { DownloadCircleState } from "@/components/info-action-row";
+import { preferredAudioIndexIn, readAudioPreference } from "@/services/audioPreference";
 import { downloadRungs, estimatedConvertedBytes, type ConversionRung } from "@/services/downloads/convert";
 import { downloadManager } from "@/services/downloads/manager";
 import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
@@ -95,7 +96,9 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       const queue = (convert?: ConversionRung) => {
         void (async () => {
           try {
-            await downloadManager.enqueue(details, convert ? { convert } : {});
+            // A conversion records one audio track: the one in the viewer's audio language.
+            const audioIndex = convert ? preferredAudioIndexIn(details.MediaStreams ?? [], await readAudioPreference()) : undefined;
+            await downloadManager.enqueue(details, convert ? { convert, ...(audioIndex !== undefined ? { audioIndex } : {}) } : {});
             leave();
           } catch (error) {
             logger.warn("Download action failed", error, { service: "Downloads", itemId });

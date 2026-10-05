@@ -94,6 +94,13 @@ describe("convertedItem", () => {
     expect(mono.MediaStreams?.[0]).toMatchObject({ Channels: 1, ChannelLayout: "mono" });
   });
 
+  it("carries the track picked at download time instead, and ignores a pick the file does not have", () => {
+    const picked = convertedItem(SOURCE, RUNG, 1).MediaStreams?.filter((stream) => stream.Type === "Audio");
+    expect(picked).toHaveLength(1);
+    expect(picked?.[0]).toMatchObject({ Index: 1, Language: "eng", IsDefault: true });
+    expect(conversionAudioIndex(SOURCE, 9)).toBe(2);
+  });
+
   it("keeps text subtitle streams by source index for the sidecars and drops image ones", () => {
     expect(getTextSubtitleStreams(converted).map((stream) => stream.Index)).toEqual([3, 5]);
     expect(converted.MediaStreams?.some((stream) => stream.Codec === "PGSSUB")).toBe(false);

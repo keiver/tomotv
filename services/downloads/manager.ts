@@ -192,14 +192,15 @@ class DownloadManager {
    * Queue an item for download. Re-queuing something already known is a no-op, so a
    * double-tap on the download button cannot start two transfers for one item.
    */
-  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string }; convert?: ConversionRung } = {}): Promise<void> {
+  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string }; convert?: ConversionRung; audioIndex?: number } = {}): Promise<void> {
     if (!downloadsSupported()) throw new Error("Downloads need an iPhone or iPad");
     await this.hydrate();
     if (manifestEntry(item.Id)) return;
 
-    // A conversion's size is only known once it lands; the caller checks the estimate.
+    // A conversion's size is only known once it lands; the caller checks the estimate. It keeps
+    // one audio track, the one picked for it.
     const rung = options.convert;
-    const stored = rung ? convertedItem(item, rung) : item;
+    const stored = rung ? convertedItem(item, rung, options.audioIndex) : item;
     const size = rung ? -1 : (item.MediaSources?.[0]?.Size ?? -1);
     if (size > 0 && Paths.availableDiskSpace - size < DISK_HEADROOM_BYTES) {
       throw new Error("Not enough free space for this download");

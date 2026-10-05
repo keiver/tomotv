@@ -43,6 +43,10 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 
 jest.mock("@/services/transcodePolicy", () => ({ serverTranscodeBlock: jest.fn(() => null) }));
+jest.mock("@/services/audioPreference", () => ({
+  readAudioPreference: jest.fn(async () => null),
+  preferredAudioIndexIn: jest.requireActual("@/services/audioPreference").preferredAudioIndexIn,
+}));
 // The sheet is replayed as an Alert so one helper reads both: a disabled size keeps no onPress.
 jest.mock("@/services/downloads/sizeSheet", () => {
   const actual = jest.requireActual("@/services/downloads/sizeSheet");

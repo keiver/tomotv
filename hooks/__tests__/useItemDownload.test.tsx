@@ -60,6 +60,11 @@ jest.mock("@/services/downloads/convert", () => ({
   estimatedConvertedBytes: (item: unknown, rung: { bitrate: number }) => mockEstimate(item, rung),
 }));
 jest.mock("@/services/transcodePolicy", () => ({ serverTranscodeBlock: jest.fn(() => null) }));
+const mockAudioLanguage = jest.fn(async (): Promise<string | null> => null);
+jest.mock("@/services/audioPreference", () => ({
+  readAudioPreference: () => mockAudioLanguage(),
+  preferredAudioIndexIn: jest.requireActual("@/services/audioPreference").preferredAudioIndexIn,
+}));
 // The sheet is replayed as an Alert so one helper reads both: a disabled size keeps no onPress.
 jest.mock("@/services/downloads/sizeSheet", () => {
   const actual = jest.requireActual("@/services/downloads/sizeSheet");
@@ -109,6 +114,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockEstimate.mockReturnValue(0);
   mockRungs.mockReturnValue([]);
+  mockAudioLanguage.mockResolvedValue(null);
   (serverTranscodeBlock as jest.Mock).mockReturnValue(null);
   mockEntries.length = 0;
   listener = null;
@@ -240,6 +246,29 @@ describe("useItemDownload", () => {
     expect(buttons.map((button) => button.text)).toEqual(["Original · 10 B", "1080p · 8000 B", "720p · 4000 B", "Cancel"]);
     await confirm("720p · 4000 B");
     expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { convert: { label: "720p", bitrate: 4000000, width: 1280, height: 720 } });
+  });
+
+  // A conversion records one audio track, so it is the one in the viewer's audio language.
+  it("records the audio track in the viewer's language on a smaller size", async () => {
+    mockRungs.mockReturnValue([RUNG]);
+    mockEstimate.mockReturnValue(4000);
+    mockAudioLanguage.mockResolvedValue("ja");
+    (fetchVideoDetails as jest.Mock).mockResolvedValue({
+      Id: "a",
+      Name: "Bloom",
+      MediaSources: [{ Id: "s", Size: 10 }],
+      MediaStreams: [
+        { Type: "Video", Index: 0 },
+        { Type: "Audio", Index: 1, Language: "eng", IsDefault: true },
+        { Type: "Audio", Index: 2, Language: "jpn" },
+      ],
+    });
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    await confirm("1080p · 4000 B");
+    expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { convert: RUNG, audioIndex: 2 });
   });
 
   it("drops a size that would not fit and keeps the ones that do", async () => {

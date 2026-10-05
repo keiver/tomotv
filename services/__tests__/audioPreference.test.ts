@@ -1,7 +1,7 @@
 /**
  * The remembered audio language: which stream it opens an item on, and when Jellyfin's settings name one.
  */
-import { audioLanguageToStore, preferredAudioStreamIndex, rememberedAudioLanguage } from "@/services/audioPreference";
+import { audioLanguageToStore, preferredAudioIndexIn, preferredAudioStreamIndex, rememberedAudioLanguage } from "@/services/audioPreference";
 import { JELLYFIN_DEFAULTS } from "@/services/jellyfin/trackSettings";
 
 // Naruto S01E001 as Jellyfin lists it: English default at 1, Japanese at 2.
@@ -9,6 +9,15 @@ const naruto = [
   { Index: 1, Language: "eng", IsDefault: true },
   { Index: 2, Language: "jpn", IsDefault: false },
 ];
+
+describe("preferredAudioIndexIn", () => {
+  it("picks an item's audio stream in the stored language, and leaves the default to the file otherwise", () => {
+    const streams = [{ Type: "Video", Index: 0 }, ...naruto.map((track) => ({ ...track, Type: "Audio" }))];
+    expect(preferredAudioIndexIn(streams, "ja")).toBe(2);
+    expect(preferredAudioIndexIn(streams, "fre")).toBeUndefined();
+    expect(preferredAudioIndexIn(streams, null)).toBeUndefined();
+  });
+});
 
 describe("preferredAudioStreamIndex", () => {
   it("finds the stream in whichever spelling the preference was stored", () => {

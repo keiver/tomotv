@@ -22,7 +22,7 @@ import {
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
 import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock, type ServerTranscodeBlock } from "@/services/transcodePolicy";
-import { heldImageSubtitleForOrdinal, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
+import { heldImageSubtitleForOrdinal, playsConverted, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
 import * as syncPlayManager from "@/services/syncPlayManager";
@@ -672,6 +672,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         measuredBps: (details.MediaSources?.[0]?.Bitrate ?? 0) > 0 && !live && !playsFromDisk(videoId) ? await rememberedBitrate() : null,
         heldOnDisk: playsFromDisk(videoId),
         heldAsMp4: playsRepackaged(videoId),
+        heldConverted: playsConverted(videoId),
         directPlayFailed: directPlayFailedRef.current,
         hasTriedTranscoding,
         heldEngineSpent: heldEngineSpentRef.current,
