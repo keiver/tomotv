@@ -162,6 +162,7 @@ describe("recordingStatus", () => {
     expect(getRecordingStatus().running).toHaveLength(1);
     reportRecordingTimers([timer({ Id: "a", Status: "Cancelled" }), timer({ Id: "b", Status: "New", StartDate: at(5), EndDate: at(35) })]);
     expect(getRecordingStatus().running).toEqual([]);
+    expect(getRecordingStatus().active.map((entry) => entry.Id)).toEqual(["b"]);
     expect(listener).toHaveBeenCalledTimes(2);
     jest.mocked(fetchTimers).mockResolvedValue([timer({ Id: "b", StartDate: at(5), EndDate: at(35) })]);
     jest.advanceTimersByTime(5 * 60_000 + 2_000);

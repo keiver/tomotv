@@ -42,15 +42,17 @@ const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track, and the watched eye. */
-export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now()): BadgeSegment[] | null {
+export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
   // A channel with something on air wears the live mark; the title bar names the programme.
   if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
   // A programme from search: live while it airs, when it starts before then, nothing once it ended.
+  // Recording, REC takes LIVE's place and a scheduled start wears the camera.
   if (video.Type === "Program") {
     const startMs = Date.parse(video.StartDate ?? "");
     if (Number.isNaN(startMs)) return null;
-    if (startMs <= nowMs) return Date.parse(video.EndDate ?? "") > nowMs ? [{ label: t("liveTv.live") }] : null;
-    return [{ label: `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)}` }];
+    if (startMs <= nowMs) return Date.parse(video.EndDate ?? "") > nowMs ? [{ label: t(recording ? "liveTv.rec" : "liveTv.live") }] : null;
+    const label = `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)}`;
+    return [recording ? { icon: "videocam", label } : { label }];
   }
   const segments: BadgeSegment[] = [];
   const badge = formatIndexBadge(video);
@@ -130,7 +132,7 @@ interface VideoGridItemProps {
   clipActive?: boolean;
   /** Channel cards: the health check concluded down; the art dims and the corner badge says Offline. */
   offline?: boolean;
-  /** Channel cards: the server is recording this channel; a REC pill takes LIVE's place. */
+  /** Channel and programme cards: a timer covers it; REC takes LIVE's place, a scheduled programme's time wears the camera. */
   recording?: boolean;
   /** No resting depth shadow, for hosts that clip it; the focus glow stays. */
   flat?: boolean;
@@ -216,9 +218,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // A programme's badge follows the clock: it goes live at its start and clears at its end.
   const clockMs = useMinuteClock(video.Type === "Program");
   const badgeSegments = useMemo(
-    () => indexBadgeSegments(video, clockMs || Date.now()),
+    () => indexBadgeSegments(video, clockMs || Date.now(), recording),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, video.StartDate, video.EndDate, video.UserData?.Played, clockMs],
+    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, video.StartDate, video.EndDate, video.UserData?.Played, clockMs, recording],
   );
   const isChannel = video.Type === "TvChannel";
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;

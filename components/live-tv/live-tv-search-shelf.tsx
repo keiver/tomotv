@@ -3,8 +3,10 @@ import { VideoGridItem } from "@/components/video-grid-item";
 import { itemSlotShape } from "@/constants/app";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
+import { useActiveTimers } from "@/hooks/useRecordingStatus";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
+import { programRecording } from "@/utils/guide";
 import React, { useCallback } from "react";
 
 const slotShapeFor = (item: JellyfinVideoItem) => itemSlotShape(item.PrimaryImageAspectRatio);
@@ -16,11 +18,21 @@ export function LiveTvSearchShelf({ items }: { items: readonly JellyfinVideoItem
   const open = useCallback((item: JellyfinVideoItem) => openItem(item as JellyfinItem), [openItem]);
   const openInfoPanel = useItemLongPress();
   const longPress = useCallback((item: JellyfinVideoItem) => openInfoPanel(item as JellyfinItem), [openInfoPanel]);
+  const timers = useActiveTimers();
   const renderItem = useCallback(
     (item: JellyfinVideoItem, index: number, cardHeight: number) => (
-      <VideoGridItem video={item} onPress={open} onLongPress={longPress} index={index} cardHeight={cardHeight} fitArtwork slotOrientation="landscape" />
+      <VideoGridItem
+        video={item}
+        onPress={open}
+        onLongPress={longPress}
+        index={index}
+        cardHeight={cardHeight}
+        fitArtwork
+        slotOrientation="landscape"
+        recording={programRecording(timers, item, Date.now())}
+      />
     ),
-    [open, longPress],
+    [open, longPress, timers],
   );
   return <MediaShelf title={t("liveTv.title")} data={items} slotShapeFor={slotShapeFor} renderItem={renderItem} keyExtractor={keyFor} />;
 }

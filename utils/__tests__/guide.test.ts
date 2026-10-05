@@ -1,5 +1,6 @@
 import {
   activeRecordTimer,
+  programRecording,
   adjacentChannelId,
   cellAtEdge,
   cellGeometry,
@@ -226,6 +227,14 @@ describe("guide geometry", () => {
       expect(activeRecordTimer([manual, recordingA], target, now)).toBeNull();
       expect(activeRecordTimer([manual, future], target, now)?.Id).toBe("future");
       expect(activeRecordTimer([{ ...future, Status: "Cancelled" }], target, now)).toBeNull();
+    });
+
+    it("programRecording marks a programme card its timer covers, never a channel card", () => {
+      const scheduled = timer("s", 150, 180, "S");
+      const card = { Id: "S", Type: "Program", ChannelId: "c1", ...span(150, 180) };
+      expect(programRecording([scheduled], card, now)).toBe(true);
+      expect(programRecording([{ ...scheduled, Status: "Cancelled" }], card, now)).toBe(false);
+      expect(programRecording([recordingA], { ...card, Type: "TvChannel" }, now)).toBe(false);
     });
   });
 

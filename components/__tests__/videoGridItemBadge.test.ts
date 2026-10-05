@@ -41,6 +41,14 @@ describe("indexBadgeSegments", () => {
     expect(indexBadgeSegments(program(-60, -1), now)).toBeNull();
     expect(indexBadgeSegments(program(30, 90), now)?.[0].label).not.toBe("LIVE");
   });
+
+  it("a recording programme wears REC while it airs and the camera before its start", () => {
+    const now = Date.UTC(2026, 8, 29, 20, 0);
+    const program = (startMin: number, endMin: number) => item({ Type: "Program", StartDate: new Date(now + startMin * 60_000).toISOString(), EndDate: new Date(now + endMin * 60_000).toISOString() });
+    expect(indexBadgeSegments(program(-30, 30), now, true)).toEqual([{ label: "REC" }]);
+    const scheduled = indexBadgeSegments(program(30, 90), now, true);
+    expect(scheduled).toEqual([{ icon: "videocam", label: indexBadgeSegments(program(30, 90), now)?.[0].label }]);
+  });
 });
 
 describe("channelMarks", () => {

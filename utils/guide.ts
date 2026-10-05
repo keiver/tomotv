@@ -4,7 +4,7 @@
  */
 import { GRID, slotCardPadding } from "@/constants/app";
 import { t } from "@/services/i18n";
-import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
+import type { JellyfinProgram, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS, TICK_MINUTES } from "@keiver/tomo-live/src/time";
 
 export { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS, TICK_MINUTES };
@@ -206,6 +206,11 @@ export function activeRecordTimer(
       return startMs <= nowMs && nowMs < endMs;
     }) ?? null
   );
+}
+
+/** A programme card is recording when a live timer covers it, the info panel's own match. */
+export function programRecording(timers: JellyfinTimer[], item: Pick<JellyfinVideoItem, "Id" | "Type" | "ChannelId" | "StartDate" | "EndDate">, nowMs: number): boolean {
+  return item.Type === "Program" && !!activeRecordTimer(timers, { programId: item.Id, channelId: item.ChannelId ?? "", program: item }, nowMs);
 }
 
 /** "2h", "1h 12m" or "45m" in the active language's units: the length a recording toast names. */
