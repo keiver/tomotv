@@ -724,8 +724,8 @@ export function PlayerHost() {
       if (isActive) {
         setPip("active");
         setPinnedKey((pinned) => pinned ?? shownUriRef.current);
-        // tvOS presents nothing, so the window starting is the moment the route leaves.
-        if (Platform.isTV) handlersRef.current?.onPipStarted?.();
+        // tvOS and the Mac present nothing, so the window starting is the moment the route leaves.
+        if (Platform.isTV || IS_MAC) handlersRef.current?.onPipStarted?.();
         return;
       }
       // The window closed on its own (the viewer pressed its ✕) with no route

@@ -723,6 +723,40 @@ describe("PlayerHost", () => {
       }
     });
 
+    it("on a Mac, sends the route back as soon as the window starts", async () => {
+      // IS_MAC is read once at load, so the Mac host is a fresh module graph.
+      let MacHost!: typeof PlayerHost;
+      const shared = { react: React, rn: require("react-native"), video: Video, hook: require("@/hooks/useVideoPlayback") };
+      jest.isolateModules(() => {
+        jest.doMock("react", () => shared.react);
+        jest.doMock("react-native", () => shared.rn);
+        jest.doMock("react-native-video", () => shared.video);
+        jest.doMock("@/hooks/useVideoPlayback", () => shared.hook);
+        jest.doMock("@/utils/hostEnvironment", () => ({ ...jest.requireActual("@/utils/hostEnvironment"), IS_MAC: true }));
+        MacHost = require("@/components/player-host").PlayerHost;
+      });
+      const onPipStarted = jest.fn();
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted };
+      let macRenderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        macRenderer = TestRenderer.create(<MacHost />);
+      });
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      sourceUri = "http://stream/1";
+      await act(async () => {
+        macRenderer.update(<MacHost />);
+      });
+
+      await act(async () => {
+        macRenderer.root.findByType(Video).props.onPictureInPictureStatusChanged({ isActive: true });
+      });
+
+      expect(onPipStarted).toHaveBeenCalledTimes(1);
+      await act(async () => macRenderer.unmount());
+    });
+
     it("on the phone, sends the route back once AVKit's dismissal for the window lands", async () => {
       const onPipStarted = jest.fn();
       const onRequestBack = jest.fn();
