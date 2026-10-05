@@ -6,13 +6,14 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- Server transcoding, in Settings: when the server may be asked to transcode on this device. "When the connection or the file needs it" (the default) also sends smaller server feeds on a slow connection; "Only for files this device can't play" never transcodes for the connection, so a file plays as it is or buffers; "Never" plays only what the device can. When the server does not allow transcoding for the account, the page says so
-- A day strip over the guide's channel column opens the guide on a picked day, today and the 13 days after it, one day at a time. Days without listings are dimmed
+- Server transcoding, in Settings: when the server may be asked to transcode on this device. "When needed" (the default) also sends smaller server streams on a slow connection; "Only for unsupported files" never transcodes for the connection, so a file plays as it is or buffers; "Off" plays only what the device supports. The card ends with the server's own setting for the account, its state in green or red, and the levels are disabled while the server refuses video transcoding
+- A day strip over the guide's channel column opens the guide on a picked day, today and the 13 days after it, one day at a time. Days without listings are dimmed. On iPhone and iPad a touch opens the system calendar, bounded to the days with listings
+- The player's error screen shows an error ID for the failing cause, with the lane and the native error code, and Diagnostics records it. With server transcoding off for the item, the screen says who turned it off: the account or this device
 
 ### Changed
 
 - Settings' Streaming section is the measured connection speed over one row, Server transcoding, whose page holds the levels and, while the server may transcode video, the quality presets under them
-- The device posters setting reads "Generate missing posters", from a frame of the video
+- The device posters setting reads "Generate missing posters", made locally and only when the server has none
 - Live TV search, on the Search tab and the channel wall, finds programmes through the end of tomorrow by their name, episode title or description, from the server's guide and the guide sources alike, so a game named only in its description shows before it airs. A show repeating on a channel is one card, its next airing. The server's listings are read in the background and the results fill in when they land; a guide refresh reads them again
 - The on-device playback engine is its own package, `@keiver/tomo-engine`, in the repository's `packages/` workspace: the remuxer, live sources and the FFmpeg build reach the app as the TomoEngine, TomoLiveSources and TomoFFmpeg pods through the package's config plugin, with their host tests alongside. The engine knows no Jellyfin routes; the app maps its server onto the engine's API, and the tuner groups module stays in the app
 - The live TV services are their own package, `@keiver/tomo-live`, beside the engine: the neighbour channel ring, the focused card's warm session, live frames and clips, channel health, XMLTV guide sources and the `LiveClip` view. The app hands it its channels once through `configureLive`; the engine's per-file verdict store moves into `@keiver/tomo-engine`
@@ -21,6 +22,12 @@ All notable changes to Tomo TV are documented here.
 
 - On Apple TV with automatic subtitles on, the subtitle track the system marks On loads
 - A picked channel group keeps its green wash while focused
+- An MP4 with its moov at the end plays instead of failing on segment 0: the engine's input opens a fresh connection per request (regressed in 2.2.9 by 62988f68)
+- At "Only for unsupported files" or "Off", a slow link waits for the engine instead of reaching the server or erroring; with the server ruled out, the engine gets one fresh session before the error
+- The loading spinner holds until AVPlayer is playing, not on the start tick it sends while still filling its buffer
+- Picture in Picture leaves the player for where playback started, the window rolls a queue into its next item, and restoring it reopens the player
+- Tuner channel groups load from an M3U tuner the server reads on its own loopback, read at the server's host
+- A guide source's footer leaves out the playlist URL
 
 ## [2.2.9]
 

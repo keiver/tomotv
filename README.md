@@ -55,6 +55,12 @@ accepts. If on-device conversion cannot keep up, playback falls back to the
 server. Two such measurements on the same app build keep that file on the
 server for 30 minutes.
 
+When the server may be asked at all is a setting, Settings > Server
+transcoding: **When needed** (the default) for files the device cannot play and
+smaller streams on a slow connection, **Only for unsupported files**, where a
+slow connection waits on the original, or **Off**. The account's own transcoding
+permission on the server overrides all three.
+
 - **Dolby Vision.** Profiles 8.1 and 8.4 are copied as they are. Profile 7,
   which no Apple device decodes, is rewritten to single-layer 8.1 during the copy.
 - **Audio.** AAC, ALAC, AC-3, E-AC-3 and FLAC are copied, so Dolby Atmos reaches
@@ -66,9 +72,9 @@ server for 30 minutes.
   DVB, XSUB) are decoded to bitmaps drawn over the native player.
 - **Quality.** Auto plays the original alone when the connection can carry it,
   and the server transcodes nothing. On a slower connection the playlist adds
-  smaller server streams (stereo AAC), if the account is allowed to transcode,
-  and AVPlayer switches between them and the original without a restart. A fixed
-  preset applies only when the server has to transcode. The connection is timed on
+  smaller server streams (stereo AAC), if the account is allowed to transcode
+  and Server transcoding is at When needed, and AVPlayer switches between them
+  and the original without a restart. A fixed preset applies only when the server has to transcode. The connection is timed on
   real files: the engine reads the one playing, and Settings reads ten seconds of
   one in the library.
 - **Live TV** uses the same engine. HLS and DASH origins are read directly, tuner
@@ -82,9 +88,11 @@ server for 30 minutes.
 ## Features
 
 - **Live TV.** A guide by time and channel, a wall of every channel with live
-  previews, and Recordings with filters. Accounts allowed to manage recordings
-  also get the schedule and record controls. Hold a channel for its info
-  panel, to record, favorite or group it. On Apple TV, the remote's channel-skip
+  previews, and Recordings with filters. The guide opens on today or any of the
+  13 days after it, and search finds programmes through tomorrow by name,
+  episode title or description, in the server's guide and your guide sources.
+  Accounts allowed to manage recordings also get the schedule and record
+  controls. Hold a channel for its info panel, to record, favorite or group it. On Apple TV, the remote's channel-skip
   gesture flips channels, and for 30 seconds after a flip the channels on either
   side keep running.
 - **Books.** PDF, comics (CBZ, CBR, CBT, CB7), EPUB, MOBI and Kindle AZW/AZW3 in a
@@ -101,6 +109,8 @@ server for 30 minutes.
 - **Diagnostics.** The last playback as a versioned JSON document
   ([schema](docs/diagnostics-session.schema.json)): the lane, why the engine
   chose it, the streams, every error, and what the device decodes in hardware.
+  The error screen shows an error ID (cause, lane, native code, build) that the
+  document records too.
   Share it from the phone, or send it from the Apple TV to your phone through
   your own account on the server. Nothing goes anywhere else.
 - **Languages.** English, German, French and Spanish, following the device or

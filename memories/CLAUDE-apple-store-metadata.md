@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 27, 2026
+**Last Updated:** October 4, 2026
 
 ## Quick Reference
 
@@ -96,6 +96,33 @@ PRIVACY
 No analytics. No tracking. No ads. No account with us. Your credentials stay in the device Keychain, and video streams straight from your server to your device.
 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
+```
+
+### What's New (2.2.10), iOS (762 / 4000)
+
+```text
+- Choose when your server transcodes: when needed, only for files this device can't play, or off. Settings also shows what your server allows
+- Live TV search finds programmes through tomorrow by name, episode title or description, in your XMLTV guides too
+- Pick a day in the Live TV guide from the calendar, up to two weeks ahead
+- MP4 files that keep their index at the end play again
+- With server transcoding limited, a slow connection waits for the file instead of stopping with an error
+- The loading spinner stays until the video is actually playing
+- Starting Picture in Picture takes you back to where you started playing, and a queue moves on to its next item inside the window
+- The error screen shows an error code to quote when you report a problem
+```
+
+### What's New (2.2.10), tvOS (851 / 4000)
+
+```text
+- Choose when your server transcodes: when needed, only for files this device can't play, or off. Settings also shows what your server allows
+- Live TV search finds programmes through tomorrow by name, episode title or description, in your XMLTV guides too
+- A day strip above the channels opens the Live TV guide on any day up to two weeks ahead
+- With automatic subtitles on, the subtitle track Apple TV turns on loads
+- MP4 files that keep their index at the end play again
+- With server transcoding limited, a slow connection waits for the file instead of stopping with an error
+- The loading spinner stays until the video is actually playing
+- Starting Picture in Picture takes you back to where you started playing, and a queue moves on to its next item inside the window
+- The error screen shows an error code to quote when you report a problem
 ```
 
 ### What's New (2.2.9), iOS (535 / 4000)
@@ -364,6 +391,33 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.10), iOS (851 / 4000 chars)
+
+```text
+- Lege fest, wann dein Server umwandelt: „Bei Bedarf“, „Nur für nicht unterstützte Dateien“ oder „Aus“. Die Einstellungen zeigen auch, was dein Server erlaubt
+- Die Live-TV-Suche findet Sendungen bis morgen nach Titel, Episodentitel oder Beschreibung, auch in deinen XMLTV-Guides
+- Wähle im Live-TV-Guide einen Tag aus dem Kalender, bis zu zwei Wochen im Voraus
+- MP4-Dateien mit dem Index am Dateiende lassen sich wieder abspielen
+- Ist die Server-Umwandlung eingeschränkt, wartet eine langsame Verbindung auf die Datei, statt mit einem Fehler abzubrechen
+- Der Ladekreis bleibt, bis das Video wirklich läuft
+- Bild-in-Bild bringt dich zurück dorthin, wo du die Wiedergabe gestartet hast, und eine Warteschlange geht im Fenster zum nächsten Titel weiter
+- Der Fehlerbildschirm zeigt einen Fehlercode, den du nennen kannst, wenn du ein Problem meldest
+```
+
+#### What's New (2.2.10), tvOS (965 / 4000 chars)
+
+```text
+- Lege fest, wann dein Server umwandelt: „Bei Bedarf“, „Nur für nicht unterstützte Dateien“ oder „Aus“. Die Einstellungen zeigen auch, was dein Server erlaubt
+- Die Live-TV-Suche findet Sendungen bis morgen nach Titel, Episodentitel oder Beschreibung, auch in deinen XMLTV-Guides
+- Eine Tagesleiste über den Kanälen öffnet den Live-TV-Guide an jedem Tag bis zu zwei Wochen im Voraus
+- Sind automatische Untertitel an, wird die Untertitelspur geladen, die Apple TV einschaltet
+- MP4-Dateien mit dem Index am Dateiende lassen sich wieder abspielen
+- Ist die Server-Umwandlung eingeschränkt, wartet eine langsame Verbindung auf die Datei, statt mit einem Fehler abzubrechen
+- Der Ladekreis bleibt, bis das Video wirklich läuft
+- Bild-in-Bild bringt dich zurück dorthin, wo du die Wiedergabe gestartet hast, und eine Warteschlange geht im Fenster zum nächsten Titel weiter
+- Der Fehlerbildschirm zeigt einen Fehlercode, den du nennen kannst, wenn du ein Problem meldest
+```
+
 #### What's New (2.2.9), iOS (651 / 4000 chars)
 
 ```text
@@ -564,6 +618,33 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.10), iOS (926 / 4000 chars)
+
+```text
+- Choisissez quand votre serveur convertit : « Si nécessaire », « Seulement pour les fichiers non pris en charge » ou « Désactivé ». Réglages affiche aussi ce que votre serveur autorise
+- La recherche de TV en direct trouve les programmes jusqu'à demain par titre, titre d'épisode ou description, y compris dans vos guides XMLTV
+- Choisissez un jour du guide de TV en direct dans le calendrier, jusqu'à deux semaines à l'avance
+- Les fichiers MP4 dont l'index est à la fin du fichier se lisent à nouveau
+- Quand la conversion par le serveur est limitée, une connexion lente attend le fichier au lieu de s'arrêter sur une erreur
+- L'indicateur de chargement reste affiché jusqu'à ce que la vidéo démarre vraiment
+- Image dans l'image vous ramène là où vous avez lancé la lecture, et une file d'attente passe à l'élément suivant dans la fenêtre
+- L'écran d'erreur affiche un code d'erreur à citer quand vous signalez un problème
+```
+
+#### What's New (2.2.10), tvOS (1061 / 4000 chars)
+
+```text
+- Choisissez quand votre serveur convertit : « Si nécessaire », « Seulement pour les fichiers non pris en charge » ou « Désactivé ». Réglages affiche aussi ce que votre serveur autorise
+- La recherche de TV en direct trouve les programmes jusqu'à demain par titre, titre d'épisode ou description, y compris dans vos guides XMLTV
+- Une barre de jours au-dessus des chaînes ouvre le guide de TV en direct sur n'importe quel jour, jusqu'à deux semaines à l'avance
+- Avec les sous-titres automatiques activés, la piste de sous-titres activée par l'Apple TV se charge
+- Les fichiers MP4 dont l'index est à la fin du fichier se lisent à nouveau
+- Quand la conversion par le serveur est limitée, une connexion lente attend le fichier au lieu de s'arrêter sur une erreur
+- L'indicateur de chargement reste affiché jusqu'à ce que la vidéo démarre vraiment
+- Image dans l'image vous ramène là où vous avez lancé la lecture, et une file d'attente passe à l'élément suivant dans la fenêtre
+- L'écran d'erreur affiche un code d'erreur à citer quand vous signalez un problème
+```
+
 #### What's New (2.2.9), iOS (712 / 4000 chars)
 
 ```text
@@ -762,6 +843,33 @@ PRIVACIDAD
 Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenciales se quedan en el llavero del dispositivo, y el vídeo va directo de tu servidor a tu dispositivo.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.10), iOS (892 / 4000 chars)
+
+```text
+- Elige cuándo convierte tu servidor: «Cuando haga falta», «Solo para archivos no compatibles» o «Desactivada». Ajustes también muestra lo que permite tu servidor
+- La búsqueda de Televisión en vivo encuentra programas hasta mañana por título, título del episodio o descripción, también en tus guías XMLTV
+- Elige un día de la guía de Televisión en vivo en el calendario, hasta con dos semanas de antelación
+- Los archivos MP4 con el índice al final vuelven a reproducirse
+- Con la conversión del servidor limitada, una conexión lenta espera al archivo en lugar de detenerse con un error
+- El indicador de carga se mantiene hasta que el video empieza de verdad
+- Imagen dentro de imagen te lleva de vuelta a donde iniciaste la reproducción, y una cola pasa al siguiente elemento dentro de la ventana
+- La pantalla de error muestra un código de error para indicarlo cuando reportes un problema
+```
+
+#### What's New (2.2.10), tvOS (1017 / 4000 chars)
+
+```text
+- Elige cuándo convierte tu servidor: «Cuando haga falta», «Solo para archivos no compatibles» o «Desactivada». Ajustes también muestra lo que permite tu servidor
+- La búsqueda de Televisión en vivo encuentra programas hasta mañana por título, título del episodio o descripción, también en tus guías XMLTV
+- Una franja de días sobre los canales abre la guía de Televisión en vivo en cualquier día, hasta con dos semanas de antelación
+- Con los subtítulos automáticos activados, se carga la pista de subtítulos que activa el Apple TV
+- Los archivos MP4 con el índice al final vuelven a reproducirse
+- Con la conversión del servidor limitada, una conexión lenta espera al archivo en lugar de detenerse con un error
+- El indicador de carga se mantiene hasta que el video empieza de verdad
+- Imagen dentro de imagen te lleva de vuelta a donde iniciaste la reproducción, y una cola pasa al siguiente elemento dentro de la ventana
+- La pantalla de error muestra un código de error para indicarlo cuando reportes un problema
 ```
 
 #### What's New (2.2.9), iOS (682 / 4000 chars)
