@@ -1,4 +1,4 @@
-import { channelMarks, indexBadgeSegments } from "@/components/video-grid-item";
+import { channelMarks, indexBadgeSegments, programCardTitle } from "@/components/video-grid-item";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -57,5 +57,19 @@ describe("channelMarks", () => {
 
   it("marks nothing but a channel", () => {
     expect(channelMarks(item({ Type: "Movie", ChannelNumber: "2" }), "heart")).toEqual({ trailing: [] });
+  });
+});
+
+describe("programCardTitle", () => {
+  it("names the episode after the show", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", EpisodeTitle: "Pilot", ChannelName: "Show" }))).toBe("Show - Pilot");
+  });
+
+  it("falls back to the channel without an episode title", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", ChannelName: "Channel 4" }))).toBe("Show - Channel 4");
+  });
+
+  it("never repeats the show name", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", ChannelName: "Show" }))).toBe("Show");
   });
 });
