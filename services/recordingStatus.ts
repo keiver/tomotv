@@ -119,8 +119,11 @@ export function reportRecordingTimers(timers: JellyfinTimer[]): void {
   apply(timers);
 }
 
+/** Every field the marks match on: an edited timer is a new reading. */
+const TIMER_FIELDS = ["Id", "Status", "ProgramId", "ChannelId", "StartDate", "EndDate", "PrePaddingSeconds", "PostPaddingSeconds"] as const;
+
 function sameTimers(next: JellyfinTimer[], current: JellyfinTimer[]): boolean {
-  return next.length === current.length && next.every((timer, index) => timer.Id === current[index].Id && timer.Status === current[index].Status);
+  return next.length === current.length && next.every((timer, index) => TIMER_FIELDS.every((field) => timer[field] === current[index][field]));
 }
 
 function apply(timers: JellyfinTimer[]): void {

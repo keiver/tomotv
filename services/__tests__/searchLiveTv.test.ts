@@ -158,6 +158,27 @@ describe("searchLiveTv", () => {
       expect(urls().filter((url) => url.includes("/LiveTv/Programs/g9"))).toHaveLength(2);
     });
 
+    it("reads a shown card's details again for another server or account", async () => {
+      const { getConfig } = jest.requireMock("../jellyfin/session") as { getConfig: jest.Mock };
+      liveTvSearchIndex.mockReturnValue([indexed("g5", "mlb baseball yankees", later(4))]);
+      const details = (ChannelName: string) => ({
+        ok: true,
+        json: async () => ({ Id: "g5", Name: "MLB Baseball", Type: "Program", ChannelId: "tbs", ChannelName, StartDate: new Date(later(4)).toISOString(), EndDate: new Date(later(7)).toISOString() }),
+      });
+      serve(ok([]), ok([]), { g5: details("TBS") });
+      expect((await searchLiveTv("yankees"))[0].ChannelName).toBe("TBS");
+      serve(ok([]), ok([]), { g5: details("TBS East") });
+      getConfig.mockResolvedValueOnce({ server: "http://other", apiKey: "k", userId: "u", deviceId: "d" });
+      expect((await searchLiveTv("yankees"))[0].ChannelName).toBe("TBS East");
+      getConfig.mockResolvedValueOnce({ server: "http://jf", apiKey: "k2", userId: "u2", deviceId: "d" });
+      await searchLiveTv("yankees");
+      expect(urls().filter((url) => url.includes("/LiveTv/Programs/g5"))).toEqual([
+        "http://jf/LiveTv/Programs/g5?userId=u",
+        "http://other/LiveTv/Programs/g5?userId=u",
+        "http://jf/LiveTv/Programs/g5?userId=u2",
+      ]);
+    });
+
     it("answers without the index while it is being built, and never matches a term under three characters", async () => {
       serve(ok([channel("ch")]), ok([]));
       await expect(searchLiveTv("yankees")).resolves.toEqual([channel("ch")]);

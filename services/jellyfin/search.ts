@@ -309,7 +309,7 @@ async function fetchSeriesEpisodes(config: JellyfinConfig, seriesId: string, ser
  * Supports searching by:
  * - Title/name (default)
  * - Year: "action 2023", "(2020)", "2019-2023"
- * - Genre: "comedy", "comedy 90s" — partial names match too ("entert" → Entertainment)
+ * - Genre: "comedy", "comedy 90s"; partial names match too ("entert" → Entertainment)
  * - Artist: "queen", "queen rock 80s" (Audio/MusicVideo items)
  * - Series name (automatically expands to episodes)
  * Genre/artist matches union with title matches: a word naming a genre or artist adds
@@ -539,18 +539,19 @@ function indexedMatches(config: JellyfinConfig, searchTerm: string): JellyfinVid
     }));
 }
 
-/** A shown index card's channel name and artwork, read once per programme. */
+/** A shown index card's channel name and artwork, read once per programme per server and account (ids repeat across servers). */
 const programDetails = new Map<string, Promise<JellyfinVideoItem | null>>();
 
 function fetchProgramDetails(config: JellyfinConfig, programId: string): Promise<JellyfinVideoItem | null> {
-  let details = programDetails.get(programId);
+  const key = `${config.server}|${config.userId}|${programId}`;
+  let details = programDetails.get(key);
   if (!details) {
     details = fetchWithTimeout(`${config.server}/LiveTv/Programs/${programId}?userId=${config.userId}`, { method: "GET", headers: liveTvHeaders(config) }, API_TIMEOUTS.QUICK)
       .then(async (response) => (response.ok ? ((await response.json()) as JellyfinVideoItem) : null))
       .catch(() => null);
-    programDetails.set(programId, details);
+    programDetails.set(key, details);
     details.then((found) => {
-      if (!found) programDetails.delete(programId);
+      if (!found) programDetails.delete(key);
     });
   }
   return details;

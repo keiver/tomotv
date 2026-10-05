@@ -48,6 +48,27 @@ describe("transcodePermissions", () => {
     unsubscribe();
   });
 
+  it("forgets the previous account's answer on the same server, and keeps none for it on a failed read", async () => {
+    mockConfig.mockResolvedValue({ server: "http://b:8096", apiKey: "k2", deviceId: "d", userId: "u2" });
+    mockFetch.mockRejectedValue(new Error("offline"));
+    await refreshTranscodePermissions();
+    expect(getTranscodePermissions()).toBeNull();
+  });
+
+  it("drops an answer that lands after the account changed", async () => {
+    mockConfig.mockResolvedValue({ server: "http://b:8096", apiKey: "k", deviceId: "d", userId: "u1" });
+    let answer: (value: unknown) => void = () => {};
+    mockFetch.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const first = refreshTranscodePermissions();
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    mockConfig.mockResolvedValue({ server: "http://b:8096", apiKey: "k2", deviceId: "d", userId: "u2" });
+    mockFetch.mockResolvedValueOnce(policy(true, true));
+    await refreshTranscodePermissions();
+    answer(policy(false, false));
+    await first;
+    expect(getTranscodePermissions()).toEqual({ server: "http://b:8096", userId: "u2", video: true, audio: true });
+  });
+
   it("has no answer without a signed-in server", async () => {
     mockConfig.mockResolvedValue({ server: "", apiKey: "" });
     await refreshTranscodePermissions();
