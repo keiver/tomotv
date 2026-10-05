@@ -32,7 +32,6 @@ jest.mock("@/services/jellyfin/streamUrls", () => ({
 }));
 const RUNG = { label: "1080p", bitrate: 8000000, width: 1920, height: 1080 };
 jest.mock("@/services/downloads/convert", () => ({
-  conversionRung: jest.fn(async () => RUNG),
   conversionAudioIndex: jest.fn(() => 1),
   convertedItem: jest.fn((item: { MediaSources: { Id: string }[] }) => ({ ...item, Container: "mp4", MediaSources: [{ Id: item.MediaSources[0].Id, Container: "mp4" }] })),
 }));
@@ -377,7 +376,7 @@ describe("downloadManager", () => {
   // The server re-encodes on the way down: the transfer reads the progressive endpoint, lands
   // as an MP4 of unknown size, and the manifest describes that file rather than the source.
   it("fetches a conversion from the progressive endpoint and stores the converted item", async () => {
-    await downloadManager.enqueue(ITEM("a"), { convert: true });
+    await downloadManager.enqueue(ITEM("a"), { convert: RUNG });
     await settle();
     expect(File.createDownloadTask).toHaveBeenCalledWith("https://jf/Videos/a/stream.mp4?MaxWidth=1920&AudioStreamIndex=1", expect.anything(), expect.anything());
     const entry = manifestEntry("a");
@@ -392,7 +391,7 @@ describe("downloadManager", () => {
   });
 
   it("never asks the Download policy for a conversion", async () => {
-    await downloadManager.enqueue(ITEM("a"), { convert: true });
+    await downloadManager.enqueue(ITEM("a"), { convert: RUNG });
     await settle();
     expect(fetchWithTimeout).not.toHaveBeenCalled();
   });

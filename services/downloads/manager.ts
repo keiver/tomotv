@@ -20,7 +20,7 @@ import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfi
 import { wantsPosterFrame } from "@/services/itemArtwork";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
-import { conversionAudioIndex, conversionRung, convertedItem } from "./convert";
+import { conversionAudioIndex, convertedItem, type ConversionRung } from "./convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
@@ -192,13 +192,13 @@ class DownloadManager {
    * Queue an item for download. Re-queuing something already known is a no-op, so a
    * double-tap on the download button cannot start two transfers for one item.
    */
-  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string }; convert?: boolean } = {}): Promise<void> {
+  async enqueue(item: JellyfinVideoItem, options: { group?: { id: string; name: string }; convert?: ConversionRung } = {}): Promise<void> {
     if (!downloadsSupported()) throw new Error("Downloads need an iPhone or iPad");
     await this.hydrate();
     if (manifestEntry(item.Id)) return;
 
     // A conversion's size is only known once it lands; the caller checks the estimate.
-    const rung = options.convert ? await conversionRung() : undefined;
+    const rung = options.convert;
     const stored = rung ? convertedItem(item, rung) : item;
     const size = rung ? -1 : (item.MediaSources?.[0]?.Size ?? -1);
     if (size > 0 && Paths.availableDiskSpace - size < DISK_HEADROOM_BYTES) {

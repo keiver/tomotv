@@ -5,13 +5,10 @@
  */
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
-jest.mock("@/services/jellyfin/session", () => ({ getQualitySettings: jest.fn() }));
 
-import { QUALITY_PRESETS } from "@/services/jellyfin/constants";
 import { needsTranscoding } from "@/services/jellyfin/media";
-import { getQualitySettings } from "@/services/jellyfin/session";
 import { getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
-import { CONVERT_AUDIO_BITRATE, conversionAudioIndex, conversionRung, convertedItem, estimatedConvertedBytes } from "@/services/downloads/convert";
+import { CONVERT_AUDIO_BITRATE, conversionAudioIndex, convertedItem, downloadRungs, estimatedConvertedBytes, sizeChoice } from "@/services/downloads/convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const RUNG = { label: "1080p", bitrate: 8000000, width: 1920, height: 1080 };
@@ -33,15 +30,42 @@ const SOURCE = {
   ],
 } as unknown as JellyfinVideoItem;
 
-describe("conversionRung", () => {
-  it("uses the pinned preset", async () => {
-    (getQualitySettings as jest.Mock).mockResolvedValue({ ...QUALITY_PRESETS[2], index: 2, mode: "fixed" });
-    expect(await conversionRung()).toEqual({ label: "720p", bitrate: 4000000, width: 1280, height: 720 });
+/** A source at the given height and video bitrate. */
+const videoAt = (height: number, bitrate?: number): JellyfinVideoItem =>
+  ({
+    Id: "v",
+    MediaSources: [{ Id: "s" }],
+    MediaStreams: [{ Index: 0, Type: "Video", Codec: "h264", Width: Math.round((height * 16) / 9), Height: height, BitRate: bitrate }],
+  }) as unknown as JellyfinVideoItem;
+
+describe("downloadRungs", () => {
+  it("offers every rung under an 8K source, largest first", () => {
+    expect(downloadRungs(SOURCE).map((rung) => rung.label)).toEqual(["1080p", "720p", "480p"]);
   });
 
-  it("lands Auto on 1080p, since a file has no link to adapt to", async () => {
-    (getQualitySettings as jest.Mock).mockResolvedValue({ ...QUALITY_PRESETS[5], index: 5, mode: "auto" });
-    expect(await conversionRung()).toEqual(RUNG);
+  // Jellyfin stream-copies video whose bitrate already sits under the request, so a rung at or
+  // above the source's video bitrate would land the same picture and is not a smaller file.
+  it("offers only rungs under the source's own video bitrate", () => {
+    expect(downloadRungs(videoAt(1080, 6_000_000)).map((rung) => rung.label)).toEqual(["720p", "480p"]);
+    expect(downloadRungs(videoAt(1080, 25_000_000)).map((rung) => rung.label)).toEqual(["1080p", "720p", "480p"]);
+    expect(downloadRungs(videoAt(720, 1_000_000))).toEqual([]);
+  });
+
+  it("offers nothing to shrink an audio track or an unknown-height video", () => {
+    expect(downloadRungs({ Id: "a", MediaStreams: [{ Index: 0, Type: "Audio", Codec: "flac" }] } as unknown as JellyfinVideoItem)).toEqual([]);
+    expect(downloadRungs(videoAt(0))).toEqual([]);
+  });
+
+  it("always offers the lowest rung when the original cannot be kept", () => {
+    expect(downloadRungs(videoAt(720, 1_000_000), false).map((rung) => rung.label)).toEqual(["720p", "480p"]);
+    expect(downloadRungs(videoAt(360), false).map((rung) => rung.label)).toEqual(["480p"]);
+  });
+});
+
+describe("sizeChoice", () => {
+  it("joins the label and the size, and stands alone when the size is unknown", () => {
+    expect(sizeChoice("1080p", 1.1 * 1024 ** 3)).toBe("1080p · 1.10 GB");
+    expect(sizeChoice("Original", 0)).toBe("Original");
   });
 });
 

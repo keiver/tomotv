@@ -6,13 +6,14 @@
  */
 
 import { JELLYFIN_TIME, QUALITY_PRESETS } from "@/services/jellyfin/constants";
-import { getQualitySettings } from "@/services/jellyfin/session";
 import { isImageBasedSubtitleCodec } from "@/services/jellyfin/subtitles";
+import { t } from "@/services/i18n";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
+import { formatFileSize } from "@/utils/mediaInfo";
 
 export const CONVERT_AUDIO_BITRATE = 128000;
-/** Auto is a link rule with no cap, and a file has no link, so Auto lands on 1080p. */
-const AUTO_RUNG_LABEL = "1080p";
+/** The sizes a download offers under Original, largest first. */
+const DOWNLOAD_RUNG_LABELS = ["1080p", "720p", "480p"];
 
 export interface ConversionRung {
   label: string;
@@ -21,11 +22,28 @@ export interface ConversionRung {
   height: number;
 }
 
-/** The pinned quality preset, or the Auto rung when the setting carries no cap. */
-export async function conversionRung(): Promise<ConversionRung> {
-  const quality = await getQualitySettings();
-  const preset = quality.width && quality.height ? quality : (QUALITY_PRESETS.find((candidate) => candidate.label === AUTO_RUNG_LABEL) ?? QUALITY_PRESETS[0]);
-  return { label: preset.label, bitrate: preset.bitrate, width: preset.width ?? 0, height: preset.height ?? 0 };
+const toRung = (preset: (typeof QUALITY_PRESETS)[number]): ConversionRung => ({ label: preset.label, bitrate: preset.bitrate, width: preset.width ?? 0, height: preset.height ?? 0 });
+const LADDER = DOWNLOAD_RUNG_LABELS.map((label) => QUALITY_PRESETS.find((preset) => preset.label === label))
+  .filter((preset) => preset !== undefined)
+  .map(toRung);
+
+/**
+ * The rungs worth offering for one item: no taller than its video and, when `mustShrink`, under
+ * its video bitrate, which is the test Jellyfin's CanStreamCopyVideo applies before it re-encodes.
+ * Without `mustShrink` (the original cannot be kept anyway) the lowest rung always stands.
+ */
+export function downloadRungs(item: JellyfinVideoItem, mustShrink = true): ConversionRung[] {
+  const video = (item.MediaStreams ?? []).find((stream) => stream.Type === "Video");
+  const height = video?.Height ?? 0;
+  const bitrate = video?.BitRate ?? item.MediaSources?.[0]?.Bitrate ?? 0;
+  const fitting = LADDER.filter((rung) => rung.height <= height && (!mustShrink || bitrate === 0 || rung.bitrate < bitrate));
+  if (mustShrink) return video ? fitting : [];
+  return fitting.length > 0 ? fitting : [LADDER[LADDER.length - 1]];
+}
+
+/** A size button: "1080p · 1.1 GB", or the label alone when the size is unknown. */
+export function sizeChoice(label: string, bytes: number): string {
+  return bytes > 0 ? t("downloads.sizeChoice").replace("{label}", label).replace("{size}", formatFileSize(bytes)) : label;
 }
 
 /** The audio track the server encodes: its default, else its first. */

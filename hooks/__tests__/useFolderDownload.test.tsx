@@ -10,6 +10,8 @@ import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { downloadManager } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { fetchAllPlaylistItems, fetchRecursiveDownloadables } from "@/services/jellyfinApi";
+import { serverTranscodeAllowed } from "@/services/transcodePolicy";
+import { formatFileSize } from "@/utils/mediaInfo";
 import { Paths } from "expo-file-system";
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
@@ -40,6 +42,8 @@ jest.mock("@/services/jellyfinApi", () => ({
   isPhoto: (item: { Type?: string }) => item?.Type === "Photo",
 }));
 
+jest.mock("@/services/transcodePolicy", () => ({ serverTranscodeAllowed: jest.fn(() => true) }));
+
 const GB = 1024 ** 3;
 const manager = downloadManager as jest.Mocked<typeof downloadManager>;
 
@@ -48,6 +52,21 @@ const FOLDER = { Id: "folder-1", Name: "Veckatimest", Type: "MusicAlbum" } as ne
 function track(id: string, bytes: number, type = "Audio") {
   return { Id: id, Name: `Track ${id}`, Type: type, MediaSources: [{ Id: `s-${id}`, Size: bytes }] };
 }
+
+/** A one-hour 4K episode at 40 Mbps: every rung shrinks it. */
+function episode(id: string, bytes: number) {
+  return {
+    Id: id,
+    Name: `Episode ${id}`,
+    Type: "Episode",
+    RunTimeTicks: 3600 * 10_000_000,
+    MediaSources: [{ Id: `s-${id}`, Size: bytes, Bitrate: 40_000_000 }],
+    MediaStreams: [{ Index: 0, Type: "Video", Codec: "hevc", Width: 3840, Height: 2160, BitRate: 40_000_000 }],
+  };
+}
+
+/** The texts of the buttons the last Alert offered. */
+const offered = () => ((Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string }[]).map((button) => button.text);
 
 /** Runs the hook's callback and returns the Alert it raised. */
 async function run(folder: unknown = FOLDER) {
@@ -65,11 +84,11 @@ async function run(folder: unknown = FOLDER) {
   return (Alert.alert as jest.Mock).mock.calls.at(-1);
 }
 
-/** Presses "Download" on the confirmation the last Alert offered. */
-async function confirm() {
+/** Presses a size on the confirmation the last Alert offered, the original by default. */
+async function confirm(label = "Original") {
   const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string; onPress?: () => void }[];
   await act(async () => {
-    buttons.find((button) => button.text === "Download")?.onPress?.();
+    buttons.find((button) => button.text.startsWith(label))?.onPress?.();
   });
 }
 
@@ -88,9 +107,38 @@ describe("useFolderDownload", () => {
 
     expect(title).toBe("Veckatimest");
     expect(body).toContain("2 items");
-    expect(body).toContain("3.00 GB");
     expect(body).toContain("50.00 GB free");
+    expect(offered()).toEqual(["Original · 3.00 GB", "Cancel"]);
     expect(manager.enqueue).not.toHaveBeenCalled();
+  });
+
+  // The reviewer's ask, for a whole season: every size under the original is one button, the
+  // videos a rung shrinks convert to it and the tracks keep their originals.
+  it("offers the smaller sizes for the videos of the set and converts only those", async () => {
+    (fetchRecursiveDownloadables as jest.Mock).mockResolvedValue([episode("e", 18 * GB), track("a", GB)]);
+    const estimate = (bitrate: number) => Math.round(((bitrate + 128_000) * 3600) / 8);
+    await run();
+
+    expect(offered()).toEqual([
+      "Original · 19.00 GB",
+      `1080p · ${formatFileSize(estimate(8_000_000) + GB)}`,
+      `720p · ${formatFileSize(estimate(4_000_000) + GB)}`,
+      `480p · ${formatFileSize(estimate(1_500_000) + GB)}`,
+      "Cancel",
+    ]);
+    await confirm("720p");
+    expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "e" }), {
+      group: { id: "folder-1", name: "Veckatimest" },
+      convert: { label: "720p", bitrate: 4000000, width: 1280, height: 720 },
+    });
+    expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { group: { id: "folder-1", name: "Veckatimest" } });
+  });
+
+  it("offers no smaller size when the server may not transcode for this account", async () => {
+    (serverTranscodeAllowed as jest.Mock).mockReturnValue(false);
+    (fetchRecursiveDownloadables as jest.Mock).mockResolvedValue([episode("e", 18 * GB)]);
+    await run();
+    expect(offered()).toEqual(["Original · 18.00 GB", "Cancel"]);
   });
 
   it("queues every item once the confirmation is accepted", async () => {
@@ -141,8 +189,8 @@ describe("useFolderDownload", () => {
     manager.has.mockImplementation((id: string) => id === "a");
     const [, body] = (await run()) as [string, string];
 
-    expect(body).toContain("1 item,");
-    expect(body).toContain("2.00 GB");
+    expect(body).toContain("1 item.");
+    expect(offered()[0]).toBe("Original · 2.00 GB");
   });
 
   it("says so when the whole folder is already downloaded", async () => {
@@ -156,15 +204,15 @@ describe("useFolderDownload", () => {
     (fetchRecursiveDownloadables as jest.Mock).mockResolvedValue([track("a", GB), track("p", 5 * GB, "Photo")]);
     const [, body] = (await run()) as [string, string];
 
-    expect(body).toContain("1 item,");
-    expect(body).toContain("1.00 GB");
+    expect(body).toContain("1 item.");
+    expect(offered()[0]).toBe("Original · 1.00 GB");
   });
 
   it("admits the size is unknown rather than claiming zero", async () => {
     (fetchRecursiveDownloadables as jest.Mock).mockResolvedValue([{ Id: "a", Name: "A", Type: "Audio" }]);
-    const [, body] = (await run()) as [string, string];
+    await run();
 
-    expect(body).toContain("an unknown size");
+    expect(offered()[0]).toBe("Original");
     // No measurement means no space verdict to make: it is offered, not refused.
     await confirm();
     expect(manager.enqueue).toHaveBeenCalledTimes(1);

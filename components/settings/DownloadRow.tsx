@@ -1,6 +1,7 @@
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
+import { sizeChoice } from "@/services/downloads/convert";
 import { localArtworkUri } from "@/services/downloads/localSource";
 import { downloadManager, type DownloadProgress } from "@/services/downloads/manager";
 import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";
@@ -57,7 +58,7 @@ function pressCopy(state: DownloadState): string | null {
 function stateCopy(entry: DownloadEntry): { subtitle: string; trailing?: IoniconName } {
   switch (entry.state) {
     case "ready":
-      return { subtitle: formatFileSize(entry.totalBytes), trailing: "play" };
+      return { subtitle: entry.converted ? sizeChoice(entry.converted.label, entry.totalBytes) : formatFileSize(entry.totalBytes), trailing: "play" };
     case "downloading":
       return { subtitle: progressLabel(entry), trailing: "pause" };
     case "queued":
