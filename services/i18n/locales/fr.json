@@ -204,7 +204,7 @@
   "settings.transcoding.enabled": "activé",
   "settings.transcoding.disabled": "désactivé",
   "settings.transcoding.serverOff": "Désactivé par ton serveur",
-  "settings.devicePostersHint": "Sur l'appareil et seulement quand il n'y en a aucune",
+  "settings.devicePostersHint": "Sur l'appareil",
   "settings.language": "Langue",
   "settings.languageHeader": "LANGUE",
   "settings.languageSystem": "Système",

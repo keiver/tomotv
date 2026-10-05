@@ -186,7 +186,7 @@
   "settings.measureAgain": "Measures the connection to the server again",
   "settings.ui": "UI",
   "settings.devicePosters": "Generate missing posters",
-  "settings.devicePostersHint": "Locally and only when none present",
+  "settings.devicePostersHint": "On device",
   "settings.language": "Language",
   "settings.streaming": "STREAMING",
   "settings.streamingTitle": "Streaming",
