@@ -18,7 +18,7 @@ Pod::Spec.new do |s|
   s.version      = JSON.parse(File.read(File.join(__dir__, "..", "ffmpeg-lock.json"))).fetch("tag").delete_prefix("ffmpeg-n")
   s.summary      = "FFmpeg (LGPL) for Tomo TV's local remux engine, libarchive for its book reader"
   s.homepage     = "https://github.com/keiver/tomotv"
-  s.license      = { :type => "LGPL-3.0", :text => "See app/licenses.tsx and constants/licenses.ts" }
+  s.license      = { :type => "LGPL-3.0", :text => "See NOTICE.md" }
   s.author       = "Keiver"
   s.source       = { :path => "." }
 

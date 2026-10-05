@@ -52,7 +52,7 @@ extension RemuxSession {
         return max(0, Int(s / Self.segmentDuration))
     }
 
-    /// Delete session directories that no live session owns — what a crash or a
+    /// Delete session directories that no live session owns: what a crash or a
     /// force-quit leaves behind. Called on start with the tokens still in use,
     /// since nothing else prunes the cache now that init no longer wipes it.
     static func sweepOrphans(keeping liveTokens: Set<String>) {

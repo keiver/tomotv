@@ -14,7 +14,7 @@ extension RemuxSession {
 
     /// Whether the tier variant gets its own server-fed audio group: every
     /// track must carry a server rendition URL, or the tier keeps sharing the
-    /// engine group (RFC 8216 §4.3.4.1.1 — groups of one TYPE must expose the
+    /// engine group (RFC 8216 §4.3.4.1.1: groups of one TYPE must expose the
     /// same member set).
     var audioLoActive: Bool {
         !config.audioTracks.isEmpty && config.audioTracks.allSatisfy { !$0.serverAudioUrl.isEmpty }

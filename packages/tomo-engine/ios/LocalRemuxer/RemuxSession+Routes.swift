@@ -110,7 +110,7 @@ extension RemuxSession {
         }
 
         // Slipstream audio-lo renditions: "aNs.m3u8", "aNs-init.mp4",
-        // "aNs-seg{index}.m4s" — must match before the engine "aN" block,
+        // "aNs-seg{index}.m4s" must match before the engine "aN" block,
         // whose digits-only guard would 404 the "s" suffix.
         let digits = name.dropFirst().prefix(while: \.isNumber)
         if name.hasPrefix("a"), !digits.isEmpty, let position = Int(digits),

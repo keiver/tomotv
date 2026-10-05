@@ -323,7 +323,7 @@ extension RemuxSession {
         if let deferred = supplierResponseDeferral(.rung(rung)) { return deferred }
         if let deferred = rungResponseDeferral(rung) { return deferred }
         // The init falls out of materializing any segment (byte-stable across
-        // all of them — bitexact muxing). Use the playhead's segment so a
+        // all of them, bitexact muxing). Use the playhead's segment so a
         // mid-film switch doesn't spin the server transcode up at zero.
         stateLock.lock()
         let target = lastRequestedSegment

@@ -84,7 +84,7 @@ enum DeviceDecode {
     static var main10Override: Bool?
     static var main10ForEncoder: Bool { main10Override ?? hevcMain10 }
 
-    /// The JS-side copy of the same answers (services/localRemux.ts videoDecodeSupport). Reading `h264`
+    /// The JS-side copy of the same answers (src/probes.ts videoDecodeSupport). Reading `h264`
     /// here pays its VideoToolbox probe at app start, off-thread, instead of inline in the first
     /// Annex B session's startup (canDecode answers by profile class for MPEG-TS input).
     static func summary() -> [String: Any] {

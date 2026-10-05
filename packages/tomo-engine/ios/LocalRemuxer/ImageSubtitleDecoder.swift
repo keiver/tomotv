@@ -36,7 +36,7 @@ private let SWIFT_AV_TIME_BASE_D = 1_000_000.0
 private let MAX_IMAGES_PER_STREAM = 4000
 
 /// One drawable bitmap, positioned in the subtitle canvas's coordinate space
-/// (which is NOT always the video's — see `canvasWidth`).
+/// (which is NOT always the video's; see `canvasWidth`).
 struct ImageSubtitleImage {
     let x: Int
     let y: Int
@@ -48,7 +48,7 @@ struct ImageSubtitleImage {
 }
 
 /// One display set: everything on screen from `time` until the next event.
-/// An empty `images` array is an erase — the format's own way of saying
+/// An empty `images` array is an erase: the format's own way of saying
 /// "nothing from here".
 struct ImageSubtitleEvent {
     let time: Double
@@ -113,7 +113,7 @@ final class ImageSubtitleDecoder {
     ///
     /// Guarded by `lock`, like everything else the HTTP queue can see: the
     /// pipeline thread rewrites both after a decode while `manifestJSON` reads
-    /// them. `private` rather than `private(set)` so that stays true — the only
+    /// them. `private` rather than `private(set)` so that stays true; the only
     /// reader is inside this class, holding the lock.
     private var canvasWidth: Int
     private var canvasHeight: Int

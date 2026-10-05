@@ -218,7 +218,7 @@ extension RemuxSession {
         var out = "#EXTM3U\n#EXT-X-VERSION:\(ladder ? 10 : 7)\n"
 
         // Audio renditions. Every track points at its own audio-only playlist
-        // — none is muxed into the variant. A muxed (URI-less) rendition gets
+        // and none is muxed into the variant. A muxed (URI-less) rendition gets
         // its picker label from the embedded stream metadata, not from NAME:
         // an "und" track showed as "Unknown", and which track wore which label
         // style changed with the mux order on every rebuild. All-URI renditions
@@ -238,7 +238,7 @@ extension RemuxSession {
         // what AVKit paints in the picker row, which is a different field
         // (AVMediaSelectionOption.displayName, documented only as "may use"
         // common metadata). If a device run ever shows the rows collapsing to
-        // a language name, that is the tradeoff to revisit — not this comment.
+        // a language name, that is the tradeoff to revisit, not this comment.
         // Slipstream sessions force the audio-GROUP shape even with one track:
         // the tier variant is video-only and switching variants must never
         // touch the audio, so audio always rides the group, never the variant.
@@ -529,14 +529,14 @@ extension RemuxSession {
         return out
     }
 
-    /// EXT-X-START line for resume sessions, or empty. Media playlists only —
+    /// EXT-X-START line for resume sessions, or empty. Media playlists only:
     /// the proven placement (the master carries no per-timeline tags here).
     var startTag: String {
         config.startOffsetSeconds > 0 ? String(format: "#EXT-X-START:TIME-OFFSET=%.3f,PRECISE=NO\n", config.startOffsetSeconds) : ""
     }
 
-    /// One TARGETDURATION for every playlist of the session — Apple authoring
-    /// req 8.2: audio and video playlists MUST all use the same value.
+    /// One TARGETDURATION for every playlist of the session (Apple authoring
+    /// req 8.2: audio and video playlists MUST all use the same value).
     func sessionTargetDuration() -> Int {
         if config.isLive { return liveTarget() }
         let count = segmentCount
@@ -908,7 +908,7 @@ extension RemuxSession {
     ///
     /// The X-TIMESTAMP-MAP is required of WebVTT segments by the authoring
     /// specification (req 5.3). Identity mapping, because the engine's own
-    /// timeline starts at zero — unlike Jellyfin's WebVTT, which stamps
+    /// timeline starts at zero, unlike Jellyfin's WebVTT, which stamps
     /// MPEGTS:900000 and displaced every cue by 10 seconds when a file went
     /// through the server's HLS subtitle path.
     /// The bytes of a text track saved with a download, or nil when it has none on disk.

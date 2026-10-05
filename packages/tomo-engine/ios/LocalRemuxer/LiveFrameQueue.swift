@@ -13,7 +13,7 @@ import Foundation
 final class LiveFrameQueue {
     static let defaultDeadline: TimeInterval = 8
     /// A burst is valid this long after its files were written or last re-verified (their
-    /// modification date). Mirrored by LIVE_FRAME_EXPIRY_MS in services/liveFrames.ts.
+    /// modification date). Mirrored by LIVE_FRAME_EXPIRY_MS in @keiver/tomo-live's src/liveFrames.ts.
     static let expiryMs: Int64 = 30 * 60 * 1000
     /// Files outlive their validity by this much, so a card never paints a file already gone.
     static let diskGraceMs: Int64 = 60 * 1000

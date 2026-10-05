@@ -18,9 +18,9 @@
 //  set, where no relabeling can happen.
 //
 //  `aac_at` used to be preferred here on the belief that it ran on dedicated
-//  silicon. It is not in the build at all — the FFmpeg configure line is
+//  silicon. It is not in the build at all (the FFmpeg configure line is
 //  `--disable-encoders` plus an allowlist of aac, alac, flac, pcm*, movtext,
-//  mpeg4 and the videotoolbox encoders — so that branch never once executed and
+//  mpeg4 and the videotoolbox encoders), so that branch never once executed and
 //  software `aac` has always done the work. `npm run probe:codecs` prints this.
 //
 //  The tricky part is timestamps. The encoder consumes fixed-size frames and

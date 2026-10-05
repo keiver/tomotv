@@ -153,7 +153,7 @@ extension RemuxSession {
         // pendingSeekSegment is last-writer-wins and consumed once, and the
         // HTTP server routes requests concurrently, so two racing requests can
         // overwrite each other's restart; the loser would otherwise wait out
-        // the full deadline and 404 a segment the VOD playlist promises —
+        // the full deadline and 404 a segment the VOD playlist promises;
         // AVPlayer answers that by abandoning the seek position and snapping
         // back to its buffer (this shipped once: a resume at 226s snapped to
         // ~0s and the back-out's Stopped report wiped the server resume

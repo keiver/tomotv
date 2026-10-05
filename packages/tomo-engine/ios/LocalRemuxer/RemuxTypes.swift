@@ -80,7 +80,7 @@ struct ServerCue {
 /// One selectable audio track. With several tracks, every one becomes its own
 /// audio-only rendition and the variant is video-only; a lone track is muxed
 /// with the video as before. Ordering is the contract: the JS caller
-/// (services/localRemux.ts) sorts the preferred track first (user selection,
+/// sorts the preferred track first (user selection,
 /// else Jellyfin's default) and masterPlaylist() marks position 0 DEFAULT=YES.
 struct RemuxAudioTrack {
     /// Jellyfin's stream Index: the track's identity in URLs, routes and reports. `source` is its file position.
@@ -109,7 +109,7 @@ struct RemuxConfig {
     let durationSeconds: Double
     let subtitles: [RemuxSubtitle]
     /// HLS VIDEO-RANGE for the variant: "SDR", "PQ" (HDR10) or "HLG". Comes
-    /// from Jellyfin's stream metadata (services/localRemux.ts) because the
+    /// from Jellyfin's stream metadata because the
     /// master playlist is served before FFmpeg has parsed the input. Required
     /// by Apple's HLS spec; AVFoundation hard-fails PQ content in a variant
     /// that doesn't declare it (-12927, found by the HDR10 harness run).
@@ -142,7 +142,7 @@ struct RemuxConfig {
     /// on a mismatch. Each rung is one EXT-X-STREAM-INF in the master.
     let tiers: [TierConfig]
     /// Resume position. Positive emits EXT-X-START in every media playlist
-    /// (RFC 8216 §4.3.5.2, honored by tvOS — probe-verified): AVPlayer opens
+    /// (RFC 8216 §4.3.5.2, honored by tvOS, probe-verified): AVPlayer opens
     /// at the offset instead of buffering position zero and seeking away, and
     /// its first segment request drives the producer's seek-restart there.
     let startOffsetSeconds: Double
@@ -251,7 +251,7 @@ struct SegmentBitrates {
 
 /// One adopted segment of the server tier's playlist: the server's own
 /// duration and its verbatim segment URL (relative to the item's HLS root),
-/// PlaySessionId included — never recomputed on our side (M1: the server's
+/// PlaySessionId included, never recomputed on our side (M1: the server's
 /// grid is item-intrinsic and its URLs embed the authoritative runtimeTicks).
 struct TierSegment {
     let duration: Double

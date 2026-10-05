@@ -16,7 +16,7 @@
 //  Video AVPlayer cannot decode at all (VP8/VP9, MPEG-2, MPEG-4/DivX, WMV,
 //  VC-1, ...) rides the same pipeline through VideoTranscoder: software
 //  decode + VideoToolbox H.264 encode, gated by resolution/format in
-//  services/localRemux.ts. Segments on that path are cut on ENCODED packets
+//  the JS caller. Segments on that path are cut on ENCODED packets
 //  and forced to open on an IDR, which the copy path cannot guarantee.
 //
 //  Seeking follows Jellyfin's own strategy: the media playlist claims the
@@ -121,7 +121,7 @@ final class RemuxSession {
     var producingSegment = 0
     /// Seeks the pipeline restarted on, under the lock.
     var seekRestarts = 0
-    /// The segment AVPlayer asked for most recently — the playhead. Note this
+    /// The segment AVPlayer asked for most recently: the playhead. Note this
     /// is NOT a high-water mark: after seeking backwards it must move back, or
     /// the producer would stay throttled and freshly written segments would be
     /// pruned the instant they landed.
@@ -239,7 +239,7 @@ final class RemuxSession {
     /// Live: the read head on the output timeline, for image cue manifests and their window.
     var demuxedUpToOutput: Double = 0
 
-    /// Slipstream: the adopted grid — start second of each segment, index-
+    /// Slipstream: the adopted grid, the start second of each segment, index-
     /// aligned with the server tier's playlist. Empty = fixed 6s grid.
     /// Written once on the pipeline thread before production; playlist and
     /// serving reads go through the grid helpers below.
@@ -296,7 +296,7 @@ final class RemuxSession {
     }
 
     /// Slipstream audio-lo: per track POSITION, the adopted server audio-only
-    /// rendition — its own grid (audio segments cut on codec frames, not the
+    /// rendition: its own grid (audio segments cut on codec frames, not the
     /// video grid) plus the resolved init URL. Adopted lazily on the first
     /// rendition request; nil entry = adoption failed for this session.
     var audioLoSegments: [Int: [TierSegment]] = [:]
@@ -304,11 +304,11 @@ final class RemuxSession {
     var audioLoInitData: [Int: Data] = [:]
     /// Segment anchors chain within a warm server session: the next expected
     /// index and its exact start (accumulated real durations from the
-    /// rewrapper). A non-sequential request re-anchors to the declared grid —
+    /// rewrapper). A non-sequential request re-anchors to the declared grid;
     /// bounded one-codec-frame error at the seek, none during playback.
     var audioLoChain: [Int: (next: Int, start: Double)] = [:]
     /// Materialized audio-lo segment indices per track position (prune
-    /// bookkeeping — a chronic tier session would otherwise accumulate the
+    /// bookkeeping; a chronic tier session would otherwise accumulate the
     /// whole film's audio on disk).
     var audioLoMaterialized: [Int: Set<Int>] = [:]
     /// Producer hold while AVPlayer plays the tier: source reads pause when
@@ -346,7 +346,7 @@ final class RemuxSession {
     /// Floor, not ceil: the remainder folds into the FINAL segment (which then
     /// runs 6..<12s) instead of becoming a sub-second segment of its own. A
     /// file of 90.018s would otherwise declare a 16th segment holding 18ms
-    /// that the producer can never fill — the last packet sits below the 90s
+    /// that the producer can never fill: the last packet sits below the 90s
     /// boundary, EOF hits, and AVPlayer turns the declared-but-missing segment
     /// into a hard -1100 error in the final second of playback.
     var segmentCount: Int {
@@ -362,7 +362,7 @@ final class RemuxSession {
     var onPlan: (([String: Any]) -> Void)?
 
     /// One sample per completed segment, on the pipeline thread: how long the
-    /// segment took against how long it plays (services/localRemux.ts reads it).
+    /// segment took against how long it plays (src/events.ts reads it).
     var onThroughput: (([String: Any]) -> Void)?
     /// Tier sessions only: `listed` or `declined` once, from the master; `dropped` if it dies later.
     var onTier: (([String: Any]) -> Void)?
@@ -439,7 +439,7 @@ final class RemuxSession {
         let root = caches.appendingPathComponent("localremux", isDirectory: true)
         // Only this session's own directory is created here. This used to wipe
         // the whole root, which deleted the segments of any session still being
-        // served — the overlapping-player freeze. Sessions clean up after
+        // served: the overlapping-player freeze. Sessions clean up after
         // themselves in stop(); `sweepOrphans` handles anything a crash left.
         dir = root.appendingPathComponent(token, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

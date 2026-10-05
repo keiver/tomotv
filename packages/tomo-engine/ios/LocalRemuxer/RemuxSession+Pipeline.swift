@@ -331,7 +331,7 @@ extension RemuxSession {
         /// tfdt really is absolute. Without this, a buffer mixing segments
         /// from two generations (early segments surviving the prune window, a
         /// seek regenerating later ones) jumps the playhead by the restart
-        /// offset — found by the harness as decode positions +20s off on an
+        /// offset, found by the harness as decode positions +20s off on an
         /// Xvid AVI whose early segments escaped pruning.
         var baseDts: [Int32: Int64] = [:]
 
@@ -508,7 +508,7 @@ extension RemuxSession {
             }
             // Default tag for everything except HEVC: FFmpeg's mp4 muxer
             // defaults HEVC to the 'hev1' sample entry, which AVFoundation
-            // refuses in HLS — a bare -12927 on EVERY HEVC file through the
+            // refuses in HLS: a bare -12927 on EVERY HEVC file through the
             // copy path (found by the HDR10 harness run; H.264 was fine
             // because the default there is 'avc1'). Apple requires 'hvc1'
             // (parameter sets in the sample entry), which is valid here
@@ -705,7 +705,7 @@ extension RemuxSession {
 
     /// Publish what the engine decided for every stream, once the renditions
     /// exist and before a single packet moves. Goes to the device console and,
-    /// through `onPlan`, to JS — which is the only channel that reaches a
+    /// through `onPlan`, to JS, which is the only channel that reaches a
     /// physical Apple TV.
     ///
     /// Deliberately built from the live objects rather than from the same
@@ -984,7 +984,7 @@ extension RemuxSession {
             onStage?(["token": token, "stage": stage, "elapsed": elapsed])
         }
 
-        // Slipstream grid adoption runs concurrent with the input open — on a
+        // Slipstream grid adoption runs concurrent with the input open: on a
         // WAN server both are long round-trips and stacking them delays the
         // first frame. Playlist serving waits on awaitGrid, never on this
         // thread, and adoptTierGrid guards its state under stateLock.
@@ -1231,7 +1231,7 @@ extension RemuxSession {
 
         // Resolve the audio tracks to carry, in the order the playlist will
         // advertise them. Several tracks: each becomes an audio-only rendition
-        // ("a0", "a1", …) and the variant is video-only — see masterPlaylist()
+        // ("a0", "a1", …) and the variant is video-only; see masterPlaylist()
         // for why (picker labels). A lone track is muxed with the video.
         let streamCount = Int32(input.pointee.nb_streams)
         let localAudioTracks = config.audioTracks.filter { !$0.usesServerAudio }
@@ -1324,8 +1324,8 @@ extension RemuxSession {
         }
 
         // Image subtitle tracks (PGS, DVD/VobSub, DVB, XSUB): one decoder each,
-        // fed from the read loop below. The packets are demuxed either way — the
-        // loop drops any stream no rendition claims — so this adds decode and
+        // fed from the read loop below. The packets are demuxed either way (the
+        // loop drops any stream no rendition claims), so this adds decode and
         // PNG encoding but not a single extra byte off the network. Their canvas
         // falls back to the video's dimensions, since most files leave it unset
         // in codecpar and only the decoder learns the real one.
@@ -1836,8 +1836,8 @@ extension RemuxSession {
                 guard buildMuxer(for: rendition, input: input) else { return false }
             }
 
-            // Subtitle decoders survive the seek — their events are in source
-            // time and everything already harvested stays valid — but their
+            // Subtitle decoders survive the seek (their events are in source
+            // time and everything already harvested stays valid), but their
             // internal state must not: a half-received PGS display set would
             // otherwise merge with packets from the new position. Events already
             // recorded are recognised on the way past and not duplicated.
@@ -1951,7 +1951,7 @@ extension RemuxSession {
 
         // The grid must be decided before the first cut: a flip mid-production
         // leaves already-written segments on the fixed grid under indices the
-        // playlist declares on the adopted one. Free — masterPlaylist waits on
+        // playlist declares on the adopted one. Free: masterPlaylist waits on
         // the same condition, so nothing can request a segment before it either.
         awaitGrid()
 
@@ -1981,7 +1981,7 @@ extension RemuxSession {
                     $0 >= producingSegment && $0 <= producingSegment + aheadWindow
                 }
                 // Tier hold: AVPlayer is living on the server renditions and
-                // nothing is consuming engine output — pause source reads so a
+                // nothing is consuming engine output: pause source reads so a
                 // starving link is not shared with a pull nobody needs. Any
                 // primary/engine-rendition request flips the timestamps and
                 // reads resume within one poll tick.
@@ -2205,8 +2205,8 @@ extension RemuxSession {
             }
 
             // Image subtitles are harvested here, before the routing guard
-            // below drops them. They never enter a rendition — AVPlayer cannot
-            // decode a bitmap subtitle — so they are decoded to PNGs and a
+            // below drops them. They never enter a rendition (AVPlayer cannot
+            // decode a bitmap subtitle), so they are decoded to PNGs and a
             // display-set manifest the app draws itself. This runs regardless of
             // the keyframe gate: an event's time comes from its own PTS in
             // source time, so it does not care which generation of the output
@@ -2357,9 +2357,9 @@ extension RemuxSession {
             }
 
             // Video through the transcoder: decode → VideoToolbox H.264.
-            // Segment boundaries are cut on ENCODED packets — the encoder
+            // Segment boundaries are cut on ENCODED packets (the encoder
             // runs a few frames behind the input, so cutting on input PTS
-            // would put the wrong frames in the fragment — while the IDR
+            // would put the wrong frames in the fragment), while the IDR
             // request rides the INPUT frame that crosses the boundary, so the
             // keyframe lands on the segment's first frame. Input packets are
             // never dropped for negative DTS here: the decoder needs them,
@@ -2414,14 +2414,14 @@ extension RemuxSession {
             }
 
             // Drop anything landing before the output timeline's zero. Video:
-            // a leading B-frame can carry a DTS just behind the anchor — it
+            // a leading B-frame can carry a DTS just behind the anchor; it
             // belongs to the previous GOP and would break the muxer's
             // monotonic-DTS requirement. Copied audio: the first packet of an
             // AAC-in-MKV stream is the encoder's priming frame at a NEGATIVE
             // timestamp; fed raw to the mp4 muxer, its per-track shift
             // desyncs the track and stamps a bogus first-sample duration that
             // CoreMedia's HLS validator rejects wholesale (-12927 on HEVC
-            // files, found by the HDR10 harness run — ffmpeg's CLI avoids it
+            // files, found by the HDR10 harness run; ffmpeg's CLI avoids it
             // by globally shifting all input timestamps instead).
             if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE, pkt.pointee.dts < 0 { continue }
 

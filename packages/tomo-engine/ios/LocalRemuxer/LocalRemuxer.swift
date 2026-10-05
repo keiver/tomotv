@@ -25,7 +25,7 @@ class LocalRemuxer: RCTEventEmitter {
     /// Live sessions by token, newest last.
     ///
     /// This was a single `RemuxSession?`, and starting a new one stopped the old
-    /// one outright — which deleted its segment directory. When two player
+    /// one outright, which deleted its segment directory. When two player
     /// screens overlap (React mounts the incoming screen before the outgoing one
     /// unmounts) the still-visible player lost its segments mid-playback: the
     /// picture froze on the last decoded frame while already-buffered audio
@@ -40,7 +40,7 @@ class LocalRemuxer: RCTEventEmitter {
     /// and evicting the oldest is better than unbounded threads and disk.
     private static let maxSessions = 4
 
-    /// Playlist shims by token (PlaylistShim.swift — server-lane resume).
+    /// Playlist shims by token (PlaylistShim.swift, server-lane resume).
     /// Cheap (two cached strings each), same overlap-and-evict story as
     /// sessions.
     private static var shims: [String: PlaylistShim] = [:]
@@ -198,22 +198,22 @@ class LocalRemuxer: RCTEventEmitter {
     // MARK: - Bridge API
 
     /// Start a remux session. Config keys:
-    ///   inputUrl: String           — Jellyfin /stream?Static=true URL
-    ///   audioTracks: [{index, name, language}] — preferred track first (the
+    ///   inputUrl: String           : Jellyfin /stream?Static=true URL
+    ///   audioTracks: [{index, name, language}] : preferred track first (the
     ///                                JS caller sorts: user selection, else
     ///                                Jellyfin default; position 0 becomes
     ///                                DEFAULT=YES); empty means "pick the best
     ///                                audio stream"
-    ///   durationSeconds: Double    — item runtime from Jellyfin metadata
+    ///   durationSeconds: Double    : item runtime from Jellyfin metadata
     ///   subtitles: [{index, name, language, vttUrl, isDefault, isForced, isImage, isEngineText}]
-    ///   videoRange: String?        — HLS VIDEO-RANGE ("SDR"/"PQ"/"HLG");
+    ///   videoRange: String?        : HLS VIDEO-RANGE ("SDR"/"PQ"/"HLG");
     ///                                required for HDR content or AVFoundation
     ///                                rejects the variant (-12927)
-    ///   codecs: String?            — RFC 6381 CODECS; empty omits the attribute
+    ///   codecs: String?            : RFC 6381 CODECS; empty omits the attribute
     ///   supplementalCodecs: String?: Dolby Vision SUPPLEMENTAL-CODECS, empty omits
-    ///   width/height: Int?         — source video size, for RESOLUTION
-    ///   frameRate: Double?         — source frame rate, for FRAME-RATE
-    ///   bandwidth: Int?            — video plus served audio bit rate, for
+    ///   width/height: Int?         : source video size, for RESOLUTION
+    ///   frameRate: Double?         : source frame rate, for FRAME-RATE
+    ///   bandwidth: Int?            : video plus served audio bit rate, for
     ///                                BANDWIDTH and AVERAGE-BANDWIDTH
     ///   isLive: Bool?              : Live TV, unbounded input on a sliding-window
     ///                                playlist; durationSeconds may be 0
@@ -721,7 +721,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     /// Stops the session identified by `token` (the path segment of the master URL
     /// startRemux resolved). Ownership guard: a caller can only stop the session it
-    /// started — a late teardown from a replaced player must not kill a session a
+    /// started: a late teardown from a replaced player must not kill a session a
     /// newer player owns.
     @objc func stopRemux(
         _ token: NSString,
@@ -888,7 +888,7 @@ class LocalRemuxer: RCTEventEmitter {
         DispatchQueue.global(qos: .userInitiated).async { resolve(DeviceDecode.summary()) }
     }
 
-    /// Throughput of the software-decode lane on this hardware (app/dev-bench.tsx).
+    /// Throughput of the software-decode lane on this hardware.
     /// Blocks a global queue for `wallSeconds`; never called by playback.
     @objc func benchmarkTranscode(
         _ config: NSDictionary,

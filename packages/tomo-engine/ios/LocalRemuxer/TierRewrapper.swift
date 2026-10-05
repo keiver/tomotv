@@ -8,7 +8,7 @@
 //  so segment n here IS segment n of the primary variant's timeline; this only
 //  changes the wrapper and the timestamps, never the samples.
 //
-//  movenc accepts Annex-B H.264 from a TS demux directly — verified against
+//  movenc accepts Annex-B H.264 from a TS demux directly, verified against
 //  lavf with a real Jellyfin segment (no auto-inserted bitstream filter; the
 //  muxer converts startcodes to length prefixes and builds avcC itself).
 //  Audio is dropped: tier variants are video-only, the shared audio group
@@ -62,12 +62,12 @@ private let tierWriteCallback: @convention(c) (UnsafeMutableRawPointer?, UnsafeP
 }
 
 struct TierRewrapped {
-    /// ftyp + moov — byte-stable across segments (bitexact muxing, same SPS/PPS).
+    /// ftyp + moov, byte-stable across segments (bitexact muxing, same SPS/PPS).
     let initSegment: Data
     /// styp + moof + mdat, timestamps on the session timeline.
     let mediaSegment: Data
     /// Exact media duration of the fragment, from the copied packet timing.
-    /// The audio rendition chains segment anchors with this — server audio
+    /// The audio rendition chains segment anchors with this: server audio
     /// boundaries fall on codec frames (FLAC ~85ms), so a per-segment grid
     /// anchor would jitter; continuity accumulation cannot.
     let durationSeconds: Double
@@ -83,7 +83,7 @@ enum TierRewrapper {
     /// Rewrap one server audio-only fMP4 segment onto the session timeline.
     /// The server's own tfdt is untrustworthy (measured: restart rebasing and
     /// outright garbage values), so timestamps are rebuilt here. `initData` is
-    /// the server rendition's init segment — the mov demuxer needs the moov to
+    /// the server rendition's init segment: the mov demuxer needs the moov to
     /// parse the fragment, so the two are concatenated as one input.
     static func rewrapAudio(initData: Data, segmentData: Data, targetStartSeconds: Double) -> TierRewrapped? {
         rewrapCore(inputData: initData + segmentData, targetStartSeconds: targetStartSeconds, audio: true)
@@ -169,7 +169,7 @@ enum TierRewrapper {
         outStream.pointee.codecpar.pointee.codec_tag = 0
         if audio {
             // find_stream_info estimates bit_rate from THIS segment's packets
-            // and movenc bakes it into the init's btrt box — a different value
+            // and movenc bakes it into the init's btrt box; a different value
             // per segment breaks init byte-stability. Zero omits the box.
             outStream.pointee.codecpar.pointee.bit_rate = 0
         }
@@ -241,7 +241,7 @@ enum TierRewrapper {
             }
             guard let s = shift else { continue }
             // TS packets can carry partial timing. movenc requires BOTH stamps
-            // on every packet — a NOPTS write produced a fragment whose
+            // on every packet: a NOPTS write produced a fragment whose
             // timebase AVPlayer rejected (-19601, first live session). Fill
             // the missing side from the other; drop a packet with neither.
             var pts = pkt.pointee.pts

@@ -17,7 +17,7 @@ enum LocalHTTPResponse {
     case file(URL, contentType: String)
     /// Headers go out immediately (200, chunked transfer); `provider` then
     /// blocks until the body file exists and is streamed, or returns nil and
-    /// the connection is aborted mid-response — a loud, truncated failure the
+    /// the connection is aborted mid-response: a loud, truncated failure the
     /// player acts on, never a fake success. Keeps AVPlayer's short
     /// no-response-headers watchdog (-12889) out of the segment-wait path.
     case streamed(contentType: String, provider: () -> URL?)
@@ -93,7 +93,7 @@ final class LocalHTTPServer {
     /// written. Dispatching those waits onto `DispatchQueue.global()` put them in
     /// the same bounded pool every other subsystem draws from, so enough
     /// simultaneous requests parked every available thread and the VIDEO init
-    /// segment never got one — playback died with NSURLErrorDomain -1001 while
+    /// segment never got one: playback died with NSURLErrorDomain -1001 while
     /// the producer looked healthy. Adding subtitle image routes multiplies the
     /// request count per session, which is what made this worth fixing first.
     ///
@@ -443,7 +443,7 @@ final class LocalHTTPServer {
 
         // Header and body go out as two sends rather than one concatenated
         // buffer. Appending the body allocated a second full copy of every
-        // segment — tens of megabytes per request on a high-bitrate remux, and
+        // segment: tens of megabytes per request on a high-bitrate remux, and
         // it undid the memory mapping respond() asks for with .mappedIfSafe.
         // Nothing bounds how many of those coexist, since workQueue is
         // uncapped by design.
