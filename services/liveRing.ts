@@ -1,8 +1,8 @@
 import "@/services/liveChannels";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import * as ring from "@keiver/tomo-live/src/liveRing";
+import * as ring from "@keiver/tomo-live";
 
-export { isHotChannel, releaseLiveRing, yieldLiveRing } from "@keiver/tomo-live/src/liveRing";
+export { isHotChannel, releaseLiveRing, yieldLiveRing } from "@keiver/tomo-live";
 export type HotChannel = ring.HotChannel<JellyfinVideoItem>;
 export type RingSession = ring.RingSession<JellyfinVideoItem>;
 

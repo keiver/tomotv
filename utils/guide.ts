@@ -5,7 +5,7 @@
 import { GRID, slotCardPadding } from "@/constants/app";
 import { t } from "@/services/i18n";
 import type { JellyfinProgram, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
-import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS, TICK_MINUTES } from "@keiver/tomo-live/src/time";
+import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS, TICK_MINUTES } from "@keiver/tomo-live";
 
 export { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS, TICK_MINUTES };
 /** Minor scale marks between the labelled half hours. */

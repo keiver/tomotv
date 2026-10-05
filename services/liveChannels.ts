@@ -3,7 +3,7 @@ import { closeLiveStream, openChannel, resolveChannel, resolveChannelOrigin, res
 import { getLiveTvPreferences, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
 import { canRemuxLocally, startLocalRemux } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import { configureLive } from "@keiver/tomo-live/src/config";
+import { configureLive } from "@keiver/tomo-live";
 
 configureLive<JellyfinVideoItem>({
   channels: {

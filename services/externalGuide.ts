@@ -5,9 +5,25 @@
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
 import type { GuideChannelRequest } from "@/utils/guideMatch";
-import { fetchExternalListingWindow, searchExternalListings, type GuideListing } from "@keiver/tomo-live/src/externalGuide";
+import { fetchExternalListingWindow, searchExternalListings, type GuideListing } from "@keiver/tomo-live";
 
-export * from "@keiver/tomo-live/src/externalGuide";
+export {
+  activeGuideUrls,
+  clearDownloadedGuides,
+  fetchExternalListingWindow,
+  forgetGuide,
+  type GuideListing,
+  type GuideMatch,
+  type GuideSourceState,
+  type GuideSourceStatus,
+  guideSourcesBusy,
+  guideSourceStatuses,
+  preloadGuide,
+  refreshExternalGuide,
+  resetExternalGuide,
+  searchExternalListings,
+  subscribeGuideSources,
+} from "@keiver/tomo-live";
 
 function listingProgram({ channelId, programme }: GuideListing): JellyfinProgram {
   return {

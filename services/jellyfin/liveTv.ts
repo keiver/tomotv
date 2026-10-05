@@ -18,11 +18,10 @@ import { fetchWithTimeout } from "./http";
 import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
 import { didConfigReadFail, getAuthHeader, getConfig, getQualitySettings, throwRequestError } from "./session";
-import type { ChannelOrigin } from "@keiver/tomo-live/src/channelOrigin";
-import { clearOpenFailure } from "@keiver/tomo-live/src/openFailures";
+import { type ChannelOrigin, clearOpenFailure } from "@keiver/tomo-live";
 
 export type { ChannelOrigin };
-export { noteOpenFailed, openRecentlyFailed } from "@keiver/tomo-live/src/openFailures";
+export { noteOpenFailed, openRecentlyFailed } from "@keiver/tomo-live";
 
 const LIVE_BITRATE_CAP = 200_000_000;
 
