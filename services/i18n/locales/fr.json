@@ -172,6 +172,7 @@
   "search.demoLoadFailed": "Connecté au serveur de démo, mais la médiathèque n'a pas pu être chargée. Vérifie ta connexion Internet et réessaie.",
   "downloads.title": "Téléchargements",
   "downloads.onThisDevice": "SUR CET APPAREIL",
+  "downloads.downloadingAt": "Téléchargement à {rate}",
   "downloads.removeAll": "Supprimer tous les téléchargements",
   "downloads.removeAllHint": "Supprime tous les téléchargements de cet appareil, après confirmation.",
   "downloads.tvNotice": "Les téléchargements demandent un iPhone ou un iPad. L'Apple TV ne conserve aucun fichier.",

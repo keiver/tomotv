@@ -172,6 +172,7 @@
   "search.demoLoadFailed": "Mit dem Demo-Server verbunden, aber die Bibliothek ließ sich nicht laden. Prüfe deine Internetverbindung und versuche es noch einmal.",
   "downloads.title": "Downloads",
   "downloads.onThisDevice": "AUF DIESEM GERÄT",
+  "downloads.downloadingAt": "Lädt mit {rate}",
   "downloads.removeAll": "Alle Downloads entfernen",
   "downloads.removeAllHint": "Entfernt nach einer Rückfrage jeden Download von diesem Gerät.",
   "downloads.tvNotice": "Downloads brauchen ein iPhone oder iPad. Das Apple TV behält keine eigenen Dateien.",

@@ -2,6 +2,7 @@ import { EmptyCard } from "@/components/empty-card";
 import { localeScreen } from "@/components/locale-boundary";
 import { AmbientBackground } from "@/components/ambient-background";
 import { DownloadRow, removeActions } from "@/components/settings/DownloadRow";
+import { DownloadSpeedHeading } from "@/components/settings/DownloadSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
@@ -343,20 +344,12 @@ function DownloadsScreen() {
             // A card rather than a floating block: Remove All empties the list in place, and the
             // section it emptied should still be there, holding what to do about it.
             <>
-              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
-                <Text style={styles.sectionHeaderText} accessibilityRole="header">
-                  {t("downloads.onThisDevice")}
-                </Text>
-              </View>
+              <DownloadSpeedHeading />
               <EmptyCard icon="arrow-down-circle-outline" text={t("downloads.emptyState")} />
             </>
           ) : (
             <>
-              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
-                <Text style={styles.sectionHeaderText} accessibilityRole="header">
-                  {t("downloads.onThisDevice")}
-                </Text>
-              </View>
+              <DownloadSpeedHeading />
 
               {/* Capped at whole rows (8 on phone, 4 on TV) and scrolling inside the card, so a
                   device full of downloads, or an expanded folder, cannot run off the bottom of

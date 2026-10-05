@@ -32,6 +32,8 @@ const MAX_ACTIVE = 2;
 /** Free space kept clear of downloads, so a full disk cannot wedge the OS. */
 /** Progress arrives at 10 Hz per transfer; the row drawing it does not need it that often. */
 const PROGRESS_INTERVAL_MS = 400;
+/** Each running transfer's counter is read once a second for the rate the Downloads heading shows. */
+const RATE_INTERVAL_MS = 1000;
 /** The one failure a sign-in undoes, so hydrate can tell it from a failure that stands. */
 const NO_SESSION_ERROR = "Not connected to a server";
 /** Waited after playback lets go before the heal sweep believes it: the next session takes the
@@ -52,6 +54,7 @@ export interface DownloadProgress {
 
 type Listener = (state: DownloadsUIState) => void;
 type ProgressListener = (progress: DownloadProgress) => void;
+type ThroughputListener = (bytesPerSecond: number) => void;
 
 class DownloadManager {
   private tasks = new Map<string, DownloadTask>();
@@ -60,6 +63,12 @@ class DownloadManager {
   private listeners = new Set<Listener>();
   private progressListeners = new Map<string, Set<ProgressListener>>();
   private progressTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private throughputListeners = new Set<ThroughputListener>();
+  private rateTimer: ReturnType<typeof setInterval> | null = null;
+  private rateSampledAt = 0;
+  /** Each running transfer's counter at the last sample. */
+  private rateBytes = new Map<string, number>();
+  private throughput = 0;
   private hydrated = false;
   private hydrating: Promise<void> | null = null;
   private healOnRelease: (() => void) | null = null;
@@ -160,6 +169,15 @@ class DownloadManager {
     };
   }
 
+  /** Bytes per second summed over the running transfers, 0 while none runs. Fires once on subscribe. */
+  subscribeThroughput(listener: ThroughputListener): () => void {
+    this.throughputListeners.add(listener);
+    listener(this.throughput);
+    return () => {
+      this.throughputListeners.delete(listener);
+    };
+  }
+
   /** True once the item's media is complete on disk. The playback path's only question. */
   isReady(itemId: string): boolean {
     return manifestEntry(itemId)?.state === "ready";
@@ -214,6 +232,7 @@ class DownloadManager {
     if (!task) return;
     await task.pauseAsync();
     this.tasks.delete(itemId);
+    this.syncRateSampler();
     const saved = task.savable();
     // A pause before any byte landed carries no resume data; the next start opens a fresh request.
     if (saved.resumeData) this.resumeStates.set(itemId, saved);
@@ -237,6 +256,7 @@ class DownloadManager {
     if (task) {
       task.cancel();
       this.tasks.delete(itemId);
+      this.syncRateSampler();
     }
     this.resumeStates.delete(itemId);
     cancelRepackage(itemId);
@@ -319,6 +339,7 @@ class DownloadManager {
     }
 
     this.tasks.set(entry.itemId, task);
+    this.syncRateSampler();
     // Consumed: the blob is single-use, and a failed resume has to start a fresh request.
     this.resumeStates.delete(entry.itemId);
     this.notify();
@@ -326,6 +347,7 @@ class DownloadManager {
     try {
       const file = saved ? await task.resumeAsync() : await task.downloadAsync();
       this.tasks.delete(entry.itemId);
+      this.syncRateSampler();
       // null means the transfer was paused; pause() has already recorded that state.
       if (file) {
         // Rewrapped before the row goes ready, so nothing ever plays the source container
@@ -337,6 +359,7 @@ class DownloadManager {
       }
     } catch (error) {
       this.tasks.delete(entry.itemId);
+      this.syncRateSampler();
       this.fail(entry.itemId, error);
     }
     this.clearProgressTimer(entry.itemId);
@@ -519,6 +542,43 @@ class DownloadManager {
     if (!timer) return;
     clearTimeout(timer);
     this.progressTimers.delete(itemId);
+  }
+
+  /** Runs while a task is in flight and stops with the last one, so an idle app keeps no timer. */
+  private syncRateSampler(): void {
+    if (this.tasks.size > 0) {
+      if (this.rateTimer) return;
+      this.rateSampledAt = Date.now();
+      this.rateTimer = setInterval(() => this.sampleRates(), RATE_INTERVAL_MS);
+      (this.rateTimer as unknown as { unref?: () => void }).unref?.();
+      return;
+    }
+    if (!this.rateTimer) return;
+    clearInterval(this.rateTimer);
+    this.rateTimer = null;
+    this.rateBytes.clear();
+    this.emitThroughput(0);
+  }
+
+  private sampleRates(): void {
+    const now = Date.now();
+    const seconds = (now - this.rateSampledAt) / 1000;
+    this.rateSampledAt = now;
+    for (const itemId of this.rateBytes.keys()) if (!this.tasks.has(itemId)) this.rateBytes.delete(itemId);
+    let total = 0;
+    for (const itemId of this.tasks.keys()) {
+      const bytes = manifestEntry(itemId)?.bytesWritten ?? 0;
+      const last = this.rateBytes.get(itemId);
+      this.rateBytes.set(itemId, bytes);
+      // A transfer's first sample has nothing to count from; one restarted from zero counts nothing.
+      if (last !== undefined && seconds > 0) total += Math.max(0, bytes - last) / seconds;
+    }
+    this.emitThroughput(total);
+  }
+
+  private emitThroughput(bytesPerSecond: number): void {
+    this.throughput = bytesPerSecond;
+    this.throughputListeners.forEach((listener) => listener(bytesPerSecond));
   }
 }
 

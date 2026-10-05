@@ -172,6 +172,7 @@
   "search.demoLoadFailed": "Connected to demo server, but couldn't load the library. Please check your internet connection and try navigating again.",
   "downloads.title": "Downloads",
   "downloads.onThisDevice": "ON THIS DEVICE",
+  "downloads.downloadingAt": "Downloading at {rate}",
   "downloads.removeAll": "Remove all downloads",
   "downloads.removeAllHint": "Removes every download from this device, after a confirmation.",
   "downloads.tvNotice": "Downloads need an iPhone or iPad. Apple TV keeps no files of its own.",

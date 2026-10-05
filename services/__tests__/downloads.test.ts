@@ -183,6 +183,37 @@ describe("downloadManager", () => {
     stopRow();
   });
 
+  it("sums the running transfers' rates once a second and reads zero once they stop", async () => {
+    jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+    try {
+      const meter = jest.fn();
+      const stop = downloadManager.subscribeThroughput(meter);
+      expect(meter).toHaveBeenLastCalledWith(0);
+
+      await add(ITEM("a"));
+      await add(ITEM("b"));
+      // The first sample only anchors the counters.
+      tasks[0].options.onProgress?.({ bytesWritten: 10, totalBytes: 100 });
+      tasks[1].options.onProgress?.({ bytesWritten: 20, totalBytes: 100 });
+      jest.advanceTimersByTime(1000);
+      expect(meter).toHaveBeenLastCalledWith(0);
+
+      tasks[0].options.onProgress?.({ bytesWritten: 40, totalBytes: 100 });
+      tasks[1].options.onProgress?.({ bytesWritten: 70, totalBytes: 100 });
+      jest.advanceTimersByTime(1000);
+      expect(meter).toHaveBeenLastCalledWith(80);
+
+      tasks[0].complete(100);
+      tasks[1].complete(100);
+      await settle();
+      expect(meter).toHaveBeenLastCalledWith(0);
+      expect(jest.getTimerCount()).toBe(0);
+      stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("resumes from the in-memory handle, and never writes it to disk", async () => {
     await add(ITEM("a"));
     await downloadManager.pause("a");
