@@ -3,8 +3,6 @@ import { LibraryGrid } from "@/components/library-grid";
 import { ShowAllChannels } from "@/components/live-tv/show-all-channels";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { HeaderSearchReveal } from "@/components/header-search-reveal";
-import { settingsStyles } from "@/components/settings/styles";
-import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
@@ -19,15 +17,15 @@ import { healthFor } from "@/services/channelHealth";
 import { t } from "@/services/i18n";
 import { fetchTimers, searchLiveTv } from "@/services/jellyfinApi";
 import { reportRecordingTimers } from "@/services/recordingStatus";
+import { requestSearchFocus } from "@/services/searchFocus";
 import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
 import type { FolderStackEntry, JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
-import { activeRecordTimer } from "@/utils/guide";
+import { activeRecordTimer, programRecording } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useIsFocused, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
-import { useHeaderHeight } from "expo-router/react-navigation";
 
 const IS_TV = Platform.isTV;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -38,7 +36,6 @@ const MIN_QUERY = 2;
  *  Its head is the Live TV HUD: a search over channels and programmes, the group pills, and the guide's status. */
 export default function ChannelsScreen() {
   const router = useRouter();
-  const headerHeight = useHeaderHeight();
   const { showGlobalLoader } = useLoadingActions();
   const preferences = useLiveTvPreferences();
   useChannelFavoritesSync();
@@ -116,7 +113,10 @@ export default function ChannelsScreen() {
       stale = true;
     };
   }, [isFocused]);
-  const recordingFor = useCallback((item: JellyfinItem) => item.Type === "TvChannel" && !!activeRecordTimer(timers, { channelId: item.Id }, Date.now()), [timers]);
+  const recordingFor = useCallback(
+    (item: JellyfinItem) => (item.Type === "TvChannel" ? !!activeRecordTimer(timers, { channelId: item.Id }, Date.now()) : programRecording(timers, item, Date.now())),
+    [timers],
+  );
   const favoriteMark = useCallback((item: JellyfinItem) => (item.Type === "TvChannel" && isFavoriteChannel(preferences, item) ? ("heart" as const) : undefined), [preferences]);
   const crumbs = useMemo<FolderStackEntry[]>(() => [{ id: "channels", name: t("liveTv.channels"), type: "livetv" }], []);
   const openFilterPicker = useCallback(() => router.push("/channel-groups"), [router]);
@@ -132,13 +132,19 @@ export default function ChannelsScreen() {
     [filtered, openFilterPicker],
   );
 
-  // Phone: Settings and the filter ride the native bar, as Filters does on a folder level. TV draws them in the grid's bar.
+  // Phone: search, the filter and Settings ride the native bar, as Filters does on a folder level. TV draws them in the grid's bar.
+  // Search opens the Search tab with its field focused.
+  const openSearch = useCallback(() => {
+    requestSearchFocus();
+    router.navigate("/(tabs)/search");
+  }, [router]);
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
       IS_TV
         ? {}
         : {
             unstable_headerRightItems: () => [
+              { type: "button", label: t("tab.search"), icon: { type: "sfSymbol", name: "magnifyingglass" }, tintColor: COLORS.ACCENT, onPress: openSearch },
               {
                 type: "button",
                 label: filterAction.accessibilityLabel,
@@ -149,31 +155,7 @@ export default function ChannelsScreen() {
               { type: "button", label: t("settings.title"), icon: { type: "sfSymbol", name: "gearshape" }, tintColor: COLORS.ACCENT, onPress: openSettings },
             ],
           },
-    [openSettings, filterAction, filtered],
-  );
-
-  // Phone: the search tab's field, in the body on the shared content column. TV: the bar's
-  // search capsule reveals the field.
-  const head = IS_TV ? null : (
-    <View style={[styles.head, { paddingTop: headerHeight + 8 }]}>
-      <View style={settingsStyles.contentContainer}>
-        <SunkenTextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder={t("liveTv.searchLive")}
-          placeholderTextColor={COLORS.TEXT_SECONDARY}
-          accessibilityLabel={t("liveTv.searchLive")}
-          autoCorrect={false}
-          autoCapitalize="none"
-          returnKeyType="search"
-          numberOfLines={1}
-          multiline={false}
-          clearButtonMode="while-editing"
-          containerStyle={styles.searchField}
-          style={styles.searchInput}
-        />
-      </View>
-    </View>
+    [openSettings, openSearch, filterAction, filtered],
   );
 
   // An empty wall keeps the bar: back, search, groups and settings stay in reach.
@@ -190,9 +172,7 @@ export default function ChannelsScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={screenOptions} />
-      {/* Phone paints the canvas at screen level so the field and the grid share one wash. */}
       {IS_TV ? null : <AmbientBackground />}
-      {head}
       <View style={styles.grid}>
         <LibraryGrid
           items={searching ? (results as JellyfinItem[]) : wall}
@@ -227,22 +207,6 @@ const styles = StyleSheet.create({
   },
   grid: {
     flex: 1,
-  },
-  // Phone: the field's row under the native bar, on the search tab's shared column.
-  head: {
-    alignItems: "center",
-    paddingBottom: 8,
-  },
-  searchField: {
-    width: "100%",
-  },
-  searchInput: {
-    width: "100%",
-    flex: 1,
-    backgroundColor: "transparent",
-    paddingHorizontal: 20,
-    fontSize: 20,
-    color: COLORS.TEXT_PRIMARY,
   },
   center: {
     alignItems: "center",

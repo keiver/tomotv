@@ -29,6 +29,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, findNodeHandle, Platform, StyleSheet, Text, TextInput, TVEventControl, View } from "react-native";
 import { t } from "@/services/i18n";
+import { takeSearchFocusRequest } from "@/services/searchFocus";
 
 /**
  * Gets the native node handle for TV focus management.
@@ -532,6 +533,13 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     // Assign to ref for imperative access
     searchInputRef.current = node;
   }, []);
+
+  // A screen's search button lands here with the field focused.
+  useFocusEffect(
+    useCallback(() => {
+      if (takeSearchFocusRequest()) searchInputRef.current?.focus();
+    }, []),
+  );
 
   const renderFooter = useCallback(() => {
     if (isLoadingMore) {
