@@ -26,7 +26,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The Swift host tests need macOS and the fetched xcframeworks; a failure blocks the publish.
+  engine:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
+      - name: Engine tests
+        run: npm run test:engine
+
   publish:
+    needs: engine
     runs-on: ubuntu-latest
 
     steps:
