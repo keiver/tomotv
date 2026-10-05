@@ -46,7 +46,7 @@ const FILE = `file:///cache/${encodeURIComponent(URL)}`;
 const WINDOW = { from: 1_000_000, to: 2_000_000 };
 const DAY = 24 * 60 * 60 * 1000;
 
-const programme = (channel: string, start: number, title = "Show") => ({ channel, start, stop: start + 1000, title, subTitle: null, desc: null, categories: [], icon: null });
+const programme = (channel: string, start: number, title = "Show") => ({ channel, start, stop: start + 1000, title, subTitle: null, desc: null, categories: [], icon: null, rating: null });
 
 describe("fetchExternalPrograms", () => {
   let tokens = 0;
@@ -96,9 +96,9 @@ describe("fetchExternalPrograms", () => {
       { id: "B.us@HD", displayNames: ["Bravo"], icon: null },
     ]);
     native.guideProgrammes.mockResolvedValue([
-      { channel: "A.us@SD", start: 1_200_000, stop: 1_500_000, title: "Show", subTitle: "Ep", desc: "D", categories: ["News"], icon: null },
-      { channel: "A.us@HD", start: 1_200_000, stop: 1_500_000, title: "Show", subTitle: "Ep", desc: "D", categories: ["News"], icon: null },
-      { channel: "B.us@HD", start: 1_100_000, stop: null, title: "Other", subTitle: null, desc: null, categories: [], icon: null },
+      { channel: "A.us@SD", start: 1_200_000, stop: 1_500_000, title: "Show", subTitle: "Ep", desc: "D", categories: ["News"], icon: null, rating: "TV-PG" },
+      { channel: "A.us@HD", start: 1_200_000, stop: 1_500_000, title: "Show", subTitle: "Ep", desc: "D", categories: ["News"], icon: null, rating: "TV-PG" },
+      { channel: "B.us@HD", start: 1_100_000, stop: null, title: "Other", subTitle: null, desc: null, categories: [], icon: null, rating: null },
     ]);
     const programs = await fetchExternalPrograms(
       [URL],
@@ -124,8 +124,10 @@ describe("fetchExternalPrograms", () => {
       Overview: "D",
       EpisodeTitle: "Ep",
       Genres: ["News"],
+      OfficialRating: "TV-PG",
     });
     expect(programs[2].EndDate).toBeUndefined();
+    expect(programs[2].OfficialRating).toBeUndefined();
   });
 
   it("falls back to the tvg-name, then the channel name, exactly and case aside", async () => {

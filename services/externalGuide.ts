@@ -35,6 +35,7 @@ function listingProgram({ channelId, programme }: GuideListing): JellyfinProgram
     Overview: programme.desc ?? undefined,
     EpisodeTitle: programme.subTitle ?? undefined,
     Genres: programme.categories,
+    OfficialRating: programme.rating ?? undefined,
   };
 }
 

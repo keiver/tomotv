@@ -33,6 +33,7 @@ export interface GuideProgramme {
   subTitle: string | null;
   desc: string | null;
   categories: string[];
+  rating: string | null;
   icon: string | null;
 }
 
