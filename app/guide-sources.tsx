@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { RollingFieldRow } from "@/components/settings/RollingFieldRow";
-import { settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, settingsStyles } from "@/components/settings/styles";
 import { StorageBar } from "@/components/storage-bar";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { clearDownloadedGuides, guideSourceStatuses, preloadGuide, subscribeGuideSources } from "@/services/externalGuide";
@@ -104,7 +104,7 @@ export default function GuideSourcesScreen() {
       <AmbientBackground />
       <ScrollView
         style={settingsStyles.scrollView}
-        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
         showsVerticalScrollIndicator={false}
         automaticallyAdjustKeyboardInsets>
         <View style={settingsStyles.contentContainer}>

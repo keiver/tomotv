@@ -28,6 +28,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
+const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 
 /** Row wrapper padding, shared by the style and the row geometry the list scrolls with. */
 const ROW_VERTICAL_PADDING = IS_TV ? 24 : 6;
@@ -273,7 +274,7 @@ export function LibraryGrid({
   // TV bottom clearance is a design gap, never the tab bar height: the tab bar is at the TOP
   // there, and padding the list by 210px created a phantom band of scrollable space below the last
   // row, which the focus engine then scrolled to reveal.
-  const topClearance = topClearanceProp ?? (IS_TV ? 40 + insets.top : 16);
+  const topClearance = topClearanceProp ?? (IS_TV ? 40 + insets.top : IS_PAD ? 28 : 16);
   const bottomClearance = IS_TV ? 40 + insets.bottom : 20;
   // Edge padding subsumes the safe-area inset instead of stacking on top of it, so cards fill the
   // safe area (see gridEdgePadding). The home shelves derive their card widths the same way,

@@ -4,7 +4,7 @@ import { DurationSlider } from "@/components/settings/DurationSlider";
 import { ListRow } from "@/components/settings/ListRow";
 import { tick } from "@/components/settings/tick";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, settingsStyles } from "@/components/settings/styles";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { activeGuideUrls } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
@@ -49,7 +49,7 @@ export default function ChannelSettingsScreen() {
     <View style={styles.container}>
       <AmbientBackground />
       <ScrollView
-        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
           <View style={settingsStyles.sectionHeader}>

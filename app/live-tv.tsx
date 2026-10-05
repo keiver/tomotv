@@ -27,6 +27,7 @@ import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import { SafeAreaListener, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
+const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 const COLUMN_WIDTH = guideMetrics(IS_TV).channelColumnWidth;
 // Phone: the guide refresh cell pinned before the groups, a 44pt touch target.
 const PHONE_REFRESH_CELL_WIDTH = 44;
@@ -133,7 +134,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   // TV frames the column half a grid edge in; phone runs it flush to the screen edge.
   const edgeLeft = IS_TV ? gridEdgePadding(insets?.left ?? 0, IS_TV) / 2 : (insets?.left ?? 0);
   // Phone: the transparent native header floats over the content, so the body starts under it.
-  const topClearance = IS_TV ? 10 + (insets?.top ?? 0) : headerHeight + 8;
+  const topClearance = IS_TV ? 10 + (insets?.top ?? 0) : headerHeight + (IS_PAD ? 20 : 8);
   // Phone: Channels, Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>

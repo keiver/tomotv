@@ -3,7 +3,7 @@ import { FocusableButton } from "@/components/FocusableButton";
 import { TimerRow, timerPanelTarget } from "@/components/live-tv/timer-row";
 import { LoadingRow } from "@/components/loading-row";
 import { SectionActionBand } from "@/components/settings/SectionActionBand";
-import { settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, settingsStyles } from "@/components/settings/styles";
 import { TVFocusHolder } from "@/components/tv-focus-holder";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
@@ -207,7 +207,7 @@ export default function ScheduleScreen() {
     <View style={styles.container}>
       <Stack.Screen options={screenOptions} />
       <AmbientBackground />
-      <View style={[styles.container, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12 }]}>{body}</View>
+      <View style={[styles.container, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12) }]}>{body}</View>
     </View>
   );
 }
