@@ -54,11 +54,18 @@ function pressCopy(state: DownloadState, converted: boolean): string | null {
   }
 }
 
+/** A held file's size line: the rung it was converted to, Original for an unconverted video, the bare size for audio. */
+function heldSize(entry: DownloadEntry): string {
+  if (entry.converted) return sizeChoice(entry.converted.label, entry.totalBytes);
+  const video = (entry.item.MediaStreams ?? []).some((stream) => stream.Type === "Video");
+  return video ? sizeChoice(t("downloads.original"), entry.totalBytes) : formatFileSize(entry.totalBytes);
+}
+
 /** What each state says and does, so the row body has no branching of its own. */
 function stateCopy(entry: DownloadEntry): { subtitle: string; trailing?: IoniconName } {
   switch (entry.state) {
     case "ready":
-      return { subtitle: entry.converted ? sizeChoice(entry.converted.label, entry.totalBytes) : formatFileSize(entry.totalBytes), trailing: "play" };
+      return { subtitle: heldSize(entry), trailing: "play" };
     case "downloading":
       // A server conversion cannot resume, so it offers no pause; see downloadManager.pause.
       return { subtitle: progressLabel(entry), trailing: entry.converted ? undefined : "pause" };

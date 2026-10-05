@@ -89,6 +89,16 @@ describe("DownloadRow", () => {
     expect(hint("repackaging")).toBe("Waiting. Swipe left or press and hold to remove.");
   });
 
+  it("names what a held file is: its rung, Original for a video, the bare size for a track", () => {
+    const RUNG = { label: "720p", bitrate: 4000000, width: 1280, height: 720 };
+    const subtitle = (overrides: Partial<DownloadEntry>) => actionTarget(render(ENTRY("ready", { totalBytes: 2048, ...overrides }), jest.fn())).props.subtitle;
+    const video = { Id: "a", Name: "Bloom", MediaStreams: [{ Index: 0, Type: "Video" }] } as never;
+
+    expect(subtitle({ item: video, converted: RUNG })).toBe("720p · 2 KB");
+    expect(subtitle({ item: video })).toBe("Original · 2 KB");
+    expect(subtitle({})).toBe("2 KB");
+  });
+
   // A server conversion streams with no ranges, so it cannot resume: no pause glyph, no pause hint.
   it("offers no pause on a transfer the server is converting", () => {
     const RUNG = { label: "720p", bitrate: 4000000, width: 1280, height: 720 };
