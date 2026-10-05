@@ -18,7 +18,7 @@ import { fetchTunerData } from "./tunerGroups";
 import { activeGuideUrls, searchExternalPrograms } from "@/services/externalGuide";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
-import { liveTvSearchHorizon, liveTvSearchIndex } from "./liveTvSearchIndex";
+import { liveTvSearchHorizon, liveTvSearchIndex, liveTvSearchIndexVersion } from "./liveTvSearchIndex";
 
 /**
  * Parse year(s) from search query
@@ -541,8 +541,14 @@ function indexedMatches(config: JellyfinConfig, searchTerm: string): JellyfinVid
 
 /** A shown index card's channel name and artwork, read once per programme per server and account (ids repeat across servers). */
 const programDetails = new Map<string, Promise<JellyfinVideoItem | null>>();
+let programDetailsIndexVersion = -1;
 
 function fetchProgramDetails(config: JellyfinConfig, programId: string): Promise<JellyfinVideoItem | null> {
+  // A rebuilt index carries the guide's current listings, so details read against an older one go with it.
+  if (programDetailsIndexVersion !== liveTvSearchIndexVersion()) {
+    programDetails.clear();
+    programDetailsIndexVersion = liveTvSearchIndexVersion();
+  }
   const key = `${config.server}|${config.userId}|${programId}`;
   let details = programDetails.get(key);
   if (!details) {

@@ -12,8 +12,8 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 jest.mock("../jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn() }));
 jest.mock("@/services/externalGuide", () => ({ activeGuideUrls: jest.requireActual("@/services/externalGuide").activeGuideUrls, searchExternalPrograms: jest.fn() }));
 jest.mock("@/services/liveTvPreferences", () => ({ getLiveTvPreferences: jest.fn(() => ({ guideUrls: [], guideSourcesOff: [] })) }));
-jest.mock("../jellyfin/liveTvSearchIndex", () => ({ ...jest.requireActual("../jellyfin/liveTvSearchIndex"), liveTvSearchIndex: jest.fn(() => null) }));
-const { liveTvSearchIndex } = jest.requireMock("../jellyfin/liveTvSearchIndex") as { liveTvSearchIndex: jest.Mock };
+jest.mock("../jellyfin/liveTvSearchIndex", () => ({ ...jest.requireActual("../jellyfin/liveTvSearchIndex"), liveTvSearchIndex: jest.fn(() => null), liveTvSearchIndexVersion: jest.fn(() => 0) }));
+const { liveTvSearchIndex, liveTvSearchIndexVersion } = jest.requireMock("../jellyfin/liveTvSearchIndex") as { liveTvSearchIndex: jest.Mock; liveTvSearchIndexVersion: jest.Mock };
 
 const { fetchTunerData } = jest.requireMock("../jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
 const { searchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { searchExternalPrograms: jest.Mock };
@@ -107,6 +107,7 @@ describe("searchLiveTv", () => {
     fetchTunerData.mockResolvedValue(NO_TUNER);
     searchExternalPrograms.mockResolvedValue([]);
     liveTvSearchIndex.mockReturnValue(null);
+    liveTvSearchIndexVersion.mockReturnValue(0);
   });
 
   describe("the server's programme index", () => {
@@ -177,6 +178,30 @@ describe("searchLiveTv", () => {
         "http://other/LiveTv/Programs/g5?userId=u",
         "http://jf/LiveTv/Programs/g5?userId=u2",
       ]);
+    });
+
+    it("reads a shown card's details again once a rebuilt index lands, so a moved airing shows its new times", async () => {
+      const [first, moved] = [later(4), later(5)];
+      const details = (startMs: number) => ({
+        ok: true,
+        json: async () => ({
+          Id: "g6",
+          Name: "MLB Baseball",
+          Type: "Program",
+          ChannelId: "tbs",
+          ChannelName: "TBS",
+          StartDate: new Date(startMs).toISOString(),
+          EndDate: new Date(startMs + 3 * 3_600_000).toISOString(),
+        }),
+      });
+      liveTvSearchIndex.mockReturnValue([indexed("g6", "mlb baseball yankees", first)]);
+      serve(ok([]), ok([]), { g6: details(first) });
+      expect((await searchLiveTv("yankees"))[0].StartDate).toBe(new Date(first).toISOString());
+
+      liveTvSearchIndex.mockReturnValue([indexed("g6", "mlb baseball yankees", moved)]);
+      liveTvSearchIndexVersion.mockReturnValue(1);
+      serve(ok([]), ok([]), { g6: details(moved) });
+      expect((await searchLiveTv("yankees"))[0].StartDate).toBe(new Date(moved).toISOString());
     });
 
     it("answers without the index while it is being built, and never matches a term under three characters", async () => {
