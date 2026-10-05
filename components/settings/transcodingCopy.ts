@@ -18,18 +18,24 @@ export function transcodingLevelHint(level: ServerTranscoding): string {
   return t(LEVEL_KEYS[level].hint);
 }
 
-/** The server's own setting for this account, as the page's status row states it; null until read. */
-export interface ServerTranscodingStatus {
-  state: "on" | "off" | "audioOff";
-  title: string;
-  subtitle: string;
+/** The server's own setting for this account as one sentence, split around the state word the footer inks. */
+export interface ServerTranscodingSentence {
+  before: string;
+  state: string;
+  enabled: boolean;
+  after: string;
 }
 
-export function serverTranscodingStatus(permissions: TranscodePermissions | null): ServerTranscodingStatus | null {
+export function serverTranscodingFooter(permissions: TranscodePermissions | null): ServerTranscodingSentence | null {
   if (!permissions) return null;
-  if (!permissions.video) return { state: "off", title: t("settings.transcoding.serverForbidsVideoTitle"), subtitle: t("settings.transcoding.serverForbidsVideo") };
-  if (!permissions.audio) return { state: "audioOff", title: t("settings.transcoding.serverForbidsAudioTitle"), subtitle: t("settings.transcoding.serverForbidsAudio") };
-  return { state: "on", title: t("settings.transcoding.serverOn"), subtitle: t("settings.transcoding.serverOnHint") };
+  // Both alike read as one; when they differ, the one the server turned off is the news.
+  const same = permissions.video === permissions.audio;
+  const enabled = same && permissions.video;
+  const template = same
+    ? t("settings.transcoding.serverBoth")
+    : t("settings.transcoding.serverOne").replace("{kind}", t(permissions.video ? "settings.transcoding.kindAudio" : "settings.transcoding.kindVideo"));
+  const [before, after = ""] = template.split("{state}");
+  return { before, state: t(enabled ? "settings.transcoding.enabled" : "settings.transcoding.disabled"), enabled, after };
 }
 
 /** The Settings tab row's second line: the server's refusal leads, the device's level otherwise. */

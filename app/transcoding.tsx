@@ -1,9 +1,10 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
+import { ServerTranscodingFooter } from "@/components/settings/ServerTranscodingFooter";
 import { StreamingQuality } from "@/components/settings/StreamingQuality";
 import { settingsStyles, TV_PUSHED_HEADER_TOP } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
-import { serverTranscodingStatus, transcodingLevelHint, transcodingLevelTitle } from "@/components/settings/transcodingCopy";
+import { transcodingLevelHint, transcodingLevelTitle } from "@/components/settings/transcodingCopy";
 import { useTranscodePermissions } from "@/hooks/useTranscodePermissions";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { t } from "@/services/i18n";
@@ -24,9 +25,8 @@ export default function TranscodingScreen() {
   const [qualityTop, setQualityTop] = useState(0);
   const { serverTranscoding } = useUiPreferences();
   const permissions = useTranscodePermissions();
-  // The server's own setting heads the page: whatever is chosen below, it rules.
-  const status = serverTranscodingStatus(permissions);
-  const serverOff = status?.state === "off";
+  // The server's own setting closes the section: whatever is chosen above it, it rules.
+  const serverOff = permissions?.video === false;
   const showQuality = serverTranscoding !== "never" && !serverOff;
 
   useEffect(() => {
@@ -39,25 +39,6 @@ export default function TranscodingScreen() {
 
   const content = (
     <View style={settingsStyles.contentContainer}>
-      {status ? (
-        <>
-          <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("settings.transcoding.serverHeader")}</Text>
-          </View>
-          <View style={settingsStyles.section} accessibilityRole={status.state === "on" ? undefined : "alert"}>
-            <ListRow
-              icon={status.state === "on" ? "checkmark-circle" : status.state === "off" ? "close-circle" : "alert-circle"}
-              title={status.title}
-              subtitle={status.subtitle}
-              subtitleLines={0}
-              tone={status.state === "off" ? "destructive" : "default"}
-              hasTVPreferredFocus={serverOff}
-              isFirst
-              isLast
-            />
-          </View>
-        </>
-      ) : null}
       <View style={settingsStyles.sectionHeader}>
         <Text style={settingsStyles.sectionHeaderText}>{t("settings.transcoding.header")}</Text>
       </View>
@@ -77,10 +58,12 @@ export default function TranscodingScreen() {
               hasTVPreferredFocus={selected && !serverOff}
               accessibilityState={{ selected, disabled: serverOff }}
               isFirst={index === 0}
-              isLast={index === SERVER_TRANSCODING_LEVELS.length - 1}
+              // The footer closes the card once the server is read; the last row stays square above it.
+              isLast={index === SERVER_TRANSCODING_LEVELS.length - 1 && !permissions}
             />
           );
         })}
+        <ServerTranscodingFooter permissions={permissions} />
       </View>
       {showQuality ? (
         <View onLayout={IS_TV ? (event) => setQualityTop(event.nativeEvent.layout.y) : undefined}>

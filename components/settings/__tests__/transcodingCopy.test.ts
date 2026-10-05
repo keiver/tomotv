@@ -1,5 +1,5 @@
-/** The Server transcoding copy: a title and hint per level, and the server's own setting stated on the page and the row. */
-import { serverTranscodingStatus, transcodingLevelHint, transcodingLevelTitle, transcodingRowSubtitle } from "../transcodingCopy";
+/** The Server transcoding copy: a title and hint per level, and the server's own setting stated in the footer and on the row. */
+import { serverTranscodingFooter, transcodingLevelHint, transcodingLevelTitle, transcodingRowSubtitle } from "../transcodingCopy";
 
 const allowed = { server: "http://a:8096", video: true, audio: true };
 
@@ -14,22 +14,21 @@ describe("transcodingCopy", () => {
   });
 
   it("states the server's setting once read, and says nothing before", () => {
-    expect(serverTranscodingStatus(null)).toBeNull();
-    expect(serverTranscodingStatus(allowed)).toEqual({ state: "on", title: "Transcoding on", subtitle: "Set by your server for this account" });
+    expect(serverTranscodingFooter(null)).toBeNull();
+    expect(serverTranscodingFooter(allowed)).toEqual({ before: "Your server has video and audio transcoding ", state: "enabled", enabled: true, after: "." });
     expect(transcodingRowSubtitle("fileOnly", null)).toBe("Only for unsupported files");
     expect(transcodingRowSubtitle("never", allowed)).toBe("Off");
   });
 
-  it("leads with the server's refusal of video, whatever the device chose", () => {
-    const denied = { ...allowed, video: false };
-    expect(serverTranscodingStatus(denied)).toEqual({ state: "off", title: "Transcoding off", subtitle: "Set by your server for this account. Only files this device supports will play" });
-    expect(serverTranscodingStatus({ ...denied, audio: false })?.state).toBe("off");
+  it("states both off as one, and leads the row with a video refusal", () => {
+    const denied = { ...allowed, video: false, audio: false };
+    expect(serverTranscodingFooter(denied)).toEqual({ before: "Your server has video and audio transcoding ", state: "disabled", enabled: false, after: "." });
     expect(transcodingRowSubtitle("linkOrFile", denied)).toBe("Turned off by your server");
   });
 
-  it("states a refusal of audio alone on the page, not on the row", () => {
-    const denied = { ...allowed, audio: false };
-    expect(serverTranscodingStatus(denied)).toMatchObject({ state: "audioOff", title: "Audio transcoding off" });
-    expect(transcodingRowSubtitle("linkOrFile", denied)).toBe("When needed");
+  it("names only the kind the server turned off when the two differ", () => {
+    expect(serverTranscodingFooter({ ...allowed, video: false })).toEqual({ before: "Your server has video transcoding ", state: "disabled", enabled: false, after: "." });
+    expect(serverTranscodingFooter({ ...allowed, audio: false })).toEqual({ before: "Your server has audio transcoding ", state: "disabled", enabled: false, after: "." });
+    expect(transcodingRowSubtitle("linkOrFile", { ...allowed, audio: false })).toBe("When needed");
   });
 });
