@@ -1536,6 +1536,10 @@ describe("serverIFramePlan", () => {
     await expect(serverIFramePlan(item({ streams: [{ Type: "Audio", Codec: "flac", Index: 0 }] }))).resolves.toBeNull();
     await expect(serverIFramePlan(item({ RunTimeTicks: 0 }))).resolves.toBeNull();
   });
+
+  it("is null for a codec the engine cannot decode: no rendition is named that its playlist would 404", async () => {
+    await expect(serverIFramePlan(item({ streams: [{ Type: "Video", Codec: "asv1", Width: 1280, Height: 720, VideoRangeType: "SDR", Index: 0 }] }))).resolves.toBeNull();
+  });
 });
 
 describe("videoCodecTag", () => {

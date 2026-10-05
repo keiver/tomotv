@@ -467,6 +467,9 @@ export async function serverIFramePlan(videoItem: JellyfinVideoItem): Promise<Se
   const video = streams.find((stream) => stream.Type === "Video");
   const durationSeconds = (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
   if (!video || !(durationSeconds > 0)) return null;
+  // The provider decodes the frames with the engine's build: a codec it cannot take has no rendition to name.
+  const codec = video.Codec?.toLowerCase() ?? "";
+  if (![...REMUXABLE_CODECS, ...AV1_CODECS, ...TRANSCODABLE_VIDEO_CODECS].some((known) => codec.startsWith(known))) return null;
   const willCopyVideo = await copiesVideo(video);
   const range = sourceVideoRange({ ...videoItem, MediaStreams: streams });
   const videoRange = !willCopyVideo && !(await videoDecodeSupport()).hevcMain10 ? (range ? "SDR" : "") : range;
