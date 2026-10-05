@@ -334,8 +334,11 @@ final class DownloadRepackager {
             }
         }
 
-        if sawAudio && !carriedAudio {
-            throw Failure.declined("no audio track can be copied into MP4", permanent: true)
+        // The rewrap deletes its source, so a track it cannot carry would be gone for good: the
+        // file keeps its container and every track, and plays through the engine instead.
+        if !droppedAudio.isEmpty {
+            let streams = droppedAudio.map(String.init).joined(separator: ", ")
+            throw Failure.declined(carriedAudio ? "audio stream \(streams) cannot be copied into MP4" : "no audio track can be copied into MP4", permanent: true)
         }
         if copyStreams.isEmpty {
             throw Failure.declined("nothing to carry", permanent: true)

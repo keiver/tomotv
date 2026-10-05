@@ -28,6 +28,16 @@ ffmpeg -f lavfi -i "testsrc2=size=128x96:rate=12:duration=2" -f lavfi -i "sine=f
   -c:a aac -b:a 32k -ac 2 -f mpegts tier-segment.mpegts
 ```
 
+`two-audio.mkv` is generated: one second of `testsrc2` as baseline H.264 with an AAC track and a
+FLAC track. AAC copies into MP4 and FLAC does not, so `DownloadRepackagerTests` can check the
+rewrap declines rather than writing a file that has lost a track.
+
+```
+ffmpeg -f lavfi -i "testsrc2=size=128x96:rate=12:duration=1" -f lavfi -i "sine=frequency=440:duration=1" \
+  -f lavfi -i "sine=frequency=660:duration=1" -map 0:v -map 1:a -map 2:a -c:v libx264 -preset veryfast \
+  -profile:v baseline -pix_fmt yuv420p -g 12 -b:v 60k -c:a:0 aac -b:a:0 32k -c:a:1 flac -ac 2 two-audio.mkv
+```
+
 `text-subtitles.mkv` and `text-subtitles.mp4` are generated too, from `a.ass`, `a.ssa` and
 `a.srt` beside them. The MKV carries ASS v4.00+ (eng), SSA v4.00 (spa) and SubRip (fra) over a
 black 128x96 picture; the MP4 carries the same SubRip cues as mov_text. Matroska stores SSA and
