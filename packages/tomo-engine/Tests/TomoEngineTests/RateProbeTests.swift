@@ -127,8 +127,11 @@ final class RateProbeTests: XCTestCase {
         defer { server.stop() }
         let (outcome, elapsed) = probe(server)
         let reading = try XCTUnwrap(outcome.reading)
+        // A 0.2s body is one burst: its rate is never the link, so the claim is its kind and that Settings drops it.
         XCTAssertEqual(reading.kind, .short)
-        XCTAssertEqual(reading.bps / mbps, 40, accuracy: 2)
+        XCTAssertGreaterThan(reading.bps, 0)
+        XCTAssertLessThan(reading.seconds, 1)
+        XCTAssertNil(outcome.linkReading)
         XCTAssertLessThan(elapsed, 1)
         XCTAssertEqual(server.requests, 1)
     }
