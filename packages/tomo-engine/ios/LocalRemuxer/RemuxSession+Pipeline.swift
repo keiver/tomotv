@@ -363,6 +363,20 @@ extension RemuxSession {
             }
         }
 
+        /// The first DTS this muxer wrote: mux.c shifts every stream by it (avoid_negative_ts make_zero).
+        var muxZero: (dts: Int64, timeBase: AVRational)?
+
+        func noteMuxZero(_ pkt: UnsafeMutablePointer<AVPacket>, timeBase: AVRational) {
+            if muxZero == nil, pkt.pointee.dts != Int64(bitPattern: 0x8000_0000_0000_0000) { muxZero = (pkt.pointee.dts, timeBase) }
+        }
+
+        /// Copied audio before the muxer's zero turns negative there, and movenc aborts flushing a
+        /// fragment where that sample is the track's only one.
+        func precedesMuxZero(_ pkt: UnsafeMutablePointer<AVPacket>, timeBase: AVRational) -> Bool {
+            guard let zero = muxZero, pkt.pointee.dts != Int64(bitPattern: 0x8000_0000_0000_0000) else { return false }
+            return av_compare_ts(pkt.pointee.dts, timeBase, zero.dts, zero.timeBase) < 0
+        }
+
         init(prefix: String, inputStreams: [Int32], transcoder: AudioTranscoder?, videoTranscoder: VideoTranscoder? = nil,
              dolbyVision: DolbyVisionConverter? = nil) {
             self.prefix = prefix
@@ -401,6 +415,7 @@ extension RemuxSession {
             streamMap = [:]
             baseDts = [:]
             lastDts = [:]
+            muxZero = nil
             adtsStreams = []
         }
     }
@@ -2066,6 +2081,7 @@ extension RemuxSession {
                             encoded.pointee.stream_index = outIndex
                             encoded.pointee.pos = -1
                             rendition.repairTimestamps(encoded, streamIndex: outIndex)
+                            rendition.noteMuxZero(encoded, timeBase: outStream.pointee.time_base)
                             rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
                             _ = av_write_frame(ctx, encoded)
                         }
@@ -2398,6 +2414,7 @@ extension RemuxSession {
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
                     rendition.repairTimestamps(encoded, streamIndex: outIndex)
+                    rendition.noteMuxZero(encoded, timeBase: outStream.pointee.time_base)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
                     let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w }
@@ -2472,6 +2489,7 @@ extension RemuxSession {
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
                     rendition.repairTimestamps(encoded, streamIndex: outIndex)
+                    rendition.noteMuxZero(encoded, timeBase: outStream.pointee.time_base)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
                     let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w }
@@ -2507,6 +2525,8 @@ extension RemuxSession {
             pkt.pointee.stream_index = outIndex
             pkt.pointee.pos = -1
             rendition.repairTimestamps(pkt, streamIndex: outIndex)
+            if !isVideo, rendition.precedesMuxZero(pkt, timeBase: outStream.pointee.time_base) { continue }
+            rendition.noteMuxZero(pkt, timeBase: outStream.pointee.time_base)
             rendition.noteBaseDts(streamIndex: outIndex, dts: pkt.pointee.dts)
 
             let muxStarted = Date()

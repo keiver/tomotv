@@ -30,6 +30,7 @@ All notable changes to Tomo TV are documented here.
 - A channel card whose airing programme shares the channel's name shows the name once
 - A picked channel group keeps its green wash while focused
 - An MP4 with its moov at the end plays instead of failing on segment 0: the engine's input opens a fresh connection per request (regressed in 2.2.9 by 62988f68)
+- Seeking in a file whose audio sits just behind the keyframe the seek lands on no longer closes the app: that audio is dropped instead of aborting the muxer (since 2.2.3, 3c04697b)
 - At "Only for unsupported files" or "Off", a slow link waits for the engine instead of reaching the server or erroring; with the server ruled out, the engine gets one fresh session before the error
 - The loading spinner holds until AVPlayer is playing, not on the start tick it sends while still filling its buffer
 - Picture in Picture leaves the player for where playback started, the window rolls a queue into its next item, and restoring it reopens the player

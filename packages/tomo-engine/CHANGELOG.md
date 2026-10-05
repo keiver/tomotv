@@ -6,6 +6,7 @@
 - The TomoEngine, TomoLiveSources and TomoFFmpeg pods target iOS 16.4.
 - The input opens a fresh connection per request (no `multiple_requests`), so an MP4 with its moov at the end opens instead of failing on segment 0.
 - A subtitle rendition with `isHearingImpaired` carries the accessibility CHARACTERISTICS (HLS authoring spec 4.5).
+- A seek no longer aborts the process when copied audio sits behind the keyframe it lands on: audio before the muxer's first DTS is dropped instead of reaching movenc as a negative-duration sample.
 - Peer dependency `expo-file-system` >= 19.0.0, the first version whose root exports `File` and `Paths`.
 - The TomoFFmpeg pod's license points to the package's `NOTICE.md`.
 
