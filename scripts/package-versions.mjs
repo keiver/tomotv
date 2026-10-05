@@ -86,9 +86,11 @@ function files() {
   const failures = [];
   for (const pkg of PACKAGES) {
     const dir = path.join(ROOT, "packages", pkg);
-    const [packed] = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
-    const shipped = new Set(packed.files.map((file) => file.path));
     const { name, main } = manifest(pkg);
+    // npm 11 prints an array of packs, npm 12 an object keyed by package name.
+    const report = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+    const packed = Array.isArray(report) ? report[0] : report[name];
+    const shipped = new Set(packed.files.map((file) => file.path));
     const need = [main, "README.md", "LICENSE", "CHANGELOG.md"];
     for (const file of ["app.plugin.js", "expo-module.config.json", "ffmpeg-lock.json", "scripts/fetch-ffmpeg.js"]) if (fs.existsSync(path.join(dir, file))) need.push(file);
     for (const file of shipped) {
