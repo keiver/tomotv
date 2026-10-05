@@ -44,6 +44,8 @@ import {
   sessionBaseUrl,
   startFrameProvider,
   stopFrameProvider,
+  iframeStreamInf,
+  serverIFramePlan,
   readBound,
   posterFrameWorkInFlight,
   resolveSubtitlePick,
@@ -382,6 +384,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const copyRebuiltRef = useRef(false);
   /** The provider this run owns on the non-engine lanes; the engine lane serves its own frames. */
   const frameProviderTokenRef = useRef<string | null>(null);
+  /** The provider serving the server lanes' I-frame rendition, apart from the chapter one above. */
+  const iframeProviderTokenRef = useRef<string | null>(null);
   const [chapterFrameBaseUrl, setChapterFrameBaseUrl] = useState<string | null>(null);
   /** The engine's measured link carries the copy with room to spare, so a chapter grab beside the stream is affordable. */
   const [linkAffordsFrames, setLinkAffordsFrames] = useState(false);
@@ -1094,11 +1098,29 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // PQ tags intact under a master that says SDR, which AVPlayer refuses (-12927), so the
         // shim retags any avc1 init BT.709. Null shim (no module, fetch failure) = raw URL.
         const hdrSource = sourceIsHdr(details);
-        const viaShim = async (rawUrl: string): Promise<string> => {
+        /**
+         * Scrubbing on the server lanes: a frame provider reads the original file's keyframes on
+         * the server transcode's timeline, and its line goes into the master. "" when there is none.
+         */
+        const serverIFrames = async (): Promise<string> => {
+          if (isLiveRef.current) return "";
+          const plan = await serverIFramePlan(details);
+          if (!plan || requestIdRef.current !== currentRequestId) return "";
+          const base = await startFrameProvider(getVideoStreamUrl(videoId, details), videoId, { transcode: plan.transcode, durationSeconds: plan.durationSeconds });
+          if (!base) return "";
+          if (requestIdRef.current !== currentRequestId) {
+            void stopFrameProvider(localRemuxToken(base));
+            return "";
+          }
+          void stopFrameProvider(iframeProviderTokenRef.current);
+          iframeProviderTokenRef.current = localRemuxToken(base);
+          return iframeStreamInf(base, plan);
+        };
+        const viaShim = async (rawUrl: string, iframeLine: string): Promise<string> => {
           const offset = seekToPositionAfterLoadRef.current;
           const resuming = offset != null && offset > 0;
-          if ((!resuming && !hdrSource) || requestIdRef.current !== currentRequestId) return rawUrl;
-          const shimUrl = await startPlaylistShim(rawUrl, resuming ? offset : 0, { sdrInit: hdrSource });
+          if ((!resuming && !hdrSource && !iframeLine) || requestIdRef.current !== currentRequestId) return rawUrl;
+          const shimUrl = await startPlaylistShim(rawUrl, resuming ? offset : 0, { sdrInit: hdrSource, ...(iframeLine ? { iframeStreamInf: iframeLine } : {}) });
           if (shimUrl == null) return rawUrl;
           if (requestIdRef.current !== currentRequestId) {
             // Stale since the await: this run's shim goes, the offset stays for the run that owns it.
@@ -1115,6 +1137,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             service: "useVideoPlayback",
             offsetSeconds: resuming ? Math.round(offset) : 0,
             sdrInit: hdrSource,
+            iframes: iframeLine !== "",
           });
           return shimUrl;
         };
@@ -1437,6 +1460,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // choice is re-applied by position on its first report (planAudioReport).
           const useMultiAudio =
             !singleTranscode && serverLaneCarriesEveryTrack({ live: isLiveRef.current, hdrSource, loaderAvailable: isMultiAudioAvailable(), multiTrack: shouldUseMultiAudio(details) });
+          // Starting the provider opens nothing: the source is read when the player first scrubs.
+          const iframeLine = await serverIFrames();
+          if (!ownsAttempt()) return;
 
           if (useMultiAudio) {
             // Use multi-audio loader for seamless track switching
@@ -1463,7 +1489,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             const cachedConfig = await getConfig();
             if (!ownsAttempt()) return;
 
-            url = await prepareMultiAudioPlayback(videoId, details, baseUrl, cachedConfig.apiKey);
+            url = await prepareMultiAudioPlayback(videoId, details, baseUrl, cachedConfig.apiKey, iframeLine);
             if (!ownsAttempt()) return;
             preparedMultiAudio = true;
             preparedMapping = orderAudioTracks(getAudioTracks(details), null);
@@ -1478,6 +1504,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 ? details.liveTranscodeUrl
                 : await viaShim(
                     await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInIndex, playSessionIdRef.current, await resolveTranscodePreset(), await videoDecodeSupport()),
+                    iframeLine,
                   );
 
             if (!ownsAttempt()) return;
@@ -2730,6 +2757,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       resetPlaybackStages();
       stopFrameProvider(frameProviderTokenRef.current);
       frameProviderTokenRef.current = null;
+      stopFrameProvider(iframeProviderTokenRef.current);
+      iframeProviderTokenRef.current = null;
       stopPlaylistShim(playlistShimTokenRef.current);
       playlistShimTokenRef.current = null;
       if (stallWatchRef.current != null) {
@@ -2845,6 +2874,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     copyOnlyRef.current = false;
     stopFrameProvider(frameProviderTokenRef.current);
     frameProviderTokenRef.current = null;
+    stopFrameProvider(iframeProviderTokenRef.current);
+    iframeProviderTokenRef.current = null;
     setChapterFrameBaseUrl(null);
     setLinkAffordsFrames(false);
     setVideoMaxBitRate(null);

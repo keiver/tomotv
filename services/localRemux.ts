@@ -27,6 +27,7 @@ import {
   TRANSCODABLE_VIDEO_CODECS,
   configureEngine,
   dolbyVisionSupplementalCodecs as engineDolbyVisionSupplementalCodecs,
+  type IFrameLine,
   isAudioTrackCarriable,
   isLocalRemuxAvailable,
   manifestName,
@@ -70,6 +71,7 @@ export {
   engineProgress,
   engineStarving,
   fetchImageSubtitleTrack,
+  iframeStreamInf,
   imageSubtitleUrl,
   imagesAt,
   isLocalRemuxAvailable,
@@ -450,6 +452,37 @@ export function videoCodecTag(videoStream: JellyfinMediaStream | undefined, will
 /** SUPPLEMENTAL-CODECS for a Dolby Vision source the engine copies, or "". */
 export function dolbyVisionSupplementalCodecs(stream: JellyfinMediaStream | undefined, willCopyVideo: boolean): string {
   return engineDolbyVisionSupplementalCodecs(videoStreamInfo(stream), willCopyVideo);
+}
+
+export type ServerIFramePlan = IFrameLine & { transcode: boolean; durationSeconds: number };
+
+/**
+ * The server lanes' I-frame rendition, read off the original file by a frame provider: keyframes
+ * copied where this device decodes the source, re-encoded like the engine lane otherwise, declared
+ * the way the engine declares its own variant. Null for live, audio-only or an unknown length.
+ */
+export async function serverIFramePlan(videoItem: JellyfinVideoItem): Promise<ServerIFramePlan | null> {
+  if (isLiveSource(videoItem)) return null;
+  const streams = playbackMediaStreams(videoItem);
+  const video = streams.find((stream) => stream.Type === "Video");
+  const durationSeconds = (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
+  if (!video || !(durationSeconds > 0)) return null;
+  const willCopyVideo = await copiesVideo(video);
+  const range = sourceVideoRange({ ...videoItem, MediaStreams: streams });
+  const videoRange = !willCopyVideo && !(await videoDecodeSupport()).hevcMain10 ? (range ? "SDR" : "") : range;
+  // A PQ or HLG variant AVFoundation cannot verify fails the whole master: the engine's fallback tag holds.
+  const measured = videoCodecTag(video, willCopyVideo);
+  const codecs = measured || (videoRange === "SDR" || videoRange === "" ? "" : `hvc1.2.4.L${video.Level && video.Level > 0 ? video.Level : 123}.B0`);
+  return {
+    transcode: !willCopyVideo,
+    durationSeconds,
+    bandwidth: sourceBandwidthForItem(videoItem) || positiveBandwidth(video.BitRate) || 1,
+    codecs,
+    supplementalCodecs: codecs ? dolbyVisionSupplementalCodecs(video, willCopyVideo) : "",
+    width: video.Width ?? 0,
+    height: video.Height ?? 0,
+    videoRange,
+  };
 }
 
 /**
