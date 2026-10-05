@@ -4,6 +4,8 @@
 
 - `searchGuide`: a loaded guide's programmes in a window whose title, sub-title or description carries every word of a query, case and accents folded, matched in the native store; a title's earliest airing per channel, earliest first, up to a limit.
 - The TomoEngine, TomoLiveSources and TomoFFmpeg pods target iOS 16.4.
+- The input opens a fresh connection per request (no `multiple_requests`), so an MP4 with its moov at the end opens instead of failing on segment 0.
+- A subtitle rendition with `isHearingImpaired` carries the accessibility CHARACTERISTICS (HLS authoring spec 4.5).
 
 ## 1.0.0
 

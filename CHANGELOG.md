@@ -21,6 +21,8 @@ All notable changes to Tomo TV are documented here.
 ### Fixed
 
 - On Apple TV with automatic subtitles on, the subtitle track the system marks On loads
+- A file with a forced and an SDH image subtitle track in one language: subtitles set to that language land on the SDH track, not the forced one. The SDH track leads its language in the player's list and is marked as SDH for the system (#94)
+- A channel card whose airing programme shares the channel's name shows the name once
 - A picked channel group keeps its green wash while focused
 - An MP4 with its moov at the end plays instead of failing on segment 0: the engine's input opens a fresh connection per request (regressed in 2.2.9 by 62988f68)
 - At "Only for unsupported files" or "Off", a slow link waits for the engine instead of reaching the server or erroring; with the server ruled out, the engine gets one fresh session before the error
