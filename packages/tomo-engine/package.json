@@ -48,7 +48,7 @@
   },
   "peerDependencies": {
     "expo": "*",
-    "expo-file-system": "*",
+    "expo-file-system": ">=19.0.0",
     "react-native": "*"
   }
 }
