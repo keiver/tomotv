@@ -228,6 +228,8 @@ class DownloadManager {
 
   /** Pause an in-flight transfer, keeping the bytes already on disk. */
   async pause(itemId: string): Promise<void> {
+    // A conversion streams with Accept-Ranges: none, so a pause leaves nothing to resume from.
+    if (manifestEntry(itemId)?.converted) return;
     const task = this.tasks.get(itemId);
     if (!task) return;
     await task.pauseAsync();

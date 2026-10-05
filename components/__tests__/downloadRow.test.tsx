@@ -88,4 +88,13 @@ describe("DownloadRow", () => {
     expect(hint("queued")).toBe("Waiting. Swipe left or press and hold to remove.");
     expect(hint("repackaging")).toBe("Waiting. Swipe left or press and hold to remove.");
   });
+
+  // A server conversion streams with no ranges, so it cannot resume: no pause glyph, no pause hint.
+  it("offers no pause on a transfer the server is converting", () => {
+    const RUNG = { label: "720p", bitrate: 4000000, width: 1280, height: 720 };
+    const target = actionTarget(render(ENTRY("downloading", { converted: RUNG, bytesWritten: 10, totalBytes: -1 }), jest.fn()));
+    expect(target.props.trailingIcon).toBeUndefined();
+    expect(target.props.accessibilityHint).not.toContain("Pauses");
+    expect(actionTarget(render(ENTRY("downloading"), jest.fn())).props.trailingIcon).toBe("pause");
+  });
 });

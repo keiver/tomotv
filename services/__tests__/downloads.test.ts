@@ -402,6 +402,18 @@ describe("downloadManager", () => {
  * then addresses a directory that no longer exists, which stalls the player instead of falling
  * back to the server.
  */
+describe("a server conversion", () => {
+  // Jellyfin sends a transcode with Accept-Ranges: none, so a paused one could only restart from 0.
+  it("ignores a pause and keeps transferring", async () => {
+    await downloadManager.enqueue(ITEM("a"), { convert: RUNG });
+    await settle();
+    const paused = jest.spyOn(tasks[0], "pauseAsync");
+    await downloadManager.pause("a");
+    expect(paused).not.toHaveBeenCalled();
+    expect(manifestEntry("a")?.state).toBe("downloading");
+  });
+});
+
 describe("downloads across a container change", () => {
   const readyDownload = async () => {
     await add(ITEM("a"));
