@@ -33,6 +33,8 @@ pods_hash() {
     hash_files packages/tomo-engine/ios/TomoEngine.podspec packages/tomo-engine/ios/TomoLiveSources.podspec packages/tomo-engine/ios/TomoFFmpeg.podspec packages/tomo-engine/ffmpeg-lock.json
     hash_files $(find modules \( -name expo-module.config.json -o -name '*.podspec' \) -type f | LC_ALL=C sort)
     find modules -path 'modules/*/ios/*' -type f -not -name .DS_Store | LC_ALL=C sort
+    # The engine pods glob their sources at pod install, so an added or removed engine file is a pod input.
+    find packages/tomo-engine/ios -path packages/tomo-engine/ios/Frameworks -prune -o -type f \( -name '*.swift' -o -name '*.m' -o -name '*.h' -o -name '*.c' \) -print | LC_ALL=C sort
     pod --version
     stat -f '%m' node_modules/.package-lock.json
   } | shasum -a 256 | cut -d' ' -f1
