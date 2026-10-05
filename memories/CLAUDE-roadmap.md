@@ -117,10 +117,10 @@ Version is the one whose changelog carries it.
 | Engine   | Secondary subtitles                                               | Open        | second ring                                          |
 | Engine   | Adaptive Auto quality, link measured per server                   | Shipped     | 2.1.0                                                |
 | Engine   | Server rung proved before it is offered                           | Shipped     | 2.2.3                                                |
-| Engine   | Slipstream: copy and the rung ladder in one master, link measured | Implemented | 2.2.7, not yet released                              |
+| Engine   | Slipstream: copy and the rung ladder in one master, link measured | Implemented | 2.2.7                                                |
 | Engine   | Stall recovery, seek timestamp repair                             | Shipped     | 2.1.0, 2.2.3                                         |
-| Engine   | Native scrub previews (I-frame playlist)                          | Implemented | every lane; not yet released                         |
-| Engine   | One-request seeks on MPEG-TS (byte-estimated)                     | Implemented | 1 to 3 seeks; not yet released                       |
+| Engine   | Native scrub previews (I-frame playlist)                          | Implemented | 2.2.10, every lane                                   |
+| Engine   | One-request seeks on MPEG-TS (byte-estimated)                     | Implemented | 2.2.10, 1 to 3 seeks                                 |
 | Engine   | Host-side engine tests, codec coverage measured                   | Shipped     | `npm run test:engine`, 59/110 proven                 |
 | Player   | Skip Intro / Skip Credits, auto-skip toggle                       | Shipped     | 2.1.0                                                |
 | Player   | Native chapters in the tvOS info panel                            | Shipped     | 2.2.1, device-made images 2.2.2                      |
