@@ -289,6 +289,7 @@ class LocalRemuxer: RCTEventEmitter {
             )
             subtitle.serverSupUrl = raw["serverSupUrl"] as? String ?? ""
             subtitle.isExternal = raw["isExternal"] as? Bool ?? false
+            subtitle.isHearingImpaired = raw["isHearingImpaired"] as? Bool ?? false
             subtitle.source = SourcePosition(raw["source"])
             guard raw["source"] == nil || subtitle.source != nil else { return nil }
             return subtitle

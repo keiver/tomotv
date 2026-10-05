@@ -1149,7 +1149,7 @@ describe("startLocalRemux", () => {
     );
 
     const { subtitles } = mockStartRemux.mock.calls[0][0];
-    expect(subtitles).toEqual([expect.objectContaining({ index: 2, isForced: true, isDefault: false }), expect.objectContaining({ index: 3, isForced: false, isDefault: true })]);
+    expect(subtitles).toEqual([expect.objectContaining({ index: 3, isForced: false, isDefault: true }), expect.objectContaining({ index: 2, isForced: true, isDefault: false })]);
   });
 
   // The engine's plan is the only account of its decisions that reaches a
@@ -1431,6 +1431,25 @@ describe("subtitleRenditions", () => {
 
     expect(renditions.map((rendition) => rendition.name)).toEqual(["Forced English Subtitles - Default - PGSSUB", "Track 2"]);
     expect(renditions[0]).toMatchObject({ index: 2, isForced: true, isDefault: true, isImage: true });
+  });
+
+  // HLS authoring spec 9.17 orders a language's renditions general to specific, and 4.5 needs the
+  // hearing-impaired flag to mark SDH. Each language keeps the positions it held.
+  it("orders a language's tracks full, then SDH, then forced, and carries the hearing-impaired flag", () => {
+    const renditions = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Video", Codec: "av1", Index: 0 },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 2, Language: "eng", DisplayTitle: "English - Forced - PGSSUB", IsForced: true },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 3, Language: "eng", DisplayTitle: "English - Hearing Impaired - PGSSUB", IsHearingImpaired: true },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 4, Language: "spa", DisplayTitle: "Spanish - PGSSUB" },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 5, Language: "eng", DisplayTitle: "English - PGSSUB" },
+        ],
+      }),
+    );
+
+    expect(renditions.map((rendition) => rendition.index)).toEqual([5, 3, 4, 2]);
+    expect(renditions.map((rendition) => rendition.isHearingImpaired)).toEqual([false, true, false, false]);
   });
 
   // The other real shape: every track already distinguishable by language, so

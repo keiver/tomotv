@@ -25,6 +25,8 @@ export type SubtitleRendition = {
   localVtt: string;
   isDefault: boolean;
   isForced: boolean;
+  /** SDH, published with the accessibility CHARACTERISTICS (HLS authoring spec 4.5). */
+  isHearingImpaired?: boolean;
   isImage: boolean;
   isExternal?: boolean;
   /** An embedded text track the engine decodes and publishes as WebVTT segments. */

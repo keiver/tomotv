@@ -45,6 +45,8 @@ struct RemuxSubtitle {
     /// The server's raw copy of a PGS or DVD track (Stream.pgssub, Stream.mks), for when the source is not read.
     var serverSupUrl: String = ""
     var isExternal = false
+    /// SDH: the rendition carries the accessibility CHARACTERISTICS (HLS authoring spec 4.5).
+    var isHearingImpaired = false
     var source: SourcePosition? = nil
 }
 

@@ -953,6 +953,23 @@
       "comment": "Issue 84: a sidecar makes Jellyfin 12 list it first and renumber, so the embedded Index is one past the file position. audioCopy proves the default rendition holds the file's first audio stream. Two renditions: both tracks in the engine group, and no server audio group on a link that carries the copy."
     },
     {
+      "id": "T107",
+      "title": "T107 REMUX H264 PGS forced SDH",
+      "mode": "localRemux",
+      "validate": "none",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": {
+        "subtitles": 2,
+        "subtitleRenditions": [
+          { "name": "English - Hearing Impaired - PGSSUB", "characteristics": "public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound" },
+          { "name": "English - Forced - PGSSUB", "characteristics": null }
+        ],
+        "imageSubtitleSets": 4
+      },
+      "comment": "Two English PGS tracks, forced (Index 2, two images) before SDH (Index 3, one every 6s): the SDH rendition leads and carries the accessibility CHARACTERISTICS."
+    },
+    {
       "id": "L01",
       "title": "Bloomberg TV+ 4K HEVC (partner)",
       "live": true,

@@ -35,6 +35,7 @@ export interface JellyfinMediaStream {
   // Subtitle-specific fields
   IsDefault?: boolean; // Whether this is the default track
   IsForced?: boolean; // Whether this is a forced subtitle track
+  IsHearingImpaired?: boolean; // SDH: dialogue plus sound descriptions
 }
 
 export interface JellyfinMediaSource {

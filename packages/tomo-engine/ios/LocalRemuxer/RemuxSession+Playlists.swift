@@ -328,9 +328,13 @@ extension RemuxSession {
             // offer nor render cannot be shown by any mode.
             //
             // There is no "emit it only when the group also holds a selectable
-            // track" branch. No file in the test library pairs a forced track
-            // with a non-forced one, so such a branch could not be verified.
+            // track" branch. T107 pairs a forced track with an SDH one, but FORCED=YES
+            // on that pair has never run on a device.
             line += ",FORCED=NO"
+            // Authoring spec 4.5; it also keeps an SDH track distinct from a same-language one (RFC 8216 4.3.4.1.1).
+            if sub.isHearingImpaired {
+                line += ",CHARACTERISTICS=\"public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound\""
+            }
             line += ",URI=\"sub\(sub.index).m3u8\"\n"
             out += line
         }

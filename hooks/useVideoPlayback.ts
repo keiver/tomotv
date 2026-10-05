@@ -106,7 +106,7 @@ import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
 import { segmentSkipTarget } from "./videoPlayback/segmentSkip";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
-import { classifyObservedChoice, planSubtitleApplication, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
+import { classifyObservedChoice, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
 import {
   createPreflightGate,
@@ -507,6 +507,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Its ordinal in the report, null when not exactly one track reads selected.
   const lastObservedOrdinalRef = useRef<number | null>(null);
   const lastObservedKeyRef = useRef<string | null>(null);
+  // The latest onTextTracks list, which names each legible option's position in the group.
+  const reportedTextTracksRef = useRef<TextTrack[]>([]);
   const subtitleCaptureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Whether the stored choice has already been applied to this item.
   const subtitlesAppliedForItemRef = useRef(false);
@@ -2557,6 +2559,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // resolved to an image stream says nothing about which languages exist, and
       // recording them under it left that effect permanently blind on a refusal.
       const languages = data.textTracks.map((track) => track.language || "und");
+      reportedTextTracksRef.current = data.textTracks;
       setTextTrackLanguages((current) => (current.length === languages.length && current.every((tag, at) => tag === languages[at]) ? current : languages));
 
       // Remember what the viewer settled on, so the next item opens the same way.
@@ -2926,6 +2929,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       return;
     }
     if (plan.kind === "autoDefault") autoAppliedDefaultRef.current = plan.tag;
+    // A language with several renditions is selected by position: the lib's language match takes the first.
+    const stream = transportRef.current === "gateway" ? renditionForPlan(plan, subtitleRenditionsRef.current) : null;
+    const selection = stream === null ? null : subtitleSelectionForReport(stream, subtitleRenditionsRef.current, reportedTextTracksRef.current);
+    if (selection) setSelectedSubtitleTrack(selection as SelectedTrack);
     logger.debug("📝 Subtitles: selecting", {
       service: "useVideoPlayback",
       preference: plan.preference.kind === "language" ? plan.preference.tag : plan.preference.kind,

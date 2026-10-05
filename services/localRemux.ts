@@ -543,6 +543,24 @@ function isRemoteSubtitleUrl(value: string): boolean {
   }
 }
 
+/**
+ * HLS authoring spec 9.17: renditions sharing a LANGUAGE go from most general to most specific, so a
+ * language's full track leads, then SDH, then forced. Each language keeps the positions it held.
+ */
+function generalFirst<T extends { stream: JellyfinMediaStream }>(entries: T[]): T[] {
+  const language = (entry: T) => (entry.stream.Language || "und").toLowerCase();
+  const rank = (entry: T) => (entry.stream.IsForced === true ? 2 : entry.stream.IsHearingImpaired === true ? 1 : 0);
+  const byLanguage = new Map<string, T[]>();
+  for (const entry of entries) byLanguage.set(language(entry), [...(byLanguage.get(language(entry)) ?? []), entry]);
+  for (const group of byLanguage.values()) group.sort((a, b) => rank(a) - rank(b));
+  const taken = new Map<string, number>();
+  return entries.map((entry) => {
+    const position = taken.get(language(entry)) ?? 0;
+    taken.set(language(entry), position + 1);
+    return byLanguage.get(language(entry))![position];
+  });
+}
+
 function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolean): SubtitleRendition[] {
   const streamIndexes = new Set<number>();
   const mediaStreams = playbackMediaStreams(videoItem);
@@ -551,7 +569,7 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
     logger.warn("Subtitle track left out of the session", { service: "LocalRemux", itemId: videoItem.Id, streamIndex: index, reason });
     return [];
   };
-  const shipped = mediaStreams
+  const candidates = mediaStreams
     .filter((stream) => stream.Type === "Subtitle" && (!imageOnly || isImageBasedSubtitleCodec(stream.Codec)))
     .flatMap((stream) => {
       const index = stream.Index;
@@ -581,6 +599,7 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
         },
       ];
     });
+  const shipped = generalFirst(candidates);
 
   const labels = subtitleLabels(shipped.map((entry) => entry.stream));
 
@@ -604,6 +623,7 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
     // presents itself without being asked for. Never as FORCED=YES: AVKit
     // withholds one of those from the picker and does not apply it either.
     isForced: entry.stream.IsForced === true,
+    isHearingImpaired: entry.stream.IsHearingImpaired === true,
     isImage: entry.isImage,
     isExternal: entry.stream.IsExternal === true,
     isEngineText: entry.isEngineText,

@@ -60,6 +60,16 @@ final class MasterPlaylistTests: XCTestCase {
         XCTAssertTrue(out.contains("AUTOSELECT=YES"))
     }
 
+    /// HLS authoring spec 4.5: an SDH track carries both accessibility characteristics; others carry none.
+    func testHearingImpairedSubtitleDeclaresSdhCharacteristics() throws {
+        var sdh = sub(3)
+        sdh.isHearingImpaired = true
+        let lines = try playlist(subs: [sub(2, isForced: true), sdh]).split(separator: "\n").filter { $0.hasPrefix("#EXT-X-MEDIA:TYPE=SUBTITLES") }
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertFalse(lines[0].contains("CHARACTERISTICS"))
+        XCTAssertTrue(lines[1].contains(",CHARACTERISTICS=\"public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound\""))
+    }
+
     /// RFC 8216: DEFAULT=YES requires AUTOSELECT=YES. The pair inverted makes
     /// AVFoundation reject the entire master playlist with a bare -12642.
     func testDefaultYesIsNeverPairedWithAutoselectNo() throws {
