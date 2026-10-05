@@ -2,6 +2,9 @@
 
 ## 1.0.1
 
+- An I-frame rendition for scrubbing on every VOD session with video: `#EXT-X-I-FRAME-STREAM-INF` beside the copy, ladder or not. Entries are the demuxer's keyframes where it indexes them (Matroska, WebM, MP4/MOV, AVI), else the segment grid. Each is the keyframe in a fragment of its own over a video-only init, copied where the session copies the video and re-encoded through `VideoTranscoder` where it transcodes, read through the session's `FrameGrabber`. A frame that cannot be read is answered with the nearest made one, never a miss.
+- `startFrameProvider(inputUrl, itemId, { transcode, durationSeconds })` serves the same rendition for a server stream, on the source's time from its start, and `iframeStreamInf` writes its master line; `startPlaylistShim` appends that line with `iframeStreamInf`.
+- MPEG-TS seeks by estimated byte position on a map of known positions, sharpened by every landing and every keyframe read, instead of FFmpeg's timestamp search.
 - `searchGuide`: a loaded guide's programmes in a window whose title, sub-title or description carries every word of a query, case and accents folded, matched in the native store; a title's earliest airing per channel, earliest first, up to a limit.
 - The TomoEngine, TomoLiveSources and TomoFFmpeg pods target iOS 16.4.
 - The input opens a fresh connection per request (no `multiple_requests`), so an MP4 with its moov at the end opens instead of failing on segment 0.

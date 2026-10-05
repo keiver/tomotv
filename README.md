@@ -70,6 +70,11 @@ permission on the server overrides all three.
   tracks become WebVTT on the device, sidecar text files arrive as the server's
   WebVTT and sidecar image files as they are, and image tracks (PGS, VobSub,
   DVB, XSUB) are decoded to bitmaps drawn over the native player.
+- **Scrubbing.** Every video scrubs on its own keyframes: Apple TV shows them
+  as thumbnails over the timeline, iPhone and iPad as the picture itself. A file
+  played as it is gets them from the system; the engine and the server stream
+  get them from the original file, copied where the device decodes the video
+  and re-encoded where it does not, read only when the player asks.
 - **Quality.** Auto plays the original alone when the connection can carry it,
   and the server transcodes nothing. On a slower connection the playlist adds
   smaller server streams (stereo AAC), if the account is allowed to transcode

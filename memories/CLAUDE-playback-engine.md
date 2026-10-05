@@ -267,6 +267,41 @@ generation. The master playlist omits `VIDEO-RANGE`, `RESOLUTION` and
 AVPlayer decodes Vorbis in nothing, and refuses an Ogg container whatever is
 inside it.
 
+## Scrub previews: the I-frame rendition
+
+Every VOD session with video lists an `#EXT-X-I-FRAME-STREAM-INF` beside the
+copy, ladder masters included. Live and audio-only sessions get none. Direct
+play needs none: AVKit makes thumbnails from a progressive file itself
+(measured on tvOS and iOS 2026-10-05).
+
+- Entries: the demuxer's keyframes where it indexes them, measured on FFmpeg
+  8.1.3: Matroska/WebM (after the Cues seek), MP4/MOV and AVI list every
+  keyframe; ASF only after a timestamp seek; TS, PS and FLV only what was read.
+  Unindexed sources use the segment grid, the keyframe at or before each start
+  stamped at the start (`IFrameIndex.swift`). Thinned to one a second.
+- Frames come through the session's `FrameGrabber` (`FrameGrabber+IFrames.swift`),
+  the one source context chapter frames use: copied where the pipeline copies,
+  re-encoded through `VideoTranscoder` where it transcodes, so codec and size
+  match the playing track. tfdt sits on the session anchor.
+- `IFrameStore` never fails an entry: AVPlayer retries a 404 I-frame segment
+  without end and stops trick play (604 retries in 30 s, measured). Newest
+  request first; a request that waits past its budget (4 s on a copy link,
+  0.6 s under a ladder) gets the nearest made fragment restamped; a failing
+  source rests 5 s, then 30 s. 24 MB LRU.
+- Server lanes: `ProviderIFrames` on a frame provider, named by an absolute line
+  in the shimmed or multi-audio master. Stamps are source time minus the file's
+  start: Jellyfin's fMP4 output keeps that timeline, TS adds 10 s, and AVPlayer
+  lines our fMP4 I-frames up with both (pixel-identical at their times).
+- MPEG-TS seeks by byte estimate on a `ByteTimeMap` (ends, landings, keyframes
+  read): 1 to 3 seeks against FFmpeg's 5 to 17 requests (4.2 to 14.1 s) on a
+  30 min recording over HTTPS.
+- BANDWIDTH is the copy's peak. The authoring spec's 6.5 estimate (bit rate x
+  I-frame rate / 8) under-declares a real keyframe: AVFoundation logs -12318.
+- Measured 2026-10-05: tvOS AVKit draws thumbnails over the scrub bar from it;
+  iOS has no thumbnail and paints the scrub target into the video itself, from
+  the same fragments (126 fetched in one scrubbing run). Jellyfin's JPEG
+  trickplay is no input: `CODECS="jpeg"` is ignored and `"mjpg"` stalls AVPlayer.
+
 ## The retry ladder
 
 Three rungs, in order: **direct, engine, server.**

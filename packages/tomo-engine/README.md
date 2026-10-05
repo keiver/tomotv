@@ -5,6 +5,8 @@ Expo apps on Apple TV and iOS. FFmpeg demuxes any container; H.264 and HEVC are 
 copied, everything else is transcoded on the device with VideoToolbox, and the result
 is served to the native player as HLS from a loopback server. Text subtitles become HLS
 renditions, image subtitles become timed bitmaps, Dolby and multi-audio pass through.
+Every session with video also gets an I-frame rendition of the source's own keyframes, so
+the native player scrubs with previews; a frame provider serves the same for a server stream.
 The same package carries the live sources module: XMLTV guides and M3U playlists parsed
 natively.
 

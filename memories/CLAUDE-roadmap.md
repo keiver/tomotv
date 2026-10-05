@@ -119,8 +119,8 @@ Version is the one whose changelog carries it.
 | Engine   | Server rung proved before it is offered                           | Shipped     | 2.2.3                                                |
 | Engine   | Slipstream: copy and the rung ladder in one master, link measured | Implemented | 2.2.7, not yet released                              |
 | Engine   | Stall recovery, seek timestamp repair                             | Shipped     | 2.1.0, 2.2.3                                         |
-| Engine   | Native scrub previews (I-frame playlist)                          | Open        | 3.1.0, nothing built                                 |
-| Engine   | One-request seeks on MPEG-TS (byte-estimated)                     | Open        | 3.1.0, 9.19s per TS seek measured on Apple TV        |
+| Engine   | Native scrub previews (I-frame playlist)                          | Implemented | every lane; not yet released                         |
+| Engine   | One-request seeks on MPEG-TS (byte-estimated)                     | Implemented | 1 to 3 seeks; not yet released                       |
 | Engine   | Host-side engine tests, codec coverage measured                   | Shipped     | `npm run test:engine`, 59/110 proven                 |
 | Player   | Skip Intro / Skip Credits, auto-skip toggle                       | Shipped     | 2.1.0                                                |
 | Player   | Native chapters in the tvOS info panel                            | Shipped     | 2.2.1, device-made images 2.2.2                      |
@@ -186,20 +186,19 @@ Numbered by what each one is, not by when. Pull from any of them.
 
 ### 3.1.0 "The moat, visible"
 
-- **Native scrub previews**: emit an `EXT-X-I-FRAMES-ONLY` variant over our
-  own segments (the engine knows every keyframe's byte range) so tvOS draws
-  its own scrubbing thumbnails with zero server work. Impossible for
-  server-HLS clients and for own-engine clients alike. Nothing of it exists
-  in native/ or services/ yet.
+- **Native scrub previews**: implemented on every lane (`IFrameIndex.swift`,
+  `IFrameStore.swift`, `FrameGrabber+IFrames.swift`, `ProviderIFrames.swift`).
+  An `EXT-X-I-FRAMES-ONLY` variant of the source's own keyframes, copied or
+  re-encoded, so tvOS draws its own scrubbing thumbnails with zero server work;
+  direct play gets AVKit's own. Live gets none.
 - **One-request seeks on MPEG-TS**: a TS file has no index, so FFmpeg's
   timestamp seek binary-searches it over HTTP, about 15 open-ended range
   requests on nearly as many new HTTPS connections. Measured on the Daily
   Dweebs recording: 9.19s per seek on Apple TV, 11.5s through the engine from
   a Mac, while the server answers each range in 2 to 4 ms. Every Live TV
-  recording resume and scrub pays it. Seek by estimated byte position
-  (`AVSEEK_FLAG_BYTE`, size and duration are known) a little before the
-  target and read forward to the keyframe; a landing past the target steps
-  back instead of failing the session.
+  recording resume and scrub pays it. Implemented (`ByteTimeMap.swift`): a
+  byte estimate on a map of known positions, a landing past the target seeking
+  again; 1 to 3 seeks on the Cosmos recording over HTTPS.
 
 ### 3.2.0 "Profiles"
 

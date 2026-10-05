@@ -11,6 +11,7 @@ All notable changes to Tomo TV are documented here.
 - The player's error screen shows an error ID for the failing cause, with the lane and the native error code, and Diagnostics records it. With server transcoding off for the item, the screen says who turned it off: the account or this device
 - A programme from a guide source opens its own info panel, with its name, times, genres and rating, and accounts that manage recordings can record it: a timer on its channel for its start and end, named after the programme
 - Programme cards in Live TV search and the channel wall wear REC in place of LIVE while a recording covers them, and a scheduled programme's time wears the camera
+- Scrubbing shows the frame under the playhead: a thumbnail over the scrub bar on Apple TV, the picture itself on iPhone and iPad. A file the player opens as it is gets them from the system; every file the device plays itself, in any container, and every server stream gets them from the file's own keyframes, copied where the device decodes them and re-encoded where it does not, read on demand. Jellyfin's trickplay images are not needed
 
 ### Changed
 
@@ -20,6 +21,7 @@ All notable changes to Tomo TV are documented here.
 - On iPhone and iPad the Channels screen's search is a search button in the navigation bar that opens the Search tab with its field focused
 - A programme card names its episode after the show, or its channel when the guide gives no episode, so a show on a channel of the same name no longer reads its name twice
 - A scheduled recording's info panel leaves out the Record status line; the Cancel Recording button already says it
+- Seeking in an MPEG-TS file, a Live TV recording among them, jumps by estimated byte position instead of FFmpeg's search over the wire: one to three requests where a recording over HTTPS took 5 to 17
 - The on-device playback engine is its own package, `@keiver/tomo-engine`, in the repository's `packages/` workspace: the remuxer, live sources and the FFmpeg build reach the app as the TomoEngine, TomoLiveSources and TomoFFmpeg pods through the package's config plugin, with their host tests alongside. The engine knows no Jellyfin routes; the app maps its server onto the engine's API, and the tuner groups module stays in the app
 - The live TV services are their own package, `@keiver/tomo-live`, beside the engine: the neighbour channel ring, the focused card's warm session, live frames and clips, channel health, XMLTV guide sources and the `LiveClip` view. The app hands it its channels once through `configureLive`; the engine's per-file verdict store moves into `@keiver/tomo-engine`
 
