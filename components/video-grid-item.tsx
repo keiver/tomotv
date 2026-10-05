@@ -78,9 +78,12 @@ export function channelMarks(video: Pick<JellyfinVideoItem, "Type" | "ChannelNum
 
 /** A programme card names its episode after the show, falling back to the channel when the guide gives no episode. */
 export function programCardTitle(video: Pick<JellyfinVideoItem, "Name" | "EpisodeTitle" | "ChannelName">): string {
-  const name = cleanLabel(video.Name);
-  const detail = cleanLabel(video.EpisodeTitle) || cleanLabel(video.ChannelName);
-  return detail && detail !== name ? `${name} - ${detail}` : name;
+  return joinTitle(cleanLabel(video.Name), cleanLabel(video.EpisodeTitle) || cleanLabel(video.ChannelName));
+}
+
+/** "Lead - Detail", or the lead alone when the detail is missing or repeats it. */
+export function joinTitle(lead: string, detail: string): string {
+  return detail && detail !== lead ? `${lead} - ${detail}` : lead;
 }
 
 interface VideoGridItemProps {
@@ -230,7 +233,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const titleMarkIcon = isChannel ? undefined : titleIcon;
   const marks = channelMarks(video, titleIcon);
   if (hideNumber) marks.number = undefined;
-  const cardTitle = airingName ? `${cleanLabel(airingName)} - ${videoName}` : video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown");
+  const cardTitle = airingName ? joinTitle(cleanLabel(airingName), videoName) : video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown");
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.

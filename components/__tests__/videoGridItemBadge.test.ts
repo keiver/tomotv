@@ -1,4 +1,4 @@
-import { channelMarks, indexBadgeSegments, programCardTitle } from "@/components/video-grid-item";
+import { channelMarks, indexBadgeSegments, joinTitle, programCardTitle } from "@/components/video-grid-item";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -79,5 +79,12 @@ describe("programCardTitle", () => {
 
   it("never repeats the show name", () => {
     expect(programCardTitle(item({ Type: "Program", Name: "Show", ChannelName: "Show" }))).toBe("Show");
+  });
+});
+
+describe("joinTitle", () => {
+  it("names a channel once when its airing programme shares its name", () => {
+    expect(joinTitle("Show", "Show")).toBe("Show");
+    expect(joinTitle("News at Nine", "Channel 4")).toBe("News at Nine - Channel 4");
   });
 });
