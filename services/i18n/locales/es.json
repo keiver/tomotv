@@ -360,7 +360,7 @@
   "info.audio": "Audio",
   "info.subtitles": "Subtítulos",
   "info.laneSmallerFeed": "empieza con una señal de servidor más pequeña en conexiones lentas",
-  "info.laneNoServerWork": "sin trabajo del servidor",
+  "info.laneNoServerWork": "sin trabajo en el servidor",
   "info.playForGroup": "Reproducir para el grupo",
   "info.resume": "Reanudar",
   "info.play": "Reproducir",
