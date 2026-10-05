@@ -1126,9 +1126,6 @@ extension RemuxSession {
             // operation turns the stall into an error the reconnect options above
             // can retry, or a clean fail() the player recovers from.
             av_dict_set(&openOpts, "rw_timeout", "15000000", 0)
-            // Reuses a connection where a read finishes its body, as a seek's reads near the file's end do
-            // (an MPEG-TS open and seek measured 11 connections to 5); a new HTTPS one costs about 0.35s.
-            if !config.isLive { av_dict_set(&openOpts, "multiple_requests", "1", 0) }
             // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
             // tvOS has no trust store to verify against until we ship a CA file.
             av_dict_set(&openOpts, "tls_verify", "0", 0)
