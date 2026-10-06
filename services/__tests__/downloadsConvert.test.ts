@@ -8,7 +8,7 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 
 import { needsTranscoding } from "@/services/jellyfin/media";
 import { getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
-import { CONVERT_AUDIO_BITRATE, conversionAudioIndex, convertedItem, downloadRungs, estimatedConvertedBytes, rawImageSubtitleFormat, subtitleToBurn } from "@/services/downloads/convert";
+import { CONVERT_AUDIO_BITRATE, conversionAudioIndex, convertedItem, downloadRungs, estimatedConvertedBytes, subtitleToBurn } from "@/services/downloads/convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const RUNG = { label: "1080p", bitrate: 8000000, width: 1920, height: 1080 };
@@ -101,23 +101,14 @@ describe("convertedItem", () => {
     expect(conversionAudioIndex(SOURCE, 9)).toBe(2);
   });
 
-  it("keeps text subtitle streams by source index for the sidecars, and PGS and DVD ones as files beside it", () => {
+  it("keeps text subtitle streams by source index for the sidecars and drops bitmap ones", () => {
     expect(getTextSubtitleStreams(converted).map((stream) => stream.Index)).toEqual([3, 5]);
-    expect(converted.MediaStreams?.find((stream) => stream.Codec === "PGSSUB")).toMatchObject({ Index: 4, Language: "eng", IsExternal: true });
-    const dvb = convertedItem({ ...SOURCE, MediaStreams: [{ Index: 6, Type: "Subtitle", Codec: "dvbsub" }] } as never, RUNG);
-    expect(dvb.MediaStreams?.some((stream) => stream.Type === "Subtitle")).toBe(false);
+    expect(converted.MediaStreams?.some((stream) => stream.Codec === "PGSSUB")).toBe(false);
   });
 
-  // Jellyfin's SubtitleEncoder extracts PGS to .sup (served as Stream.pgssub) and VobSub into .mks.
-  it("names how Jellyfin hands each bitmap codec over raw, and none for DVB or XSUB", () => {
-    expect(rawImageSubtitleFormat("PGSSUB")).toBe("pgssub");
-    expect(rawImageSubtitleFormat("DVDSUB")).toBe("mks");
-    expect(rawImageSubtitleFormat("dvb_subtitle")).toBeNull();
-    expect(rawImageSubtitleFormat("subrip")).toBeNull();
-  });
-
-  // Jellyfin answered 404 for a DVB track in every format, and burned it in with SubtitleMethod=Encode.
-  it("burns the shown track only when it is DVB, the one bitmap with no file whose burn was measured", () => {
+  // Measured on Jellyfin with SubtitleMethod=Encode: PGS, DVD and DVB burn into the picture. It files
+  // XSUB and teletext as text, and its ffmpeg refuses XSUB to SRT, so those never burn.
+  it("burns the shown track only when it is a bitmap Jellyfin burns: PGS, DVD or DVB", () => {
     const item = {
       ...SOURCE,
       MediaStreams: [
@@ -125,11 +116,15 @@ describe("convertedItem", () => {
         { Index: 4, Type: "Subtitle", Codec: "PGSSUB" },
         { Index: 5, Type: "Subtitle", Codec: "subrip" },
         { Index: 6, Type: "Subtitle", Codec: "xsub" },
+        { Index: 7, Type: "Subtitle", Codec: "DVDSUB" },
+        { Index: 8, Type: "Subtitle", Codec: "dvb_teletext" },
       ],
     } as unknown as JellyfinVideoItem;
     expect(subtitleToBurn(item, 3)).toBe(3);
+    expect(subtitleToBurn(item, 4)).toBe(4);
+    expect(subtitleToBurn(item, 7)).toBe(7);
     expect(subtitleToBurn(item, 6)).toBeUndefined();
-    expect(subtitleToBurn(item, 4)).toBeUndefined();
+    expect(subtitleToBurn(item, 8)).toBeUndefined();
     expect(subtitleToBurn(item, 5)).toBeUndefined();
     expect(subtitleToBurn(item, undefined)).toBeUndefined();
   });

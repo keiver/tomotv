@@ -60,11 +60,6 @@ export function subtitleFile(itemId: string, streamIndex: number): File {
   return new File(itemDirectory(itemId), `sub.${streamIndex}.vtt`);
 }
 
-/** One bitmap subtitle track of a server conversion, as Jellyfin hands it over raw: PGS as .pgssub, DVD as .mks. */
-export function imageSubtitleFile(itemId: string, streamIndex: number, format: "pgssub" | "mks"): File {
-  return new File(itemDirectory(itemId), `sub.${streamIndex}.${format}`);
-}
-
 /**
  * The media filename. The extension matters: FFmpeg and AVFoundation both probe content, but
  * a wrong extension makes the Files app and any future export lie about the type.

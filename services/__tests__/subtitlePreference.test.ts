@@ -30,6 +30,17 @@ describe("subtitleShownFor", () => {
     expect(subtitleShownFor(streams, { kind: "language", tag: "fre" }, "jpn", "en")).toBeUndefined();
   });
 
+  // Burning is the last resort: a text track in the language beats a bitmap one, which only a burn carries.
+  it("takes a language's text track over its bitmap track, and the bitmap only when it is all there is", () => {
+    const mixed = [
+      { Type: "Subtitle", Index: 2, Codec: "PGSSUB", Language: "eng", IsDefault: true },
+      { Type: "Subtitle", Index: 3, Codec: "subrip", Language: "eng" },
+      { Type: "Subtitle", Index: 4, Codec: "DVDSUB", Language: "fra" },
+    ];
+    expect(subtitleShownFor(mixed, ENGLISH, "jpn", "en")).toBe(3);
+    expect(subtitleShownFor(mixed, { kind: "language", tag: "fr" }, "jpn", "en")).toBe(4);
+  });
+
   // AVKit's automatic pick: the device language under audio in another, else a forced track.
   it("follows the device language under foreign audio, and forced tracks under audio in it", () => {
     expect(subtitleShownFor(streams, SYSTEM, "jpn", "es")).toBe(5);

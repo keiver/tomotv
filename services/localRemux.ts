@@ -48,7 +48,7 @@ import { getSubtitleUrl, isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } 
 import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
 import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
 import { rememberedVerdict } from "@/services/engineVerdicts";
-import { localImageSubtitlePath, localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
+import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
@@ -550,9 +550,7 @@ export function sessionSubtitleRenditions(videoItem: JellyfinVideoItem): Subtitl
 }
 
 function externalImageSubtitleUrl(videoItem: JellyfinVideoItem, stream: JellyfinMediaStream): string {
-  if (stream.IsExternal !== true || !isImageBasedSubtitleCodec(stream.Codec)) return "";
-  // A held conversion's PGS and DVD tracks were saved beside it; the engine reads them by path.
-  if (playsFromDisk(videoItem.Id)) return stream.Index === undefined ? "" : (localImageSubtitlePath(videoItem.Id, stream.Index) ?? "");
+  if (stream.IsExternal !== true || !isImageBasedSubtitleCodec(stream.Codec) || playsFromDisk(videoItem.Id)) return "";
   const deliveryUrl = (stream as JellyfinMediaStream & { DeliveryUrl?: string }).DeliveryUrl;
   if (!deliveryUrl) return "";
   const config = getCachedConfig();
