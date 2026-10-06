@@ -1,4 +1,3 @@
-import AVFoundation
 import Libavutil
 import XCTest
 
@@ -275,43 +274,49 @@ final class IFramePlaylistTests: XCTestCase {
     func testTranscodedAviListsItsKeyframes() throws { try assertServesEntries("mpeg4-avi") }
     func testTranscodedMpegTsListsTheSegmentGrid() throws { try assertServesEntries("mpeg2-ts") }
 
-    /// AVFoundation itself: the variant enables fast forward, and trick play decodes the entries it lists.
-    private func assertTrickPlay(_ key: String) throws {
+    /// Every entry, fetched and decoded alone the way a player does: one keyframe at the entry's start
+    /// that is the source's keyframe there (indexed) or the last one at or before it (grid).
+    private func assertEveryEntryDecodes(_ key: String) throws {
         let fixture = try XCTUnwrap(Self.fixtures[key])
         try runSession(key) { _, port in
-            let item = AVPlayerItem(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/master.m3u8")))
-            let player = AVPlayer(playerItem: item)
-            player.isMuted = true
-            let ready = Date().addingTimeInterval(20)
-            while item.status == .unknown, Date() < ready { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-            XCTAssertEqual(item.status, .readyToPlay, String(describing: item.error))
-            XCTAssertTrue(item.canPlayFastForward)
-            let output = AVPlayerItemVideoOutput(pixelBufferAttributes: nil)
-            item.add(output)
-            player.rate = 8
-            defer { player.pause() }
-            var frames = Set<Double>()
-            let end = Date().addingTimeInterval(fixture.exact ? 5 : 8)
-            while Date() < end {
-                RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-                let time = output.itemTime(forHostTime: CACurrentMediaTime())
-                // The decoded frame's own stamp: the poll's host time runs ahead of it at 8x.
-                var shown = CMTime.invalid
-                if output.hasNewPixelBuffer(forItemTime: time), output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: &shown) != nil {
-                    frames.insert((shown.seconds * 10).rounded() / 10)
-                }
+            let rendition = try IFrameOracle.rendition(master: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/master.m3u8")))
+            let source = try XCTUnwrap(IFrameOracle.decode(try XCTUnwrap(Self.file(key)).path), "the source does not decode").frames
+            let keys = source.filter(\.key)
+            let anchor = try XCTUnwrap(keys.first).seconds
+            let starts = rendition.entries.map(\.start)
+            if fixture.exact {
+                let expected = keys.map { $0.seconds - anchor }.filter { $0 < Self.seconds }
+                XCTAssertEqual(starts.count, expected.count, "entries at \(starts), source keyframes at \(expected)")
+                for (start, keyframe) in zip(starts, expected) { XCTAssertEqual(start, keyframe, accuracy: 0.002) }
+            } else {
+                XCTAssertEqual(starts, (0..<Int(Self.seconds / fixture.spacing)).map { Double($0) * fixture.spacing })
             }
-            let onEntries = frames.filter { $0 > 0 && abs($0 / fixture.spacing - ($0 / fixture.spacing).rounded()) < 0.05 }
-            XCTAssertGreaterThanOrEqual(onEntries.count, 4, "decoded at \(frames.sorted())")
-            for event in item.errorLog()?.events ?? [] {
-                XCTFail("AVPlayer error \(event.errorStatusCode): \(event.errorComment ?? "") at \(event.uri ?? "")")
+            // The master's CODECS and BANDWIDTH describe what the entries carry.
+            let codecs = try XCTUnwrap(IFrameOracle.attribute("CODECS", in: rendition.streamInf))
+            XCTAssertEqual(String(codecs.prefix(4)), IFrameOracle.sampleEntry(rendition.initSegment), rendition.streamInf)
+            let bandwidth = Double(try XCTUnwrap(IFrameOracle.attribute("BANDWIDTH", in: rendition.streamInf).flatMap(Int.init)))
+            for (k, entry) in rendition.entries.enumerated() {
+                XCTAssertEqual(entry.status, 200, "entry \(k)")
+                XCTAssertLessThanOrEqual(Double(entry.bytes * 8) / entry.duration, bandwidth, "entry \(k)")
+                XCTAssertEqual(entry.packets, 1, "entry \(k) holds one sample")
+                guard entry.frames.count == 1, let picture = entry.frames.first else {
+                    XCTFail("entry \(k) decodes to \(entry.frames.count) pictures")
+                    continue
+                }
+                XCTAssertTrue(picture.key, "entry \(k)")
+                XCTAssertEqual(picture.seconds, entry.start, accuracy: 0.5 / 24, "entry \(k) plays at its start")
+                let match = try XCTUnwrap(source.min { $0.distance(to: picture) < $1.distance(to: picture) })
+                let at = entry.start + anchor
+                let expected = fixture.exact ? at : try XCTUnwrap(keys.last { $0.seconds <= at + 0.002 }).seconds
+                XCTAssertEqual(match.seconds, expected, accuracy: 0.002, "entry \(k) at \(at) shows the source's frame at \(match.seconds)")
+                if !fixture.codecs.isEmpty { XCTAssertEqual(match.distance(to: picture), 0, "entry \(k) is the copied keyframe") }
             }
         }
     }
 
-    func testH264TrickPlayDecodesTheListedKeyframes() throws { try assertTrickPlay("h264-mkv") }
-    func testHevcTrickPlayDecodesTheListedKeyframes() throws { try assertTrickPlay("hevc-mkv") }
-    func testMpegTsTrickPlayDecodesTheGrid() throws { try assertTrickPlay("h264-ts") }
-    func testTranscodedAviTrickPlayDecodesItsKeyframes() throws { try assertTrickPlay("mpeg4-avi") }
-    func testTranscodedMpegTsTrickPlayDecodesTheGrid() throws { try assertTrickPlay("mpeg2-ts") }
+    func testH264EveryEntryDecodesToItsKeyframe() throws { try assertEveryEntryDecodes("h264-mkv") }
+    func testHevcEveryEntryDecodesToItsKeyframe() throws { try assertEveryEntryDecodes("hevc-mkv") }
+    func testMpegTsEveryEntryDecodesOnTheGrid() throws { try assertEveryEntryDecodes("h264-ts") }
+    func testTranscodedAviEveryEntryDecodesToItsKeyframe() throws { try assertEveryEntryDecodes("mpeg4-avi") }
+    func testTranscodedMpegTsEveryEntryDecodesOnTheGrid() throws { try assertEveryEntryDecodes("mpeg2-ts") }
 }

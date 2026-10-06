@@ -1,12 +1,10 @@
-import AVFoundation
 import XCTest
 
 @testable import TomoEngine
 
 /// The server lanes' I-frame rendition: a frame provider reads the original file and the shim names
 /// it in the server's master. Measured against Jellyfin 2026-10-05: its fMP4 segments start at the
-/// source's time from its start, its TS segments 10 s later, and AVPlayer lines an I-frame rendition
-/// on the source's time up with both (6 of 6 frames pixel-identical at their times).
+/// source's time from its start, its TS segments 10 s later; every entry is the server's picture there.
 final class ServerLaneIFrameTests: XCTestCase {
     private static let ffmpeg = "/opt/homebrew/bin/ffmpeg"
     private static let seconds = 60.0
@@ -56,20 +54,6 @@ final class ServerLaneIFrameTests: XCTestCase {
         return (source, master)
     }
 
-    private func hash(_ pb: CVPixelBuffer) -> UInt64 {
-        CVPixelBufferLockBaseAddress(pb, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddressOfPlane(pb, 0)?.assumingMemoryBound(to: UInt8.self) else { return 0 }
-        let rows = CVPixelBufferGetHeightOfPlane(pb, 0), stride = CVPixelBufferGetBytesPerRowOfPlane(pb, 0), width = CVPixelBufferGetWidthOfPlane(pb, 0)
-        var h: UInt64 = 1469598103934665603
-        for y in Swift.stride(from: 0, to: rows, by: 7) {
-            for x in Swift.stride(from: 0, to: width, by: 5) { h = (h ^ UInt64(base[y * stride + x] >> 3)) &* 1099511628211 }
-        }
-        return h
-    }
-
-    private func pump(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-
     private func assertAligned(_ container: String) throws {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else { throw XCTSkip("no ffmpeg at \(Self.ffmpeg)") }
         let (source, master) = try XCTUnwrap(Self.prepare(container), "ffmpeg produced no \(container) server stream")
@@ -102,57 +86,24 @@ final class ServerLaneIFrameTests: XCTestCase {
         let line = "#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=900000,CODECS=\"avc1.64000D\",RESOLUTION=320x180,URI=\"http://127.0.0.1:\(port)/provider/iframes.m3u8\""
         shim = PlaylistShim(masterUrl: try XCTUnwrap(URL(string: "http://127.0.0.1:\(originPort)/master.m3u8")), startOffsetSeconds: 0, iframeStreamInf: line)
 
-        let item = AVPlayerItem(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/shim/master.m3u8")))
-        let player = AVPlayer(playerItem: item)
-        player.isMuted = true
-        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange])
-        item.add(output)
-        let ready = Date().addingTimeInterval(20)
-        while item.status == .unknown, Date() < ready { pump(0.05) }
-        XCTAssertEqual(item.status, .readyToPlay, String(describing: item.error))
-        XCTAssertTrue(item.canPlayFastForward)
-        player.seek(to: CMTime(seconds: 10, preferredTimescale: 600))
-        pump(1)
-        player.rate = 8
-        var shown: [(time: CMTime, hash: UInt64)] = []
-        let end = Date().addingTimeInterval(4)
-        while Date() < end {
-            pump(0.02)
-            let host = output.itemTime(forHostTime: CACurrentMediaTime())
-            var at = CMTime.invalid
-            if output.hasNewPixelBuffer(forItemTime: host), let pb = output.copyPixelBuffer(forItemTime: host, itemTimeForDisplay: &at), at.isValid {
-                shown.append((at, hash(pb)))
+        let rendition = try IFrameOracle.rendition(master: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/shim/master.m3u8")))
+        XCTAssertEqual(rendition.entries.count, Int(Self.seconds / 2), "one entry per source keyframe")
+        // The main variant through the shim, on its timeline: time from its first picture (fMP4 starts at 0, TS 10.083 s later).
+        let main = try XCTUnwrap(IFrameOracle.decode("http://127.0.0.1:\(port)/shim/master.m3u8"), "the shimmed main variant does not decode").frames
+        let origin0 = try XCTUnwrap(main.first).seconds
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(main.last).seconds - origin0, Self.seconds - 1, "the whole main variant decodes")
+        for (k, entry) in rendition.entries.enumerated() {
+            XCTAssertEqual(entry.status, 200, "entry \(k)")
+            XCTAssertEqual(entry.packets, 1, "entry \(k) holds one sample")
+            guard entry.frames.count == 1, let picture = entry.frames.first else {
+                XCTFail("entry \(k) decodes to \(entry.frames.count) pictures")
+                continue
             }
+            XCTAssertTrue(picture.key, "entry \(k)")
+            XCTAssertEqual(picture.seconds, entry.start, accuracy: 0.5 / 24, "entry \(k) plays at its start")
+            let shown = try XCTUnwrap(main.min { abs($0.seconds - origin0 - entry.start) < abs($1.seconds - origin0 - entry.start) })
+            XCTAssertEqual(picture.distance(to: shown), 0, "entry \(k) at \(entry.start) is the server's picture at \(shown.seconds - origin0)")
         }
-        player.rate = 0
-        // The server's stream alone, in a player of its own, gives each trick frame's time its main frame.
-        let mainItem = AVPlayerItem(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(originPort)/master.m3u8")))
-        let mainPlayer = AVPlayer(playerItem: mainItem)
-        mainPlayer.isMuted = true
-        let mainOutput = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange])
-        mainItem.add(mainOutput)
-        let mainReady = Date().addingTimeInterval(20)
-        while mainItem.status == .unknown, Date() < mainReady { pump(0.05) }
-        var aligned = 0
-        var report: [String] = []
-        for frame in shown.dropFirst().prefix(5) {
-            var done = false
-            mainPlayer.seek(to: frame.time, toleranceBefore: .zero, toleranceAfter: .zero) { _ in done = true }
-            let s = Date()
-            while !done, Date().timeIntervalSince(s) < 10 { pump(0.05) }
-            var main: (UInt64, Double)?
-            let w = Date()
-            while main == nil, Date().timeIntervalSince(w) < 5 {
-                pump(0.05)
-                var at = CMTime.invalid
-                if mainOutput.hasNewPixelBuffer(forItemTime: frame.time), let pb = mainOutput.copyPixelBuffer(forItemTime: frame.time, itemTimeForDisplay: &at) {
-                    main = (hash(pb), at.seconds)
-                }
-            }
-            if main?.0 == frame.hash { aligned += 1 }
-            report.append(String(format: "%.3f->%@", frame.time.seconds, main.map { String(format: "%.3f%@", $0.1, $0.0 == frame.hash ? "=" : "!") } ?? "none"))
-        }
-        XCTAssertGreaterThanOrEqual(aligned, 4, "trick frame time -> main frame time: \(report)")
     }
 
     func testIFramesLineUpWithAnFmp4ServerStream() throws { try assertAligned("fmp4") }
