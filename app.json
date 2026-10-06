@@ -73,6 +73,12 @@
             "front": "./assets/brand/layer-front.svg",
             "middle": "./assets/brand/layer-middle.svg"
           },
+          "appStore": {
+            "outDir": "./applestore/generated/store-listing",
+            "header": { "source": "./applestore/store-listing/header-stacked.svg", "animate": { "rows": 20 } },
+            "searchResults": { "source": "./applestore/store-listing/header-stacked.svg", "animate": { "rows": 20 } },
+            "universal": { "source": "./applestore/store-listing/header-stacked.svg" }
+          },
           "config": "./tvos-assets.config.json"
         }
       ],
