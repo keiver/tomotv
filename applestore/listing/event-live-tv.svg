@@ -22,8 +22,8 @@
 <g mask="url(#mask0_1857_2)">
 <path d="M3840 0H0V1646H3840V0Z" fill="url(#paint0_radial_1857_2)"/>
 </g>
-<circle cx="2523" cy="697" r="78" fill="#FF3B30" fill-opacity="0.22"><animate attributeName="opacity" values="1;1;0.12;0.12;1" keyTimes="0;0.5;0.58;0.92;1" dur="1s" repeatCount="indefinite"/></circle>
-<circle cx="2523" cy="697" r="40" fill="#FF3B30"><animate attributeName="opacity" values="1;1;0.12;0.12;1" keyTimes="0;0.5;0.58;0.92;1" dur="1s" repeatCount="indefinite"/></circle>
+<circle cx="2523" cy="697" r="78" fill="#FF3B30" fill-opacity="0.22"/>
+<circle cx="2523" cy="697" r="40" fill="#FF3B30"/>
 </g>
 <defs>
 <pattern id="scan" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="12" height="12" fill="white"/><rect width="12" height="4" fill="#DCDCDC"/></pattern>
