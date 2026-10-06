@@ -1,44 +1,27 @@
 /**
- * iPad presents the panel over the app, so the backdrop belongs to the screen: it arrives and
- * leaves with the route, and tapping it is a way out. Nothing outside the route may own it,
- * a backdrop held by app state survives the panel and blurs the whole app.
+ * Remove Progress is performed by leaving the panel. Dragging to a sibling leaves it too, while
+ * the pager keeps it mounted beside the shown one.
  */
+import { VideoInfoPanel } from "@/components/video-info-panel";
+import { clearResumePosition, fetchItemDetails } from "@/services/jellyfinApi";
+import type { JellyfinItem } from "@/types/jellyfin";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
-import { Platform } from "react-native";
-import { fetchItemDetails } from "@/services/jellyfinApi";
-import type { JellyfinItem } from "@/types/jellyfin";
-
-// Patched before the screen is required: the branch is a module constant, read at import.
-Object.defineProperty(Platform, "isPad", { get: () => true, configurable: true });
-
-const VideoInfoScreen = require("@/app/video-info").default as React.ComponentType;
 
 const item = {
   Id: "item-1",
   Name: "Arrival",
   Type: "Movie",
   MediaStreams: [],
-  UserData: { PlaybackPositionTicks: 0, Played: false },
+  UserData: { PlaybackPositionTicks: 6_000_000_000, Played: false },
 } as unknown as JellyfinItem;
 
-const mockBack = jest.fn();
-jest.mock("expo-router", () => ({
-  useLocalSearchParams: () => ({ videoId: "item-1" }),
-  useRouter: () => ({ back: mockBack, push: jest.fn(), replace: jest.fn() }),
-}));
-
-jest.mock("expo-blur", () => {
-  const { View } = require("react-native");
-  return { BlurView: (props: Record<string, unknown>) => <View testID="pad-blur" {...props} /> };
-});
-
-jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }) }));
 jest.mock("react-native-gesture-handler", () => {
-  const { View } = require("react-native");
   const chain: any = new Proxy(() => chain, { get: () => () => chain, apply: () => chain });
-  return { Gesture: { Pan: () => chain, Native: () => chain }, GestureDetector: ({ children }: { children: React.ReactNode }) => children, GestureHandlerRootView: View };
+  return { Gesture: { Native: () => chain }, GestureDetector: ({ children }: { children: React.ReactNode }) => children };
 });
+jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/localRemux", () => ({
   predictPlaybackLane: jest.fn(async () => null),
   posterFrameIfCached: jest.fn(() => undefined),
@@ -52,14 +35,12 @@ jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn()
 jest.mock("@/services/nextUp", () => ({ containerKey: () => null, dismissNextUpContainer: jest.fn() }));
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn(), hideGlobalLoader: jest.fn() }) }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
-jest.mock("@/components/close-overlay-button", () => ({ CloseOverlayButton: () => null }));
 jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }));
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
 jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: async () => ({ width: 16, height: 9 }) }) }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
-
 jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
@@ -84,40 +65,49 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 
 const mockFetchItemDetails = fetchItemDetails as jest.Mock;
+const mockClearResumePosition = clearResumePosition as jest.Mock;
 
-async function mountPanel() {
+async function mount(arm: boolean) {
   let tree: TestRenderer.ReactTestRenderer;
   await act(async () => {
-    tree = TestRenderer.create(<VideoInfoScreen />);
+    tree = TestRenderer.create(<VideoInfoPanel videoId="item-1" active />);
   });
+  if (arm) {
+    const row = tree!.root.findByType(require("@/components/info-action-row").InfoActionRow);
+    await act(async () => {
+      row.props.onToggleProgress();
+    });
+  }
   return tree!;
 }
 
-describe("Video info on iPad", () => {
+describe("Video info panel: dragged away", () => {
   beforeEach(() => {
-    mockBack.mockClear();
+    jest.clearAllMocks();
     mockFetchItemDetails.mockResolvedValue(item);
   });
 
-  it("draws its own blurred backdrop", async () => {
-    const tree = await mountPanel();
-    expect(tree.root.findAllByProps({ testID: "pad-blur" }).length).toBeGreaterThan(0);
-  });
+  it("performs an armed Remove Progress once the panel is no longer the shown one", async () => {
+    const tree = await mount(true);
+    expect(mockClearResumePosition).not.toHaveBeenCalled();
 
-  it("closes on a tap outside the card", async () => {
-    const tree = await mountPanel();
-    const backdrop = tree.root.findAllByProps({ accessibilityLabel: "Close the video info panel" }).find((node) => typeof node.props.onPress === "function");
     await act(async () => {
-      backdrop!.props.onPress();
+      tree.update(<VideoInfoPanel videoId="item-1" active={false} />);
     });
-    expect(mockBack).toHaveBeenCalled();
-  });
 
-  it("takes the backdrop with it when the route leaves", async () => {
-    const tree = await mountPanel();
+    expect(mockClearResumePosition).toHaveBeenCalledTimes(1);
+    expect(mockClearResumePosition).toHaveBeenCalledWith("item-1");
     await act(async () => {
       tree.unmount();
     });
-    expect(tree.toJSON()).toBeNull();
+    expect(mockClearResumePosition).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes nothing when the removal was never armed", async () => {
+    const tree = await mount(false);
+    await act(async () => {
+      tree.update(<VideoInfoPanel videoId="item-1" active={false} />);
+    });
+    expect(mockClearResumePosition).not.toHaveBeenCalled();
   });
 });
