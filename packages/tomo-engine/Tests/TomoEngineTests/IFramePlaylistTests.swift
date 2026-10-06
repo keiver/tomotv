@@ -295,8 +295,10 @@ final class IFramePlaylistTests: XCTestCase {
             while Date() < end {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.02))
                 let time = output.itemTime(forHostTime: CACurrentMediaTime())
-                if output.hasNewPixelBuffer(forItemTime: time), output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil {
-                    frames.insert((time.seconds * 10).rounded() / 10)
+                // The decoded frame's own stamp: the poll's host time runs ahead of it at 8x.
+                var shown = CMTime.invalid
+                if output.hasNewPixelBuffer(forItemTime: time), output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: &shown) != nil {
+                    frames.insert((shown.seconds * 10).rounded() / 10)
                 }
             }
             let onEntries = frames.filter { $0 > 0 && abs($0 / fixture.spacing - ($0 / fixture.spacing).rounded()) < 0.05 }
