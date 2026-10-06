@@ -31,14 +31,14 @@ import {
   setVideoPlayed,
 } from "@/services/jellyfinApi";
 import { COLORS } from "@/constants/colors";
-import { RECESS_EDGE } from "@/constants/app";
+import { DESIGN, RECESS_EDGE } from "@/constants/app";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
 import { useFolderPreviewState } from "@/hooks/useFolderPreview";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
-import { folderPosterSource, heroArtFrame } from "@/services/itemArtwork";
+import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame } from "@/services/itemArtwork";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
@@ -60,7 +60,6 @@ import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { sharePhoto } from "@/services/sharePhoto";
 import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import { Image, type ImageRef } from "expo-image";
 
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -81,6 +80,8 @@ const HERO_EDGE_OVERRUN = 40;
 const HERO_GROW = 35;
 // TV: the title and CTA row rise this far onto the art, so the CTAs land on its foot.
 const TV_CONTENT_RISE = 120;
+// The brand face's box, shared by boxed art: clear of the hero's sides, the fade and on TV the risen title.
+const HERO_BOX = { side: IS_TV ? 80 : 44, top: IS_TV ? 40 : 12, bottom: IS_TV ? 48 + TV_CONTENT_RISE : 20 };
 // The fade's one colour, the surface under the hero (TV card SURFACE, phone sheet BACKGROUND), so it never dips darker than the card.
 const HERO_FADE_RGB = IS_TV ? "rgba(44, 44, 46, " : "rgba(20, 20, 20, ";
 
@@ -585,7 +586,14 @@ export default function VideoInfoScreen() {
   // Full width in the fixed area; a portrait's foot runs under the fade and content.
   // A channel, or a programme wearing its channel's art, shows a logo: never cropped.
   const heroIsLogo = liveChannel || (!!liveProgram && !!details && !hasPoster(details));
-  const heroArt = heroSource && heroRef && heroArtArea > 0 && heroAspect != null ? heroArtFrame(heroWidth, heroArtArea, heroRef.width, heroRef.height, heroIsLogo) : null;
+  const heroBoxed = !!heroRef && heroArtBoxed(heroWidth, heroRef.width, heroRef.height, heroIsLogo);
+  const heroBoxHeight = heroHeight - HERO_BOX.top - HERO_BOX.bottom;
+  const heroArt =
+    heroSource && heroRef && heroArtArea > 0 && heroAspect != null
+      ? heroBoxed
+        ? heroBoxFrame(heroWidth - 2 * HERO_BOX.side, heroBoxHeight, heroRef.width, heroRef.height)
+        : heroArtFrame(heroWidth, heroArtArea, heroRef.width, heroRef.height)
+      : null;
   // The fade is opaque by the art area's foot, so the picture's bottom edge never shows.
   const footPct = heroHeight > 0 ? (heroArtArea / heroHeight) * 100 : 100;
   const footScrim = {
@@ -595,7 +603,13 @@ export default function VideoInfoScreen() {
   // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
   const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
   const heroCropStyle = heroArt
-    ? { position: "absolute" as const, top: Math.max(0, (heroArtArea - heroArt.height) / 2), left: (heroWidth - heroArt.width) / 2, width: heroArt.width, height: heroArt.height }
+    ? {
+        position: "absolute" as const,
+        top: heroBoxed ? HERO_BOX.top + (heroBoxHeight - heroArt.height) / 2 : Math.max(0, (heroArtArea - heroArt.height) / 2),
+        left: (heroWidth - heroArt.width) / 2,
+        width: heroArt.width,
+        height: heroArt.height,
+      }
     : StyleSheet.absoluteFill;
   // The panel opens once the hero, the collage and the live CTAs have all answered, so it paints once.
   const liveSettled = !live || !liveChannelId || (externalProgram && !timedProgram) || canManage === false || (canManage === true && recording.settled);
@@ -924,16 +938,11 @@ export default function VideoInfoScreen() {
           setHeroMeasured(true);
         }}>
         {heroRef && heroArt ? (
-          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
-            {/* Art smaller than its area: its own blurred fill takes the rest, never bars. */}
-            {(heroArt.width < heroWidth - 1 || heroArt.height < heroArtArea - 1) && (
-              <>
-                <Image source={heroRef} style={StyleSheet.absoluteFill} contentFit="cover" transition={0} accessible={false} />
-                <BlurView intensity={IS_TV ? 90 : 80} tint="dark" style={StyleSheet.absoluteFill} />
-              </>
-            )}
-            <Image key={heroUri} source={heroRef} style={heroCropStyle} contentFit="cover" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
-          </Animated.View>
+          heroBoxed ? null : (
+            <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
+              <Image key={heroUri} source={heroRef} style={heroCropStyle} contentFit="cover" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
+            </Animated.View>
+          )
         ) : showCollage ? (
           <View style={StyleSheet.absoluteFill} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)}>
             <PosterCollage items={preview} height={IS_TV ? 600 : 300} />
@@ -949,6 +958,12 @@ export default function VideoInfoScreen() {
           />
         )}
         <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
+        {/* Above the fade, rounded like the cards: a box has edges of its own to show. */}
+        {heroRef && heroArt && heroBoxed ? (
+          <Animated.View pointerEvents="none" style={[heroCropStyle, styles.heroBox, heroFadeStyle]}>
+            <Image key={heroUri} source={heroRef} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
+          </Animated.View>
+        ) : null}
         {/* The card's own lip and rim, re-painted above the opaque artwork and run past the hero's
             foot so they meet the card's below it. tvOS-safe: the hero holds no focusables. */}
         {IS_TV && <View pointerEvents="none" style={[styles.heroEdge, { height: heroHeight + HERO_EDGE_OVERRUN }]} />}
@@ -1082,10 +1097,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    margin: IS_TV ? 80 : 44,
-    // Shallower top/bottom insets keep the face high; on TV it clears the risen title.
-    marginTop: IS_TV ? 40 : 12,
-    marginBottom: IS_TV ? 48 + TV_CONTENT_RISE : 20,
+    marginHorizontal: HERO_BOX.side,
+    marginTop: HERO_BOX.top,
+    marginBottom: HERO_BOX.bottom,
+  },
+  heroBox: {
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    overflow: "hidden",
   },
   // Centred on the same axis as the CTA rows below, so the panel reads as one column.
   // Everything from the overview down stays flush left.
