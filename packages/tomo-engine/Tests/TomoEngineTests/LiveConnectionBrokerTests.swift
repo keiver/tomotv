@@ -168,7 +168,10 @@ final class LiveConnectionBrokerTests: XCTestCase {
         relay.environment = ProcessInfo.processInfo.environment.merging(["RELAY_MAX_READERS": "1", "RELAY_CAP_MODE": mode]) { $1 }
         relay.standardOutput = FileHandle.nullDevice
         try relay.run()
-        Thread.sleep(forTimeInterval: 0.8)
+        // The feed connects once and exits on a refusal, and a cold python takes over a second to listen.
+        let listening = Relay(processes: [relay], url: "", port: port)
+        let up = Date().addingTimeInterval(10)
+        while (try? listening.stats()) == nil, Date() < up { Thread.sleep(forTimeInterval: 0.05) }
         let feed = Process()
         feed.executableURL = URL(fileURLWithPath: Self.ffmpeg)
         feed.arguments = ["-v", "error", "-re", "-stream_loop", "-1", "-i", Self.fixture.path, "-c", "copy", "-f", "mpegts", "tcp://127.0.0.1:\(port + 100)"]

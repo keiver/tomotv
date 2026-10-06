@@ -212,11 +212,14 @@ class Channel:
             start = position - self.base
             return bytes(self.buf[start : start + take])
 
-    def feed(self):
+    def listen_for_feed(self):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((HOST, self.port + FEED_OFFSET))
         server.listen(1)
+        return server
+
+    def feed(self, server):
         while True:
             conn, _ = server.accept()
             print(f"{self.name}: feed connected", flush=True)
@@ -402,7 +405,8 @@ def main(directory):
         lineup = json.load(f)
     channels = [Channel(entry) for entry in lineup["channels"]]
     for channel in channels:
-        threading.Thread(target=channel.feed, daemon=True).start()
+        # Bound before the reader port, so a reader-port answer means a feed can connect.
+        threading.Thread(target=channel.feed, args=(channel.listen_for_feed(),), daemon=True).start()
         threading.Thread(target=serve_channel, args=(channel,), daemon=True).start()
         print(f"{channel.name}: readers :{channel.port}, feed :{channel.port + FEED_OFFSET}", flush=True)
     if HDHR_PORT:
