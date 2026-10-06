@@ -74,10 +74,10 @@
             "middle": "./assets/brand/layer-middle.svg"
           },
           "appStore": {
-            "outDir": "./applestore/generated/store-listing",
-            "header": { "source": "./applestore/store-listing/header-stacked.svg", "animate": { "rows": 20 } },
-            "searchResults": { "source": "./applestore/store-listing/header-stacked.svg", "animate": { "rows": 20 } },
-            "universal": { "source": "./applestore/store-listing/header-stacked.svg" }
+            "outDir": "./applestore/generated/listing",
+            "header": { "source": "./applestore/listing/artwork.svg", "animate": { "rows": 20 } },
+            "searchResults": { "source": "./applestore/listing/artwork.svg", "animate": { "rows": 20 } },
+            "universal": { "source": "./applestore/listing/artwork.svg" }
           },
           "config": "./tvos-assets.config.json"
         }
