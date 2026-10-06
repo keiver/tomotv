@@ -79,7 +79,8 @@
             "searchResults": { "source": "./applestore/listing/artwork.svg", "animate": { "rows": 20 } },
             "universal": { "source": "./applestore/listing/artwork.svg" },
             "eventCard": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } },
-            "eventDetails": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } }
+            "eventDetails": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } },
+            "video": { "audio": "./applestore/listing/nastelbom-no-copyright-music-464358.mp3" }
           },
           "config": "./tvos-assets.config.json"
         }
