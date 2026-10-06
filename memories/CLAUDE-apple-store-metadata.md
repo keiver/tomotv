@@ -36,10 +36,10 @@ Tomo TV, a Jellyfin Client
 Movies, Live TV, Music, Books
 ```
 
-### Promotional Text (156 / 170)
+### Promotional Text (165 / 170)
 
 ```text
-Free and open source, no ads, no account. Plays 4K, Dolby Vision and Dolby Atmos in Apple's own player, and finds your Jellyfin server with nothing to type.
+Free and open source, no ads, no account. Plays Live TV, 4K, Dolby Vision and Dolby Atmos in Apple's own player, and finds your Jellyfin server with nothing to type.
 ```
 
 ### Keywords (99 / 100)
@@ -346,10 +346,10 @@ Tomo TV, Jellyfin-Client
 Filme, Live-TV, Musik, Bücher
 ```
 
-#### Promotional Text (166 / 170 chars)
+#### Promotional Text (167 / 170 chars)
 
 ```text
-Kostenlos, quelloffen, ohne Werbung und ohne Konto. Spielt 4K, Dolby Vision und Dolby Atmos in Apples eigenem Player und findet deinen Jellyfin-Server ohne Eintippen.
+Kostenlos, quelloffen, ohne Werbung und ohne Konto. Spielt Live-TV, 4K, Dolby Vision und Dolby Atmos in Apples Player und findet deinen Jellyfin-Server ohne Eintippen.
 ```
 
 #### Keywords (97 / 100 bytes)
@@ -637,7 +637,7 @@ Ciné, TV live, musique, livres
 #### Promotional Text (167 / 170 chars)
 
 ```text
-Gratuit et open source, sans pub, sans compte. Lit la 4K, le Dolby Vision et le Dolby Atmos dans le lecteur d'Apple, et trouve votre serveur Jellyfin sans rien saisir.
+Gratuit, open source, sans pub ni compte. Lit la TV en direct, la 4K, le Dolby Vision et le Dolby Atmos dans le lecteur d'Apple, et trouve seul votre serveur Jellyfin.
 ```
 
 #### Keywords (85 / 100 bytes)
@@ -925,7 +925,7 @@ Cine, en vivo, música, libros
 #### Promotional Text (170 / 170 chars)
 
 ```text
-Gratis, de código abierto, sin anuncios ni registro. Reproduce 4K, Dolby Vision y Dolby Atmos en el reproductor de Apple y detecta tu servidor Jellyfin sin escribir nada.
+Gratis, código abierto, sin anuncios ni cuenta. Reproduce TV en vivo, 4K, Dolby Vision y Dolby Atmos en el reproductor de Apple y halla tu servidor Jellyfin sin escribir.
 ```
 
 #### Keywords (94 / 100 bytes)
@@ -1855,7 +1855,7 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 | ---------------- | ----- | --------- | ------ |
 | App Name         | 30    | 26        | ✅     |
 | Subtitle         | 30    | 29        | ✅     |
-| Promotional Text | 170   | 156       | ✅     |
+| Promotional Text | 170   | 165       | ✅     |
 | Description      | 4,000 | 3,476     | ✅     |
 | Keywords         | 100   | 99        | ✅     |
 | What's New 2.2.7 | 4,000 | 540 / 495 | ✅     |
