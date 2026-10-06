@@ -286,6 +286,7 @@ export function subtitleShownFor(streams: SubtitleStream[], preference: Subtitle
   if (audio && device && audio !== device) return inLanguage(deviceLanguage);
   return bestOf(subtitles.filter((stream) => stream.IsForced === true && (!audio || knownLanguage(stream.Language) === audio)));
 }
+
 /** `tag` is Jellyfin's spelling of the stream's language, the one its settings expect. */
 export async function saveSubtitlePreference(preference: SubtitlePreference): Promise<void> {
   if (preference.kind !== "system") recordSubtitlePick(preference);

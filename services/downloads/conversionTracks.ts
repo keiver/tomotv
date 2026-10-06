@@ -6,7 +6,7 @@ import { conversionAudioIndex, subtitleToBurn } from "./convert";
 
 /**
  * What a conversion records, decided at download time: the one audio track, in the viewer's audio
- * language, and the subtitle burned into the picture when the one they would see has no file of its own.
+ * language, and the subtitle burned into the picture when the one they would see is a bitmap.
  */
 export async function conversionTracks(item: JellyfinVideoItem): Promise<{ audioIndex?: number; burnSubtitleIndex?: number }> {
   const streams = item.MediaStreams ?? [];
