@@ -77,7 +77,9 @@
             "outDir": "./applestore/generated/listing",
             "header": { "source": "./applestore/listing/artwork.svg", "animate": { "rows": 20 } },
             "searchResults": { "source": "./applestore/listing/artwork.svg", "animate": { "rows": 20 } },
-            "universal": { "source": "./applestore/listing/artwork.svg" }
+            "universal": { "source": "./applestore/listing/artwork.svg" },
+            "eventCard": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } },
+            "eventDetails": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } }
           },
           "config": "./tvos-assets.config.json"
         }
