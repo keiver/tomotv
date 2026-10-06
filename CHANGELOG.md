@@ -12,6 +12,10 @@ All notable changes to Tomo TV are documented here.
 - A programme from a guide source opens its own info panel, with its name, times, genres and rating, and accounts that manage recordings can record it: a timer on its channel for its start and end, named after the programme
 - Programme cards in Live TV search and the channel wall wear REC in place of LIVE while a recording covers them, and a scheduled programme's time wears the camera
 - Scrubbing shows the frame under the playhead: a thumbnail over the scrub bar on Apple TV, the picture itself on iPhone and iPad. A file the player opens as it is gets them from the system; every file the device plays itself, in any container, and every server stream gets them from the file's own keyframes, copied where the device decodes them and re-encoded where it does not, read on demand. Jellyfin's trickplay images are not needed
+- Every download asks for a size: Original, or a smaller copy the server converts on the way down at 1080p, 720p or 480p, each with its estimated size. A size is offered only below the video's own height and bitrate, and one the device has no room for is left out. With server transcoding off in Settings, or not allowed for the account, the smaller sizes are listed greyed with the reason. A held row names its size, Original or the rung
+- A smaller copy records one audio track, in your audio language, keeps the file's text subtitles as tracks to switch between, and burns the subtitle you would see into the picture when it is a picture subtitle (PGS, DVD or DVB)
+- The Downloads ON THIS DEVICE heading shows the download rate while anything downloads
+- Holding Resume on an info panel asks, then plays from the beginning
 
 ### Changed
 
@@ -24,10 +28,17 @@ All notable changes to Tomo TV are documented here.
 - Seeking in an MPEG-TS file, a Live TV recording among them, jumps by estimated byte position instead of FFmpeg's search over the wire: one to three requests where a recording over HTTPS took 5 to 17
 - The on-device playback engine is its own package, `@keiver/tomo-engine`, in the repository's `packages/` workspace: the remuxer, live sources and the FFmpeg build reach the app as the TomoEngine, TomoLiveSources and TomoFFmpeg pods through the package's config plugin, with their host tests alongside. The engine knows no Jellyfin routes; the app maps its server onto the engine's API, and the tuner groups module stays in the app
 - The live TV services are their own package, `@keiver/tomo-live`, beside the engine: the neighbour channel ring, the focused card's warm session, live frames and clips, channel health, XMLTV guide sources and the `LiveClip` view. The app hands it its channels once through `configureLive`; the engine's per-file verdict store moves into `@keiver/tomo-engine`
+- The download prompts read in German, French and Spanish
+- The Open Source list shows eight rows on iPhone and iPad and five on Apple TV
 
 ### Fixed
 
 - On Apple TV with automatic subtitles on, the subtitle track the system marks On loads
+- A download the server converts played without its saved subtitles (since 2.2.2)
+- Pausing a download the server converts restarted it from zero: Jellyfin streams a conversion with no ranges to resume from, so its row has no pause
+- An original download rewrapped into MP4 kept only the audio tracks MP4 carries, so a film with DTS or TrueHD beside AC-3 kept the AC-3 alone. A file with such a track keeps its own container and every track, and plays through the engine (since 2.2.0)
+- The Downloads card could sit over the ON THIS DEVICE heading, and a new row draw over the old one, after the list changed
+- The Spanish playback line reads "sin trabajo en el servidor"
 - A file with a forced and an SDH image subtitle track in one language: subtitles set to that language land on the SDH track, not the forced one. The SDH track leads its language in the player's list and is marked as SDH for the system (#94)
 - A channel card whose airing programme shares the channel's name shows the name once
 - A picked channel group keeps its green wash while focused

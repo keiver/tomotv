@@ -98,7 +98,7 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.10), iOS (1113 / 4000)
+### What's New (2.2.10), iOS (1463 / 4000)
 
 ```text
 - Choose when your server transcodes: when needed, only for files this device can't play, or off. Settings also shows what your server allows
@@ -107,16 +107,21 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Record programmes from your XMLTV guides from their info panel
 - Programmes being recorded show REC in Live TV search
 - Scrubbing through any video shows the picture as you drag
+- Choose a size for each download: the original, or a smaller copy at 1080p, 720p or 480p that your server converts, in your audio language with your subtitles
+- Downloads shows how fast files are coming down
+- Hold Resume to play from the beginning
 - The Channels screen's search is a button in the navigation bar that opens Search
 - With subtitles set to a language, its full track loads instead of a forced-only track
 - MP4 files that keep their index at the end play again
+- Downloads your server converts play their subtitles
+- Downloaded originals keep every audio track
 - With server transcoding limited, a slow connection waits for the file instead of stopping with an error
 - The loading spinner stays until the video is actually playing
 - Starting Picture in Picture takes you back to where you started playing, and a queue moves on to its next item inside the window
 - The error screen shows an error code to quote when you report a problem
 ```
 
-### What's New (2.2.10), tvOS (1138 / 4000)
+### What's New (2.2.10), tvOS (1179 / 4000)
 
 ```text
 - Choose when your server transcodes: when needed, only for files this device can't play, or off. Settings also shows what your server allows
@@ -125,6 +130,7 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Record programmes from your XMLTV guides from their info panel
 - Programmes being recorded show REC in Live TV search
 - Scrubbing through any video shows a preview of each scene above the timeline
+- Hold Resume to play from the beginning
 - With automatic subtitles on, the subtitle track Apple TV turns on loads
 - With subtitles set to a language, its full track loads instead of a forced-only track
 - MP4 files that keep their index at the end play again
@@ -402,7 +408,7 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.10), iOS (1272 / 4000 chars)
+#### What's New (2.2.10), iOS (1673 / 4000 chars)
 
 ```text
 - Lege fest, wann dein Server umwandelt: „Bei Bedarf“, „Nur für nicht unterstützte Dateien“ oder „Aus“. Die Einstellungen zeigen auch, was dein Server erlaubt
@@ -411,16 +417,21 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Nimm Sendungen aus deinen XMLTV-Guides direkt im Info-Bereich auf
 - Sendungen, die gerade aufgenommen werden, zeigen in der Live-TV-Suche REC
 - Beim Spulen folgt das Bild bei jedem Video deinem Finger
+- Wähle für jeden Download eine Größe: das Original oder eine kleinere Kopie in 1080p, 720p oder 480p, die dein Server umwandelt, in deiner Audiosprache und mit deinen Untertiteln
+- Downloads zeigt, wie schnell gerade geladen wird
+- Halte „Fortsetzen“ gedrückt, um von vorne abzuspielen
 - Die Suche in „Kanäle“ ist eine Schaltfläche in der Navigationsleiste, die „Suche“ öffnet
 - Ist eine Untertitelsprache eingestellt, wird ihre vollständige Spur geladen statt einer Spur nur mit erzwungenen Untertiteln
 - MP4-Dateien mit dem Index am Dateiende lassen sich wieder abspielen
+- Downloads, die dein Server umwandelt, zeigen ihre Untertitel
+- Heruntergeladene Originale behalten jede Tonspur
 - Ist die Server-Umwandlung eingeschränkt, wartet eine langsame Verbindung auf die Datei, statt mit einem Fehler abzubrechen
 - Der Ladekreis bleibt, bis das Video wirklich läuft
 - Bild-in-Bild bringt dich zurück dorthin, wo du die Wiedergabe gestartet hast, und eine Warteschlange geht im Fenster zum nächsten Titel weiter
 - Der Fehlerbildschirm zeigt einen Fehlercode, den du nennen kannst, wenn du ein Problem meldest
 ```
 
-#### What's New (2.2.10), tvOS (1323 / 4000 chars)
+#### What's New (2.2.10), tvOS (1379 / 4000 chars)
 
 ```text
 - Lege fest, wann dein Server umwandelt: „Bei Bedarf“, „Nur für nicht unterstützte Dateien“ oder „Aus“. Die Einstellungen zeigen auch, was dein Server erlaubt
@@ -429,6 +440,7 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Nimm Sendungen aus deinen XMLTV-Guides direkt im Info-Bereich auf
 - Sendungen, die gerade aufgenommen werden, zeigen in der Live-TV-Suche REC
 - Beim Spulen zeigt jedes Video über der Zeitleiste eine Vorschau der jeweiligen Szene
+- Halte „Fortsetzen“ gedrückt, um von vorne abzuspielen
 - Sind automatische Untertitel an, wird die Untertitelspur geladen, die Apple TV einschaltet
 - Ist eine Untertitelsprache eingestellt, wird ihre vollständige Spur geladen statt einer Spur nur mit erzwungenen Untertiteln
 - MP4-Dateien mit dem Index am Dateiende lassen sich wieder abspielen
@@ -684,7 +696,7 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.10), iOS (1391 / 4000 chars)
+#### What's New (2.2.10), iOS (1837 / 4000 chars)
 
 ```text
 - Choisissez quand votre serveur convertit : « Si nécessaire », « Seulement pour les fichiers non pris en charge » ou « Désactivé ». Réglages affiche aussi ce que votre serveur autorise
@@ -693,16 +705,21 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Enregistrez les programmes de vos guides XMLTV depuis leur panneau d'informations
 - Les programmes en cours d'enregistrement affichent REC dans la recherche de TV en direct
 - En faisant défiler n'importe quelle vidéo, l'image suit votre doigt
+- Choisissez une taille pour chaque téléchargement : l'original, ou une copie plus légère en 1080p, 720p ou 480p que votre serveur convertit, dans votre langue audio et avec vos sous-titres
+- Téléchargements affiche la vitesse de téléchargement en cours
+- Maintenez « Reprendre » pour lire depuis le début
 - La recherche de l'écran « Chaînes » est un bouton de la barre de navigation qui ouvre « Recherche »
 - Avec une langue de sous-titres choisie, sa piste complète se charge au lieu d'une piste de sous-titres forcés seuls
 - Les fichiers MP4 dont l'index est à la fin du fichier se lisent à nouveau
+- Les téléchargements convertis par votre serveur affichent leurs sous-titres
+- Les originaux téléchargés gardent toutes leurs pistes audio
 - Quand la conversion par le serveur est limitée, une connexion lente attend le fichier au lieu de s'arrêter sur une erreur
 - L'indicateur de chargement reste affiché jusqu'à ce que la vidéo démarre vraiment
 - Image dans l'image vous ramène là où vous avez lancé la lecture, et une file d'attente passe à l'élément suivant dans la fenêtre
 - L'écran d'erreur affiche un code d'erreur à citer quand vous signalez un problème
 ```
 
-#### What's New (2.2.10), tvOS (1464 / 4000 chars)
+#### What's New (2.2.10), tvOS (1516 / 4000 chars)
 
 ```text
 - Choisissez quand votre serveur convertit : « Si nécessaire », « Seulement pour les fichiers non pris en charge » ou « Désactivé ». Réglages affiche aussi ce que votre serveur autorise
@@ -711,6 +728,7 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Enregistrez les programmes de vos guides XMLTV depuis leur panneau d'informations
 - Les programmes en cours d'enregistrement affichent REC dans la recherche de TV en direct
 - En faisant défiler n'importe quelle vidéo, un aperçu de la scène s'affiche au-dessus de la barre de lecture
+- Maintenez « Reprendre » pour lire depuis le début
 - Avec les sous-titres automatiques activés, la piste de sous-titres activée par l'Apple TV se charge
 - Avec une langue de sous-titres choisie, sa piste complète se charge au lieu d'une piste de sous-titres forcés seuls
 - Les fichiers MP4 dont l'index est à la fin du fichier se lisent à nouveau
@@ -966,7 +984,7 @@ Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenci
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.10), iOS (1320 / 4000 chars)
+#### What's New (2.2.10), iOS (1737 / 4000 chars)
 
 ```text
 - Elige cuándo convierte tu servidor: «Cuando haga falta», «Solo para archivos no compatibles» o «Desactivada». Ajustes también muestra lo que permite tu servidor
@@ -975,16 +993,21 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Graba programas de tus guías XMLTV desde su panel de información
 - Los programas que se están grabando muestran REC en la búsqueda de Televisión en vivo
 - Al desplazarte por cualquier video, la imagen sigue tu dedo
+- Elige un tamaño para cada descarga: el original, o una copia más pequeña en 1080p, 720p o 480p que convierte tu servidor, en tu idioma de audio y con tus subtítulos
+- Descargas muestra a qué velocidad se está descargando
+- Mantén pulsado «Reanudar» para reproducir desde el principio
 - La búsqueda de la pantalla «Canales» es un botón de la barra de navegación que abre «Buscar»
 - Con un idioma de subtítulos elegido, se carga su pista completa en lugar de una pista solo de subtítulos forzados
 - Los archivos MP4 con el índice al final vuelven a reproducirse
+- Las descargas que convierte tu servidor muestran sus subtítulos
+- Los originales descargados conservan todas sus pistas de audio
 - Con la conversión del servidor limitada, una conexión lenta espera al archivo en lugar de detenerse con un error
 - El indicador de carga se mantiene hasta que el video empieza de verdad
 - Imagen dentro de imagen te lleva de vuelta a donde iniciaste la reproducción, y una cola pasa al siguiente elemento dentro de la ventana
 - La pantalla de error muestra un código de error para indicarlo cuando reportes un problema
 ```
 
-#### What's New (2.2.10), tvOS (1389 / 4000 chars)
+#### What's New (2.2.10), tvOS (1452 / 4000 chars)
 
 ```text
 - Elige cuándo convierte tu servidor: «Cuando haga falta», «Solo para archivos no compatibles» o «Desactivada». Ajustes también muestra lo que permite tu servidor
@@ -993,6 +1016,7 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Graba programas de tus guías XMLTV desde su panel de información
 - Los programas que se están grabando muestran REC en la búsqueda de Televisión en vivo
 - Al desplazarte por cualquier video, aparece una vista previa de la escena sobre la línea de tiempo
+- Mantén pulsado «Reanudar» para reproducir desde el principio
 - Con los subtítulos automáticos activados, se carga la pista de subtítulos que activa el Apple TV
 - Con un idioma de subtítulos elegido, se carga su pista completa en lugar de una pista solo de subtítulos forzados
 - Los archivos MP4 con el índice al final vuelven a reproducirse

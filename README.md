@@ -103,7 +103,9 @@ permission on the server overrides all three.
 - **Books.** PDF, comics (CBZ, CBR, CBT, CB7), EPUB, MOBI and Kindle AZW/AZW3 in a
   full-screen reader, with the reading position saved to the server.
 - **Downloads** on iPhone and iPad: an item or a whole folder, playable with no
-  server in reach, with watch positions synced back later.
+  server in reach, with watch positions synced back later. Keep the original, or
+  a smaller copy at 1080p, 720p or 480p that the server converts on the way down,
+  in your audio language with the subtitle you would see.
 - **SyncPlay**, Jellyfin's watch-together. The Apple TV shows a join code; a
   phone signed in to the same server scans it with the camera to join.
 - **Apple TV.** Skip Intro, Skip Credits and Skip Commercial from Jellyfin's
