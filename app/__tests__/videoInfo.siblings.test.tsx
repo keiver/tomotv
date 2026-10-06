@@ -1,10 +1,11 @@
 /**
- * The panel's left/right neighbours are Play's queue: SeriesId ?? ParentId in SortName order,
- * videos only. The opened panel keeps the route's params; a sibling shares only the folder.
+ * The panel's left/right neighbours: a video's are Play's queue (SeriesId ?? ParentId, SortName,
+ * videos only), a folder's its parent's folders, a library's the libraries, a channel's the guide's
+ * channels. The opened panel keeps the route's params; a sibling shares only the folder.
  */
 import VideoInfoScreen from "@/app/video-info";
 import type { VideoInfoPanelProps } from "@/components/video-info-panel";
-import { fetchRecursiveVideos } from "@/services/jellyfinApi";
+import { fetchChannelRing, fetchFolderContents, fetchRecursiveVideos, fetchUserViews } from "@/services/jellyfinApi";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { useLocalSearchParams } from "expo-router";
 import React from "react";
@@ -35,6 +36,9 @@ jest.mock("@/components/video-info-panel", () => ({
 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchRecursiveVideos: jest.fn(),
+  fetchFolderContents: jest.fn(),
+  fetchUserViews: jest.fn(),
+  fetchChannelRing: jest.fn(),
   isAudioItem: (item: { Type?: string }) => item.Type === "Audio",
   isFolder: (item: { IsFolder?: boolean }) => item.IsFolder === true,
   isPhoto: (item: { Type?: string }) => item.Type === "Photo",
@@ -42,9 +46,14 @@ jest.mock("@/services/jellyfinApi", () => ({
   isLiveChannel: (item: { Type?: string }) => item.Type === "TvChannel",
 }));
 jest.mock("@/services/playedCache", () => ({ getPlayedOverrides: () => new Map() }));
+const mockPreferences = { filter: "all", sort: "number", favorites: [], groups: [] };
+jest.mock("@/services/liveTvPreferences", () => ({ getLiveTvPreferences: () => mockPreferences }));
 
 const mockParams = useLocalSearchParams as jest.Mock;
 const mockFetchRecursive = fetchRecursiveVideos as jest.Mock;
+const mockFetchFolderContents = fetchFolderContents as jest.Mock;
+const mockFetchUserViews = fetchUserViews as jest.Mock;
+const mockFetchChannelRing = fetchChannelRing as jest.Mock;
 
 const episode = (id: string, season: number) => ({ Id: id, Name: `Episode ${id}`, Type: "Episode", SeriesId: "show", ParentId: `season-${season}` }) as unknown as JellyfinItem;
 
@@ -92,13 +101,65 @@ describe("Video info: drag to a sibling", () => {
     expect(panels.map((panel) => panel.videoId)).toEqual(["m1", "m2", "m3"]);
   });
 
-  it("stays a single panel for a folder, which has no queue to walk", async () => {
-    mockItems.season = { Id: "season", Name: "Season 1", Type: "Season", IsFolder: true, ParentId: "show" } as unknown as JellyfinItem;
+  it("puts a folder beside its parent's other folders, past the videos listed with them", async () => {
+    const season = { Id: "s2", Name: "Season 2", Type: "Season", IsFolder: true, ParentId: "show" } as unknown as JellyfinItem;
+    mockItems.s2 = season;
+    mockFetchFolderContents.mockResolvedValue({
+      items: [{ Id: "s1", Type: "Season", IsFolder: true }, { Id: "trailer", Type: "Video" }, season, { Id: "s3", Type: "Season", IsFolder: true }],
+      total: 4,
+    });
 
-    const panels = await mountOn({ videoId: "season" });
+    const panels = await mountOn({ videoId: "s2" });
 
+    expect(mockFetchFolderContents).toHaveBeenCalledWith("show", expect.objectContaining({ startIndex: 0 }));
     expect(mockFetchRecursive).not.toHaveBeenCalled();
-    expect(panels.map((panel) => panel.videoId)).toEqual(["season"]);
+    expect(panels.map((panel) => panel.videoId)).toEqual(["s1", "s2", "s3"]);
+  });
+
+  it("reads the folder the press came from over the item's own parent", async () => {
+    const show = { Id: "show-b", Name: "B", Type: "Series", IsFolder: true, ParentId: "physical-folder" } as unknown as JellyfinItem;
+    mockItems["show-b"] = show;
+    mockFetchFolderContents.mockResolvedValue({ items: [{ Id: "show-a", Type: "Series", IsFolder: true }, show], total: 2 });
+
+    const panels = await mountOn({ videoId: "show-b", inFolderId: "tv-library" });
+
+    expect(mockFetchFolderContents).toHaveBeenCalledWith("tv-library", expect.anything());
+    expect(panels.map((panel) => panel.videoId)).toEqual(["show-a", "show-b"]);
+  });
+
+  it("puts a library beside the other libraries, in the Home row's order", async () => {
+    const tv = { Id: "tv", Name: "Shows", Type: "CollectionFolder", IsFolder: true } as unknown as JellyfinItem;
+    mockItems.tv = tv;
+    mockFetchUserViews.mockResolvedValue({ items: [{ Id: "movies", Type: "CollectionFolder", IsFolder: true }, tv, { Id: "live", Type: "UserView", IsFolder: true }], total: 3 });
+
+    const panels = await mountOn({ videoId: "tv" });
+
+    expect(mockFetchFolderContents).not.toHaveBeenCalled();
+    expect(panels.map((panel) => panel.videoId)).toEqual(["movies", "tv", "live"]);
+  });
+
+  it("puts a channel beside the guide's channels, in the order the guide lists them", async () => {
+    const news = { Id: "ch-2", Name: "News", Type: "TvChannel" } as unknown as JellyfinItem;
+    mockItems["ch-2"] = news;
+    mockFetchChannelRing.mockResolvedValue([{ Id: "ch-1", Type: "TvChannel" }, news, { Id: "ch-3", Type: "TvChannel" }]);
+
+    const panels = await mountOn({ videoId: "ch-2", name: "News" });
+
+    expect(mockFetchChannelRing).toHaveBeenCalledWith(mockPreferences);
+    expect(panels.map((panel) => panel.videoId)).toEqual(["ch-1", "ch-2", "ch-3"]);
+  });
+
+  it("puts a channel found outside the guide's filter after the guide's last, as a flip from it does", async () => {
+    const outside = { Id: "ch-9", Name: "Outside", Type: "TvChannel" } as unknown as JellyfinItem;
+    mockItems["ch-9"] = outside;
+    mockFetchChannelRing.mockResolvedValue([
+      { Id: "ch-1", Type: "TvChannel" },
+      { Id: "ch-2", Type: "TvChannel" },
+    ]);
+
+    const panels = await mountOn({ videoId: "ch-9" });
+
+    expect(panels.map((panel) => panel.videoId)).toEqual(["ch-2", "ch-9"]);
   });
 
   it("stays a single panel when the queue load fails", async () => {

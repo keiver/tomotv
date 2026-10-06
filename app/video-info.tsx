@@ -3,7 +3,7 @@ import { PadSheetBackdrop, PadSheetFrame } from "@/components/pad-sheet";
 import { SiblingPager } from "@/components/sibling-pager";
 import { VideoInfoPanel } from "@/components/video-info-panel";
 import { COLORS } from "@/constants/colors";
-import { useVideoSiblings } from "@/hooks/useVideoSiblings";
+import { useItemSiblings } from "@/hooks/useItemSiblings";
 import { t } from "@/services/i18n";
 import { JellyfinItem } from "@/types/jellyfin";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -15,8 +15,9 @@ const IS_TV = Platform.isTV;
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 
 /**
- * The info panel route. On iPhone, iPad and Mac a video's panel drags left and right through the
- * queue Play would build (a series across its seasons, a movie's folder); tvOS shows the one panel.
+ * The info panel route. On iPhone, iPad and Mac the panel drags left and right through its item's
+ * neighbours: a video's queue (a series across its seasons), a folder's sibling folders, the
+ * libraries, the guide's channels. tvOS shows the one panel.
  */
 export default function VideoInfoScreen() {
   const { videoId, name, inFolderId, fromResume, timerId, guideProgram } = useLocalSearchParams<{
@@ -30,7 +31,7 @@ export default function VideoInfoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [opened, setOpened] = useState<JellyfinItem | null>(null);
-  const siblings = useVideoSiblings(opened);
+  const siblings = useItemSiblings(opened, inFolderId);
   const ids = useMemo(() => siblings?.map((item) => item.Id) ?? [videoId], [siblings, videoId]);
   const close = useCallback(() => router.back(), [router]);
 
