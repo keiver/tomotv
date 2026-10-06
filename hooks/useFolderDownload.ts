@@ -3,7 +3,7 @@ import { downloadRungs, estimatedConvertedBytes, type ConversionRung } from "@/s
 import { downloadManager } from "@/services/downloads/manager";
 import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
 import { blockedSizesNote, showSizeSheet, sizeChoice } from "@/services/downloads/sizeSheet";
-import { fetchAllPlaylistItems, fetchRecursiveDownloadables, isPhoto } from "@/services/jellyfinApi";
+import { fetchPlaylistDownloadables, fetchRecursiveDownloadables, isPhoto } from "@/services/jellyfinApi";
 import { serverTranscodeBlock } from "@/services/transcodePolicy";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { formatFileSize } from "@/utils/mediaInfo";
@@ -58,7 +58,7 @@ export function useFolderDownload() {
       let items: JellyfinVideoItem[];
       try {
         // A playlist holds references rather than children, so it answers on its own endpoint.
-        items = folder.Type === "Playlist" ? ((await fetchAllPlaylistItems(folder.Id)) as JellyfinVideoItem[]) : await fetchRecursiveDownloadables(folder.Id);
+        items = folder.Type === "Playlist" ? await fetchPlaylistDownloadables(folder.Id) : await fetchRecursiveDownloadables(folder.Id);
       } catch (error) {
         logger.warn("Could not list a folder to download", error, { service: "Downloads", folderId: folder.Id });
         Alert.alert(t("downloads.folderLoadFailedTitle"), t("downloads.folderLoadFailed"));

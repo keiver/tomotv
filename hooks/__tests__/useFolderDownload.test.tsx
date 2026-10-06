@@ -9,7 +9,7 @@ import { Alert } from "react-native";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { downloadManager } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
-import { fetchAllPlaylistItems, fetchRecursiveDownloadables } from "@/services/jellyfinApi";
+import { fetchPlaylistDownloadables, fetchRecursiveDownloadables } from "@/services/jellyfinApi";
 import { serverTranscodeBlock } from "@/services/transcodePolicy";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Paths } from "expo-file-system";
@@ -38,7 +38,7 @@ jest.mock("@/services/downloads/manager", () => ({
 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchRecursiveDownloadables: jest.fn(),
-  fetchAllPlaylistItems: jest.fn(),
+  fetchPlaylistDownloadables: jest.fn(),
   isPhoto: (item: { Type?: string }) => item?.Type === "Photo",
 }));
 
@@ -239,10 +239,10 @@ describe("useFolderDownload", () => {
   });
 
   it("reads a playlist from its own endpoint, since it holds references not children", async () => {
-    (fetchAllPlaylistItems as jest.Mock).mockResolvedValue([track("a", GB)]);
+    (fetchPlaylistDownloadables as jest.Mock).mockResolvedValue([track("a", GB)]);
     await run({ Id: "pl", Name: "Gym", Type: "Playlist" });
 
-    expect(fetchAllPlaylistItems).toHaveBeenCalledWith("pl");
+    expect(fetchPlaylistDownloadables).toHaveBeenCalledWith("pl");
     expect(fetchRecursiveDownloadables).not.toHaveBeenCalled();
   });
 

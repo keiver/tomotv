@@ -166,6 +166,7 @@ export {
   fetchLibraryName,
   fetchLibraryVideos,
   fetchPlaylistContents,
+  fetchPlaylistDownloadables,
   fetchRecursiveDownloadables,
   fetchRecursivePhotos,
   fetchRecursiveVideos,

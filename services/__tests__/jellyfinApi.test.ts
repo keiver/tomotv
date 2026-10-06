@@ -9,6 +9,7 @@ import {
   fetchLibraryVideos,
   fetchLibraryYears,
   fetchPlaylistContents,
+  fetchPlaylistDownloadables,
   fetchRecursiveVideos,
   fetchUserViews,
   fetchViewItemCount,
@@ -964,6 +965,16 @@ describe("jellyfinApi", () => {
 
       await expect(fetchPlaylistContents("playlist-fail")).rejects.toThrow("Network error");
       expect(global.fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("asks for MediaSources when a playlist is listed for download", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
+
+      await fetchPlaylistDownloadables("playlist-download");
+
+      const url = new URL((global.fetch as jest.Mock).mock.calls[0][0]);
+      expect(url.pathname).toBe("/Playlists/playlist-download/Items");
+      expect(url.searchParams.get("Fields")?.split(",")).toContain("MediaSources");
     });
 
     it("should include correct query parameters", async () => {

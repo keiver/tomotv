@@ -201,14 +201,17 @@ export async function fetchLibraryVideos({ limit = 60, startIndex = 0 }: { limit
  * @param playlistId - The playlist ID to fetch contents for
  * @param options - Pagination options
  */
-export async function fetchPlaylistContents(playlistId: string, { limit = 60, startIndex = 0 }: { limit?: number; startIndex?: number } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
+export async function fetchPlaylistContents(
+  playlistId: string,
+  { limit = 60, startIndex = 0, extraFields = "" }: { limit?: number; startIndex?: number; extraFields?: string } = {},
+): Promise<{ items: JellyfinItem[]; total?: number }> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
     throw new Error("Jellyfin server not configured.");
   }
 
-  const cacheKey = `playlist:${config.userId}:${playlistId}:${startIndex}:${limit}`;
+  const cacheKey = `playlist${extraFields}:${config.userId}:${playlistId}:${startIndex}:${limit}`;
   return cachedRequest(
     cacheKey,
     () =>
@@ -218,7 +221,7 @@ export async function fetchPlaylistContents(playlistId: string, { limit = 60, st
             userId: config.userId!,
             StartIndex: String(startIndex),
             Limit: String(limit),
-            Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+            Fields: `Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio${extraFields}`,
             EnableUserData: "true",
           });
 
@@ -809,7 +812,7 @@ async function fetchRecursiveLeaves(config: JellyfinConfig, parentId: string, me
  * info panel's classification pass and the queue built after it share a single fetch. A failed
  * page throws: a partial playlist that plays is worse than one that reports an error.
  */
-export async function fetchAllPlaylistItems(playlistId: string): Promise<JellyfinItem[]> {
+export async function fetchAllPlaylistItems(playlistId: string, extraFields = ""): Promise<JellyfinItem[]> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey || !config.userId) {
@@ -817,7 +820,7 @@ export async function fetchAllPlaylistItems(playlistId: string): Promise<Jellyfi
   }
 
   return cachedRequest(
-    `playlistAll:${config.userId}:${playlistId}`,
+    `playlistAll${extraFields}:${config.userId}:${playlistId}`,
     async () => {
       const PAGE_SIZE = 500;
       const all: JellyfinItem[] = [];
@@ -825,7 +828,7 @@ export async function fetchAllPlaylistItems(playlistId: string): Promise<Jellyfi
       let hasMore = true;
 
       while (hasMore) {
-        const { items, total } = await fetchPlaylistContents(playlistId, { limit: PAGE_SIZE, startIndex });
+        const { items, total } = await fetchPlaylistContents(playlistId, { limit: PAGE_SIZE, startIndex, extraFields });
         all.push(...items);
         startIndex += items.length;
         hasMore = items.length === PAGE_SIZE && (total === undefined || startIndex < total);
@@ -835,6 +838,11 @@ export async function fetchAllPlaylistItems(playlistId: string): Promise<Jellyfi
     },
     CACHE.DEFAULT_TTL_MS,
   );
+}
+
+/** Every entry of a playlist with MediaSources: a download's sizes and the account's transcode permission. */
+export async function fetchPlaylistDownloadables(playlistId: string): Promise<JellyfinVideoItem[]> {
+  return (await fetchAllPlaylistItems(playlistId, ",MediaSources")) as JellyfinVideoItem[];
 }
 
 /**
