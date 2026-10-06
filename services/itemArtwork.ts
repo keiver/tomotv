@@ -45,6 +45,11 @@ export function wantsPosterFrame(item: Pick<JellyfinVideoItem, "Type" | "ImageTa
   return getUiPreferences().devicePosters && !hasPoster(item) && POSTER_FRAME_TYPES.has(item.Type) && !audioOnly(item);
 }
 
+/** The picture is a channel's logo: the channel itself, or a programme without art of its own. */
+export function showsChannelLogo(item: Pick<PosterItem, "Type" | "ImageTags" | "ChannelId">): boolean {
+  return item.Type === "TvChannel" || (item.Type === "Program" && !hasPoster(item) && !!item.ChannelId);
+}
+
 export interface PosterSource {
   uri: string;
   cacheKey: string;

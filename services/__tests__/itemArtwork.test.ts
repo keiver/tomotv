@@ -15,7 +15,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 jest.mock("@/services/localRemux", () => ({ posterFrameIfCached: (id: string) => mockCached(id), posterFrameGeneration: () => mockGeneration(), posterFrameRevision: () => mockRevision() }));
 
-import { folderPosterSource, heroArtFrame, posterSource, posterUri, wantsPosterFrame } from "../itemArtwork";
+import { folderPosterSource, heroArtFrame, posterSource, posterUri, showsChannelLogo, wantsPosterFrame } from "../itemArtwork";
 import { updateUiPreferences } from "@/services/uiPreferences";
 
 const item = (extra: Record<string, unknown> = {}) => ({ Id: "a", Type: "Movie", RunTimeTicks: 0, ...extra });
@@ -56,6 +56,14 @@ describe("posterSource", () => {
     mockCached.mockReturnValue("file:///pool/p/poster.jpg");
     expect(posterSource(item({ Id: "p", Type: "Program", ChannelId: "ch1" }), 300)?.uri).toBe("https://jf/Items/ch1/Images/Primary?maxHeight=300");
     expect(wantsPosterFrame({ Type: "Program" })).toBe(false);
+  });
+
+  it("names a logo only where the card shows a channel's picture", () => {
+    expect(showsChannelLogo(item({ Type: "TvChannel" }))).toBe(true);
+    expect(showsChannelLogo(item({ Type: "Program", ChannelId: "ch1" }))).toBe(true);
+    expect(showsChannelLogo(item({ Type: "Program", ChannelId: "ch1", ImageTags: { Primary: "tag1" } }))).toBe(false);
+    expect(showsChannelLogo(item({ Type: "Program" }))).toBe(false);
+    expect(showsChannelLogo(item())).toBe(false);
   });
 
   it("falls back to the keyframe the engine has settled", () => {

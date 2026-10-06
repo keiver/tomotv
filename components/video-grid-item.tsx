@@ -11,6 +11,7 @@ import { useItemPoster } from "@/hooks/useItemPoster";
 import { useMinuteClock } from "@/hooks/useMinuteClock";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
 import { t } from "@/services/i18n";
+import { showsChannelLogo } from "@/services/itemArtwork";
 import { isAudioItem, isBook } from "@/services/jellyfinApi";
 import { LIVE_FRAME_TRANSITION_MS, type LiveFrame } from "@/services/liveFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -226,6 +227,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, video.StartDate, video.EndDate, video.UserData?.Played, clockMs, recording],
   );
   const isChannel = video.Type === "TvChannel";
+  const logoPoster = showsChannelLogo(video) && !liveFrame;
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
   // A channel card names what is on, then the channel: the logo and the badge already say which channel.
   const videoName = cleanLabel(video.Name);
@@ -319,8 +321,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <>
               <Image
                 source={liveFrame ?? posterSource}
-                style={[styles.poster, isChannel && !liveFrame && styles.posterLogo, offline && styles.posterOffline]}
-                contentFit={isChannel && !liveFrame ? "contain" : "cover"}
+                style={[styles.poster, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
+                contentFit={logoPoster ? "contain" : "cover"}
                 // A newer grab's frame fades in; at rest the card holds still.
                 transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
                 priority={index < 10 ? "high" : "normal"}
