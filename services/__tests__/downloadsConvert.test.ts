@@ -51,6 +51,12 @@ describe("downloadRungs", () => {
     expect(downloadRungs(videoAt(720, 1_000_000))).toEqual([]);
   });
 
+  // An MKV whose BPS tag says 4 Mbps while the whole file runs at 1 Mbps: the container caps the video.
+  it("judges the video bitrate by the container when the stream tag claims more", () => {
+    const mistagged = { ...videoAt(720, 4_030_137), MediaSources: [{ Id: "s", Bitrate: 1_040_540 }] } as unknown as JellyfinVideoItem;
+    expect(downloadRungs(mistagged)).toEqual([]);
+  });
+
   // A scope film cropped to 1920x1040 is 1080p: the rung is judged by the box, either side.
   it("offers 1080p for a letterboxed 1920x1040 film", () => {
     const letterboxed = { ...videoAt(1040, 5_251_115), MediaStreams: [{ Index: 0, Type: "Video", Codec: "hevc", Width: 1920, Height: 1040, BitRate: 25_000_000 }] } as unknown as JellyfinVideoItem;

@@ -37,7 +37,9 @@ export function downloadRungs(item: JellyfinVideoItem, mustShrink = true): Conve
   const video = (item.MediaStreams ?? []).find((stream) => stream.Type === "Video");
   const width = video?.Width ?? 0;
   const height = video?.Height ?? 0;
-  const bitrate = video?.BitRate ?? item.MediaSources?.[0]?.Bitrate ?? 0;
+  // The container rate includes audio, so it caps a stream tag that claims more (stale MKV BPS tags).
+  const known = [video?.BitRate, item.MediaSources?.[0]?.Bitrate].filter((rate): rate is number => (rate ?? 0) > 0);
+  const bitrate = known.length > 0 ? Math.min(...known) : 0;
   const rungs = ladder();
   const fitting = rungs.filter((rung) => (rung.width <= width || rung.height <= height) && (!mustShrink || bitrate === 0 || rung.bitrate < bitrate));
   if (mustShrink) return video ? fitting : [];
