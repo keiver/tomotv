@@ -27,18 +27,6 @@ const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
 const CARD_PADDING = IS_TV ? 16 : 8;
 const POSTER_SIZE = IS_TV ? 300 : 200;
 
-// The badge counts a different thing in every folder kind, and the number alone says which
-// one about as well as a bare track number does. Kinds outside this table fall back to Folder.
-const COUNT_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  Series: "tv",
-  Season: "tv",
-  MusicAlbum: "disc",
-  MusicArtist: "musical-notes",
-  PhotoAlbum: "images",
-  BoxSet: "film",
-  Playlist: "list",
-};
-
 interface FolderGridItemProps {
   folder: JellyfinItem;
   onPress: (folder: JellyfinItem) => void;
@@ -133,7 +121,6 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   // The Live TV view counts channels, and its empty face is a set, not a folder.
   const isLiveTv = folder.CollectionType === "livetv";
-  const countIcon = isLiveTv ? "tv-outline" : (COUNT_ICONS[folder.Type] ?? "folder");
 
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
@@ -216,10 +203,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
-          {/* Item-count badge (top-left), iconed by what it counts */}
+          {/* Item-count badge (top-left): the number alone, on glass */}
           {itemCount != null || countLoading ? (
             <View style={styles.countBadge} pointerEvents="none">
-              {itemCount != null ? <CardBadge segments={[{ icon: countIcon, label: itemCount }]} focused={focused} /> : <CardBadge segments={[{ icon: countIcon }]} loading focused={focused} />}
+              {itemCount != null ? <CardBadge segments={[{ label: itemCount }]} focused={focused} /> : <CardBadge loading focused={focused} />}
             </View>
           ) : null}
 

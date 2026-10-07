@@ -25,9 +25,11 @@ jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: (
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => ({ sessionVideoId: null, hostMode: "idle", playbackState: { type: "IDLE" } }) }));
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { getUIState: () => ({ playing: true, position: 0 }), subscribe: () => () => {} } }));
 
-import { CardBadge } from "@/components/card-badge";
+import { BADGE_GLASS_TINT, CardBadge } from "@/components/card-badge";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
+import { glassTint } from "@/components/glass-button";
+import { GlassSurface } from "@/components/glass-surface";
 import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { COLORS } from "@/constants/colors";
@@ -58,6 +60,17 @@ function colours(element: React.ReactElement): string[] {
   return found;
 }
 
+/** The tint a badge hands its glass surface. */
+function glassTintOf(element: React.ReactElement): string {
+  let tree!: TestRenderer.ReactTestRenderer;
+  act(() => {
+    tree = TestRenderer.create(<CardPaletteOverride.Provider value={palette}>{element}</CardPaletteOverride.Provider>);
+  });
+  const tint = tree.root.findByType(GlassSurface).props.tintColor;
+  act(() => tree.unmount());
+  return tint;
+}
+
 describe("card palette", () => {
   it("a focused video card rings, glows, fills its title bar and inks its title in the theme", () => {
     const drawn = colours(<VideoGridItem video={video} onPress={jest.fn()} index={0} highlighted />);
@@ -79,10 +92,27 @@ describe("card palette", () => {
     expect(drawn).not.toContain(COLORS.ACCENT);
   });
 
-  it("a badge fills with the theme on focus and inks with it at rest", () => {
-    expect(colours(<CardBadge segments={[{ label: 3 }]} focused />)).toEqual(expect.arrayContaining([ACCENT, palette.ink]));
+  it("a folder's count badge is the bare number", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(
+        <CardPaletteOverride.Provider value={palette}>
+          <FolderGridItem folder={folder} onPress={jest.fn()} index={0} />
+        </CardPaletteOverride.Provider>,
+      );
+    });
+    expect(tree.root.findByType(CardBadge).props.segments).toEqual([{ label: 3 }]);
+    act(() => tree.unmount());
+  });
+
+  it("a badge is near-black glass at rest, the theme's deepened tint on focus; live is solid red", () => {
+    expect(glassTintOf(<CardBadge segments={[{ label: 3 }]} />)).toBe(BADGE_GLASS_TINT);
+    expect(glassTintOf(<CardBadge segments={[{ label: 3 }]} focused />)).toBe(glassTint(ACCENT, true));
+    expect(colours(<CardBadge segments={[{ label: "LIVE" }]} tone="live" />)).toEqual(expect.arrayContaining([COLORS.DESTRUCTIVE_DEEP, COLORS.TEXT_PRIMARY]));
+    expect(colours(<CardBadge segments={[{ label: "LIVE" }]} tone="live" focused />)).toContain(COLORS.DESTRUCTIVE_DEEP);
     expect(colours(<CardBadge segments={[{ label: 3 }]} />)).toContain(ACCENT);
     expect(colours(<CardBadge segments={[{ label: 3 }]} />)).not.toContain(COLORS.ACCENT);
+    expect(colours(<CardBadge segments={[{ label: 3 }]} focused />)).toContain(COLORS.TEXT_PRIMARY);
   });
 
   it("the now-playing bar and the folder loading bar sweep in the theme", () => {
