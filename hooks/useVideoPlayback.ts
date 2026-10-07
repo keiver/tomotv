@@ -2510,6 +2510,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   // When a report last said nothing is selected; a live subtitle request older than that is stale.
   const lastSubtitleDeselectAtRef = useRef(0);
+  // The subtitle rendition AVPlayer last asked the engine for; breaks a tie between same-language twins.
+  const lastSubtitleRequestRef = useRef<number | null>(null);
 
   const onTextTracks = useCallback(
     (data: { textTracks: TextTrack[] }) => {
@@ -2540,15 +2542,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // position was, and the overlay draws the sets decoded beside the file.
       const heldOrdinal = onEngineLane ? null : (data.textTracks.find((track) => track.selected === true)?.index ?? null);
       const pick = onEngineLane
-        ? resolveSubtitlePick(renditions, data.textTracks)
+        ? resolveSubtitlePick(renditions, data.textTracks, lastSubtitleRequestRef.current)
         : {
             imageStreamIndex: heldOrdinal === null ? null : heldImageSubtitleForOrdinal(videoId, heldOrdinal),
             rendition: null,
             ordinal: heldOrdinal,
           };
       setActiveImageSubtitleStream((current) => (current === pick.imageStreamIndex ? current : pick.imageStreamIndex));
-      // Deselecting does change the item's tracks (measured), so this report is the live deselect.
-      if (onEngineLane && isLiveRef.current && !data.textTracks.some((track) => track.selected === true)) lastSubtitleDeselectAtRef.current = Date.now();
+      // Deselecting does change the item's tracks (measured), so this report is the deselect.
+      if (onEngineLane && !data.textTracks.some((track) => track.selected === true)) lastSubtitleDeselectAtRef.current = Date.now();
 
       // Deduplicate on the SELECTION, not just the count. The count alone never
       // changes once the tracks load, so a selection made in AVKit's own picker
@@ -2690,6 +2692,26 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current || localRemuxTokenRef.current !== token || requestedAt <= lastSubtitleDeselectAtRef.current) return;
       if (!subtitleRenditionsRef.current.some((rendition) => rendition.index === streamIndex && rendition.isImage)) return;
       setActiveImageSubtitleStream((current) => (current === streamIndex ? current : streamIndex));
+    });
+  }, [streamUrl]);
+
+  // VOD: picking an image rendition changes no track, so no report follows it (probed); its request is
+  // the pick. A report can also land before the request that settles its tie, so this re-reads it.
+  useEffect(() => {
+    lastSubtitleRequestRef.current = null;
+    const token = streamUrl ? localRemuxToken(streamUrl) : null;
+    if (!token || isLiveRef.current || transportRef.current !== "gateway") return;
+    return subscribeSubtitleRequests(token, ({ streamIndex, requestedAt }) => {
+      if (!isMountedRef.current || localRemuxTokenRef.current !== token) return;
+      lastSubtitleRequestRef.current = streamIndex;
+      if (requestedAt > lastSubtitleDeselectAtRef.current && subtitleRenditionsRef.current.some((rendition) => rendition.index === streamIndex && rendition.isImage)) {
+        setActiveImageSubtitleStream((current) => (current === streamIndex ? current : streamIndex));
+        return;
+      }
+      const reported = reportedTextTracksRef.current;
+      if (reported.filter((track) => track.selected === true).length < 2) return;
+      const pick = resolveSubtitlePick(subtitleRenditionsRef.current, reported, streamIndex);
+      setActiveImageSubtitleStream((current) => (current === pick.imageStreamIndex ? current : pick.imageStreamIndex));
     });
   }, [streamUrl]);
 

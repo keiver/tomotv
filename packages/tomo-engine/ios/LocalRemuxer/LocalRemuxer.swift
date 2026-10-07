@@ -144,7 +144,7 @@ class LocalRemuxer: RCTEventEmitter {
         if listening { sendEvent(withName: "onEngineStage", body: stage) }
     }
 
-    /// A live subtitle playlist AVPlayer asked for, sent only while JS listens.
+    /// A subtitle rendition AVPlayer asked for, sent only while JS listens.
     private func publish(subtitleRequest: [String: Any]) {
         Self.lock.lock()
         let listening = Self.hasListeners

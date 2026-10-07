@@ -746,9 +746,7 @@ extension RemuxSession {
         guard let sub = subtitles.first(where: { $0.index == streamIndex }) else { return nil }
         // Measured: selecting a rendition leaves the item's tracks unchanged, and its playlist is
         // refreshed while selected and never after. The request is the selection.
-        if config.isLive {
-            onSubtitleRequest?(["token": token, "streamIndex": sub.index, "requestedAt": Date().timeIntervalSince1970 * 1000])
-        }
+        noteSubtitleRequest(sub.index)
 
         // Live carries image tracks only, on the video's own window: the same segments and
         // target (authoring spec 5.6), cue-less bodies, no init.

@@ -292,7 +292,7 @@ export function subscribeEngineStage(token: string, listener: StageListener): ()
   };
 }
 
-/** A live session's subtitle playlist, asked for by AVPlayer: it asks only while that rendition is selected. */
+/** A session's subtitle rendition, asked for by AVPlayer: it asks only while that rendition is selected. */
 export type SubtitleRequest = { token: string; streamIndex: number; requestedAt: number };
 
 type SubtitleRequestListener = (request: SubtitleRequest) => void;
@@ -306,7 +306,7 @@ function watchSubtitleRequests(): void {
   });
 }
 
-/** One live session's subtitle playlist requests, until the returned function runs. Never fires on a native build without the event. */
+/** One session's subtitle rendition requests, until the returned function runs. Never fires on a native build without the event. */
 export function subscribeSubtitleRequests(token: string, listener: SubtitleRequestListener): () => void {
   watchSubtitleRequests();
   const listeners = subtitleRequestListeners.get(token) ?? new Set<SubtitleRequestListener>();

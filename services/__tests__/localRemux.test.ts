@@ -1629,6 +1629,43 @@ describe("resolveSubtitlePick", () => {
     expect(pick.reason).toMatch(/2 tracks report selected/);
   });
 
+  describe("same-language twins", () => {
+    // AVFoundation's displayName is the language alone (probed): a PGS track and its SRT twin both report selected.
+    const twins = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 4, Language: "eng", DisplayTitle: "English SDH - Hearing Impaired - PGSSUB", IsHearingImpaired: true },
+          { Type: "Subtitle", Codec: "subrip", Index: 5, Language: "eng", DisplayTitle: "English SDH - Hearing Impaired - SUBRIP", IsHearingImpaired: true },
+          { Type: "Subtitle", Codec: "subrip", Index: 6, Language: "eng", DisplayTitle: "English - SUBRIP", IsExternal: true, DeliveryUrl: "/Videos/x/Subtitles/6/Stream.vtt" },
+        ],
+      }),
+    );
+    const ordinalOf = (stream: number) => twins.findIndex((rendition) => rendition.index === stream);
+    const tie = (streams: number[]) => twins.map((rendition, index) => ({ index, title: rendition.name, selected: streams.includes(rendition.index) }));
+
+    it("breaks the tie with the rendition AVPlayer last asked the engine for", () => {
+      const image = resolveSubtitlePick(twins, tie([4, 5]), 4);
+      const text = resolveSubtitlePick(twins, tie([4, 5]), 5);
+
+      expect(image).toMatchObject({ imageStreamIndex: 4, ordinal: ordinalOf(4) });
+      expect(text).toMatchObject({ imageStreamIndex: null, ordinal: ordinalOf(5) });
+      expect(text.rendition?.index).toBe(5);
+      expect(image.reason ?? text.reason).toBeUndefined();
+    });
+
+    it("refuses a tie when no request, or one outside the tie, names the pick", () => {
+      expect(resolveSubtitlePick(twins, tie([4, 5])).reason).toMatch(/2 tracks report selected/);
+      expect(resolveSubtitlePick(twins, tie([4, 5]), 9).reason).toMatch(/2 tracks report selected/);
+    });
+
+    // A remote sidecar is fetched from the server, so its pick leaves no request and an older one would win.
+    it("refuses a tie holding a rendition the engine does not serve", () => {
+      expect(ordinalOf(6)).toBeGreaterThanOrEqual(0);
+      expect(resolveSubtitlePick(twins, tie([4, 6]), 4).reason).toMatch(/2 tracks report selected/);
+    });
+  });
+
   // iOS hands back a legible group carrying two options the engine never
   // published: no display name, languages the file does not have, every file,
   // never on tvOS. Counting the group refused the pick on the phone, so a PGS

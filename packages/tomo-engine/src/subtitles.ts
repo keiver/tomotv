@@ -89,6 +89,7 @@ export function publishedRenditionNames(tracks: { name: string; index: number }[
  * (Remuxer.masterPlaylist) and AVFoundation hands it back as the option's display
  * title, verbatim (measured on device, published === reported), and the app's
  * labels guarantee no two renditions of a file share one.
+ * The reported `selected` flag is not keyed on it.
  *
  * Identity is NOT the ordinal, which holds only while the legible group carries
  * exactly the members the engine published. iOS does not: the group comes back
@@ -101,15 +102,15 @@ export function publishedRenditionNames(tracks: { name: string; index: number }[
  * Two things still refuse rather than resolve, because drawing the wrong
  * subtitles silently is what this whole path exists to stop:
  *
- * - More than one track reports selected. react-native-video decides selection
- *   by comparing display names, so colliding labels mark several at once and
- *   the pick genuinely cannot be read.
+ * - More than one track reports selected and no engine request settles which.
+ *   react-native-video decides selection by comparing display names, which
+ *   AVFoundation derives from the language, so same-language twins tie.
  * - An ordinal past the end of the published list.
  *
  * A selection that is simply none of ours draws nothing and says nothing: that
  * is the viewer choosing one of the player's own options, not a discrepancy.
  */
-export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks: ReportedTextTrack[]): SubtitlePick {
+export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks: ReportedTextTrack[], lastRequestedStream: number | null = null): SubtitlePick {
   const selected = textTracks.filter((track) => track.selected === true);
   const nothing: SubtitlePick = { imageStreamIndex: null, rendition: null, ordinal: null };
 
@@ -124,13 +125,22 @@ export function resolveSubtitlePick(renditions: SubtitleRendition[], textTracks:
   // still reported one track.
   if (renditions.length === 0) return nothing;
 
+  const names = publishedRenditionNames(renditions);
+
   if (selected.length > 1) {
+    // AVPlayer fetches a rendition on every selection of it and never one it has not selected (probed),
+    // so the latest engine request names the pick, when every tied rendition is served by the engine.
+    const tied = selected.map((track) => ({ track, rendition: renditions[names.indexOf(track.title?.trim() ?? "")] }));
+    const requested = tied.filter(({ rendition }) => rendition?.index === lastRequestedStream);
+    if (requested.length === 1 && tied.every(({ rendition }) => rendition && !rendition.vttUrl)) {
+      const { track, rendition } = requested[0];
+      return { imageStreamIndex: rendition.isImage ? rendition.index : null, rendition, ordinal: track.index };
+    }
     return { ...nothing, reason: `${selected.length} tracks report selected at once, so the pick cannot be read; two renditions are sharing a display name` };
   }
 
   const ordinal = selected[0].index;
   const title = selected[0].title?.trim() ?? "";
-  const names = publishedRenditionNames(renditions);
   const named = title ? renditions.find((_rendition, position) => names[position] === title) : undefined;
   // A text track resolves fine; it just has no bitmaps, because AVKit draws it.
   if (named) return { imageStreamIndex: named.isImage ? named.index : null, rendition: named, ordinal };

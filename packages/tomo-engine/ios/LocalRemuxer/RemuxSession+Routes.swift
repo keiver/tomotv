@@ -8,6 +8,11 @@ extension RemuxSession {
         return Int64(name.dropFirst(6).dropLast(4))
     }
 
+    /// AVPlayer fetches a subtitle rendition only while it is selected, and again on every selection of it.
+    func noteSubtitleRequest(_ streamIndex: Int) {
+        onSubtitleRequest?(["token": token, "streamIndex": streamIndex, "requestedAt": Date().timeIntervalSince1970 * 1000])
+    }
+
     /// Routes one file name under this session's token.
     func route(_ name: String) -> LocalHTTPResponse {
         let m3u8 = "application/vnd.apple.mpegurl"
@@ -47,6 +52,8 @@ extension RemuxSession {
             let inRange = config.isLive ? segment >= firstRetainedSegment && segment <= lastProducedSegment : segment < segmentCount
             stateLock.unlock()
             guard !dead, inRange, let subtitle = subtitles.first(where: { $0.index == index }) else { return .notFound }
+            // A VOD playlist is fetched once; a re-selection asks for segments only (probed).
+            if !config.isLive { noteSubtitleRequest(index) }
             if config.isLive, subtitle.isImage {
                 return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
             }
@@ -66,6 +73,7 @@ extension RemuxSession {
             let dead = failed || cancelled
             stateLock.unlock()
             guard !dead, let subtitle = subtitles.first(where: { $0.index == index }) else { return .notFound }
+            if !config.isLive { noteSubtitleRequest(index) }
             if subtitle.isImage {
                 return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
             }

@@ -399,6 +399,67 @@ describe("useVideoPlayback (mounted)", () => {
       await act(async () => renderer.unmount());
     });
 
+    it("settles a same-language tie with the subtitle rendition AVPlayer asks the engine for after the report", async () => {
+      mockCanRemux.mockResolvedValue(true);
+      (resolveSubtitlePick as jest.Mock).mockImplementation((_renditions, tracks: { selected: boolean }[], requested) =>
+        !tracks.some((track) => track.selected)
+          ? { imageStreamIndex: null, rendition: null, ordinal: null }
+          : requested === 4
+            ? { imageStreamIndex: 4, rendition: null, ordinal: 0 }
+            : { imageStreamIndex: null, rendition: null, ordinal: null, reason: "2 tracks report selected" },
+      );
+      const { ref } = await mount({ videoId: "video-1" });
+      const twins = [0, 1].map((index) => ({ index, title: `twin ${index}`, language: "eng", type: "text/vtt", selected: true }));
+
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: twins } as never);
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+
+      await act(async () => {
+        mockSubtitleRequest!({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", streamIndex: 4, requestedAt: Date.now() });
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(4);
+      expect(resolveSubtitlePick).toHaveBeenLastCalledWith(expect.anything(), twins, 4);
+
+      // And a report landing after the request reads it too.
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: twins.map((track) => ({ ...track, selected: false })) } as never);
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: twins } as never);
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(4);
+    });
+
+    // Picking an image rendition leaves the item's tracks unchanged, so no report follows it (probed).
+    it("draws a VOD image track the moment AVPlayer asks the engine for it, with no report", async () => {
+      mockCanRemux.mockResolvedValue(true);
+      (sessionSubtitleRenditions as jest.Mock).mockReturnValue([
+        { index: 4, name: "English", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false },
+        { index: 5, name: "English SRT", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: false, isEngineText: true },
+      ]);
+      const { ref } = await mount({ videoId: "video-1" });
+      const request = (streamIndex: number, requestedAt: number) =>
+        act(async () => {
+          mockSubtitleRequest!({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", streamIndex, requestedAt });
+        });
+
+      await request(4, Date.now() + 1);
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(4);
+
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, title: "English", language: "eng", type: "text/vtt", selected: false }] } as never);
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+      // A request that left before the deselect is the old selection's; picking the same track again is not.
+      await request(4, Date.now() - 1_000);
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+      await request(4, Date.now() + 5);
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(4);
+    });
+
     it.each(["auto", "fixed"])("does not apply a %s ladder cap when video transcoding is forbidden", async (mode) => {
       mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 8_000_000, SupportsTranscoding: false }] }));
       mockCanRemux.mockResolvedValue(true);
@@ -1340,7 +1401,7 @@ describe("useVideoPlayback (mounted)", () => {
       await act(async () => {
         ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, title: "deu", language: "deu", type: "text/vtt", selected: true }] } as never);
       });
-      expect(resolveSubtitlePick).toHaveBeenCalledWith(found, expect.anything());
+      expect(resolveSubtitlePick).toHaveBeenCalledWith(found, expect.anything(), null);
     });
 
     it("plays through the engine when it opens, and never builds a server URL of its own", async () => {
