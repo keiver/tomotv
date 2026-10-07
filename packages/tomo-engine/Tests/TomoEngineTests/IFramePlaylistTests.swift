@@ -1,3 +1,5 @@
+import Compression
+import Libavcodec
 import Libavutil
 import XCTest
 
@@ -133,12 +135,150 @@ final class IFramePlaylistTests: XCTestCase {
         master.components(separatedBy: "\n").filter { $0.hasPrefix("#EXT-X-I-FRAME-STREAM-INF:") }
     }
 
+    /// A copied grid with no sizes and nothing sampled declares the copy's peak as both values: a bound.
     func testMasterListsTheIFrameVariantOnceTheVideoIsPlanned() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 60, codecs: "avc1.640028,mp4a.40.2", bandwidth: 8_000_000))
         defer { session.stop() }
         session.iframeTranscodes = false
+        session.iframeSize = (1920, 1080)
+        session.sessionAnchorSeconds = 0
         XCTAssertEqual(iframeLines(session.masterPlaylist()),
-                       ["#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=8000000,CODECS=\"avc1.640028\",RESOLUTION=1920x1080,VIDEO-RANGE=SDR,URI=\"iframes.m3u8\""])
+                       ["#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=8000000,AVERAGE-BANDWIDTH=8000000,CODECS=\"avc1.640028\",RESOLUTION=1920x1080,VIDEO-RANGE=SDR,URI=\"iframes.m3u8\""])
+    }
+
+    /// An encoded rendition is SDR H.264 inside 1920x1080, its peak the cap each frame is held under.
+    func testAnEncodedRenditionIsDeclaredAsSdrInside1080pAtItsCap() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 60, codecs: "hvc1.2.4.H153.90,fLaC", bandwidth: 43_000_000))
+        defer { session.stop() }
+        session.iframeTranscodes = true
+        session.iframeSize = (1920, 800)
+        session.sessionAnchorSeconds = 0
+        XCTAssertEqual(iframeLines(session.masterPlaylist()),
+                       ["#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=2000000,AVERAGE-BANDWIDTH=2000000,CODECS=\"avc1.640028\",RESOLUTION=1920x800,VIDEO-RANGE=SDR,URI=\"iframes.m3u8\""])
+    }
+
+    /// No source read for the sample until AVPlayer holds its reservoir; the item's next master declares the mean.
+    func testASampleTakenAfterStartupIsDeclaredByTheItemsNextMaster() throws {
+        let item = "sample-\(UUID().uuidString)"
+        try runSession("h264-mkv", itemId: item) { session, _ in
+            XCTAssertEqual(iframeLines(session.masterPlaylist()).count, 1)
+            XCTAssertNil(session.rememberedIFrameMean(encodes: false), "nothing is sampled during startup")
+            session.notePlayerBuffer(aheadSeconds: 600, sinceSeek: false)
+            let deadline = Date().addingTimeInterval(30)
+            while session.rememberedIFrameMean(encodes: false) == nil, Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+            let mean = try XCTUnwrap(session.rememberedIFrameMean(encodes: false), "no sampled mean")
+            var config = makeConfig(durationSeconds: Self.seconds)
+            config.itemId = item
+            let next = try RemuxSession(config: config)
+            defer { next.stop() }
+            next.iframeTranscodes = false
+            next.iframeSize = (320, 180)
+            next.sessionAnchorSeconds = 0
+            let line = try XCTUnwrap(iframeLines(next.masterPlaylist()).first)
+            XCTAssertEqual(IFrameOracle.attribute("AVERAGE-BANDWIDTH", in: line).flatMap(Int.init), mean, line)
+            XCTAssertLessThan(mean, try XCTUnwrap(IFrameOracle.attribute("BANDWIDTH", in: line).flatMap(Int.init)), line)
+        }
+    }
+
+    func testOnlyAnSdrPictureInside1080pThatPlaybackCopiesIsCopied() throws {
+        func encodes(_ width: Int32, _ height: Int32, trc: AVColorTransferCharacteristic, transcodes: Bool = false) -> Bool? {
+            guard let par = avcodec_parameters_alloc() else { return nil }
+            var owned: UnsafeMutablePointer<AVCodecParameters>? = par
+            defer { avcodec_parameters_free(&owned) }
+            par.pointee.width = width
+            par.pointee.height = height
+            par.pointee.color_trc = trc
+            return RemuxSession.iframeEncodes(par: par, playbackTranscodes: transcodes)
+        }
+        XCTAssertEqual(encodes(960, 720, trc: AVCOL_TRC_BT709), false)
+        XCTAssertEqual(encodes(1920, 1080, trc: AVCOL_TRC_UNSPECIFIED), false)
+        XCTAssertEqual(encodes(1920, 1080, trc: AVCOL_TRC_BT709, transcodes: true), true)
+        XCTAssertEqual(encodes(3840, 1600, trc: AVCOL_TRC_BT709), true)
+        XCTAssertEqual(encodes(1920, 1080, trc: AVCOL_TRC_SMPTE2084), true)
+        XCTAssertEqual(encodes(1920, 1080, trc: AVCOL_TRC_ARIB_STD_B67), true)
+    }
+
+    func testTheEncodedPictureFitsInside1920x1080KeepingItsShape() {
+        XCTAssertTrue(VideoTranscoder.fittedSize(width: 3840, height: 1600, maxWidth: 1920, maxHeight: 1080) == (1920, 800))
+        XCTAssertTrue(VideoTranscoder.fittedSize(width: 3840, height: 2160, maxWidth: 1920, maxHeight: 1080) == (1920, 1080))
+        XCTAssertTrue(VideoTranscoder.fittedSize(width: 1440, height: 1440, maxWidth: 1920, maxHeight: 1080) == (1080, 1080))
+        XCTAssertTrue(VideoTranscoder.fittedSize(width: 960, height: 720, maxWidth: 1920, maxHeight: 1080) == (960, 720))
+    }
+
+    // MARK: - Bandwidth
+
+    /// RFC 8216 4.3.4.2: the peak is the densest run lasting 0.5 to 1.5 target durations, the mean all bytes over all time.
+    func testIndexSizesGiveTheWindowedPeakAndTheMean() throws {
+        let rates = try XCTUnwrap(IFrameBandwidth.measured(bytes: [100_000, 100_000, 400_000, 100_000], durations: [1, 1, 1, 1], targetDuration: 2))
+        // Runs of 1 to 3 seconds: the single 400 KB entry is 3.2 Mb/s.
+        XCTAssertEqual(rates.peak, 3_200_000)
+        XCTAssertEqual(rates.average, 1_400_000)
+    }
+
+    /// A copied Matroska keyframe sits in its entry's cluster, so a run is bounded by the bytes its clusters span.
+    func testClusterPositionsBoundACopiedRun() throws {
+        let peak = try XCTUnwrap(IFrameBandwidth.positionBound(positions: [0, 1_000_000, 1_000_000, 3_000_000], fileSize: 4_000_000,
+                                                              durations: [2, 2, 2, 2], targetDuration: 2))
+        // Entries 1 and 2 share a cluster, so their span (2 MB) lies over their 4 s: the densest run is entries 1 to 2.
+        XCTAssertGreaterThanOrEqual(peak, 4_000_000)
+        XCTAssertNil(IFrameBandwidth.positionBound(positions: [0, 1], fileSize: 0, durations: [1, 1], targetDuration: 1))
+    }
+
+    func testTheSampledMeanIsBytesOverTheSampledEntriesTime() {
+        XCTAssertEqual(IFrameBandwidth.sampledAverage([1: 125_000, 3: 250_000], durations: [1, 1, 2, 1]), 1_500_000)
+        XCTAssertNil(IFrameBandwidth.sampledAverage([:], durations: [1]))
+    }
+
+    // MARK: - Delivery
+
+    /// Authoring spec 10.1: a gzip body that inflates back to the playlist with a matching CRC-32 and size.
+    func testPlaylistsGoOutAsGzip() throws {
+        let playlist = Data(String(repeating: "#EXTINF:1.001000,\nkf0.m4s\n", count: 200).utf8)
+        let packed = try XCTUnwrap(LocalHTTPServer.gzip(playlist))
+        XCTAssertEqual(Array(packed.prefix(3)), [0x1F, 0x8B, 8])
+        XCTAssertLessThan(packed.count, playlist.count / 4)
+        let deflated = packed.subdata(in: 10..<(packed.count - 8))
+        var inflated = Data(count: playlist.count)
+        let n = inflated.withUnsafeMutableBytes { out in
+            deflated.withUnsafeBytes { input in
+                compression_decode_buffer(out.bindMemory(to: UInt8.self).baseAddress!, playlist.count,
+                                          input.bindMemory(to: UInt8.self).baseAddress!, deflated.count, nil, COMPRESSION_ZLIB)
+            }
+        }
+        XCTAssertEqual(inflated.prefix(n), playlist)
+        let trailer = Array(packed.suffix(8))
+        let size = trailer[4...].enumerated().reduce(0) { $0 | Int($1.element) << (8 * $1.offset) }
+        XCTAssertEqual(size, playlist.count)
+        let crc = trailer[..<4].enumerated().reduce(UInt32(0)) { $0 | UInt32($1.element) << (8 * UInt32($1.offset)) }
+        // CRC-32 of "123456789" is CBF43926; checked on the same helper's arithmetic over the playlist.
+        let check = playlist.withUnsafeBytes { av_crc(av_crc_get_table(AV_CRC_32_IEEE_LE), UInt32.max, $0.bindMemory(to: UInt8.self).baseAddress, playlist.count) ^ UInt32.max }
+        XCTAssertEqual(crc, check)
+        let known = Data("123456789".utf8).withUnsafeBytes { av_crc(av_crc_get_table(AV_CRC_32_IEEE_LE), UInt32.max, $0.bindMemory(to: UInt8.self).baseAddress, 9) ^ UInt32.max }
+        XCTAssertEqual(known, 0xCBF4_3926)
+    }
+
+    /// I-frame requests never queue behind a chapter frame's decode: each has its own grabber.
+    func testIFrameGrabsHaveAGrabberOfTheirOwn() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 60))
+        defer { session.stop() }
+        session.stateLock.lock()
+        defer { session.stateLock.unlock() }
+        XCTAssertFalse(session.iframeGrabberLocked() === session.frameGrabberLocked())
+        XCTAssertTrue(session.iframeGrabberLocked() === session.iframeGrabberLocked())
+    }
+
+    /// The I-frame playlist needs no grab, so it is answered at once.
+    func testTheIFramePlaylistIsAnsweredWithoutAGrab() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 60))
+        defer { session.stop() }
+        session.stateLock.lock()
+        session.iframeTranscodes = false
+        session.sessionAnchorSeconds = 0
+        session.stateLock.unlock()
+        let started = Date()
+        guard case .data(let body, _) = session.iframePlaylistResponse() else { return XCTFail("no I-frame playlist") }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+        XCTAssertTrue(String(decoding: body, as: UTF8.self).contains("kf0.m4s"))
     }
 
     func testMasterHasNoIFrameVariantBeforeTheVideoIsPlanned() throws {
@@ -165,6 +305,7 @@ final class IFramePlaylistTests: XCTestCase {
         session.linkProbeDone = true
         session.openingRung = 0
         session.iframeTranscodes = false
+        session.sessionAnchorSeconds = 0
         let master = session.masterPlaylist()
         XCTAssertTrue(master.contains("t0.m3u8"), "the slow link lists the ladder")
         XCTAssertEqual(iframeLines(master).count, 1)
@@ -180,6 +321,9 @@ final class IFramePlaylistTests: XCTestCase {
         /// Seconds between entries the rendition lists: keyframes when indexed, else the 6 s grid.
         let spacing: Double
         let exact: Bool
+        var size = "320x180"
+        /// PQ: the rendition is the tone-mapped SDR encode, not the copied keyframe.
+        var hdr = false
     }
 
     private static let gop = ["-g", "48", "-keyint_min", "48", "-sc_threshold", "0"]
@@ -195,6 +339,12 @@ final class IFramePlaylistTests: XCTestCase {
                              codecs: "", spacing: 2, exact: true),
         "mpeg2-ts": Fixture(name: "mpeg2", extension_: "ts", args: ["-c:v", "mpeg2video"] + gop + ["-c:a", "mp2"],
                             codecs: "", spacing: 6, exact: false),
+        "hevc10-pq-mkv": Fixture(name: "hevc10-pq", extension_: "mkv",
+                                 args: ["-pix_fmt", "yuv420p10le", "-color_primaries", "bt2020", "-color_trc", "smpte2084", "-colorspace", "bt2020nc",
+                                        "-c:v", "libx265", "-preset", "ultrafast",
+                                        "-x265-params", "keyint=48:min-keyint=48:scenecut=0:bframes=2:log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+                                        "-c:a", "aac"],
+                                 codecs: "hvc1.2.4.L120.90,mp4a.40.2", spacing: 2, exact: true, size: "2560x1440", hdr: true),
     ]
 
     private static func file(_ key: String) -> URL? {
@@ -208,7 +358,7 @@ final class IFramePlaylistTests: XCTestCase {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: ffmpeg)
         p.arguments = ["-hide_banner", "-loglevel", "error", "-y",
-                       "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24", "-f", "lavfi", "-i", "sine=frequency=440",
+                       "-f", "lavfi", "-i", "testsrc2=size=\(fixture.size):rate=24", "-f", "lavfi", "-i", "sine=frequency=440",
                        "-t", String(seconds), "-pix_fmt", "yuv420p"] + fixture.args + [out.path]
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
@@ -225,15 +375,17 @@ final class IFramePlaylistTests: XCTestCase {
         (UInt32(data[at]) << 24) | (UInt32(data[at + 1]) << 16) | (UInt32(data[at + 2]) << 8) | UInt32(data[at + 3])
     }
 
-    private func runSession(_ key: String, check: (RemuxSession, UInt16) throws -> Void) throws {
+    private func runSession(_ key: String, itemId: String = "", check: (RemuxSession, UInt16) throws -> Void) throws {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else { throw XCTSkip("no ffmpeg at \(Self.ffmpeg)") }
         let fixture = try XCTUnwrap(Self.fixtures[key])
         let source = try XCTUnwrap(Self.file(key), "ffmpeg produced no \(key) fixture")
         let origin = LocalHTTPServer { _ in .file(source, contentType: "application/octet-stream") }
         let originPort = try origin.start()
         defer { origin.stop() }
-        let session = try RemuxSession(config: makeConfig(durationSeconds: Self.seconds, inputUrl: "http://127.0.0.1:\(originPort)/source.\(fixture.extension_)",
-                                                          codecs: fixture.codecs, width: 320, height: 180, frameRate: 24, bandwidth: 600_000))
+        var config = makeConfig(durationSeconds: Self.seconds, inputUrl: "http://127.0.0.1:\(originPort)/source.\(fixture.extension_)",
+                                codecs: fixture.codecs, width: 320, height: 180, frameRate: 24, bandwidth: 600_000)
+        config.itemId = itemId
+        let session = try RemuxSession(config: config)
         session.start()
         defer { session.stop() }
         let server = LocalHTTPServer { request in session.route(String(request.dropFirst())) }
@@ -295,9 +447,18 @@ final class IFramePlaylistTests: XCTestCase {
             let codecs = try XCTUnwrap(IFrameOracle.attribute("CODECS", in: rendition.streamInf))
             XCTAssertEqual(String(codecs.prefix(4)), IFrameOracle.sampleEntry(rendition.initSegment), rendition.streamInf)
             let bandwidth = Double(try XCTUnwrap(IFrameOracle.attribute("BANDWIDTH", in: rendition.streamInf).flatMap(Int.init)))
+            let average = Double(try XCTUnwrap(IFrameOracle.attribute("AVERAGE-BANDWIDTH", in: rendition.streamInf).flatMap(Int.init)))
+            XCTAssertLessThanOrEqual(average, bandwidth, rendition.streamInf)
+            XCTAssertEqual(IFrameOracle.attribute("VIDEO-RANGE", in: rendition.streamInf), "SDR")
             for (k, entry) in rendition.entries.enumerated() {
                 XCTAssertEqual(entry.status, 200, "entry \(k)")
                 XCTAssertLessThanOrEqual(Double(entry.bytes * 8) / entry.duration, bandwidth, "entry \(k)")
+                // Spec 7.3: tfdt plus the sample's duration is the next fragment's tfdt; mfhd counts the entries.
+                let timing = try XCTUnwrap(entry.timing, "entry \(k) has no tfdt/duration/mfhd")
+                XCTAssertEqual(timing.sequence, UInt32(k + 1), "entry \(k)")
+                if k + 1 < rendition.entries.count, let next = rendition.entries[k + 1].timing {
+                    XCTAssertEqual(timing.tfdt + timing.duration, next.tfdt, accuracy: 0.001, "entry \(k)")
+                }
                 XCTAssertEqual(entry.packets, 1, "entry \(k) holds one sample")
                 guard entry.frames.count == 1, let picture = entry.frames.first else {
                     XCTFail("entry \(k) decodes to \(entry.frames.count) pictures")
@@ -305,14 +466,24 @@ final class IFramePlaylistTests: XCTestCase {
                 }
                 XCTAssertTrue(picture.key, "entry \(k)")
                 XCTAssertEqual(picture.seconds, entry.start, accuracy: 0.5 / 24, "entry \(k) plays at its start")
+                // Tone-mapped luma is not the PQ source's, so an HDR entry is held to its time alone.
+                guard !fixture.hdr else { continue }
                 let match = try XCTUnwrap(source.min { $0.distance(to: picture) < $1.distance(to: picture) })
                 let at = entry.start + anchor
                 let expected = fixture.exact ? at : try XCTUnwrap(keys.last { $0.seconds <= at + 0.002 }).seconds
                 XCTAssertEqual(match.seconds, expected, accuracy: 0.002, "entry \(k) at \(at) shows the source's frame at \(match.seconds)")
-                if !fixture.codecs.isEmpty { XCTAssertEqual(match.distance(to: picture), 0, "entry \(k) is the copied keyframe") }
+                if !fixture.codecs.isEmpty, !fixture.hdr { XCTAssertEqual(match.distance(to: picture), 0, "entry \(k) is the copied keyframe") }
             }
+            guard fixture.hdr else { return }
+            // Authoring spec 6.16: the HDR source scrubs on SDR H.264 inside 1920x1080, its init tagged BT.709.
+            XCTAssertEqual(IFrameOracle.attribute("CODECS", in: rendition.streamInf), "avc1.640028")
+            XCTAssertEqual(IFrameOracle.attribute("RESOLUTION", in: rendition.streamInf), "1920x1080")
+            let colr = try XCTUnwrap(rendition.initSegment.range(of: Data("colrnclx".utf8)), "no colr nclx in the encoded init")
+            XCTAssertEqual(Array(rendition.initSegment[colr.upperBound..<(colr.upperBound + 6)]), [0, 1, 0, 1, 0, 1], "BT.709 primaries, transfer, matrix")
         }
     }
+
+    func testAnHdrSourceScrubsOnToneMappedSdrFrames() throws { try assertEveryEntryDecodes("hevc10-pq-mkv") }
 
     func testH264EveryEntryDecodesToItsKeyframe() throws { try assertEveryEntryDecodes("h264-mkv") }
     func testHevcEveryEntryDecodesToItsKeyframe() throws { try assertEveryEntryDecodes("hevc-mkv") }

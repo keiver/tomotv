@@ -86,6 +86,12 @@ final class VideoTranscoder {
     /// A frame closer than this to the last one encoded is dropped; 0 keeps every frame.
     private var minFrameTicks: Int64 = 0
     private var lastEncodedPts: Int64?
+    /// SDR output (see init): every frame goes through the tagged pixel transfer.
+    private let sdr: Bool
+    /// The container declares more than 8 bits, so the SDR path keeps 10 bits until the transfer.
+    private var sourceDeep = false
+    /// The first SDR transfer's source and destination tags and status, for the device log.
+    private(set) var toneMapReport: String?
 
     /// Unrecoverable processing failure (pixel format mismatch, encoder
     /// rejection). The pipeline checks this after every process() call and
@@ -174,9 +180,13 @@ final class VideoTranscoder {
     ///   boundaries.
     /// - Parameter maxHeight/maxFrameRate: 0 keeps the source's; `hardwareDecode` decodes through VideoToolbox when it can;
     ///   `quiet` skips the conversion log line, for callers that make one transcoder per short job.
+    /// - Parameter sdr: H.264 High 4.0, 8-bit, BT.709, fitted inside `maxWidth` x `maxHeight`; a PQ or HLG
+    ///   source is tone-mapped by the pixel transfer, which reads the decoded frame's own colour tags.
     init?(inputStream: UnsafeMutablePointer<AVStream>, keyframeInterval: Double = 6.0, maxBitrate: Int64 = 12_000_000, openEncoder: Bool = true,
-          maxHeight: Int32 = 0, maxFrameRate: Int32 = 0, hardwareDecode: Bool = false, quiet: Bool = false) {
+          maxHeight: Int32 = 0, maxFrameRate: Int32 = 0, hardwareDecode: Bool = false, quiet: Bool = false,
+          maxWidth: Int32 = 0, sdr: Bool = false) {
         conversionLogged = quiet
+        self.sdr = sdr
         let params = inputStream.pointee.codecpar!
 
         // Interlaced sources go through the deinterlace pass below. TT and TB
@@ -245,7 +255,8 @@ final class VideoTranscoder {
         // Interlaced sources take the 8-bit path; 10-bit interlaced content
         // essentially does not exist. So does a device that cannot decode Main 10:
         // the output has to be something its AVPlayer opens.
-        let tenBit = sourceDepth > 8 && !deinterlacing && DeviceDecode.main10ForEncoder
+        let tenBit = !sdr && sourceDepth > 8 && !deinterlacing && DeviceDecode.main10ForEncoder
+        sourceDeep = sourceDepth > 8
         let encoderName = tenBit ? "hevc_videotoolbox" : "h264_videotoolbox"
 
         guard let encCodec = avcodec_find_encoder_by_name(encoderName),
@@ -256,7 +267,11 @@ final class VideoTranscoder {
         encoder = encCtx
 
         // A smaller picture keeps the source's shape; the pixel transfer scales into it.
-        if maxHeight > 0, params.pointee.height > maxHeight {
+        if maxWidth > 0 {
+            let fitted = Self.fittedSize(width: params.pointee.width, height: params.pointee.height, maxWidth: maxWidth, maxHeight: maxHeight)
+            encCtx.pointee.width = fitted.width
+            encCtx.pointee.height = fitted.height
+        } else if maxHeight > 0, params.pointee.height > maxHeight {
             encCtx.pointee.width = Int32((Double(params.pointee.width) * Double(maxHeight) / Double(params.pointee.height) / 2).rounded()) * 2
             encCtx.pointee.height = maxHeight
         } else {
@@ -289,6 +304,15 @@ final class VideoTranscoder {
         encCtx.pointee.flags |= AV_CODEC_FLAG_GLOBAL_HEADER
         // Favour throughput over compression: this races playback.
         av_opt_set(encCtx.pointee.priv_data, "realtime", "1", 0)
+        if sdr {
+            // Pinned so the I-frame line's CODECS (avc1.640028) is known before any frame is made.
+            av_opt_set(encCtx.pointee.priv_data, "profile", "high", 0)
+            av_opt_set(encCtx.pointee.priv_data, "level", "4.0", 0)
+            encCtx.pointee.color_primaries = AVCOL_PRI_BT709
+            encCtx.pointee.color_trc = AVCOL_TRC_BT709
+            encCtx.pointee.colorspace = AVCOL_SPC_BT709
+            encCtx.pointee.color_range = AVCOL_RANGE_MPEG
+        }
 
         guard avcodec_open2(encCtx, encCodec, nil) >= 0 else {
             NSLog("[VideoTranscoder] Failed to open %@ encoder", encoderName)
@@ -466,7 +490,7 @@ final class VideoTranscoder {
     /// otherwise a converted copy produced by VideoToolbox.
     private func converted(from decoded: UnsafeMutablePointer<AVFrame>) -> UnsafeMutablePointer<AVFrame>? {
         guard let encoder else { return nil }
-        if decoded.pointee.format == encoder.pointee.pix_fmt.rawValue
+        if !sdr, decoded.pointee.format == encoder.pointee.pix_fmt.rawValue
             && decoded.pointee.width == encoder.pointee.width
             && decoded.pointee.height == encoder.pointee.height {
             return decoded
@@ -481,10 +505,12 @@ final class VideoTranscoder {
 
         guard let source = decoded.pointee.format == AV_PIX_FMT_VIDEOTOOLBOX.rawValue ? hardwareBuffer(decoded) : wrapAsPixelBuffer(decoded) else { return nil }
         // swscale lands in the encoder's own layout; a transfer from that to itself at the same size is a copy.
-        if CVPixelBufferGetPixelFormatType(source) == Self.encoderCVFormat(encoder),
+        if !sdr, CVPixelBufferGetPixelFormatType(source) == Self.encoderCVFormat(encoder),
            CVPixelBufferGetWidth(source) == Int(encoder.pointee.width), CVPixelBufferGetHeight(source) == Int(encoder.pointee.height) {
             return copyOut(source)
         }
+        // The transfer converts from the source's tags to the destination keys; untagged it only reformats.
+        if sdr { _ = av_vt_pixbuf_set_attachments(nil, source, decoded) }
         guard let dst = destinationBuffer() else { return nil }
 
         if transfer == nil {
@@ -494,11 +520,24 @@ final class VideoTranscoder {
                 NSLog("[VideoTranscoder] VTPixelTransferSessionCreate failed (%d)", status)
                 return nil
             }
+            if sdr {
+                VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationColorPrimaries, value: kCVImageBufferColorPrimaries_ITU_R_709_2)
+                VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationTransferFunction, value: kCVImageBufferTransferFunction_ITU_R_709_2)
+                VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationYCbCrMatrix, value: kCVImageBufferYCbCrMatrix_ITU_R_709_2)
+            }
             transfer = session
         }
         guard let session = transfer else { return nil }
 
         let status = VTPixelTransferSessionTransferImage(session, from: source, to: dst)
+        if sdr, toneMapReport == nil {
+            let tag = { (buffer: CVPixelBuffer, key: CFString) in CVBufferCopyAttachment(buffer, key, nil) as? String ?? "-" }
+            toneMapReport = String(format: "%@/%@/%@ %dx%d -> %@/%@/%@ %dx%d status %d",
+                                   tag(source, kCVImageBufferColorPrimariesKey), tag(source, kCVImageBufferTransferFunctionKey),
+                                   tag(source, kCVImageBufferYCbCrMatrixKey), CVPixelBufferGetWidth(source), CVPixelBufferGetHeight(source),
+                                   tag(dst, kCVImageBufferColorPrimariesKey), tag(dst, kCVImageBufferTransferFunctionKey),
+                                   tag(dst, kCVImageBufferYCbCrMatrixKey), CVPixelBufferGetWidth(dst), CVPixelBufferGetHeight(dst), status)
+        }
         guard status == noErr else {
             NSLog("[VideoTranscoder] pixel transfer failed (%d)", status)
             return nil
@@ -561,9 +600,10 @@ final class VideoTranscoder {
         guard let encoder else { return nil }
         conversion = "swscale"
         let srcFormat = AVPixelFormat(rawValue: frame.pointee.format)
-        let dstFormat = encoder.pointee.pix_fmt
+        // The SDR path tone-maps in the transfer after this, so a deep source keeps its 10 bits until then.
+        let dstFormat = sdr && sourceDeep ? AV_PIX_FMT_P010LE : encoder.pointee.pix_fmt
         let deep = dstFormat == AV_PIX_FMT_P010LE
-        let cvFormat = Self.encoderCVFormat(encoder)
+        let cvFormat = deep ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 
         sws = sws_getCachedContext(sws, Int32(w), Int32(h), srcFormat,
                                    Int32(w), Int32(h), dstFormat,
@@ -598,6 +638,16 @@ final class VideoTranscoder {
             kCFAllocatorDefault, w, h, cvFormat,
             nil, 0, 2, &bases, &widths, &heights, &strides, nil, nil, nil, &pb)
         return status == kCVReturnSuccess ? pb : nil
+    }
+
+    /// The largest even size with the source's shape inside `maxWidth` x `maxHeight`, never larger than the source.
+    static func fittedSize(width: Int32, height: Int32, maxWidth: Int32, maxHeight: Int32) -> (width: Int32, height: Int32) {
+        guard width > 0, height > 0 else { return (width, height) }
+        var scale = 1.0
+        if maxWidth > 0 { scale = min(scale, Double(maxWidth) / Double(width)) }
+        if maxHeight > 0 { scale = min(scale, Double(maxHeight) / Double(height)) }
+        let even = { (value: Double) in max(2, Int32((value / 2).rounded(.down)) * 2) }
+        return (even(Double(width) * scale), even(Double(height) * scale))
     }
 
     /// The CoreVideo layout of the encoder's pixel format.

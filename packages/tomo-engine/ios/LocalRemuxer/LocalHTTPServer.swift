@@ -8,7 +8,9 @@
 //  127.0.0.1 requesting a playlist and a ~6s segment at a time, not a web load.
 //
 
+import Compression
 import Foundation
+import Libavutil
 import Network
 
 /// What the server hands back for a routed path.
@@ -300,6 +302,8 @@ final class LocalHTTPServer {
         let rangeHeader = head.components(separatedBy: "\r\n")
             .first { $0.lowercased().hasPrefix("range:") }?
             .split(separator: ":", maxSplits: 1).last.map { $0.trimmingCharacters(in: .whitespaces) }
+        let acceptsGzip = head.components(separatedBy: "\r\n")
+            .first { $0.lowercased().hasPrefix("accept-encoding:") }?.lowercased().contains("gzip") ?? false
 
         // Routing may block (waiting on a segment mid-write); do it off the
         // listener callback so other connections keep being accepted, and on our
@@ -316,7 +320,13 @@ final class LocalHTTPServer {
             }
             switch self.route(path) {
             case .data(let data, let contentType):
-                self.send(connection, status: "200 OK", contentType: contentType, body: data, onDone: traced(200, data.count))
+                // Authoring spec 10.1: playlists go out gzip-encoded to a client that takes it.
+                if acceptsGzip, contentType == "application/vnd.apple.mpegurl", let packed = Self.gzip(data) {
+                    self.send(connection, status: "200 OK", contentType: contentType, body: packed, extraHeaders: "Content-Encoding: gzip\r\n",
+                              onDone: traced(200, packed.count))
+                } else {
+                    self.send(connection, status: "200 OK", contentType: contentType, body: data, onDone: traced(200, data.count))
+                }
             case .file(let url, let contentType):
                 guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
                     NSLog("[LocalHTTPServer] 404 (unreadable) %@", path)
@@ -416,6 +426,26 @@ final class LocalHTTPServer {
             connection.cancel()
             onDone(firstBody, body.count)
         })
+    }
+
+    /// RFC 1952 gzip: the Compression framework's raw DEFLATE between a minimal header and the CRC-32/size trailer.
+    static func gzip(_ data: Data) -> Data? {
+        guard !data.isEmpty else { return nil }
+        let capacity = data.count + 1024
+        var deflated = Data(count: capacity)
+        let written = deflated.withUnsafeMutableBytes { out in
+            data.withUnsafeBytes { input in
+                compression_encode_buffer(out.bindMemory(to: UInt8.self).baseAddress!, capacity,
+                                          input.bindMemory(to: UInt8.self).baseAddress!, data.count, nil, COMPRESSION_ZLIB)
+            }
+        }
+        guard written > 0 else { return nil }
+        let crc = data.withUnsafeBytes { input in
+            av_crc(av_crc_get_table(AV_CRC_32_IEEE_LE), UInt32.max, input.bindMemory(to: UInt8.self).baseAddress, data.count) ^ UInt32.max
+        }
+        let size = UInt32(truncatingIfNeeded: data.count)
+        let little = { (value: UInt32) in Data((0..<4).map { UInt8((value >> (8 * $0)) & 0xFF) }) }
+        return Data([0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 0xFF]) + deflated.prefix(written) + little(crc) + little(size)
     }
 
     /// Apply a single "bytes=a-b" range. Returns nil to serve the whole body.

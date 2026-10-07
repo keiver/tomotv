@@ -874,16 +874,17 @@ describe("useVideoPlayback (mounted)", () => {
     it("scrubs the server stream on the source's keyframes: a frame provider's line in the shimmed master", async () => {
       mockNeedsTranscoding.mockReturnValue(true);
       mockCanRemux.mockResolvedValue(false);
-      const plan = { transcode: false, durationSeconds: 3600, bandwidth: 8_000_000, codecs: "avc1.640028", supplementalCodecs: "", width: 1920, height: 1080, videoRange: "SDR" };
+      const plan = { transcode: true, durationSeconds: 3600, bandwidth: 2_000_000, averageBandwidth: 1_000_000, codecs: "avc1.640028", width: 1920, height: 1080 };
       (serverIFramePlan as jest.Mock).mockResolvedValueOnce(plan);
       (startPlaylistShim as jest.Mock).mockResolvedValueOnce("http://127.0.0.1:9999/shim-1/master.m3u8");
 
       const { ref } = await mount({ videoId: "video-1" });
 
-      expect(startFrameProvider).toHaveBeenCalledWith(expect.any(String), "video-1", { transcode: false, durationSeconds: 3600 });
+      expect(startFrameProvider).toHaveBeenCalledWith(expect.any(String), "video-1", { transcode: true, durationSeconds: 3600 });
       expect(startPlaylistShim).toHaveBeenCalledWith("https://server/Videos/id/master.m3u8", 0, {
         sdrInit: false,
-        iframeStreamInf: '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=8000000,CODECS="avc1.640028",RESOLUTION=1920x1080,VIDEO-RANGE=SDR,URI="http://127.0.0.1:9999/frame-1/iframes.m3u8"',
+        iframeStreamInf:
+          '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=2000000,AVERAGE-BANDWIDTH=1000000,CODECS="avc1.640028",RESOLUTION=1920x1080,VIDEO-RANGE=SDR,URI="http://127.0.0.1:9999/frame-1/iframes.m3u8"',
       });
       expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/shim-1/master.m3u8");
     });
@@ -891,7 +892,7 @@ describe("useVideoPlayback (mounted)", () => {
     it("plays the server stream as it is when no frame provider starts", async () => {
       mockNeedsTranscoding.mockReturnValue(true);
       mockCanRemux.mockResolvedValue(false);
-      (serverIFramePlan as jest.Mock).mockResolvedValueOnce({ transcode: true, durationSeconds: 3600, bandwidth: 1, codecs: "", supplementalCodecs: "", width: 0, height: 0, videoRange: "" });
+      (serverIFramePlan as jest.Mock).mockResolvedValueOnce({ transcode: true, durationSeconds: 3600, bandwidth: 1, averageBandwidth: 1, codecs: "avc1.640028", width: 0, height: 0 });
       (startFrameProvider as jest.Mock).mockResolvedValueOnce(null);
 
       const { ref } = await mount({ videoId: "video-1" });

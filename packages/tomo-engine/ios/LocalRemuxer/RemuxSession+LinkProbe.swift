@@ -300,7 +300,11 @@ extension RemuxSession {
         playerAheadAt = Date()
         if sinceSeek { playerBufferFilled = false }
         if aheadSeconds >= Self.copyReservoirSeconds { playerBufferFilled = true }
+        // Startup is over once AVPlayer holds its reservoir: only then do I-frame samples read the source.
+        let sample = playerBufferFilled && !iframeSamplingStarted && iframeTranscodes != nil
+        if sample { iframeSamplingStarted = true }
         stateLock.unlock()
+        if sample { startIFrameSampling() }
     }
 
     /// The copy's declared bandwidth while the copy may be served, else 0: the app keeps its

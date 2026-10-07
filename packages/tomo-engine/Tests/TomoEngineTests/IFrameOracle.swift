@@ -76,11 +76,35 @@ enum IFrameOracle {
         return String(decoding: initSegment[(stsd.upperBound + 12)..<(stsd.upperBound + 16)], as: UTF8.self)
     }
 
+    /// A one-sample fragment's tfdt and sample duration in seconds of the init's track clock, and its mfhd sequence.
+    static func timing(initSegment: Data, fragment: Data) -> (tfdt: Double, duration: Double, sequence: UInt32)? {
+        func u32(_ data: Data, _ at: Int) -> UInt32 {
+            (UInt32(data[at]) << 24) | (UInt32(data[at + 1]) << 16) | (UInt32(data[at + 2]) << 8) | UInt32(data[at + 3])
+        }
+        func body(_ type: String, _ data: Data) -> Int? { data.range(of: Data(type.utf8))?.upperBound }
+        guard let mdhd = body("mdhd", initSegment), let mfhd = body("mfhd", fragment), let tfdt = body("tfdt", fragment),
+              let tfhd = body("tfhd", fragment), let trun = body("trun", fragment) else { return nil }
+        let timescale = Double(u32(initSegment, mdhd + (initSegment[mdhd] == 1 ? 20 : 12)))
+        let decode = fragment[tfdt] == 1 ? (UInt64(u32(fragment, tfdt + 4)) << 32) | UInt64(u32(fragment, tfdt + 8)) : UInt64(u32(fragment, tfdt + 4))
+        let tfhdFlags = u32(fragment, tfhd) & 0xFF_FFFF
+        let trunFlags = u32(fragment, trun) & 0xFF_FFFF
+        let duration: UInt32
+        if trunFlags & 0x100 != 0 {
+            duration = u32(fragment, trun + 8 + (trunFlags & 0x01 != 0 ? 4 : 0) + (trunFlags & 0x04 != 0 ? 4 : 0))
+        } else if tfhdFlags & 0x08 != 0 {
+            duration = u32(fragment, tfhd + 8 + (tfhdFlags & 0x01 != 0 ? 8 : 0) + (tfhdFlags & 0x02 != 0 ? 4 : 0))
+        } else {
+            return nil
+        }
+        return (Double(decode) / timescale, Double(duration) / timescale, u32(fragment, mfhd + 4))
+    }
+
     struct Entry {
         let start: Double
         let duration: Double
         let status: Int
         let bytes: Int
+        let timing: (tfdt: Double, duration: Double, sequence: UInt32)?
         /// What the init and this fragment alone demux and decode to.
         let packets: Int
         let frames: [DecodedFrame]
@@ -109,6 +133,7 @@ enum IFrameOracle {
             let fragment = try XCTUnwrap(get(try XCTUnwrap(URL(string: listed.uri, relativeTo: playlistUrl))), "no answer for \(listed.uri)")
             let decoded = fragment.status == 200 ? decodeEntry(initSegment: initResponse.body, fragment: fragment.body) : nil
             return Entry(start: listed.start, duration: listed.duration, status: fragment.status, bytes: fragment.body.count,
+                         timing: fragment.status == 200 ? timing(initSegment: initResponse.body, fragment: fragment.body) : nil,
                          packets: decoded?.packets ?? 0, frames: decoded?.frames ?? [])
         }
         return Rendition(streamInf: streamInf, initSegment: initResponse.body, entries: made)

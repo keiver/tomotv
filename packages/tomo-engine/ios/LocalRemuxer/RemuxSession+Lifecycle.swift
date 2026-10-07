@@ -26,9 +26,11 @@ extension RemuxSession {
         stateLock.lock()
         cancelled = true
         let frames = frameGrabber
+        let iframeFrames = iframeGrabber
         let iframes = iframeStore
         stateLock.unlock()
         frames?.stop()
+        iframeFrames?.stop()
         iframes?.stop()
         // Before the stop requests, so no request of this session reaches the server after them.
         transfers.close()
@@ -198,14 +200,23 @@ extension RemuxSession {
         return grabber.chapterFrame(atMilliseconds: ms)
     }
 
-    /// The session's one grabber: chapter frames and the I-frame rendition share its source context.
-    /// Caller holds stateLock.
+    /// The chapter frames' grabber. Caller holds stateLock.
     func frameGrabberLocked() -> FrameGrabber {
         if let frameGrabber { return frameGrabber }
         let pooled = ChapterFramePool.directory(for: config.itemId)
         let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root, epoch: poolEpoch)
         grabber.byteMap = byteMap
         frameGrabber = grabber
+        return grabber
+    }
+
+    /// The I-frame rendition's grabber: one queue each, since a chapter frame decodes several 4K
+    /// pictures while an I-frame request copies one keyframe. Caller holds stateLock.
+    func iframeGrabberLocked() -> FrameGrabber {
+        if let iframeGrabber { return iframeGrabber }
+        let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: dir, pool: nil, epoch: poolEpoch)
+        grabber.byteMap = byteMap
+        iframeGrabber = grabber
         return grabber
     }
 

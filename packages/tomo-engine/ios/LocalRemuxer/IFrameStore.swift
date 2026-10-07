@@ -21,6 +21,8 @@ final class IFrameStore {
     let entries: IFrameEntries
     private let produce: (Int) -> Data?
     private let timescale: Double
+    /// Each entry's sample duration (IFrameEntries.sampleDurations), patched into a fragment moved onto it.
+    private let sampleDurations: [Double]
     private let cond = NSCondition()
     private var cache: [Int: Data] = [:]
     private var order: [Int] = []
@@ -28,15 +30,18 @@ final class IFrameStore {
     /// Requests waiting per entry, and the entries in request order, newest last.
     private var waiting: [Int: Int] = [:]
     private var pending: [Int] = []
+    private var prefetching = Set<Int>()
+    private var madeBytes: [Int: Int] = [:]
     private var failures = 0
     private var pausedUntil = Date.distantPast
     private var working = false
     private var stopped = false
 
     /// `timescale` is the track's tfdt units per second; `produce` makes entry k's fragment, or nil.
-    init(entries: IFrameEntries, timescale: Double, produce: @escaping (Int) -> Data?) {
+    init(entries: IFrameEntries, timescale: Double, sampleDurations: [Double] = [], produce: @escaping (Int) -> Data?) {
         self.entries = entries
         self.timescale = timescale
+        self.sampleDurations = sampleDurations
         self.produce = produce
     }
 
@@ -82,6 +87,21 @@ final class IFrameStore {
         return data
     }
 
+    /// Makes these entries ahead of any request, after every waiting one: the master's measured sample.
+    func prefetch(_ ks: [Int]) {
+        cond.lock()
+        defer { cond.unlock() }
+        prefetching.formUnion(ks.filter { entries.stamps.indices.contains($0) && cache[$0] == nil })
+        startWorkerLocked()
+    }
+
+    /// Bytes of every fragment made so far, by entry, kept after the cache lets the fragment go.
+    func madeSizes() -> [Int: Int] {
+        cond.lock()
+        defer { cond.unlock() }
+        return madeBytes
+    }
+
     private func startWorkerLocked() {
         guard !working, !stopped else { return }
         working = true
@@ -94,7 +114,8 @@ final class IFrameStore {
             working = false
             cond.unlock()
         }
-        while !stopped, let k = pending.last(where: { cache[$0] == nil && (waiting[$0] ?? 0) > 0 }) {
+        while !stopped, let k = pending.last(where: { cache[$0] == nil && (waiting[$0] ?? 0) > 0 })
+                ?? prefetching.sorted().first(where: { cache[$0] == nil }) {
             if Date() < pausedUntil {
                 cond.wait(until: pausedUntil)
                 continue
@@ -102,8 +123,10 @@ final class IFrameStore {
             cond.unlock()
             let data = produce(k)
             cond.lock()
+            prefetching.remove(k)
             if let data {
                 failures = 0
+                madeBytes[k] = data.count
                 cache[k] = data
                 order.append(k)
                 cachedBytes += data.count
@@ -125,11 +148,56 @@ final class IFrameStore {
         order.append(k)
     }
 
-    /// A made fragment moved onto another entry's time: only its tfdt changes.
+    /// A made fragment moved onto another entry: its tfdt, sample duration and sequence become that entry's.
     private func restamp(_ data: Data, from: Int, to: Int) -> Data {
         let delta = Int64(((entries.stamps[to] - entries.stamps[from]) * timescale).rounded())
         var body = data.subdata(in: RemuxSession.stypBox.count..<data.count)
         RemuxSession.patchTfdtToAbsolute(in: &body, offsets: [1: delta])
+        if sampleDurations.indices.contains(to) {
+            Self.patchFragment(&body, sequence: UInt32(clamping: to + 1), sampleDuration: UInt32(clamping: Int64((sampleDurations[to] * timescale).rounded())))
+        }
         return RemuxSession.stypBox + body
+    }
+
+    /// Rewrites a one-sample fragment's mfhd sequence number and its sample duration, wherever
+    /// tfhd or trun carries it (spec 7.3: tfdt plus duration meets the next fragment's tfdt).
+    static func patchFragment(_ data: inout Data, sequence: UInt32, sampleDuration: UInt32) {
+        func u32(_ at: Int) -> UInt32 {
+            (UInt32(data[at]) << 24) | (UInt32(data[at + 1]) << 16) | (UInt32(data[at + 2]) << 8) | UInt32(data[at + 3])
+        }
+        func put(_ value: UInt32, at: Int) {
+            for i in 0..<4 { data[at + i] = UInt8((value >> (8 * (3 - i))) & 0xFF) }
+        }
+        func type(_ at: Int) -> String { String(decoding: data[(at + 4)..<(at + 8)], as: UTF8.self) }
+        func children(_ start: Int, _ end: Int, _ visit: (Int, Int) -> Void) {
+            var at = start
+            while at + 8 <= end {
+                let size = Int(u32(at))
+                guard size >= 8, at + size <= end else { return }
+                visit(at, size)
+                at += size
+            }
+        }
+        children(0, data.count) { moof, moofSize in
+            guard type(moof) == "moof" else { return }
+            children(moof + 8, moof + moofSize) { box, size in
+                if type(box) == "mfhd", size >= 16 { put(sequence, at: box + 12) }
+                guard type(box) == "traf" else { return }
+                children(box + 8, box + size) { child, childSize in
+                    guard childSize >= 12 else { return }
+                    let flags = u32(child + 8) & 0xFF_FFFF
+                    if type(child) == "tfhd", flags & 0x08 != 0 {
+                        // track_ID, then base_data_offset (8) and sample_description_index (4) when present.
+                        let at = child + 16 + (flags & 0x01 != 0 ? 8 : 0) + (flags & 0x02 != 0 ? 4 : 0)
+                        if at + 4 <= child + childSize { put(sampleDuration, at: at) }
+                    }
+                    if type(child) == "trun", flags & 0x100 != 0 {
+                        // sample_count, then data_offset and first_sample_flags when present.
+                        let at = child + 16 + (flags & 0x01 != 0 ? 4 : 0) + (flags & 0x04 != 0 ? 4 : 0)
+                        if at + 4 <= child + childSize { put(sampleDuration, at: at) }
+                    }
+                }
+            }
+        }
     }
 }

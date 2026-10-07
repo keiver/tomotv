@@ -134,12 +134,20 @@ final class RemuxSession {
     /// Chapter keyframes for the tvOS info panel, from a context of their own; the
     /// pipeline never sees them. Built on the first request, under the lock.
     var frameGrabber: FrameGrabber?
+    /// The I-frame rendition's own context, so a chapter frame's decode never holds an I-frame request.
+    var iframeGrabber: FrameGrabber?
     /// The source's keyframes when its demuxer indexes them; the I-frame rendition falls back to the segment grid.
     var keyframeIndex: KeyframeIndex?
-    /// Whether the I-frame rendition transcodes its frames, once the pipeline has planned the video; nil
-    /// leaves the rendition out (live, audio-only, or a source not yet open).
+    /// Whether the I-frame rendition encodes SDR frames (else copies keyframes), once the pipeline has
+    /// planned the video; nil leaves the rendition out (live, audio-only, Dolby Vision without a base layer).
     var iframeTranscodes: Bool?
-    /// Serves the I-frame rendition through `frameGrabber`. Built on the first request, under the lock.
+    /// The source file's size, bounding a run of Matroska keyframes by the clusters they sit in.
+    var iframeFileSize: Int64 = 0
+    /// The I-frame rendition's picture: the source's when copied, fitted to 1920x1080 when encoded.
+    var iframeSize: (width: Int32, height: Int32)?
+    /// The I-frame sample has started (once per session, after startup).
+    var iframeSamplingStarted = false
+    /// Serves the I-frame rendition through `iframeGrabber`. Built on the first request, under the lock.
     var iframeStore: IFrameStore?
     /// Byte positions of an MPEG-TS input's times, shared by the pipeline's seeks and the grabber's.
     var byteMap: ByteTimeMap?
@@ -204,6 +212,8 @@ final class RemuxSession {
     var playerAheadSeconds: Double?
     var playerAheadAt = Date.distantPast
     var playerBufferFilled = false
+    /// The I-frame playlist's entries, fixed at its first request (under stateLock).
+    var iframeTimelineEntries: IFrameEntries?
     /// The copy's declared BANDWIDTH once a master names it (under stateLock).
     var announcedCopyBandwidth: Int?
     /// The pull since the pipeline started, for the app's pre-flight (progress(); under stateLock).

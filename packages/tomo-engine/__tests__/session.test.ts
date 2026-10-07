@@ -37,7 +37,7 @@ import {
   stopLocalRemux,
   stopPlaylistShim,
 } from "../src/session";
-import { iframeStreamInf } from "../src/tags";
+import { fittedIFrameSize, iframeStreamInf } from "../src/tags";
 
 const MASTER = "http://127.0.0.1:52000/tok123/master.m3u8";
 const warn = jest.fn();
@@ -262,23 +262,29 @@ describe("stopping a shim or a provider", () => {
 });
 
 describe("iframeStreamInf", () => {
-  const line = { bandwidth: 5_616_603.4, codecs: "avc1.640028", supplementalCodecs: "", width: 1920, height: 1080, videoRange: "SDR" };
+  const line = { bandwidth: 2_000_000.4, averageBandwidth: 1_000_000, codecs: "avc1.640028", width: 1920, height: 800 };
 
-  it("names the provider's playlist with what the frames are", () => {
+  it("names the provider's playlist with its peak, mean, codec, size and SDR range", () => {
     expect(iframeStreamInf("http://127.0.0.1:9/frame-a/", line)).toBe(
-      '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=5616603,CODECS="avc1.640028",RESOLUTION=1920x1080,VIDEO-RANGE=SDR,URI="http://127.0.0.1:9/frame-a/iframes.m3u8"',
+      '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=2000000,AVERAGE-BANDWIDTH=1000000,CODECS="avc1.640028",RESOLUTION=1920x800,VIDEO-RANGE=SDR,URI="http://127.0.0.1:9/frame-a/iframes.m3u8"',
     );
   });
 
-  it("leaves CODECS and SUPPLEMENTAL-CODECS out for re-encoded frames, and an unknown size", () => {
-    expect(iframeStreamInf("http://h/", { ...line, codecs: "", supplementalCodecs: "dvh1.08.06/db1p", width: 0, videoRange: "" })).toBe(
-      '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=5616603,URI="http://h/iframes.m3u8"',
+  it("never declares a mean above the peak, and leaves an unknown size out", () => {
+    expect(iframeStreamInf("http://h/", { ...line, averageBandwidth: 9_000_000, width: 0 })).toBe(
+      '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=2000000,AVERAGE-BANDWIDTH=2000000,CODECS="avc1.640028",VIDEO-RANGE=SDR,URI="http://h/iframes.m3u8"',
     );
   });
+});
 
-  it("carries Dolby Vision beside its CODECS", () => {
-    expect(iframeStreamInf("http://h/", { ...line, codecs: "hvc1.2.4.L150.B0", supplementalCodecs: "dvh1.08.06/db1p", videoRange: "PQ" })).toContain(
-      'CODECS="hvc1.2.4.L150.B0",SUPPLEMENTAL-CODECS="dvh1.08.06/db1p",RESOLUTION=1920x1080,VIDEO-RANGE=PQ',
-    );
+describe("fittedIFrameSize", () => {
+  it("fits inside 1920x1080 on both axes, even, keeping the shape", () => {
+    expect(fittedIFrameSize(3840, 1600)).toEqual({ width: 1920, height: 800 });
+    expect(fittedIFrameSize(3840, 2160)).toEqual({ width: 1920, height: 1080 });
+    expect(fittedIFrameSize(1440, 1440)).toEqual({ width: 1080, height: 1080 });
+  });
+
+  it("never enlarges a smaller picture", () => {
+    expect(fittedIFrameSize(960, 720)).toEqual({ width: 960, height: 720 });
   });
 });

@@ -46,8 +46,14 @@ final class ProviderIFrames {
             ?? IFrameEntries.grid(starts: Array(stride(from: 0, to: durationSeconds, by: RemuxSession.segmentDuration)), anchorSeconds: timeline.startSeconds)
         guard let entries else { return nil }
         let transcode = self.transcode
-        let made = IFrameStore(entries: entries, timescale: Double(track.timescale.den) / Double(max(1, track.timescale.num))) { [weak grabber] k in
-            grabber?.iframeFragment(sourceSeconds: entries.sources[k], exact: entries.exact, stampSeconds: entries.stamps[k], transcode: transcode)
+        let samples = entries.sampleDurations(totalSeconds: durationSeconds)
+        let extinfs = entries.durations(totalSeconds: durationSeconds)
+        let made = IFrameStore(entries: entries, timescale: Double(track.timescale.den) / Double(max(1, track.timescale.num)),
+                               sampleDurations: samples) { [weak grabber] k in
+            // The line declares the encoder's cap as its peak (tags.ts), held per entry here.
+            let cap = transcode ? Int(Double(FrameGrabber.iframePeakBitrate) * extinfs[k] / 8) : Int.max
+            return grabber?.iframeFragment(sourceSeconds: entries.sources[k], exact: entries.exact, stampSeconds: entries.stamps[k],
+                                           sampleSeconds: samples[k], sequence: k + 1, capBytes: cap, transcode: transcode)
         }
         lock.lock()
         defer { lock.unlock() }
@@ -61,7 +67,8 @@ final class ProviderIFrames {
         switch name {
         case "iframes.m3u8":
             guard let store = storeForRequest() else { return .notFound }
-            return .data(Data(store.entries.playlist(durationSeconds: durationSeconds).utf8), contentType: "application/vnd.apple.mpegurl")
+            let playlist = store.entries.playlist(durationSeconds: durationSeconds, targetDuration: Int(RemuxSession.segmentDuration))
+            return .data(Data(playlist.utf8), contentType: "application/vnd.apple.mpegurl")
         case "if-init.mp4":
             guard storeForRequest() != nil, let track = grabber.iframeInit(transcode: transcode) else { return .notFound }
             return .data(track.initSegment, contentType: "video/mp4")

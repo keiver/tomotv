@@ -445,7 +445,7 @@ extension RemuxSession {
                 return "#EXTM3U\n"
             }
             out += originals
-            out += iframeStreamInf(bandwidth: peaks.original)
+            out += iframeStreamInf(copyPeak: peaks.original)
             if copyOnly { NSLog("[LocalRemuxer] Slipstream: master starts on the copy alone (link %.1f Mb/s)", (testLinkBps ?? wireLinkBps ?? 0) / 1_000_000) }
             reportTier(listed: false, copyOnly: copyOnly)
             return out
@@ -519,7 +519,7 @@ extension RemuxSession {
             return "#EXTM3U\n"
         }
         // The frames come off the source, so a ladder that lost it lists none.
-        if copyFirst { out += iframeStreamInf(bandwidth: peaks.original) }
+        if copyFirst { out += iframeStreamInf(copyPeak: peaks.original) }
         stateLock.lock()
         copyOnlyMaster = false
         ladderListed = startRung != nil

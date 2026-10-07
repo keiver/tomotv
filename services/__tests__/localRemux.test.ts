@@ -1496,40 +1496,28 @@ describe("subtitleRenditions", () => {
 });
 
 describe("serverIFramePlan", () => {
-  it("copies the keyframes this device decodes and declares them as the engine would", async () => {
+  it("encodes every source's frames as the SDR rendition, declared by the cap the provider holds them under", async () => {
     const plan = await serverIFramePlan(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 8_000_000 }],
         streams: [{ Type: "Video", Codec: "h264", Profile: "High", Level: 31, Width: 1920, Height: 1080, VideoRangeType: "SDR", Index: 0 }],
       } as Partial<JellyfinVideoItem>),
     );
-    expect(plan).toEqual({ transcode: false, durationSeconds: 3600, bandwidth: 8_000_000, codecs: "avc1.64001F", supplementalCodecs: "", width: 1920, height: 1080, videoRange: "SDR" });
+    expect(plan).toEqual({ transcode: true, durationSeconds: 3600, bandwidth: 2_000_000, averageBandwidth: 1_000_000, codecs: "avc1.640028", width: 1920, height: 1080 });
   });
 
-  it("re-encodes what this device cannot decode, and states no CODECS it cannot know", async () => {
-    const plan = await serverIFramePlan(item({ streams: [{ Type: "Video", Codec: "mpeg2video", Width: 720, Height: 576, VideoRangeType: "SDR", Index: 0 }] }));
-    expect(plan).toMatchObject({ transcode: true, codecs: "", videoRange: "SDR" });
-  });
-
-  it("flattens a re-encoded HDR source to SDR on a device without Main 10", async () => {
-    // The decode answer is cached per process: a fresh module sees this device's.
-    jest.resetModules();
-    mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: false, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
-    const plan = await (require("../localRemux") as typeof import("../localRemux")).serverIFramePlan(
-      item({ streams: [{ Type: "Video", Codec: "hevc", Profile: "Main 10", Level: 150, BitDepth: 10, VideoRangeType: "HDR10", Index: 0 }] }),
-    );
-    expect(plan).toMatchObject({ transcode: true, codecs: "", videoRange: "SDR" });
-  });
-
-  it("keeps the engine's HDR fallback tag where no measured tag exists, and falls back to the video's own rate", async () => {
+  it("fits a 4K HDR source inside 1920x1080", async () => {
     const plan = await serverIFramePlan(
-      item({
-        MediaSources: [{ Id: "item1", Container: "mkv" }],
-        RunTimeTicks: HOUR_IN_TICKS,
-        streams: [{ Type: "Video", Codec: "hevc", Profile: "Rext", Level: 153, BitDepth: 10, BitRate: 30_000_000, VideoRangeType: "HDR10", Index: 0 }],
-      } as Partial<JellyfinVideoItem>),
+      item({ streams: [{ Type: "Video", Codec: "hevc", Profile: "Main 10", Level: 153, BitDepth: 10, Width: 3840, Height: 1600, VideoRangeType: "HDR10", Index: 0 }] }),
     );
-    expect(plan).toMatchObject({ transcode: false, codecs: "hvc1.2.4.L153.B0", videoRange: "PQ", bandwidth: 30_000_000 });
+    expect(plan).toMatchObject({ transcode: true, codecs: "avc1.640028", width: 1920, height: 800 });
+  });
+
+  it("is null for Dolby Vision profile 5, which has no HDR10 base layer to tone-map", async () => {
+    const plan = await serverIFramePlan(
+      item({ streams: [{ Type: "Video", Codec: "hevc", Profile: "Main 10", Level: 150, DvProfile: 5, DvBlSignalCompatibilityId: 0, Width: 3840, Height: 2160, Index: 0 }] }),
+    );
+    expect(plan).toBeNull();
   });
 
   it("is null for an item with nothing to scrub", async () => {

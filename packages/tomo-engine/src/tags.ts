@@ -103,26 +103,35 @@ export function dolbyVisionSupplementalCodecs(video: VideoStreamInfo | undefined
   return `dvh1.08.${String(level).padStart(2, "0")}/${brand}`;
 }
 
-/** What a server master's I-frame line says about the frames a frame provider serves. */
+/**
+ * The encoded I-frame rendition a frame provider serves (FrameGrabber+IFrames.swift): SDR H.264 High 4.0
+ * inside 1920x1080, each frame held under the peak over its EXTINF, encoded at the target.
+ */
+export const IFRAME_ENCODED = { codecs: "avc1.640028", maxWidth: 1920, maxHeight: 1080, peakBitrate: 2_000_000, targetBitrate: 1_000_000 };
+
+/** The largest even size with the source's shape inside the box, never larger than the source (VideoTranscoder.fittedSize). */
+export function fittedIFrameSize(width: number, height: number): { width: number; height: number } {
+  if (!(width > 0 && height > 0)) return { width, height };
+  const scale = Math.min(1, IFRAME_ENCODED.maxWidth / width, IFRAME_ENCODED.maxHeight / height);
+  const even = (value: number) => Math.max(2, Math.floor(value / 2) * 2);
+  return { width: even(width * scale), height: even(height * scale) };
+}
+
+/** What a server master's I-frame line says about the frames a frame provider serves. Always SDR. */
 export interface IFrameLine {
-  /** The source's peak, an upper bound on any keyframe over the gap to the next. */
+  /** RFC 8216 peak and the mean of the rendition's frames. */
   bandwidth: number;
-  /** Empty for re-encoded frames, whose tag only exists once the encoder runs. */
+  averageBandwidth: number;
   codecs: string;
-  supplementalCodecs: string;
   width: number;
   height: number;
-  videoRange: string;
 }
 
 /** The EXT-X-I-FRAME-STREAM-INF line naming a frame provider's rendition, from its base URL. */
 export function iframeStreamInf(base: string, line: IFrameLine): string {
-  let out = `#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=${Math.max(1, Math.round(line.bandwidth))}`;
-  if (line.codecs) {
-    out += `,CODECS="${line.codecs}"`;
-    if (line.supplementalCodecs) out += `,SUPPLEMENTAL-CODECS="${line.supplementalCodecs}"`;
-  }
+  const peak = Math.max(1, Math.round(line.bandwidth));
+  let out = `#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=${peak},AVERAGE-BANDWIDTH=${Math.min(peak, Math.max(1, Math.round(line.averageBandwidth)))}`;
+  out += `,CODECS="${line.codecs}"`;
   if (line.width > 0 && line.height > 0) out += `,RESOLUTION=${line.width}x${line.height}`;
-  if (line.videoRange) out += `,VIDEO-RANGE=${line.videoRange}`;
-  return `${out},URI="${base}iframes.m3u8"`;
+  return `${out},VIDEO-RANGE=SDR,URI="${base}iframes.m3u8"`;
 }

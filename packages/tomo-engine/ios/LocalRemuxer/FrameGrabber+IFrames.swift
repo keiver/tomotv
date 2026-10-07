@@ -3,8 +3,8 @@
 //  TomoTV
 //
 //  The I-frame rendition's fragments, read through the grabber's own context: the keyframe
-//  copied when playback copies the video, else decoded and re-encoded the way the transcode
-//  lane encodes it, so the rendition and the playing track share codec and size.
+//  copied for an SDR source of at most 1080p, else decoded and encoded as SDR H.264 inside
+//  1920x1080 (authoring spec 6.16 and Apple's own trick play ladders).
 //
 
 import Foundation
@@ -20,6 +20,10 @@ private let SWIFT_AVSEEK_FLAG_BYTE: Int32 = 2
 final class IFrameTrack {
     let initSegment: Data
     let transcoded: Bool
+    /// The encoder's parameter sets the init carries: a fragment from an encoder with others is not used.
+    var encoderExtradata: Data?
+    /// The first encoded fragment's tone-map report has gone to the log.
+    var toneMapLogged = false
     /// The track timescale movenc picked, which tfdt is counted in.
     let timescale: AVRational
     /// Profile 7 packets are restated as 8.1, as the copy restates them.
@@ -42,6 +46,19 @@ extension FrameGrabber {
     static let iframeDeadline: TimeInterval = 10
     /// A grid entry's keyframe may sit this far past its time and still stand for it.
     static let gridTolerance = 0.5
+    /// The encoded rendition's box, and the bit rates it aims at and never exceeds, at one frame a second.
+    static let iframeMaxSize: (width: Int32, height: Int32) = (1920, 1080)
+    static let iframeTargetBitrate = 1_000_000
+    static let iframePeakBitrate = 2_000_000
+    /// Codec of the encoded rendition: VideoTranscoder pins H.264 High 4.0 for SDR output.
+    static let iframeEncodedCodecs = "avc1.640028"
+
+    /// An encoder for one I-frame of the rendition at `bitrate`.
+    static func iframeEncoder(_ stream: UnsafeMutablePointer<AVStream>, bitrate: Int) -> VideoTranscoder? {
+        VideoTranscoder(inputStream: stream, keyframeInterval: 1, maxBitrate: Int64(bitrate), maxHeight: iframeMaxSize.height,
+                        maxFrameRate: 1, hardwareDecode: DeviceDecode.canDecode(stream: stream), quiet: true,
+                        maxWidth: iframeMaxSize.width, sdr: true)
+    }
 
     /// The rendition's init segment, built on the first request.
     func iframeInit(transcode: Bool) -> IFrameTrack? {
@@ -59,13 +76,16 @@ extension FrameGrabber {
         }
     }
 
-    /// The keyframe for an entry as a styp-led fragment stamped at `stampSeconds` on the session
-    /// timeline. `exact` takes the keyframe at `sourceSeconds`; a grid entry takes the first the
-    /// seek lands on, the keyframe at or before its time.
-    func iframeFragment(sourceSeconds: Double, exact: Bool, stampSeconds: Double, transcode: Bool) -> Data? {
+    /// The keyframe for entry `sequence - 1` as a styp-led fragment stamped at `stampSeconds` on the
+    /// session timeline, lasting `sampleSeconds`. `exact` takes the keyframe at `sourceSeconds`; a grid
+    /// entry takes the first the seek lands on, the keyframe at or before its time. An encoded
+    /// fragment over `capBytes` is encoded again at lower rates.
+    func iframeFragment(sourceSeconds: Double, exact: Bool, stampSeconds: Double, sampleSeconds: Double, sequence: Int,
+                        capBytes: Int, transcode: Bool) -> Data? {
         queue.sync {
             guard !isCancelled, let track = iframeTrackOnQueue(transcode: transcode), let input,
                   let stream = input.pointee.streams[Int(videoIndex)] else { return nil }
+            let started = Date()
             let target = Int64((sourceSeconds / av_q2d(stream.pointee.time_base)).rounded())
             let found: UnsafeMutablePointer<AVPacket>?
             if !exact, let byteMap {
@@ -78,7 +98,13 @@ extension FrameGrabber {
             guard let packet = found else { return nil }
             var owned: UnsafeMutablePointer<AVPacket>? = packet
             defer { av_packet_free(&owned) }
-            return iframeFragment(packet, stream: stream, track: track, stampSeconds: stampSeconds)
+            let read = Date().timeIntervalSince(started)
+            let made = iframeFragment(packet, stream: stream, track: track, stampSeconds: stampSeconds, sampleSeconds: sampleSeconds,
+                                      sequence: sequence, capBytes: capBytes)
+            NSLog("[IFrames] kf%ld %@ %ld bytes%@ in %.0f ms, read %.0f ms%@", sequence - 1, track.transcoded ? "encoded" : "copied",
+                  made?.data.count ?? 0, track.transcoded ? " (cap \(capBytes))" : "", Date().timeIntervalSince(started) * 1000, read * 1000,
+                  made?.note ?? " failed")
+            return made?.data
         }
     }
 
@@ -86,11 +112,13 @@ extension FrameGrabber {
         if let iframeTrack { return iframeTrack }
         guard !isCancelled, open(), let input, let stream = input.pointee.streams[Int(videoIndex)], let par = stream.pointee.codecpar else { return nil }
         if transcode {
-            guard let transcoder = VideoTranscoder(inputStream: stream, keyframeInterval: 1, quiet: true),
+            guard let transcoder = Self.iframeEncoder(stream, bitrate: Self.iframeTargetBitrate),
                   let params = transcoder.encoderParameters,
                   let built = iframeMux(params: params, timeBase: transcoder.encoderTimeBase, dolbyVision: false, extradata: nil, packet: nil) else { return nil }
-            iframeTrack = IFrameTrack(initSegment: built.header, transcoded: true, timescale: built.timescale, dolbyVision: nil, liftedExtradata: nil)
-            return iframeTrack
+            let track = IFrameTrack(initSegment: built.header, transcoded: true, timescale: built.timescale, dolbyVision: nil, liftedExtradata: nil)
+            track.encoderExtradata = Self.extradata(params)
+            iframeTrack = track
+            return track
         }
         // An Annex-B source (TS) carries its parameter sets on keyframes, not in the stream header.
         var lifted: Data?
@@ -158,34 +186,64 @@ extension FrameGrabber {
         return nil
     }
 
-    private func iframeFragment(_ packet: UnsafeMutablePointer<AVPacket>, stream: UnsafeMutablePointer<AVStream>,
-                                track: IFrameTrack, stampSeconds: Double) -> Data? {
-        let built: (header: Data, fragment: Data?, timescale: AVRational)?
-        if track.transcoded {
-            guard let transcoder = VideoTranscoder(inputStream: stream, keyframeInterval: 1, quiet: true),
-                  let params = transcoder.encoderParameters else { return nil }
-            // The decoder places nothing before zero; the fragment is restamped after the mux.
-            packet.pointee.pts = 0
-            packet.pointee.dts = 0
+    /// The fragment and a note for the log: the encode's rate, retries and first tone-map report.
+    private func iframeFragment(_ packet: UnsafeMutablePointer<AVPacket>, stream: UnsafeMutablePointer<AVStream>, track: IFrameTrack,
+                                stampSeconds: Double, sampleSeconds: Double, sequence: Int, capBytes: Int) -> (data: Data, note: String)? {
+        guard track.transcoded else {
+            if let dolbyVision = track.dolbyVision, !dolbyVision.rewrite(packet: packet) { return nil }
+            let built = iframeMux(params: stream.pointee.codecpar, timeBase: stream.pointee.time_base, dolbyVision: track.dolbyVision != nil,
+                                  extradata: track.liftedExtradata, packet: packet)
+            return finished(built, stampSeconds: stampSeconds, sampleSeconds: sampleSeconds, sequence: sequence).map { ($0, "") }
+        }
+        // The decoder places nothing before zero; the fragment is restamped after the mux.
+        packet.pointee.pts = 0
+        packet.pointee.dts = 0
+        var note = ""
+        var best: Data?
+        for bitrate in [Self.iframeTargetBitrate, Self.iframeTargetBitrate / 2, Self.iframeTargetBitrate / 4] {
+            guard let transcoder = Self.iframeEncoder(stream, bitrate: bitrate), let params = transcoder.encoderParameters else { break }
+            // Slices name the init's parameter sets; an encoder that writes others cannot stand in.
+            guard Self.extradata(params) == track.encoderExtradata else {
+                note += ", parameter sets differ at \(bitrate) b/s"
+                break
+            }
             transcoder.forceKeyframeNext()
             var encoded: UnsafeMutablePointer<AVPacket>?
             let keep: (UnsafeMutablePointer<AVPacket>) -> Void = { if encoded == nil { encoded = av_packet_clone($0) } }
             transcoder.process(packet: packet, emit: keep)
             transcoder.process(packet: nil, emit: keep)
-            guard !transcoder.failed, let encoded else { return nil }
+            if !track.toneMapLogged, let report = transcoder.toneMapReport {
+                track.toneMapLogged = true
+                note += ", transfer \(report)"
+            }
+            guard !transcoder.failed, let encoded else { break }
             var owned: UnsafeMutablePointer<AVPacket>? = encoded
             defer { av_packet_free(&owned) }
-            built = iframeMux(params: params, timeBase: transcoder.encoderTimeBase, dolbyVision: false, extradata: nil, packet: encoded)
-        } else {
-            if let dolbyVision = track.dolbyVision, !dolbyVision.rewrite(packet: packet) { return nil }
-            built = iframeMux(params: stream.pointee.codecpar, timeBase: stream.pointee.time_base, dolbyVision: track.dolbyVision != nil,
-                              extradata: track.liftedExtradata, packet: packet)
+            guard let data = finished(iframeMux(params: params, timeBase: transcoder.encoderTimeBase, dolbyVision: false, extradata: nil, packet: encoded),
+                                      stampSeconds: stampSeconds, sampleSeconds: sampleSeconds, sequence: sequence) else { break }
+            note += ", \(data.count) bytes at \(bitrate) b/s"
+            if best.map({ data.count < $0.count }) ?? true { best = data }
+            if data.count <= capBytes { break }
         }
+        return best.map { ($0, note) }
+    }
+
+    /// The muxed fragment from its first moof, stamped at `stampSeconds`, lasting `sampleSeconds`, numbered `sequence`.
+    private func finished(_ built: (header: Data, fragment: Data?, timescale: AVRational)?, stampSeconds: Double, sampleSeconds: Double,
+                          sequence: Int) -> Data? {
         guard let built, var body = built.fragment, let start = RemuxSession.firstFragmentOffset(in: body) else { return nil }
         if start > 0 { body = body.subdata(in: start..<body.count) }
         let stamp = Int64((stampSeconds / av_q2d(built.timescale)).rounded())
         if stamp != 0 { RemuxSession.patchTfdtToAbsolute(in: &body, offsets: [1: stamp]) }
+        let ticks = UInt32(clamping: Int64((sampleSeconds / av_q2d(built.timescale)).rounded()))
+        IFrameStore.patchFragment(&body, sequence: UInt32(clamping: sequence), sampleDuration: max(1, ticks))
         return RemuxSession.stypBox + body
+    }
+
+    /// The parameter sets an encoder or stream carries.
+    static func extradata(_ params: UnsafeMutablePointer<AVCodecParameters>) -> Data? {
+        guard let bytes = params.pointee.extradata, params.pointee.extradata_size > 0 else { return nil }
+        return Data(bytes: bytes, count: Int(params.pointee.extradata_size))
     }
 
     private final class Sink {

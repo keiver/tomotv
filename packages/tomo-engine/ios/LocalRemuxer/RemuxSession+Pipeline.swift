@@ -1258,6 +1258,7 @@ extension RemuxSession {
             stateLock.lock()
             if byteMap == nil { byteMap = map }
             frameGrabber?.byteMap = byteMap
+            iframeGrabber?.byteMap = byteMap
             stateLock.unlock()
         }
 
@@ -1502,9 +1503,17 @@ extension RemuxSession {
         }
         if !config.isLive, hasVideo {
             let keyframes = KeyframeIndex.read(input: input, streamIndex: videoIn)
+            let par = input.pointee.streams[Int(videoIn)]?.pointee.codecpar
+            let encodes = par.flatMap { Self.iframeEncodes(par: $0, playbackTranscodes: primaryVideoTranscoder != nil) }
+            let box = FrameGrabber.iframeMaxSize
+            let size = par.map { encodes == true
+                ? VideoTranscoder.fittedSize(width: $0.pointee.width, height: $0.pointee.height, maxWidth: box.width, maxHeight: box.height)
+                : ($0.pointee.width, $0.pointee.height) }
             stateLock.lock()
             if keyframeIndex == nil { keyframeIndex = keyframes }
-            iframeTranscodes = primaryVideoTranscoder != nil
+            iframeTranscodes = encodes
+            iframeSize = size
+            iframeFileSize = input.pointee.pb.map { avio_size($0) } ?? 0
             stateLock.unlock()
         }
 
