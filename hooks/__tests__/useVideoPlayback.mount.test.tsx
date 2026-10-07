@@ -9,7 +9,7 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
-import { DIRECT_STALL_DEADLINE_MS, ENGINE_SEGMENT_DEADLINE_MS, LIVE_STALL_DEADLINE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
+import { DIRECT_STALL_DEADLINE_MS, ENGINE_SEGMENT_DEADLINE_MS, LIVE_STALL_DEADLINE_MS, SUBTITLE_CAPTURE_SETTLE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
 import { AUTOMATIC_RETRY_BUDGET_MS } from "@/hooks/videoPlayback/errorRecovery";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import {
@@ -458,6 +458,126 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
       await request(4, Date.now() + 5);
       expect(ref.current!.get().activeImageSubtitleStream).toBe(4);
+    });
+
+    describe("a VOD image track picked with no report", () => {
+      const { saveSubtitlePreference, nextPreference } = jest.requireMock("@/services/subtitlePreference") as { saveSubtitlePreference: jest.Mock; nextPreference: jest.Mock };
+      const rendition = (index: number, name: string, language: string, isImage: boolean, isDefault = false) => ({
+        index,
+        name,
+        language,
+        vttUrl: "",
+        localVtt: "",
+        isDefault,
+        isForced: false,
+        isImage,
+        isEngineText: !isImage,
+      });
+      const srt = rendition(8, "English SRT", "eng", false);
+      const tracks = (selected: number | null) =>
+        ["Deutsch", "English", "English SRT", "Unknown"].map((title, index) => ({ index, title, language: ["deu", "eng", "eng", ""][index], type: "text/vtt", selected: index === selected }));
+      const settle = () => act(async () => jest.advanceTimersByTime(SUBTITLE_CAPTURE_SETTLE_MS));
+
+      /** Plays the engine lane to stable playback; `openingRequest` is the default's request before then, if any. */
+      async function playing(openingRequest: boolean) {
+        mockCanRemux.mockResolvedValue(true);
+        (sessionSubtitleRenditions as jest.Mock).mockReturnValue([rendition(4, "Deutsch", "deu", true, true), rendition(6, "English", "eng", true), srt, rendition(9, "Unknown", "", true)]);
+        nextPreference.mockImplementation(jest.requireActual("@/services/subtitlePreference").nextPreference);
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        const request = (streamIndex: number) =>
+          act(async () => {
+            mockSubtitleRequest!({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", streamIndex, requestedAt: Date.now() + 1 });
+          });
+        const report = (selected: number | null) =>
+          act(async () => {
+            ref.current!.get().videoCallbacks.onTextTracks({ textTracks: tracks(selected) } as never);
+          });
+        await report(0);
+        if (openingRequest) await request(4);
+        jest.useFakeTimers();
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onLoad({ duration: 120 } as never);
+          jest.advanceTimersByTime(101);
+        });
+        await act(async () => {
+          ref.current!.get().play();
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
+          jest.advanceTimersByTime(501);
+        });
+        return { ref, renderer, request, report };
+      }
+
+      afterEach(() => {
+        nextPreference.mockImplementation((p: unknown) => p);
+        jest.useRealTimers();
+      });
+
+      it("holds and remembers it once it settles, and ignores the opening track's repeat requests", async () => {
+        const { ref, renderer, request } = await playing(true);
+        await request(4);
+        await settle();
+        expect(saveSubtitlePreference).not.toHaveBeenCalled();
+
+        await request(6);
+        expect(ref.current!.get().activeImageSubtitleStream).toBe(6);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "1" });
+        expect(saveSubtitlePreference).toHaveBeenCalledWith({ kind: "language", tag: "eng" });
+        await request(6);
+        await settle();
+        expect(saveSubtitlePreference).toHaveBeenCalledTimes(1);
+        await act(async () => renderer.unmount());
+      });
+
+      it("never stores the file's own default when its first request lands after playback is stable", async () => {
+        const { ref, renderer, request } = await playing(false);
+        await request(4);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "0" });
+        expect(saveSubtitlePreference).not.toHaveBeenCalled();
+        await act(async () => renderer.unmount());
+      });
+
+      it("never stores an image track whose language is unknown", async () => {
+        const { ref, renderer, request } = await playing(true);
+        await request(9);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "3" });
+        expect(saveSubtitlePreference).not.toHaveBeenCalled();
+        await act(async () => renderer.unmount());
+      });
+
+      it("lets the later image pick win over a text pick still settling", async () => {
+        const { ref, renderer, request, report } = await playing(true);
+        (resolveSubtitlePick as jest.Mock).mockReturnValueOnce({ imageStreamIndex: null, rendition: srt, ordinal: 2 });
+        (observedFromReport as jest.Mock).mockReturnValueOnce({ kind: "language", tag: "eng-srt" });
+        await report(2);
+        await request(6);
+        await settle();
+        expect(saveSubtitlePreference.mock.calls).toEqual([[{ kind: "language", tag: "eng" }]]);
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "1" });
+        await act(async () => renderer.unmount());
+      });
+
+      it("weighs a return to an image track after a text pick", async () => {
+        const { ref, renderer, request, report } = await playing(true);
+        await request(6);
+        await settle();
+        (resolveSubtitlePick as jest.Mock).mockReturnValueOnce({ imageStreamIndex: null, rendition: srt, ordinal: 2 });
+        (observedFromReport as jest.Mock).mockReturnValueOnce({ kind: "language", tag: "fra" });
+        await report(2);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "2" });
+        await request(6);
+        expect(ref.current!.get().activeImageSubtitleStream).toBe(6);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "1" });
+        expect(saveSubtitlePreference.mock.calls.at(-1)).toEqual([{ kind: "language", tag: "eng" }]);
+        await act(async () => renderer.unmount());
+      });
     });
 
     it.each(["auto", "fixed"])("does not apply a %s ladder cap when video transcoding is forbidden", async (mode) => {

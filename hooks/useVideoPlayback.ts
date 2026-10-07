@@ -2513,6 +2513,81 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // The subtitle rendition AVPlayer last asked the engine for; breaks a tie between same-language twins.
   const lastSubtitleRequestRef = useRef<number | null>(null);
 
+  /**
+   * Records a selection the player reported, or an image rendition it asked the engine for, and once playback
+   * is stable and it moved, settles it into the held prop and the account's preference. `rendition` undefined
+   * leaves the viewer's stream alone; `repeatExtends` lets an unchanged re-report restart a pending settle.
+   */
+  const weighSubtitleChoice = useCallback(
+    (observed: ObservedSubtitle, ordinal: number | null, rendition: number | null | undefined, repeatExtends: boolean) => {
+      lastObservedSubtitleRef.current = observed;
+      lastObservedOrdinalRef.current = ordinal;
+      const observedKey = `${observed.kind === "language" ? observed.tag : "off"}:${lastObservedOrdinalRef.current ?? "-"}`;
+      const selectionMoved = observedKey !== lastObservedKeyRef.current;
+      lastObservedKeyRef.current = observedKey;
+
+      // Starting an item moves the selection by itself: the preference is applied,
+      // the auto-seek re-resolves the legible group, the engine restarts its
+      // pipeline. A viewer cannot reach the picker before playback is stable, so
+      // anything earlier is the player talking to itself.
+      if (!hasStablePlaybackRef.current) return;
+      if (rendition !== undefined && !isLiveRef.current) {
+        if (observed.kind === "off") viewerSubtitleStreamRef.current = null;
+        else if (rendition !== null) viewerSubtitleStreamRef.current = rendition;
+      }
+      // Variant switches and track reloads re-report an unchanged selection; only a move is a choice to weigh.
+      if (!selectionMoved && (!repeatExtends || !subtitleCaptureTimerRef.current)) return;
+
+      // And let it settle. Each report restarts the timer, so a burst only ever
+      // persists what it lands on. Device log 2026-08-13: a track was reported
+      // selected at 19:51:59.415 and deselected at .432 with nobody touching the
+      // remote; storing at once would have recorded "off".
+      if (subtitleCaptureTimerRef.current) clearTimeout(subtitleCaptureTimerRef.current);
+      const attempt = requestIdRef.current;
+      const generation = streamGenerationRef.current;
+      subtitleCaptureTimerRef.current = setTimeout(() => {
+        subtitleCaptureTimerRef.current = null;
+        const settled = lastObservedSubtitleRef.current;
+        if (!isMountedRef.current || requestIdRef.current !== attempt || streamGenerationRef.current !== generation || !settled) return;
+
+        // Held for the rest of the item: RNV re-applies this prop on foreground, and the item-start language would undo the pick.
+        const ordinal = lastObservedOrdinalRef.current;
+        const held = settled.kind === "off" ? ({ type: "disabled" } as SelectedTrack) : ordinal === null ? null : ({ type: "index", value: String(ordinal) } as SelectedTrack);
+        if (held) setSelectedSubtitleTrack((current) => (current?.type === held.type && current?.value === held.value ? current : held));
+
+        const previous = getSubtitlePreferenceSync();
+
+        if (classifyObservedChoice({ settled, autoApplied: autoAppliedDefaultRef.current }) === "echoOfDefault") {
+          logger.debug("📝 Subtitles: not storing the file's own default", { service: "useVideoPlayback", preference: autoAppliedDefaultRef.current });
+          return;
+        }
+        autoAppliedDefaultRef.current = null;
+
+        const updated = nextPreference({ observed: settled, previous, viewerDriven: true, trustworthy: true });
+        if (!updated) {
+          // Silence here is what made this impossible to diagnose from a device
+          // log: the capture was running and deciding nothing, which reads exactly
+          // like the capture never running.
+          logger.debug("📝 Subtitles: nothing to remember", {
+            service: "useVideoPlayback",
+            observed: settled.kind === "language" ? settled.tag : settled.kind,
+            stored: previous.kind === "language" ? previous.tag : previous.kind,
+          });
+          return;
+        }
+
+        logger.info("📝 Subtitles: remembering the viewer's choice", {
+          service: "useVideoPlayback",
+          preference: updated.kind === "language" ? updated.tag : updated.kind,
+        });
+        // The account's settings only; the prop is held by ordinal above. Jellyfin's spelling is stored.
+        const jellyfinTags = (videoDetails?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle").map((stream) => stream.Language || "");
+        void saveSubtitlePreference(updated.kind === "language" ? { kind: "language", tag: reportedSpelling(updated.tag, jellyfinTags) ?? updated.tag } : updated);
+      }, SUBTITLE_CAPTURE_SETTLE_MS);
+    },
+    [videoDetails],
+  );
+
   const onTextTracks = useCallback(
     (data: { textTracks: TextTrack[] }) => {
       if (!isMountedRef.current) return;
@@ -2612,76 +2687,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         renditionLanguage: pick.rendition?.language,
       });
       if (!observed) return;
-      lastObservedSubtitleRef.current = observed;
       const selectedNow = data.textTracks.filter((track) => track.selected === true);
-      lastObservedOrdinalRef.current = selectedNow.length === 1 ? selectedNow[0].index : null;
-      const observedKey = `${observed.kind === "language" ? observed.tag : "off"}:${lastObservedOrdinalRef.current ?? "-"}`;
-      const selectionMoved = observedKey !== lastObservedKeyRef.current;
-      lastObservedKeyRef.current = observedKey;
-
-      // Starting an item moves the selection by itself: the preference is applied,
-      // the auto-seek re-resolves the legible group, the engine restarts its
-      // pipeline. A viewer cannot reach the picker before playback is stable, so
-      // anything earlier is the player talking to itself.
-      if (!hasStablePlaybackRef.current) return;
-      if (!freshManifest && !isLiveRef.current) {
-        if (observed.kind === "off") viewerSubtitleStreamRef.current = null;
-        else if (pick.rendition) viewerSubtitleStreamRef.current = pick.rendition.index;
-      }
-      // Variant switches and track reloads re-report an unchanged selection; only a move is a choice to weigh.
-      if (!selectionMoved && !subtitleCaptureTimerRef.current) return;
-
-      // And let it settle. Each report restarts the timer, so a burst only ever
-      // persists what it lands on. Device log 2026-08-13: a track was reported
-      // selected at 19:51:59.415 and deselected at .432 with nobody touching the
-      // remote, and an earlier version of this stored that as "off".
-      if (subtitleCaptureTimerRef.current) clearTimeout(subtitleCaptureTimerRef.current);
-      const attempt = requestIdRef.current;
-      const generation = streamGenerationRef.current;
-      subtitleCaptureTimerRef.current = setTimeout(() => {
-        subtitleCaptureTimerRef.current = null;
-        const settled = lastObservedSubtitleRef.current;
-        if (!isMountedRef.current || requestIdRef.current !== attempt || streamGenerationRef.current !== generation || !settled) return;
-
-        // Held for the rest of the item: RNV re-applies this prop on foreground, and the item-start language would undo the pick.
-        const ordinal = lastObservedOrdinalRef.current;
-        const held = settled.kind === "off" ? ({ type: "disabled" } as SelectedTrack) : ordinal === null ? null : ({ type: "index", value: String(ordinal) } as SelectedTrack);
-        if (held) setSelectedSubtitleTrack((current) => (current?.type === held.type && current?.value === held.value ? current : held));
-
-        const previous = getSubtitlePreferenceSync();
-
-        if (classifyObservedChoice({ settled, autoApplied: autoAppliedDefaultRef.current }) === "echoOfDefault") {
-          logger.debug("📝 Subtitles: not storing the file's own default", { service: "useVideoPlayback", preference: autoAppliedDefaultRef.current });
-          return;
-        }
-        autoAppliedDefaultRef.current = null;
-
-        const updated = nextPreference({ observed: settled, previous, viewerDriven: true, trustworthy: true });
-        if (!updated) {
-          // Silence here is what made this impossible to diagnose from a device
-          // log: the capture was running and deciding nothing, which reads exactly
-          // like the capture never running.
-          logger.debug("📝 Subtitles: nothing to remember", {
-            service: "useVideoPlayback",
-            observed: settled.kind === "language" ? settled.tag : settled.kind,
-            stored: previous.kind === "language" ? previous.tag : previous.kind,
-          });
-          return;
-        }
-
-        logger.info("📝 Subtitles: remembering the viewer's choice", {
-          service: "useVideoPlayback",
-          preference: updated.kind === "language" ? updated.tag : updated.kind,
-        });
-        // The account's settings only; the prop is held by ordinal above. Jellyfin's spelling is stored.
-        const jellyfinTags = (videoDetails?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle").map((stream) => stream.Language || "");
-        void saveSubtitlePreference(updated.kind === "language" ? { kind: "language", tag: reportedSpelling(updated.tag, jellyfinTags) ?? updated.tag } : updated);
-      }, SUBTITLE_CAPTURE_SETTLE_MS);
+      weighSubtitleChoice(observed, selectedNow.length === 1 ? selectedNow[0].index : null, freshManifest ? undefined : (pick.rendition?.index ?? null), true);
       // videoId: a held file's bitmap tracks are looked up per item, and a queue advance
       // reuses this callback.
     },
-    [videoId, videoDetails],
+    [videoId, weighSubtitleChoice],
   );
+
+  // The VOD request path below holds no render scope; it reaches the capture through this.
+  const weighSubtitleChoiceRef = useRef(weighSubtitleChoice);
+  useEffect(() => {
+    weighSubtitleChoiceRef.current = weighSubtitleChoice;
+  }, [weighSubtitleChoice]);
 
   // Live: selecting a rendition changes no track, so no report above fires for it (measured). AVPlayer
   // asks the engine for a rendition's playlist only while it is selected, so that request is the pick.
@@ -2704,8 +2722,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     return subscribeSubtitleRequests(token, ({ streamIndex, requestedAt }) => {
       if (!isMountedRef.current || localRemuxTokenRef.current !== token) return;
       lastSubtitleRequestRef.current = streamIndex;
-      if (requestedAt > lastSubtitleDeselectAtRef.current && subtitleRenditionsRef.current.some((rendition) => rendition.index === streamIndex && rendition.isImage)) {
+      const image = requestedAt > lastSubtitleDeselectAtRef.current ? subtitleRenditionsRef.current.find((rendition) => rendition.index === streamIndex && rendition.isImage) : undefined;
+      if (image) {
         setActiveImageSubtitleStream((current) => (current === streamIndex ? current : streamIndex));
+        // No report follows the pick, so it is weighed as the report it stands for; repeat segment requests do not move it.
+        const position = subtitleSelectionForReport(streamIndex, subtitleRenditionsRef.current, reportedTextTracksRef.current);
+        const ordinal = position?.type === "index" ? Number(position.value) : null;
+        const reportedLanguage = reportedTextTracksRef.current.find((track) => track.index === ordinal)?.language;
+        weighSubtitleChoiceRef.current({ kind: "language", tag: image.language || reportedLanguage || "und" }, ordinal, streamIndex, false);
         return;
       }
       const reported = reportedTextTracksRef.current;
