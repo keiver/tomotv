@@ -1,5 +1,6 @@
 import { LinkLadder } from "@/components/settings/LinkLadder";
 import { ListRow } from "@/components/settings/ListRow";
+import { hasMoreBelow, lastVisibleRow } from "@/components/settings/MoreBelowHint";
 import { QualityMark } from "@/components/settings/QualityMark";
 import { QUALITY_ROWS, qualityLabel, qualityRowSubtitle } from "@/components/settings/qualityRows";
 import { SectionFooter } from "@/components/settings/SectionFooter";
@@ -29,12 +30,27 @@ export function StreamingQuality({ availableHeight }: { availableHeight?: number
 
   // Reserve the heading and footer before fitting whole rows into the TV's remaining space.
   // Keep at least one row reachable; the page can still scroll at unusually large text sizes.
-  const visibleRows = IS_TV ? Math.max(1, Math.floor(((availableHeight ?? 0) - headingHeight - footerHeight - settingsStyles.section.marginBottom) / rowHeight)) : 5;
+  const visibleRows = IS_TV ? Math.max(1, Math.min(4, Math.floor(((availableHeight ?? 0) - headingHeight - footerHeight - settingsStyles.section.marginBottom) / rowHeight))) : 5;
   const listHeight = Math.min(QUALITY_ROWS.length, visibleRows) * rowHeight;
+  const [scrollY, setScrollY] = useState(0);
+  const lastVisible = lastVisibleRow(scrollY, listHeight, rowHeight);
+  const moreBelow = hasMoreBelow(scrollY, listHeight, QUALITY_ROWS.length * rowHeight);
 
+  // The chevron hints at rows past the window only while focus is elsewhere.
+  // Counted, so a row's focus landing before its neighbour's blur cannot clear it.
+  const [focusedRows, setFocusedRows] = useState(0);
+  const focusedInside = focusedRows > 0;
+  const enter = useCallback(() => setFocusedRows((n) => n + 1), []);
+  const leave = useCallback(() => setFocusedRows((n) => Math.max(0, n - 1)), []);
   // Pin the ends so tvOS can move focus out of the nested list.
-  const pinListToTop = useCallback(() => listRef.current?.scrollTo({ y: 0, animated: false }), []);
-  const pinListToBottom = useCallback(() => listRef.current?.scrollToEnd({ animated: false }), []);
+  const pinListToTop = useCallback(() => {
+    enter();
+    listRef.current?.scrollTo({ y: 0, animated: false });
+  }, [enter]);
+  const pinListToBottom = useCallback(() => {
+    enter();
+    listRef.current?.scrollToEnd({ animated: false });
+  }, [enter]);
 
   // The saved preset, then the link: the remembered reading first, a fresh probe when it is stale.
   useEffect(() => {
@@ -82,6 +98,8 @@ export function StreamingQuality({ availableHeight }: { availableHeight?: number
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
           focusable={false}
+          scrollEventThrottle={16}
+          onScroll={IS_TV ? ({ nativeEvent }) => setScrollY(nativeEvent.contentOffset.y) : undefined}
           // All presets use the same pinned lines. Measuring includes Dynamic Type scaling.
           onContentSizeChange={(_, height) => {
             if (height > 0) setRowHeight(height / QUALITY_ROWS.length);
@@ -101,8 +119,10 @@ export function StreamingQuality({ availableHeight }: { availableHeight?: number
                 // list in Settings that fills a row before anyone touches it.
                 trailingIcon={selected ? tick : undefined}
                 onPress={() => handleQualityChange(value)}
-                onFocus={IS_TV ? (index === 0 ? pinListToTop : index === QUALITY_ROWS.length - 1 ? pinListToBottom : undefined) : undefined}
+                onFocus={IS_TV ? (index === 0 ? pinListToTop : index === QUALITY_ROWS.length - 1 ? pinListToBottom : enter) : undefined}
+                onBlur={IS_TV ? leave : undefined}
                 isFirst={index === 0}
+                moreBelow={IS_TV && index === lastVisible ? !focusedInside && moreBelow : undefined}
                 accessibilityLabel={qualityLabel(value)}
                 accessibilityHint={subtitle}
                 accessibilityState={{ selected }}

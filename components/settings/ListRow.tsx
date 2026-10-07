@@ -1,5 +1,6 @@
 import { AccountPill } from "@/components/settings/AccountPill";
 import { GLYPH_INK, glyphSize, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
+import { MoreBelowHint } from "@/components/settings/MoreBelowHint";
 import { goldRowShadow, IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, SUBTITLE_GAP, SUBTITLE_LINE_HEIGHT, settingsStyles, useSettingsAccentStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -57,6 +58,8 @@ interface ListRowProps {
   nested?: boolean;
   /** Trailing mark in the row's accent ink rather than grey: a play or pause that acts, not a chevron that points. */
   trailingAccent?: boolean;
+  /** The last visible row of a capped list: true shows the more-below chevron in its bottom padding. */
+  moreBelow?: boolean;
   /** Replaces the trailing mark with a spinner. Does not disable the row. */
   isLoading?: boolean;
   /** Wears the gold at rest (the quality list's current preset). Focus on it shows a step lighter. */
@@ -133,6 +136,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     trailingAction,
     nested = false,
     trailingAccent = false,
+    moreBelow,
     isLoading = false,
     selected = false,
     tone = "default",
@@ -267,6 +271,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                 )}
               </View>
             ) : null}
+            {moreBelow !== undefined ? <MoreBelowHint visible={moreBelow} color={onGold ? palette.ink : COLORS.TEXT_TERTIARY} /> : null}
           </View>
         );
       }}
