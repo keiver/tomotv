@@ -50,7 +50,7 @@ final class ProviderIFrames {
         let extinfs = entries.durations(totalSeconds: durationSeconds)
         let made = IFrameStore(entries: entries, timescale: Double(track.timescale.den) / Double(max(1, track.timescale.num)),
                                sampleDurations: samples) { [weak grabber] k in
-            // The line declares the encoder's cap as its peak (tags.ts), held per entry here.
+            // The line declares the encoder's cap as its peak (tags.ts), re-encoded toward per entry here.
             let cap = transcode ? Int(Double(FrameGrabber.iframePeakBitrate) * extinfs[k] / 8) : Int.max
             return grabber?.iframeFragment(sourceSeconds: entries.sources[k], exact: entries.exact, stampSeconds: entries.stamps[k],
                                            sampleSeconds: samples[k], sequence: k + 1, capBytes: cap, transcode: transcode)

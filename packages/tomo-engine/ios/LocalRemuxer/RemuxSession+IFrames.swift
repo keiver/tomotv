@@ -169,7 +169,7 @@ extension RemuxSession {
         let extinfs = entries.durations(totalSeconds: config.durationSeconds)
         let store = IFrameStore(entries: entries, timescale: Double(track.timescale.den) / Double(max(1, track.timescale.num)),
                                 sampleDurations: samples) { [weak grabber] k in
-            // An encoded entry stays under the declared peak over its own EXTINF, so no run exceeds it.
+            // An encoded entry is re-encoded at lower rates while over the declared peak across its own EXTINF.
             let cap = transcode ? Int(Double(FrameGrabber.iframePeakBitrate) * extinfs[k] / 8) : Int.max
             return grabber?.iframeFragment(sourceSeconds: entries.sources[k], exact: entries.exact, stampSeconds: entries.stamps[k],
                                            sampleSeconds: samples[k], sequence: k + 1, capBytes: cap, transcode: transcode)

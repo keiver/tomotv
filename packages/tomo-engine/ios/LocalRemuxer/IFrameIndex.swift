@@ -150,16 +150,14 @@ struct IFrameBandwidth: Equatable {
     /// styp, moof and the mdat header around each keyframe (measured on a served fragment).
     static let fragmentOverhead = 136
 
-    /// From the fragment bytes of every entry: the peak no single entry exceeds (what Shaka and Bento4
-    /// declare), never below RFC 8216's run of 0.5 to 1.5 target durations, and the mean over all of them.
+    /// From the fragment bytes of every entry: the peak of any run lasting 0.5 to 1.5 target durations
+    /// (RFC 8216 4.1, spec 6.9), and the mean over all of them.
     static func measured(bytes: [Int], durations: [Double], targetDuration: Double) -> IFrameBandwidth? {
         guard bytes.count == durations.count, !bytes.isEmpty else { return nil }
         var rates = SegmentBitrates()
         for (i, size) in bytes.enumerated() { rates.record(index: i, bytes: size, duration: durations[i]) }
         let total = durations.reduce(0, +)
-        let single = zip(bytes, durations).map { $1 > 0 ? Double($0) * 8 / $1 : 0 }.max() ?? 0
-        guard total > 0, single > 0 else { return nil }
-        let peak = max(Int(ceil(single)), rates.peak(targetDuration: targetDuration) ?? 0)
+        guard total > 0, let peak = rates.peak(targetDuration: targetDuration) else { return nil }
         let average = Int(ceil(Double(bytes.reduce(0, +)) * 8 / total))
         return IFrameBandwidth(peak: peak, average: min(average, peak))
     }

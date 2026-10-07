@@ -46,7 +46,7 @@ extension FrameGrabber {
     static let iframeDeadline: TimeInterval = 10
     /// A grid entry's keyframe may sit this far past its time and still stand for it.
     static let gridTolerance = 0.5
-    /// The encoded rendition's box, and the bit rates it aims at and never exceeds, at one frame a second.
+    /// The encoded rendition's box, the bit rate it aims at, and the cap each frame is re-encoded toward, at one frame a second.
     static let iframeMaxSize: (width: Int32, height: Int32) = (1920, 1080)
     static let iframeTargetBitrate = 1_000_000
     static let iframePeakBitrate = 2_000_000

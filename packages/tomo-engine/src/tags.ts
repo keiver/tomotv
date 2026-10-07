@@ -105,7 +105,7 @@ export function dolbyVisionSupplementalCodecs(video: VideoStreamInfo | undefined
 
 /**
  * The encoded I-frame rendition a frame provider serves (FrameGrabber+IFrames.swift): SDR H.264 High 4.0
- * inside 1920x1080, each frame held under the peak over its EXTINF, encoded at the target.
+ * inside 1920x1080, encoded at the target, each frame re-encoded at lower rates while over the peak across its EXTINF.
  */
 export const IFRAME_ENCODED = { codecs: "avc1.640028", maxWidth: 1920, maxHeight: 1080, peakBitrate: 2_000_000, targetBitrate: 1_000_000 };
 

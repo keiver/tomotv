@@ -216,6 +216,14 @@ final class IFramePlaylistTests: XCTestCase {
         XCTAssertEqual(rates.average, 1_400_000)
     }
 
+    /// Spec 6.9: a large frame counts only inside a run of 0.5 to 1.5 target durations, never alone.
+    func testALoneLargeEntryIsAveragedOverTheShortestRun() throws {
+        let rates = try XCTUnwrap(IFrameBandwidth.measured(bytes: [400_000] + Array(repeating: 100_000, count: 19),
+                                                           durations: Array(repeating: 1, count: 20), targetDuration: 12))
+        // The densest run is the 6 s from entry 0: (400 KB + 5 x 100 KB) x 8 / 6.
+        XCTAssertEqual(rates.peak, 1_200_000)
+    }
+
     /// A copied Matroska keyframe sits in its entry's cluster, so a run is bounded by the bytes its clusters span.
     func testClusterPositionsBoundACopiedRun() throws {
         let peak = try XCTUnwrap(IFrameBandwidth.positionBound(positions: [0, 1_000_000, 1_000_000, 3_000_000], fileSize: 4_000_000,
@@ -466,7 +474,8 @@ final class IFramePlaylistTests: XCTestCase {
             XCTAssertEqual(IFrameOracle.attribute("VIDEO-RANGE", in: rendition.streamInf), "SDR")
             for (k, entry) in rendition.entries.enumerated() {
                 XCTAssertEqual(entry.status, 200, "entry \(k)")
-                XCTAssertLessThanOrEqual(Double(entry.bytes * 8) / entry.duration, bandwidth, "entry \(k)")
+                // A bound holds each entry; MP4's measured peak is the windowed one, checked below.
+                if fixture.extension_ != "mp4" { XCTAssertLessThanOrEqual(Double(entry.bytes * 8) / entry.duration, bandwidth, "entry \(k)") }
                 // Spec 7.3: tfdt plus the sample's duration is the next fragment's tfdt; mfhd counts the entries.
                 let timing = try XCTUnwrap(entry.timing, "entry \(k) has no tfdt/duration/mfhd")
                 XCTAssertEqual(timing.sequence, UInt32(k + 1), "entry \(k)")
@@ -490,10 +499,26 @@ final class IFramePlaylistTests: XCTestCase {
             }
             if fixture.extension_ == "mp4" {
                 // MP4 keeps every keyframe's size: the declared peak and mean are the served bytes' own (appendix: within 10%).
-                let served = try XCTUnwrap(IFrameBandwidth.measured(bytes: rendition.entries.map(\.bytes), durations: rendition.entries.map(\.duration),
-                                                                    targetDuration: Double(session.sessionTargetDuration())))
-                XCTAssertEqual(bandwidth, Double(served.peak), accuracy: Double(served.peak) * 0.1, rendition.streamInf)
-                XCTAssertEqual(average, Double(served.average), accuracy: Double(served.average) * 0.1, rendition.streamInf)
+                let master = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/master.m3u8"))
+                let playlist = try XCTUnwrap(IFrameOracle.get(try XCTUnwrap(URL(string: "iframes.m3u8", relativeTo: master))), "no I-frame playlist")
+                let target = try XCTUnwrap(IFrameOracle.line("#EXT-X-TARGETDURATION:", in: String(decoding: playlist.body, as: UTF8.self))
+                    .flatMap { Double($0.dropFirst("#EXT-X-TARGETDURATION:".count)) }, "no TARGETDURATION")
+                // RFC 8216 4.1: the densest contiguous run lasting 0.5 to 1.5 target durations.
+                var peak = 0.0
+                for i in rendition.entries.indices {
+                    var bytes = 0
+                    var seconds = 0.0
+                    for entry in rendition.entries[i...] {
+                        bytes += entry.bytes
+                        seconds += entry.duration
+                        if seconds > target * 1.5 { break }
+                        if seconds >= target * 0.5 { peak = max(peak, Double(bytes * 8) / seconds) }
+                    }
+                }
+                let mean = Double(rendition.entries.map(\.bytes).reduce(0, +) * 8) / rendition.entries.map(\.duration).reduce(0, +)
+                XCTAssertGreaterThan(peak, 0, "no run of 0.5 to 1.5 x \(target) s")
+                XCTAssertEqual(bandwidth, peak, accuracy: peak * 0.1, rendition.streamInf)
+                XCTAssertEqual(average, mean, accuracy: mean * 0.1, rendition.streamInf)
             }
             guard fixture.hdr else { return }
             // Authoring spec 6.16: the HDR source scrubs on SDR H.264 inside 1920x1080, its init tagged BT.709.

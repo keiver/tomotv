@@ -299,9 +299,9 @@ play needs none: AVKit makes thumbnails from a progressive file itself
 - MPEG-TS seeks by byte estimate on a `ByteTimeMap` (ends, landings, keyframes
   read): 1 to 3 seeks against FFmpeg's 5 to 17 requests (4.2 to 14.1 s) on a
   30 min recording over HTTPS.
-- BANDWIDTH is RFC 8216's peak over the I-frame EXTINFs, never under the frames:
-  exact from MP4/AVI index sizes, else a bound (an encoded frame is held under
-  2 Mb/s over its EXTINF; a Matroska copy is bounded by its cluster positions).
+- BANDWIDTH is RFC 8216's windowed peak over the I-frame EXTINFs (spec 6.9):
+  exact from MP4/AVI index sizes, else a bound (an encoded frame is re-encoded
+  toward 2 Mb/s over its EXTINF; a Matroska copy is bounded by its cluster positions).
   AVERAGE-BANDWIDTH is the mean of 8 entries sampled once AVPlayer holds its
   reservoir, kept per item across launches and declared from the item's next
   master; until then it equals BANDWIDTH. Under the line this replaced (a 4K PQ
