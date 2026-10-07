@@ -90,9 +90,12 @@ function pushThemes(owner: PreferencesOwner, changes: readonly CardTheme[], remo
   );
 }
 
-/** The server's list could not be read for the account the load began under; its waiting themes still can. */
+/** The server's list could not be read for the account the load began under: its waiting themes, and those this load uploaded. */
 export class ThemesUnavailableError extends Error {
-  constructor(readonly pending: CardTheme[]) {
+  constructor(
+    readonly pending: CardTheme[],
+    readonly uploaded: CardTheme[] = [],
+  ) {
     super("The saved themes could not be read from the server.");
   }
 }
@@ -102,10 +105,12 @@ export class ThemesUnavailableError extends Error {
 export async function loadThemes(): Promise<SavedThemes> {
   const { key: account, owner } = await currentAccount();
   const pending = readPending(account);
+  let uploaded: CardTheme[] = [];
   if (pending.length > 0) {
     try {
       await pushThemes(owner, pending);
       writePending(account, []);
+      uploaded = pending;
     } catch (error) {
       logger.warn("Pending themes did not reach the server", error, { service: "ThemeLibrary" });
     }
@@ -114,7 +119,7 @@ export async function loadThemes(): Promise<SavedThemes> {
   try {
     prefs = await getDisplayPreferences(THEMES_ID, THEMES_CLIENT, owner);
   } catch {
-    throw new ThemesUnavailableError(readPending(account));
+    throw new ThemesUnavailableError(readPending(account), uploaded);
   }
   // A waiting save is newer than the server's copy of the same theme.
   const waiting = readPending(account);

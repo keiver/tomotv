@@ -139,6 +139,17 @@ describe("saveTheme", () => {
     expect((failed as InstanceType<typeof ThemesUnavailableError>).pending).toEqual([ember]);
   });
 
+  it("hands back the themes a load uploaded when the read after the upload fails", async () => {
+    mockEdit.mockRejectedValueOnce(new Error("offline"));
+    await saveTheme(ember);
+    mockEdit.mockResolvedValueOnce(undefined);
+    mockGet.mockRejectedValueOnce(new Error("timeout"));
+    const failed = (await loadThemes().catch((error: unknown) => error)) as InstanceType<typeof ThemesUnavailableError>;
+    expect(failed).toBeInstanceOf(ThemesUnavailableError);
+    expect(failed.pending).toEqual([]);
+    expect(failed.uploaded).toEqual([ember]);
+  });
+
   it("keeps pending themes apart per account", async () => {
     mockEdit.mockRejectedValueOnce(new Error("offline"));
     await saveTheme(ember);

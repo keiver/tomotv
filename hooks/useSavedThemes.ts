@@ -1,5 +1,5 @@
 import { useAuthSession } from "@/hooks/useAuthSession";
-import { loadThemes, type SavedThemes, subscribeThemes, ThemesUnavailableError } from "@/services/themeLibrary";
+import { loadThemes, type SavedThemes, subscribeThemes, ThemesUnavailableError, upsertTheme } from "@/services/themeLibrary";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 
@@ -26,9 +26,9 @@ export function useSavedThemes(): SavedThemesState {
           if (cancelled) return;
           setState((prev) => {
             const last = prev.session === session ? prev.value : EMPTY;
-            // The server is out of reach; the themes waiting on this device still list, over their older server copies.
+            // The list could not be read: the themes this load uploaded join the server's, and waiting ones list over older copies.
             if (!(error instanceof ThemesUnavailableError)) return { session, value: { ...last, status: "failed" } };
-            const themes = last.themes.filter((theme) => !error.pending.some((waiting) => waiting.id === theme.id));
+            const themes = error.uploaded.reduce(upsertTheme, last.themes).filter((theme) => !error.pending.some((waiting) => waiting.id === theme.id));
             return { session, value: { themes, pending: error.pending, status: "failed" } };
           });
         });

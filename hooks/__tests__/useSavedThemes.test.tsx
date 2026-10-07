@@ -18,13 +18,16 @@ let mockNotify: () => void = () => {};
 jest.mock("@/services/themeLibrary", () => {
   class ThemesUnavailableError extends Error {
     readonly pending: unknown[];
-    constructor(waiting: unknown[]) {
+    readonly uploaded: unknown[];
+    constructor(waiting: unknown[], sent: unknown[] = []) {
       super("unavailable");
       this.pending = waiting;
+      this.uploaded = sent;
     }
   }
   return {
     ThemesUnavailableError,
+    upsertTheme: (...args: unknown[]) => jest.requireActual("@/services/themeLibrary").upsertTheme(...args),
     loadThemes: jest.fn(),
     subscribeThemes: (listener: () => void) => {
       mockNotify = listener;
@@ -35,7 +38,7 @@ jest.mock("@/services/themeLibrary", () => {
 
 const { loadThemes, ThemesUnavailableError } = jest.requireMock("@/services/themeLibrary") as {
   loadThemes: jest.Mock;
-  ThemesUnavailableError: new (pending: unknown[]) => Error;
+  ThemesUnavailableError: new (pending: unknown[], uploaded?: unknown[]) => Error;
 };
 
 async function mount() {
@@ -65,6 +68,14 @@ describe("useSavedThemes", () => {
     loadThemes.mockRejectedValueOnce(new ThemesUnavailableError([emberEdited]));
     await act(async () => mockNotify());
     expect(seen.state).toEqual({ themes: [sea], pending: [emberEdited], status: "failed" });
+  });
+
+  it("keeps a theme the load uploaded before its read failed, listed as the server's", async () => {
+    loadThemes.mockResolvedValueOnce({ themes: [sea], pending: [ember] });
+    const seen = await mount();
+    loadThemes.mockRejectedValueOnce(new ThemesUnavailableError([], [ember]));
+    await act(async () => mockNotify());
+    expect(seen.state).toEqual({ themes: [sea, ember], pending: [], status: "failed" });
   });
 
   it("keeps what it last showed when the failure is not the server read", async () => {
