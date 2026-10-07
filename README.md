@@ -70,12 +70,13 @@ permission on the server overrides all three.
   tracks become WebVTT on the device, sidecar text files arrive as the server's
   WebVTT and sidecar image files as they are, and image tracks (PGS, VobSub,
   DVB, XSUB) are decoded to bitmaps drawn over the native player.
-- **Scrubbing.** Every video scrubs on its own keyframes: Apple TV shows them
+- **Scrubbing.** A video scrubs on its own keyframes: Apple TV shows them
   as thumbnails over the timeline, iPhone and iPad as the picture itself. A file
   played as it is gets them from the system; the engine and the server stream
   get them from the original file, read only when the player asks. A picture
   larger than 1080p is scaled to 1080p and an HDR picture is converted to
-  standard range first.
+  standard range first. A Dolby Vision profile 5 file the engine or server
+  plays, and a server stream of a codec the engine does not decode, have none.
 - **Quality.** Auto plays the original alone when the connection can carry it,
   and the server transcodes nothing. On a slower connection the playlist adds
   smaller server streams (stereo AAC), if the account is allowed to transcode
@@ -101,6 +102,13 @@ permission on the server overrides all three.
   controls. Hold a channel for its info panel, to record, favorite or group it. On Apple TV, the remote's channel-skip
   gesture flips channels, and for 30 seconds after a flip the channels on either
   side keep running.
+- **Themes.** Gold, Blue, Green, Purple or a colour of your own, in Settings >
+  Appearance. Saved themes live in your Jellyfin user's display preferences, so
+  each device signed in as you lists them, and each device keeps its own pick.
+  Folder color turns off the blurred artwork behind a folder's grid.
+- **Info panels** on iPhone, iPad and Mac drag sideways to the next item: an
+  episode across seasons, a song on its album, the photo, book or folder beside
+  it, the next library or channel.
 - **Books.** PDF, comics (CBZ, CBR, CBT, CB7), EPUB, MOBI and Kindle AZW/AZW3 in a
   full-screen reader, with the reading position saved to the server.
 - **Downloads** on iPhone and iPad: an item or a whole folder, playable with no
@@ -210,7 +218,7 @@ committed fixtures, the playlist rules, and a codec matrix that records which
 codecs are proven by a fixture.
 
 `test:playback` deep-links the app into the player against a real Jellyfin server,
-across 82 items (77 files and 5 Live TV channels). It catches what unit tests
+across 83 items (78 files and 5 Live TV channels). It catches what unit tests
 cannot: an item taking the wrong lane, playback that does not advance, and engine
 output that drifts from the committed baselines. If you touch the engine or its
 allowlists, run it and say so in the PR. See
