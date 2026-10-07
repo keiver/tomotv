@@ -5,6 +5,7 @@
  */
 import { type CardTheme, parseCardTheme } from "@/services/cardTheme";
 import { editDisplayPreferences, getConfig, getDisplayPreferences } from "@/services/jellyfinApi";
+import type { PreferencesOwner } from "@/services/jellyfin/displayPreferences";
 import { logger } from "@/utils/logger";
 import { Settings } from "react-native";
 
@@ -49,9 +50,10 @@ export function upsertTheme(themes: readonly CardTheme[], theme: CardTheme): Car
   return themes.some((kept) => kept.id === theme.id) ? themes.map((kept) => (kept.id === theme.id ? theme : kept)) : [...themes, theme];
 }
 
-async function accountKey(): Promise<string> {
+/** The signed-in account: its pending-list key, and the owner its server writes are bound to. */
+async function currentAccount(): Promise<{ key: string; owner: PreferencesOwner }> {
   const { server, userId } = await getConfig();
-  return `${server}|${userId}`;
+  return { key: `${server}|${userId}`, owner: { server: server ?? "", userId: userId ?? "" } };
 }
 
 function readPending(account: string): CardTheme[] {
@@ -76,26 +78,44 @@ function writePending(account: string, themes: CardTheme[]): void {
 }
 
 /** Merges `changes` into the server's list in one read and write; `remove` drops ids first. */
-function pushThemes(changes: readonly CardTheme[], remove: readonly string[] = []): Promise<void> {
-  return editDisplayPreferences(THEMES_ID, THEMES_CLIENT, (current) => {
-    const kept = parseThemeList(current[THEMES_KEY]).filter((theme) => !remove.includes(theme.id));
-    return { ...current, [THEMES_KEY]: serializeThemeList(changes.reduce(upsertTheme, kept)) };
-  });
+function pushThemes(owner: PreferencesOwner, changes: readonly CardTheme[], remove: readonly string[] = []): Promise<void> {
+  return editDisplayPreferences(
+    THEMES_ID,
+    THEMES_CLIENT,
+    (current) => {
+      const kept = parseThemeList(current[THEMES_KEY]).filter((theme) => !remove.includes(theme.id));
+      return { ...current, [THEMES_KEY]: serializeThemeList(changes.reduce(upsertTheme, kept)) };
+    },
+    owner,
+  );
 }
 
-/** The server's themes, after sending up any this device saved while the server was out of reach. */
+/** The server's list could not be read for the account the load began under; its waiting themes still can. */
+export class ThemesUnavailableError extends Error {
+  constructor(readonly pending: CardTheme[]) {
+    super("The saved themes could not be read from the server.");
+  }
+}
+
+/** The server's themes, after sending up any this device saved while the server was out of reach. Every read
+ *  and write is bound to the account the load began under; a failed read throws ThemesUnavailableError. */
 export async function loadThemes(): Promise<SavedThemes> {
-  const account = await accountKey();
+  const { key: account, owner } = await currentAccount();
   const pending = readPending(account);
   if (pending.length > 0) {
     try {
-      await pushThemes(pending);
+      await pushThemes(owner, pending);
       writePending(account, []);
     } catch (error) {
       logger.warn("Pending themes did not reach the server", error, { service: "ThemeLibrary" });
     }
   }
-  const prefs = await getDisplayPreferences(THEMES_ID, THEMES_CLIENT);
+  let prefs: Awaited<ReturnType<typeof getDisplayPreferences>>;
+  try {
+    prefs = await getDisplayPreferences(THEMES_ID, THEMES_CLIENT, owner);
+  } catch {
+    throw new ThemesUnavailableError(readPending(account));
+  }
   // A waiting save is newer than the server's copy of the same theme.
   const waiting = readPending(account);
   const themes = parseThemeList(prefs.CustomPrefs?.[THEMES_KEY]).filter((theme) => !waiting.some((kept) => kept.id === theme.id));
@@ -126,9 +146,9 @@ function notify(): void {
 export async function saveTheme(theme: CardTheme): Promise<"synced" | "pending"> {
   saving += 1;
   try {
-    const account = await accountKey();
+    const { key: account, owner } = await currentAccount();
     try {
-      await pushThemes([theme]);
+      await pushThemes(owner, [theme]);
       writePending(
         account,
         readPending(account).filter((kept) => kept.id !== theme.id),
@@ -147,13 +167,13 @@ export async function saveTheme(theme: CardTheme): Promise<"synced" | "pending">
 
 /** Throws when the server refuses the write; a delete is never queued. */
 export async function deleteTheme(id: string): Promise<void> {
-  const account = await accountKey();
+  const { key: account, owner } = await currentAccount();
   writePending(
     account,
     readPending(account).filter((kept) => kept.id !== id),
   );
   try {
-    await pushThemes([], [id]);
+    await pushThemes(owner, [], [id]);
   } finally {
     notify();
   }

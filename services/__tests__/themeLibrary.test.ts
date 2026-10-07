@@ -24,6 +24,7 @@ import {
   THEMES_CLIENT,
   THEMES_ID,
   THEMES_KEY,
+  ThemesUnavailableError,
   upsertTheme,
 } from "@/services/themeLibrary";
 import { Settings } from "react-native";
@@ -63,7 +64,7 @@ describe("saveTheme", () => {
   it("merges into the server's list under its own record, leaving other keys alone", async () => {
     mockEdit.mockResolvedValue(undefined);
     await expect(saveTheme(ember)).resolves.toBe("synced");
-    expect(mockEdit).toHaveBeenCalledWith(THEMES_ID, THEMES_CLIENT, expect.any(Function));
+    expect(mockEdit).toHaveBeenCalledWith(THEMES_ID, THEMES_CLIENT, expect.any(Function), { server: "http://jf", userId: "u" });
     const written = applyEdit({ other: "kept", [THEMES_KEY]: serializeThemeList([sea]) });
     expect(written.other).toBe("kept");
     expect(parseThemeList(written[THEMES_KEY])).toEqual([sea, ember]);
@@ -110,6 +111,32 @@ describe("saveTheme", () => {
     mockEdit.mockResolvedValueOnce(undefined);
     await saveTheme(ember);
     expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("binds each write to the account it was made under, so a switch while it queues cannot land it elsewhere", async () => {
+    const owner = { server: "http://jf", userId: "u" };
+    mockEdit.mockResolvedValueOnce(undefined);
+    await saveTheme(ember);
+    expect(mockEdit).toHaveBeenLastCalledWith(THEMES_ID, THEMES_CLIENT, expect.any(Function), owner);
+
+    mockEdit.mockRejectedValueOnce(new Error("offline"));
+    await saveTheme(sea);
+    mockEdit.mockRejectedValueOnce(new Error("The account changed during the write."));
+    mockGet.mockResolvedValueOnce({ CustomPrefs: {} });
+    await expect(loadThemes()).resolves.toEqual({ themes: [], pending: [sea] });
+    expect(mockEdit).toHaveBeenLastCalledWith(THEMES_ID, THEMES_CLIENT, expect.any(Function), owner);
+  });
+
+  it("reads the server's list for the account the load began under, and hands back that account's waiting themes when it cannot", async () => {
+    const owner = { server: "http://jf", userId: "u" };
+    mockEdit.mockRejectedValueOnce(new Error("offline"));
+    await saveTheme(ember);
+    mockEdit.mockRejectedValueOnce(new Error("still offline"));
+    mockGet.mockRejectedValueOnce(new Error("The account changed before the request."));
+    const failed = await loadThemes().catch((error: unknown) => error);
+    expect(mockGet).toHaveBeenCalledWith(THEMES_ID, THEMES_CLIENT, owner);
+    expect(failed).toBeInstanceOf(ThemesUnavailableError);
+    expect((failed as InstanceType<typeof ThemesUnavailableError>).pending).toEqual([ember]);
   });
 
   it("keeps pending themes apart per account", async () => {

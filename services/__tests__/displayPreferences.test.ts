@@ -1,7 +1,7 @@
 /**
  * DisplayPreferences: the read, and the write that merges into what the server already holds.
  */
-import { getDisplayPreferences, refreshConfig, removeDisplayPreference, updateDisplayPreferences } from "../jellyfinApi";
+import { editDisplayPreferences, getDisplayPreferences, refreshConfig, removeDisplayPreference, updateDisplayPreferences } from "../jellyfinApi";
 
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
@@ -66,6 +66,34 @@ describe("displayPreferences", () => {
 
     await expect(updateDisplayPreferences("tomotv-diagnostics", "Tomo TV", { b: "2" })).rejects.toThrow("account changed");
     expect(fetchMock()).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a read bound to another account, asking nothing", async () => {
+    await expect(getDisplayPreferences("tomotv-themes", "Tomo TV", { server: "http://jf:8096", userId: "user-2" })).rejects.toThrow("account changed");
+    expect(fetchMock()).not.toHaveBeenCalled();
+    fetchMock().mockResolvedValueOnce(ok({ CustomPrefs: { a: "1" } }));
+    await expect(getDisplayPreferences("tomotv-themes", "Tomo TV", { server: "http://jf:8096", userId: "user-1" })).resolves.toMatchObject({ CustomPrefs: { a: "1" } });
+  });
+
+  it("refuses a write bound to the account it was queued under once another signs in during the wait", async () => {
+    let releaseFirst!: () => void;
+    fetchMock()
+      .mockImplementationOnce(() => new Promise((resolve) => (releaseFirst = () => resolve(ok({ CustomPrefs: {} })))))
+      .mockResolvedValueOnce(ok({ CustomPrefs: {} }))
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+    const first = updateDisplayPreferences("tomotv-diagnostics", "Tomo TV", { a: "1" });
+    const queued = editDisplayPreferences("tomotv-themes", "Tomo TV", (current) => ({ ...current, themes: "A" }), { server: "http://jf:8096", userId: "user-1" });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(fetchMock()).toHaveBeenCalledTimes(1);
+    mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+      const config: Record<string, string> = { jellyfin_server_url: "http://other:8096", jellyfin_api_key: "token2", jellyfin_user_id: "user-2", jellyfin_device_id: "device-1" };
+      return Promise.resolve(config[key] || null);
+    });
+    await refreshConfig();
+    releaseFirst();
+    await first.catch(() => undefined);
+    await expect(queued).rejects.toThrow("account changed");
+    expect(fetchMock().mock.calls.some(([url]) => String(url).includes("other:8096"))).toBe(false);
   });
 
   it("surfaces a failed read or write", async () => {
