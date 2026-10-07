@@ -18,6 +18,7 @@ import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/se
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
 import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
+import { bingeNextId } from "@/utils/bingeNext";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { cardResumeProgress } from "@/utils/resumeProgress";
@@ -323,6 +324,8 @@ export function LibraryGrid({
     ],
     [viewabilityConfig, onViewableItemsChanged],
   );
+  // List order is episode order only with no filter on (shuffle reorders, unplayed hides the anchor).
+  const bingeNextItemId = useMemo(() => (activeFilterCount === 0 ? bingeNextId(items) : null), [activeFilterCount, items]);
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
   // Global item index of each row's first card (drives image-priority for the first cards).
   const rowStartIndices = useMemo(() => {
@@ -594,6 +597,7 @@ export function LibraryGrid({
                 slotOrientation="landscape"
                 progressPercent={cardResumeProgress(item)}
                 titleIcon={recordings ? "videocam-outline" : undefined}
+                bingeNext={item.Id === bingeNextItemId && isScreenFocused}
               />
             );
           })}
@@ -624,6 +628,7 @@ export function LibraryGrid({
       visibleChannelIds,
       titleIconFor,
       recordingFor,
+      bingeNextItemId,
     ],
   );
 

@@ -151,6 +151,8 @@ interface VideoGridItemProps {
   inert?: boolean;
   /** A bundled picture (a require'd module) in place of the item's own: the theme editor's preview. */
   poster?: number;
+  /** The binge's next episode in its folder: its index pill wears the focused fill at rest too. */
+  bingeNext?: boolean;
 }
 
 /**
@@ -195,6 +197,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     inset,
     inert = false,
     poster,
+    bingeNext = false,
   },
   ref,
 ) {
@@ -347,7 +350,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               />
               {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
               <CardScrim />
-              {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
+              {(focused || bingeNext) && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
               {liveFrame && posterSource ? (
                 <>
                   <CardCornerScrim corner="right" />
@@ -436,7 +439,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : isChannel && recording ? (
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
               ) : badgeSegments ? (
-                <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
+                <CardBadge segments={badgeSegments} focused={focused || bingeNext} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
               ) : null}
               {marks.trailing.map((mark) => (
                 <CardMark key={mark.icon} {...mark} />
@@ -508,7 +511,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.inset?.vertical === nextProps.inset?.vertical &&
     prevProps.inset?.horizontal === nextProps.inset?.horizontal &&
     prevProps.inert === nextProps.inert &&
-    prevProps.poster === nextProps.poster
+    prevProps.poster === nextProps.poster &&
+    prevProps.bingeNext === nextProps.bingeNext
   );
 }
 
