@@ -119,6 +119,20 @@ describe("Video info panel: dragged away", () => {
     expect(mockOpenItem).toHaveBeenCalledWith(expect.objectContaining({ UserData: expect.objectContaining({ PlaybackPositionTicks: 0 }) }), expect.anything());
   });
 
+  it("shows a watched item as unwatched once its progress removal lands, as the server holds it", async () => {
+    mockFetchItemDetails.mockResolvedValue({ ...item, UserData: { PlaybackPositionTicks: 6_000_000_000, Played: true } });
+    const tree = await mount(true);
+    const row = () => tree.root.findByType(require("@/components/info-action-row").InfoActionRow);
+    expect(row().props.isPlayed).toBe(true);
+    await act(async () => {
+      tree.update(<VideoInfoPanel videoId="item-1" active={false} />);
+    });
+    await act(async () => {
+      tree.update(<VideoInfoPanel videoId="item-1" active />);
+    });
+    expect(row().props.isPlayed).toBe(false);
+  });
+
   it("waits on a removal still in flight when Play is pressed after the drag back", async () => {
     let finish!: () => void;
     mockClearResumePosition.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));

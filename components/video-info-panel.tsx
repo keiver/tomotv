@@ -246,6 +246,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       () => {
         // The pager keeps this panel mounted, so a drag back plays from what the server holds.
         setDetails((current) => (current?.Id === pending.id ? { ...current, UserData: { ...current.UserData, PlaybackPositionTicks: 0, Played: false } } : current));
+        // DELETE /UserPlayedItems unmarks the item too, so the watched toggle follows.
+        setIsPlayed(false);
         return true;
       },
       (error: unknown) => {
