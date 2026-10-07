@@ -1,5 +1,6 @@
 import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { PadSheetBackdrop, PadSheetFrame } from "@/components/pad-sheet";
+import { SiblingEdges } from "@/components/sibling-edges";
 import { SiblingPager } from "@/components/sibling-pager";
 import { VideoInfoPanel } from "@/components/video-info-panel";
 import { COLORS } from "@/constants/colors";
@@ -16,8 +17,8 @@ const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 
 /**
  * The info panel route. On iPhone, iPad and Mac the panel drags left and right through its item's
- * neighbours: a video's queue (a series across its seasons), a folder's sibling folders, the
- * libraries, the guide's channels. tvOS shows the one panel.
+ * neighbours: a video's or song's queue (a series across its seasons), the folder's folders, photos
+ * or books, the libraries, the guide's channels. On tvOS focus leaving the panel's side steps.
  */
 export default function VideoInfoScreen() {
   const { videoId, name, inFolderId, fromResume, timerId, guideProgram } = useLocalSearchParams<{
@@ -34,17 +35,23 @@ export default function VideoInfoScreen() {
   const siblings = useItemSiblings(opened, inFolderId);
   const ids = useMemo(() => siblings?.map((item) => item.Id) ?? [videoId], [siblings, videoId]);
   const close = useCallback(() => router.back(), [router]);
+  const [shownId, setShownId] = useState(videoId);
 
   // The opened panel keeps the route's params and is the one that reports its item; a sibling
   // shares only the folder the press came from.
+  const renderPanel = useCallback(
+    (id: string, active: boolean) =>
+      id === videoId ? (
+        <VideoInfoPanel key={id} videoId={videoId} name={name} inFolderId={inFolderId} fromResume={fromResume} timerId={timerId} guideProgram={guideProgram} active={active} onReady={setOpened} />
+      ) : (
+        <VideoInfoPanel key={id} videoId={id} name={siblings?.find((item) => item.Id === id)?.Name} inFolderId={inFolderId} active={active} />
+      ),
+    [fromResume, guideProgram, inFolderId, name, siblings, timerId, videoId],
+  );
+
   const renderPage = useCallback(
     (id: string, active: boolean) => {
-      const panel =
-        id === videoId ? (
-          <VideoInfoPanel videoId={videoId} name={name} inFolderId={inFolderId} fromResume={fromResume} timerId={timerId} guideProgram={guideProgram} active={active} onReady={setOpened} />
-        ) : (
-          <VideoInfoPanel videoId={id} name={siblings?.find((item) => item.Id === id)?.Name} inFolderId={inFolderId} active={active} />
-        );
+      const panel = renderPanel(id, active);
       if (!IS_PAD) return panel;
       return (
         <View style={styles.padPage} pointerEvents="box-none">
@@ -54,11 +61,19 @@ export default function VideoInfoScreen() {
         </View>
       );
     },
-    [close, fromResume, guideProgram, inFolderId, name, siblings, timerId, videoId],
+    [close, renderPanel],
   );
 
   if (IS_TV) {
-    return <VideoInfoPanel videoId={videoId} name={name} inFolderId={inFolderId} fromResume={fromResume} timerId={timerId} guideProgram={guideProgram} />;
+    const shown = ids.indexOf(shownId);
+    const previous = shown > 0 ? ids[shown - 1] : undefined;
+    const next = shown >= 0 && shown < ids.length - 1 ? ids[shown + 1] : undefined;
+    return (
+      <View style={styles.tvRoot}>
+        {renderPanel(shownId, true)}
+        <SiblingEdges onPrevious={previous ? () => setShownId(previous) : undefined} onNext={next ? () => setShownId(next) : undefined} />
+      </View>
+    );
   }
 
   if (IS_PAD) {
@@ -78,6 +93,9 @@ export default function VideoInfoScreen() {
 }
 
 const styles = StyleSheet.create({
+  tvRoot: {
+    flex: 1,
+  },
   sheetRoot: {
     flex: 1,
     backgroundColor: COLORS.BACKGROUND,
