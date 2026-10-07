@@ -412,8 +412,8 @@ export async function predictPlaybackLane(videoItem: JellyfinVideoItem | null): 
   const lane = await (async (): Promise<PlaybackLane> => {
     const serverLane = (): PlaybackLane => (serverTranscodeAllowed(videoItem) ? "server" : "unplayable");
     // A verdict describes streaming this file. A held file has no link to lose to, and the
-    // server lane is exactly what a download exists to do without.
-    if (videoItem && !playsFromDisk(videoItem.Id) && !isLiveSource(videoItem) && (await rememberedVerdict(videoItem))) return serverLane();
+    // server lane is exactly what a download exists to do without. Without the server, playback ignores it too.
+    if (videoItem && serverTranscodeAllowed(videoItem) && !playsFromDisk(videoItem.Id) && !isLiveSource(videoItem) && (await rememberedVerdict(videoItem))) return serverLane();
     if (!(await canRemuxLocally(videoItem, { record: false }))) return serverLane();
     const videoStream = videoItem ? playbackMediaStreams(videoItem).find((stream) => stream.Type === "Video") : undefined;
     if (!videoStream) return "copy";

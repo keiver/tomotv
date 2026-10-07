@@ -79,8 +79,9 @@ jest.mock("@/services/jellyfin/session", () => ({
   generatePlaySessionId: () => "test-session",
 }));
 
-// Nothing remembered: the lane predictor's verdict lookup answers null here.
-jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => null }));
+// Nothing remembered unless a test says so: the lane predictor's verdict lookup answers null.
+const mockRememberedVerdict = jest.fn(async (): Promise<object | null> => null);
+jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: () => mockRememberedVerdict() }));
 
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
@@ -1900,6 +1901,14 @@ describe("startLocalRemux Slipstream tier config", () => {
       await expect(startLocalRemux(xmaAudio())).rejects.toThrow("Audio track requires an unavailable server supplier");
       await expect(predictPlaybackLane(asv1())).resolves.toEqual({ lane: "unplayable", smallFeedFirst: false });
       await expect(predictPlaybackLane(xmaAudio())).resolves.toEqual({ lane: "unplayable", smallFeedFirst: false });
+    });
+
+    it("ignores a remembered verdict at never, as playback does: the engine still takes the file", async () => {
+      updateUiPreferences({ serverTranscoding: "never" });
+      mockRememberedVerdict.mockResolvedValue({ produceSeconds: 9, segmentSeconds: 6, at: 1 });
+      const predicted = await predictPlaybackLane(item());
+      mockRememberedVerdict.mockResolvedValue(null);
+      expect(predicted).toMatchObject({ lane: "copy" });
     });
 
     it("hands an uncarriable track to the server's audio rendition at the default level", async () => {
