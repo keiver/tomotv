@@ -15,12 +15,13 @@ import { getUiPreferences, updateUiPreferences } from "@/services/uiPreferences"
 import { logger } from "@/utils/logger";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useRouter } from "expo-router";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
+const VISIBLE_THEME_ROWS = 5;
 
 /**
  * The card theme and the folder colour. A press applies at once and the page stays; the chosen saved
@@ -59,6 +60,15 @@ export default function AppearanceScreen() {
       },
     ]);
 
+  // tvOS moves focus out of a scroller only at the matching end, so the capped list pins itself
+  // when focus lands on its first or last row. Same pattern as the Downloads list.
+  const listRef = useRef<ScrollView>(null);
+  const [listCap, setListCap] = useState<number>();
+  const pinListToTop = () => listRef.current?.scrollTo({ y: 0, animated: false });
+  const pinListToBottom = () => listRef.current?.scrollToEnd({ animated: false });
+  const lastIndex = BUILT_IN_THEMES.length + custom.length - 1;
+  const pinFor = (index: number) => (index === 0 ? pinListToTop : index === lastIndex ? pinListToBottom : undefined);
+
   const builtInRow = (theme: CardTheme, index: number) => {
     const chosen = theme.id === cardTheme.id;
     return (
@@ -68,6 +78,7 @@ export default function AppearanceScreen() {
         title={themeName(theme)}
         trailingIcon={chosen ? tick : undefined}
         onPress={() => updateUiPreferences({ cardTheme: theme })}
+        onFocus={pinFor(index)}
         hasTVPreferredFocus={chosen}
         accessibilityState={{ selected: chosen }}
         isFirst={index === 0}
@@ -75,7 +86,7 @@ export default function AppearanceScreen() {
     );
   };
 
-  const savedRow = ({ theme, pending }: { theme: CardTheme; pending: boolean }) => {
+  const savedRow = ({ theme, pending }: { theme: CardTheme; pending: boolean }, index: number) => {
     const chosen = theme.id === cardTheme.id;
     return (
       <SwipeToRemove key={theme.id} label={themeName(theme)} onRemove={() => confirmRemove(theme)}>
@@ -91,6 +102,7 @@ export default function AppearanceScreen() {
             { name: "remove", label: t("common.remove") },
           ]}
           onAccessibilityAction={(event) => (event.nativeEvent.actionName === "remove" ? confirmRemove(theme) : edit(theme))}
+          onFocus={pinFor(BUILT_IN_THEMES.length + index)}
           hasTVPreferredFocus={chosen}
           accessibilityState={{ selected: chosen }}
         />
@@ -111,8 +123,18 @@ export default function AppearanceScreen() {
           <View style={settingsStyles.section}>
             {/* The swipe on a saved theme needs a gesture root. Styled: its default flex: 1 would stretch a content-sized card. */}
             <GestureHandlerRootView style={styles.gestureRoot}>
-              {BUILT_IN_THEMES.map(builtInRow)}
-              {custom.map(savedRow)}
+              {/* At most VISIBLE_THEME_ROWS whole rows, measured at the last visible row's bottom edge: saved rows carry a subtitle. */}
+              <ScrollView ref={listRef} style={{ maxHeight: listCap }} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+                {[...BUILT_IN_THEMES.map(builtInRow), ...custom.map(savedRow)].map((row, index) =>
+                  index === VISIBLE_THEME_ROWS - 1 && lastIndex >= VISIBLE_THEME_ROWS ? (
+                    <View key={row.key} onLayout={({ nativeEvent: { layout } }) => setListCap(layout.y + layout.height)}>
+                      {row}
+                    </View>
+                  ) : (
+                    row
+                  ),
+                )}
+              </ScrollView>
               {/* Not the card's last row when the footer follows it: the footer closes the card, square on top. */}
               <ListRow icon="add-circle-outline" title={t("appearance.newTheme")} trailingIcon="chevron-forward" onPress={() => edit()} isLast={!hasFooter} />
             </GestureHandlerRootView>
