@@ -1,7 +1,7 @@
 /**
- * The panel's left/right neighbours: a video's are Play's queue (SeriesId ?? ParentId, SortName,
- * videos only), a folder's its parent's folders, a library's the libraries, a channel's the guide's
- * channels. The opened panel keeps the route's params; a sibling shares only the folder.
+ * The panel's left/right neighbours: a video's or song's are Play's queue (SeriesId ?? ParentId, SortName,
+ * its own kind), a folder's, photo's or book's the same kind in the folder, a library's the libraries, a
+ * channel's the guide's channels. The opened panel keeps the route's params; a sibling shares only the folder.
  */
 import VideoInfoScreen from "@/app/video-info";
 import type { VideoInfoPanelProps } from "@/components/video-info-panel";
@@ -99,6 +99,39 @@ describe("Video info: drag to a sibling", () => {
 
     expect(mockFetchRecursive).toHaveBeenCalledWith("movies");
     expect(panels.map((panel) => panel.videoId)).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("walks a song through its album's songs, past a video the album also holds", async () => {
+    const song = { Id: "t2", Name: "Two", Type: "Audio", ParentId: "album" } as unknown as JellyfinItem;
+    mockItems.t2 = song;
+    mockFetchRecursive.mockResolvedValue([{ Id: "t1", Type: "Audio" }, { Id: "clip", Type: "Video" }, song, { Id: "t3", Type: "Audio" }]);
+
+    const panels = await mountOn({ videoId: "t2" });
+
+    expect(mockFetchRecursive).toHaveBeenCalledWith("album");
+    expect(panels.map((panel) => panel.videoId)).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("walks a photo through the photos of the folder the press came from, past its subfolders", async () => {
+    const photo = { Id: "p2", Name: "Two", Type: "Photo", ParentId: "album" } as unknown as JellyfinItem;
+    mockItems.p2 = photo;
+    mockFetchFolderContents.mockResolvedValue({ items: [{ Id: "p1", Type: "Photo" }, { Id: "sub", Type: "PhotoAlbum", IsFolder: true }, photo], total: 3 });
+
+    const panels = await mountOn({ videoId: "p2", inFolderId: "shown-folder" });
+
+    expect(mockFetchFolderContents).toHaveBeenCalledWith("shown-folder", expect.anything());
+    expect(panels.map((panel) => panel.videoId)).toEqual(["p1", "p2"]);
+  });
+
+  it("walks a book through its folder's books", async () => {
+    const book = { Id: "b1", Name: "One", Type: "Book", ParentId: "shelf" } as unknown as JellyfinItem;
+    mockItems.b1 = book;
+    mockFetchFolderContents.mockResolvedValue({ items: [book, { Id: "cover", Type: "Photo" }, { Id: "b2", Type: "Book" }], total: 3 });
+
+    const panels = await mountOn({ videoId: "b1" });
+
+    expect(mockFetchFolderContents).toHaveBeenCalledWith("shelf", expect.anything());
+    expect(panels.map((panel) => panel.videoId)).toEqual(["b1", "b2"]);
   });
 
   it("puts a folder beside its parent's other folders, past the videos listed with them", async () => {

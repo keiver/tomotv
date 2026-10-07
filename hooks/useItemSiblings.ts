@@ -10,26 +10,34 @@ import { useEffect, useState } from "react";
 const LISTING_PAGE = 500;
 
 /**
- * Where an item's neighbours come from: Play's queue for a video, the library list for a library,
- * the parent's listing for a folder, the player's channel ring for a channel.
+ * Where an item's neighbours come from: Play's queue for a video or song, the library list for a
+ * library, the parent's listing for a folder, photo or book, the player's channel ring for a channel.
  */
 export type SiblingSource = { kind: "queue"; key: string } | { kind: "libraries" } | { kind: "folder"; parentId: string } | { kind: "channels" };
 
 export function siblingSource(item: JellyfinItem, inFolderId?: string): SiblingSource | null {
   if (item.Type === "CollectionFolder" || item.Type === "UserView") return { kind: "libraries" };
   if (isLiveChannel(item)) return { kind: "channels" };
-  if (isFolder(item)) {
+  if (isFolder(item) || isPhoto(item) || isBook(item)) {
     const parentId = inFolderId ?? item.ParentId;
     return parentId ? { kind: "folder", parentId } : null;
   }
-  if (isPhoto(item) || isBook(item) || isAudioItem(item as JellyfinVideoItem) || item.Type === "Program") return null;
+  if (item.Type === "Program") return null;
   const key = containerKey(item as JellyfinVideoItem);
   return key ? { kind: "queue", key } : null;
 }
 
-/** The listed entries of the item's own kind (videos beside a video, folders beside a folder), or null when it has none. */
+function kindOf(item: JellyfinItem): "folder" | "photo" | "book" | "audio" | "video" {
+  if (isFolder(item)) return "folder";
+  if (isPhoto(item)) return "photo";
+  if (isBook(item)) return "book";
+  return isAudioItem(item as JellyfinVideoItem) ? "audio" : "video";
+}
+
+/** The listed entries of the item's own kind (songs beside a song, folders beside a folder), or null when it has none. */
 export function siblingsAround(item: JellyfinItem, source: SiblingSource, listed: readonly JellyfinItem[]): JellyfinItem[] | null {
-  const kin = listed.filter((entry) => (source.kind === "queue" ? !isAudioItem(entry as JellyfinVideoItem) : source.kind === "folder" ? isFolder(entry) : true));
+  const kind = kindOf(item);
+  const kin = source.kind === "queue" || source.kind === "folder" ? listed.filter((entry) => kindOf(entry) === kind) : [...listed];
   return kin.length > 1 && kin.some((entry) => entry.Id === item.Id) ? kin : null;
 }
 
