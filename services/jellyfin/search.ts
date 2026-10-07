@@ -14,7 +14,7 @@ import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, FACET_PREFIX_MIN_CHARS } from ".
 import { getAuthHeader, getConfig, JellyfinConfig } from "./session";
 import { requestLibraryItems } from "./items";
 import { fetchLibraryArtists, fetchLibraryGenres } from "./facets";
-import { fetchTunerData } from "./tunerGroups";
+import { fetchTunerData, type TunerData } from "./tunerGroups";
 import { fetchChannelOrder } from "./liveTv";
 import { activeGuideUrls, searchExternalPrograms } from "@/services/externalGuide";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
@@ -511,7 +511,8 @@ async function fetchAiringPrograms(config: JellyfinConfig): Promise<JellyfinVide
  */
 async function searchGuideSources(config: JellyfinConfig, searchTerm: string): Promise<JellyfinVideoItem[]> {
   if (foldText(searchTerm).length < DESCRIPTION_MIN_CHARS) return [];
-  const data = await fetchTunerData();
+  // A refused tuner read still leaves the viewer's own guides, matched by name, as in the guide.
+  const data: Pick<TunerData, "tvgById" | "tvgNameById" | "tvgUrls"> = (await fetchTunerData().catch(() => null)) ?? { tvgById: {}, tvgNameById: {}, tvgUrls: [] };
   const urls = activeGuideUrls(getLiveTvPreferences(), data.tvgUrls);
   if (urls.length === 0) return [];
   // Every channel also matches by its Jellyfin name, as the guide does: the last tier, after tvg-id and tvg-name.

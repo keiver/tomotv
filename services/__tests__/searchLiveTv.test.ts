@@ -330,6 +330,18 @@ describe("searchLiveTv", () => {
       expect(searchExternalPrograms.mock.calls[0][1]).toEqual([{ channelId: "c7", tvgId: "nomatch.us", tvgName: undefined, name: "Sports Two" }]);
     });
 
+    it("still asks the viewer's own guides by Jellyfin name when the tuner read is refused", async () => {
+      fetchTunerData.mockRejectedValueOnce(new Error("403"));
+      getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [] });
+      fetchChannelOrder.mockResolvedValueOnce([{ Id: "c9", Name: "Sports One", Type: "TvChannel", Path: "" }]);
+      serve(ok([]), ok([]));
+      searchExternalPrograms.mockResolvedValue([listing("c9", 30, "Yankees at Rays.")]);
+      const result = await searchLiveTv("yankees");
+      getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [] });
+      expect(searchExternalPrograms.mock.calls[0][0]).toEqual(["http://mine/epg.xml"]);
+      expect(result[0]).toMatchObject({ ChannelId: "c9", ChannelName: "Sports One" });
+    });
+
     it("keeps the server's matches when the guide sources cannot be read", async () => {
       serve(ok([channel("ch")]), ok([]));
       searchExternalPrograms.mockRejectedValue(new Error("guide down"));
