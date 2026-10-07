@@ -426,6 +426,9 @@ class MultiAudioResourceLoader: NSObject {
     // Store plugin instance to keep it alive
     private static var pluginInstance: MultiAudioVideoPlugin?
 
+    /// AVFoundation's own record of each failed request (URI, status, comment), which no player event carries.
+    private static var errorLogObserver: NSObjectProtocol?
+
     @objc
     func registerVideoPlugin(
         _ resolve: @escaping RCTPromiseResolveBlock,
@@ -443,6 +446,13 @@ class MultiAudioResourceLoader: NSObject {
         // Create plugin instance and keep it alive
         let plugin = MultiAudioVideoPlugin()
         MultiAudioResourceLoader.pluginInstance = plugin
+        MultiAudioResourceLoader.errorLogObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.newErrorLogEntryNotification, object: nil, queue: nil
+        ) { note in
+            guard let event = (note.object as? AVPlayerItem)?.errorLog()?.events.last else { return }
+            NSLog("[AVErrorLog] status=%d domain=%@ comment=%@ uri=%@", event.errorStatusCode, event.errorDomain,
+                  event.errorComment ?? "", event.uri ?? "")
+        }
 
         // Register plugin with react-native-video's manager
         DispatchQueue.main.async {
