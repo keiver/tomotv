@@ -160,6 +160,7 @@ final class IFramePlaylistTests: XCTestCase {
     /// No source read for the sample until AVPlayer holds its reservoir; the item's next master declares the mean.
     func testASampleTakenAfterStartupIsDeclaredByTheItemsNextMaster() throws {
         let item = "sample-\(UUID().uuidString)"
+        defer { UserDefaults.standard.removeObject(forKey: "tomo.iframeMean.\(item).copied") }
         try runSession("h264-mkv", itemId: item) { session, _ in
             XCTAssertEqual(iframeLines(session.masterPlaylist()).count, 1)
             XCTAssertNil(session.rememberedIFrameMean(encodes: false), "nothing is sampled during startup")
@@ -345,6 +346,19 @@ final class IFramePlaylistTests: XCTestCase {
                                         "-x265-params", "keyint=48:min-keyint=48:scenecut=0:bframes=2:log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
                                         "-c:a", "aac"],
                                  codecs: "hvc1.2.4.L120.90,mp4a.40.2", spacing: 2, exact: true, size: "2560x1440", hdr: true),
+        "hevc10-hlg-mkv": Fixture(name: "hevc10-hlg", extension_: "mkv",
+                                  args: ["-pix_fmt", "yuv420p10le", "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc",
+                                         "-c:v", "libx265", "-preset", "ultrafast",
+                                         "-x265-params", "keyint=48:min-keyint=48:scenecut=0:bframes=2:log-level=error:colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc",
+                                         "-c:a", "aac"],
+                                  codecs: "hvc1.2.4.L120.90,mp4a.40.2", spacing: 2, exact: true, size: "2560x1440", hdr: true),
+        // 10-bit VP9 is transcoded through the HEVC Main 10 encoder.
+        "vp9-10bit-mkv": Fixture(name: "vp9-10bit", extension_: "mkv",
+                                 args: ["-pix_fmt", "yuv420p10le", "-c:v", "libvpx-vp9", "-profile:v", "2", "-deadline", "realtime", "-cpu-used", "8"] + gop + ["-c:a", "libopus"],
+                                 codecs: "", spacing: 2, exact: true),
+        // B-frames put each keyframe's presentation after its decode time: the index lists decode times.
+        "h264-mp4": Fixture(name: "h264", extension_: "mp4", args: ["-c:v", "libx264", "-preset", "ultrafast", "-bf", "2"] + gop + ["-c:a", "aac"],
+                            codecs: "avc1.64000D,mp4a.40.2", spacing: 2, exact: true),
     ]
 
     private static func file(_ key: String) -> URL? {
@@ -430,7 +444,7 @@ final class IFramePlaylistTests: XCTestCase {
     /// that is the source's keyframe there (indexed) or the last one at or before it (grid).
     private func assertEveryEntryDecodes(_ key: String) throws {
         let fixture = try XCTUnwrap(Self.fixtures[key])
-        try runSession(key) { _, port in
+        try runSession(key) { session, port in
             let rendition = try IFrameOracle.rendition(master: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/master.m3u8")))
             let source = try XCTUnwrap(IFrameOracle.decode(try XCTUnwrap(Self.file(key)).path), "the source does not decode").frames
             let keys = source.filter(\.key)
@@ -474,6 +488,13 @@ final class IFramePlaylistTests: XCTestCase {
                 XCTAssertEqual(match.seconds, expected, accuracy: 0.002, "entry \(k) at \(at) shows the source's frame at \(match.seconds)")
                 if !fixture.codecs.isEmpty, !fixture.hdr { XCTAssertEqual(match.distance(to: picture), 0, "entry \(k) is the copied keyframe") }
             }
+            if fixture.extension_ == "mp4" {
+                // MP4 keeps every keyframe's size: the declared peak and mean are the served bytes' own (appendix: within 10%).
+                let served = try XCTUnwrap(IFrameBandwidth.measured(bytes: rendition.entries.map(\.bytes), durations: rendition.entries.map(\.duration),
+                                                                    targetDuration: Double(session.sessionTargetDuration())))
+                XCTAssertEqual(bandwidth, Double(served.peak), accuracy: Double(served.peak) * 0.1, rendition.streamInf)
+                XCTAssertEqual(average, Double(served.average), accuracy: Double(served.average) * 0.1, rendition.streamInf)
+            }
             guard fixture.hdr else { return }
             // Authoring spec 6.16: the HDR source scrubs on SDR H.264 inside 1920x1080, its init tagged BT.709.
             XCTAssertEqual(IFrameOracle.attribute("CODECS", in: rendition.streamInf), "avc1.640028")
@@ -483,7 +504,88 @@ final class IFramePlaylistTests: XCTestCase {
         }
     }
 
+    /// NAL unit types FFmpeg's trace_headers reads off the first video packets of a file.
+    private func nalTypes(_ file: URL, packets: Int) throws -> [Int] {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: Self.ffmpeg)
+        p.arguments = ["-hide_banner", "-i", file.path, "-map", "0:v", "-frames:v", String(packets), "-c", "copy", "-bsf:v", "trace_headers", "-f", "null", "-"]
+        let pipe = Pipe()
+        p.standardError = pipe
+        p.standardOutput = FileHandle.nullDevice
+        try p.run()
+        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        p.waitUntilExit()
+        return text.components(separatedBy: "\n").compactMap { line in
+            guard let range = line.range(of: "nal_unit_type") else { return nil }
+            return line[range.upperBound...].split(separator: "=").last.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        }
+    }
+
+    /// The first slice NAL type of a transcoded session's segment 3, its parameter sets, SEI and delimiters skipped.
+    private func firstSliceType(_ key: String) throws -> Int? {
+        var first: Int?
+        try runSession(key) { session, _ in
+            let segment = try XCTUnwrap(session.segmentURL(3), "no segment 3")
+            let joined = FileManager.default.temporaryDirectory.appendingPathComponent("idr-\(UUID().uuidString).mp4")
+            defer { try? FileManager.default.removeItem(at: joined) }
+            try (try Data(contentsOf: segment.deletingLastPathComponent().appendingPathComponent("init.mp4")) + Data(contentsOf: segment)).write(to: joined)
+            first = try nalTypes(joined, packets: 1).first { ![6, 7, 8, 9, 32, 33, 34, 35, 39, 40].contains($0) }
+        }
+        return first
+    }
+
+    /// What a transcoded session's segments open with (authoring spec 7.4, 9.12): measured on its own output.
+    func testATranscodedH264SegmentOpensOnAnIdr() throws {
+        XCTAssertEqual(try firstSliceType("mpeg4-avi"), 5, "H.264 IDR slice")
+    }
+
+    func testATranscodedHevcSegmentOpensOnAnIdr() throws {
+        let type = try XCTUnwrap(try firstSliceType("vp9-10bit-mkv"))
+        XCTAssertTrue([19, 20].contains(type), "HEVC IDR_W_RADL or IDR_N_LP, got \(type)")
+    }
+
+    /// Spec 9.12: a transcoded session's video playlist declares independent segments; a copy, whose
+    /// segments open on whatever keyframe the source has, does not.
+    func testOnlyATranscodedVideoPlaylistDeclaresIndependentSegments() throws {
+        for (key, declares) in [("mpeg4-avi", true), ("h264-mkv", false)] {
+            try runSession(key) { session, _ in
+                XCTAssertNotNil(session.segmentURL(0))
+                guard case .data(let body, _) = session.route("media.m3u8") else { return XCTFail("no media playlist for \(key)") }
+                XCTAssertEqual(String(decoding: body, as: UTF8.self).contains("#EXT-X-INDEPENDENT-SEGMENTS\n"), declares, key)
+            }
+        }
+    }
+
     func testAnHdrSourceScrubsOnToneMappedSdrFrames() throws { try assertEveryEntryDecodes("hevc10-pq-mkv") }
+    func testAnHlgSourceScrubsOnToneMappedSdrFrames() throws { try assertEveryEntryDecodes("hevc10-hlg-mkv") }
+    func testMp4EveryEntryPlaysAtItsKeyframesPresentationTime() throws { try assertEveryEntryDecodes("h264-mp4") }
+
+    /// Dolby Vision always scrubs on the SDR encode of its base layer; profile 5 has no base layer to show.
+    func testDolbyVisionEncodesItsBaseLayerAndProfile5HasNoRendition() {
+        func encodes(profile: UInt8, compatibility: UInt8) -> Bool? {
+            guard let par = avcodec_parameters_alloc() else { return nil }
+            var owned: UnsafeMutablePointer<AVCodecParameters>? = par
+            defer { avcodec_parameters_free(&owned) }
+            par.pointee.codec_id = AV_CODEC_ID_HEVC
+            par.pointee.width = 1920
+            par.pointee.height = 1080
+            let size = MemoryLayout<AVDOVIDecoderConfigurationRecord>.size
+            guard let side = av_packet_side_data_new(&par.pointee.coded_side_data, &par.pointee.nb_coded_side_data, AV_PKT_DATA_DOVI_CONF, size, 0) else { return nil }
+            side.pointee.data.withMemoryRebound(to: AVDOVIDecoderConfigurationRecord.self, capacity: 1) {
+                $0.pointee.dv_version_major = 1
+                $0.pointee.dv_profile = profile
+                $0.pointee.dv_level = 6
+                $0.pointee.rpu_present_flag = 1
+                $0.pointee.bl_present_flag = 1
+                $0.pointee.dv_bl_signal_compatibility_id = compatibility
+            }
+            return RemuxSession.iframeEncodes(par: par, playbackTranscodes: false)
+        }
+        XCTAssertEqual(encodes(profile: 8, compatibility: 1), true)
+        XCTAssertEqual(encodes(profile: 8, compatibility: 4), true)
+        XCTAssertEqual(encodes(profile: 7, compatibility: 6), true)
+        XCTAssertNil(encodes(profile: 5, compatibility: 0))
+    }
 
     func testH264EveryEntryDecodesToItsKeyframe() throws { try assertEveryEntryDecodes("h264-mkv") }
     func testHevcEveryEntryDecodesToItsKeyframe() throws { try assertEveryEntryDecodes("hevc-mkv") }

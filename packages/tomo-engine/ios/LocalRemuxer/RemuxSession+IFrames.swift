@@ -19,16 +19,13 @@ extension RemuxSession {
     /// Entries made once startup is over to measure the rendition's mean, and how long the sample may take.
     static let iframeSampleCount = 8
     static let iframeSampleSeconds = 120.0
-    /// The measured mean per item and rendition kind, declared by the item's next master (AVPlayer reads one per session).
-    private static let iframeMeansLock = NSLock()
-    private static var iframeMeans: [String: Int] = [:]
-
-    private func iframeMeanKey(encodes: Bool) -> String { "\(config.itemId)|\(encodes ? "encoded" : "copied")" }
+    /// The measured mean per item and rendition kind, declared by the item's next master (AVPlayer reads one
+    /// per session), kept across launches: item ids are the same on every server.
+    private func iframeMeanKey(encodes: Bool) -> String { "tomo.iframeMean.\(config.itemId).\(encodes ? "encoded" : "copied")" }
 
     func rememberedIFrameMean(encodes: Bool) -> Int? {
-        Self.iframeMeansLock.lock()
-        defer { Self.iframeMeansLock.unlock() }
-        return Self.iframeMeans[iframeMeanKey(encodes: encodes)]
+        let mean = UserDefaults.standard.integer(forKey: iframeMeanKey(encodes: encodes))
+        return mean > 0 ? mean : nil
     }
 
     /// Whether the I-frame rendition encodes SDR frames (true) or copies the source's keyframes (false):
@@ -110,9 +107,7 @@ extension RemuxSession {
             guard let encodes, !self.config.itemId.isEmpty,
                   let mean = IFrameBandwidth.sampledAverage(made, durations: store.entries.durations(totalSeconds: self.config.durationSeconds))
             else { return }
-            Self.iframeMeansLock.lock()
-            Self.iframeMeans[self.iframeMeanKey(encodes: encodes)] = mean
-            Self.iframeMeansLock.unlock()
+            UserDefaults.standard.set(mean, forKey: self.iframeMeanKey(encodes: encodes))
             NSLog("[IFrames] sampled mean %ld b/s from %ld of %ld entries in %.0f ms", mean, made.count, picks.count, Date().timeIntervalSince(started) * 1000)
         }
     }

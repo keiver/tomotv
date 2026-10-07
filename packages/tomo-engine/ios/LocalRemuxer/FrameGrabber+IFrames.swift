@@ -101,9 +101,13 @@ extension FrameGrabber {
             let read = Date().timeIntervalSince(started)
             let made = iframeFragment(packet, stream: stream, track: track, stampSeconds: stampSeconds, sampleSeconds: sampleSeconds,
                                       sequence: sequence, capBytes: capBytes)
+            #if DEBUG
             NSLog("[IFrames] kf%ld %@ %ld bytes%@ in %.0f ms, read %.0f ms%@", sequence - 1, track.transcoded ? "encoded" : "copied",
                   made?.data.count ?? 0, track.transcoded ? " (cap \(capBytes))" : "", Date().timeIntervalSince(started) * 1000, read * 1000,
                   made?.note ?? " failed")
+            #else
+            _ = read
+            #endif
             return made?.data
         }
     }

@@ -1512,6 +1512,7 @@ extension RemuxSession {
             stateLock.lock()
             if keyframeIndex == nil { keyframeIndex = keyframes }
             iframeTranscodes = encodes
+            videoSegmentsOpenOnIdr = primaryVideoTranscoder != nil
             iframeSize = size
             iframeFileSize = input.pointee.pb.map { avio_size($0) } ?? 0
             stateLock.unlock()

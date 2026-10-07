@@ -147,6 +147,8 @@ final class RemuxSession {
     var iframeSize: (width: Int32, height: Int32)?
     /// The I-frame sample has started (once per session, after startup).
     var iframeSamplingStarted = false
+    /// The video is encoded here, so every segment opens on an IDR (under stateLock).
+    var videoSegmentsOpenOnIdr = false
     /// Serves the I-frame rendition through `iframeGrabber`. Built on the first request, under the lock.
     var iframeStore: IFrameStore?
     /// Byte positions of an MPEG-TS input's times, shared by the pipeline's seeks and the grabber's.

@@ -584,6 +584,12 @@ extension RemuxSession {
         let count = segmentCount
         out += "#EXT-X-TARGETDURATION:\(sessionTargetDuration())\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
+        stateLock.lock()
+        let opensOnIdr = videoSegmentsOpenOnIdr
+        stateLock.unlock()
+        // Authoring spec 9.12: the encoder opens every segment on an IDR (measured); a copy opens on the
+        // source's keyframe, which an open-GOP encode makes a CRA.
+        if prefix.isEmpty, opensOnIdr { out += "#EXT-X-INDEPENDENT-SEGMENTS\n" }
         out += "#EXT-X-MAP:URI=\"\(initName)\"\n"
         for n in 0..<count {
             out += String(format: "#EXTINF:%.6f,\n", segmentDurationSeconds(n))
