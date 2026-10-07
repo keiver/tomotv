@@ -15,8 +15,10 @@ import { getAuthHeader, getConfig, JellyfinConfig } from "./session";
 import { requestLibraryItems } from "./items";
 import { fetchLibraryArtists, fetchLibraryGenres } from "./facets";
 import { fetchTunerData } from "./tunerGroups";
+import { fetchChannelOrder } from "./liveTv";
 import { activeGuideUrls, searchExternalPrograms } from "@/services/externalGuide";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
+import type { GuideChannelRequest } from "@/utils/guideMatch";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
 import { liveTvSearchHorizon, liveTvSearchIndex, liveTvSearchIndexVersion } from "./liveTvSearchIndex";
 
@@ -507,16 +509,27 @@ async function fetchAiringPrograms(config: JellyfinConfig): Promise<JellyfinVide
  * and the tuner playlists declare), for the tuner's channels, whose name, episode title or
  * description carries every word; the server's search never sees them. Matched in the native store.
  */
-async function searchGuideSources(searchTerm: string): Promise<JellyfinVideoItem[]> {
+async function searchGuideSources(config: JellyfinConfig, searchTerm: string): Promise<JellyfinVideoItem[]> {
   if (foldText(searchTerm).length < DESCRIPTION_MIN_CHARS) return [];
   const data = await fetchTunerData();
   const urls = activeGuideUrls(getLiveTvPreferences(), data.tvgUrls);
   if (urls.length === 0) return [];
-  const ids = new Set([...Object.keys(data.tvgById), ...Object.keys(data.tvgNameById)]);
-  const channels = [...ids].map((channelId) => ({ channelId, tvgId: data.tvgById[channelId], tvgName: data.tvgNameById[channelId], name: data.tvgNameById[channelId] ?? "" }));
+  // Every channel also matches by its Jellyfin name, as the guide does: the last tier, after tvg-id and tvg-name.
+  const lineup = await cachedRequest(`liveChannelNames:${config.server}:${config.userId}`, () => fetchChannelOrder(), CACHE.LIVE_AIRING_TTL_MS).catch(() => []);
+  const names: Record<string, string> = {};
+  for (const channel of lineup) if (channel.Name) names[channel.Id] = channel.Name;
+  const ids = new Set([...Object.keys(data.tvgById), ...Object.keys(data.tvgNameById), ...Object.keys(names)]);
+  const channels: GuideChannelRequest[] = [...ids].map((channelId) => ({
+    channelId,
+    tvgId: data.tvgById[channelId],
+    tvgName: data.tvgNameById[channelId],
+    name: names[channelId] ?? data.tvgNameById[channelId] ?? "",
+  }));
   const now = Date.now();
   const programs = await searchExternalPrograms(urls, channels, { from: now, to: liveTvSearchHorizon(now) }, searchTerm, LIVE_TV_RESULT_CAP);
-  return programs.map((program) => ({ ...program, Type: "Program", ChannelName: program.ChannelId ? data.tvgNameById[program.ChannelId] : undefined }) as JellyfinVideoItem);
+  return programs.map(
+    (program) => ({ ...program, Type: "Program", ChannelName: program.ChannelId ? (data.tvgNameById[program.ChannelId] ?? names[program.ChannelId]) : undefined }) as JellyfinVideoItem,
+  );
 }
 
 /** The server programmes in the index whose name, episode title or description carries every word, as bare cards. */
@@ -576,7 +589,7 @@ export async function searchLiveTv(searchTerm: string): Promise<JellyfinVideoIte
   if (!trimmed) return [];
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) return [];
-  const [names, airing, guideSources] = await Promise.allSettled([fetchLiveTvNameMatches(config, trimmed), fetchAiringPrograms(config), searchGuideSources(trimmed)]);
+  const [names, airing, guideSources] = await Promise.allSettled([fetchLiveTvNameMatches(config, trimmed), fetchAiringPrograms(config), searchGuideSources(config, trimmed)]);
   const warn = (source: string, settled: PromiseRejectedResult) =>
     logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: settled.reason instanceof Error ? settled.reason.message : "unknown" });
   if (names.status === "rejected") warn("names", names);

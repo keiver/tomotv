@@ -10,6 +10,8 @@ jest.mock("../jellyfin/session", () => ({
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("../jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn() }));
+jest.mock("../jellyfin/liveTv", () => ({ ...jest.requireActual("../jellyfin/liveTv"), fetchChannelOrder: jest.fn(async () => []) }));
+const { fetchChannelOrder } = jest.requireMock("../jellyfin/liveTv") as { fetchChannelOrder: jest.Mock };
 jest.mock("@/services/externalGuide", () => ({ activeGuideUrls: jest.requireActual("@/services/externalGuide").activeGuideUrls, searchExternalPrograms: jest.fn() }));
 jest.mock("@/services/liveTvPreferences", () => ({ getLiveTvPreferences: jest.fn(() => ({ guideUrls: [], guideSourcesOff: [] })) }));
 jest.mock("../jellyfin/liveTvSearchIndex", () => ({ ...jest.requireActual("../jellyfin/liveTvSearchIndex"), liveTvSearchIndex: jest.fn(() => null), liveTvSearchIndexVersion: jest.fn(() => 0) }));
@@ -305,6 +307,27 @@ describe("searchLiveTv", () => {
       await searchLiveTv("yankees");
       expect(searchExternalPrograms.mock.calls[0][0]).toEqual(["http://mine/epg.xml"]);
       getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [] });
+    });
+
+    it("asks the viewer's guides for Jellyfin's channels by name when no tuner playlist names them", async () => {
+      fetchTunerData.mockResolvedValue(NO_TUNER);
+      getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [] });
+      fetchChannelOrder.mockResolvedValueOnce([{ Id: "c9", Name: "Sports One", Type: "TvChannel", Path: "" }]);
+      serve(ok([]), ok([]));
+      searchExternalPrograms.mockResolvedValue([listing("c9", 30, "Yankees at Rays.")]);
+      const result = await searchLiveTv("yankees");
+      getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [] });
+      expect(searchExternalPrograms.mock.calls[0][1]).toEqual([{ channelId: "c9", tvgId: undefined, tvgName: undefined, name: "Sports One" }]);
+      expect(result[0]).toMatchObject({ ChannelId: "c9", ChannelName: "Sports One" });
+    });
+
+    it("gives a playlist channel its Jellyfin name too, for when its tvg-id and tvg-name match nothing in the guide", async () => {
+      fetchTunerData.mockResolvedValue({ ...NO_TUNER, tvgById: { c7: "nomatch.us" }, tvgUrls: [GUIDE] });
+      fetchChannelOrder.mockResolvedValueOnce([{ Id: "c7", Name: "Sports Two", Type: "TvChannel", Path: "" }]);
+      serve(ok([]), ok([]));
+      searchExternalPrograms.mockResolvedValue([]);
+      await searchLiveTv("yankees");
+      expect(searchExternalPrograms.mock.calls[0][1]).toEqual([{ channelId: "c7", tvgId: "nomatch.us", tvgName: undefined, name: "Sports Two" }]);
     });
 
     it("keeps the server's matches when the guide sources cannot be read", async () => {
