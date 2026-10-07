@@ -31,7 +31,8 @@ jest.mock("@/services/localRemux", () => ({
 }));
 jest.mock("@/hooks/useFolderPlay", () => ({ useFolderPlay: () => jest.fn() }));
 jest.mock("@/hooks/useShowInFolder", () => ({ useShowInFolder: () => jest.fn() }));
-jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
+const mockOpenItem = jest.fn();
+jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => mockOpenItem }));
 jest.mock("@/services/nextUp", () => ({ containerKey: () => null, dismissNextUpContainer: jest.fn() }));
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn(), hideGlobalLoader: jest.fn() }) }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
@@ -101,6 +102,45 @@ describe("Video info panel: dragged away", () => {
       tree.unmount();
     });
     expect(mockClearResumePosition).toHaveBeenCalledTimes(1);
+  });
+
+  it("plays from the start when dragged back to after the removal", async () => {
+    const tree = await mount(true);
+    await act(async () => {
+      tree.update(<VideoInfoPanel videoId="item-1" active={false} />);
+    });
+    await act(async () => {
+      tree.update(<VideoInfoPanel videoId="item-1" active />);
+    });
+    const play = tree.root.findByType(require("@/components/progress-button").ProgressButton);
+    await act(async () => {
+      await play.props.onPress();
+    });
+    expect(mockOpenItem).toHaveBeenCalledWith(expect.objectContaining({ UserData: expect.objectContaining({ PlaybackPositionTicks: 0 }) }), expect.anything());
+  });
+
+  it("waits on a removal still in flight when Play is pressed after the drag back", async () => {
+    let finish!: () => void;
+    mockClearResumePosition.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));
+    const tree = await mount(true);
+    await act(async () => {
+      tree.update(<VideoInfoPanel videoId="item-1" active={false} />);
+    });
+    await act(async () => {
+      tree.update(<VideoInfoPanel videoId="item-1" active />);
+    });
+    const play = tree.root.findByType(require("@/components/progress-button").ProgressButton);
+    let pressed!: Promise<void>;
+    await act(async () => {
+      pressed = play.props.onPress();
+    });
+    expect(mockOpenItem).not.toHaveBeenCalled();
+    await act(async () => {
+      finish();
+      await pressed;
+    });
+    expect(mockClearResumePosition).toHaveBeenCalledTimes(1);
+    expect(mockOpenItem).toHaveBeenCalledWith(expect.objectContaining({ UserData: expect.objectContaining({ PlaybackPositionTicks: 0 }) }), expect.anything());
   });
 
   it("writes nothing when the removal was never armed", async () => {

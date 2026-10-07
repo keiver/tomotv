@@ -162,6 +162,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   // Undefined for containers and photos, which hides the circle rather than disabling it.
   const { state: downloadState, toggle: toggleDownload } = useItemDownload(details);
   const pendingClearRef = useRef<{ id: string; container?: string } | null>(null);
+  const clearInFlightRef = useRef<Promise<boolean> | null>(null);
   // The folder the item actually lives in. A library root lists items whose ParentId is the
   // PHYSICAL folder, never the CollectionFolder id the screen holds, so ParentId alone can't
   // tell "already here" from "lives elsewhere".
@@ -232,7 +233,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   // every other exit. Resolves true once the resume point is gone, so a play press can wait on it.
   const commitClearProgress = useCallback(async (): Promise<boolean> => {
     const pending = pendingClearRef.current;
-    if (!pending) return false;
+    // A drag away started the DELETE; a play press after the drag back waits on that one.
+    if (!pending) return clearInFlightRef.current ?? false;
     pendingClearRef.current = null;
     setClearArmed(false);
     if (pending.container) {
@@ -240,13 +242,22 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       notifyResumeChange();
       return true;
     }
-    try {
-      await clearResumePosition(pending.id);
-      return true;
-    } catch (error) {
-      logger.warn("Failed to clear progress", error, { service: "VideoInfo", videoId: pending.id });
-      return false;
-    }
+    const clearing = clearResumePosition(pending.id).then(
+      () => {
+        // The pager keeps this panel mounted, so a drag back plays from what the server holds.
+        setDetails((current) => (current?.Id === pending.id ? { ...current, UserData: { ...current.UserData, PlaybackPositionTicks: 0, Played: false } } : current));
+        return true;
+      },
+      (error: unknown) => {
+        logger.warn("Failed to clear progress", error, { service: "VideoInfo", videoId: pending.id });
+        return false;
+      },
+    );
+    clearInFlightRef.current = clearing;
+    void clearing.then(() => {
+      if (clearInFlightRef.current === clearing) clearInFlightRef.current = null;
+    });
+    return clearing;
   }, []);
 
   useEffect(() => () => void commitClearProgress(), [commitClearProgress]);
@@ -280,7 +291,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     }
     // The removal lands before the player opens: openItem reads the resume ticks off this
     // object, and a DELETE in flight would reset the position the player has begun reporting.
-    if (pendingClearRef.current) showGlobalLoader();
+    if (pendingClearRef.current || clearInFlightRef.current) showGlobalLoader();
     const cleared = await commitClearProgress();
     const item = cleared ? { ...details, UserData: { ...details.UserData, PlaybackPositionTicks: 0, Played: false } } : details;
     openItem(item, { replace: !IS_TV });
@@ -289,7 +300,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   // Long press on Resume plays from the beginning; the resume point stays until playback reports.
   const handleStartOver = useCallback(async () => {
     if (!details) return;
-    if (pendingClearRef.current) showGlobalLoader();
+    if (pendingClearRef.current || clearInFlightRef.current) showGlobalLoader();
     await commitClearProgress();
     openItem(details, { replace: !IS_TV, fromStart: true });
   }, [commitClearProgress, details, openItem, showGlobalLoader]);
