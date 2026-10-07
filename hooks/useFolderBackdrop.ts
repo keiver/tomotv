@@ -3,18 +3,17 @@ import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { fetchFolderPreviewItems, fetchItemDetails, getTintUrl } from "@/services/jellyfinApi";
 import { useEffect, useState } from "react";
 
-/** A folder's colour tint. `sharp` = from Backdrop fanart; false = from a poster. */
+/** A folder's blurred background art. */
 export interface FolderBackdropSource {
   uri: string;
-  sharp: boolean;
 }
 
 /**
- * The one image a folder tints its background from, resolved once on open and held for the whole
- * folder (never per-card — that thrashed the grid). Preference: the folder's own Backdrop fanart,
- * then its own poster, then the first poster among its descendants (fetchFolderPreviewItems is
- * server-side recursive), then nothing (the ambient glows show). Keyed by session + folder id so a
- * recycled screen or a server switch never shows a stale tint.
+ * The one image a folder blurs behind its grid, resolved once on open and held for the whole
+ * folder (never per-card: that thrashed the grid). Preference: the folder's own Backdrop fanart,
+ * then its own cover, then the first poster among its descendants (fetchFolderPreviewItems is
+ * server-side recursive), then nothing (the ambient glows show). Keyed by session + folder id so
+ * a recycled screen or a server switch never shows a stale image.
  */
 export function useFolderBackdrop(folderId: string | null): FolderBackdropSource | null {
   const session = useAuthSession();
@@ -30,17 +29,17 @@ export function useFolderBackdrop(folderId: string | null): FolderBackdropSource
       const details = await fetchItemDetails(folderId).catch(() => null);
       if (cancelled) return;
       if (details?.BackdropImageTags?.length) {
-        setResult({ key, source: { uri: getTintUrl(folderId, "Backdrop"), sharp: true } });
+        setResult({ key, source: { uri: getTintUrl(folderId, "Backdrop") } });
         return;
       }
       if (details?.ImageTags?.Primary) {
-        setResult({ key, source: { uri: getTintUrl(folderId, "Primary"), sharp: false } });
+        setResult({ key, source: { uri: getTintUrl(folderId, "Primary") } });
         return;
       }
       const preview = await fetchFolderPreviewItems(folderId).catch(() => []);
       if (cancelled) return;
       const first = preview.find((item) => item.ImageTags?.Primary);
-      setResult({ key, source: first ? { uri: getTintUrl(first.Id, "Primary"), sharp: false } : null });
+      setResult({ key, source: first ? { uri: getTintUrl(first.Id, "Primary") } : null });
     })();
     return () => {
       cancelled = true;

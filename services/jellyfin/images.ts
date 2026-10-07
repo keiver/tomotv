@@ -109,7 +109,7 @@ export function hasPoster(item: Pick<JellyfinVideoItem, "ImageTags">): boolean {
 }
 
 /**
- * Get the real backdrop (fanart) image URL. Gate on BackdropImageTags length —
+ * Get the real backdrop (fanart) image URL. Gate on BackdropImageTags length:
  * requesting index 0 on an item without one is a 404.
  */
 export function getBackdropUrl(itemId: string, maxWidth: number = 1920): string {
@@ -120,17 +120,15 @@ export function getBackdropUrl(itemId: string, maxWidth: number = 1920): string 
 }
 
 /**
- * A tiny, server-blurred image that reads as the item's dominant colours — the folder-background
- * tint. Downscaled to a handful of pixels (the main colours) then blurred server-side, so it melts
- * into a smooth field with no pixel blocks and no colour-extraction library. Backdrop fanart or
- * Primary poster.
+ * A server-blurred copy of an item's fanart or poster for a folder background, 200px on its longer
+ * edge. Jellyfin's blur pulls black in from the edges: 16 wide at blur=25 measured RGB 3,3,3.
  */
 export function getTintUrl(itemId: string, image: "Backdrop" | "Primary"): string {
   if (!getCachedConfig().server || !getCachedConfig().apiKey) {
     return "";
   }
   const path = image === "Backdrop" ? "Images/Backdrop/0" : "Images/Primary";
-  return `${getCachedConfig().server}/Items/${itemId}/${path}?ApiKey=${getCachedConfig().apiKey}&maxWidth=16&quality=90&blur=25`;
+  return `${getCachedConfig().server}/Items/${itemId}/${path}?ApiKey=${getCachedConfig().apiKey}&maxWidth=200&maxHeight=200&quality=90&blur=16`;
 }
 
 /**

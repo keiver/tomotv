@@ -8,7 +8,7 @@ import TestRenderer, { act } from "react-test-renderer";
 jest.mock("@/services/jellyfinApi", () => ({
   fetchItemDetails: jest.fn(),
   fetchFolderPreviewItems: jest.fn(),
-  getTintUrl: (id: string, kind: string) => `tint://${id}/${kind}`,
+  getTintUrl: (id: string, kind: string) => `blur://${id}/${kind}`,
   subscribeAuthChange: () => () => {},
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
@@ -38,7 +38,30 @@ describe("useFolderBackdrop", () => {
     await act(async () => {
       tree = TestRenderer.create(<Probe ref={ref} folderId="f1" />);
     });
-    expect(ref.current?.get()).toEqual({ uri: "tint://f1/Backdrop", sharp: true });
+    expect(ref.current?.get()).toEqual({ uri: "blur://f1/Backdrop" });
+    act(() => tree.unmount());
+  });
+
+  it("blurs the folder's own cover when it has no fanart", async () => {
+    mockDetails.mockResolvedValue({ ImageTags: { Primary: "p" } });
+    const ref = React.createRef<Handle>();
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(<Probe ref={ref} folderId="f1" />);
+    });
+    expect(ref.current?.get()).toEqual({ uri: "blur://f1/Primary" });
+    act(() => tree.unmount());
+  });
+
+  it("blurs the first descendant poster when the folder has no art of its own", async () => {
+    mockDetails.mockResolvedValue({});
+    mockPreview.mockResolvedValue([{ Id: "a" }, { Id: "c1", ImageTags: { Primary: "p" } }]);
+    const ref = React.createRef<Handle>();
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(<Probe ref={ref} folderId="f1" />);
+    });
+    expect(ref.current?.get()).toEqual({ uri: "blur://c1/Primary" });
     act(() => tree.unmount());
   });
 
@@ -54,7 +77,7 @@ describe("useFolderBackdrop", () => {
 
     await act(async () => updateUiPreferences({ folderTint: true }));
     expect(mockDetails).toHaveBeenCalledTimes(1);
-    expect(ref.current?.get()).toEqual({ uri: "tint://f1/Backdrop", sharp: true });
+    expect(ref.current?.get()).toEqual({ uri: "blur://f1/Backdrop" });
 
     await act(async () => updateUiPreferences({ folderTint: false }));
     expect(ref.current?.get()).toBeNull();
