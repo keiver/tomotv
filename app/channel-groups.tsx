@@ -4,10 +4,10 @@ import { PadSheet } from "@/components/pad-sheet";
 import { ListRow } from "@/components/settings/ListRow";
 import { settingsStyles } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
-import { COLORS } from "@/constants/colors";
 import { updateLiveTvPreferences, type ChannelFilter, type ChannelIdentity } from "@/services/liveTvPreferences";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -27,6 +27,7 @@ export default function ChannelGroupsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  const { accent } = useCardPalette();
   const choices = useChannelFilterChoices();
   const { filter } = useLiveTvPreferences();
   const params = useLocalSearchParams<{ channelId?: string; channelName?: string; channelNumber?: string }>();
@@ -45,9 +46,9 @@ export default function ChannelGroupsScreen() {
   );
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () => ({
-      unstable_headerRightItems: () => [{ type: "button", label: t("common.close"), icon: { type: "sfSymbol", name: "xmark" }, tintColor: COLORS.ACCENT, onPress: () => router.back() }],
+      unstable_headerRightItems: () => [{ type: "button", label: t("common.close"), icon: { type: "sfSymbol", name: "xmark" }, tintColor: accent, onPress: () => router.back() }],
     }),
-    [router],
+    [router, accent],
   );
 
   const choiceRows = choices.map((choice, index) => {

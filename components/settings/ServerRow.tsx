@@ -1,6 +1,7 @@
 import { glyphSize } from "@/components/settings/LeadingTile";
 import { ListRow } from "@/components/settings/ListRow";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import { forwardRef } from "react";
@@ -75,12 +76,13 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
   const iconName = stoppable ? "close-circle" : ICONS[variant];
   // The monitor's stand pulls its ink left of the wifi and plus glyphs; two points right line them up.
   const nudge = variant === "server" ? styles.nudge : undefined;
+  const { accent } = useCardPalette();
 
   return (
     <ListRow
       ref={ref}
-      // Green at rest is the connected mark; on the gold fill it takes the bar's ink like every glyph.
-      icon={({ color }) => <Ionicons name={iconName} size={glyphSize(iconName)} color={connected && color === COLORS.ACCENT ? COLORS.SUCCESS : color} style={nudge} />}
+      // Green at rest is the connected mark; on the accent fill it takes the bar's ink like every glyph.
+      icon={({ color }) => <Ionicons name={iconName} size={glyphSize(iconName)} color={connected && color === accent ? COLORS.SUCCESS : color} style={nudge} />}
       title={name}
       subtitle={subtitle}
       subtitleAccent={isNew ? "New · " : undefined}

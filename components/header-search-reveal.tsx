@@ -1,6 +1,7 @@
 import { GlassButton } from "@/components/glass-button";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
@@ -27,6 +28,7 @@ interface HeaderSearchRevealProps {
 export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderSearchRevealProps) {
   const [open, setOpen] = useState(false);
   const [rolling, setRolling] = useState(false);
+  const { accent } = useCardPalette();
   // Whether the field has held the caret since this reveal, so a blur that
   // precedes its first focus can't be read as the user leaving.
   const editedOnce = useRef(false);
@@ -104,7 +106,7 @@ export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderS
           style={styles.fieldInput}
         />
       </Animated.View>
-      <GlassButton icon={<Ionicons name="search" size={24} color={COLORS.ACCENT} />} accessibilityLabel={placeholder} onPress={reveal} />
+      <GlassButton icon={<Ionicons name="search" size={24} color={accent} />} accessibilityLabel={placeholder} onPress={reveal} />
     </View>
   );
 }

@@ -1,6 +1,7 @@
 import { AvatarDisc } from "@/components/settings/AvatarDisc";
 import { ListRow } from "@/components/settings/ListRow";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -29,13 +30,14 @@ interface ConnectedSectionProps {
  * client are signed in as different people.
  */
 export function ConnectedSection({ serverUrl, userName, userImageUri, onSwitchServer, children }: ConnectedSectionProps) {
+  const { accent } = useCardPalette();
   return (
     <View style={settingsStyles.section}>
       <ListRow
-        // The account's face in the strip's green ring; on the gold focus fill the ring takes
-        // the bar's ink like every glyph, so it never sits green on gold.
+        // The account's face in the strip's green ring; on the accent focus fill the ring takes
+        // the bar's ink like every glyph, so it never sits green on the accent.
         icon={({ color }) => (
-          <View style={[styles.ring, { borderColor: color === COLORS.ACCENT ? COLORS.SUCCESS : color }]}>
+          <View style={[styles.ring, { borderColor: color === accent ? COLORS.SUCCESS : color }]}>
             <AvatarDisc seed={userName || t("settings.connected")} uri={userImageUri} size={DISC} />
           </View>
         )}

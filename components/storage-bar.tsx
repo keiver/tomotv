@@ -1,5 +1,6 @@
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { COLORS } from "@/constants/colors";
+import { themedStyles, useCardPalette } from "@/hooks/useCardPalette";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
 import React, { type ComponentProps } from "react";
@@ -45,7 +46,7 @@ interface StorageBarProps {
 }
 
 /**
- * How much of the device the downloads hold, drawn as the band a section card ends in: a gold
+ * How much of the device the downloads hold, drawn as the band a section card ends in: an accent
  * track the used fraction fills red across its full height, the reading centred over it.
  * It is its card's footer: phone wraps it in SectionFooter, tvOS leaves it bare because the
  * footer's overlay would occlude it from focus. Pressing it clears everything.
@@ -54,17 +55,19 @@ export function StorageBar({ used, free, onClear, usedLabel, label: reading, fil
   const { percent, accessibleNow } = storageBarFill(used, free);
   const usedPart = usedLabel ?? (used > 0 ? t("downloads.usedDownloaded").replace("{size}", formatFileSize(used)) : t("downloads.nothingDownloaded"));
   const label = reading ?? t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
+  const palette = useCardPalette();
+  const themed = useThemedStyles();
 
   const bar = !onClear ? (
-    <View style={styles.track} accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: accessibleNow }}>
+    <View style={[styles.track, themed.track]} accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: accessibleNow }}>
       <View style={[styles.fill, { width: `${percent}%`, backgroundColor: fillColor }]} />
       <View style={styles.row}>
-        <Text style={styles.label}>{label}</Text>
+        <Text style={[styles.label, themed.label]}>{label}</Text>
       </View>
     </View>
   ) : (
     <Pressable
-      style={styles.track}
+      style={[styles.track, themed.track]}
       onPress={onClear}
       onLongPress={onClear}
       hitSlop={{ top: TOUCH_SLOP, bottom: TOUCH_SLOP }}
@@ -77,12 +80,12 @@ export function StorageBar({ used, free, onClear, usedLabel, label: reading, fil
         <>
           <View style={[styles.fill, { width: `${percent}%`, backgroundColor: fillColor }]} pointerEvents="none" />
           <View style={styles.row} pointerEvents="none">
-            <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.ON_ACCENT} style={styles.mark} />
+            <Ionicons name="trash-outline" size={ICON_SIZE} color={palette.onAccent} style={styles.mark} />
             {/* Unclamped: at the accessibility text sizes the reading is wider than the band, and
                 wrapping it is the difference between a long reading and half a reading. */}
-            <Text style={styles.label}>{label}</Text>
+            <Text style={[styles.label, themed.label]}>{label}</Text>
           </View>
-          {/* tvOS: the band is gold at rest, so focus is a ring rather than a fill. */}
+          {/* tvOS: the band is the accent at rest, so focus is a ring rather than a fill. */}
           {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
         </>
       )}
@@ -97,7 +100,6 @@ const styles = StyleSheet.create({
   track: {
     minHeight: BAR_HEIGHT,
     justifyContent: "center",
-    backgroundColor: COLORS.ACCENT,
   },
   // The used space, filling the whole band from the left to the used fraction.
   fill: {
@@ -132,8 +134,16 @@ const styles = StyleSheet.create({
   label: {
     flexShrink: 1,
     textAlign: "center",
-    color: COLORS.ON_ACCENT,
     fontSize: Platform.isTV ? 24 : 13,
     fontWeight: "500",
   },
 });
+
+const useThemedStyles = themedStyles((palette) => ({
+  track: {
+    backgroundColor: palette.accent,
+  },
+  label: {
+    color: palette.onAccent,
+  },
+}));

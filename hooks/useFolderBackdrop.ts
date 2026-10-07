@@ -1,4 +1,5 @@
 import { useAuthSession } from "@/hooks/useAuthSession";
+import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { fetchFolderPreviewItems, fetchItemDetails, getTintUrl } from "@/services/jellyfinApi";
 import { useEffect, useState } from "react";
 
@@ -17,11 +18,13 @@ export interface FolderBackdropSource {
  */
 export function useFolderBackdrop(folderId: string | null): FolderBackdropSource | null {
   const session = useAuthSession();
+  // Off in Settings: nothing is fetched, and the ambient glows show.
+  const { folderTint } = useUiPreferences();
   const key = `${session}:${folderId ?? ""}`;
   const [result, setResult] = useState<{ key: string; source: FolderBackdropSource | null }>({ key: "", source: null });
 
   useEffect(() => {
-    if (!folderId) return;
+    if (!folderId || !folderTint) return;
     let cancelled = false;
     void (async () => {
       const details = await fetchItemDetails(folderId).catch(() => null);
@@ -42,7 +45,7 @@ export function useFolderBackdrop(folderId: string | null): FolderBackdropSource
     return () => {
       cancelled = true;
     };
-  }, [key, folderId]);
+  }, [key, folderId, folderTint]);
 
-  return result.key === key ? result.source : null;
+  return folderTint && result.key === key ? result.source : null;
 }

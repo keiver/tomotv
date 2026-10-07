@@ -3,6 +3,7 @@ import { settingsStyles } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { useLanguageChoice } from "@/hooks/useLocale";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
+import { themeName } from "@/components/theme/theme-name";
 import { LANGUAGE_NAMES, t } from "@/services/i18n";
 import { updateUiPreferences } from "@/services/uiPreferences";
 import { useRouter } from "expo-router";
@@ -12,10 +13,11 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 /** Interface choices kept on this device. The poster toggle covers cards only: chapter stills and channel sampling ignore it. */
 export function UiSection() {
   const router = useRouter();
-  const { devicePosters } = useUiPreferences();
+  const { devicePosters, cardTheme } = useUiPreferences();
   const choice = useLanguageChoice();
   const toggleDevicePosters = useCallback(() => updateUiPreferences({ devicePosters: !devicePosters }), [devicePosters]);
   const openLanguage = useCallback(() => router.push("/language"), [router]);
+  const openAppearance = useCallback(() => router.push("/appearance"), [router]);
 
   return (
     <>
@@ -31,6 +33,7 @@ export function UiSection() {
           onPress={openLanguage}
           isFirst
         />
+        <ListRow icon="color-palette" title={t("settings.appearance")} subtitle={themeName(cardTheme)} trailingIcon="chevron-forward" onPress={openAppearance} />
         <ListRow
           icon="image"
           title={t("settings.devicePosters")}

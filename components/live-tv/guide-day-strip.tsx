@@ -1,6 +1,7 @@
 import { GuideDayPicker } from "@/components/live-tv/guide-day-picker";
 import { HUD_CELL_BACKGROUND } from "@/components/live-tv/guide-group-cell";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideDay } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
 import { dayStripFirst, formatDayBox, formatDayHeading, guideMetrics } from "@/utils/guide";
@@ -118,6 +119,7 @@ interface DayBoxProps {
 /** One day as a corner action cell: frosted black, square, the cells' gold ring on focus over the groups' wash when picked. */
 function DayBox({ index, day, selected, label, snapOffset, onPress, onFocus, onBlur }: DayBoxProps) {
   const [focused, setFocused] = useState(false);
+  const { accent } = useCardPalette();
   // TV: read only without listings, focusable so the strip still browses past it, presses drop.
   const noListings = day.hasListings === false;
   const readOnly = noListings && IS_TV;
@@ -139,7 +141,7 @@ function DayBox({ index, day, selected, label, snapOffset, onPress, onFocus, onB
         accessibilityState={{ selected, disabled: readOnly }}
         tvParallaxProperties={{ enabled: false }}
         style={styles.hit}>
-        {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
+        {focused ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
         <Text style={[styles.day, noListings && styles.dayNoListings]} numberOfLines={1}>
           {formatDayBox(day.startMs)}
         </Text>
@@ -187,7 +189,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderWidth: IS_TV ? 2 : 1,
-    borderColor: COLORS.ACCENT,
   },
   day: {
     color: COLORS.TEXT_PRIMARY,

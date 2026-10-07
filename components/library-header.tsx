@@ -1,5 +1,6 @@
 import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { FolderStackEntry } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { Ionicons } from "@expo/vector-icons";
@@ -40,8 +41,8 @@ export interface HeaderAction {
   onPress: () => void;
 }
 
-function actionIcon(icon: HeaderAction["icon"]) {
-  return typeof icon === "string" ? <Ionicons name={icon} size={24} color={COLORS.ACCENT} /> : icon;
+function actionIcon(icon: HeaderAction["icon"], accent: string) {
+  return typeof icon === "string" ? <Ionicons name={icon} size={24} color={accent} /> : icon;
 }
 
 /**
@@ -70,6 +71,7 @@ function LibraryHeaderComponent({
   );
   const handleFiltersFocus = useCallback(() => onFiltersFocusChange?.(true), [onFiltersFocusChange]);
   const handleFiltersBlur = useCallback(() => onFiltersFocusChange?.(false), [onFiltersFocusChange]);
+  const { accent } = useCardPalette();
 
   if (stack.length === 0) {
     return null;
@@ -78,11 +80,7 @@ function LibraryHeaderComponent({
   return (
     <View style={styles.container}>
       {onGoHome ? (
-        <GlassButton
-          onPress={onGoHome}
-          accessibilityLabel={homeAsBack ? t("common.back") : t("tab.home")}
-          icon={<Ionicons name={homeAsBack ? "chevron-back" : "home"} size={24} color={COLORS.ACCENT} />}
-        />
+        <GlassButton onPress={onGoHome} accessibilityLabel={homeAsBack ? t("common.back") : t("tab.home")} icon={<Ionicons name={homeAsBack ? "chevron-back" : "home"} size={24} color={accent} />} />
       ) : null}
       <View style={styles.path} pointerEvents="none">
         {stack.map((entry, index) => {
@@ -99,7 +97,7 @@ function LibraryHeaderComponent({
       </View>
       {trailing ?? null}
       {secondaryAction ? (
-        <GlassButton title={secondaryAction.title} accessibilityLabel={secondaryAction.accessibilityLabel} onPress={secondaryAction.onPress} icon={actionIcon(secondaryAction.icon)} />
+        <GlassButton title={secondaryAction.title} accessibilityLabel={secondaryAction.accessibilityLabel} onPress={secondaryAction.onPress} icon={actionIcon(secondaryAction.icon, accent)} />
       ) : null}
       {onOpenFilters ? (
         <GlassButton
@@ -109,7 +107,7 @@ function LibraryHeaderComponent({
           onPress={onOpenFilters}
           onFocus={handleFiltersFocus}
           onBlur={handleFiltersBlur}
-          icon={<Ionicons name="funnel-outline" size={24} color={COLORS.ACCENT} />}
+          icon={<Ionicons name="funnel-outline" size={24} color={accent} />}
         />
       ) : action ? (
         <GlassButton
@@ -120,7 +118,7 @@ function LibraryHeaderComponent({
           onFocus={handleFiltersFocus}
           onBlur={handleFiltersBlur}
           accessibilityLabel={action.accessibilityLabel}
-          icon={actionIcon(action.icon)}
+          icon={actionIcon(action.icon, accent)}
         />
       ) : null}
     </View>

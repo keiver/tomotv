@@ -1,4 +1,5 @@
 import { GuideFocusReel } from "@/components/live-tv/guide-focus-reel";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useGuideChannelFocus } from "@/hooks/useGuideChannelFocus";
 import { GuideCellQuietLine } from "@/components/live-tv/guide-cell-quiet-line";
 import { DESIGN } from "@/constants/app";
@@ -107,6 +108,7 @@ function GuideCellComponent({
   // A node, not state: a measured width that re-rendered the cell doubled every mount.
   const labelWidth = useAnimatedValue(0);
   const [focused, setFocused] = useState(false);
+  const { accent } = useCardPalette();
   const reelChannel = !standIn && program.ChannelId && airing ? program.ChannelId : null;
   // Only a cell in view wears its reel: one off screen would hold a burst's frames for nothing.
   const seenChannel = showArt ? (standInChannel ?? reelChannel) : null;
@@ -227,13 +229,13 @@ function GuideCellComponent({
         <RNAnimated.View style={[styles.seenBox, seenPinStyle]} pointerEvents="none" testID="guide-cell-seen">
           <Text style={styles.seenText} numberOfLines={1}>
             {seenLead}
-            {seenTail === undefined ? null : <Text style={styles.seenTime}>{formatClock(seenAt)}</Text>}
+            {seenTail === undefined ? null : <Text style={{ color: accent }}>{formatClock(seenAt)}</Text>}
             {seenTail}
           </Text>
         </RNAnimated.View>
       ) : null}
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
-      {focused ? <RNAnimated.View style={[styles.focusRing, ringStyle]} pointerEvents="none" testID="guide-cell-ring" /> : null}
+      {focused ? <RNAnimated.View style={[styles.focusRing, { borderColor: accent }, ringStyle]} pointerEvents="none" testID="guide-cell-ring" /> : null}
       {/* Clipped inside the border: a one-sided border draws behind the cell's children, and the scrim's fade runs past the label. */}
       <View style={styles.labelClip} pointerEvents="box-none" testID="guide-cell-label-clip">
         {IS_TV ? (
@@ -314,7 +316,6 @@ const styles = StyleSheet.create({
     right: -1,
     bottom: 0,
     borderWidth: RING_WIDTH,
-    borderColor: COLORS.ACCENT,
   },
   labelClip: {
     position: "absolute",
@@ -413,10 +414,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: IS_TV ? 0.8 : 0.4,
     textTransform: "uppercase",
-  },
-  // The ruler's now label ink.
-  seenTime: {
-    color: COLORS.ACCENT,
   },
   titleRow: {
     flexDirection: "row",

@@ -8,6 +8,7 @@ import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/g
 import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler, useRulerScrub } from "@/components/live-tv/guide-time-ruler";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
@@ -66,6 +67,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, holdWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
+  const { onAccent } = useCardPalette();
 
   const insets = useSafeAreaInsets();
   // Phone: the column reopens the way it was last left.
@@ -432,7 +434,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         <View style={styles.center}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorText}>{error}</Text>
-          <FocusableButton title={t("common.retry")} variant="primary" onPress={retry} hasTVPreferredFocus icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} />
+          <FocusableButton title={t("common.retry")} variant="primary" onPress={retry} hasTVPreferredFocus icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={onAccent} />} />
         </View>
         {seamMark}
       </View>

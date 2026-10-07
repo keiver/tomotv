@@ -1,9 +1,11 @@
 import { DraggableToolbar } from "@/components/draggable-toolbar";
 import { LevelBars } from "@/components/level-bars";
 import { COLORS } from "@/constants/colors";
+import { themedStyles } from "@/hooks/useCardPalette";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
 import { playbackArtworkUri } from "@/services/downloads/localSource";
 import { cleanLabel } from "@/utils/cleanLabel";
+import { withAlpha } from "@/utils/color";
 import { joinMeta } from "@/utils/mediaInfo";
 import { queueTrackProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,9 +25,6 @@ const TRANSPORT = 44;
 /** Where the bar parks above the safe area: clear of the native tab bar, which it can still
     be dragged over. */
 const PARK_CLEARANCE = 58;
-/** COLORS.ACCENT at the alphas the glass keeps refracting through: faint at the start of the
-    track, denser at the playhead, a solid line on the playhead itself. */
-const FILL_GRADIENT = "linear-gradient(90deg, rgba(255, 195, 18, 0.10) 0%, rgba(255, 195, 18, 0.32) 100%)";
 const PLAYHEAD = 2;
 
 /** Routes that own the whole screen and carry their own transport. */
@@ -73,6 +72,7 @@ export function AudioMiniPlayer() {
   const pathname = usePathname();
   const [state, setState] = useState<AudioPlayerUIState>(() => audioPlayerManager.getUIState());
   const [failedArtwork, setFailedArtwork] = useState<string | null>(null);
+  const themed = useThemedStyles();
 
   useEffect(() => audioPlayerManager.subscribe(setState), []);
 
@@ -107,10 +107,10 @@ export function AudioMiniPlayer() {
       bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }}
       collapsedIcon={<LevelBars size={22} playing={state.playing} />}
       backdrop={
-        // The pill's own gold fill, the Resume button's idea in glass: it runs from the left cap
+        // The pill's own accent fill, the Resume button's idea in glass: it runs from the left cap
         // to the playhead and the material still refracts through it.
-        <View style={[styles.progressFill, { width: `${percent}%` }]} testID="audio-progress">
-          <View style={styles.playhead} />
+        <View style={[styles.progressFill, themed.progressFill, { width: `${percent}%` }]} testID="audio-progress">
+          <View style={[styles.playhead, themed.playhead]} />
         </View>
       }>
       <View style={styles.identity}>
@@ -164,7 +164,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     minWidth: BAR_HEIGHT / 2,
-    experimental_backgroundImage: FILL_GRADIENT,
   },
   playhead: {
     position: "absolute",
@@ -172,7 +171,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     right: 0,
     width: PLAYHEAD,
-    backgroundColor: COLORS.ACCENT,
   },
   identity: {
     flex: 1,
@@ -213,5 +211,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 });
+
+// The accent at the alphas the glass keeps refracting through: faint at the start of the track,
+// denser at the playhead, a solid line on the playhead itself.
+const useThemedStyles = themedStyles((palette) => ({
+  progressFill: {
+    experimental_backgroundImage: `linear-gradient(90deg, ${withAlpha(palette.accent, 0.1)} 0%, ${withAlpha(palette.accent, 0.32)} 100%)`,
+  },
+  playhead: {
+    backgroundColor: palette.accent,
+  },
+}));
 
 export default AudioMiniPlayer;

@@ -1,6 +1,6 @@
-import { goldRowShadow, settingsStyles } from "@/components/settings/styles";
-import { CARD_FOCUS } from "@/constants/app";
+import { goldRowShadow, settingsStyles, useSettingsAccentStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
@@ -34,15 +34,17 @@ interface RateHeadingProps {
 
 /** A section heading with a measured figure seated on its line; focused on TV it caps its card. */
 export function RateHeading({ title, rate, glyph, ink, spoken, first, onPress, disabled, hint, onFocus, onBlur }: RateHeadingProps) {
+  const palette = useCardPalette();
+  const accentStyles = useSettingsAccentStyles();
   const content = (onGold: boolean) => (
     <>
-      <Text style={[settingsStyles.sectionHeaderText, styles.title, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
+      <Text style={[settingsStyles.sectionHeaderText, styles.title, onGold && accentStyles.listItemTitleFocused]} numberOfLines={1}>
         {title}
       </Text>
       <View style={styles.rate}>
         {/* Always mounted, shown by opacity: a focusable's children never come and go (see ListRow). */}
-        <Ionicons name={glyph} size={GLYPH} color={onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : (ink ?? COLORS.SUCCESS)} style={ink == null && styles.glyphHidden} />
-        <Text style={[settingsStyles.sectionHeaderText, ink != null && { color: ink }, onGold && settingsStyles.listItemTitleFocused]} numberOfLines={1}>
+        <Ionicons name={glyph} size={GLYPH} color={onGold ? palette.ink : (ink ?? COLORS.SUCCESS)} style={ink == null && styles.glyphHidden} />
+        <Text style={[settingsStyles.sectionHeaderText, ink != null && { color: ink }, onGold && accentStyles.listItemTitleFocused]} numberOfLines={1}>
           {rate}
         </Text>
       </View>
@@ -64,8 +66,8 @@ export function RateHeading({ title, rate, glyph, ink, spoken, first, onPress, d
         styles.headingRow,
         first && !Platform.isTV && settingsStyles.sectionHeaderFirst,
         Platform.isTV && styles.tvHeading,
-        Platform.isTV && focused && !pressed && settingsStyles.listItemFocused,
-        Platform.isTV && pressed && settingsStyles.listItemPressed,
+        Platform.isTV && focused && !pressed && accentStyles.listItemFocused,
+        Platform.isTV && pressed && accentStyles.listItemPressed,
         Platform.isTV && (focused || pressed) && goldRowShadow(true, false, false),
         !Platform.isTV && pressed && styles.pressed,
       ]}

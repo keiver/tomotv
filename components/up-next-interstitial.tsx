@@ -1,6 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { getBackdropBlurUrl, hasPoster } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -52,6 +53,7 @@ const CtaButton = Platform.isTV ? GlassButton : FocusableButton;
  */
 export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, onClose }: UpNextInterstitialProps) {
   const seasonEpisode = useMemo(() => formatSeasonEpisode(nextVideo), [nextVideo]);
+  const palette = useCardPalette();
 
   const posterSource = useItemPoster(nextVideo, POSTER_HEIGHT * 2);
 
@@ -140,7 +142,7 @@ export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, 
 
           {autoAdvance && (
             <View style={styles.countdownTrack}>
-              <Animated.View style={[styles.countdownFill, countdownStyle]} />
+              <Animated.View style={[styles.countdownFill, { backgroundColor: palette.accent }, countdownStyle]} />
             </View>
           )}
 
@@ -149,14 +151,14 @@ export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, 
               title={t("player.playNow")}
               variant="primary"
               hasTVPreferredFocus
-              icon={<Ionicons name="play" size={Platform.isTV ? 24 : 18} color={COLORS.SURFACE_SUNKEN} />}
+              icon={<Ionicons name="play" size={Platform.isTV ? 24 : 18} color={palette.onAccent} />}
               onPress={onPlayNext}
               style={styles.button}
             />
             <CtaButton
               title={t("common.close")}
               variant={Platform.isTV ? "link" : "secondary"}
-              icon={<Ionicons name="close" size={Platform.isTV ? 24 : 18} color={COLORS.ACCENT} />}
+              icon={<Ionicons name="close" size={Platform.isTV ? 24 : 18} color={palette.accent} />}
               onPress={onClose}
               style={styles.button}
             />
@@ -244,7 +246,6 @@ const styles = StyleSheet.create({
   },
   countdownFill: {
     height: "100%",
-    backgroundColor: COLORS.ACCENT,
   },
   buttonRow: {
     flexDirection: "row",

@@ -5,6 +5,7 @@ import { GlassButton } from "@/components/glass-button";
 import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "@/services/jellyfinApi";
 import { JellyfinNamedItem, LibraryFilters } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -31,6 +32,7 @@ function FiltersScreen() {
   // Zero on TV, where the route hides the bar. On phone it carries the safe-area top with it,
   // so the content clears a transparent bar the screen still paints under.
   const headerHeight = useHeaderHeight();
+  const { accent } = useCardPalette();
   const params = useLocalSearchParams<{ folderId: string; name?: string; libraryId?: string; libraryName?: string }>();
   const folderName = params.name ?? "";
   // The panel names the filter's scope, which is the library root, not the folder standing under it.
@@ -110,11 +112,9 @@ function FiltersScreen() {
     () => ({
       title: folderName,
       headerBackTitle: t("filters.title"),
-      unstable_headerRightItems: () => [
-        { type: "button", label: t("filters.clearAll"), tintColor: COLORS.ACCENT, accessibilityLabel: t("filters.clearAllHint"), onPress: () => clearFilters(filterKey) },
-      ],
+      unstable_headerRightItems: () => [{ type: "button", label: t("filters.clearAll"), tintColor: accent, accessibilityLabel: t("filters.clearAllHint"), onPress: () => clearFilters(filterKey) }],
     }),
-    [folderName, clearFilters, filterKey],
+    [folderName, clearFilters, filterKey, accent],
   );
 
   const content = (
@@ -129,7 +129,7 @@ function FiltersScreen() {
         <>
           <View style={styles.actionRow}>
             <GlassButton
-              icon={<Ionicons name="close" size={30} color={COLORS.ACCENT} />}
+              icon={<Ionicons name="close" size={30} color={accent} />}
               accessibilityLabel={t("filters.close")}
               onPress={() => router.back()}
               style={styles.closeButton}

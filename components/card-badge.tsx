@@ -1,5 +1,5 @@
-import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
@@ -51,10 +51,18 @@ export function CardBadge({ segments, loading, focused, tone = "gold", compact =
   const live = tone === "live";
   const small = compact && !IS_TV;
   const thin = live || slim;
-  const ink = live ? COLORS.TEXT_PRIMARY : focused ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT;
+  const palette = useCardPalette();
+  const ink = live ? COLORS.TEXT_PRIMARY : focused ? palette.ink : palette.accent;
 
   return (
-    <View style={[styles.badge, small && styles.badgeCompact, thin && styles.badgeSlim, live ? styles.badgeLive : focused ? styles.badgeFocused : styles.badgeResting]} pointerEvents="none">
+    <View
+      style={[
+        styles.badge,
+        small && styles.badgeCompact,
+        thin && styles.badgeSlim,
+        live ? styles.badgeLive : focused ? [styles.badgeFocused, { backgroundColor: palette.accent, borderColor: palette.accent }] : styles.badgeResting,
+      ]}
+      pointerEvents="none">
       {segments?.map(({ icon, label }, index) => (
         // Index keys: the array is rebuilt whole on every render and never reordered.
         <View key={index} style={styles.segment}>
@@ -88,8 +96,6 @@ const styles = StyleSheet.create({
   // Gold to the card's own focus border and title bar, so the focused card reads as one material.
   // Opaque, which is what keeps this shadow on the cheap rounded-rect path.
   badgeFocused: {
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-    borderColor: CARD_FOCUS.TITLE_BG_FOCUSED,
     shadowColor: COLORS.SHADOW,
     shadowOffset: { width: 0, height: IS_TV ? 3 : 2 },
     shadowOpacity: 0.45,

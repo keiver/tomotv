@@ -10,6 +10,7 @@ import { LibraryHeader, type HeaderAction } from "@/components/library-header";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { COLORS } from "@/constants/colors";
@@ -141,6 +142,7 @@ export function LibraryGrid({
   emptyContent,
 }: LibraryGridProps) {
   const router = useRouter();
+  const palette = useCardPalette();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
@@ -791,7 +793,7 @@ export function LibraryGrid({
                 title={t("common.retry")}
                 variant="primary"
                 onPress={onRetry}
-                icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
+                icon={<Ionicons name="refresh-outline" size={Platform.isTV ? 24 : 20} color={palette.onAccent} />}
                 hasTVPreferredFocus={true}
               />
             ) : null}
@@ -799,7 +801,7 @@ export function LibraryGrid({
               title={t("common.switchServer")}
               variant="secondary"
               onPress={handleSwitchServer}
-              icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ACCENT} />}
+              icon={<Ionicons name="swap-horizontal-outline" size={Platform.isTV ? 24 : 20} color={palette.accent} />}
               hasTVPreferredFocus={!onRetry}
             />
           </View>
@@ -814,7 +816,7 @@ export function LibraryGrid({
         <Text style={styles.emptyText}>{activeFilterCount > 0 ? t("library.emptyNoMatch") : t("library.emptyFolder")}</Text>
       </View>
     );
-  }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer, emptyContent]);
+  }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer, emptyContent, palette]);
 
   // TV only: the breadcrumb bar with the Filters suffix action. Phone gets the screen's native
   // navigation bar instead (app/(tabs)/(library)/[folderId].tsx). Rendered in the loaded-empty

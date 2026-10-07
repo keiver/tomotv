@@ -3,13 +3,13 @@ import { LibraryGrid } from "@/components/library-grid";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useFolderBackdrop } from "@/hooks/useFolderBackdrop";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { fetchFilteredVideos, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { LIBRARY_ROOT_TITLE } from "@/constants/app";
-import { COLORS } from "@/constants/colors";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
@@ -38,6 +38,7 @@ function shuffled<T>(items: T[]): T[] {
  */
 function FolderScreen() {
   const router = useRouter();
+  const { accent } = useCardPalette();
   const { showGlobalLoader } = useLoadingActions();
   const { buildQueue, buildQueueFromItems } = usePlayQueue();
   const params = useLocalSearchParams<{ folderId: string; name?: string; type?: string; crumbs?: string; focusId?: string }>();
@@ -163,7 +164,7 @@ function FolderScreen() {
                   <FocusableButton
                     title={activeFilterCount > 0 ? t("filters.titleCount").replace("{count}", String(activeFilterCount)) : t("filters.title")}
                     variant="link"
-                    icon={<Ionicons name="funnel-outline" size={18} color={COLORS.ACCENT} />}
+                    icon={<Ionicons name="funnel-outline" size={18} color={accent} />}
                     onPress={handleOpenFilters}
                     accessibilityLabel={t("filters.title")}
                   />
@@ -171,7 +172,7 @@ function FolderScreen() {
               },
             ],
           },
-    [folderName, backTitle, hasBackTitle, activeFilterCount, handleOpenFilters],
+    [folderName, backTitle, hasBackTitle, activeFilterCount, handleOpenFilters, accent],
   );
 
   return (

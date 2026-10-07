@@ -1,5 +1,6 @@
-import { CARD_FOCUS, DESIGN } from "@/constants/app";
+import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { themedStyles, useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -19,6 +20,8 @@ interface FilterChipProps {
  * only — no scale animation (grid performance rule).
  */
 const FilterChipComponent = forwardRef<View, FilterChipProps>(function FilterChipComponent({ label, selected, onToggle, hasTVPreferredFocus = false }, ref) {
+  const palette = useCardPalette();
+  const themed = useThemedStyles();
   return (
     <Pressable
       ref={ref}
@@ -29,12 +32,12 @@ const FilterChipComponent = forwardRef<View, FilterChipProps>(function FilterChi
       accessibilityState={{ checked: selected }}
       accessibilityLabel={label}
       tvParallaxProperties={{ magnification: 1.01 }}
-      style={({ focused, pressed }) => [styles.chip, selected && styles.chipSelected, focused && styles.chipFocused, pressed && styles.chipPressed]}>
+      style={({ focused, pressed }) => [styles.chip, selected && themed.chipSelected, focused && themed.chipFocused, pressed && styles.chipPressed]}>
       {({ focused }) => (
         // Kept in the native tree: flattened, the optional checkmark renumbers the focusable's children.
         <View style={styles.content} collapsable={false}>
-          {selected && <Ionicons name="checkmark" size={IS_TV ? 22 : 16} color={focused ? CARD_FOCUS.TITLE_TEXT_FOCUSED : CARD_FOCUS.GLOW_COLOR} />}
-          <Text style={[styles.label, selected && styles.labelSelected, focused && styles.labelFocused]} numberOfLines={1}>
+          {selected && <Ionicons name="checkmark" size={IS_TV ? 22 : 16} color={focused ? palette.ink : palette.accent} />}
+          <Text style={[styles.label, selected && themed.labelSelected, focused && themed.labelFocused]} numberOfLines={1}>
             {label}
           </Text>
         </View>
@@ -55,13 +58,6 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
     alignSelf: "flex-start",
   },
-  chipSelected: {
-    borderColor: CARD_FOCUS.GLOW_COLOR,
-  },
-  chipFocused: {
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-    borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
-  },
   chipPressed: {
     opacity: 0.85,
   },
@@ -75,10 +71,20 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: COLORS.TEXT_PRIMARY,
   },
+});
+
+const useThemedStyles = themedStyles((palette) => ({
+  chipSelected: {
+    borderColor: palette.accent,
+  },
+  chipFocused: {
+    backgroundColor: palette.accent,
+    borderColor: palette.accent,
+  },
   labelSelected: {
-    color: CARD_FOCUS.GLOW_COLOR,
+    color: palette.accent,
   },
   labelFocused: {
-    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
+    color: palette.ink,
   },
-});
+}));

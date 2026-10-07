@@ -2,6 +2,7 @@ import { LEVEL_BARS_WIDTH, LevelBars } from "@/components/level-bars";
 import { MarqueeText } from "@/components/MarqueeText";
 import { DESIGN, GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { audioPlayerManager, type AudioPlayerUIState } from "@/services/audioPlayerManager";
 import { t } from "@/services/i18n";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -45,16 +46,17 @@ export function NowPlayingTitleBar({ video, focused, kind, progressPercent = 0, 
   // wrong position, and the bar carries a minWidth that a 0% width would still paint.
   const hasFill = kind === "audio" || fraction > 0;
   const fillPercent = Math.max(Math.round(fraction * 100), 5);
+  const { accent } = useCardPalette();
 
   return (
     <View style={styles.infoOverlay} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {hasFill && <View style={[styles.infoProgressFill, { width: `${fillPercent}%` }]} pointerEvents="none" testID="now-playing-progress" />}
+      {hasFill && <View style={[styles.infoProgressFill, { width: `${fillPercent}%`, backgroundColor: accent }]} pointerEvents="none" testID="now-playing-progress" />}
       {/* Bars and title share the difference blend, so both invert to black over the fill. */}
       <View style={styles.infoTitleBlend}>
         <View style={styles.mark} pointerEvents="none">
-          <LevelBars size={BARS} playing={isPlaying} />
+          <LevelBars size={BARS} playing={isPlaying} color={accent} />
         </View>
-        <MarqueeText active={focused} style={styles.infoTitle}>
+        <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoTitle, { color: accent }])}>
           {cleanLabel(video.Name) || t("common.unknown")}
         </MarqueeText>
       </View>
@@ -83,7 +85,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
-    backgroundColor: COLORS.ACCENT,
   },
   // Holds the side inset, not the bar: the fill measures this parent's content box, so padding
   // up there stops it short of the card's right edge at 100%. Both sides clear the mark, so the
@@ -103,7 +104,6 @@ const styles = StyleSheet.create({
   },
   infoTitle: {
     width: "100%",
-    color: COLORS.ACCENT,
     fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",

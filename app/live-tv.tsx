@@ -9,6 +9,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useAuthSession } from "@/hooks/useAuthSession";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { useGuide } from "@/hooks/useGuide";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -61,6 +62,7 @@ interface LiveTvScreenProps {
 
 function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps) {
   const router = useRouter();
+  const { accent } = useCardPalette();
   const contextInsets = useSafeAreaInsets();
   // TV: the tab's SafeAreaProvider first renders with the window's insets, then the tab bar's;
   // the body waits for this view's own native measurement so it never lays out twice.
@@ -148,21 +150,21 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
                 type: "button",
                 label: t("liveTv.channels"),
                 icon: { type: "sfSymbol", name: "square.grid.2x2" },
-                tintColor: COLORS.ACCENT,
+                tintColor: accent,
                 onPress: openChannels,
               },
-              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
+              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: accent, onPress: openRecordings },
               // Badged and red while a recording runs: the Schedule screen behind it is where it stops.
               {
                 type: "button",
                 label: t("liveTv.scheduled"),
                 icon: { type: "sfSymbol", name: scheduleSymbol(recording) },
-                tintColor: recording ? COLORS.DESTRUCTIVE : COLORS.ACCENT,
+                tintColor: recording ? COLORS.DESTRUCTIVE : accent,
                 onPress: openSchedule,
               },
             ],
           },
-    [params.name, openRecordings, openChannels, openSchedule, recording],
+    [params.name, openRecordings, openChannels, openSchedule, recording, accent],
   );
   // Built apart from the canvas so the compiler keys it on the band's own inputs, not every guide render.
   const hudRow = (
@@ -185,7 +187,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
             label={t("liveTv.guideRefresh")}
             onPress={refreshGuide}
             disabled={guide.isUpdating}
-            icon={<SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={COLORS.ACCENT} weight="bold" />}
+            icon={<SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={accent} weight="bold" />}
           />
         )
       }

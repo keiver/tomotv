@@ -1,4 +1,4 @@
-import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import React, { useEffect } from "react";
 import { View } from "react-native";
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
@@ -70,7 +70,9 @@ interface LevelBarsProps {
 }
 
 /** Three level bars mirrored about their centre, the mark for music that is playing. Plain views: the project carries no SVG. */
-export function LevelBars({ size, playing, color = COLORS.ACCENT }: LevelBarsProps) {
+export function LevelBars({ size, playing, color: colorProp }: LevelBarsProps) {
+  const { accent } = useCardPalette();
+  const color = colorProp ?? accent;
   const half = size / 2;
 
   return (

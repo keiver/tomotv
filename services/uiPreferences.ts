@@ -2,6 +2,7 @@
  * The viewer's choices for this device: one JSON document in the device's defaults, apart from any
  * server or account.
  */
+import { type CardTheme, DEFAULT_CARD_THEME, parseCardTheme } from "@/services/cardTheme";
 import { logger } from "@/utils/logger";
 import { Settings } from "react-native";
 
@@ -17,9 +18,13 @@ export interface UiPreferences {
   devicePosters: boolean;
   /** The server's own per-user permission caps every level (services/transcodePolicy.ts). */
   serverTranscoding: ServerTranscoding;
+  /** A copy of the chosen theme, so the cards draw it from the first frame, offline, or after it was deleted elsewhere. */
+  cardTheme: CardTheme;
+  /** A folder's screen glows with the colour of its artwork. */
+  folderTint: boolean;
 }
 
-export const DEFAULT_UI_PREFERENCES: UiPreferences = { version: 1, devicePosters: true, serverTranscoding: "linkOrFile" };
+export const DEFAULT_UI_PREFERENCES: UiPreferences = { version: 1, devicePosters: true, serverTranscoding: "linkOrFile", cardTheme: DEFAULT_CARD_THEME, folderTint: true };
 
 let current: UiPreferences | null = null;
 const listeners = new Set<() => void>();
@@ -39,6 +44,8 @@ export function parseUiPreferences(raw: unknown): UiPreferences {
     version: 1,
     devicePosters: typeof source.devicePosters === "boolean" ? source.devicePosters : DEFAULT_UI_PREFERENCES.devicePosters,
     serverTranscoding: SERVER_TRANSCODING_LEVELS.includes(source.serverTranscoding as ServerTranscoding) ? (source.serverTranscoding as ServerTranscoding) : DEFAULT_UI_PREFERENCES.serverTranscoding,
+    cardTheme: parseCardTheme(source.cardTheme) ?? DEFAULT_UI_PREFERENCES.cardTheme,
+    folderTint: typeof source.folderTint === "boolean" ? source.folderTint : DEFAULT_UI_PREFERENCES.folderTint,
   };
 }
 

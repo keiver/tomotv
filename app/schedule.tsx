@@ -6,6 +6,7 @@ import { SectionActionBand } from "@/components/settings/SectionActionBand";
 import { IS_PAD, settingsStyles } from "@/components/settings/styles";
 import { TVFocusHolder } from "@/components/tv-focus-holder";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import { fetchLiveTvManagement, fetchSeriesTimers, fetchTimers } from "@/services/jellyfinApi";
 import { reportRecordingTimers, runningTimers, stopRunningTimers } from "@/services/recordingStatus";
@@ -41,6 +42,7 @@ function seriesAsTimer(rule: JellyfinSeriesTimer): JellyfinTimer {
 /** The guide's recording schedule: running, upcoming and series rules. A root route beside Recordings. */
 export default function ScheduleScreen() {
   const router = useRouter();
+  const { onAccent } = useCardPalette();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const isScreenFocused = useIsFocused();
@@ -152,7 +154,7 @@ export default function ScheduleScreen() {
         <View style={styles.center}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.emptyText}>{schedule.error}</Text>
-          <FocusableButton title={t("common.retry")} variant="primary" onPress={reload} icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} />
+          <FocusableButton title={t("common.retry")} variant="primary" onPress={reload} icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={onAccent} />} />
         </View>
       );
     }

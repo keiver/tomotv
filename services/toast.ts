@@ -1,24 +1,27 @@
 /**
- * App notifications through the tomo-toast module: gold cards in their own window, above
+ * App notifications through the tomo-toast module: accent cards in their own window, above
  * the presented player on both platforms. This file only binds the app's tokens and strings.
  */
 import { COLORS } from "@/constants/colors";
+import { currentPalette } from "@/hooks/useCardPalette";
 import { configureToast, dismissToast, showToast as show, type ToastKind, type ToastOptions, updateToast } from "@/modules/tomo-toast";
 import { t } from "@/services/i18n";
 import { Platform } from "react-native";
 
 export type { ToastKind, ToastOptions };
 
-// Re-sent when the language changes, so the close label follows it.
-let configuredLabel: string | null = null;
+// Re-sent when the language or theme changes, so the close label and card colour follow them.
+let configuredKey: string | null = null;
 
 function ensureConfigured(): void {
   const closeLabel = t("common.close");
-  if (closeLabel === configuredLabel) return;
-  configuredLabel = closeLabel;
+  const palette = currentPalette();
+  const key = `${closeLabel}|${palette.accent}`;
+  if (key === configuredKey) return;
+  configuredKey = key;
   configureToast({
-    tint: COLORS.ACCENT,
-    text: COLORS.ON_ACCENT_WARM,
+    tint: palette.accent,
+    text: palette.ink,
     danger: COLORS.DESTRUCTIVE_DEEP,
     closeLabel,
   });

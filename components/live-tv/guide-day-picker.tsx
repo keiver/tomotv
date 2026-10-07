@@ -1,4 +1,4 @@
-import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideDay } from "@/hooks/useGuide";
 import { dayPickerRange, pickedDay } from "@/utils/guide";
 import { DatePicker, Host, Popover, Rectangle } from "@expo/ui/swift-ui";
@@ -22,6 +22,7 @@ interface GuideDayPickerProps {
 export function GuideDayPicker({ days, selectedMs, open, onOpenChange, onSelect }: GuideDayPickerProps) {
   const range = useMemo(() => dayPickerRange(days) ?? undefined, [days]);
   const selection = useMemo(() => new Date(selectedMs), [selectedMs]);
+  const { accent } = useCardPalette();
   const handleChange = useCallback(
     (date: Date) => {
       const dayMs = pickedDay(days, date.getTime());
@@ -44,7 +45,7 @@ export function GuideDayPicker({ days, selectedMs, open, onOpenChange, onSelect 
             selection={selection}
             range={range}
             onDateChange={handleChange}
-            modifiers={[datePickerStyle("graphical"), tint(COLORS.ACCENT), frame({ minWidth: CALENDAR_WIDTH, minHeight: CALENDAR_HEIGHT }), fixedSize(), padding()]}
+            modifiers={[datePickerStyle("graphical"), tint(accent), frame({ minWidth: CALENDAR_WIDTH, minHeight: CALENDAR_HEIGHT }), fixedSize(), padding()]}
           />
         </Popover.Content>
       </Popover>

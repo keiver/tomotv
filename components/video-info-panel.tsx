@@ -36,6 +36,7 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
 import { useFolderPreviewState } from "@/hooks/useFolderPreview";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
 import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame } from "@/services/itemArtwork";
@@ -113,6 +114,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const { active = true, onReady } = params;
   const guideProgram = useMemo(() => readGuideProgram(params.guideProgram, params.videoId), [params.guideProgram, params.videoId]);
   const router = useRouter();
+  const palette = useCardPalette();
   const insets = useSafeAreaInsets();
   // A horizontal drag that starts on the cast row scrolls the row: the sibling pager waits for it to fail.
   const pagerGesture = useContext(SiblingPagerGesture);
@@ -690,7 +692,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           variant="primary"
           hasTVPreferredFocus
           style={pairButton}
-          icon={<Ionicons name="play" size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
+          icon={<Ionicons name="play" size={IS_TV ? 34 : 22} color={palette.onAccent} />}
           onPress={handleWatch}
         />
       )}
@@ -758,7 +760,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
                   title={cta.title}
                   variant={index === 0 ? "primary" : "secondary"}
                   hasTVPreferredFocus={index === 0}
-                  icon={<Ionicons name={cta.icon} size={IS_TV ? 34 : 22} color={index === 0 ? COLORS.ON_ACCENT : COLORS.ACCENT} />}
+                  icon={<Ionicons name={cta.icon} size={IS_TV ? 34 : 22} color={index === 0 ? palette.onAccent : palette.accent} />}
                   onPress={() => handlePlayFolder(cta.kind)}
                 />
               ))
@@ -767,7 +769,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
               title={t("common.open")}
               variant="primary"
               hasTVPreferredFocus
-              icon={<Ionicons name="folder-open-outline" size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
+              icon={<Ionicons name="folder-open-outline" size={IS_TV ? 34 : 22} color={palette.onAccent} />}
               onPress={handleOpenFolder}
             />
           )
@@ -779,7 +781,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
                 title={t("liveTv.groups")}
                 variant="secondary"
                 hasTVPreferredFocus={!watchable && !recordShown}
-                icon={<Ionicons name="albums-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
+                icon={<Ionicons name="albums-outline" size={IS_TV ? 34 : 22} color={palette.accent} />}
                 onPress={handleChannelGroups}
               />
             )}
@@ -812,7 +814,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
             }
             variant="primary"
             hasTVPreferredFocus
-            icon={<Ionicons name={photo ? "expand" : book ? "book-outline" : "play"} size={IS_TV ? 34 : 22} color={COLORS.ON_ACCENT} />}
+            icon={<Ionicons name={photo ? "expand" : book ? "book-outline" : "play"} size={IS_TV ? 34 : 22} color={palette.onAccent} />}
             onPress={handlePlay}
             onLongPress={startOver ? confirmStartOver : undefined}
             accessibilityHint={startOver ? t("info.startOverHint") : undefined}
@@ -824,13 +826,13 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           <FocusableButton
             title={t("common.share")}
             variant="secondary"
-            icon={<Ionicons name="share-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />}
+            icon={<Ionicons name="share-outline" size={IS_TV ? 34 : 22} color={palette.accent} />}
             onPress={handleShare}
             isLoading={sharing}
           />
         )}
         {folderInRow && (
-          <FocusableButton title={t("info.showInFolder")} variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={COLORS.ACCENT} />} onPress={handleShowInFolder} />
+          <FocusableButton title={t("info.showInFolder")} variant="secondary" icon={<Ionicons name="folder-outline" size={IS_TV ? 34 : 22} color={palette.accent} />} onPress={handleShowInFolder} />
         )}
       </View>
 

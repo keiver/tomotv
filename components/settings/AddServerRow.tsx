@@ -3,6 +3,7 @@ import { DEMO_ADDRESS } from "@/services/jellyfinApi";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT, settingsStyles } from "./styles";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, TextInput, View } from "react-native";
@@ -63,6 +64,7 @@ export const AddServerRow = forwardRef<View, AddServerRowProps>(function AddServ
   // Whether the field has held the caret since this reveal, so a blur that
   // precedes its first focus can't be read as the user leaving.
   const editedOnce = useRef(false);
+  const { accent } = useCardPalette();
 
   const progress = useSharedValue(0);
   const reducedMotion = useReducedMotion();
@@ -136,7 +138,7 @@ export const AddServerRow = forwardRef<View, AddServerRowProps>(function AddServ
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
         <View style={styles.fieldRow}>
-          <Ionicons name="add-circle" size={IS_TV ? 32 : 22} color={COLORS.ACCENT} />
+          <Ionicons name="add-circle" size={IS_TV ? 32 : 22} color={accent} />
           {/* The same shared sunken field the login inputs and the Search tab use;
               this call site adds layout only. */}
           <SunkenTextInput
@@ -162,7 +164,7 @@ export const AddServerRow = forwardRef<View, AddServerRowProps>(function AddServ
             returnKeyType="go"
             editable={!isValidating && !disabled}
           />
-          {isValidating ? <ActivityIndicator color={COLORS.ACCENT} size="small" /> : null}
+          {isValidating ? <ActivityIndicator color={accent} size="small" /> : null}
         </View>
       </Animated.View>
     </View>

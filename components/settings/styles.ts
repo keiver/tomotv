@@ -1,7 +1,9 @@
 import { COLORS } from "@/constants/colors";
+import { themedStyles } from "@/hooks/useCardPalette";
+import { withAlpha } from "@/utils/color";
 import { Platform, StyleSheet } from "react-native";
 
-import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT, RECESS_EDGE } from "@/constants/app";
+import { CONTENT_EDGE_PHONE, CONTROL_HEIGHT, RECESS_EDGE } from "@/constants/app";
 
 /** iPad draws the phone layout at a tablet's viewing distance, so its rows take a step up in type. */
 export const IS_PAD = !Platform.isTV && Platform.OS === "ios" && Platform.isPad;
@@ -125,6 +127,34 @@ const goldRowShadows = StyleSheet.create(
 export function goldRowShadow(first: boolean, last: boolean, flushRight: boolean) {
   return goldRowShadows[`${first}-${last}-${flushRight}`];
 }
+
+/**
+ * The rows' accent states, in the theme's colour. Background lives on the Pressable itself, never on
+ * an overlay: anything above a focusable on tvOS occludes it and the focus engine refuses to enter.
+ */
+export const useSettingsAccentStyles = themedStyles((palette) => ({
+  // A row that goes somewhere, focused (and the quality list's selected row): the accent fill, ink to
+  // match the focused card's title bar.
+  listItemFocused: {
+    backgroundColor: palette.accent,
+  },
+  listItemTitleFocused: {
+    color: palette.ink,
+  },
+  // Same ink held back, so the subtitle stays secondary on the fill instead of matching the title.
+  listItemSubtitleFocused: {
+    color: withAlpha(palette.ink, 0.75),
+  },
+  // Focus resting on the quality list's already-selected row: a step lighter, so focus stays visible
+  // on the row that wears the accent anyway.
+  listItemFocusedSelected: {
+    backgroundColor: palette.accentFocused,
+  },
+  // Press feedback: the same accent a step deeper.
+  listItemPressed: {
+    backgroundColor: palette.accentDeep,
+  },
+}));
 
 // The Add Server slot holds a real field, not a label line, so it is taller than
 // a plain row — the same way a field row is taller than a label row in a system
@@ -343,30 +373,6 @@ export const settingsStyles = StyleSheet.create({
   listItemFirst: {
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-  },
-  // A row that goes somewhere, focused (and the quality list's selected row):
-  // filled with the action gold, ink to match the focused card's title bar
-  // (CARD_FOCUS). Background lives on the Pressable itself, never on an
-  // overlay: anything above a focusable on tvOS occludes it and the focus
-  // engine refuses to enter.
-  listItemFocused: {
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-  },
-  listItemTitleFocused: {
-    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
-  },
-  // Same ink held back, so the subtitle stays secondary on gold instead of matching the title (5.4:1).
-  listItemSubtitleFocused: {
-    color: "rgba(43, 31, 5, 0.75)",
-  },
-  // Focus resting on the quality list's already-selected row: a step lighter,
-  // so focus stays visible on the row that wears the gold anyway.
-  listItemFocusedSelected: {
-    backgroundColor: COLORS.ACCENT_FOCUSED,
-  },
-  // Press feedback: the same gold a step deeper.
-  listItemPressed: {
-    backgroundColor: COLORS.ACCENT_DEEP,
   },
   // Form cards (login, add server) hold labelled fields, not tap targets, so they
   // don't want listItem's row height. The card supplies a thin lip and the rows

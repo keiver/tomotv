@@ -14,6 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useLiveTvSearchRefresh } from "@/hooks/useLiveTvSearchRefresh";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
@@ -347,6 +348,7 @@ function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: str
 
 function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const router = useRouter();
+  const palette = useCardPalette();
   const { showGlobalLoader, hideGlobalLoader } = useLoadingActions();
   const { refreshLibrary, isLoading, error } = useLibrary();
   const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
@@ -600,14 +602,14 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
               variant="secondary"
               onPress={handleTryDemo}
               disabled={isConnectingToDemo}
-              icon={<Ionicons name="play-circle-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ACCENT} />}
+              icon={<Ionicons name="play-circle-outline" size={Platform.isTV ? 24 : 20} color={palette.accent} />}
               hasTVPreferredFocus={true}
             />
             <FocusableButton
               title={t("search.goToSettings")}
               variant="primary"
               onPress={() => router.push("/(tabs)/settings")}
-              icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
+              icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color={palette.onAccent} />}
             />
           </View>
         </View>
@@ -620,7 +622,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
         <Text style={styles.emptyText}>{t("search.placeholder")}</Text>
       </View>
     );
-  }, [hasSearchQuery, isSearching, searchError, searchQuery, isLoading, error, isConnectingToDemo, router, handleRetrySearch, handleTryDemo]);
+  }, [hasSearchQuery, isSearching, searchError, searchQuery, isLoading, error, isConnectingToDemo, router, handleRetrySearch, handleTryDemo, palette]);
 
   const handleSubmitEditing = useCallback(() => {
     if (shouldShowResults) {

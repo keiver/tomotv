@@ -331,25 +331,17 @@ export const DESIGN = {
 // Shared focus treatment for grid cards (video + folder items). The glow is a
 // static shadow on the card wrapper — the wrapper must NOT have overflow:hidden
 // or iOS clips the shadow (masksToBounds clips the layer's own shadow).
+// The colours (accent glow, border and title bar, the warm ink on it) come from the theme palette
+// (hooks/useCardPalette.ts); these are the metrics.
 export const CARD_FOCUS = {
-  /** Gold accent glow around the focused card (matches FocusableButton). Kept
-   * dim and tight so it reads as a backlight, not a halo — the white border
-   * does the identifying, the glow adds warmth. */
-  GLOW_COLOR: COLORS.ACCENT,
+  /** Accent glow around the focused card (matches FocusableButton). Kept dim and tight so it reads
+   * as a backlight, not a halo. */
   GLOW_OPACITY: 0.55,
   /** Glow spread (TV / phone). */
   GLOW_RADIUS: { tv: 7, phone: 4 },
   /** Android elevation for the focused card. */
   GLOW_ELEVATION: 12,
-  /** Solid gold focused border: thickness + hue change over the resting border. */
-  BORDER_COLOR_FOCUSED: COLORS.ACCENT,
   BORDER_WIDTH_FOCUSED: 4,
-  /** Focused title bar: gold with deep warm-brown text (8.5:1) — pure black
-   * vibrates against saturated gold; the brown reads as one material. The bar
-   * works regardless of artwork, so focus never depends on the border being
-   * visible against the poster. */
-  TITLE_BG_FOCUSED: COLORS.ACCENT,
-  TITLE_TEXT_FOCUSED: COLORS.ON_ACCENT_WARM,
   /** Resting border on a settings poster mark. */
   BORDER_COLOR: "rgba(255, 255, 255, 0.15)",
 } as const;

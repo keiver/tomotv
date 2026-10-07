@@ -30,6 +30,6 @@ module.exports = {
   // points under that so it ratchets upward without failing the build the day it
   // lands. Raise it when coverage rises; never lower it to make a red run green.
   coverageThreshold: {
-    global: { statements: 71, branches: 64, functions: 66, lines: 73 },
+    global: { statements: 72, branches: 65, functions: 67, lines: 74 },
   },
 };

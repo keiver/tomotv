@@ -1,9 +1,10 @@
 import { AvatarDisc } from "@/components/settings/AvatarDisc";
 import { AvatarLoadingRing } from "@/components/settings/AvatarLoadingRing";
 import { AVATAR_CAPTION_LINE, AVATAR_CELL_WIDTH, AVATAR_SIZE, AVATAR_SUBCAPTION_LINE, IS_PAD } from "@/components/settings/styles";
-import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { themedStyles, useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
+import { withAlpha } from "@/utils/color";
 import { Ionicons } from "@expo/vector-icons";
 import { forwardRef, useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -53,6 +54,8 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
   // view gets its props before it is inserted, so the target is set only once mounted.
   const [leftTarget, setLeftTarget] = useState<number | undefined>(undefined);
   useEffect(() => setLeftTarget(nextFocusLeft), [nextFocusLeft]);
+  const palette = useCardPalette();
+  const themed = useThemedStyles();
 
   return (
     <Pressable
@@ -76,18 +79,18 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
           <>
             <View style={[styles.ring, connected && styles.ringConnected, focused && styles.ringFocused]} collapsable={false}>
               <AvatarDisc seed={label} uri={uri} size={AVATAR_SIZE} />
-              {loading ? <AvatarLoadingRing width={RING} radius={RING_RADIUS} color={inkOnGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT} /> : null}
+              {loading ? <AvatarLoadingRing width={RING} radius={RING_RADIUS} color={inkOnGold ? palette.ink : palette.accent} /> : null}
               {connected ? (
-                <View style={[styles.badge, inkOnGold && styles.badgeOnGold]}>
+                <View style={[styles.badge, inkOnGold && themed.badgeOnGold]}>
                   <Ionicons name="checkmark" size={BADGE * 0.7} color={COLORS.TEXT_PRIMARY} />
                 </View>
               ) : null}
             </View>
-            <Text style={[styles.caption, (connected || focused) && styles.captionStrong, inkOnGold && styles.captionOnGold]} numberOfLines={1}>
+            <Text style={[styles.caption, (connected || focused) && styles.captionStrong, inkOnGold && themed.captionOnGold]} numberOfLines={1}>
               {label}
             </Text>
             {sublabel ? (
-              <Text style={[styles.subcaption, inkOnGold && styles.subcaptionOnGold]} numberOfLines={1}>
+              <Text style={[styles.subcaption, inkOnGold && themed.subcaptionOnGold]} numberOfLines={1}>
                 {sublabel}
               </Text>
             ) : null}
@@ -142,9 +145,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.SURFACE,
   },
-  badgeOnGold: {
-    borderColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-  },
   caption: {
     marginTop: IS_TV ? 8 : 6,
     fontSize: IS_TV ? 20 : IS_PAD ? 14 : 13,
@@ -156,16 +156,23 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_PRIMARY,
     fontWeight: "600",
   },
-  captionOnGold: {
-    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
-  },
   subcaption: {
     fontSize: IS_TV ? 17 : IS_PAD ? 12 : 11,
     lineHeight: AVATAR_SUBCAPTION_LINE,
     color: COLORS.TEXT_TERTIARY,
     maxWidth: AVATAR_CELL_WIDTH,
   },
-  subcaptionOnGold: {
-    color: "rgba(43, 31, 5, 0.75)",
-  },
 });
+
+// On the accent panel: the fill's colour round the badge, its ink on the captions.
+const useThemedStyles = themedStyles((palette) => ({
+  badgeOnGold: {
+    borderColor: palette.accent,
+  },
+  captionOnGold: {
+    color: palette.ink,
+  },
+  subcaptionOnGold: {
+    color: withAlpha(palette.ink, 0.75),
+  },
+}));

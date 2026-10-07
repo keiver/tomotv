@@ -3,7 +3,7 @@ import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { DarkTheme, Stack, ThemeProvider, useNavigationContainerRef } from "expo-router";
 import { LogBox, Platform } from "react-native";
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import "react-native-reanimated";
 
 import { preloadAmbientBackgrounds } from "@/components/ambient-background";
@@ -24,6 +24,7 @@ import { LibraryProvider } from "@/contexts/LibraryContext";
 import { LibraryFiltersProvider } from "@/contexts/LibraryFiltersContext";
 import { PlayerSessionProvider } from "@/contexts/PlayerSessionContext";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { videoDecodeSupport } from "@/services/localRemux";
@@ -73,16 +74,16 @@ if (Platform.OS === "ios") Image.configureCache({ maxMemoryCost: IMAGE_MEMORY_CA
 // react-native-screens#3758). Match it to the app canvas so nothing light can peek through.
 // `primary` is the app's tint: on iOS every native-stack header takes it for the back
 // chevron and its label (tintColor = headerTintColor ?? colors.primary,
-// native-stack/views/useHeaderConfigProps.js:114), so the brand gold replaces the system
+// native-stack/views/useHeaderConfigProps.js:114), so the theme's accent replaces the system
 // blue without a per-screen override. Same value the tab bar and every FocusableButton use.
-const AppDarkTheme = {
+const appDarkTheme = (primary: string) => ({
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
     background: COLORS.BACKGROUND,
-    primary: COLORS.ACCENT,
+    primary,
   },
-};
+});
 
 /** Not remounted on a language pick: the tabs carry their own boundary per screen, a playback
  *  route would restart its item, and dev-locale would run its link again. */
@@ -111,6 +112,8 @@ export default function RootLayout() {
 
   // Redraws the header titles below and the hosts outside the navigator in a picked language.
   useLocale();
+  const { accent } = useCardPalette();
+  const navigationTheme = useMemo(() => appDarkTheme(accent), [accent]);
 
   // Foregrounding is when the device may have changed networks. Also the moment a session
   // spent offline gets its resume positions to the server, and reporting stops standing down.
@@ -167,7 +170,7 @@ export default function RootLayout() {
                   route can be a ROOT screen that covers the tabs — a route inside (tabs) leaves the
                   native tab bar on screen to steal focus on tvOS. Both share this one provider. */}
                 <LibraryFiltersProvider>
-                  <ThemeProvider value={AppDarkTheme}>
+                  <ThemeProvider value={navigationTheme}>
                     <Stack screenOptions={{ contentStyle: { backgroundColor: COLORS.BACKGROUND } }} screenLayout={localeScreenLayout}>
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                       {/* Folder browsing is a ROOT route, not nested in (tabs): a route inside the tabs
@@ -531,6 +534,38 @@ export default function RootLayout() {
                                 headerTitle: t("settings.language"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
                                 headerBackTitle: t("settings.title"),
+                                animation: "fade",
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="appearance"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("settings.appearance"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("settings.title"),
+                                animation: "fade",
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="theme-editor"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("themeEditor.title"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("settings.appearance"),
                                 animation: "fade",
                               }
                         }

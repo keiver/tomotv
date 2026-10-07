@@ -1,6 +1,8 @@
 import { GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
+import { themedStyles, useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
+import { withAlpha } from "@/utils/color";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
@@ -9,7 +11,7 @@ const IS_TV = Platform.isTV;
 const ICON = IS_TV ? 30 : 20;
 const DIAMETER = IS_TV ? 62 : 44;
 /** Off state: the glyph dims, since an outline glyph alone reads the same as a filled one at distance. */
-const ICON_OFF = "rgba(255, 195, 18, 0.5)";
+const ICON_OFF_ALPHA = 0.5;
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
 
@@ -85,6 +87,8 @@ export function InfoActionRow({
   // Which circle holds focus, never the label itself: tvOS fires the outgoing blur AFTER the
   // incoming focus, so a shared string gets wiped by the button focus just left.
   const [focused, setFocused] = useState<ActionKey | null>(null);
+  const { accent } = useCardPalette();
+  const themed = useThemedStyles();
   const [message, setMessage] = useState<{ text: string; failed: boolean } | null>(null);
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -137,8 +141,8 @@ export function InfoActionRow({
 
   // Focus outranks both rest states: a custom style is flattened AFTER the focused variant
   // style, so this layer is the one that lands.
-  const circleStyle = (on: boolean, key: ActionKey) => StyleSheet.flatten([styles.circle, focused === key ? styles.circleFocused : on ? styles.circleOn : styles.circleOff]);
-  const iconColor = (on: boolean, key: ActionKey) => (focused === key ? COLORS.TEXT_PRIMARY : on ? COLORS.ACCENT : ICON_OFF);
+  const circleStyle = (on: boolean, key: ActionKey) => StyleSheet.flatten([styles.circle, focused === key ? themed.circleFocused : on ? themed.circleOn : styles.circleOff]);
+  const iconColor = (on: boolean, key: ActionKey) => (focused === key ? COLORS.TEXT_PRIMARY : on ? accent : withAlpha(accent, ICON_OFF_ALPHA));
 
   return (
     <View style={styles.wrap}>
@@ -215,7 +219,7 @@ export function InfoActionRow({
               key={extra.key}
               variant="link"
               style={circleStyle(true, key)}
-              icon={<Ionicons name={extra.icon} size={ICON} color={focused === key ? COLORS.TEXT_PRIMARY : extra.destructive ? COLORS.DESTRUCTIVE : COLORS.ACCENT} />}
+              icon={<Ionicons name={extra.icon} size={ICON} color={focused === key ? COLORS.TEXT_PRIMARY : extra.destructive ? COLORS.DESTRUCTIVE : accent} />}
               accessibilityLabel={extra.label}
               onFocus={() => setFocused(key)}
               onBlur={() => blur(key)}
@@ -265,20 +269,9 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
   },
-  // On, at rest: a wash well under the focus tint's 0.15, so the two never read alike.
-  circleOn: {
-    backgroundColor: "rgba(255, 195, 18, 0.07)",
-  },
   // Off, at rest: the dim glyph alone, the glass rim is the ring on both platforms.
   circleOff: {
     borderColor: "transparent",
-  },
-  // A gold wash the glass keeps refracting through, well above the on state's 0.07; the white
-  // glyph is what separates focus from on.
-  circleFocused: {
-    backgroundColor: "rgba(255, 195, 18, 0.35)",
-    borderColor: "transparent",
-    shadowColor: COLORS.ACCENT,
   },
   // A report of something that just happened, not the name of what focus is on.
   captionStatus: {
@@ -288,3 +281,17 @@ const styles = StyleSheet.create({
     color: COLORS.DESTRUCTIVE,
   },
 });
+
+const useThemedStyles = themedStyles((palette) => ({
+  // On, at rest: a wash well under the focus tint's 0.15, so the two never read alike.
+  circleOn: {
+    backgroundColor: withAlpha(palette.accent, 0.07),
+  },
+  // An accent wash the glass keeps refracting through, well above the on state's 0.07; the white
+  // glyph is what separates focus from on.
+  circleFocused: {
+    backgroundColor: withAlpha(palette.accent, 0.35),
+    borderColor: "transparent",
+    shadowColor: palette.accent,
+  },
+}));

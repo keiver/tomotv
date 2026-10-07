@@ -1,4 +1,4 @@
-import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import React from "react";
 import { Platform, StyleSheet, Text, View, useWindowDimensions } from "react-native";
@@ -27,13 +27,14 @@ interface QuickConnectCodeProps {
  */
 export function QuickConnectCode({ code, spokenCode }: QuickConnectCodeProps) {
   const { width } = useWindowDimensions();
+  const { accent } = useCardPalette();
   // Padding and cap ride the window so the code keeps the same optical margin on a
   // small phone as on a Pro Max, instead of one fixed inset that crowds the narrow one.
   const sizing = IS_TV ? { ...pad(56), fontSize: 100 } : { ...pad(Math.round(Math.min(28, Math.max(16, width * 0.05)))), fontSize: Math.min(76, Math.round(width * 0.19)) };
 
   return (
     <View style={styles.wrap} accessible={IS_TV} accessibilityLabel={IS_TV ? t("settings.quickConnectSpoken").replace("{code}", spokenCode) : undefined}>
-      <Text style={[styles.code, sizing]} accessible={false} importantForAccessibility="no" numberOfLines={1} adjustsFontSizeToFit={true} minimumFontScale={0.5}>
+      <Text style={[styles.code, { color: accent }, sizing]} accessible={false} importantForAccessibility="no" numberOfLines={1} adjustsFontSizeToFit={true} minimumFontScale={0.5}>
         {code}
       </Text>
     </View>
@@ -49,7 +50,6 @@ const styles = StyleSheet.create({
     width: "100%",
     fontWeight: "700",
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    color: COLORS.ACCENT,
     letterSpacing: LETTER_SPACING,
     textAlign: "center",
   },

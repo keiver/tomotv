@@ -8,6 +8,7 @@ import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { ArtworkSlotShape, GRID, gridEdgePadding, itemSlotShape } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
@@ -45,6 +46,7 @@ interface HomeShelvesProps {
  */
 export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPress }: HomeShelvesProps) {
   const router = useRouter();
+  const palette = useCardPalette();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   // iPadOS floats the tab bar at the TOP, below insets.top, so a tablet clears it at the top
@@ -169,14 +171,14 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
               title={t("common.retry")}
               variant="primary"
               onPress={onRetry}
-              icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />}
+              icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={palette.onAccent} />}
               hasTVPreferredFocus={true}
             />
             <FocusableButton
               title={t("common.switchServer")}
               variant="secondary"
               onPress={handleSwitchServer}
-              icon={<Ionicons name="swap-horizontal-outline" size={IS_TV ? 24 : 20} color={COLORS.ACCENT} />}
+              icon={<Ionicons name="swap-horizontal-outline" size={IS_TV ? 24 : 20} color={palette.accent} />}
             />
           </View>
         </View>
@@ -188,7 +190,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         <Text style={styles.emptyText}>{t("library.noLibraries")}</Text>
       </View>
     );
-  }, [isLoading, error, recoveryStatus, onRetry, handleSwitchServer]);
+  }, [isLoading, error, recoveryStatus, onRetry, handleSwitchServer, palette]);
 
   return (
     <View style={styles.container}>

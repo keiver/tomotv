@@ -5,6 +5,7 @@ import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { HeaderSearchReveal } from "@/components/header-search-reveal";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useLiveTvSearchRefresh } from "@/hooks/useLiveTvSearchRefresh";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
@@ -36,6 +37,7 @@ const MIN_QUERY = 2;
  *  Its head is the Live TV HUD: a search over channels and programmes, the group pills, and the guide's status. */
 export default function ChannelsScreen() {
   const router = useRouter();
+  const { accent } = useCardPalette();
   const { showGlobalLoader } = useLoadingActions();
   const preferences = useLiveTvPreferences();
   useChannelFavoritesSync();
@@ -126,10 +128,10 @@ export default function ChannelsScreen() {
   const filterAction = useMemo(
     () => ({
       accessibilityLabel: t("liveTv.groups"),
-      icon: <SfSymbolIcon name={filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"} size={26} color={COLORS.ACCENT} />,
+      icon: <SfSymbolIcon name={filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"} size={26} color={accent} />,
       onPress: openFilterPicker,
     }),
-    [filtered, openFilterPicker],
+    [filtered, openFilterPicker, accent],
   );
 
   // Phone: search, the filter and Settings ride the native bar, as Filters does on a folder level. TV draws them in the grid's bar.
@@ -144,18 +146,18 @@ export default function ChannelsScreen() {
         ? {}
         : {
             unstable_headerRightItems: () => [
-              { type: "button", label: t("tab.search"), icon: { type: "sfSymbol", name: "magnifyingglass" }, tintColor: COLORS.ACCENT, onPress: openSearch },
+              { type: "button", label: t("tab.search"), icon: { type: "sfSymbol", name: "magnifyingglass" }, tintColor: accent, onPress: openSearch },
               {
                 type: "button",
                 label: filterAction.accessibilityLabel,
                 icon: { type: "sfSymbol", name: filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle" },
-                tintColor: COLORS.ACCENT,
+                tintColor: accent,
                 onPress: filterAction.onPress,
               },
-              { type: "button", label: t("settings.title"), icon: { type: "sfSymbol", name: "gearshape" }, tintColor: COLORS.ACCENT, onPress: openSettings },
+              { type: "button", label: t("settings.title"), icon: { type: "sfSymbol", name: "gearshape" }, tintColor: accent, onPress: openSettings },
             ],
           },
-    [openSettings, openSearch, filterAction, filtered],
+    [openSettings, openSearch, filterAction, filtered, accent],
   );
 
   // An empty wall keeps the bar: back, search, groups and settings stay in reach.

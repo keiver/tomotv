@@ -4,8 +4,8 @@ import { settingsStyles } from "@/components/settings/styles";
 import { FocusableButton } from "@/components/FocusableButton";
 import { LibraryGrid } from "@/components/library-grid";
 import { TVFocusHolder } from "@/components/tv-focus-holder";
-import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { t } from "@/services/i18n";
@@ -23,6 +23,7 @@ const IS_TV = Platform.isTV;
 /** The guide's finished recordings. A root route: TV crossfades it, phone pushes it under a native bar. */
 export default function RecordingsScreen() {
   const router = useRouter();
+  const { accent } = useCardPalette();
   const isScreenFocused = useIsFocused();
   // "Show in Folder" on a recording lands here with the card to mark.
   const { focusId } = useLocalSearchParams<{ focusId?: string }>();
@@ -103,7 +104,7 @@ export default function RecordingsScreen() {
                   <FocusableButton
                     title={activeFilterCount > 0 ? t("filters.titleCount").replace("{count}", String(activeFilterCount)) : t("filters.title")}
                     variant="link"
-                    icon={<Ionicons name="funnel-outline" size={18} color={COLORS.ACCENT} />}
+                    icon={<Ionicons name="funnel-outline" size={18} color={accent} />}
                     onPress={handleOpenFilters}
                     accessibilityLabel={t("filters.title")}
                   />
@@ -111,7 +112,7 @@ export default function RecordingsScreen() {
               },
             ],
           },
-    [folderId, activeFilterCount, handleOpenFilters],
+    [folderId, activeFilterCount, handleOpenFilters, accent],
   );
 
   if (!recordings.isLoading && !recordings.error && recordings.items.length === 0 && activeFilterCount === 0) {

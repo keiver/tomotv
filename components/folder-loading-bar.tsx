@@ -1,4 +1,5 @@
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import React, { useEffect } from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -37,6 +38,8 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
   const progress = useSharedValue(0);
   const opacity = useSharedValue(0);
   const reducedMotion = useReducedMotion();
+  // The pressed card's colour, so its sweep carries on into this one.
+  const { accent } = useCardPalette();
 
   useEffect(() => {
     if (active) {
@@ -66,10 +69,10 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
       style={[styles.bar, { paddingBottom: (IS_TV ? 8 : 0) + (IS_TV ? 0 : insets.bottom / 4.8) }, barStyle]}
       accessible={active}
       accessibilityLabel={t("library.loadingTitle").replace("{title}", title)}>
-      <Animated.View style={[styles.fill, fillStyle]} />
+      <Animated.View style={[styles.fill, { backgroundColor: accent }, fillStyle]} />
       {IS_TV ? (
         <View style={styles.titleBlend}>
-          <MarqueeText active={active} style={styles.title}>
+          <MarqueeText active={active} style={StyleSheet.flatten([styles.title, { color: accent }])}>
             {title}
           </MarqueeText>
         </View>
@@ -102,16 +105,14 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: COLORS.ACCENT,
   },
   titleBlend: {
     width: "100%",
     mixBlendMode: "difference",
   },
-  // Gold through the difference blend: black over the fill, gold over the dark remainder —
-  // identical treatment to the card title bars.
+  // The accent through the difference blend: black over the fill, the accent over the dark
+  // remainder, identical treatment to the card title bars.
   title: {
-    color: COLORS.ACCENT,
     fontSize: IS_TV ? 32 : 17,
     fontWeight: "700",
     textAlign: "center",

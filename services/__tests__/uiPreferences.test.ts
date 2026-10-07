@@ -5,10 +5,16 @@ import { Settings } from "react-native";
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
 describe("uiPreferences", () => {
-  it("starts with device generated posters on and server transcoding as the server allows", () => {
-    expect(DEFAULT_UI_PREFERENCES).toEqual({ version: 1, devicePosters: true, serverTranscoding: "linkOrFile" });
+  it("starts with device generated posters on, server transcoding as the server allows, the gold cards and the folder colour on", () => {
+    expect(DEFAULT_UI_PREFERENCES).toEqual({ version: 1, devicePosters: true, serverTranscoding: "linkOrFile", cardTheme: { id: "gold", name: "", accent: "#FFC312" }, folderTint: true });
     expect(getUiPreferences().devicePosters).toBe(true);
     expect(getUiPreferences().serverTranscoding).toBe("linkOrFile");
+  });
+
+  it("reads the chosen theme and the folder colour, falling back on a malformed one", () => {
+    const ember = { id: "t1", name: "Ember", accent: "#ff7043" };
+    expect(parseUiPreferences(JSON.stringify({ cardTheme: ember, folderTint: false }))).toEqual({ ...DEFAULT_UI_PREFERENCES, cardTheme: { ...ember, accent: "#FF7043" }, folderTint: false });
+    expect(parseUiPreferences(JSON.stringify({ cardTheme: { id: "t1", name: "x", accent: "orange" }, folderTint: "no" }))).toEqual(DEFAULT_UI_PREFERENCES);
   });
 
   it("reads a stored document field by field, defaulting what is missing or malformed", () => {
@@ -26,7 +32,7 @@ describe("uiPreferences", () => {
     updateUiPreferences({ devicePosters: true });
     expect(listener).toHaveBeenCalledTimes(1);
     expect(getUiPreferences().devicePosters).toBe(true);
-    expect(JSON.parse(Settings.get(UI_PREFERENCES_KEY) as string)).toEqual({ version: 1, devicePosters: true, serverTranscoding: "linkOrFile" });
+    expect(JSON.parse(Settings.get(UI_PREFERENCES_KEY) as string)).toEqual(DEFAULT_UI_PREFERENCES);
     updateUiPreferences({ serverTranscoding: "never" });
     expect(listener).toHaveBeenCalledTimes(2);
     expect(JSON.parse(Settings.get(UI_PREFERENCES_KEY) as string).serverTranscoding).toBe("never");

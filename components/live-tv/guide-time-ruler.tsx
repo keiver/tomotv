@@ -1,5 +1,6 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { formatClock, MINUTE_MS, rulerTicks, type CanvasSpan, type GuideMetrics } from "@/utils/guide";
 import React, { useMemo } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
@@ -66,7 +67,7 @@ export function useRulerScrub(scrollRef: AnimatedRef<Animated.ScrollView>, scrol
 }
 
 /**
- * A red scale over the canvas, gold up to now; the only place "now" is drawn, never over a cell.
+ * A red scale over the canvas, the accent up to now; the only place "now" is drawn, never over a cell.
  * A cell's edge is the previous cell's 1px right border, one pixel left of its offset: marks sit on it, as wide as it.
  */
 export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, nowMs, mountSpan }: GuideTimeRulerProps) {
@@ -75,9 +76,10 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
   const minuteMs = nowMs - (nowMs % MINUTE_MS);
   const nowLeft = ((minuteMs - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute;
   const showNow = nowMs >= windowStartMs && nowMs < windowEndMs;
+  const { accent } = useCardPalette();
   return (
     <View style={[styles.ruler, { height: metrics.rulerHeight, width: spanPx }]} pointerEvents="none">
-      {showNow ? <View style={[styles.elapsed, { width: nowLeft }]} /> : null}
+      {showNow ? <View style={[styles.elapsed, { width: nowLeft, backgroundColor: accent }]} /> : null}
       {ticks.map((tick) =>
         tick.isMinor ? (
           <View key={tick.atMs} style={[styles.minorMark, { left: Math.max(0, tick.left - 1) }]} />
@@ -91,9 +93,9 @@ export function GuideTimeRuler({ windowStartMs, windowEndMs, metrics, spanPx, no
           </View>
         ),
       )}
-      {showNow ? <View style={[styles.nowEdge, { left: nowLeft - NOW_EDGE / 2 }]} /> : null}
+      {showNow ? <View style={[styles.nowEdge, { left: nowLeft - NOW_EDGE / 2, backgroundColor: accent }]} /> : null}
       {showNow ? (
-        <Text style={[styles.nowLabel, { left: nowLeft - MAJOR_MARK_WIDTH + LABEL_LEFT + 1.5 }]} numberOfLines={1}>
+        <Text style={[styles.nowLabel, { left: nowLeft - MAJOR_MARK_WIDTH + LABEL_LEFT + 1.5, color: accent }]} numberOfLines={1}>
           {formatClock(minuteMs)}
         </Text>
       ) : null}
@@ -114,7 +116,6 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: 0,
     height: NOW_HEIGHT,
-    backgroundColor: COLORS.ACCENT,
     opacity: 0.16,
   },
   minorMark: {
@@ -163,14 +164,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     top: 0,
     width: NOW_EDGE,
-    backgroundColor: COLORS.ACCENT,
   },
   // The top lane of the band, above the red labels.
   nowLabel: {
     position: "absolute",
     top: 0,
     lineHeight: NOW_LABEL_LANE,
-    color: COLORS.ACCENT,
     fontSize: IS_TV ? 24 : 14,
     fontWeight: "700",
   },

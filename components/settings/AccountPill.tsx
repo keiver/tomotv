@@ -1,6 +1,8 @@
-import { IS_PAD, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, useSettingsAccentStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { DESIGN } from "@/constants/app";
+import { themedStyles, useCardPalette } from "@/hooks/useCardPalette";
+import { withAlpha } from "@/utils/color";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
@@ -11,7 +13,7 @@ interface AccountPillProps {
   label: string;
   /** A glyph before the label: the platform a Diagnostics row speaks for. */
   icon?: keyof typeof Ionicons.glyphMap;
-  /** The row is on its gold fill: the pill takes the fill's own ink. */
+  /** The row is on its accent fill: the pill takes the fill's own ink. */
   onGold: boolean;
   /** A tag beside a pill, not a peer: smaller type, tinted ink and border. */
   tag?: { tint: string };
@@ -19,10 +21,13 @@ interface AccountPillProps {
 
 /** A tight pill: a saved sign-in on a server card, the build on the Open Source page. */
 export function AccountPill({ label, icon, onGold, tag }: AccountPillProps) {
+  const palette = useCardPalette();
+  const accentStyles = useSettingsAccentStyles();
+  const themed = useThemedStyles();
   return (
-    <View style={[styles.pill, onGold && styles.pillOnGold, tag && [styles.pillTag, { borderColor: tag.tint }]]}>
-      {icon ? <Ionicons name={icon} size={IS_TV ? 18 : IS_PAD ? 13 : 12} color={onGold ? COLORS.ON_ACCENT_WARM : COLORS.TEXT_SECONDARY} /> : null}
-      <Text style={[styles.label, onGold && settingsStyles.listItemSubtitleFocused, tag && [styles.labelTag, { color: tag.tint }]]} numberOfLines={1}>
+    <View style={[styles.pill, onGold && themed.pillOnGold, tag && [styles.pillTag, { borderColor: tag.tint }]]}>
+      {icon ? <Ionicons name={icon} size={IS_TV ? 18 : IS_PAD ? 13 : 12} color={onGold ? palette.ink : COLORS.TEXT_SECONDARY} /> : null}
+      <Text style={[styles.label, onGold && accentStyles.listItemSubtitleFocused, tag && [styles.labelTag, { color: tag.tint }]]} numberOfLines={1}>
         {label}
       </Text>
     </View>
@@ -42,10 +47,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.12)",
     flexShrink: 1,
   },
-  pillOnGold: {
-    backgroundColor: "rgba(43, 31, 5, 0.1)",
-    borderColor: "rgba(43, 31, 5, 0.22)",
-  },
   label: {
     fontSize: IS_TV ? 20 : IS_PAD ? 14 : 13,
     fontWeight: "600",
@@ -62,3 +63,11 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 });
+
+// On the row's accent fill: the fill's own ink, faint.
+const useThemedStyles = themedStyles((palette) => ({
+  pillOnGold: {
+    backgroundColor: withAlpha(palette.ink, 0.1),
+    borderColor: withAlpha(palette.ink, 0.22),
+  },
+}));
