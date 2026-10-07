@@ -2156,6 +2156,45 @@ describe("useVideoPlayback (mounted)", () => {
       }
     });
 
+    // Device log: AVPlayer picked English SDH at load and a stored "eng" moved it to a plain twin AVKit's Language list lacks.
+    it("holds the player's own pick when it is already in the stored language", async () => {
+      mockCanRemux.mockResolvedValue(true);
+      const plain = { index: 2, name: "English", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false };
+      const sdh = { ...plain, index: 4, name: "English SDH", isHearingImpaired: true };
+      (sessionSubtitleRenditions as jest.Mock).mockReturnValue([plain, sdh]);
+      (resolveSubtitlePick as jest.Mock).mockReturnValue({ imageStreamIndex: 4, rendition: sdh, ordinal: 1 });
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      jest.useFakeTimers();
+      try {
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation(() => ({ kind: "language", tag: "eng" }));
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onLoad({ duration: 120 } as never);
+          jest.advanceTimersByTime(101);
+        });
+        await act(async () => {
+          ref.current!.get().play();
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
+          jest.advanceTimersByTime(501);
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onTextTracks({
+            textTracks: [
+              { index: 0, title: "English", language: "eng", selected: false },
+              { index: 1, title: "English SDH", language: "eng", selected: true },
+            ],
+          } as never);
+        });
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "1" });
+        await act(async () => renderer.unmount());
+      } finally {
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation(() => ({ kind: "system" }));
+        jest.useRealTimers();
+      }
+    });
+
     it("keeps subtitles off through a server restart of the stream", async () => {
       jest.useFakeTimers();
       try {

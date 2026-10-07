@@ -69,6 +69,12 @@ export function renditionForPlan(plan: Exclude<ApplyPlan, { kind: "leave" }>, re
   return chosen?.index ?? null;
 }
 
+/** The player's own non-forced pick in the stored language stays; a forced one still yields to the full track. */
+export function keepsCurrentPick(plan: Exclude<ApplyPlan, { kind: "leave" }>, current: { language: string; isForced: boolean } | null): boolean {
+  if (plan.kind !== "apply" || plan.preference.kind !== "language" || current === null || current.isForced) return false;
+  return canonicalLanguage(current.language) === canonicalLanguage(plan.preference.tag);
+}
+
 /**
  * A report echoing back the default this session applied FOR the viewer is the player
  * agreeing with us, not somebody choosing. Once the value moves off it the viewer has taken

@@ -1,7 +1,32 @@
 /**
  * When an item's subtitle choice is applied, and what counts as the viewer making one.
  */
-import { classifyObservedChoice, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "../videoPlayback/subtitleSession";
+import { classifyObservedChoice, keepsCurrentPick, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "../videoPlayback/subtitleSession";
+
+// Device log: AVPlayer picked English SDH at load, then a stored "eng" moved it to the plain track AVKit's Language list lacks.
+describe("keepsCurrentPick", () => {
+  const english = { kind: "apply", preference: { kind: "language", tag: "eng" } } as const;
+  const sdh = { language: "eng", isForced: false };
+
+  it("keeps the player's own non-forced pick in the stored language, whatever its spelling", () => {
+    expect(keepsCurrentPick(english, sdh)).toBe(true);
+    expect(keepsCurrentPick({ kind: "apply", preference: { kind: "language", tag: "en" } }, sdh)).toBe(true);
+  });
+
+  it("moves a forced pick that shares the language", () => {
+    expect(keepsCurrentPick(english, { language: "eng", isForced: true })).toBe(false);
+  });
+
+  it("applies the preference over nothing selected or another language", () => {
+    expect(keepsCurrentPick(english, null)).toBe(false);
+    expect(keepsCurrentPick(english, { language: "spa", isForced: false })).toBe(false);
+  });
+
+  it("leaves the file's own default and subtitles off to their own paths", () => {
+    expect(keepsCurrentPick({ kind: "autoDefault", preference: { kind: "language", tag: "eng" }, tag: "eng" }, sdh)).toBe(false);
+    expect(keepsCurrentPick({ kind: "apply", preference: { kind: "off" } }, sdh)).toBe(false);
+  });
+});
 
 describe("renditionForPlan", () => {
   const forced = { index: 2, language: "eng", isDefault: false, isForced: true };

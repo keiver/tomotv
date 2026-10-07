@@ -108,7 +108,7 @@ import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
 import { segmentSkipTarget } from "./videoPlayback/segmentSkip";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
-import { classifyObservedChoice, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
+import { classifyObservedChoice, keepsCurrentPick, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
 import {
   createPreflightGate,
@@ -2984,7 +2984,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     }
     if (plan.kind === "autoDefault") autoAppliedDefaultRef.current = plan.tag;
     // A language with several renditions is selected by position: the lib's language match takes the first.
-    const stream = transportRef.current === "gateway" ? renditionForPlan(plan, subtitleRenditionsRef.current) : null;
+    // The player's own pick in that language is held, since a twin of it can be missing from AVKit's Language list.
+    const current = resolveSubtitlePick(subtitleRenditionsRef.current, reportedTextTracksRef.current, lastSubtitleRequestRef.current).rendition;
+    const stream = transportRef.current !== "gateway" ? null : current && keepsCurrentPick(plan, current) ? current.index : renditionForPlan(plan, subtitleRenditionsRef.current);
     const selection = stream === null ? null : subtitleSelectionForReport(stream, subtitleRenditionsRef.current, reportedTextTracksRef.current);
     if (selection) setSelectedSubtitleTrack(selection as SelectedTrack);
     logger.debug("📝 Subtitles: selecting", {
