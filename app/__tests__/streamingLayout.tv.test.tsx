@@ -66,12 +66,13 @@ describe("Streaming quality on TV", () => {
     act(() => layout(page, 960));
     expect(StyleSheet.flatten(list.props.style).height).toBe(120);
 
+    // Room for five rows still shows four.
     act(() => layout(page, 1440));
-    expect(StyleSheet.flatten(list.props.style).height).toBe(600);
+    expect(StyleSheet.flatten(list.props.style).height).toBe(480);
 
     // Wrapped footer copy also reduces the space available to the list.
-    act(() => layout(quality.findByType(SectionFooter).parent!, 200));
-    expect(StyleSheet.flatten(list.props.style).height).toBe(480);
+    act(() => layout(quality.findByType(SectionFooter).parent!, 318));
+    expect(StyleSheet.flatten(list.props.style).height).toBe(360);
   });
 
   it("pins the boundary rows so focus can leave the nested list", () => {
