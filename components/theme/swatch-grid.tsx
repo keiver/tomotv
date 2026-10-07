@@ -11,23 +11,23 @@ const COLUMNS = 5;
 /**
  * The hex box, then fourteen colours: three full rows of five. The built-in themes lead (the app's
  * gold, then blue, green and purple, the best-liked colours in YouGov's 10-country survey), then the
- * rest, then a neutral; no two hues within 20 degrees. Every one clears 4.5:1 against the canvas (the
- * accent is title text there) and for its ink on its own fill.
+ * rest, then a neutral; no two hues within 20 degrees. Each sits at OKLCH lightness 0.80 (gold is 0.85)
+ * at its hue's most in-gamut chroma, clearing 5.6:1 on the lightest card title band (#3C3B39).
  */
 export const SWATCHES: readonly { name: string; hex: string }[] = [
   { name: "Gold", hex: "#FFC312" },
-  { name: "Blue", hex: "#3D8EFF" },
-  { name: "Green", hex: "#0ABF37" },
-  { name: "Purple", hex: "#A666FF" },
-  { name: "Red", hex: "#FF3838" },
-  { name: "Orange", hex: "#FF833B" },
-  { name: "Teal", hex: "#09BA9D" },
-  { name: "Sky", hex: "#0EB2E8" },
-  { name: "Indigo", hex: "#7878FF" },
-  { name: "Magenta", hex: "#DC2EFF" },
-  { name: "Pink", hex: "#FF0DC2" },
-  { name: "Lime", hex: "#7CB509" },
-  { name: "Rose", hex: "#FF2E74" },
+  { name: "Blue", hex: "#92C0FF" },
+  { name: "Green", hex: "#07E442" },
+  { name: "Purple", hex: "#C9ACFF" },
+  { name: "Red", hex: "#FFA09A" },
+  { name: "Orange", hex: "#FFA567" },
+  { name: "Teal", hex: "#0FDCBA" },
+  { name: "Sky", hex: "#36D0FF" },
+  { name: "Indigo", hex: "#B1B6FE" },
+  { name: "Magenta", hex: "#EC98FF" },
+  { name: "Pink", hex: "#FE95D9" },
+  { name: "Lime", hex: "#93D60A" },
+  { name: "Rose", hex: "#FF9CB8" },
   { name: "Silver", hex: "#C9CED6" },
 ];
 

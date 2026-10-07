@@ -61,9 +61,9 @@ export function derivePalette(accent: string): CardPalette {
 
 export const BUILT_IN_THEMES: readonly CardTheme[] = [
   { id: "gold", name: "", accent: COLORS.ACCENT },
-  { id: "blue", name: "", accent: "#3D8EFF" },
-  { id: "green", name: "", accent: "#0ABF37" },
-  { id: "purple", name: "", accent: "#A666FF" },
+  { id: "blue", name: "", accent: "#92C0FF" },
+  { id: "green", name: "", accent: "#07E442" },
+  { id: "purple", name: "", accent: "#C9ACFF" },
 ];
 
 export const DEFAULT_CARD_THEME: CardTheme = BUILT_IN_THEMES[0];

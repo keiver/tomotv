@@ -80,7 +80,7 @@ describe("theme editor", () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
     act(() => tree.unmount());
     expect(mockSave).toHaveBeenCalledTimes(1);
-    expect(mockSave.mock.calls[0][0]).toMatchObject({ name: "Sea", accent: "#09BA9D" });
+    expect(mockSave.mock.calls[0][0]).toMatchObject({ name: "Sea", accent: "#0FDCBA" });
     expect(getUiPreferences().cardTheme).toEqual(mockSave.mock.calls[0][0]);
   });
 
