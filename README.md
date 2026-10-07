@@ -73,8 +73,9 @@ permission on the server overrides all three.
 - **Scrubbing.** Every video scrubs on its own keyframes: Apple TV shows them
   as thumbnails over the timeline, iPhone and iPad as the picture itself. A file
   played as it is gets them from the system; the engine and the server stream
-  get them from the original file, copied where the device decodes the video
-  and re-encoded where it does not, read only when the player asks.
+  get them from the original file, read only when the player asks. A picture
+  larger than 1080p is scaled to 1080p and an HDR picture is converted to
+  standard range first.
 - **Quality.** Auto plays the original alone when the connection can carry it,
   and the server transcodes nothing. On a slower connection the playlist adds
   smaller server streams (stereo AAC), if the account is allowed to transcode

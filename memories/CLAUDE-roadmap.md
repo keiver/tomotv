@@ -188,8 +188,9 @@ Numbered by what each one is, not by when. Pull from any of them.
 
 - **Native scrub previews**: implemented on every lane (`IFrameIndex.swift`,
   `IFrameStore.swift`, `FrameGrabber+IFrames.swift`, `ProviderIFrames.swift`).
-  An `EXT-X-I-FRAMES-ONLY` variant of the source's own keyframes, copied or
-  re-encoded, so tvOS draws its own scrubbing thumbnails with zero server work;
+  An SDR `EXT-X-I-FRAMES-ONLY` variant of the source's own keyframes, copied up
+  to 1080p SDR, else tone-mapped and encoded inside 1080p, so tvOS draws its own
+  scrubbing thumbnails with zero server work;
   direct play gets AVKit's own. Live gets none.
 - **One-request seeks on MPEG-TS**: a TS file has no index, so FFmpeg's
   timestamp seek binary-searches it over HTTP, about 15 open-ended range

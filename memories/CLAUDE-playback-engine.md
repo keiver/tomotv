@@ -279,10 +279,14 @@ play needs none: AVKit makes thumbnails from a progressive file itself
   keyframe; ASF only after a timestamp seek; TS, PS and FLV only what was read.
   Unindexed sources use the segment grid, the keyframe at or before each start
   stamped at the start (`IFrameIndex.swift`). Thinned to one a second.
-- Frames come through the session's `FrameGrabber` (`FrameGrabber+IFrames.swift`),
-  the one source context chapter frames use: copied where the pipeline copies,
-  re-encoded through `VideoTranscoder` where it transcodes, so codec and size
-  match the playing track. tfdt sits on the session anchor.
+- Frames come through an I-frame `FrameGrabber` of their own (`FrameGrabber+IFrames.swift`).
+  The rendition is always SDR (authoring spec 6.16): the keyframe is copied only
+  for an SDR picture inside 1920x1080 that playback copies; everything else
+  (HDR, 4K, a transcoded session, every server lane) is encoded as H.264 High
+  4.0 inside 1920x1080, PQ and HLG tone-mapped by VideoToolbox's pixel transfer
+  from the decoded frame's own colour tags (PQ to BT.709 measured on Apple TV
+  2026-10-07). Dolby Vision profile 5 gets no line. tfdt sits on the session
+  anchor; each sample lasts until the next tfdt (7.3); mfhd counts the entries.
 - `IFrameStore` never fails an entry: AVPlayer retries a 404 I-frame segment
   without end and stops trick play (604 retries in 30 s, measured). Newest
   request first; a request that waits past its budget (4 s on a copy link,
@@ -295,8 +299,15 @@ play needs none: AVKit makes thumbnails from a progressive file itself
 - MPEG-TS seeks by byte estimate on a `ByteTimeMap` (ends, landings, keyframes
   read): 1 to 3 seeks against FFmpeg's 5 to 17 requests (4.2 to 14.1 s) on a
   30 min recording over HTTPS.
-- BANDWIDTH is the copy's peak. The authoring spec's 6.5 estimate (bit rate x
-  I-frame rate / 8) under-declares a real keyframe: AVFoundation logs -12318.
+- BANDWIDTH is RFC 8216's peak over the I-frame EXTINFs, never under the frames:
+  exact from MP4/AVI index sizes, else a bound (an encoded frame is held under
+  2 Mb/s over its EXTINF; a Matroska copy is bounded by its cluster positions).
+  AVERAGE-BANDWIDTH is the mean of 8 entries sampled once AVPlayer holds its
+  reservoir, kept per item across launches and declared from the item's next
+  master; until then it equals BANDWIDTH. Under the line this replaced (a 4K PQ
+  copy declaring the main variant's peak, no AVERAGE-BANDWIDTH) every resumed 4K
+  HDR session on tvOS failed with -16042 once it loaded the I-frame init; which
+  attribute tvOS objected to is not isolated (2026-10-06/07).
 - Measured 2026-10-05: tvOS AVKit draws thumbnails over the scrub bar from it;
   iOS has no thumbnail and paints the scrub target into the video itself, from
   the same fragments (126 fetched in one scrubbing run). Jellyfin's JPEG
