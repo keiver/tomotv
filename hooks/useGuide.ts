@@ -159,6 +159,7 @@ export function useGuide(): GuideState {
   // Where the server's guide ends and the days loaded listings fell on: the strip's availability marks.
   const [guideEndMs, setGuideEndMs] = useState<number | null>(null);
   const [coveredDays, setCoveredDays] = useState<ReadonlySet<number>>(() => new Set());
+  const [externalGuides, setExternalGuides] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingPrograms, setPendingPrograms] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -187,6 +188,7 @@ export function useGuide(): GuideState {
     setIsLoading(true);
     setGuideEndMs(null);
     setCoveredDays(new Set());
+    setExternalGuides(false);
     const today = { dayMs: dayStartMs(nowMs), ...guideDayWindow(dayStartMs(nowMs), nowMs) };
     setDay(today);
     setWindowStartMs(today.startMs);
@@ -344,6 +346,14 @@ export function useGuide(): GuideState {
     [applyPrograms],
   );
   const loadMoreRows = useCallback(() => loadNextPage(loadRef.current), []);
+  // An added guide can list past the server's end, so while one is active the server's end closes no day.
+  const readExternalGuides = useCallback((load: GuideLoad) => {
+    void fetchTunerData()
+      .catch(() => null)
+      .then((data) => {
+        if (!load.retired) setExternalGuides(activeGuideUrls(getLiveTvPreferences(), data?.tvgUrls ?? []).length > 0);
+      });
+  }, []);
 
   useEffect(() => {
     channelsRef.current = [];
@@ -368,6 +378,7 @@ export function useGuide(): GuideState {
         load.hasMore = hasMore;
         load.loaded = pageLength;
         refreshTimers();
+        readExternalGuides(load);
         fetchGuideHorizon()
           .then((end) => {
             if (!load.retired) setGuideEndMs(end);
@@ -390,7 +401,7 @@ export function useGuide(): GuideState {
     return () => {
       load.retired = true;
     };
-  }, [attempt, session, loadChannelPage, landFor, refreshTimers, playlistIds]);
+  }, [attempt, session, loadChannelPage, landFor, refreshTimers, playlistIds, readExternalGuides]);
 
   // Ticks on the clock's minute boundaries, rescheduled each time so the ruler's now mark lands on :00.
   // Timers stall while the app is suspended, so a return to the foreground resyncs at once.
@@ -488,7 +499,10 @@ export function useGuide(): GuideState {
     setError(null);
     setAttempt((n) => n + 1);
   }, []);
-  const days = useMemo<GuideDay[]>(() => guideDays(nowMs).map((startMs) => ({ startMs, hasListings: dayHasListings(startMs, guideEndMs, coveredDays) })), [nowMs, guideEndMs, coveredDays]);
+  const days = useMemo<GuideDay[]>(
+    () => guideDays(nowMs).map((startMs) => ({ startMs, hasListings: dayHasListings(startMs, externalGuides ? null : guideEndMs, coveredDays) })),
+    [nowMs, guideEndMs, coveredDays, externalGuides],
+  );
 
   // The minute tick retries a page that failed.
   useEffect(() => {
@@ -505,9 +519,10 @@ export function useGuide(): GuideState {
       Object.fromEntries(Object.entries(current).map(([channelId, programs]) => [channelId, programs.filter((program) => !program.Id?.startsWith(EXTERNAL_GUIDE_PREFIX))])),
     );
     const load = loadRef.current;
+    readExternalGuides(load);
     if (load.retired || channelsRef.current.length === 0) return;
     loadPrograms(channelsRef.current, loadedStartRef.current, windowEndRef.current, load).catch((err) => logger.warn("Guide source reload failed", err, { hook: "useGuide" }));
-  }, [guideSources, loadPrograms]);
+  }, [guideSources, loadPrograms, readExternalGuides]);
 
   const retry = useCallback(() => {
     setIsLoading(true);

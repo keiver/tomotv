@@ -631,6 +631,48 @@ describe("useGuide", () => {
       expect(listings[13]).toBe(false);
     });
 
+    it("never closes a day past the server guide's end while an added guide may list it", async () => {
+      const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+      const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+      updateLiveTvPreferences({ guideUrls: ["http://mine/guide.xml"] });
+      fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchGuideHorizon as jest.Mock).mockResolvedValue(guideDays(Date.now())[0] + 10 * 60 * MINUTE_MS);
+      (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+      let ref: React.RefObject<HookRef | null>;
+      try {
+        ref = await mount();
+      } finally {
+        updateLiveTvPreferences({ guideUrls: [] });
+      }
+      expect(ref.current!.get().days.some((day) => day.hasListings === false)).toBe(false);
+    });
+
+    it("reopens the days past the server guide's end when a guide is added after the guide loaded, and closes them when it goes", async () => {
+      const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+      const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+      fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchGuideHorizon as jest.Mock).mockResolvedValue(guideDays(Date.now())[0] + 10 * 60 * MINUTE_MS);
+      (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+      const ref = await mount();
+      expect(ref.current!.get().days[3].hasListings).toBe(false);
+
+      const sources = (guideUrls: string[]) => {
+        updateLiveTvPreferences({ guideUrls });
+        mockPreferences = { ...mockPreferences, guideUrls, guideSourcesOff: [] } as typeof mockPreferences;
+        act(() => mounted!.update(<Harness ref={ref} />));
+        return settle();
+      };
+      try {
+        await sources(["http://mine/guide.xml"]);
+        expect(ref.current!.get().days.some((day) => day.hasListings === false)).toBe(false);
+      } finally {
+        await sources([]);
+      }
+      expect(ref.current!.get().days[3].hasListings).toBe(false);
+    });
+
     it("knows no day's listings before the server answers", async () => {
       (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
       (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
