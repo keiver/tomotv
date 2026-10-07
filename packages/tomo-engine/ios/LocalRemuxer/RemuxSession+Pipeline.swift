@@ -1148,10 +1148,10 @@ extension RemuxSession {
             // A silently wedged read (TCP stall with no RST) otherwise blocks
             // av_read_frame forever: the interrupt callback only fires on session
             // cancel, `failed` never gets set, and every segment request starves
-            // out its 20s deadline with the producer looking alive. 15s per I/O
+            // out its 20s deadline with the producer looking alive. A bounded wait per I/O
             // operation turns the stall into an error the reconnect options above
             // can retry, or a clean fail() the player recovers from.
-            av_dict_set(&openOpts, "rw_timeout", "15000000", 0)
+            av_dict_set(&openOpts, "rw_timeout", config.isLive ? "15000000" : fileSourceReadTimeoutMicros, 0)
             // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
             // tvOS has no trust store to verify against until we ship a CA file.
             av_dict_set(&openOpts, "tls_verify", "0", 0)

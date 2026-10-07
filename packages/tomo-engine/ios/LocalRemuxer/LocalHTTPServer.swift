@@ -18,8 +18,8 @@ enum LocalHTTPResponse {
     /// Headers go out immediately (200, chunked transfer); `provider` then
     /// blocks until the body file exists and is streamed, or returns nil and
     /// the connection is aborted mid-response: a loud, truncated failure the
-    /// player acts on, never a fake success. Keeps AVPlayer's short
-    /// no-response-headers watchdog (-12889) out of the segment-wait path.
+    /// player acts on, never a fake success. Headers alone do not hold AVPlayer:
+    /// a media request that sends no body bytes for 6s fails (-12889, measured).
     case streamed(contentType: String, provider: () -> URL?)
     /// A media segment that is fetched whole before it can be sent. `lead` is the segment's own
     /// opening box and goes out at once; `padding` (a free box) follows every two seconds until

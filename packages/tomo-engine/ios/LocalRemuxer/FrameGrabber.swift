@@ -468,9 +468,10 @@ final class FrameGrabber {
         var ret = avformat_open_input(&ctx, url, nil, &opts)
         av_dict_free(&opts)
         // Silent: the caller reports the reason once per item (localRemux.ts). A file still being
-        // copied, or one the server cannot read, fails here on every retry.
+        // copied, or one the server cannot read, fails here on every retry; a timed-out read is tried again.
         guard ret >= 0, let opened = ctx else {
             openFailure = "open: \(grabErr(ret))"
+            if ret == -ETIMEDOUT { openFailed = false }
             return false
         }
         var closing: UnsafeMutablePointer<AVFormatContext>? = opened
@@ -478,6 +479,7 @@ final class FrameGrabber {
         guard ret >= 0 else {
             openFailure = "probe: \(grabErr(ret))"
             avformat_close_input(&closing)
+            if ret == -ETIMEDOUT { openFailed = false }
             return false
         }
         sourceOpened = true
@@ -516,7 +518,7 @@ final class FrameGrabber {
     }
 
     private func httpOptions() -> OpaquePointer? {
-        sourceHttpOptions(headers: httpHeaders, reconnects: reconnects)
+        sourceHttpOptions(headers: httpHeaders, reconnects: reconnects, file: !live)
     }
 
     /// A playlist input read through FFmpeg's own HTTP (no App Transport Security in the way): a

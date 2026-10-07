@@ -12,9 +12,8 @@ import Foundation
 extension RemuxSession {
     // MARK: - Segment serving
 
-    /// A completed segment goes out as a plain file; one still in production
-    /// gets chunked early headers so AVPlayer's short no-response-headers
-    /// watchdog (-12889) never fires while the provider waits.
+    /// A completed segment goes out as a plain file; one still in production is
+    /// held until it lands, and AVPlayer fails it after 6s without body bytes (-12889).
     func segmentResponse(_ n: Int, prefix: String = "") -> LocalHTTPResponse {
         guard n >= 0 else { return .notFound }
         stateLock.lock()
