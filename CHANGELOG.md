@@ -2,6 +2,27 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.11]
+
+### Added
+
+- A channel's info panel lists every group it can join: Favorites, your own groups and the groups its tuner's M3U playlist declares, each ticked while the channel is in it, and a press adds or removes it. On Apple TV they are a bar along the card's foot that starts with New group; on iPhone and iPad a Groups list, four rows before it scrolls, ends in a New group field
+- A playlist group keeps the channels you add to it or remove from it, per user: the guide, the channel wall and channel flipping follow your edits
+- A multi-episode file shows its episode range, S01E01-E02, on its card and info panel, between episodes, and in the Apple TV player's queue
+
+### Changed
+
+- A channel's info panel ends at its groups, leaving out the description, cast, streams, details, file and playback sections; the Groups button is gone
+- The info panel shows a wide picture whole in a box when filling the artwork would blow it past 3x its size, such as a programme's title logo
+- On iPhone and iPad the Open Source list fills the screen under its intro and the Streaming Quality list shows three rows at a time
+
+### Fixed
+
+- On Apple TV, Left from a guide programme whose neighbour is outside the grid's rendered range reaches the channel card instead of stopping
+- On Apple TV, closing an info panel or the player opened from the guide hands focus back to the programme you pressed, or the channel card you held, instead of the tab bar
+- A programme shorter than a minute shows its start and end with seconds, in the guide, the schedule and its info panel, instead of the same minute twice
+- A focused guide cell's ring no longer draws over the programme's artwork or live frames
+
 ## [2.2.10]
 
 ### Added
