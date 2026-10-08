@@ -184,6 +184,7 @@ export interface JellyfinVideoItem {
   ParentId?: string; // Containing folder — sibling queue source for non-episode items
   SeasonName?: string;
   IndexNumber?: number;
+  IndexNumberEnd?: number; // Multi-episode files ("S01E01-E02"): the last episode the file holds
   ParentIndexNumber?: number;
   Artists?: string[]; // Audio items: performing artists (default DTO field, not Fields-gated)
   Album?: string; // Audio and Photo items: album name (a Photo's album is its folder)
