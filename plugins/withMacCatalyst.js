@@ -82,6 +82,8 @@ function withMacCatalyst(config) {
       Object.assign(buildConfig.buildSettings, {
         CODE_SIGN_STYLE: "Automatic",
         SUPPORTS_MACCATALYST: "YES",
+        // The separate iOS project owns iPad compatibility on Apple Vision.
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: "NO",
         // Xcode adds macosx for Catalyst. Listing it here also exposes native Mac builds,
         // which compile the iOS storyboard with --target-device mac and fail.
         SUPPORTED_PLATFORMS: '"iphoneos iphonesimulator"',

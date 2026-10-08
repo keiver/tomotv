@@ -50,7 +50,10 @@ describe("Mac Catalyst prebuild", () => {
   it("exposes Mac through Catalyst without a native macOS destination that rejects iOS storyboards", async () => {
     const c = config();
     const configurations = Object.fromEntries(
-      ["Debug", "Release"].map((name) => [name, { name, buildSettings: { SDKROOT: "iphoneos", SUPPORTED_PLATFORMS: '"iphoneos iphonesimulator macosx"', TARGETED_DEVICE_FAMILY: '"1,2"' } }]),
+      ["Debug", "Release"].map((name) => [
+        name,
+        { name, buildSettings: { SDKROOT: "iphoneos", SUPPORTED_PLATFORMS: '"iphoneos iphonesimulator macosx"', TARGETED_DEVICE_FAMILY: '"1,2"', SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: "YES" } },
+      ]),
     );
     const project = {
       getFirstTarget: () => ({ firstTarget: { buildConfigurationList: "app" } }),
@@ -61,6 +64,7 @@ describe("Mac Catalyst prebuild", () => {
     for (const { buildSettings } of Object.values(configurations)) {
       expect(buildSettings.SUPPORTS_MACCATALYST).toBe("YES");
       expect(buildSettings.SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD).toBe("NO");
+      expect(buildSettings.SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD).toBe("NO");
       expect(buildSettings.SUPPORTED_PLATFORMS).toBe('"iphoneos iphonesimulator"');
       expect(buildSettings.SDKROOT).toBe("iphoneos");
       expect(buildSettings.TARGETED_DEVICE_FAMILY).toBe('"1,2"');
