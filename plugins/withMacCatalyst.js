@@ -57,6 +57,17 @@ function withMacCatalyst(config) {
     end`,
       );
     }
+    if (!config.modResults.contents.includes("# TomoTV Catalyst framework signing")) {
+      config.modResults.contents += `
+# TomoTV Catalyst framework signing: CocoaPods writes embed scripts during integration.
+post_integrate do |installer|
+  require_relative '../scripts/catalyst-frameworks'
+  installer.aggregate_targets.each do |target|
+    TomoCatalystFrameworks.patch_embed_script(target.embed_frameworks_script_path)
+  end
+end
+`;
+    }
     return config;
   });
   config = withEntitlementsPlist(config, (config) => {

@@ -10,7 +10,17 @@ function fixture(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   for (const dir of ["scripts", "bin", "plugins", "patches", "assets/brand", "modules", "packages/tomo-live", "packages/tomo-engine/ios", "node_modules"])
     fs.mkdirSync(path.join(root, dir), { recursive: true });
-  for (const file of ["prebuild-all.sh", "prebuild-dual.sh", "prebuild-mac.sh", "make-dual-workspace.sh", "native-build-lock.sh", "native-build-lock.py", "preserve-mtimes.py"])
+  for (const file of [
+    "prebuild-all.sh",
+    "prebuild-dual.sh",
+    "prebuild-mac.sh",
+    "make-dual-workspace.sh",
+    "native-build-lock.sh",
+    "native-build-lock.py",
+    "preserve-mtimes.py",
+    "catalyst-frameworks.rb",
+    "fix-catalyst-framework.py",
+  ])
     fs.copyFileSync(`scripts/${file}`, path.join(root, "scripts", file));
   for (const file of ["app.json", "package.json", "package-lock.json", "node_modules/.package-lock.json", "packages/tomo-engine/ffmpeg-lock.json"]) fs.writeFileSync(path.join(root, file), "{}\n");
   for (const pod of ["TomoEngine", "TomoLiveSources", "TomoFFmpeg"]) fs.writeFileSync(path.join(root, "packages/tomo-engine/ios", `${pod}.podspec`), "# fixture\n");

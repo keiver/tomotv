@@ -107,6 +107,9 @@ describe("Mac Catalyst prebuild", () => {
     expect(podfile.modResults.contents).toContain("settings['MACOSX_DEPLOYMENT_TARGET']");
     expect(podfile.modResults.contents).toContain("Gem::Version.new('13.4')");
     expect(podfile.modResults.contents).toContain("settings['IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*]']");
+    expect(podfile.modResults.contents).toContain("post_integrate do |installer|");
+    expect(podfile.modResults.contents).toContain("require_relative '../scripts/catalyst-frameworks'");
+    expect(podfile.modResults.contents).toContain("TomoCatalystFrameworks.patch_embed_script(target.embed_frameworks_script_path)");
     const again = await c.mods.ios.podfile({ ...c, modResults: podfile.modResults, modRequest: {} });
     expect(again.modResults.contents).toBe(podfile.modResults.contents);
   });

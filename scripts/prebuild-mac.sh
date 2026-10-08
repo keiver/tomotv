@@ -31,7 +31,7 @@ python3 scripts/check-catalyst-frameworks.py
 hash_files() {
   for f in "$@"; do echo "$f"; cat "$f"; done | shasum -a 256 | cut -d' ' -f1
 }
-PROJECT_HASH="$(hash_files app.json package.json package-lock.json scripts/prebuild-mac.sh scripts/make-dual-workspace.sh scripts/link-platform-pods.js \
+PROJECT_HASH="$(hash_files app.json package.json package-lock.json scripts/prebuild-mac.sh scripts/make-dual-workspace.sh scripts/link-platform-pods.js scripts/catalyst-frameworks.rb scripts/fix-catalyst-framework.py \
   $(find plugins patches assets/brand -type f -not -name .DS_Store | LC_ALL=C sort))"
 PODS_HASH="$(
   {
