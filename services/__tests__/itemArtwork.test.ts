@@ -143,10 +143,16 @@ describe("heroArtFrame", () => {
 
   // .black (576p)'s logo is 68x16: drawn full width it is a 16x blow-up.
   it("boxes a logo and a picture too small to fill the hero at 3x", () => {
-    expect(heroArtBoxed(1100, 1000, 1000, true)).toBe(true);
-    expect(heroArtBoxed(1100, 68, 16, false)).toBe(true);
-    expect(heroArtBoxed(1100, 1920, 1080, false)).toBe(false);
-    expect(heroArtBoxed(1100, 300, 600, false)).toBe(false);
+    expect(heroArtBoxed(1100, 618.75, 1000, 1000, true)).toBe(true);
+    expect(heroArtBoxed(1100, 618.75, 68, 16, false)).toBe(true);
+    expect(heroArtBoxed(1100, 618.75, 1920, 1080, false)).toBe(false);
+    expect(heroArtBoxed(1100, 618.75, 300, 600, false)).toBe(false);
+    expect(heroArtBoxed(1100, 618.75, 640, 272, false)).toBe(false);
+  });
+
+  // A programme's 730x86 title wordmark: covering the area by its height is a 7x blow-up.
+  it("boxes a wide picture that covering the area would blow past 3x", () => {
+    expect(heroArtBoxed(1100, 618.75, 730, 86, false)).toBe(true);
   });
 
   it("fits a boxed picture whole inside its box, never past 3x its own size", () => {

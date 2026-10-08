@@ -10,7 +10,10 @@ import {
   deleteGroup,
   getLiveTvPreferences,
   isChannelInGroup,
+  isChannelInPlaylistGroup,
   isFavoriteChannel,
+  playlistGroupIds,
+  toggleChannelInPlaylistGroup,
   LIVE_TV_PREFERENCES_KEY,
   addGuideUrl,
   normalizeGuideUrl,
@@ -43,6 +46,7 @@ describe("live TV preferences", () => {
       sort: "name",
       favorites: [{ number: "9.1", name: "KQED" }, { name: "Al Jazeera English" }],
       groups: [],
+      playlistEdits: {},
       guideUrls: [],
       guideSourcesOff: [],
       recordingMinutes: 120,
@@ -172,6 +176,23 @@ describe("live TV preferences", () => {
   it("maps the sort to the server's parameter", () => {
     expect(channelSortParam("number")).toBe("SortName");
     expect(channelSortParam("name")).toBe("Name");
+  });
+
+  it("adds a channel to a playlist group and takes a tuner channel out, undoing each edit on a second press", () => {
+    updateLiveTvPreferences({ playlistEdits: {} });
+    const tuner = ["c1", "c2"];
+    toggleChannelInPlaylistGroup("Movies", tuner, "c3");
+    toggleChannelInPlaylistGroup("Movies", tuner, "c1");
+    const edit = getLiveTvPreferences().playlistEdits.Movies;
+    expect(edit).toEqual({ added: ["c3"], removed: ["c1"] });
+    expect(playlistGroupIds(tuner, edit)).toEqual(["c2", "c3"]);
+    expect(isChannelInPlaylistGroup(tuner, edit, "c1")).toBe(false);
+    expect(parseLiveTvPreferences(JSON.parse(Settings.get(LIVE_TV_PREFERENCES_KEY))).playlistEdits.Movies).toEqual(edit);
+
+    toggleChannelInPlaylistGroup("Movies", tuner, "c3");
+    toggleChannelInPlaylistGroup("Movies", tuner, "c1");
+    expect(getLiveTvPreferences().playlistEdits.Movies).toEqual({ added: [], removed: [] });
+    expect(playlistGroupIds(tuner, getLiveTvPreferences().playlistEdits.Movies)).toBe(tuner);
   });
 });
 

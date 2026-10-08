@@ -103,9 +103,9 @@ export function heroArtFrame(width: number, area: number, imageWidth: number, im
   return { width, height };
 }
 
-/** The hero shows the picture whole in a centred box instead: a logo, or a landscape picture under a third of the hero's width. */
-export function heroArtBoxed(width: number, imageWidth: number, imageHeight: number, logo: boolean): boolean {
-  return logo || (imageWidth * HERO_MAX_UPSCALE < width && imageWidth >= imageHeight);
+/** The hero shows the picture whole in a centred box instead: a logo, or a landscape picture its hero frame would blow past 3x. */
+export function heroArtBoxed(width: number, area: number, imageWidth: number, imageHeight: number, logo: boolean): boolean {
+  return logo || (imageWidth >= imageHeight && heroArtFrame(width, area, imageWidth, imageHeight).width > imageWidth * HERO_MAX_UPSCALE);
 }
 
 /** A boxed picture contained in its box, never past 3x its own size. */

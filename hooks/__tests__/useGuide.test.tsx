@@ -42,6 +42,7 @@ let mockPreferences = {
   sort: "number",
   favorites: [] as { id?: string; number?: string; name: string }[],
   groups: [] as { id: string; name: string; channels: { number?: string; name: string }[] }[],
+  playlistEdits: {},
   hideOffline: false,
 };
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => mockPreferences }));
@@ -97,7 +98,7 @@ describe("useGuide", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(Date, "now").mockReturnValue(CLOCK);
-    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], hideOffline: false };
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
   });
   afterEach(() => jest.restoreAllMocks());
@@ -750,7 +751,7 @@ describe("useGuide minute tick", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], hideOffline: false };
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [], total: 0 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);

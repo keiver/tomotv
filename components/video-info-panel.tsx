@@ -7,6 +7,7 @@ import { InfoActionRow, InfoExtraAction } from "@/components/info-action-row";
 import { InfoFocusRow } from "@/components/info-focus-row";
 import { LoadingRow } from "@/components/loading-row";
 import { ProgressButton } from "@/components/progress-button";
+import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import {
   cancelTimer,
@@ -31,7 +32,7 @@ import {
   setVideoPlayed,
 } from "@/services/jellyfinApi";
 import { COLORS } from "@/constants/colors";
-import { DESIGN, RECESS_EDGE } from "@/constants/app";
+import { RECESS_EDGE } from "@/constants/app";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
@@ -39,6 +40,8 @@ import { useFolderPreviewState } from "@/hooks/useFolderPreview";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
+import { ChannelGroupBand } from "@/components/live-tv/channel-group-band";
+import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
 import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame } from "@/services/itemArtwork";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
@@ -48,7 +51,7 @@ import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { CATEGORY_LABELS } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { useRecordActions } from "@/hooks/useRecordActions";
-import { EXTERNAL_GUIDE_PREFIX, formatClock, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
+import { EXTERNAL_GUIDE_PREFIX, formatClockRange, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { readGuideProgram } from "@/utils/programInfo";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
@@ -65,7 +68,7 @@ import { Image, type ImageRef } from "expo-image";
 
 import { useRouter } from "expo-router";
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
+import { Alert, findNodeHandle, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
@@ -76,8 +79,6 @@ const IS_TV = Platform.isTV;
 // iPad presents the panel over the app rather than as a page sheet: UIKit hands out no control
 // over what shows either side of a sheet, so the screen has to own its own backdrop.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
-// Past the inset shadows' reach, so the re-painted rim has no bottom corners inside the hero.
-const HERO_EDGE_OVERRUN = 40;
 // Added to the artwork hero's height, pushing the title and everything under it down.
 const HERO_GROW = 35;
 // TV: the title and CTA row rise this far onto the art, so the CTAs land on its foot.
@@ -467,6 +468,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const externalProgram = !!liveProgram?.Id?.startsWith(EXTERNAL_GUIDE_PREFIX);
   const liveTimes = liveProgram ? programTimes(liveProgram) : null;
   const timedProgram = !!liveTimes && Number.isFinite(liveTimes.startMs) && Number.isFinite(liveTimes.endMs) && liveTimes.endMs > liveTimes.startMs;
+  const liveSlot = timedProgram && liveTimes ? formatClockRange(liveTimes.startMs, liveTimes.endMs) : null;
   const liveChannel = !!details && isLiveChannel(details);
   const live = !!liveProgram || liveChannel;
   const liveChannelId = (liveProgram ? details?.ChannelId : liveChannel ? details?.Id : undefined) ?? "";
@@ -488,10 +490,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     if (IS_TV) router.push(destination);
     else router.replace(destination);
   }, [liveChannelId, liveChannelName, router, showGlobalLoader]);
-  const handleChannelGroups = useCallback(() => {
-    if (!details) return;
-    router.push({ pathname: "/channel-groups", params: { channelId: details.Id, channelName: details.Name, channelNumber: details.ChannelNumber ?? "" } });
-  }, [details, router]);
+  const groupChannel = useMemo(() => (liveChannel && details ? { Id: details.Id, Name: details.Name, ChannelNumber: details.ChannelNumber } : null), [liveChannel, details]);
   const canDelete = isAdmin && details?.CanDelete === true && !live;
 
   // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
@@ -532,8 +531,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     : liveProgram && liveTimes
       ? joinMeta([
           liveChannelName,
-          timedProgram
-            ? `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", formatClock(liveTimes.startMs)).replace("{end}", formatClock(liveTimes.endMs))}`
+          liveSlot
+            ? `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", liveSlot.start).replace("{end}", liveSlot.end)}`
             : "",
           liveCategory ? CATEGORY_LABELS[liveCategory]() : "",
           genresLine,
@@ -622,7 +621,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   // Full width in the fixed area; a portrait's foot runs under the fade and content.
   // A channel, or a programme wearing its channel's art, shows a logo: never cropped.
   const heroIsLogo = liveChannel || (!!liveProgram && !!details && !hasPoster(details));
-  const heroBoxed = !!heroRef && heroArtBoxed(heroWidth, heroRef.width, heroRef.height, heroIsLogo);
+  const heroBoxed = !!heroRef && heroArtBoxed(heroWidth, heroArtArea, heroRef.width, heroRef.height, heroIsLogo);
   const heroBoxHeight = heroHeight - HERO_BOX.top - HERO_BOX.bottom;
   const heroArt =
     heroSource && heroRef && heroArtArea > 0 && heroAspect != null
@@ -696,11 +695,17 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   // Portrait phone puts Watch and Record side by side, as the TV row does, splitting the gutter width.
   // A lone button, and iPad's stack, stay content-sized like every other CTA.
   const livePaired = stackCtas && !IS_PAD && watchable && recordShown;
+  // TV: the row's first live CTA, where Up from the groups bar's + lands.
+  const [leadCtaHandle, setLeadCtaHandle] = useState<number>();
+  const leadCtaRef = useCallback((node: View | null) => {
+    if (IS_TV) setLeadCtaHandle(node ? (findNodeHandle(node) ?? undefined) : undefined);
+  }, []);
   const pairButton = livePaired ? styles.livePairButton : undefined;
   const livePair = (
     <>
       {watchable && (
         <FocusableButton
+          ref={leadCtaRef}
           title={t("liveTv.watch")}
           variant="primary"
           hasTVPreferredFocus
@@ -711,6 +716,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       )}
       {!recordShown ? null : recordTimer ? (
         <FocusableButton
+          ref={watchable ? undefined : leadCtaRef}
           title={recordTimer.Status === "InProgress" ? t("liveTv.stopRecording") : t("liveTv.cancelRecording")}
           variant="record"
           style={pairButton}
@@ -722,6 +728,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         />
       ) : (
         <FocusableButton
+          ref={watchable ? undefined : leadCtaRef}
           title={t("liveTv.record")}
           variant="record"
           style={pairButton}
@@ -789,15 +796,6 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         ) : live ? (
           <>
             {stackCtas ? <View style={styles.livePair}>{livePair}</View> : livePair}
-            {liveChannel && (
-              <FocusableButton
-                title={t("liveTv.groups")}
-                variant="secondary"
-                hasTVPreferredFocus={!watchable && !recordShown}
-                icon={<Ionicons name="albums-outline" size={IS_TV ? 34 : 22} color={palette.accent} />}
-                onPress={handleChannelGroups}
-              />
-            )}
             {seriesShown && (
               <FocusableButton
                 title={seriesSet ? t("liveTv.cancelSeries") : t("liveTv.recordSeries")}
@@ -880,69 +878,83 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         )
       )}
 
-      {!!tagline && <Text style={styles.tagline}>{tagline}</Text>}
-      {!!details.Overview && (
-        <InfoFocusRow style={styles.overviewBlock}>
-          {overviewParagraphs(details.Overview).map((paragraph, index) => (
-            <Text key={index} style={[styles.overview, index > 0 && styles.overviewNext]}>
-              {paragraph}
-            </Text>
-          ))}
-        </InfoFocusRow>
-      )}
-      {!!studiosLine && <Text style={styles.studios}>{studiosLine}</Text>}
-
-      {people.length > 0 && (
+      {!IS_TV && groupChannel && (
         <>
-          <Text style={styles.sectionHeading}>{t("info.castAndCrew")}</Text>
-          {castGesture ? <GestureDetector gesture={castGesture}>{castRow}</GestureDetector> : castRow}
+          <View style={[settingsStyles.sectionHeader, styles.groupsHeader]}>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
+          </View>
+          <ChannelGroupSection channel={groupChannel} />
         </>
       )}
 
-      {renderStreamSection(t("info.video"), streamsOf("Video"))}
-      {renderStreamSection(t("info.audio"), streamsOf("Audio"))}
-      {renderStreamSection(t("info.subtitles"), streamsOf("Subtitle"))}
-
-      {detailRows.length > 0 && (
+      {/* A channel carries no description or streams worth a section; its groups say the rest. */}
+      {!groupChannel && (
         <>
-          <Text style={styles.sectionHeading}>{t("info.details")}</Text>
-          {/* One focus stop for the whole table: a stream row per stream is a
-              handful, but a landing per fact would be fifteen presses to cross. */}
-          <InfoFocusRow style={styles.detailTable}>
-            {detailRows.map((row) => (
-              <View key={row.label} style={styles.detailRow}>
-                <Text style={styles.detailLabel} numberOfLines={1}>
-                  {row.label}
+          {!!tagline && <Text style={styles.tagline}>{tagline}</Text>}
+          {!!details.Overview && (
+            <InfoFocusRow style={styles.overviewBlock}>
+              {overviewParagraphs(details.Overview).map((paragraph, index) => (
+                <Text key={index} style={[styles.overview, index > 0 && styles.overviewNext]}>
+                  {paragraph}
                 </Text>
-                <Text style={styles.detailValue}>{row.value}</Text>
-              </View>
-            ))}
-          </InfoFocusRow>
-        </>
-      )}
+              ))}
+            </InfoFocusRow>
+          )}
+          {!!studiosLine && <Text style={styles.studios}>{studiosLine}</Text>}
 
-      {!!(fileName || fileLine) && (
-        <>
-          {/* Series, seasons and albums are directories on disk, not files. */}
-          <Text style={styles.sectionHeading}>{isFolder(details) ? t("info.folder") : t("info.file")}</Text>
-          <InfoFocusRow style={styles.streamRow}>
-            {!!fileName && <Text style={styles.streamTitle}>{fileName}</Text>}
-            {!!fileLine && <Text style={styles.streamDetail}>{fileLine}</Text>}
-            {!!details.Path && <Text style={styles.filePath}>{details.Path}</Text>}
-          </InfoFocusRow>
-        </>
-      )}
+          {people.length > 0 && (
+            <>
+              <Text style={styles.sectionHeading}>{t("info.castAndCrew")}</Text>
+              {castGesture ? <GestureDetector gesture={castGesture}>{castRow}</GestureDetector> : castRow}
+            </>
+          )}
 
-      {/* Last, so a lane that differs per file and connection never moves the header. */}
-      {!!laneLabel && (
-        <>
-          <Text style={styles.sectionHeading}>{t("info.playback")}</Text>
-          <InfoFocusRow style={styles.streamRow}>
-            <View style={styles.playbackRow}>
-              <View style={[styles.laneDot, { backgroundColor: laneColor }]} />
-              <Text style={[styles.streamTitle, styles.playbackText]}>{laneLabel}</Text>
-            </View>
-          </InfoFocusRow>
+          {renderStreamSection(t("info.video"), streamsOf("Video"))}
+          {renderStreamSection(t("info.audio"), streamsOf("Audio"))}
+          {renderStreamSection(t("info.subtitles"), streamsOf("Subtitle"))}
+
+          {detailRows.length > 0 && (
+            <>
+              <Text style={styles.sectionHeading}>{t("info.details")}</Text>
+              {/* One focus stop for the whole table: a stream row per stream is a
+              handful, but a landing per fact would be fifteen presses to cross. */}
+              <InfoFocusRow style={styles.detailTable}>
+                {detailRows.map((row) => (
+                  <View key={row.label} style={styles.detailRow}>
+                    <Text style={styles.detailLabel} numberOfLines={1}>
+                      {row.label}
+                    </Text>
+                    <Text style={styles.detailValue}>{row.value}</Text>
+                  </View>
+                ))}
+              </InfoFocusRow>
+            </>
+          )}
+
+          {!!(fileName || fileLine) && (
+            <>
+              {/* Series, seasons and albums are directories on disk, not files. */}
+              <Text style={styles.sectionHeading}>{isFolder(details) ? t("info.folder") : t("info.file")}</Text>
+              <InfoFocusRow style={styles.streamRow}>
+                {!!fileName && <Text style={styles.streamTitle}>{fileName}</Text>}
+                {!!fileLine && <Text style={styles.streamDetail}>{fileLine}</Text>}
+                {!!details.Path && <Text style={styles.filePath}>{details.Path}</Text>}
+              </InfoFocusRow>
+            </>
+          )}
+
+          {/* Last, so a lane that differs per file and connection never moves the header. */}
+          {!!laneLabel && (
+            <>
+              <Text style={styles.sectionHeading}>{t("info.playback")}</Text>
+              <InfoFocusRow style={styles.streamRow}>
+                <View style={styles.playbackRow}>
+                  <View style={[styles.laneDot, { backgroundColor: laneColor }]} />
+                  <Text style={[styles.streamTitle, styles.playbackText]}>{laneLabel}</Text>
+                </View>
+              </InfoFocusRow>
+            </>
+          )}
         </>
       )}
     </>
@@ -970,7 +982,13 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       </InfoFocusRow>
     </View>
   ) : (
-    <ScrollView style={IS_PAD ? styles.padScroll : styles.scroll} contentContainerStyle={{ paddingBottom: IS_TV ? 48 : IS_PAD ? 28 : insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={IS_PAD ? styles.padScroll : styles.scroll}
+      // A channel's New group field: the panel scrolls it clear of the keyboard.
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
+      contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : { paddingBottom: IS_PAD ? 28 : insets.bottom + 28 }}
+      showsVerticalScrollIndicator={false}>
       {/* Artwork heading on both platforms, whole; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
           (layer-front) centered in it, the cards' no-poster mark. */}
@@ -1001,16 +1019,17 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           />
         )}
         <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
-        {/* Above the fade, rounded like the cards: a box has edges of its own to show. */}
+        {/* Above the fade: a box has edges of its own to show. */}
         {heroRef && heroArt && heroBoxed ? (
-          <Animated.View pointerEvents="none" style={[heroCropStyle, styles.heroBox, heroFadeStyle]}>
+          <Animated.View pointerEvents="none" style={[heroCropStyle, heroFadeStyle]}>
             <Image key={heroUri} source={heroRef} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
           </Animated.View>
         ) : null}
-        {/* The card's own lip and rim, re-painted above the opaque artwork and run past the hero's
-            foot so they meet the card's below it. tvOS-safe: the hero holds no focusables. */}
-        {IS_TV && <View pointerEvents="none" style={[styles.heroEdge, { height: heroHeight + HERO_EDGE_OVERRUN }]} />}
       </View>
+      {/* The card's own lip and rim, re-painted above the opaque artwork and down to the card's foot.
+          Outside the hero, whose clip would end it there; mounted before the title, CTAs and footer so it
+          sits under every focusable. */}
+      {IS_TV && <View pointerEvents="none" style={styles.heroEdge} />}
       {/* Title sits below the hero; on TV it and the CTAs ride up onto its foot (heroRise). */}
       <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
         {logoUri ? (
@@ -1032,6 +1051,18 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         )}
         {sections}
       </View>
+      {/* TV: the guide's groups bar in the card's footer. Touch platforms list them inline (sections). */}
+      {IS_TV && details && groupChannel && (
+        <>
+          {/* Pushes the footer to the card's foot when the content is short. */}
+          <View style={styles.footerGap} />
+          <SectionFooter focusable>
+            <View style={styles.groupFooter}>
+              <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} />
+            </View>
+          </SectionFooter>
+        </>
+      )}
     </ScrollView>
   );
 
@@ -1118,6 +1149,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
+    bottom: 0,
     boxShadow: `${RECESS_EDGE.LIP_TOP}, ${RECESS_EDGE.RIM}`,
   },
   // Transparent brand face, contained and inset so it reads as a small centered
@@ -1131,10 +1163,6 @@ const styles = StyleSheet.create({
     marginHorizontal: HERO_BOX.side,
     marginTop: HERO_BOX.top,
     marginBottom: HERO_BOX.bottom,
-  },
-  heroBox: {
-    borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    overflow: "hidden",
   },
   // Centred on the same axis as the CTA rows below, so the panel reads as one column.
   // Everything from the overview down stays flush left.
@@ -1239,6 +1267,25 @@ const styles = StyleSheet.create({
   livePair: {
     flexDirection: "row",
     gap: 16,
+  },
+  // 12 + the header's 10 top padding: the 22 settings leaves between sections.
+  groupsHeader: {
+    marginTop: 12,
+  },
+  // TV content grows to the card so the re-painted rim (heroEdge) ends at its foot, where a channel's groups footer sits.
+  footedContent: {
+    flexGrow: 1,
+  },
+  tvContentPad: {
+    paddingBottom: 48,
+  },
+  footerGap: {
+    flex: 1,
+    minHeight: IS_TV ? 52 : 34,
+  },
+  // The settings note's sunken band, with the groups bar run edge to edge across it.
+  groupFooter: {
+    backgroundColor: COLORS.SURFACE_SUNKEN,
   },
   // Content-proportional widths so a long label ("Cancel recording") keeps one line.
   livePairButton: {
