@@ -14,7 +14,7 @@ Dolby Atmos, PGS subtitles and Live TV. Built with React Native (react-native-tv
 and Expo.
 
 <p align="center">
-  <img src="assets/images/screenshots/home.webp" width="100%" alt="Tomo TV Home on Apple TV: a Libraries row of Live TV, Music, Home Videos and Photos and Films, above a Continue row of episode and movie cards with yellow progress bars"/>
+  <img src="applestore/captures/tv/01-library.png" width="100%" alt="Tomo TV Home on Apple TV: a Libraries row of Live TV, Music, Home Videos and Photos and Films, above a Continue row of episode and movie cards with yellow progress bars"/>
 </p>
 
 ## How playback works
