@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { AccountPill } from "@/components/settings/AccountPill";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, QUALITY_ROW_HEIGHT, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { APP_ABOUT_LINE, APP_BUILD_LABEL } from "@/constants/app";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
@@ -33,6 +33,14 @@ export default function LicensesScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const [expandedName, setExpandedName] = useState<string | null>(null);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [listTop, setListTop] = useState(0);
+  const [footerHeight, setFooterHeight] = useState(0);
+
+  const pagePadding = { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: 60 + insets.bottom };
+  // Phone: the list takes the whole rows left under the intro, so the page itself never scrolls.
+  const fitRows = Math.floor((viewportHeight - pagePadding.paddingTop - pagePadding.paddingBottom - listTop - footerHeight - settingsStyles.section.marginBottom) / QUALITY_ROW_HEIGHT);
+  const phoneListCap = !IS_TV && viewportHeight > 0 ? { maxHeight: Math.max(1, fitRows) * QUALITY_ROW_HEIGHT } : null;
 
   const toggle = useCallback((credit: Credit) => {
     setExpandedName((prev) => (prev === credit.name ? null : credit.name));
@@ -92,7 +100,9 @@ export default function LicensesScreen() {
       <AmbientBackground />
       <ScrollView
         style={settingsStyles.scrollView}
-        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: 60 + insets.bottom }]}
+        contentContainerStyle={[settingsStyles.scrollContent, pagePadding]}
+        onLayout={IS_TV ? undefined : (event) => setViewportHeight(event.nativeEvent.layout.height)}
+        alwaysBounceVertical={IS_TV}
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
           <View style={screenStyles.build}>
@@ -103,8 +113,8 @@ export default function LicensesScreen() {
           <Text style={screenStyles.intro}>{t("licenses.engineStandsOn")}</Text>
 
           {/* Credits and Bundled Packages share a capped list above the source notice. */}
-          <View style={settingsStyles.section}>
-            <ScrollView ref={creditsRef} style={settingsStyles.creditsScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
+          <View style={settingsStyles.section} onLayout={IS_TV ? undefined : (event) => setListTop(event.nativeEvent.layout.y)}>
+            <ScrollView ref={creditsRef} style={[settingsStyles.creditsScrollable, phoneListCap]} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
               {credits}
               <ListRow
                 title={t("licenses.bundled")}
@@ -119,9 +129,11 @@ export default function LicensesScreen() {
                 accessibilityHint={t("licenses.opensFullList")}
               />
             </ScrollView>
-            <SectionFooter>
-              <Text style={settingsStyles.sectionNote}>{LGPL_SOURCE_NOTICE}</Text>
-            </SectionFooter>
+            <View onLayout={IS_TV ? undefined : (event) => setFooterHeight(event.nativeEvent.layout.height)}>
+              <SectionFooter>
+                <Text style={settingsStyles.sectionNote}>{LGPL_SOURCE_NOTICE}</Text>
+              </SectionFooter>
+            </View>
           </View>
         </View>
       </ScrollView>
