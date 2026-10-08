@@ -37,18 +37,19 @@ describe("visibleSpan", () => {
     return { from: valueOf(translateX) - scale / 2, width: scale };
   };
 
-  it("covers the whole of a cell that fits on screen, and only its part past the visible edge once it is cut", () => {
-    expect(spanOf(0, 100, 400, 1000)).toEqual({ from: 0, width: 400 });
-    expect(spanOf(250, 100, 400, 1000)).toEqual({ from: 150, width: 250 });
+  it("covers a cell that fits on screen up to its right line, and only its part past the visible edge once it is cut", () => {
+    expect(spanOf(0, 100, 400, 1000)).toEqual({ from: 0, width: 399 });
+    expect(spanOf(250, 100, 400, 1000)).toEqual({ from: 150, width: 249 });
   });
 
   it("covers one screen of a cell wider than the screen, from its start until the view moves into it", () => {
     expect(spanOf(0, 100, 3000, 1000)).toEqual({ from: 0, width: 1000 });
-    expect(spanOf(2500, 100, 3000, 1000)).toEqual({ from: 2400, width: 600 });
+    expect(spanOf(2500, 100, 3000, 1000)).toEqual({ from: 2400, width: 599 });
   });
 
-  it("leaves a point at the far end of a cell scrolled wholly past the edge, so it stays off screen where it is", () => {
-    expect(spanOf(900, 100, 400, 1000)).toEqual({ from: 399, width: 1 });
+  it("leaves a point inside the right line of a cell scrolled wholly past the edge, clear of the next cell's ring", () => {
+    expect(spanOf(900, 100, 400, 1000)).toEqual({ from: 398, width: 1 });
+    expect(spanOf(500, 100, 400, 1000)).toEqual({ from: 398, width: 1 });
   });
 });
 

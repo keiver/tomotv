@@ -61,6 +61,12 @@ describe("GuideCell", () => {
     expect(shown.some((text) => typeof text === "string" && text.startsWith(`${formatClock(T0 + 30 * MINUTE_MS)} – ${formatClock(T0 + 45 * MINUTE_MS)}`))).toBe(true);
   });
 
+  it("prints the seconds of a slot shorter than a minute", () => {
+    const withSeconds = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    const shown = texts(render({ startMs: T0 + 1_000, endMs: T0 + 31_000 }));
+    expect(shown.some((text) => typeof text === "string" && text.startsWith(`${withSeconds(T0 + 1_000)} – ${withSeconds(T0 + 31_000)}`))).toBe(true);
+  });
+
   it("builds the seen box's pin only while grabbed frames show", () => {
     const pinRight = jest.spyOn(guidePin, "pinRightOffset");
     try {
@@ -100,16 +106,28 @@ describe("GuideCell", () => {
     for (const cell of [program, { ...program, Id: "p9", ImageTags: { Primary: "tag" } }]) {
       const label = labelOf(render({ program: cell }));
       const scrim = label.find((node) => node.props.testID === "guide-cell-scrim" && typeof node.type === "string");
-      expect(StyleSheet.flatten(scrim.props.style)).toEqual(expect.objectContaining({ top: 0, bottom: 0 }));
+      expect(StyleSheet.flatten(scrim.props.style)).toEqual(expect.objectContaining({ top: 1, bottom: 1 }));
       const tail = label.find((node) => node.props.testID === "guide-cell-scrim-tail" && typeof node.type === "string");
       expect(StyleSheet.flatten(tail.props.style).width).toBe(400);
     }
   });
 
-  it("clears the focus ring's top and bottom lines with the scrim while focused", () => {
+  it("keeps the scrim clear of the focus ring's band whether or not the cell holds focus", () => {
     const tree = render();
+    const scrim = () => StyleSheet.flatten(hostById(tree, "guide-cell-scrim").props.style);
+    const resting = scrim();
     act(() => labelOf(tree).props.onFocus());
-    expect(StyleSheet.flatten(hostById(tree, "guide-cell-scrim").props.style)).toEqual(expect.objectContaining({ top: 1, bottom: 1 }));
+    expect(scrim()).toEqual(resting);
+  });
+
+  it("paints the art, reel and seen box inside the focus ring's reserved band", () => {
+    mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
+    const tree = render({ program: { ...program, Id: "p14", ChannelId: "c1", ImageTags: { Primary: "tag" } }, viewportWidth: 1600 });
+    const band = hostById(tree, "guide-cell-band");
+    expect(StyleSheet.flatten(band.props.style)).toEqual(expect.objectContaining({ position: "absolute", top: 1, bottom: 1, left: 0, right: 0, overflow: "hidden" }));
+    for (const id of ["guide-cell-art", "guide-cell-reel-scrim-clip", "guide-focus-reel", "guide-cell-seen"]) {
+      expect(band.findAll((node) => node.props.testID === id).length).toBeGreaterThan(0);
+    }
   });
 
   it("frames the stretch on screen with a focused no-listings cell's ring, while a programme's ring keeps its own cell", () => {

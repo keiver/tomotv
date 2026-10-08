@@ -7,7 +7,7 @@ import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { pinOffset, pinRightOffset, visibleSpan } from "@/components/live-tv/guide-pin";
-import { formatClock, guideMetrics, programCategory, standInChannelId, TICK_MINUTES } from "@/utils/guide";
+import { formatClock, formatClockRange, guideMetrics, programCategory, standInChannelId, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { t } from "@/services/i18n";
@@ -58,7 +58,7 @@ interface GuideCellProps {
   onFocus?: (program: JellyfinProgram) => void;
   onBlur?: (program: JellyfinProgram) => void;
   /** Reports the native node, so a neighbouring row can name this cell as its focus target. */
-  onHandle?: (programId: string, handle: number | undefined) => void;
+  onHandle?: (programId: string, handle: number | undefined, node: View | null) => void;
   nextFocusUp?: number;
   nextFocusDown?: number;
   hasTVPreferredFocus?: boolean;
@@ -98,7 +98,8 @@ function GuideCellComponent({
   const standIn = standInChannel !== null;
   // One line under the titles: the slot, then whatever the guide source filled in.
   // A guide's "no info available" placeholder gets no slot of its own.
-  const meta = [`${formatClock(startMs)} – ${formatClock(endMs)}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter((part) => part && !NO_INFO.test(part)).join("  ·  ");
+  const slot = formatClockRange(startMs, endMs);
+  const meta = [`${slot.start} – ${slot.end}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter((part) => part && !NO_INFO.test(part)).join("  ·  ");
   const art = showArt && program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
   // The art box is the picture's own shape at the cell's height, cut down to what fits past the
   // text; the picture keeps its right end, and its fade leads in over the floor before it.
@@ -158,7 +159,7 @@ function GuideCellComponent({
   const handleRef = useCallback(
     (node: View | null) => {
       if (!IS_TV || !onHandle || !programId) return;
-      onHandle(programId, node ? (findNodeHandle(node) ?? undefined) : undefined);
+      onHandle(programId, node ? (findNodeHandle(node) ?? undefined) : undefined, node);
     },
     [onHandle, programId],
   );
@@ -179,7 +180,7 @@ function GuideCellComponent({
     <>
       {/* Moves with the label, so it costs no animated node of its own. A playing cell's lies under its reel instead. */}
       {!standIn && !reelShown ? (
-        <View style={[styles.scrim, focused && styles.scrimFocused]} pointerEvents="none" testID="guide-cell-scrim">
+        <View style={styles.scrim} pointerEvents="none" testID="guide-cell-scrim">
           <View style={[styles.scrimTail, { width }]} testID="guide-cell-scrim-tail" />
         </View>
       ) : null}
@@ -208,32 +209,35 @@ function GuideCellComponent({
   );
   const body = (
     <>
-      {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
-      {art && artShown ? <GuideCellArt source={art} width={artWidth} lead={artLead} reelShown={reelShown} /> : null}
-      {reelScrimStyles ? (
-        <View style={styles.reelScrimClip} pointerEvents="none" testID="guide-cell-reel-scrim-clip">
-          <RNAnimated.View style={[styles.reelScrim, reelScrimStyles.body]} testID="guide-cell-reel-scrim" />
-          <RNAnimated.View style={[styles.reelScrimTail, { width }, reelScrimStyles.tail]} />
-        </View>
-      ) : null}
-      {/* A row in view wears its reel whenever a burst exists, resting faded and brightening on the row's
-          focus. A programme gets the compact strip only while it airs: history under a future slot would lie. */}
-      {seenChannel ? (
-        <View style={styles.reelClip} pointerEvents="none">
-          <GuideFocusReel channelId={seenChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} compact={!standIn} />
-        </View>
-      ) : null}
-      {/* A box set into the cell's top right corner, the cell's own edges closing it: when this device grabbed the frames.
-          A cell running past the screen holds it on the screen's right edge. */}
-      {reelShown ? (
-        <RNAnimated.View style={[styles.seenBox, seenPinStyle]} pointerEvents="none" testID="guide-cell-seen">
-          <Text style={styles.seenText} numberOfLines={1}>
-            {seenLead}
-            {seenTail === undefined ? null : <Text style={{ color: accent }}>{formatClock(seenAt)}</Text>}
-            {seenTail}
-          </Text>
-        </RNAnimated.View>
-      ) : null}
+      {/* Inside the focus ring's band, so focus only recolours a frame every cell already leaves clear. */}
+      <View style={styles.band} pointerEvents="none" testID="guide-cell-band">
+        {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
+        {art && artShown ? <GuideCellArt source={art} width={artWidth} lead={artLead} reelShown={reelShown} /> : null}
+        {reelScrimStyles ? (
+          <View style={styles.reelScrimClip} pointerEvents="none" testID="guide-cell-reel-scrim-clip">
+            <RNAnimated.View style={[styles.reelScrim, reelScrimStyles.body]} testID="guide-cell-reel-scrim" />
+            <RNAnimated.View style={[styles.reelScrimTail, { width }, reelScrimStyles.tail]} />
+          </View>
+        ) : null}
+        {/* A row in view wears its reel whenever a burst exists, resting faded and brightening on the row's
+            focus. A programme gets the compact strip only while it airs: history under a future slot would lie. */}
+        {seenChannel ? (
+          <View style={styles.reelClip} pointerEvents="none">
+            <GuideFocusReel channelId={seenChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} compact={!standIn} />
+          </View>
+        ) : null}
+        {/* A box set into the band's top right corner, its edges closing it: when this device grabbed the frames.
+            A cell running past the screen holds it on the screen's right edge. */}
+        {reelShown ? (
+          <RNAnimated.View style={[styles.seenBox, seenPinStyle]} pointerEvents="none" testID="guide-cell-seen">
+            <Text style={styles.seenText} numberOfLines={1}>
+              {seenLead}
+              {seenTail === undefined ? null : <Text style={{ color: accent }}>{formatClock(seenAt)}</Text>}
+              {seenTail}
+            </Text>
+          </RNAnimated.View>
+        ) : null}
+      </View>
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
       {focused ? <RNAnimated.View style={[styles.focusRing, { borderColor: accent }, ringStyle]} pointerEvents="none" testID="guide-cell-ring" /> : null}
       {/* Clipped inside the border: a one-sided border draws behind the cell's children, and the scrim's fade runs past the label. */}
@@ -346,19 +350,23 @@ const styles = StyleSheet.create({
   text: {
     gap: IS_TV ? 4 : 2,
   },
-  // The floor under the label from just inside the focus ring's left line, trailing off across a cell's width.
+  // The cell inside the focus ring's lines: its paint stays here, focused or not.
+  band: {
+    position: "absolute",
+    top: RING_WIDTH,
+    bottom: RING_WIDTH,
+    left: RING_WIDTH - 1,
+    right: 0,
+    overflow: "hidden",
+  },
+  // The floor under the label inside the ring's band, trailing off across a cell's width.
   scrim: {
     position: "absolute",
-    top: 0,
-    bottom: 0,
+    top: RING_WIDTH,
+    bottom: RING_WIDTH,
     left: RING_WIDTH - 1,
     right: 0,
     backgroundColor: COLORS.SURFACE,
-  },
-  // The ring sits behind the label: the scrim clears its top and bottom lines.
-  scrimFocused: {
-    top: RING_WIDTH,
-    bottom: RING_WIDTH,
   },
   scrimTail: {
     position: "absolute",
@@ -395,7 +403,7 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_TERTIARY,
     fontSize: IS_TV ? 17 : 10,
   },
-  // Flush in the corner: the cell's top edge and its right line are its other two sides.
+  // Flush in the band's top right corner.
   seenBox: {
     position: "absolute",
     top: 0,

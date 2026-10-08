@@ -72,4 +72,35 @@ describe("GuideCell on TV", () => {
     act(() => tree.root.find((node) => node.props.isTVSelectable === true && typeof node.type !== "string").props.onPress());
     expect(onPress).toHaveBeenCalledWith(program);
   });
+
+  it("hands the focusable's node to onHandle, so the canvas can refocus it after a covering screen", () => {
+    const onHandle = jest.fn();
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(
+        <GuideCell
+          program={program}
+          left={100}
+          width={400}
+          height={90}
+          startMs={T0}
+          endMs={T0 + 60 * MINUTE_MS}
+          past={false}
+          airing
+          recording={null}
+          scrollX={new Animated.Value(0)}
+          viewportWidth={1600}
+          onPress={jest.fn()}
+          onLongPress={jest.fn()}
+          onHandle={onHandle}
+        />,
+        { createNodeMock: () => ({}) },
+      );
+    });
+    // Compared by identity: a failing matcher would print the whole host instance.
+    const calls = () => onHandle.mock.calls.map(([id, , handed]) => [id, handed != null]);
+    expect(calls()).toEqual([["p1", true]]);
+    act(() => tree.unmount());
+    expect(calls().at(-1)).toEqual(["p1", false]);
+  });
 });
