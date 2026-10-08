@@ -54,6 +54,8 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
     private var jellyfinBaseUrl: String = ""
     private var itemId: String = ""
     private var audioTrackInfo: [[String: Any]] = []
+    /// The engine frame provider's I-frame line for this item, appended to the master as given.
+    private var iframeStreamInf = ""
 
     private let session: URLSession
     /// Concurrent, because a request block now blocks on its own fetch deadline
@@ -131,10 +133,18 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
         self.jellyfinBaseUrl = baseUrl
         self.itemId = itemId
         self.audioTrackInfo = audioTracks
+        self.iframeStreamInf = ""
         configLock.unlock()
 
         NSLog("[MultiAudioResourceLoader] Configured for item: \(itemId) with \(audioTracks.count) audio tracks")
         return Self.customUrl(itemId: itemId, configId: configId)
+    }
+
+    /// The I-frame line for the configured item; a call for another item changes nothing.
+    func setIFrameStreamInf(_ line: String, itemId: String) {
+        configLock.lock()
+        if self.itemId == itemId { iframeStreamInf = line }
+        configLock.unlock()
     }
 
     func configuredUrl(for itemId: String) -> String? {
@@ -149,10 +159,10 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
 
     /// One coherent read of everything a request needs, taken once so a
     /// configure() midway through cannot split a request across two items.
-    private func configSnapshot() -> (configId: String, baseUrl: String, itemId: String, tracks: [[String: Any]]) {
+    private func configSnapshot() -> (configId: String, baseUrl: String, itemId: String, tracks: [[String: Any]], iframeStreamInf: String) {
         configLock.lock()
         defer { configLock.unlock() }
-        return (configId, jellyfinBaseUrl, itemId, audioTrackInfo)
+        return (configId, jellyfinBaseUrl, itemId, audioTrackInfo, iframeStreamInf)
     }
 
     // MARK: - AVAssetResourceLoaderDelegate
@@ -208,11 +218,15 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
                 // AVFoundation waiting on a request nobody will ever answer — it then
                 // hangs on its own opaque timeout instead of failing the load.
                 guard !self.finishCancelledRequest(loadingRequest, job: job) else { return }
-                let combinedManifestString = try self.generateMultivariantManifest(
+                var combinedManifestString = try self.generateMultivariantManifest(
                     from: manifests,
                     audioTrackInfo: config.tracks,
                     fetchUrls: manifestUrls
                 )
+                if !config.iframeStreamInf.isEmpty {
+                    if !combinedManifestString.hasSuffix("\n") { combinedManifestString += "\n" }
+                    combinedManifestString += config.iframeStreamInf + "\n"
+                }
 
                 // Convert string to data
                 guard let combinedManifest = combinedManifestString.data(using: .utf8) else {
@@ -412,6 +426,9 @@ class MultiAudioResourceLoader: NSObject {
     // Store plugin instance to keep it alive
     private static var pluginInstance: MultiAudioVideoPlugin?
 
+    /// AVFoundation's own record of each failed request (URI, status, comment), which no player event carries.
+    private static var errorLogObserver: NSObjectProtocol?
+
     @objc
     func registerVideoPlugin(
         _ resolve: @escaping RCTPromiseResolveBlock,
@@ -429,6 +446,13 @@ class MultiAudioResourceLoader: NSObject {
         // Create plugin instance and keep it alive
         let plugin = MultiAudioVideoPlugin()
         MultiAudioResourceLoader.pluginInstance = plugin
+        MultiAudioResourceLoader.errorLogObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.newErrorLogEntryNotification, object: nil, queue: nil
+        ) { note in
+            guard let event = (note.object as? AVPlayerItem)?.errorLog()?.events.last else { return }
+            NSLog("[AVErrorLog] status=%d domain=%@ comment=%@ uri=%@", event.errorStatusCode, event.errorDomain,
+                  event.errorComment ?? "", event.uri ?? "")
+        }
 
         // Register plugin with react-native-video's manager
         DispatchQueue.main.async {
@@ -460,6 +484,18 @@ class MultiAudioResourceLoader: NSObject {
             audioTracks: tracks
         )
         resolve(customUrl)
+    }
+
+    /// The engine frame provider's I-frame line for the configured item, before playback opens its master.
+    @objc
+    func setIFrameStreamInf(
+        _ line: String,
+        itemId id: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        MultiAudioResourceLoaderDelegate.shared.setIFrameStreamInf(line, itemId: id)
+        resolve(nil)
     }
 
     @objc

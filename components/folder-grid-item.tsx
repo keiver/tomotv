@@ -5,6 +5,7 @@ import { PosterCollage } from "@/components/poster-collage";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
@@ -25,18 +26,6 @@ const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_
 const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
 const CARD_PADDING = IS_TV ? 16 : 8;
 const POSTER_SIZE = IS_TV ? 300 : 200;
-
-// The badge counts a different thing in every folder kind, and the number alone says which
-// one about as well as a bare track number does. Kinds outside this table fall back to Folder.
-const COUNT_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  Series: "tv",
-  Season: "tv",
-  MusicAlbum: "disc",
-  MusicArtist: "musical-notes",
-  PhotoAlbum: "images",
-  BoxSet: "film",
-  Playlist: "list",
-};
 
 interface FolderGridItemProps {
   folder: JellyfinItem;
@@ -98,6 +87,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   },
   ref,
 ) {
+  const palette = useCardPalette();
   const [pressFocused, setPressFocused] = useState(false);
   // Touch has no focus engine, so a card can only be marked from the outside.
   const focused = pressFocused || highlighted;
@@ -131,7 +121,6 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   // The Live TV view counts channels, and its empty face is a set, not a folder.
   const isLiveTv = folder.CollectionType === "livetv";
-  const countIcon = isLiveTv ? "tv-outline" : (COUNT_ICONS[folder.Type] ?? "folder");
 
   const handleFocus = useCallback(() => {
     wasFocusedRef.current = true;
@@ -194,7 +183,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folderName).replace("{count}", String(itemCount))
           : t("a11y.folderNav").replace("{name}", folderName)
       }>
-      <View style={[styles.card, focused && styles.cardFocused]}>
+      <View style={[styles.card, focused && [styles.cardFocused, { shadowColor: palette.accent }]]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {thumbnailSource ? (
             <>
@@ -214,10 +203,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
-          {/* Item-count badge (top-left), iconed by what it counts */}
+          {/* Item-count badge (top-left): the number alone, on glass */}
           {itemCount != null || countLoading ? (
             <View style={styles.countBadge} pointerEvents="none">
-              {itemCount != null ? <CardBadge segments={[{ icon: countIcon, label: itemCount }]} focused={focused} /> : <CardBadge segments={[{ icon: countIcon }]} loading focused={focused} />}
+              {itemCount != null ? <CardBadge segments={[{ label: itemCount }]} focused={focused} /> : <CardBadge loading focused={focused} />}
             </View>
           ) : null}
 
@@ -230,20 +219,20 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           {/* Title bar at the very bottom — same treatment as the video cards.
               Focused: opaque gold bar; resting: glass over the scrimmed art. */}
           {focused ? (
-            <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
-              <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameFocused])}>
+            <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
+              <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.ink }])}>
                 {folderName}
               </MarqueeText>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, styles.folderNameGold])}>
+              <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.accent }])}>
                 {folderName}
               </MarqueeText>
             </View>
           )}
 
-          <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
+          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }]]} pointerEvents="none" />
 
           {/* Per-card feedback while the pressed card's destination loads:
               the title bar becomes a sweeping gold progress fill. Mounted only
@@ -306,8 +295,8 @@ const styles = StyleSheet.create({
     elevation: CARD_DEPTH.ELEVATION,
   },
   // Overrides every resting shadow prop — a leftover depth offset would smear the glow downward.
+  // The glow's colour is the theme's, set inline.
   cardFocused: {
-    shadowColor: CARD_FOCUS.GLOW_COLOR,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: CARD_FOCUS.GLOW_OPACITY,
     shadowRadius: IS_TV ? CARD_FOCUS.GLOW_RADIUS.tv : CARD_FOCUS.GLOW_RADIUS.phone,
@@ -335,7 +324,6 @@ const styles = StyleSheet.create({
   // An inset shadow paints inside the border, so under the gold ring it reads as a second one.
   borderOverlayFocused: {
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
     boxShadow: "none",
   },
   poster: {
@@ -376,9 +364,6 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
     borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
   },
-  infoOverlayFocused: {
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-  },
   // Resting bar: the scrimmed artwork tints through so the title area reads as part
   // of the poster, not a flat strip. Gold stays legible on the bottom scrim's wash.
   infoOverlayGlass: {
@@ -392,11 +377,5 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: IS_TV ? "center" : "left",
     width: "100%",
-  },
-  folderNameFocused: {
-    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
-  },
-  folderNameGold: {
-    color: COLORS.ACCENT,
   },
 });

@@ -1,8 +1,9 @@
 import { AccountPill } from "@/components/settings/AccountPill";
 import { GLYPH_INK, glyphSize, LeadingTile, useTileHeight } from "@/components/settings/LeadingTile";
-import { goldRowShadow, IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, SUBTITLE_GAP, SUBTITLE_LINE_HEIGHT, settingsStyles } from "@/components/settings/styles";
-import { CARD_FOCUS } from "@/constants/app";
+import { MoreBelowHint } from "@/components/settings/MoreBelowHint";
+import { goldRowShadow, IS_PAD, POSTER_MARK_SIDE, ROW_CONTENT_MIN_HEIGHT, SUBTITLE_GAP, SUBTITLE_LINE_HEIGHT, settingsStyles, useSettingsAccentStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import { forwardRef, ReactNode } from "react";
 import { AccessibilityRole, AccessibilityState, ActivityIndicator, Platform, Pressable, StyleProp, StyleSheet, Text, TextStyle, View } from "react-native";
@@ -57,6 +58,8 @@ interface ListRowProps {
   nested?: boolean;
   /** Trailing mark in the row's accent ink rather than grey: a play or pause that acts, not a chevron that points. */
   trailingAccent?: boolean;
+  /** The last visible row of a capped list: true shows the more-below chevron in its bottom padding. */
+  moreBelow?: boolean;
   /** Replaces the trailing mark with a spinner. Does not disable the row. */
   isLoading?: boolean;
   /** Wears the gold at rest (the quality list's current preset). Focus on it shows a step lighter. */
@@ -133,6 +136,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     trailingAction,
     nested = false,
     trailingAccent = false,
+    moreBelow,
     isLoading = false,
     selected = false,
     tone = "default",
@@ -156,6 +160,8 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
   }: ListRowProps,
   ref,
 ) {
+  const palette = useCardPalette();
+  const accentStyles = useSettingsAccentStyles();
   const actionable = Boolean(onPress);
   const stacked = subtitle != null;
   const [tileHeight, onTileLayout] = useTileHeight();
@@ -186,9 +192,9 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
           nested && styles.nested,
           isFirst && settingsStyles.listItemFirst,
           isLast && settingsStyles.listItemLast,
-          actionable && (focused || selected) && !pressed && settingsStyles.listItemFocused,
-          actionable && focused && selected && !pressed && settingsStyles.listItemFocusedSelected,
-          actionable && pressed && settingsStyles.listItemPressed,
+          actionable && (focused || selected) && !pressed && accentStyles.listItemFocused,
+          actionable && focused && selected && !pressed && accentStyles.listItemFocusedSelected,
+          actionable && pressed && accentStyles.listItemPressed,
           // A gold row covers the card's inset shadow; re-paint the parts it hides
           // (side rim always, plus the lip at whichever card edge it sits on).
           gold && goldRowShadow(isFirst, isLast, flushRight),
@@ -201,9 +207,9 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
         // Red only survives at rest: on the gold fill it sits at 2.2:1. The softer red is what
         // clears 4.5:1 against the card at this size.
         const onGold = actionable && (focused || pressed || selected);
-        const restInk = tone === "destructive" ? COLORS.DESTRUCTIVE_SOFT : COLORS.ACCENT;
-        const accentInk = onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : restInk;
-        const trailingInk = trailingAccent ? accentInk : onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.TEXT_TERTIARY;
+        const restInk = tone === "destructive" ? COLORS.DESTRUCTIVE_SOFT : palette.accent;
+        const accentInk = onGold ? palette.ink : restInk;
+        const trailingInk = trailingAccent ? accentInk : onGold ? palette.ink : COLORS.TEXT_TERTIARY;
         return (
           <View style={settingsStyles.listItemContent} collapsable={false}>
             <View style={styles.left} collapsable={false}>
@@ -220,7 +226,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                       stacked && styles.titleStacked,
                       titleStyle,
                       tone === "destructive" && !onGold && { color: COLORS.DESTRUCTIVE_SOFT },
-                      onGold && settingsStyles.listItemTitleFocused,
+                      onGold && accentStyles.listItemTitleFocused,
                       styles.titleText,
                     ]}
                     numberOfLines={1}>
@@ -230,8 +236,8 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                 </View>
                 {subtitle != null ? (
                   <View style={styles.subtitleRow} collapsable={false}>
-                    {subtitleDot ? <View style={[styles.fresh, { backgroundColor: onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.SUCCESS }]} /> : null}
-                    <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && settingsStyles.listItemSubtitleFocused]} numberOfLines={subtitleLines}>
+                    {subtitleDot ? <View style={[styles.fresh, { backgroundColor: onGold ? palette.ink : COLORS.SUCCESS }]} /> : null}
+                    <Text style={[settingsStyles.listItemSubtitle, styles.subtitle, subtitleStyle, onGold && accentStyles.listItemSubtitleFocused]} numberOfLines={subtitleLines}>
                       {subtitleAccent ? <Text style={{ color: accentInk }}>{subtitleAccent}</Text> : null}
                       {subtitle}
                     </Text>
@@ -239,7 +245,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                 ) : null}
                 {meter !== undefined ? (
                   <View style={styles.meterTrack} collapsable={false}>
-                    <View style={[styles.meterFill, { width: `${Math.round(Math.min(1, Math.max(0, meter)) * 100)}%`, backgroundColor: onGold ? CARD_FOCUS.TITLE_TEXT_FOCUSED : COLORS.ACCENT }]} />
+                    <View style={[styles.meterFill, { width: `${Math.round(Math.min(1, Math.max(0, meter)) * 100)}%`, backgroundColor: onGold ? palette.ink : palette.accent }]} />
                   </View>
                 ) : null}
               </View>
@@ -265,6 +271,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                 )}
               </View>
             ) : null}
+            {moreBelow !== undefined ? <MoreBelowHint visible={moreBelow} color={onGold ? palette.ink : COLORS.TEXT_TERTIARY} /> : null}
           </View>
         );
       }}

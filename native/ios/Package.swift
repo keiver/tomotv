@@ -1,42 +1,39 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// Host-side test package for the local remux engine. Not part of the app build:
-// plugins/withMultiAudioResourceLoader.js copies sources by explicit name.
-let ffmpeg = [
-    "Libavcodec", "Libavformat", "Libavutil", "Libswresample",
-    "Libswscale", "Libavfilter", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls", "Libzvbi",
-]
-
+// Host-side test package for Tomo's own native modules. The engine's package is
+// packages/tomo-engine; it also supplies the Libarchive xcframework linked here.
 let package = Package(
-    name: "TomoEngine",
+    name: "TomoBooks",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "TomoEngine", targets: ["TomoEngine"]),
         .library(name: "TomoBooks", targets: ["TomoBooks"]),
-        .library(name: "TomoLiveSources", targets: ["TomoLiveSources"]),
+        .library(name: "TomoTunerGroups", targets: ["TomoTunerGroups"]),
+    ],
+    dependencies: [
+        .package(name: "TomoEngine", path: "../../packages/tomo-engine"),
     ],
     targets: [
-        // Live TV sources (plugins/withLiveSources.js copies the same files into the app):
-        // XMLTV on libxml2 SAX and zlib, Jellyfin channel ids. No UIKit outside the bridge.
+        // A Jellyfin M3U tuner's groups and channel ids (plugins/withTunerGroups.js copies the
+        // same files into the app), over the engine's playlist loader.
         .target(
-            name: "TomoLiveSources",
-            path: "LiveSources",
-            exclude: ["LiveSources.swift", "LiveSources.m"],
-            swiftSettings: [.swiftLanguageMode(.v5)],
-            linkerSettings: [.linkedLibrary("xml2"), .linkedLibrary("z")]
+            name: "TomoTunerGroups",
+            dependencies: [.product(name: "TomoLiveSources", package: "TomoEngine")],
+            path: "TunerGroups",
+            exclude: ["TunerGroupsModule.swift", "TunerGroups.m"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
-            name: "TomoLiveSourcesTests",
-            dependencies: ["TomoLiveSources"],
-            path: "Tests/TomoLiveSourcesTests",
+            name: "TomoTunerGroupsTests",
+            dependencies: ["TomoTunerGroups", .product(name: "TomoLiveSources", package: "TomoEngine")],
+            path: "Tests/TomoTunerGroupsTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // The book reader's page renderer (plugins/withBookRenderer.js copies the same
         // files into the app). No UIKit outside the bridge, so it tests on the host.
         .target(
             name: "TomoBooks",
-            dependencies: ["Libarchive"],
+            dependencies: [.product(name: "Libarchive", package: "TomoEngine")],
             path: "BookRenderer",
             exclude: ["BookRenderer.swift", "BookRenderer.m"],
             swiftSettings: [.swiftLanguageMode(.v5)],
@@ -53,82 +50,7 @@ let package = Package(
             name: "TomoBooksTests",
             dependencies: ["TomoBooks"],
             path: "Tests/TomoBooksTests",
-            exclude: ["../Fixtures"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        .target(
-            name: "TomoEngine",
-            dependencies: ffmpeg.map { .byName(name: $0) },
-            path: "LocalRemuxer",
-            // The app target compiles in Swift 5 mode; the package must match it
-            // or it tests code under rules the shipped build never applies.
-            exclude: ["LocalRemuxer.swift", "LocalRemuxer.m"],
-            sources: [
-                "DownloadRepackager.swift",
-                "EngineLog.swift",
-                "RemuxTypes.swift",
-                "Remuxer.swift",
-                "RemuxSession+Grid.swift",
-                "RemuxSession+Lifecycle.swift",
-                "RemuxSession+Playlists.swift",
-                "RemuxSession+ServerImageSubtitles.swift",
-                "RemuxSession+Tier.swift",
-                "RemuxSession+AudioLo.swift",
-                "RemuxSession+Segments.swift",
-                "RemuxSession+Routes.swift",
-                "RemuxSession+ServerSubtitles.swift",
-                "RemuxSession+LinkProbe.swift",
-                "RateMeter.swift",
-                "RateProbe.swift",
-                "RemuxSession+Pipeline.swift",
-                "AudioTranscoder.swift",
-                "VideoTranscoder.swift",
-                "DeviceDecode.swift",
-                "ImageSubtitleDecoder.swift",
-                "TextSubtitleDecoder.swift",
-                "AssToWebVTT.swift",
-                "TierRewrapper.swift",
-                "PlaylistShim.swift",
-                "InitSegmentSdr.swift",
-                "VideoCodecDeclaration.swift",
-                "LocalHTTPServer.swift",
-                "EndpointProbe.swift",
-                "EnginePlan.swift",
-                "DolbyVisionConverter.swift",
-                "FrameGrabber.swift",
-                "ImageWriter.swift",
-                "PosterQueue.swift",
-                "LiveFrameQueue.swift",
-                "LiveConnectionBroker.swift",
-                "LiveVariantPicker.swift",
-            ],
-            swiftSettings: [.swiftLanguageMode(.v5)],
-            // Same set the app links, measured by `nm -u` across the archives
-            // and recorded in TomoFFmpeg.podspec. Keep the two in step.
-            linkerSettings: [
-                .linkedLibrary("iconv"),
-                .linkedLibrary("z"),
-                .linkedLibrary("xml2"),
-                .linkedFramework("AudioToolbox"),
-                .linkedFramework("VideoToolbox"),
-                .linkedFramework("CoreMedia"),
-                .linkedFramework("CoreVideo"),
-                .linkedFramework("CoreFoundation"),
-                .linkedFramework("CoreText"),
-                .linkedFramework("Metal"),
-            ]
-        ),
-        .testTarget(
-            name: "TomoEngineTests",
-            // The FFmpeg modules too: Swift does not re-export a dependency's
-            // imports, so a test touching AVStream/AVPacket needs them directly.
-            dependencies: ["TomoEngine"] + ffmpeg.map { .byName(name: $0) },
-            path: "Tests/TomoEngineTests",
-            // Fixtures live beside the tests and are read by path, not bundled.
-            exclude: ["../Fixtures"],
-            swiftSettings: [.swiftLanguageMode(.v5)],
-            // LiveAVPlayerTests plays the engine's live output through the host's own AVPlayer.
-            linkerSettings: [.linkedFramework("AVFoundation")]
-        ),
-    ] + (ffmpeg + ["Libarchive"]).map { .binaryTarget(name: $0, path: "Frameworks/\($0).xcframework") }
+    ]
 )

@@ -2,6 +2,7 @@ import { GROUP_CELL_HEIGHT, HUD_CELL_BACKGROUND } from "@/components/live-tv/gui
 import { RecordingPulse } from "@/components/live-tv/recording-pulse";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import React, { useState } from "react";
 import type { NativeStackHeaderItemButton } from "expo-router";
@@ -31,9 +32,10 @@ interface HudActionProps {
   forwardedRef?: (node: View | null) => void;
 }
 
-/** One frosted-black cell of the band's corner, square-cornered and band-tall; focus draws the cells' gold ring. */
+/** One frosted-black cell of the band's corner, square-cornered and band-tall; focus draws the cells' accent ring. */
 export function HudAction({ icon, label, onPress, disabled, forwardedRef }: HudActionProps) {
   const [focused, setFocused] = useState(false);
+  const { accent } = useCardPalette();
   return (
     <View style={styles.tile}>
       <Pressable
@@ -47,7 +49,7 @@ export function HudAction({ icon, label, onPress, disabled, forwardedRef }: HudA
         accessibilityState={{ disabled: disabled === true }}
         tvParallaxProperties={{ enabled: false }}
         style={styles.hit}>
-        {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
+        {focused ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
         <View style={disabled ? styles.iconDisabled : null}>{icon}</View>
       </Pressable>
     </View>
@@ -72,25 +74,26 @@ interface GuideCornerActionsProps {
 
 /** Channels, Recordings, Schedule and the guide refresh: equal frosted cells spanning the band's corner. */
 export function GuideCornerActions({ filtered, onChannels, onRecordings, onSchedule, onRefreshGuide, refreshing, recording, onFirstRef }: GuideCornerActionsProps) {
+  const { accent } = useCardPalette();
   return (
     <View style={styles.row}>
       <HudAction
         forwardedRef={onFirstRef}
         label={t("liveTv.channels")}
         onPress={onChannels}
-        icon={<SfSymbolIcon name={filtered ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2"} size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />}
+        icon={<SfSymbolIcon name={filtered ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2"} size={ICON} color={accent} weight={WEIGHT} />}
       />
-      <HudAction label={t("liveTv.recordings")} onPress={onRecordings} icon={<SfSymbolIcon name="recordingtape" size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />} />
+      <HudAction label={t("liveTv.recordings")} onPress={onRecordings} icon={<SfSymbolIcon name="recordingtape" size={ICON} color={accent} weight={WEIGHT} />} />
       <HudAction
         label={t("liveTv.scheduled")}
         onPress={onSchedule}
         icon={
           <RecordingPulse active={!!recording}>
-            <SfSymbolIcon name={scheduleSymbol(!!recording)} size={ICON} color={recording ? COLORS.DESTRUCTIVE : COLORS.ACCENT} weight={WEIGHT} />
+            <SfSymbolIcon name={scheduleSymbol(!!recording)} size={ICON} color={recording ? COLORS.DESTRUCTIVE : accent} weight={WEIGHT} />
           </RecordingPulse>
         }
       />
-      <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} disabled={refreshing} icon={<SfSymbolIcon name="arrow.clockwise" size={ICON} color={COLORS.ACCENT} weight={WEIGHT} />} />
+      <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} disabled={refreshing} icon={<SfSymbolIcon name="arrow.clockwise" size={ICON} color={accent} weight={WEIGHT} />} />
     </View>
   );
 }
@@ -122,6 +125,5 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderWidth: IS_TV ? 2 : 1,
-    borderColor: COLORS.ACCENT,
   },
 });

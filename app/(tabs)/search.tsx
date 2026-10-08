@@ -14,7 +14,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { useLiveTvSearchRefresh } from "@/hooks/useLiveTvSearchRefresh";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { connectToDemoServer, searchLiveTv, searchVideos } from "@/services/jellyfinApi";
 import { subscribeItemRemoved } from "@/services/jellyfin/events";
@@ -28,6 +30,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, findNodeHandle, Platform, StyleSheet, Text, TextInput, TVEventControl, View } from "react-native";
 import { t } from "@/services/i18n";
+import { takeSearchFocusRequest } from "@/services/searchFocus";
 
 /**
  * Gets the native node handle for TV focus management.
@@ -122,6 +125,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
       if (searchDelayRef.current) clearTimeout(searchDelayRef.current);
     };
   }, []);
+  useLiveTvSearchRefresh(query, (_term, items) => setLiveResults(items));
 
   // Doubles as the readiness edge: SwiftUI lays this region out only once NavigationView + .searchable
   // are up, so the first fire is the search bar on screen. RN's wrapper onLayout fires a commit earlier.
@@ -344,6 +348,7 @@ function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: str
 
 function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const router = useRouter();
+  const palette = useCardPalette();
   const { showGlobalLoader, hideGlobalLoader } = useLoadingActions();
   const { refreshLibrary, isLoading, error } = useLibrary();
   const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
@@ -366,6 +371,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
 
   const handleVideoPress = useOpenShelfItem();
   const handleVideoLongPress = useItemLongPress();
+  useLiveTvSearchRefresh(activeQuery, (_term, items) => setLiveResults(items));
 
   const focusFirstResult = useCallback(() => gridRef.current?.focusFirstCard(), []);
 
@@ -530,6 +536,13 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     searchInputRef.current = node;
   }, []);
 
+  // A screen's search button lands here with the field focused.
+  useFocusEffect(
+    useCallback(() => {
+      if (takeSearchFocusRequest()) searchInputRef.current?.focus();
+    }, []),
+  );
+
   const renderFooter = useCallback(() => {
     if (isLoadingMore) {
       return (
@@ -589,14 +602,14 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
               variant="secondary"
               onPress={handleTryDemo}
               disabled={isConnectingToDemo}
-              icon={<Ionicons name="play-circle-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ACCENT} />}
+              icon={<Ionicons name="play-circle-outline" size={Platform.isTV ? 24 : 20} color={palette.accent} />}
               hasTVPreferredFocus={true}
             />
             <FocusableButton
               title={t("search.goToSettings")}
               variant="primary"
               onPress={() => router.push("/(tabs)/settings")}
-              icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color={COLORS.ON_ACCENT} />}
+              icon={<Ionicons name="settings-outline" size={Platform.isTV ? 24 : 20} color={palette.onAccent} />}
             />
           </View>
         </View>
@@ -609,7 +622,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
         <Text style={styles.emptyText}>{t("search.placeholder")}</Text>
       </View>
     );
-  }, [hasSearchQuery, isSearching, searchError, searchQuery, isLoading, error, isConnectingToDemo, router, handleRetrySearch, handleTryDemo]);
+  }, [hasSearchQuery, isSearching, searchError, searchQuery, isLoading, error, isConnectingToDemo, router, handleRetrySearch, handleTryDemo, palette]);
 
   const handleSubmitEditing = useCallback(() => {
     if (shouldShowResults) {

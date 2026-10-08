@@ -73,7 +73,7 @@ async function engine(url, headers, profile, expect) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   })();
-  const child = spawn("swift", ["test", "--package-path", join(ROOT, "native/ios"), "--filter", "LiveFrameOriginTests"], {
+  const child = spawn("swift", ["test", "--package-path", join(ROOT, "packages/tomo-engine"), "--filter", "LiveFrameOriginTests"], {
     env: {
       ...process.env,
       DEVELOPER_DIR,

@@ -9,15 +9,18 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useAuthSession } from "@/hooks/useAuthSession";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { useGuide } from "@/hooks/useGuide";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
+import { invalidateLiveTvSearchIndex } from "@/services/jellyfinApi";
 import { showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { EXTERNAL_GUIDE_PREFIX, guideMetrics, guideRefreshOutcome, NO_GUIDE_PREFIX } from "@/utils/guide";
+import { guideMetrics, guideRefreshOutcome } from "@/utils/guide";
+import { programInfoParams } from "@/utils/programInfo";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +28,7 @@ import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import { SafeAreaListener, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
+const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 const COLUMN_WIDTH = guideMetrics(IS_TV).channelColumnWidth;
 // Phone: the guide refresh cell pinned before the groups, a 44pt touch target.
 const PHONE_REFRESH_CELL_WIDTH = 44;
@@ -40,6 +44,8 @@ export default function LiveTvRoute() {
   const [refreshes, setRefreshes] = useState(0);
   const refreshGuide = useCallback(() => {
     refreshExternalGuide();
+    // Search reads the server's listings again too, so a refreshed guide answers in search at once.
+    invalidateLiveTvSearchIndex();
     setRefreshes((count) => count + 1);
     showToast({ id: "guide-refresh", title: t("liveTv.guideDownloading"), progress: true });
   }, []);
@@ -56,6 +62,7 @@ interface LiveTvScreenProps {
 
 function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps) {
   const router = useRouter();
+  const { accent } = useCardPalette();
   const contextInsets = useSafeAreaInsets();
   // TV: the tab's SafeAreaProvider first renders with the window's insets, then the tab bar's;
   // the body waits for this view's own native measurement so it never lays out twice.
@@ -102,9 +109,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   );
   const openProgram = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
-      // No-guide and external-guide cells are not server programs: the panel opens on the channel.
-      const serverProgram = !!program.Id && !program.Id.startsWith(NO_GUIDE_PREFIX) && !program.Id.startsWith(EXTERNAL_GUIDE_PREFIX);
-      router.push({ pathname: "/video-info", params: serverProgram ? { videoId: program.Id, name: program.Name } : { videoId: channel.Id, name: channel.Name } });
+      router.push({ pathname: "/video-info", params: programInfoParams(program, channel) });
     },
     [router],
   );
@@ -131,7 +136,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   // TV frames the column half a grid edge in; phone runs it flush to the screen edge.
   const edgeLeft = IS_TV ? gridEdgePadding(insets?.left ?? 0, IS_TV) / 2 : (insets?.left ?? 0);
   // Phone: the transparent native header floats over the content, so the body starts under it.
-  const topClearance = IS_TV ? 10 + (insets?.top ?? 0) : headerHeight + 8;
+  const topClearance = IS_TV ? 10 + (insets?.top ?? 0) : headerHeight + (IS_PAD ? 20 : 8);
   // Phone: Channels, Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
@@ -145,21 +150,21 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
                 type: "button",
                 label: t("liveTv.channels"),
                 icon: { type: "sfSymbol", name: "square.grid.2x2" },
-                tintColor: COLORS.ACCENT,
+                tintColor: accent,
                 onPress: openChannels,
               },
-              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: COLORS.ACCENT, onPress: openRecordings },
+              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: accent, onPress: openRecordings },
               // Badged and red while a recording runs: the Schedule screen behind it is where it stops.
               {
                 type: "button",
                 label: t("liveTv.scheduled"),
                 icon: { type: "sfSymbol", name: scheduleSymbol(recording) },
-                tintColor: recording ? COLORS.DESTRUCTIVE : COLORS.ACCENT,
+                tintColor: recording ? COLORS.DESTRUCTIVE : accent,
                 onPress: openSchedule,
               },
             ],
           },
-    [params.name, openRecordings, openChannels, openSchedule, recording],
+    [params.name, openRecordings, openChannels, openSchedule, recording, accent],
   );
   // Built apart from the canvas so the compiler keys it on the band's own inputs, not every guide render.
   const hudRow = (
@@ -182,7 +187,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
             label={t("liveTv.guideRefresh")}
             onPress={refreshGuide}
             disabled={guide.isUpdating}
-            icon={<SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={COLORS.ACCENT} weight="bold" />}
+            icon={<SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={accent} weight="bold" />}
           />
         )
       }

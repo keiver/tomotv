@@ -1,6 +1,7 @@
 import { t } from "@/services/i18n";
 import { currentPlaybackStage, PlaybackStage, subscribePlaybackStage } from "@/services/playbackStage";
 import { useEffect, useState } from "react";
+import type { ServerOff } from "./videoPlayback/machine";
 
 /** An attempt still loading this long gets its status line; a faster one shows the bare spinner. */
 export const STATUS_AFTER_MS = 8000;
@@ -50,6 +51,12 @@ export function stageStopped(stage: PlaybackStage, { live = false, local = false
   if (local && NETWORK_READS.has(stage)) return t("player.stopped.readingLocal");
   if (live && stage === "server") return t("player.stopped.serverLive");
   return t(STOPPED[stage]);
+}
+
+/** Why the server lane was skipped, for the error screen: the headline when it was the only lane left. */
+export function serverOffText({ by, needed }: ServerOff): string {
+  if (needed) return t(by === "account" ? "player.serverOff.neededAccount" : "player.serverOff.neededDevice");
+  return t(by === "account" ? "player.serverOff.account" : "player.serverOff.device");
 }
 
 /** The current stage and which threshold the attempt has passed, re-rendering only as it crosses one. */

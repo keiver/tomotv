@@ -29,7 +29,7 @@ TOMO_DRILL_CONFIG=/private/tmp/item-config.json \
 TOMO_DRILL_OUT=/private/tmp/item-timeline.jsonl \
 TOMO_DRILL_SECONDS=60 TOMO_DRILL_WINDOW=1 TOMO_DRILL_CAP=1 \
 TOMO_DRILL_EXPECT_ORIGINAL=1 \
-swift test --package-path native/ios --filter SlipstreamDrillTests
+swift test --package-path packages/tomo-engine --filter SlipstreamDrillTests
 ```
 
 The strict mode requires playback progress, source presentation dimensions,
@@ -65,14 +65,14 @@ make a wrongly declared codec or audio channel configuration eligible.
 Requires macOS and Xcode. Run from the repository root:
 
 ```sh
-swift test --package-path native/ios --filter FastLinkPlaybackTests
+swift test --package-path packages/tomo-engine --filter FastLinkPlaybackTests
 ```
 
 Optional source-file check (requires ffprobe):
 
 ```sh
 TOMO_FAST_LINK_SOURCE=/path/to/video.mkv TOMO_FAST_LINK_START=16 \
-FFPROBE=/path/to/ffprobe swift test --package-path native/ios \
+FFPROBE=/path/to/ffprobe swift test --package-path packages/tomo-engine \
   --filter FastLinkPlaybackTests/testActualSourceDoesNotRequestServerTranscoding
 ```
 
@@ -247,7 +247,7 @@ The engine lane has one size gate: 8K video the device does not copy (`needsSing
 that the engine times segment 0 before the player is bound
 and the player takes the server lane when that segment ran below realtime (`fallback` event,
 reason `engine below realtime`, no `error`, no restart), then remembers the file in
-`engine-verdicts.json` (`services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS).
+`engine-verdicts.json` (stored by `packages/tomo-engine/src/verdicts.ts`, keyed by `services/engineVerdicts.ts`; `Documents/` on iOS, `Library/Caches/` on tvOS).
 
 Arming the probe with the driver's URL clears the verdicts before every item, so a verdict from an
 earlier run cannot change the first mode the manifest asserts. Outside the suite the file persists:

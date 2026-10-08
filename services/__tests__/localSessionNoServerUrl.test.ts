@@ -11,6 +11,7 @@ jest.mock("expo-file-system", () => require("./fakeFileSystem"));
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios", isTV: false },
+  Settings: { get: jest.fn(), set: jest.fn() },
   NativeModules: {
     FileAttributes: { setExcludedFromBackup: jest.fn(async () => null), isExcludedFromBackup: jest.fn(async () => true) },
     LocalRemuxer: { startRemux: jest.fn(async () => "http://127.0.0.1:1/token/master.m3u8") },

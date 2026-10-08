@@ -1,4 +1,4 @@
-import { channelMarks, indexBadgeSegments } from "@/components/video-grid-item";
+import { channelMarks, indexBadgeSegments, joinTitle, programCardTitle } from "@/components/video-grid-item";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -41,6 +41,14 @@ describe("indexBadgeSegments", () => {
     expect(indexBadgeSegments(program(-60, -1), now)).toBeNull();
     expect(indexBadgeSegments(program(30, 90), now)?.[0].label).not.toBe("LIVE");
   });
+
+  it("a recording programme wears REC while it airs and the camera before its start", () => {
+    const now = Date.UTC(2026, 8, 29, 20, 0);
+    const program = (startMin: number, endMin: number) => item({ Type: "Program", StartDate: new Date(now + startMin * 60_000).toISOString(), EndDate: new Date(now + endMin * 60_000).toISOString() });
+    expect(indexBadgeSegments(program(-30, 30), now, true)).toEqual([{ label: "REC" }]);
+    const scheduled = indexBadgeSegments(program(30, 90), now, true);
+    expect(scheduled).toEqual([{ icon: "videocam", label: indexBadgeSegments(program(30, 90), now)?.[0].label }]);
+  });
 });
 
 describe("channelMarks", () => {
@@ -57,5 +65,26 @@ describe("channelMarks", () => {
 
   it("marks nothing but a channel", () => {
     expect(channelMarks(item({ Type: "Movie", ChannelNumber: "2" }), "heart")).toEqual({ trailing: [] });
+  });
+});
+
+describe("programCardTitle", () => {
+  it("names the episode after the show", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", EpisodeTitle: "Pilot", ChannelName: "Show" }))).toBe("Show - Pilot");
+  });
+
+  it("falls back to the channel without an episode title", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", ChannelName: "Channel 4" }))).toBe("Show - Channel 4");
+  });
+
+  it("never repeats the show name", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", ChannelName: "Show" }))).toBe("Show");
+  });
+});
+
+describe("joinTitle", () => {
+  it("names a channel once when its airing programme shares its name", () => {
+    expect(joinTitle("Show", "Show")).toBe("Show");
+    expect(joinTitle("News at Nine", "Channel 4")).toBe("News at Nine - Channel 4");
   });
 });

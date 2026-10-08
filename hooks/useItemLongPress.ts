@@ -1,4 +1,6 @@
 import { JellyfinItem } from "@/types/jellyfin";
+import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
+import { programInfoParams } from "@/utils/programInfo";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 
@@ -12,6 +14,11 @@ export function useItemLongPress(inFolderId?: string) {
 
   return useCallback(
     (item: JellyfinItem) => {
+      // Keep the external listing: its synthetic id cannot be fetched from the server.
+      if (item.Id.startsWith(EXTERNAL_GUIDE_PREFIX) && item.ChannelId) {
+        router.push({ pathname: "/video-info", params: programInfoParams(item, { Id: item.ChannelId, Name: item.ChannelName ?? item.Name }) });
+        return;
+      }
       router.push({ pathname: "/video-info", params: { videoId: item.Id, name: item.Name, ...(inFolderId ? { inFolderId } : {}) } });
     },
     [router, inFolderId],

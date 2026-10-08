@@ -4,16 +4,49 @@
  */
 import { GRID, slotCardPadding } from "@/constants/app";
 import { t } from "@/services/i18n";
-import type { JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
+import type { JellyfinProgram, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
+import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS, TICK_MINUTES } from "@keiver/tomo-live";
 
-export const MINUTE_MS = 60_000;
-export const TICK_MINUTES = 30;
+export { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS, TICK_MINUTES };
 /** Minor scale marks between the labelled half hours. */
 export const MINOR_TICK_MINUTES = 5;
-/** Programs loaded per fetch, and how far the window grows when the canvas nears its end. */
-export const GUIDE_SPAN_MINUTES = 360;
-/** Where the guide ends, counted from the window's start: nothing past it loads or scrolls into view. */
-export const GUIDE_HORIZON_MINUTES = 48 * 60;
+/** Days the day strip offers from today: the deepest guide a provider ships. */
+export const GUIDE_DAYS = 14;
+
+/** Local midnight of the day `ms` falls in. */
+export function dayStartMs(ms: number): number {
+  const day = new Date(ms);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+}
+
+/** Today and the days after it, each by its local midnight; a DST change moves a midnight, never a day. */
+export function guideDays(nowMs: number, count = GUIDE_DAYS): number[] {
+  const today = new Date(dayStartMs(nowMs));
+  return Array.from({ length: count }, (_, i) => new Date(today.getFullYear(), today.getMonth(), today.getDate() + i).getTime());
+}
+
+/**
+ * The window a picked day opens on and where its guide ends: today from the current half hour to
+ * midnight, at least one span so a late evening still shows a stretch; another day midnight to midnight.
+ */
+export function guideDayWindow(dayMs: number, nowMs: number): { startMs: number; horizonMs: number } {
+  const day = new Date(dayMs);
+  const nextMidnight = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
+  if (dayMs !== dayStartMs(nowMs)) return { startMs: dayMs, horizonMs: nextMidnight };
+  const startMs = guideWindowStart(nowMs);
+  return { startMs, horizonMs: Math.max(nextMidnight, startMs + GUIDE_SPAN_MINUTES * MINUTE_MS) };
+}
+
+/**
+ * Whether a day has listings: one a loaded program fell on does; otherwise the server guide runs up
+ * to its last program's start, so days before that have listings and days after have none. Null
+ * before the server has answered.
+ */
+export function dayHasListings(dayMs: number, guideEndMs: number | null, coveredDays: ReadonlySet<number>): boolean | null {
+  if (coveredDays.has(dayMs)) return true;
+  if (guideEndMs === null) return null;
+  return guideEndMs >= dayMs;
+}
 
 export interface GuideMetrics {
   pxPerMinute: number;
@@ -39,14 +72,6 @@ export function guideMetrics(isTV: boolean): GuideMetrics {
   return isTV
     ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 74, cardInset }
     : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 47, cardInset };
-}
-
-/** The window opens on the half hour the current time falls in. */
-export function guideWindowStart(nowMs: number): number {
-  const tick = TICK_MINUTES * MINUTE_MS;
-  // Floored in local time: a 45-minute offset floored in UTC opens on :15 or :45.
-  const offset = -new Date(nowMs).getTimezoneOffset() * MINUTE_MS;
-  return Math.floor((nowMs + offset) / tick) * tick - offset;
 }
 
 export interface CellGeometry {
@@ -92,12 +117,15 @@ export function revealOffset(cell: CellGeometry, scrollX: number): number | unde
   return cell.left < scrollX ? cell.left : undefined;
 }
 
-/**
- * A Left press or swipe while a no-listings row holds focus in a scrolled grid: the row is one cell with none
- * before it to walk back to, and tvOS lets no focus out of a scrolled grid, so the grid rewinds to the row's start.
- */
-export function rewindsStandIn(eventType: string, standInFocused: boolean, scrollX: number): boolean {
-  return standInFocused && scrollX > 0 && (eventType === "left" || eventType === "swipeLeft");
+/** A Left press or swipe on a row's first cell in a scrolled grid: the scroll view refuses that focus move out, so the canvas makes it. */
+export function exitsToCard(eventType: string, atRowStart: boolean, scrollX: number): boolean {
+  return atRowStart && scrollX > 0 && (eventType === "left" || eventType === "swipeLeft");
+}
+
+/** True when no cell in the row starts before this one: Left from it has no cell to land on. */
+export function isRowStart(cells: Pick<JellyfinProgram, "StartDate" | "EndDate">[], program: Pick<JellyfinProgram, "StartDate" | "EndDate">): boolean {
+  const { startMs } = programTimes(program);
+  return cells.every((cell) => programTimes(cell).startMs >= startMs);
 }
 
 /** True when any part of the cell lies inside the span. */
@@ -168,7 +196,7 @@ export function activeRecordTimer(
 ): JellyfinTimer | null {
   const byProgram = target.programId ? timers.find((candidate) => candidate.ProgramId === target.programId && isActiveTimer(candidate)) : undefined;
   if (byProgram) return byProgram;
-  const span = target.programId && target.program ? programTimes(target.program) : null;
+  const span = target.program ? programTimes(target.program) : null;
   return (
     timers.find((candidate) => {
       if (candidate.ChannelId !== target.channelId || !isActiveTimer(candidate)) return false;
@@ -178,6 +206,11 @@ export function activeRecordTimer(
       return startMs <= nowMs && nowMs < endMs;
     }) ?? null
   );
+}
+
+/** A programme card is recording when a live timer covers it, the info panel's own match. */
+export function programRecording(timers: JellyfinTimer[], item: Pick<JellyfinVideoItem, "Id" | "Type" | "ChannelId" | "StartDate" | "EndDate">, nowMs: number): boolean {
+  return item.Type === "Program" && !!activeRecordTimer(timers, { programId: item.Id, channelId: item.ChannelId ?? "", program: item }, nowMs);
 }
 
 /** "2h", "1h 12m" or "45m" in the active language's units: the length a recording toast names. */
@@ -209,6 +242,40 @@ export function formatDayLabel(ms: number, nowMs: number, labels: { today: strin
   if (diff === 0) return labels.today;
   if (diff === 1) return labels.tomorrow;
   return day.toLocaleDateString([], { weekday: "long" });
+}
+
+/** The day strip's heading for a day: "Today", "Tomorrow" or the weekday, then the short date. */
+export function formatDayHeading(ms: number, nowMs: number, labels: { today: string; tomorrow: string }): string {
+  return `${formatDayLabel(ms, nowMs, labels)} · ${new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" })}`;
+}
+
+/** A box's text: the day of the month, or the month's short name on its first day so 31 then 1 reads. */
+export function formatDayBox(ms: number): string {
+  const day = new Date(ms);
+  return day.getDate() === 1 ? day.toLocaleDateString([], { month: "short" }) : String(day.getDate());
+}
+
+/** The first day in view once `index` is: unchanged while it shows, else the crossed edge lands on it. */
+export function dayStripFirst(index: number, first: number, inView: number): number {
+  if (index < first) return index;
+  if (index >= first + inView) return index - inView + 1;
+  return first;
+}
+
+type PickerDay = { startMs: number; hasListings: boolean | null };
+
+/** The calendar's pickable span: the first day to the end of the last one not known to lack listings. */
+export function dayPickerRange(days: readonly PickerDay[]): { start: Date; end: Date } | null {
+  const last = [...days].reverse().find((day) => day.hasListings !== false);
+  if (!days[0] || !last) return null;
+  const lastDay = new Date(last.startMs);
+  return { start: new Date(days[0].startMs), end: new Date(new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate() + 1).getTime() - 1) };
+}
+
+/** The strip's day a calendar pick lands in, null for one outside it or without listings. */
+export function pickedDay(days: readonly PickerDay[], pickedMs: number): number | null {
+  const day = days.find((candidate) => candidate.startMs === dayStartMs(pickedMs));
+  return day && day.hasListings !== false ? day.startMs : null;
 }
 
 /** Id prefix of the stand-in cell a channel without guide data shows; select tunes, nothing else. */

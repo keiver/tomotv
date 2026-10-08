@@ -3,6 +3,7 @@ import { usePlayQueue } from "@/contexts/PlayQueueContext";
 import { isAudioItem, isBook, isFolder, isLiveChannel, isPhoto } from "@/services/jellyfinApi";
 import { isJoined, playForGroup } from "@/services/syncPlayManager";
 import { FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
+import { programInfoParams } from "@/utils/programInfo";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import { Platform } from "react-native";
@@ -25,7 +26,8 @@ export function useOpenShelfItem() {
     // caller is a presented modal (video-info sheet): react-native-screens gives a screen
     // pushed after a modal a zero-frame modal presentation, and AVKit presenting out of that
     // crashes the app.
-    (item: JellyfinItem, options?: { replace?: boolean }) => {
+    // fromStart: open at 0 even when the item has a resume point.
+    (item: JellyfinItem, options?: { replace?: boolean; fromStart?: boolean }) => {
       // The Live TV view is a screen of its own (the guide), not a folder.
       if (item.CollectionType === "livetv") {
         if (Platform.isTV) router.navigate("/livetv");
@@ -41,7 +43,7 @@ export function useOpenShelfItem() {
           showGlobalLoader();
           router.push({ pathname: "/player", params: { videoId: item.ChannelId, videoName: item.ChannelName ?? item.Name, live: "1" } });
         } else {
-          router.push({ pathname: "/video-info", params: { videoId: item.Id, name: item.Name } });
+          router.push({ pathname: "/video-info", params: programInfoParams(item, { Id: item.ChannelId, Name: item.ChannelName ?? item.Name }) });
         }
         return;
       }
@@ -80,7 +82,7 @@ export function useOpenShelfItem() {
       // In a SyncPlay group, hand a video to the server: its queue push opens the player
       // for everyone, us included. Audio has its own native player and stays local.
       if (!isAudioItem(item) && isJoined()) {
-        void playForGroup([item as JellyfinVideoItem], 0, item.UserData?.PlaybackPositionTicks ?? 0);
+        void playForGroup([item as JellyfinVideoItem], 0, options?.fromStart ? 0 : (item.UserData?.PlaybackPositionTicks ?? 0));
         return;
       }
       showGlobalLoader();
@@ -94,7 +96,7 @@ export function useOpenShelfItem() {
           videoId: item.Id,
           videoName: item.Name,
           ...(queueParent ? { queueMode: "true" } : {}),
-          ...(item.UserData?.PlaybackPositionTicks ? { startTicks: String(item.UserData.PlaybackPositionTicks) } : {}),
+          ...(options?.fromStart ? { startTicks: "0" } : item.UserData?.PlaybackPositionTicks ? { startTicks: String(item.UserData.PlaybackPositionTicks) } : {}),
           played: item.UserData?.Played ? "true" : "false",
         },
       };

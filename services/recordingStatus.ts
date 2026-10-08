@@ -13,6 +13,8 @@ import { AppState, type AppStateStatus, type NativeEventSubscription } from "rea
 export interface RecordingStatus {
   /** Timers recording now, as runningTimers reads them. */
   running: JellyfinTimer[];
+  /** Every timer not cancelled or completed, scheduled ones included: the programme cards' marks. */
+  active: JellyfinTimer[];
 }
 
 /** A re-read lands a moment after the boundary so the server's own clock has passed it too. */
@@ -24,7 +26,7 @@ const RETRY_MS = 60_000;
 /** A timer still InProgress past its padded end is closing on the server; look again soon. */
 const OVERRUN_RECHECK_MS = 30_000;
 
-const EMPTY: RecordingStatus = { running: [] };
+const EMPTY: RecordingStatus = { running: [], active: [] };
 let status: RecordingStatus = EMPTY;
 const listeners = new Set<() => void>();
 let sources: (() => void)[] = [];
@@ -96,7 +98,7 @@ export async function refreshRecordingStatus(): Promise<void> {
   const mine = ++generation;
   clearBoundary();
   if (!getLiveTvAvailability()) {
-    if (status.running.length > 0) publish(EMPTY);
+    if (status.running.length > 0 || status.active.length > 0) publish(EMPTY);
     return;
   }
   let timers: JellyfinTimer[];
@@ -117,9 +119,17 @@ export function reportRecordingTimers(timers: JellyfinTimer[]): void {
   apply(timers);
 }
 
+/** Every field the marks match on: an edited timer is a new reading. */
+const TIMER_FIELDS = ["Id", "Status", "ProgramId", "ChannelId", "StartDate", "EndDate", "PrePaddingSeconds", "PostPaddingSeconds"] as const;
+
+function sameTimers(next: JellyfinTimer[], current: JellyfinTimer[]): boolean {
+  return next.length === current.length && next.every((timer, index) => TIMER_FIELDS.every((field) => timer[field] === current[index][field]));
+}
+
 function apply(timers: JellyfinTimer[]): void {
   const running = runningTimers(timers, Date.now());
-  if (running.length !== status.running.length || running.some((timer, index) => timer.Id !== status.running[index]?.Id)) publish({ running });
+  const active = timers.filter(isActiveTimer);
+  if (!sameTimers(running, status.running) || !sameTimers(active, status.active)) publish({ running, active });
   if (listeners.size > 0) armBoundary(timers);
   else clearBoundary();
 }

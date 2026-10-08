@@ -1,4 +1,5 @@
 import { COLORS } from "@/constants/colors";
+import { currentPalette } from "@/hooks/useCardPalette";
 import { getLiveTvAvailability, subscribeLiveTvAvailability } from "@/services/liveTvAvailability";
 import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
@@ -80,10 +81,10 @@ const TAB_BAR_BACKGROUND = SUPPORTS_LIQUID_GLASS ? ({ blurEffect: "systemDefault
 // indicator) and nothing in JS can darken it: react-native-screens maps four bar-level keys and
 // per-state title/icon/badge colours, and selectionIndicatorTintColor is not among them
 // (RNSTabBarAppearanceCoordinator.mm). Gold on that pill is the wrong contrast, so TV keeps the
-// system's own dark-on-light selected item.
-const TAB_TINT = Platform.isTV ? undefined : COLORS.ACCENT;
-
+// system's own dark-on-light selected item. Read once per mount: a theme change reaches the bar
+// on the next launch.
 export default function TabLayout() {
+  const [tabTint] = useState(() => (Platform.isTV ? undefined : currentPalette().accent));
   // SyncPlay membership: the tab bar is on every screen, so this is the one global indicator.
   // A childless Badge sends badgeValue " ", which UIKit draws as a bare dot; a value would put
   // a number where the point is only that a group is live. A badge is a tab item prop like the
@@ -103,7 +104,7 @@ export default function TabLayout() {
   useLocale();
 
   return (
-    <NativeTabs key={showLiveTvTab ? "tabs-livetv" : "tabs"} {...TAB_BAR_BACKGROUND} tintColor={TAB_TINT} disableTransparentOnScrollEdge>
+    <NativeTabs key={showLiveTvTab ? "tabs-livetv" : "tabs"} {...TAB_BAR_BACKGROUND} tintColor={tabTint} disableTransparentOnScrollEdge>
       <NativeTabs.Trigger name="(library)" disablePopToTop={DISABLE_TAB_RESELECT_EFFECTS} disableScrollToTop={DISABLE_TAB_RESELECT_EFFECTS}>
         <Icon sf="house.fill" />
         <Label>{t("tab.home")}</Label>

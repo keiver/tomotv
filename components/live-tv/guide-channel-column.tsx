@@ -9,7 +9,7 @@ import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { GuideMetrics } from "@/utils/guide";
-import React, { useCallback } from "react";
+import React, { useCallback, type ComponentProps } from "react";
 import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
@@ -41,6 +41,8 @@ interface GuideChannelColumnProps {
   /** TV: the first card's native node, the strip's way down into the guide (the canvas cells sit
       in a scrolled expanse the focus engine cannot enter geometrically). */
   onFirstHandle?: (handle: number | undefined) => void;
+  /** TV: each card's node by channel, so the canvas can hand Left focus out of a scrolled grid. */
+  onCardNode?: ComponentProps<typeof GuideChannelCard>["onNode"];
   onEndReached?: () => void;
 }
 
@@ -63,6 +65,7 @@ export function GuideChannelColumn({
   onChannelLongPress,
   onChannelFocus,
   onFirstHandle,
+  onCardNode,
   onEndReached,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
@@ -106,6 +109,7 @@ export function GuideChannelColumn({
             onLongPress={onChannelLongPress}
             onItemFocus={cardFocus}
             onItemBlur={cardBlur}
+            onNode={onCardNode}
             playsClipInView
             inView={visibleChannelIds.has(item.Id)}
           />
@@ -125,7 +129,7 @@ export function GuideChannelColumn({
         )}
       </View>
     ),
-    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, visibleChannelIds],
+    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds],
   );
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),

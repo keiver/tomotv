@@ -3,6 +3,7 @@
  * engine service, so every decision here is testable without the native module.
  */
 import type { ThroughputSample } from "@/services/localRemux";
+import { IdentifiedError, PLAYBACK_ERROR_IDS } from "@/utils/errorIds";
 import { FORWARD_BUFFER_AUTOMATIC_SECONDS, FORWARD_BUFFER_BYTES, LINK_CAP_HYSTERESIS, LINK_CAP_SHARE, LINK_CLIMB_MARGIN, SLIPSTREAM_FORWARD_BUFFER_SECONDS } from "./constants";
 
 /** One session's throughput samples and the subscription feeding them. */
@@ -19,7 +20,11 @@ export function dropThroughputWatch(watch: ThroughputWatch): void {
 export type PreflightOutcome = ThroughputSample | { failed: string } | null;
 
 /** The server answered the engine's read with a 404: the transcode lane reads the same path. */
-export class EngineInputMissingError extends Error {}
+export class EngineInputMissingError extends IdentifiedError {
+  constructor(message: string) {
+    super(PLAYBACK_ERROR_IDS.INPUT_404, message);
+  }
+}
 
 export interface PreflightGate {
   /** Hand the gate an outcome. False once the gate is closed. */
@@ -90,6 +95,11 @@ export function stillPullingInput<T extends EngineProgressReading>(progress: T |
   if (progress == null || !progress.alive || progress.bytesRead <= 0 || progress.bytesRead <= bytesSeen || progress.elapsedSeconds <= 0) return false;
   if (progress.sourceState !== undefined && progress.sourceState !== "ready") return true;
   return progress.readSeconds / progress.elapsedSeconds >= readBoundShare;
+}
+
+/** The session is alive and read more since `bytesSeen`, at any pace: with the server off, the only reason to keep waiting. */
+export function engineStillReading<T extends EngineProgressReading>(progress: T | null | undefined, bytesSeen: number): progress is T {
+  return progress != null && progress.alive && progress.bytesRead > Math.max(0, bytesSeen);
 }
 
 /**

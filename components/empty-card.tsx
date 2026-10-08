@@ -1,7 +1,7 @@
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { goldRowShadow, settingsStyles } from "@/components/settings/styles";
-import { CARD_FOCUS } from "@/constants/app";
+import { goldRowShadow, settingsStyles, useSettingsAccentStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -12,6 +12,8 @@ const IS_TV = Platform.isTV;
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
 export function EmptyCard({ icon, text, note, noteIcon, onPress }: { icon: IconName; text: string; note?: string; noteIcon?: IconName; onPress?: () => void }) {
+  const palette = useCardPalette();
+  const accentStyles = useSettingsAccentStyles();
   return (
     <View style={settingsStyles.section}>
       {/* With onPress: an accent glyph at rest, the rows' gold fill on focus and press. */}
@@ -26,14 +28,14 @@ export function EmptyCard({ icon, text, note, noteIcon, onPress }: { icon: IconN
         style={({ focused, pressed }) => [
           styles.card,
           (focused || pressed) && goldRowShadow(true, !note, false),
-          focused && !pressed && settingsStyles.listItemFocused,
-          pressed && settingsStyles.listItemPressed,
+          focused && !pressed && accentStyles.listItemFocused,
+          pressed && accentStyles.listItemPressed,
         ]}>
         {({ focused, pressed }) => {
-          const ink = focused || pressed ? CARD_FOCUS.TITLE_TEXT_FOCUSED : undefined;
+          const ink = focused || pressed ? palette.ink : undefined;
           return (
             <>
-              <Ionicons name={icon} size={IS_TV ? 72 : 56} color={ink ?? (onPress ? COLORS.ACCENT : COLORS.TEXT_QUATERNARY)} />
+              <Ionicons name={icon} size={IS_TV ? 72 : 56} color={ink ?? (onPress ? palette.accent : COLORS.TEXT_QUATERNARY)} />
               <Text style={[styles.text, ink != null && { color: ink }]}>{text}</Text>
             </>
           );

@@ -57,6 +57,25 @@ export function planSubtitleApplication(input: ApplyInput): ApplyPlan {
 }
 
 /**
+ * The stream a plan lands on when its language has several renditions, or null when a language
+ * match is unambiguous. A chosen language gets its first non-forced track; the file's default stays itself.
+ */
+export function renditionForPlan(plan: Exclude<ApplyPlan, { kind: "leave" }>, renditions: { index: number; language: string; isDefault: boolean; isForced: boolean }[]): number | null {
+  if (plan.preference.kind !== "language") return null;
+  const wanted = canonicalLanguage(plan.preference.tag);
+  const matches = renditions.filter((rendition) => canonicalLanguage(rendition.language) === wanted);
+  if (matches.length < 2) return null;
+  const chosen = plan.kind === "autoDefault" ? matches.find((rendition) => rendition.isDefault) : (matches.find((rendition) => !rendition.isForced) ?? matches[0]);
+  return chosen?.index ?? null;
+}
+
+/** The player's own non-forced pick in the stored language stays; a forced one still yields to the full track. */
+export function keepsCurrentPick(plan: Exclude<ApplyPlan, { kind: "leave" }>, current: { language: string; isForced: boolean } | null): boolean {
+  if (plan.kind !== "apply" || plan.preference.kind !== "language" || current === null || current.isForced) return false;
+  return canonicalLanguage(current.language) === canonicalLanguage(plan.preference.tag);
+}
+
+/**
  * A report echoing back the default this session applied FOR the viewer is the player
  * agreeing with us, not somebody choosing. Once the value moves off it the viewer has taken
  * over, and everything after is theirs to keep, including switching back to that track.

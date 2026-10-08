@@ -1,4 +1,5 @@
-import { classifyPlaybackError, getLoadErrorMessage, isConnectivityError, PlaybackErrorType } from "../errorClassification";
+import { setLanguage } from "@/services/i18n";
+import { classifyPlaybackError, getLoadErrorMessage, getPlaybackErrorMessage, isConnectivityError, PlaybackErrorType } from "../errorClassification";
 
 describe("errorClassification", () => {
   describe("getLoadErrorMessage", () => {
@@ -62,6 +63,21 @@ describe("errorClassification", () => {
 
     it("keeps the CoreMedia decode mapping", () => {
       expect(classifyPlaybackError({ code: -12971, domain: "CoreMediaErrorDomain" })).toBe(PlaybackErrorType.DECODE);
+    });
+  });
+
+  describe("getPlaybackErrorMessage", () => {
+    afterEach(() => setLanguage(null));
+
+    it("speaks the app's language for every playback failure", () => {
+      for (const type of Object.values(PlaybackErrorType)) {
+        setLanguage("en");
+        const english = getPlaybackErrorMessage(type);
+        setLanguage("de");
+        expect(getPlaybackErrorMessage(type)).not.toBe(english);
+      }
+      setLanguage("en");
+      expect(getPlaybackErrorMessage(PlaybackErrorType.UNKNOWN)).toBe("Failed to load video");
     });
   });
 });

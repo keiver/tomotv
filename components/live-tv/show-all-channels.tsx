@@ -1,6 +1,6 @@
 import { GlassButton } from "@/components/glass-button";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
-import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import { updateLiveTvPreferences } from "@/services/liveTvPreferences";
 import React, { useCallback } from "react";
@@ -15,11 +15,12 @@ interface ShowAllChannelsProps {
 /** The wall's empty filtered state: the filled filter symbol, one press lifts the filter. */
 export function ShowAllChannels({ hasTVPreferredFocus = false }: ShowAllChannelsProps) {
   const showAll = useCallback(() => updateLiveTvPreferences({ filter: "all" }), []);
+  const { accent } = useCardPalette();
   return (
     <View style={styles.row}>
       <GlassButton
         accessibilityLabel={t("liveTv.showAll")}
-        icon={<SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={IS_TV ? 28 : 20} color={COLORS.ACCENT} />}
+        icon={<SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={IS_TV ? 28 : 20} color={accent} />}
         onPress={showAll}
         hasTVPreferredFocus={hasTVPreferredFocus}
         style={IS_TV ? undefined : styles.phonePill}

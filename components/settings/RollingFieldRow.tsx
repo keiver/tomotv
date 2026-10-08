@@ -2,6 +2,7 @@ import { ListRow } from "@/components/settings/ListRow";
 import { ADD_ROW_PADDING_V, ADD_SERVER_ROW_HEIGHT, settingsStyles } from "@/components/settings/styles";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Platform, StyleSheet, TextInput, TextInputProps, View } from "react-native";
@@ -48,6 +49,7 @@ export const RollingFieldRow = forwardRef<RollingFieldRowHandle, RollingFieldRow
   // Whether the field has held the caret since this reveal, so a blur that
   // precedes its first focus can't be read as the user leaving.
   const editedOnce = useRef(false);
+  const { accent } = useCardPalette();
   const fieldRef = useRef<TextInput>(null);
 
   const progress = useSharedValue(0);
@@ -104,7 +106,7 @@ export const RollingFieldRow = forwardRef<RollingFieldRowHandle, RollingFieldRow
 
       <Animated.View style={[styles.layer, fieldStyle, fieldGone && styles.gone]}>
         <View style={styles.fieldRow}>
-          <Ionicons name={icon} size={IS_TV ? 32 : 22} color={COLORS.ACCENT} />
+          <Ionicons name={icon} size={IS_TV ? 32 : 22} color={accent} />
           {/* The same shared sunken field the login inputs use; this call site adds layout only. */}
           <SunkenTextInput
             ref={fieldRef}

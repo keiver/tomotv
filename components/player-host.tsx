@@ -10,7 +10,9 @@ import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { stageReason, stageStatus, stageStopped, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { chapterFrameUrl } from "@/services/localRemux";
-import { getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { fetchNextEpisodeAutoPlay, getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { playQueueManager } from "@/services/playQueueManager";
+import { isJoined as syncPlayIsJoined } from "@/services/syncPlayManager";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
@@ -119,6 +121,7 @@ interface HostSession {
   probe?: string;
   sessionKey: string;
   isLive?: boolean;
+  queueMode?: boolean;
 }
 
 type PipState = "none" | "active" | "detached";
@@ -194,7 +197,7 @@ export function PlayerHost() {
   // video. Instead the curtain goes up invisibly BEHIND the presentation as soon as it's
   // confirmed on screen (DidPresent), so the re-embed lands under it and every close pops
   // over black. It comes down only when a dismissal turns out to be the PiP hand-off,
-  // where the inline player behind the PiP window is the accepted UI.
+  // where the route leaves and the window plays on.
   const [curtainUp, setCurtainUp] = useState(false);
 
   // The presented player's life, and a teardown that arrived before it could be presented or
@@ -217,9 +220,10 @@ export function PlayerHost() {
   // effect below assigns it on the host's first commit, and nothing can have finished
   // playing by then.
   const endSessionRef = useRef<() => void>(() => {});
+  const routelessEndRef = useRef<() => void>(() => {});
   const handlePlaybackEnd = useCallback(() => {
     if (!handlersRef.current) {
-      endSessionRef.current();
+      routelessEndRef.current();
       return;
     }
     handlersRef.current.onPlaybackEnd();
@@ -433,6 +437,35 @@ export function PlayerHost() {
   useEffect(() => {
     shownUriRef.current = shownUri;
   }, [shownUri]);
+
+  // A routeless window at its item's end: a queue rolls into the next item inside the window, as the
+  // route's autoplay would, and anything else ends the session.
+  const handleRoutelessEnd = useCallback(() => {
+    const current = sessionRef.current;
+    const { queue, currentIndex } = playQueueManager.getState();
+    const rolls = current?.queueMode && !current.isLive && pipRef.current !== "none" && !syncPlayIsJoined() && queue[currentIndex]?.Id === current.videoId && playQueueManager.hasNext();
+    if (!current || !rolls) {
+      endSession();
+      return;
+    }
+    void fetchNextEpisodeAutoPlay().then((enabled) => {
+      // Something else took the session while the setting loaded.
+      if (sessionRef.current !== current) return;
+      const next = enabled ? playQueueManager.advanceToNext() : null;
+      if (!next) {
+        endSession();
+        return;
+      }
+      logger.info("Player host: advancing a routeless PiP window", { service: "PlayerHost", to: next.Name });
+      applySession({ ...current, videoId: next.Id, videoName: next.Name, startPositionTicks: undefined, playedAtStart: undefined, probe: undefined, sessionKey: `${current.sessionKey}:${next.Id}` });
+      setEnded(false);
+      clearPresentationWait();
+      setPinnedKey((pinned) => pinned ?? shownUriRef.current);
+    });
+  }, [endSession, applySession, clearPresentationWait]);
+  useEffect(() => {
+    routelessEndRef.current = handleRoutelessEnd;
+  }, [handleRoutelessEnd]);
   // What AVKit's channel interstitial says under the channel's name once a flip runs long: the
   // status line, and what the current stage waits on on its own line after that.
   const flipStage = usePlaybackStage();
@@ -621,19 +654,11 @@ export function PlayerHost() {
     [presentedCallbacks],
   );
 
-  // PiP: tapping AVKit's PiP button auto-dismisses the presentation (AVKit default), and the
-  // lib's cleanup re-embeds the same player inline behind it. ACCEPTED tradeoff: PiP plays,
-  // the screen behind shows the same video inline, and that inline player is fully functional.
-  // The auto-dismissal must not read as a close (stopping the session would unmount <Video> and
-  // kill PiP), so the dismissal is swallowed while this flag is armed and the flag is CONSUMED
-  // (one-shot). Consuming it matters: the lib detaches the first PiP session's delegate during
-  // that same cleanup, so no end-of-PiP signal ever arrives, and a sticky flag would suppress
-  // every later close, the "can't leave the player" trap. Dismissals after the hand-off window
-  // (e.g. manual expand then ✕ on the inline player) close normally. Phone only; tvOS never presents.
-  //
-  // Read SYNCHRONOUSLY, never behind a timer: viewDidDisappear nils the AVPlayerViewController
-  // delegate one line before it emits the dismissal, so a PiP-start that lands later is never
-  // delivered at all and any event we do see arrived first. The old 250ms wait was black screen.
+  // PiP: tapping AVKit's PiP button auto-dismisses the presentation (AVKit default) and the lib
+  // re-embeds the player inline. That dismissal is the hand-off, not a close: it is swallowed while
+  // this flag is armed, the flag is CONSUMED (one-shot) so later closes still close, and the route
+  // leaves to where playback started while the window plays on. Phone only; tvOS never presents.
+  // Read synchronously: the PiP start reaches JS before the dismissal it causes.
   const pipHandoffArmedRef = useRef(false);
   const pipHandoffUntilRef = useRef(0);
   /**
@@ -668,6 +693,7 @@ export function PlayerHost() {
       pipHandoffUntilRef.current = Date.now() + PIP_HANDOFF_BURST_MS;
       pipHandoffArmedRef.current = false;
       setCurtainUp(false);
+      handlersRef.current?.onPipStarted?.();
       return;
     }
     // With no route listening this used to drop the event, leaving a live session behind
@@ -698,6 +724,8 @@ export function PlayerHost() {
       if (isActive) {
         setPip("active");
         setPinnedKey((pinned) => pinned ?? shownUriRef.current);
+        // tvOS and the Mac present nothing, so the window starting is the moment the route leaves.
+        if (Platform.isTV || IS_MAC) handlersRef.current?.onPipStarted?.();
         return;
       }
       // The window closed on its own (the viewer pressed its ✕) with no route
@@ -707,8 +735,14 @@ export function PlayerHost() {
         return;
       }
       setPip("none");
+      // Phone: a window restored into its reopened route plays in the presented player again.
+      if (PRESENTS_NATIVE_FULLSCREEN && sessionRef.current && handlersRef.current && presentationRef.current === "none") {
+        programmaticDismissRef.current = false;
+        presentationRef.current = "pending";
+        videoRef.current?.setFullScreen(true);
+      }
     },
-    [endSession, setPip],
+    [endSession, setPip, handlersRef, videoRef],
   );
 
   // PiP "return to app". AVKit parks the transition on a completion handler and
@@ -736,7 +770,7 @@ export function PlayerHost() {
     logger.info("Player host: restoring the popped player for PiP", { service: "PlayerHost" });
     router.push({
       pathname: "/player" as const,
-      params: { videoId: current.videoId, videoName: current.videoName ?? "", adopt: "1", ...(current.isLive ? { live: "1" } : {}) },
+      params: { videoId: current.videoId, videoName: current.videoName ?? "", adopt: "1", ...(current.isLive ? { live: "1" } : {}), ...(current.queueMode ? { queueMode: "true" } : {}) },
     });
   }, [answerRestore]);
 
@@ -842,6 +876,7 @@ export function PlayerHost() {
           probe: request.probe,
           sessionKey: request.sessionKey,
           isLive: request.isLive,
+          queueMode: request.queueMode,
         });
         endSession();
       },

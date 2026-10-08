@@ -34,10 +34,12 @@ interface ColumnResizeOptions {
   initialCompact: boolean;
   /** Fires when the left magnet takes hold or lets go, so the rows collapse to logos and back. */
   onCompactChange: (compact: boolean) => void;
+  /** The column's width when a resize ends: the grid's own layout event misses the magnet's jump. */
+  onSettle: (width: number) => void;
 }
 
 /** One resize, two handles: the seam's grip and the NOW cell each get a pan over the same drag state. */
-export function useColumnResize({ columnW, canvasW, minWidth, maxWidth, initialCompact, onCompactChange }: ColumnResizeOptions) {
+export function useColumnResize({ columnW, canvasW, minWidth, maxWidth, initialCompact, onCompactChange, onSettle }: ColumnResizeOptions) {
   const start = useSharedValue(0);
   const compact = useSharedValue(initialCompact);
   // The seam grip also slides along its line: its offset from the band's centre, and the band's height.
@@ -58,15 +60,6 @@ export function useColumnResize({ columnW, canvasW, minWidth, maxWidth, initialC
         runOnJS(onCompactChange)(wantCompact);
       }
     };
-    const corner = Gesture.Pan()
-      .onBegin(() => {
-        "worklet";
-        start.set(columnW.get());
-      })
-      .onUpdate((event) => {
-        "worklet";
-        resize(event.translationX);
-      });
     // One axis per drag, picked by the first movement, so sliding the grip never nudges the width.
     const seam = Gesture.Pan()
       .onBegin(() => {
@@ -87,9 +80,13 @@ export function useColumnResize({ columnW, canvasW, minWidth, maxWidth, initialC
           const reach = Math.max(0, (bandH.get() - HIT_HEIGHT) / 2);
           gripY.set(clamp(gripStartY.get() + event.translationY, -reach, reach));
         }
+      })
+      .onFinalize(() => {
+        "worklet";
+        if (axis.get() === "x") runOnJS(onSettle)(columnW.get());
       });
-    return { seam, corner, gripY, bandH };
-  }, [columnW, canvasW, minWidth, maxWidth, start, compact, onCompactChange, gripY, gripStartY, bandH, axis]);
+    return { seam, gripY, bandH };
+  }, [columnW, canvasW, minWidth, maxWidth, start, compact, onCompactChange, onSettle, gripY, gripStartY, bandH, axis]);
 }
 
 interface GuideColumnDividerProps {

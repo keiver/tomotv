@@ -10,8 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Full history: the package version check diffs against the commit npm recorded per publish.
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -49,6 +52,11 @@ jobs:
       - name: Licenses are current
         run: npm run licenses && git diff --exit-code constants/bundled-licenses.ts
 
+      # Merging to main publishes every package version npm lacks, so a package change has to
+      # carry a new version, and its tarball has to carry what Cocuyo will compile.
+      - name: Package versions and tarballs
+        run: node scripts/package-versions.mjs --check && node scripts/package-versions.mjs --files
+
       # The playback suite itself needs a booted simulator, a built app and a Jellyfin
       # carrying the fixture libraries, so it stays local and this is the half CI can
       # hold: every item that records a baseline has one, and no baseline outlives its
@@ -62,9 +70,9 @@ jobs:
       - name: Screenshot slots hold their own captions
         run: npm run test:shots
 
-  # Package.swift is platforms: [.macOS(.v14)] and links the FFmpeg xcframeworks, which
-  # scripts/fetch-ffmpeg.js refuses to download off darwin. The engine cannot ride the
-  # ubuntu job.
+  # Both Swift packages are platforms: [.macOS(.v14)] and link the FFmpeg xcframeworks, which
+  # packages/tomo-engine/scripts/fetch-ffmpeg.js refuses to download off darwin. The engine
+  # cannot ride the ubuntu job.
   engine:
     runs-on: macos-latest
 

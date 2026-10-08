@@ -7,10 +7,12 @@ import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useMinuteClock } from "@/hooks/useMinuteClock";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
 import { t } from "@/services/i18n";
+import { showsChannelLogo } from "@/services/itemArtwork";
 import { isAudioItem, isBook } from "@/services/jellyfinApi";
 import { LIVE_FRAME_TRANSITION_MS, type LiveFrame } from "@/services/liveFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -42,15 +44,17 @@ const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track, and the watched eye. */
-export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now()): BadgeSegment[] | null {
+export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
   // A channel with something on air wears the live mark; the title bar names the programme.
   if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
   // A programme from search: live while it airs, when it starts before then, nothing once it ended.
+  // Recording, REC takes LIVE's place and a scheduled start wears the camera.
   if (video.Type === "Program") {
     const startMs = Date.parse(video.StartDate ?? "");
     if (Number.isNaN(startMs)) return null;
-    if (startMs <= nowMs) return Date.parse(video.EndDate ?? "") > nowMs ? [{ label: t("liveTv.live") }] : null;
-    return [{ label: `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)}` }];
+    if (startMs <= nowMs) return Date.parse(video.EndDate ?? "") > nowMs ? [{ label: t(recording ? "liveTv.rec" : "liveTv.live") }] : null;
+    const label = `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)}`;
+    return [recording ? { icon: "videocam", label } : { label }];
   }
   const segments: BadgeSegment[] = [];
   const badge = formatIndexBadge(video);
@@ -67,11 +71,25 @@ export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Dat
 type Mark = ComponentProps<typeof CardMark>;
 
 /** A channel card's marks: the tuner's number as the cards' gold pill when it gives one, the favorite heart after LIVE (REC while recording). */
-export function channelMarks(video: Pick<JellyfinVideoItem, "Type" | "ChannelNumber">, titleIcon?: keyof typeof Ionicons.glyphMap): { number?: string; trailing: Mark[] } {
+export function channelMarks(
+  video: Pick<JellyfinVideoItem, "Type" | "ChannelNumber">,
+  titleIcon?: keyof typeof Ionicons.glyphMap,
+  accent: string = COLORS.ACCENT,
+): { number?: string; trailing: Mark[] } {
   const trailing: Mark[] = [];
   if (video.Type !== "TvChannel") return { trailing };
-  if (titleIcon) trailing.push({ icon: titleIcon, color: COLORS.ACCENT });
+  if (titleIcon) trailing.push({ icon: titleIcon, color: accent });
   return { number: video.ChannelNumber?.trim() || undefined, trailing };
+}
+
+/** A programme card names its episode after the show, falling back to the channel when the guide gives no episode. */
+export function programCardTitle(video: Pick<JellyfinVideoItem, "Name" | "EpisodeTitle" | "ChannelName">): string {
+  return joinTitle(cleanLabel(video.Name), cleanLabel(video.EpisodeTitle) || cleanLabel(video.ChannelName));
+}
+
+/** "Lead - Detail", or the lead alone when the detail is missing or repeats it. */
+export function joinTitle(lead: string, detail: string): string {
+  return detail && detail !== lead ? `${lead} - ${detail}` : lead;
 }
 
 interface VideoGridItemProps {
@@ -123,12 +141,18 @@ interface VideoGridItemProps {
   clipActive?: boolean;
   /** Channel cards: the health check concluded down; the art dims and the corner badge says Offline. */
   offline?: boolean;
-  /** Channel cards: the server is recording this channel; a REC pill takes LIVE's place. */
+  /** Channel and programme cards: a timer covers it; REC takes LIVE's place, a scheduled programme's time wears the camera. */
   recording?: boolean;
   /** No resting depth shadow, for hosts that clip it; the focus glow stays. */
   flat?: boolean;
   /** Overrides the card's padding, for hosts that size the slot themselves. */
   inset?: { vertical: number; horizontal: number };
+  /** Drawn only, never focused or pressed: the theme editor's preview. */
+  inert?: boolean;
+  /** A bundled picture (a require'd module) in place of the item's own: the theme editor's preview. */
+  poster?: number;
+  /** The binge's next episode in its folder: its index pill wears the focused fill at rest too. */
+  bingeNext?: boolean;
 }
 
 /**
@@ -171,9 +195,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     recording = false,
     flat = false,
     inset,
+    inert = false,
+    poster,
+    bingeNext = false,
   },
   ref,
 ) {
+  const palette = useCardPalette();
   const [pressFocused, setPressFocused] = useState(false);
   // Touch has no focus engine, so a card can only be marked from the outside.
   const focused = pressFocused || highlighted;
@@ -209,20 +237,20 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // A programme's badge follows the clock: it goes live at its start and clears at its end.
   const clockMs = useMinuteClock(video.Type === "Program");
   const badgeSegments = useMemo(
-    () => indexBadgeSegments(video, clockMs || Date.now()),
+    () => indexBadgeSegments(video, clockMs || Date.now(), recording),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, video.StartDate, video.EndDate, video.UserData?.Played, clockMs],
+    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, video.StartDate, video.EndDate, video.UserData?.Played, clockMs, recording],
   );
   const isChannel = video.Type === "TvChannel";
+  const logoPoster = showsChannelLogo(video) && !liveFrame;
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
   // A channel card names what is on, then the channel: the logo and the badge already say which channel.
-  const programChannel = video.Type === "Program" ? video.ChannelName?.trim() : undefined;
   const videoName = cleanLabel(video.Name);
   // A channel's marks ride its badge row; its title stays alone.
   const titleMarkIcon = isChannel ? undefined : titleIcon;
-  const marks = channelMarks(video, titleIcon);
+  const marks = channelMarks(video, titleIcon, palette.accent);
   if (hideNumber) marks.number = undefined;
-  const cardTitle = airingName ? `${cleanLabel(airingName)} - ${videoName}` : programChannel ? `${videoName} - ${cleanLabel(programChannel)}` : videoName || t("common.unknown");
+  const cardTitle = airingName ? joinTitle(cleanLabel(airingName), videoName) : video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown");
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -280,11 +308,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       onPressIn={IS_TV ? undefined : handleFocus}
       onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
-      isTVSelectable={true}
+      isTVSelectable={!inert}
+      disabled={inert}
       hasTVPreferredFocus={hasTVPreferredFocus}
       nextFocusUp={nextFocusUp}
       nextFocusDown={nextFocusDown}
-      accessible={true}
+      accessible={!inert}
       // The card is ONE element to assistive tech (accessible flattens the
       // subtree): name as the label, watched progress as the VALUE — screen
       // readers announce "Name, 42% watched, button" and re-announce the value
@@ -302,14 +331,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
         inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
-      <View style={[styles.card, flat && styles.cardFlat, focused && styles.cardFocused]}>
+      <View style={[styles.card, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }]]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
-          {liveFrame || posterSource ? (
+          {liveFrame || poster || posterSource ? (
             <>
               <Image
-                source={liveFrame ?? posterSource}
-                style={[styles.poster, isChannel && !liveFrame && styles.posterLogo, offline && styles.posterOffline]}
-                contentFit={isChannel && !liveFrame ? "contain" : "cover"}
+                source={liveFrame ?? poster ?? posterSource}
+                style={[styles.poster, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
+                contentFit={logoPoster ? "contain" : "cover"}
                 // A newer grab's frame fades in; at rest the card holds still.
                 transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
                 priority={index < 10 ? "high" : "normal"}
@@ -321,7 +350,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               />
               {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
               <CardScrim />
-              {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
+              {(focused || bingeNext) && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
               {liveFrame && posterSource ? (
                 <>
                   <CardCornerScrim corner="right" />
@@ -370,20 +399,20 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // rides the near-black bottom scrim (gold over the remainder, black
             // over the fill). Decorative to a11y — the card announces name + value.
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-              <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%` }]} pointerEvents="none" />
+              <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%`, backgroundColor: palette.accent }]} pointerEvents="none" />
               <View style={[styles.infoTitleBlend, titleMarkIcon && styles.titleLineInset]}>
-                {renderTitleMark(COLORS.ACCENT)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold, isChannel && styles.infoValueTitleChannel])}>
+                {renderTitleMark(palette.accent)}
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color: palette.accent }, isChannel && styles.infoValueTitleChannel])}>
                   {cardTitle}
                 </MarqueeText>
               </View>
             </View>
           ) : // Focused: opaque gold bar
           focused ? (
-            <View style={[styles.infoOverlay, styles.infoOverlayFocused]}>
+            <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
               <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
-                {renderTitleMark(CARD_FOCUS.TITLE_TEXT_FOCUSED)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleFocused, isChannel && styles.infoValueTitleChannel])}>
+                {renderTitleMark(palette.ink)}
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color: palette.ink }, isChannel && styles.infoValueTitleChannel])}>
                   {cardTitle}
                 </MarqueeText>
               </View>
@@ -391,8 +420,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
               <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
-                {renderTitleMark(COLORS.ACCENT)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, styles.infoValueTitleGold, isChannel && styles.infoValueTitleChannel])}>
+                {renderTitleMark(palette.accent)}
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color: palette.accent }, isChannel && styles.infoValueTitleChannel])}>
                   {cardTitle}
                 </MarqueeText>
               </View>
@@ -410,7 +439,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : isChannel && recording ? (
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
               ) : badgeSegments ? (
-                <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
+                <CardBadge segments={badgeSegments} focused={focused || bingeNext} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
               ) : null}
               {marks.trailing.map((mark) => (
                 <CardMark key={mark.icon} {...mark} />
@@ -419,7 +448,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : null}
 
           {/* The lit edge and the focus border, on top so the art and the title bar sit under them */}
-          <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused]} pointerEvents="none" />
+          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }]]} pointerEvents="none" />
 
           {/* Per-card feedback while the pressed card's destination loads:
               the title bar becomes a sweeping gold progress fill. Resume
@@ -480,7 +509,10 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.recording === nextProps.recording &&
     prevProps.flat === nextProps.flat &&
     prevProps.inset?.vertical === nextProps.inset?.vertical &&
-    prevProps.inset?.horizontal === nextProps.inset?.horizontal
+    prevProps.inset?.horizontal === nextProps.inset?.horizontal &&
+    prevProps.inert === nextProps.inert &&
+    prevProps.poster === nextProps.poster &&
+    prevProps.bingeNext === nextProps.bingeNext
   );
 }
 
@@ -510,8 +542,8 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   // Overrides every resting shadow prop — a leftover depth offset would smear the glow downward.
+  // The glow's colour is the theme's, set inline.
   cardFocused: {
-    shadowColor: CARD_FOCUS.GLOW_COLOR,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: CARD_FOCUS.GLOW_OPACITY,
     shadowRadius: IS_TV ? CARD_FOCUS.GLOW_RADIUS.tv : CARD_FOCUS.GLOW_RADIUS.phone,
@@ -539,7 +571,6 @@ const styles = StyleSheet.create({
   // An inset shadow paints inside the border, so under the gold ring it reads as a second one.
   borderOverlayFocused: {
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    borderColor: CARD_FOCUS.BORDER_COLOR_FOCUSED,
     boxShadow: "none",
   },
   poster: {
@@ -599,7 +630,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
-    backgroundColor: COLORS.ACCENT,
   },
   placeholderPoster: {
     width: "100%",
@@ -625,9 +655,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
     borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
-  },
-  infoOverlayFocused: {
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
   // Resting bar: the scrimmed artwork tints through so the title area reads as part
   // of the poster, not a flat strip against the app background. Gold stays legible on
@@ -660,20 +687,12 @@ const styles = StyleSheet.create({
   titleLineInset: {
     paddingHorizontal: IS_TV ? TITLE_SIZE + 16 : TITLE_SIZE + 2,
   },
-  infoValueTitleFocused: {
-    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
-  },
   infoValueTitleChannel: {
     fontSize: TITLE_SIZE - 2,
     textTransform: "uppercase",
   },
-  // Gold resting title. On progress cards it runs through a difference blend:
-  // difference(gold, gold fill) cancels to black; difference(gold, dark bar)
-  // stays gold — the text inverts per-pixel at the fill edge, whatever
-  // fraction of it the fill covers, including mid-marquee.
-  infoValueTitleGold: {
-    color: COLORS.ACCENT,
-  },
+  // The accent title on progress cards runs through a difference blend: over the accent fill it
+  // cancels to black, over the dark bar it stays the accent, per pixel at the fill edge.
   infoTitleBlend: {
     width: "100%",
     mixBlendMode: "difference",

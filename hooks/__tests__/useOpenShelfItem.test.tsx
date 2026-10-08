@@ -92,6 +92,17 @@ describe("useOpenShelfItem", () => {
     expect(mockBuildQueue).not.toHaveBeenCalled();
   });
 
+  it("tunes a guide-source programme on now, and preserves a later programme in its panel", () => {
+    const now = Date.now();
+    const iso = (offsetMin: number) => new Date(now + offsetMin * 60_000).toISOString();
+    const handle = mountHarness();
+    handle.open({ Id: "epg:tbs:1", Name: "MLB Baseball", Type: "Program", ChannelId: "tbs", ChannelName: "TBS", StartDate: iso(-10), EndDate: iso(20) } as JellyfinItem);
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/player", params: { videoId: "tbs", videoName: "TBS", live: "1" } });
+    const later = { Id: "epg:tbs:2", Name: "MLB Baseball", Type: "Program", ChannelId: "tbs", ChannelName: "TBS", StartDate: iso(60), EndDate: iso(90), Overview: "Yankees at Rays." } as JellyfinItem;
+    handle.open(later);
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/video-info", params: { videoId: "tbs", name: "MLB Baseball", guideProgram: JSON.stringify(later) } });
+  });
+
   it("replaces the presenting sheet with a live channel when asked", () => {
     mountHarness().open({ Id: "ch1", Name: "Al Jazeera", Type: "TvChannel" } as JellyfinItem, { replace: true });
 

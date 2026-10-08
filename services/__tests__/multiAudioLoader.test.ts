@@ -551,6 +551,35 @@ describe("multiAudioLoader", () => {
         expect(shouldUseMultiAudio(videoItem)).toBe(false);
       });
     });
+
+    it("registers the plugin once on iOS, and skips another platform or a missing module", async () => {
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock("react-native", () => ({ Platform: { OS: "android" }, NativeModules: {} }));
+        await expect((require("../multiAudioLoader") as typeof import("../multiAudioLoader")).registerMultiAudioPlugin()).resolves.toBeUndefined();
+      });
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock("react-native", () => ({ Platform: { OS: "ios" }, NativeModules: {} }));
+        await expect((require("../multiAudioLoader") as typeof import("../multiAudioLoader")).registerMultiAudioPlugin()).resolves.toBeUndefined();
+      });
+      await jest.isolateModulesAsync(async () => {
+        const registerVideoPlugin = jest.fn().mockResolvedValue(undefined);
+        jest.doMock("react-native", () => ({ Platform: { OS: "ios" }, NativeModules: { MultiAudioResourceLoader: { registerVideoPlugin } } }));
+        const loader = require("../multiAudioLoader") as typeof import("../multiAudioLoader");
+        await loader.registerMultiAudioPlugin();
+        await loader.registerMultiAudioPlugin();
+        expect(registerVideoPlugin).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("rethrows a registration the native module refuses", async () => {
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock("react-native", () => ({
+          Platform: { OS: "ios" },
+          NativeModules: { MultiAudioResourceLoader: { registerVideoPlugin: jest.fn().mockRejectedValue(new Error("no player")) } },
+        }));
+        await expect((require("../multiAudioLoader") as typeof import("../multiAudioLoader")).registerMultiAudioPlugin()).rejects.toThrow("no player");
+      });
+    });
   });
 
   describe("Integration behavior (documented)", () => {
@@ -617,6 +646,31 @@ describe("multiAudioLoader", () => {
         await loader.registerMultiAudioPlugin();
         await expect(loader.prepareMultiAudioPlayback(source.Id, source, "http://server/Videos/test-video/master.m3u8", "key")).resolves.toBe(legacyUrl);
         expect(generateCustomUrl).toHaveBeenCalledWith(source.Id);
+      });
+    });
+
+    it("hands the I-frame line to native after configuring, and plays on with a binary that lacks the method", async () => {
+      await jest.isolateModulesAsync(async () => {
+        const order: string[] = [];
+        const setIFrameStreamInf = jest.fn().mockImplementation(async () => order.push("iframes"));
+        const module: Record<string, unknown> = {
+          registerVideoPlugin: jest.fn().mockResolvedValue(undefined),
+          configureResourceLoader: jest.fn().mockImplementation(async () => {
+            order.push("configure");
+            return "jellyfin-multi://server/Videos/test-video/master.m3u8?configId=c";
+          }),
+          setIFrameStreamInf,
+        };
+        jest.doMock("react-native", () => ({ Platform: { OS: "ios" }, NativeModules: { MultiAudioResourceLoader: module } }));
+        const loader = require("../multiAudioLoader") as typeof import("../multiAudioLoader");
+        const source = createMockVideoItem({ MediaStreams: [{ Type: "Audio", Codec: "aac", Index: 1 }] });
+        await loader.registerMultiAudioPlugin();
+        const line = '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=1,URI="http://127.0.0.1/frame-x/iframes.m3u8"';
+        await loader.prepareMultiAudioPlayback(source.Id, source, "http://server/Videos/test-video/master.m3u8", "key", line);
+        expect(setIFrameStreamInf).toHaveBeenCalledWith(line, source.Id);
+        expect(order).toEqual(["configure", "iframes"]);
+        delete module.setIFrameStreamInf;
+        await expect(loader.prepareMultiAudioPlayback(source.Id, source, "http://server/Videos/test-video/master.m3u8", "key", line)).resolves.toContain("jellyfin-multi://");
       });
     });
 

@@ -4,14 +4,15 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { AppState, type AppStateStatus } from "react-native";
-import { fetchChannels, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
+import { fetchChannels, fetchGuideHorizon, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { GUIDE_CHANNEL_PAGE, useGuide } from "../useGuide";
-import { GUIDE_HORIZON_MINUTES, GUIDE_SPAN_MINUTES, MINUTE_MS } from "@/utils/guide";
+import { dayStartMs, GUIDE_DAYS, GUIDE_SPAN_MINUTES, guideDays, guideWindowStart, MINUTE_MS } from "@/utils/guide";
 import { noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 
 jest.mock("@/services/jellyfinApi", () => ({
   fetchChannels: jest.fn(),
   fetchChannelsByIds: jest.fn(),
+  fetchGuideHorizon: jest.fn(async () => null),
   fetchGuidePrograms: jest.fn(),
   fetchListedChannels: jest.fn(),
   fetchTimers: jest.fn(),
@@ -91,11 +92,15 @@ const program = (id: string, channelId: string, startMin: number, endMin: number
 });
 
 describe("useGuide", () => {
+  // Ten past midnight: today's guide runs four spans to the next midnight, the stretch the window tests walk.
+  const CLOCK = new Date(2026, 9, 3, 0, 10).getTime();
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(Date, "now").mockReturnValue(CLOCK);
     mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
   });
+  afterEach(() => jest.restoreAllMocks());
 
   it("held to favorites, fetches the listed channels in one page, asks programs for them alone, and never pages the catalog", async () => {
     mockPreferences = { ...mockPreferences, filter: "favorites", favorites: [{ id: "c2", name: "Channel 2" }, { name: "Channel 9" }] };
@@ -524,9 +529,9 @@ describe("useGuide", () => {
       (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
       listEveryStretch();
       const ref = await mount();
-      const start = await walkRight(ref, 5);
-      expect(ref.current!.get().windowEndMs).toBe(start + 6 * span);
-      expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([3, 4, 5].map((k) => `c1-${start + k * span}`));
+      const start = await walkRight(ref, 3);
+      expect(ref.current!.get().windowEndMs).toBe(start + 4 * span);
+      expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([1, 2, 3].map((k) => `c1-${start + k * span}`));
     });
 
     it("a channel whose listings end behind the loaded stretch keeps its last programme, so its row never reads as one without listings", async () => {
@@ -541,19 +546,21 @@ describe("useGuide", () => {
         return channelIds.filter((id) => id === "c1" || early).map((id) => program(`${id}-${startMs}`, id, 0, 30, startMs));
       });
       const ref = await mount();
-      const start = await walkRight(ref, 5);
+      const start = await walkRight(ref, 3);
       expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual([`c2-${start + span}`]);
     });
 
-    it("going back reloads the span it let go, and after a jump loads the stretch asked for alone", async () => {
+    it("a jump loads the stretch asked for alone, and going back reloads the span it let go", async () => {
       (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
       listEveryStretch();
       const ref = await mount();
-      const start = await walkRight(ref, 5);
-      await act(async () => ref.current!.get().holdWindow(start + 2.5 * span, start + 3.5 * span));
+      const start = ref.current!.get().windowStartMs;
+      // A fling to the day's last span: nothing in between is asked for.
+      await act(async () => ref.current!.get().holdWindow(start + 3 * span, start + 4 * span));
       await settle();
-      expect(lastFetch()).toMatchObject({ startMs: start + 2 * span, endMs: start + 3 * span });
-      expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([2, 3, 4, 5].map((k) => `c1-${start + k * span}`));
+      expect(lastFetch()).toMatchObject({ startMs: start + 3 * span, endMs: start + 4 * span });
+      expect(ref.current!.get().windowEndMs).toBe(start + 4 * span);
+      expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([`c1-${start + 3 * span}`]);
 
       await act(async () => ref.current!.get().holdWindow(start, start + span));
       await settle();
@@ -562,13 +569,16 @@ describe("useGuide", () => {
       expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([`c1-${start}`]);
     });
 
-    it("ends two days out: a stretch crossing the horizon loads up to it, one past it loads nothing", async () => {
+    it("ends at the picked day's midnight: a stretch crossing it loads up to it, one past it loads nothing", async () => {
       (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
       listEveryStretch();
       const ref = await mount();
-      const start = await walkRight(ref, 6);
-      const horizon = start + GUIDE_HORIZON_MINUTES * MINUTE_MS;
-      expect(GUIDE_HORIZON_MINUTES).toBe(48 * 60);
+      const tomorrow = guideDays(Date.now())[1];
+      await act(async () => ref.current!.get().selectDay(tomorrow));
+      await settle();
+      const start = await walkRight(ref, 2);
+      expect(start).toBe(tomorrow);
+      const horizon = guideDays(Date.now())[2];
       await act(async () => ref.current!.get().holdWindow(horizon - span / 2, horizon + span));
       await settle();
       expect(lastFetch()).toMatchObject({ startMs: horizon - span, endMs: horizon });
@@ -581,6 +591,97 @@ describe("useGuide", () => {
       expect(ref.current!.get().windowEndMs).toBe(horizon);
     });
 
+    it("opens on today at the current half hour, and on a picked day at its midnight with the listings reloaded for it", async () => {
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program(`p-${startMs}`, "c1", 0, 30, startMs)]);
+      const ref = await mount();
+      const now = Date.now();
+      expect(ref.current!.get().selectedDayMs).toBe(dayStartMs(now));
+      expect(ref.current!.get().windowStartMs).toBe(guideWindowStart(now));
+      expect(ref.current!.get().days.map((day) => day.startMs)).toEqual(guideDays(now));
+
+      const day3 = guideDays(now)[2];
+      await act(async () => ref.current!.get().selectDay(day3));
+      await settle();
+      expect(ref.current!.get().selectedDayMs).toBe(day3);
+      expect(ref.current!.get().windowStartMs).toBe(day3);
+      expect(ref.current!.get().windowEndMs).toBe(day3 + span);
+      expect(lastFetch()).toMatchObject({ channelIds: ["c1"], startMs: day3, endMs: day3 + span });
+      expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([`p-${day3}`]);
+
+      // Today again: back to now, the listings loaded afresh.
+      await act(async () => ref.current!.get().selectDay(dayStartMs(now)));
+      await settle();
+      expect(ref.current!.get().windowStartMs).toBe(guideWindowStart(Date.now()));
+      expect(lastFetch().startMs).toBe(guideWindowStart(Date.now()));
+    });
+
+    it("marks the days up to the server guide's end as having listings, the rest as none, and a loaded day as having them whatever the server said", async () => {
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      const now = Date.now();
+      const days = guideDays(now);
+      (fetchGuideHorizon as jest.Mock).mockResolvedValue(days[6] + 10 * 60 * MINUTE_MS);
+      (fetchGuidePrograms as jest.Mock).mockResolvedValue([program("epg:far", "c1", 0, 30, days[12] + 60 * MINUTE_MS)]);
+      const ref = await mount();
+      const listings = ref.current!.get().days.map((day) => day.hasListings);
+      expect(listings).toHaveLength(GUIDE_DAYS);
+      expect(listings.slice(0, 7)).toEqual(Array(7).fill(true));
+      expect(listings.slice(7, 12)).toEqual(Array(5).fill(false));
+      expect(listings[12]).toBe(true);
+      expect(listings[13]).toBe(false);
+    });
+
+    it("never closes a day past the server guide's end while an added guide may list it", async () => {
+      const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+      const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+      updateLiveTvPreferences({ guideUrls: ["http://mine/guide.xml"] });
+      fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchGuideHorizon as jest.Mock).mockResolvedValue(guideDays(Date.now())[0] + 10 * 60 * MINUTE_MS);
+      (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+      let ref: React.RefObject<HookRef | null>;
+      try {
+        ref = await mount();
+      } finally {
+        updateLiveTvPreferences({ guideUrls: [] });
+      }
+      expect(ref.current!.get().days.some((day) => day.hasListings === false)).toBe(false);
+    });
+
+    it("reopens the days past the server guide's end when a guide is added after the guide loaded, and closes them when it goes", async () => {
+      const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+      const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+      fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchGuideHorizon as jest.Mock).mockResolvedValue(guideDays(Date.now())[0] + 10 * 60 * MINUTE_MS);
+      (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+      const ref = await mount();
+      expect(ref.current!.get().days[3].hasListings).toBe(false);
+
+      const sources = (guideUrls: string[]) => {
+        updateLiveTvPreferences({ guideUrls });
+        mockPreferences = { ...mockPreferences, guideUrls, guideSourcesOff: [] } as typeof mockPreferences;
+        act(() => mounted!.update(<Harness ref={ref} />));
+        return settle();
+      };
+      try {
+        await sources(["http://mine/guide.xml"]);
+        expect(ref.current!.get().days.some((day) => day.hasListings === false)).toBe(false);
+      } finally {
+        await sources([]);
+      }
+      expect(ref.current!.get().days[3].hasListings).toBe(false);
+    });
+
+    it("knows no day's listings before the server answers", async () => {
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+      (fetchGuideHorizon as jest.Mock).mockReturnValue(new Promise(() => {}));
+      const ref = await mount();
+      expect(ref.current!.get().days.every((day) => day.hasListings === null)).toBe(true);
+    });
+    // end of the day tests; the window tests continue
+
     it("a page loaded after a trim asks listings for the loaded stretch alone", async () => {
       const many = Array.from({ length: GUIDE_CHANNEL_PAGE + 1 }, (_, i) => channel(i + 1));
       (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex, limit }: { startIndex: number; limit: number }) => ({
@@ -589,10 +690,10 @@ describe("useGuide", () => {
       }));
       listEveryStretch();
       const ref = await mount();
-      const start = await walkRight(ref, 5);
+      const start = await walkRight(ref, 3);
       await act(async () => ref.current!.get().loadMoreRows());
       await settle();
-      expect(lastFetch()).toEqual({ channelIds: [`c${GUIDE_CHANNEL_PAGE + 1}`], startMs: start + 3 * span, endMs: start + 6 * span });
+      expect(lastFetch()).toEqual({ channelIds: [`c${GUIDE_CHANNEL_PAGE + 1}`], startMs: start + span, endMs: start + 4 * span });
     });
 
     it("a group change opens the next group at the window's start and lets go of the last group's listings", async () => {

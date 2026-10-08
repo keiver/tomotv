@@ -5,13 +5,10 @@
  */
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
-jest.mock("@/services/jellyfin/session", () => ({ getQualitySettings: jest.fn() }));
 
-import { QUALITY_PRESETS } from "@/services/jellyfin/constants";
 import { needsTranscoding } from "@/services/jellyfin/media";
-import { getQualitySettings } from "@/services/jellyfin/session";
 import { getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
-import { CONVERT_AUDIO_BITRATE, conversionAudioIndex, conversionRung, convertedItem, estimatedConvertedBytes } from "@/services/downloads/convert";
+import { CONVERT_AUDIO_BITRATE, conversionAudioIndex, convertedItem, downloadRungs, estimatedConvertedBytes, subtitleToBurn } from "@/services/downloads/convert";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const RUNG = { label: "1080p", bitrate: 8000000, width: 1920, height: 1080 };
@@ -33,15 +30,47 @@ const SOURCE = {
   ],
 } as unknown as JellyfinVideoItem;
 
-describe("conversionRung", () => {
-  it("uses the pinned preset", async () => {
-    (getQualitySettings as jest.Mock).mockResolvedValue({ ...QUALITY_PRESETS[2], index: 2, mode: "fixed" });
-    expect(await conversionRung()).toEqual({ label: "720p", bitrate: 4000000, width: 1280, height: 720 });
+/** A source at the given height and video bitrate. */
+const videoAt = (height: number, bitrate?: number): JellyfinVideoItem =>
+  ({
+    Id: "v",
+    MediaSources: [{ Id: "s" }],
+    MediaStreams: [{ Index: 0, Type: "Video", Codec: "h264", Width: Math.round((height * 16) / 9), Height: height, BitRate: bitrate }],
+  }) as unknown as JellyfinVideoItem;
+
+describe("downloadRungs", () => {
+  it("offers every rung under an 8K source, largest first", () => {
+    expect(downloadRungs(SOURCE).map((rung) => rung.label)).toEqual(["1080p", "720p", "480p"]);
   });
 
-  it("lands Auto on 1080p, since a file has no link to adapt to", async () => {
-    (getQualitySettings as jest.Mock).mockResolvedValue({ ...QUALITY_PRESETS[5], index: 5, mode: "auto" });
-    expect(await conversionRung()).toEqual(RUNG);
+  // Jellyfin stream-copies video whose bitrate already sits under the request, so a rung at or
+  // above the source's video bitrate would land the same picture and is not a smaller file.
+  it("offers only rungs under the source's own video bitrate", () => {
+    expect(downloadRungs(videoAt(1080, 6_000_000)).map((rung) => rung.label)).toEqual(["720p", "480p"]);
+    expect(downloadRungs(videoAt(1080, 25_000_000)).map((rung) => rung.label)).toEqual(["1080p", "720p", "480p"]);
+    expect(downloadRungs(videoAt(720, 1_000_000))).toEqual([]);
+  });
+
+  // An MKV whose BPS tag says 4 Mbps while the whole file runs at 1 Mbps: the container caps the video.
+  it("judges the video bitrate by the container when the stream tag claims more", () => {
+    const mistagged = { ...videoAt(720, 4_030_137), MediaSources: [{ Id: "s", Bitrate: 1_040_540 }] } as unknown as JellyfinVideoItem;
+    expect(downloadRungs(mistagged)).toEqual([]);
+  });
+
+  // A scope film cropped to 1920x1040 is 1080p: the rung is judged by the box, either side.
+  it("offers 1080p for a letterboxed 1920x1040 film", () => {
+    const letterboxed = { ...videoAt(1040, 5_251_115), MediaStreams: [{ Index: 0, Type: "Video", Codec: "hevc", Width: 1920, Height: 1040, BitRate: 25_000_000 }] } as unknown as JellyfinVideoItem;
+    expect(downloadRungs(letterboxed).map((rung) => rung.label)).toEqual(["1080p", "720p", "480p"]);
+  });
+
+  it("offers nothing to shrink an audio track or an unknown-height video", () => {
+    expect(downloadRungs({ Id: "a", MediaStreams: [{ Index: 0, Type: "Audio", Codec: "flac" }] } as unknown as JellyfinVideoItem)).toEqual([]);
+    expect(downloadRungs(videoAt(0))).toEqual([]);
+  });
+
+  it("always offers the lowest rung when the original cannot be kept", () => {
+    expect(downloadRungs(videoAt(720, 1_000_000), false).map((rung) => rung.label)).toEqual(["720p", "480p"]);
+    expect(downloadRungs(videoAt(360), false).map((rung) => rung.label)).toEqual(["480p"]);
   });
 });
 
@@ -71,9 +100,39 @@ describe("convertedItem", () => {
     expect(mono.MediaStreams?.[0]).toMatchObject({ Channels: 1, ChannelLayout: "mono" });
   });
 
-  it("keeps text subtitle streams by source index for the sidecars and drops image ones", () => {
+  it("carries the track picked at download time instead, and ignores a pick the file does not have", () => {
+    const picked = convertedItem(SOURCE, RUNG, 1).MediaStreams?.filter((stream) => stream.Type === "Audio");
+    expect(picked).toHaveLength(1);
+    expect(picked?.[0]).toMatchObject({ Index: 1, Language: "eng", IsDefault: true });
+    expect(conversionAudioIndex(SOURCE, 9)).toBe(2);
+  });
+
+  it("keeps text subtitle streams by source index for the sidecars and drops bitmap ones", () => {
     expect(getTextSubtitleStreams(converted).map((stream) => stream.Index)).toEqual([3, 5]);
     expect(converted.MediaStreams?.some((stream) => stream.Codec === "PGSSUB")).toBe(false);
+  });
+
+  // Measured on Jellyfin with SubtitleMethod=Encode: PGS, DVD and DVB burn into the picture. It files
+  // XSUB and teletext as text, and its ffmpeg refuses XSUB to SRT, so those never burn.
+  it("burns the shown track only when it is a bitmap Jellyfin burns: PGS, DVD or DVB", () => {
+    const item = {
+      ...SOURCE,
+      MediaStreams: [
+        { Index: 3, Type: "Subtitle", Codec: "DVBSUB" },
+        { Index: 4, Type: "Subtitle", Codec: "PGSSUB" },
+        { Index: 5, Type: "Subtitle", Codec: "subrip" },
+        { Index: 6, Type: "Subtitle", Codec: "xsub" },
+        { Index: 7, Type: "Subtitle", Codec: "DVDSUB" },
+        { Index: 8, Type: "Subtitle", Codec: "dvb_teletext" },
+      ],
+    } as unknown as JellyfinVideoItem;
+    expect(subtitleToBurn(item, 3)).toBe(3);
+    expect(subtitleToBurn(item, 4)).toBe(4);
+    expect(subtitleToBurn(item, 7)).toBe(7);
+    expect(subtitleToBurn(item, 6)).toBeUndefined();
+    expect(subtitleToBurn(item, 8)).toBeUndefined();
+    expect(subtitleToBurn(item, 5)).toBeUndefined();
+    expect(subtitleToBurn(item, undefined)).toBeUndefined();
   });
 
   it("is an mp4 of unknown size, which direct play opens as it stands", () => {

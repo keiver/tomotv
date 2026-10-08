@@ -6,6 +6,8 @@
  * hook) so services and hooks can both use it: raw fetch/AVPlayer errors carry
  * native exception text and source filenames that must never reach a screen.
  */
+import { t } from "@/services/i18n";
+import type { StringKey } from "@/services/i18n/strings";
 
 /**
  * Error types for video playback classification
@@ -114,31 +116,21 @@ export function classifyPlaybackError(error: unknown): PlaybackErrorType {
   return PlaybackErrorType.UNKNOWN;
 }
 
-/**
- * Gets a user-friendly error message based on error type
- */
+const PLAYBACK_ERROR_KEYS: Record<PlaybackErrorType, StringKey> = {
+  [PlaybackErrorType.NOT_FOUND]: "player.error.notFound",
+  [PlaybackErrorType.UNAUTHORIZED]: "player.error.unauthorized",
+  [PlaybackErrorType.NETWORK]: "player.error.network",
+  [PlaybackErrorType.TIMEOUT]: "player.error.timeout",
+  [PlaybackErrorType.CORRUPT]: "player.error.corrupt",
+  [PlaybackErrorType.DECODE]: "player.error.decode",
+  [PlaybackErrorType.STALLED]: "player.error.stalled",
+  [PlaybackErrorType.PROTECTED]: "player.error.protected",
+  [PlaybackErrorType.UNKNOWN]: "player.error.unknown",
+};
+
+/** The error screen's message for a classified failure, in the active language. */
 export function getPlaybackErrorMessage(errorType: PlaybackErrorType): string {
-  switch (errorType) {
-    case PlaybackErrorType.NOT_FOUND:
-      return "Video not found on server";
-    case PlaybackErrorType.UNAUTHORIZED:
-      return "Authentication failed. Your session may have expired.";
-    case PlaybackErrorType.NETWORK:
-      return "Unable to connect to Jellyfin server";
-    case PlaybackErrorType.TIMEOUT:
-      return "Connection timed out. Please check your network";
-    case PlaybackErrorType.CORRUPT:
-      return "This video file appears to be corrupted or in an unsupported format";
-    case PlaybackErrorType.DECODE:
-      return "Unable to decode video. Try a different quality setting";
-    case PlaybackErrorType.STALLED:
-      return "Playback stalled while waiting for the server";
-    case PlaybackErrorType.PROTECTED:
-      return "This channel is DRM protected and cannot be played";
-    case PlaybackErrorType.UNKNOWN:
-    default:
-      return "Failed to load video";
-  }
+  return t(PLAYBACK_ERROR_KEYS[errorType] ?? "player.error.unknown");
 }
 
 /** True when the error looks like the server being unreachable (vs. a data problem). */

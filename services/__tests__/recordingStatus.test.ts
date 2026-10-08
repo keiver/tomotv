@@ -162,12 +162,27 @@ describe("recordingStatus", () => {
     expect(getRecordingStatus().running).toHaveLength(1);
     reportRecordingTimers([timer({ Id: "a", Status: "Cancelled" }), timer({ Id: "b", Status: "New", StartDate: at(5), EndDate: at(35) })]);
     expect(getRecordingStatus().running).toEqual([]);
+    expect(getRecordingStatus().active.map((entry) => entry.Id)).toEqual(["b"]);
     expect(listener).toHaveBeenCalledTimes(2);
     jest.mocked(fetchTimers).mockResolvedValue([timer({ Id: "b", StartDate: at(5), EndDate: at(35) })]);
     jest.advanceTimersByTime(5 * 60_000 + 2_000);
     await flush();
     expect(fetchTimers).toHaveBeenCalledTimes(2);
     expect(getRecordingStatus().running.map((entry) => entry.Id)).toEqual(["b"]);
+  });
+
+  it("an edited timer replaces the reading: its programme, channel, times and padding move the marks", async () => {
+    const scheduled = timer({ Id: "a", Status: "New", ProgramId: "p1", StartDate: at(60), EndDate: at(120) });
+    jest.mocked(fetchTimers).mockResolvedValue([scheduled]);
+    const listener = jest.fn();
+    subscribeRecordingStatus(listener);
+    await flush();
+    const edits: Partial<JellyfinTimer>[] = [{ ProgramId: "p2" }, { ChannelId: "ch2" }, { StartDate: at(70) }, { EndDate: at(130) }, { PrePaddingSeconds: 60 }, { PostPaddingSeconds: 60 }];
+    for (const edit of edits) {
+      reportRecordingTimers([{ ...scheduled, ...edit }]);
+      expect(getRecordingStatus().active[0]).toMatchObject(edit);
+    }
+    expect(listener).toHaveBeenCalledTimes(1 + edits.length);
   });
 
   it("skips the server while it offers no Live TV", async () => {

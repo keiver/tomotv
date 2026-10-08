@@ -19,6 +19,7 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 jest.mock("@/services/jellyfin/session", () => ({
   getConfig: jest.fn(async () => ({ server: "https://jf", apiKey: "key", userId: "u", deviceId: "d" })),
   getAuthHeader: jest.fn(() => 'MediaBrowser Token="key"'),
+  generatePlaySessionId: jest.fn(() => `session-${Math.random()}`),
 }));
 
 jest.mock("@/services/jellyfin/constants", () => ({ API_TIMEOUTS: { QUICK: 10000 } }));
@@ -32,7 +33,6 @@ jest.mock("@/services/jellyfin/streamUrls", () => ({
 }));
 const RUNG = { label: "1080p", bitrate: 8000000, width: 1920, height: 1080 };
 jest.mock("@/services/downloads/convert", () => ({
-  conversionRung: jest.fn(async () => RUNG),
   conversionAudioIndex: jest.fn(() => 1),
   convertedItem: jest.fn((item: { MediaSources: { Id: string }[] }) => ({ ...item, Container: "mp4", MediaSources: [{ Id: item.MediaSources[0].Id, Container: "mp4" }] })),
 }));
@@ -47,6 +47,7 @@ jest.mock("@/services/jellyfin/subtitles", () => ({
 
 import { downloadManager, resetDownloadPolicyCache } from "@/services/downloads/manager";
 import { localArtworkUri, localSubtitleUri, playbackArtworkUri } from "@/services/downloads/localSource";
+import { getConvertedDownloadUrl } from "@/services/jellyfin/streamUrls";
 import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache } from "@/services/downloads/manifest";
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
 import { hasPoster } from "@/services/jellyfin/images";
@@ -181,6 +182,37 @@ describe("downloadManager", () => {
 
     stopList();
     stopRow();
+  });
+
+  it("sums the running transfers' rates once a second and reads zero once they stop", async () => {
+    jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+    try {
+      const meter = jest.fn();
+      const stop = downloadManager.subscribeThroughput(meter);
+      expect(meter).toHaveBeenLastCalledWith(0);
+
+      await add(ITEM("a"));
+      await add(ITEM("b"));
+      // The first sample only anchors the counters.
+      tasks[0].options.onProgress?.({ bytesWritten: 10, totalBytes: 100 });
+      tasks[1].options.onProgress?.({ bytesWritten: 20, totalBytes: 100 });
+      jest.advanceTimersByTime(1000);
+      expect(meter).toHaveBeenLastCalledWith(0);
+
+      tasks[0].options.onProgress?.({ bytesWritten: 40, totalBytes: 100 });
+      tasks[1].options.onProgress?.({ bytesWritten: 70, totalBytes: 100 });
+      jest.advanceTimersByTime(1000);
+      expect(meter).toHaveBeenLastCalledWith(80);
+
+      tasks[0].complete(100);
+      tasks[1].complete(100);
+      await settle();
+      expect(meter).toHaveBeenLastCalledWith(0);
+      expect(jest.getTimerCount()).toBe(0);
+      stop();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("resumes from the in-memory handle, and never writes it to disk", async () => {
@@ -346,7 +378,7 @@ describe("downloadManager", () => {
   // The server re-encodes on the way down: the transfer reads the progressive endpoint, lands
   // as an MP4 of unknown size, and the manifest describes that file rather than the source.
   it("fetches a conversion from the progressive endpoint and stores the converted item", async () => {
-    await downloadManager.enqueue(ITEM("a"), { convert: true });
+    await downloadManager.enqueue(ITEM("a"), { convert: RUNG });
     await settle();
     expect(File.createDownloadTask).toHaveBeenCalledWith("https://jf/Videos/a/stream.mp4?MaxWidth=1920&AudioStreamIndex=1", expect.anything(), expect.anything());
     const entry = manifestEntry("a");
@@ -361,7 +393,7 @@ describe("downloadManager", () => {
   });
 
   it("never asks the Download policy for a conversion", async () => {
-    await downloadManager.enqueue(ITEM("a"), { convert: true });
+    await downloadManager.enqueue(ITEM("a"), { convert: RUNG });
     await settle();
     expect(fetchWithTimeout).not.toHaveBeenCalled();
   });
@@ -372,6 +404,34 @@ describe("downloadManager", () => {
  * then addresses a directory that no longer exists, which stalls the player instead of falling
  * back to the server.
  */
+describe("a server conversion", () => {
+  // Jellyfin sends a transcode with Accept-Ranges: none, so a paused one could only restart from 0.
+  it("ignores a pause and keeps transferring", async () => {
+    await downloadManager.enqueue(ITEM("a"), { convert: RUNG });
+    await settle();
+    const paused = jest.spyOn(tasks[0], "pauseAsync");
+    await downloadManager.pause("a");
+    expect(paused).not.toHaveBeenCalled();
+    expect(manifestEntry("a")?.state).toBe("downloading");
+  });
+
+  // Jellyfin names a transcode's file from the media path, device and play session only, so a
+  // fetch without its own session could be handed an earlier conversion's file at another size.
+  it("fetches under a fresh play session each time, burning the track it was asked to", async () => {
+    await downloadManager.enqueue(ITEM("a"), { convert: RUNG, burnSubtitleIndex: 3 });
+    await settle();
+    expect(manifestEntry("a")?.burnedSubtitle).toBe(3);
+    const first = (getConvertedDownloadUrl as jest.Mock).mock.calls.at(-1)?.[4];
+    expect(first).toEqual({ playSessionId: expect.stringMatching(/^session-/), burnSubtitleIndex: 3 });
+
+    await downloadManager.enqueue(ITEM("b"), { convert: RUNG });
+    await settle();
+    const second = (getConvertedDownloadUrl as jest.Mock).mock.calls.at(-1)?.[4];
+    expect(second.burnSubtitleIndex).toBeUndefined();
+    expect(second.playSessionId).not.toBe(first.playSessionId);
+  });
+});
+
 describe("downloads across a container change", () => {
   const readyDownload = async () => {
     await add(ITEM("a"));

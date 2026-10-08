@@ -17,6 +17,7 @@ import {
 } from "../jellyfinApi";
 import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
 import { recordClose, recordedOpens, recordOpen } from "../jellyfin/liveOpens";
+import { logger } from "@/utils/logger";
 
 jest.mock("../jellyfin/liveOpens", () => {
   const opens = new Map<string, { server: string; deviceId: string }>();
@@ -753,6 +754,17 @@ describe("live TV client", () => {
     expect(recordClose).toHaveBeenCalledWith("ls-80");
   });
 
+  it("logs how many leftover opens are still held after a close no server answered", async () => {
+    const info = jest.spyOn(logger, "info");
+    recordOpen("ls-95", { server: SERVER, deviceId: "test-device-id" });
+    recordOpen("ls-96", { server: SERVER, deviceId: "test-device-id" });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 }).mockRejectedValueOnce(new Error("Network request failed"));
+    await closeLeftoverOpens();
+    expect(info).toHaveBeenCalledWith("Live opens left by a previous run", { service: "LiveTv", count: 2, kept: 1 });
+    expect(recordedOpens()).toEqual({ "ls-96": { server: SERVER, deviceId: "test-device-id" } });
+    info.mockRestore();
+  });
+
   it("closes an open left on another server with that account's saved token", async () => {
     recordOpen("ls-90", { server: "http://elsewhere:8096", deviceId: "other-device" });
     mockAccounts.splice(0, mockAccounts.length, { serverUrl: "http://elsewhere:8096/", serverId: "srv2", userId: "u2", deviceId: "other-device" });
@@ -798,6 +810,7 @@ describe("guide and DVR calls", () => {
     cancelTimer,
     createSeriesTimer,
     createTimer,
+    fetchGuideHorizon,
     fetchGuidePrograms,
     fetchLiveTvManagement,
     fetchProgram,
@@ -847,6 +860,25 @@ describe("guide and DVR calls", () => {
     ok({ Items: [] });
     await fetchGuidePrograms({ channelIds: [], startMs: 0, endMs: 1 });
     expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)).not.toHaveProperty("ChannelIds");
+  });
+
+  it("reads where the guide ends off its last program's start, one item sorted last first", async () => {
+    ok({ Items: [{ Id: "last", StartDate: "2026-10-17T23:30:00.000Z" }] });
+    await expect(fetchGuideHorizon()).resolves.toBe(Date.parse("2026-10-17T23:30:00.000Z"));
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe(`${SERVER}/LiveTv/Programs`);
+    expect(JSON.parse(init.body)).toEqual({
+      UserId: "test-user-id",
+      SortBy: ["StartDate"],
+      SortOrder: ["Descending"],
+      Limit: 1,
+      EnableImages: false,
+      EnableUserData: false,
+      EnableTotalRecordCount: false,
+      Fields: [],
+    });
+    ok({ Items: [] });
+    await expect(fetchGuideHorizon()).resolves.toBeNull();
   });
 
   it("reads one program and the finished recordings", async () => {

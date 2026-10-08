@@ -1,4 +1,5 @@
 import { COLORS } from "@/constants/colors";
+import { themedStyles } from "@/hooks/useCardPalette";
 import React, { useCallback, useEffect, useState } from "react";
 import { type LayoutChangeEvent, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
@@ -30,6 +31,7 @@ export function DurationSlider<V extends number>({ options, selected, onSelect }
     options.findIndex((option) => option.value === selected),
   );
   const [trackW, setTrackW] = useState(0);
+  const themed = useThemedStyles();
   // The detent under the finger while scrubbing; null hands the highlight to the chosen value.
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const liveIndex = dragIndex ?? selectedIndex;
@@ -120,7 +122,7 @@ export function DurationSlider<V extends number>({ options, selected, onSelect }
             {options.map((option, index) => (
               <View key={option.value} style={[styles.detent, { left: `${(index / last) * 100}%` }]} />
             ))}
-            <Animated.View style={[styles.fill, fillStyle]} />
+            <Animated.View style={[styles.fill, themed.fill, fillStyle]} />
           </View>
           <Animated.View style={[styles.thumb, thumbStyle]} />
         </View>
@@ -129,7 +131,7 @@ export function DurationSlider<V extends number>({ options, selected, onSelect }
         <View style={styles.labels} pointerEvents="none">
           {options.map((option, index) => (
             <View key={option.value} style={styles.labelSlot}>
-              <Text style={[styles.label, index === liveIndex && styles.labelSelected]}>{option.label}</Text>
+              <Text style={[styles.label, index === liveIndex && [styles.labelSelected, themed.labelSelected]]}>{option.label}</Text>
             </View>
           ))}
         </View>
@@ -160,7 +162,6 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: COLORS.ACCENT,
   },
   // Under the fill's z but inside the clipped track: unpassed stops read as marks in the well.
   detent: {
@@ -198,7 +199,15 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_TERTIARY,
   },
   labelSelected: {
-    color: COLORS.ACCENT,
     fontWeight: "700",
   },
 });
+
+const useThemedStyles = themedStyles((palette) => ({
+  fill: {
+    backgroundColor: palette.accent,
+  },
+  labelSelected: {
+    color: palette.accent,
+  },
+}));

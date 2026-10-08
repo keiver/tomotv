@@ -1,6 +1,6 @@
-import { TINT_REST } from "@/components/glass-button";
+import { glassTint } from "@/components/glass-button";
 import { GlassSurface } from "@/components/glass-surface";
-import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet } from "react-native";
@@ -11,12 +11,13 @@ interface GuideGripProps {
   arrowSize: number;
 }
 
-/** The column's resize handle: a gold glass circle holding a nested left/right arrow pair. */
+/** The column's resize handle: an accent glass circle holding a nested left/right arrow pair. */
 export function GuideGrip({ size, arrowSize }: GuideGripProps) {
+  const { accent } = useCardPalette();
   return (
-    <GlassSurface style={[styles.glass, { width: size, height: size }]} radius={size / 2} tintColor={TINT_REST} interactive>
-      <Ionicons name="chevron-back" size={arrowSize} color={COLORS.ACCENT} style={styles.nestLeft} />
-      <Ionicons name="chevron-forward" size={arrowSize} color={COLORS.ACCENT} style={styles.nestRight} />
+    <GlassSurface style={[styles.glass, { width: size, height: size }]} radius={size / 2} tintColor={glassTint(accent)} interactive>
+      <Ionicons name="chevron-back" size={arrowSize} color={accent} style={styles.nestLeft} />
+      <Ionicons name="chevron-forward" size={arrowSize} color={accent} style={styles.nestRight} />
     </GlassSurface>
   );
 }

@@ -2587,9 +2587,10 @@ from ~750ms of black to 150ms.
 - A timer that waits for a native callback is only sound if that callback can
   still be delivered. Check where the delegate is detached before trusting the
   wait.
-- Phone PiP never reports `isActive: false` after a hand-off for this same
-  reason, which is why the route cannot be popped while keeping the session
-  alive on iOS (`releaseRoute` detaches on tvOS only).
+- The same detach cut the hand-off window's stop and restore callbacks. The
+  react-native-video patch keeps the delegate on the controller AVKit hands
+  PiP to (`playerViewControllerWillStartPictureInPicture`) until the window
+  stops, so both reach JS and the route leaves on PiP start on both platforms.
 
 ### Files
 
@@ -3239,3 +3240,24 @@ program-info instead: guide long-press opens it for any cell, airing included, a
 server programId (no-guide and epg: cells) it runs in channel mode, where Record starts a
 manual timer for the settings length via `fetchTimerDefaults()` + ChannelId/Start/End
 (release/2.2.9, 2026-09-27).
+
+## Note: tvOS Automatic Subtitles Cannot Select an AUTOSELECT=NO Rendition (October 2026)
+
+tvOS 26.4 replaced the subtitle menu with On/Off, Language and Style, and Settings > Video and
+Audio > Automatic Subtitles (Show for Different Languages, Show When Muted, Show on Skip Back)
+turns subtitles on with no pick. Measured on an Apple TV 2026-10-03 with all three On: an
+episode whose one SUBRIP track and its audio are both untagged opened with the menu checked
+"On (Language)", Language "Track 1 - Unknown", and nothing drawn. The remembered `eng` matched no
+track, so `planSubtitleApplication` left selection to the system (`languageMissing`), and the
+player never requested `sub2.m3u8` or any `.vtt` in 68s, nor sent a second `onTextTracks`.
+The engine emitted every non-default, non-forced subtitle as `AUTOSELECT=NO`
+(RemuxSession+Playlists.swift), and RFC 8216 makes AUTOSELECT=YES the permission to choose a
+rendition without an explicit pick; on macOS AVFoundation an AUTOSELECT=NO option was never
+selected automatically. An explicit pick worked throughout: a tagged English track had its
+playlist and segments fetched within 1s of `select` and drew. Every subtitle rendition is
+`AUTOSELECT=YES` now (`testEverySubtitleRenditionIsAutoselectable`), as the multi-audio loader
+already emitted (HLSManifestGenerator.swift); DEFAULT=YES stays on the first default only, and
+the app's explicit `select` path is unchanged. An `und` track the system picks is never stored
+as the viewer's preference (`nextPreference` refuses it). The AVKit menu's
+"On" is display state, not a selection: whether a track was loaded shows only in the engine's
+`GET sub*.m3u8` lines (release/2.2.9, 2026-10-03).

@@ -36,51 +36,6 @@ const MODULE_FILES = [
   "MultiAudioResourceLoader-Bridging-Header.h",
 ];
 
-// The local remux engine (native/ios/LocalRemuxer) rides the same copy +
-// addSourceFile machinery; its FFmpeg dependency comes from the TomoFFmpeg pod
-// that plugins/withFFmpeg.js adds to the Podfile.
-const REMUXER_FILES = [
-  "EngineLog.swift",
-  "RemuxTypes.swift",
-  "Remuxer.swift",
-  "RemuxSession+Grid.swift",
-  "RemuxSession+Lifecycle.swift",
-  "RemuxSession+Playlists.swift",
-  "RemuxSession+ServerImageSubtitles.swift",
-  "RemuxSession+Tier.swift",
-  "RemuxSession+AudioLo.swift",
-  "RemuxSession+Segments.swift",
-  "RemuxSession+Routes.swift",
-  "RemuxSession+ServerSubtitles.swift",
-  "RemuxSession+LinkProbe.swift",
-  "RateMeter.swift",
-  "RateProbe.swift",
-  "RemuxSession+Pipeline.swift",
-  "AudioTranscoder.swift",
-  "VideoTranscoder.swift",
-  "DeviceDecode.swift",
-  "ImageSubtitleDecoder.swift",
-  "TextSubtitleDecoder.swift",
-  "AssToWebVTT.swift",
-  "TierRewrapper.swift",
-  "PlaylistShim.swift",
-  "InitSegmentSdr.swift",
-  "VideoCodecDeclaration.swift",
-  "LocalHTTPServer.swift",
-  "EndpointProbe.swift",
-  "EnginePlan.swift",
-  "DolbyVisionConverter.swift",
-  "DownloadRepackager.swift",
-  "FrameGrabber.swift",
-  "ImageWriter.swift",
-  "PosterQueue.swift",
-  "LiveFrameQueue.swift",
-  "LiveConnectionBroker.swift",
-  "LiveVariantPicker.swift",
-  "LocalRemuxer.swift",
-  "LocalRemuxer.m",
-];
-
 /**
  * Expo config plugin to set up MultiAudioResourceLoader
  * @param {Object} config - Expo config object
@@ -119,7 +74,6 @@ function withMultiAudioResourceLoader(config) {
       };
 
       copyInto(MODULE_FILES, sourceModulePath, modulePath, "native/ios/MultiAudioResourceLoader");
-      copyInto(REMUXER_FILES, path.join(projectRoot, "native", "ios", "LocalRemuxer"), path.join(iosPath, "LocalRemuxer"), "native/ios/LocalRemuxer");
 
       return config;
     },
@@ -136,7 +90,7 @@ function withMultiAudioResourceLoader(config) {
     // Headers are copied but never added to the target: a .h in the Sources build
     // phase is dead weight (Xcode skips it), and the bridging header is located
     // through SWIFT_OBJC_BRIDGING_HEADER below, not through a project reference.
-    const compiledFiles = [...MODULE_FILES.filter((fileName) => !fileName.endsWith(".h")).map((f) => `MultiAudioResourceLoader/${f}`), ...REMUXER_FILES.map((f) => `LocalRemuxer/${f}`)];
+    const compiledFiles = MODULE_FILES.filter((fileName) => !fileName.endsWith(".h")).map((f) => `MultiAudioResourceLoader/${f}`);
 
     // Add files to project
     compiledFiles.forEach((filePath) => {

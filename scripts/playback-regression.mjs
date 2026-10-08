@@ -766,6 +766,13 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
       if (defaults.length > 1) problems.push(`${defaults.length} subtitle renditions marked DEFAULT=YES; RFC 8216 allows one per group and AVFoundation rejects the playlist`);
       if (names.some((name) => !name)) problems.push("a subtitle rendition carries no NAME attribute");
 
+      // Order and SDH CHARACTERISTICS, rendition by rendition (authoring spec 9.17 and 4.5).
+      if (expect.subtitleRenditions) {
+        const actual = renditions.map((line, at) => ({ name: names[at], characteristics: /CHARACTERISTICS="([^"]*)"/.exec(line)?.[1] ?? null }));
+        if (JSON.stringify(actual) !== JSON.stringify(expect.subtitleRenditions))
+          problems.push(`subtitle renditions are ${JSON.stringify(actual)}, expected ${JSON.stringify(expect.subtitleRenditions)}`);
+      }
+
       // AVKit withholds a FORCED=YES rendition from the subtitle picker, as
       // something it applies for the viewer rather than something the viewer
       // picks — and then does not apply it. A group where every member is
@@ -1397,6 +1404,14 @@ async function main() {
   if (jsonPath) {
     fs.writeFileSync(jsonPath, JSON.stringify({ total: results.length, passed: results.length - failed.length, target: describeTarget(target), server: env.JELLYFIN_URL, results }, null, 2));
     console.log(`Wrote ${jsonPath}`);
+  }
+
+  // The fixture inventory (docs/playback-fixtures.{md,html}) is rewritten after every run.
+  try {
+    const { stdout } = await exec(process.execPath, [path.join(ROOT, "scripts", "playback-report.mjs"), "--fixtures"], { maxBuffer: 1e7 });
+    process.stdout.write(stdout);
+  } catch (e) {
+    console.warn(`fixture inventory not written: ${e.message}`);
   }
 
   listener.close();

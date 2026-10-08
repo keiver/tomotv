@@ -45,6 +45,11 @@ export function wantsPosterFrame(item: Pick<JellyfinVideoItem, "Type" | "ImageTa
   return getUiPreferences().devicePosters && !hasPoster(item) && POSTER_FRAME_TYPES.has(item.Type) && !audioOnly(item);
 }
 
+/** The picture is a channel's logo: the channel itself, or a programme without art of its own. */
+export function showsChannelLogo(item: Pick<PosterItem, "Type" | "ImageTags" | "ChannelId">): boolean {
+  return item.Type === "TvChannel" || (item.Type === "Program" && !hasPoster(item) && !!item.ChannelId);
+}
+
 export interface PosterSource {
   uri: string;
   cacheKey: string;
@@ -90,14 +95,21 @@ const HERO_MAX_UPSCALE = 3;
 
 /**
  * The info hero's art at its own ratio inside a fixed `width` x `area`: a taller picture full width, its foot
- * past the area; a wider one covers the area, sides cropped. A logo stays whole; a tiny one stops at 3x.
+ * past the area; a wider one covers the area, sides cropped.
  */
-export function heroArtFrame(width: number, area: number, imageWidth: number, imageHeight: number, logo = false): { width: number; height: number } {
-  if (imageWidth * HERO_MAX_UPSCALE < width && imageWidth >= imageHeight) {
-    const scale = Math.min(HERO_MAX_UPSCALE, area / imageHeight);
-    return { width: imageWidth * scale, height: imageHeight * scale };
-  }
+export function heroArtFrame(width: number, area: number, imageWidth: number, imageHeight: number): { width: number; height: number } {
   const height = (width * imageHeight) / imageWidth;
-  if (height < area && !logo) return { width: (area * imageWidth) / imageHeight, height: area };
+  if (height < area) return { width: (area * imageWidth) / imageHeight, height: area };
   return { width, height };
+}
+
+/** The hero shows the picture whole in a centred box instead: a logo, or a landscape picture under a third of the hero's width. */
+export function heroArtBoxed(width: number, imageWidth: number, imageHeight: number, logo: boolean): boolean {
+  return logo || (imageWidth * HERO_MAX_UPSCALE < width && imageWidth >= imageHeight);
+}
+
+/** A boxed picture contained in its box, never past 3x its own size. */
+export function heroBoxFrame(boxWidth: number, boxHeight: number, imageWidth: number, imageHeight: number): { width: number; height: number } {
+  const scale = Math.min(HERO_MAX_UPSCALE, boxWidth / imageWidth, boxHeight / imageHeight);
+  return { width: imageWidth * scale, height: imageHeight * scale };
 }

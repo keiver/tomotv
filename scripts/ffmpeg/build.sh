@@ -23,7 +23,7 @@ HERE="$ROOT/scripts/ffmpeg"
 WORK="${FFMPEG_BUILD_DIR:-$ROOT/.ffmpeg-build}"
 SRC="$WORK/src"
 DIST="$WORK/dist"
-OUT="$ROOT/native/ios/Frameworks"
+OUT="$ROOT/packages/tomo-engine/ios/Frameworks"
 
 # shellcheck source=./sources.sh
 source "$HERE/sources.sh"

@@ -10,7 +10,9 @@ jest.mock("@/modules/tomo-toast", () => ({
 }));
 jest.mock("@/services/i18n", () => ({ t: jest.fn(() => "Close") }));
 
+import { cardPalette, DEFAULT_CARD_THEME } from "@/services/cardTheme";
 import { setToastPlayerOnScreen, showToast } from "@/services/toast";
+import { updateUiPreferences } from "@/services/uiPreferences";
 import { Platform } from "react-native";
 
 describe("toast", () => {
@@ -30,6 +32,16 @@ describe("toast", () => {
     showToast("c");
     expect(configureToast).toHaveBeenCalledTimes(2);
     expect(configureToast).toHaveBeenLastCalledWith(expect.objectContaining({ closeLabel: "Cerrar" }));
+  });
+
+  it("sends the theme again when the accent changes, with that fill's ink", () => {
+    updateUiPreferences({ cardTheme: { id: "blue", name: "", accent: "#3D8EFF" } });
+    showToast("d");
+    expect(configureToast).toHaveBeenCalledTimes(1);
+    expect(configureToast).toHaveBeenLastCalledWith(expect.objectContaining({ tint: "#3D8EFF", text: cardPalette("#3D8EFF").ink }));
+    showToast("e");
+    expect(configureToast).toHaveBeenCalledTimes(1);
+    updateUiPreferences({ cardTheme: DEFAULT_CARD_THEME });
   });
 
   it("maps the string form to a title and kind", () => {

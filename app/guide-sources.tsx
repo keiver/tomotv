@@ -1,8 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { RollingFieldRow } from "@/components/settings/RollingFieldRow";
-import { SectionFooter } from "@/components/settings/SectionFooter";
-import { settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, settingsStyles } from "@/components/settings/styles";
 import { StorageBar } from "@/components/storage-bar";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { clearDownloadedGuides, guideSourceStatuses, preloadGuide, subscribeGuideSources } from "@/services/externalGuide";
@@ -92,10 +91,10 @@ export default function GuideSourcesScreen() {
         icon="calendar-outline"
         title={guideLabel(url)}
         subtitle={summary.subtitle}
-        meter={summary.meter}
         trailingIcon="chevron-forward"
         onPress={() => openGuide(url)}
         hasTVPreferredFocus={preferred}
+        isFirst={preferred}
       />
     );
   };
@@ -105,23 +104,14 @@ export default function GuideSourcesScreen() {
       <AmbientBackground />
       <ScrollView
         style={settingsStyles.scrollView}
-        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
         showsVerticalScrollIndicator={false}
         automaticallyAdjustKeyboardInsets>
         <View style={settingsStyles.contentContainer}>
-          {IS_TV ? (
-            <View style={settingsStyles.sectionHeader}>
-              <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSources")}</Text>
-            </View>
-          ) : null}
-
           <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.yourGuides")}</Text>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSources")}</Text>
           </View>
           <View style={settingsStyles.section}>
-            <SectionFooter edge="top">
-              <Text style={settingsStyles.sectionNote}>{t("liveTv.guideSourcesAbout")}</Text>
-            </SectionFooter>
             {/* The order guides are asked in: the viewer's own first. */}
             {[...preferences.guideUrls, ...playlistUrls].map((url, index) => sourceRow(url, index === 0))}
             <RollingFieldRow
@@ -132,7 +122,7 @@ export default function GuideSourcesScreen() {
               accessibilityLabel={t("liveTv.addGuide")}
               keyboardType="url"
               autoCapitalize="none"
-              isFirst={false}
+              isFirst={preferences.guideUrls.length === 0 && playlistUrls.length === 0}
               isLast={false}
               value={draft}
               onChangeText={setDraft}

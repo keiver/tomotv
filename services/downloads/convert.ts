@@ -6,13 +6,12 @@
  */
 
 import { JELLYFIN_TIME, QUALITY_PRESETS } from "@/services/jellyfin/constants";
-import { getQualitySettings } from "@/services/jellyfin/session";
-import { isImageBasedSubtitleCodec } from "@/services/jellyfin/subtitles";
+import { isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 
 export const CONVERT_AUDIO_BITRATE = 128000;
-/** Auto is a link rule with no cap, and a file has no link, so Auto lands on 1080p. */
-const AUTO_RUNG_LABEL = "1080p";
+/** The sizes a download offers under Original, largest first. */
+const DOWNLOAD_RUNG_LABELS = ["1080p", "720p", "480p"];
 
 export interface ConversionRung {
   label: string;
@@ -21,17 +20,46 @@ export interface ConversionRung {
   height: number;
 }
 
-/** The pinned quality preset, or the Auto rung when the setting carries no cap. */
-export async function conversionRung(): Promise<ConversionRung> {
-  const quality = await getQualitySettings();
-  const preset = quality.width && quality.height ? quality : (QUALITY_PRESETS.find((candidate) => candidate.label === AUTO_RUNG_LABEL) ?? QUALITY_PRESETS[0]);
-  return { label: preset.label, bitrate: preset.bitrate, width: preset.width ?? 0, height: preset.height ?? 0 };
+const toRung = (preset: (typeof QUALITY_PRESETS)[number]): ConversionRung => ({ label: preset.label, bitrate: preset.bitrate, width: preset.width ?? 0, height: preset.height ?? 0 });
+/** Built on use, not at import: the manager imports this module, and nothing here should run then. */
+const ladder = (): ConversionRung[] =>
+  DOWNLOAD_RUNG_LABELS.map((label) => QUALITY_PRESETS.find((preset) => preset.label === label))
+    .filter((preset) => preset !== undefined)
+    .map(toRung);
+
+/**
+ * The rungs worth offering for one item: ones its video fills across or down (a letterboxed
+ * 1920x1040 film is 1080p) and, when `mustShrink`, under its video bitrate, which is the test
+ * Jellyfin's CanStreamCopyVideo applies before it re-encodes. Without `mustShrink` (the original
+ * cannot be kept anyway) the lowest rung always stands.
+ */
+export function downloadRungs(item: JellyfinVideoItem, mustShrink = true): ConversionRung[] {
+  const video = (item.MediaStreams ?? []).find((stream) => stream.Type === "Video");
+  const width = video?.Width ?? 0;
+  const height = video?.Height ?? 0;
+  // The container rate includes audio, so it caps a stream tag that claims more (stale MKV BPS tags).
+  const known = [video?.BitRate, item.MediaSources?.[0]?.Bitrate].filter((rate): rate is number => (rate ?? 0) > 0);
+  const bitrate = known.length > 0 ? Math.min(...known) : 0;
+  const rungs = ladder();
+  const fitting = rungs.filter((rung) => (rung.width <= width || rung.height <= height) && (!mustShrink || bitrate === 0 || rung.bitrate < bitrate));
+  if (mustShrink) return video ? fitting : [];
+  return fitting.length > 0 ? fitting : [rungs[rungs.length - 1]];
 }
 
-/** The audio track the server encodes: its default, else its first. */
-export function conversionAudioIndex(item: JellyfinVideoItem): number | undefined {
+/** The audio track the server encodes: the one picked at download time when it exists, else the default, else the first. */
+export function conversionAudioIndex(item: JellyfinVideoItem, picked?: number): number | undefined {
   const audio = (item.MediaStreams ?? []).filter((stream) => stream.Type === "Audio" && stream.Index !== undefined);
-  return (audio.find((stream) => stream.IsDefault) ?? audio[0])?.Index;
+  return (audio.find((stream) => stream.Index === picked) ?? audio.find((stream) => stream.IsDefault) ?? audio[0])?.Index;
+}
+
+/**
+ * The shown track, when it is a bitmap Jellyfin burns into the picture: PGS, DVD or DVB, each measured.
+ * A text track rides as a sidecar instead; XSUB and teletext Jellyfin files as text and cannot burn.
+ */
+export function subtitleToBurn(item: JellyfinVideoItem, shown: number | undefined): number | undefined {
+  const stream = (item.MediaStreams ?? []).find((candidate) => candidate.Type === "Subtitle" && candidate.Index === shown);
+  const codec = (stream?.Codec ?? "").toLowerCase();
+  return isPgsCodec(codec) || isDvdSubCodec(codec) || codec === "dvbsub" || codec === "dvb_subtitle" ? shown : undefined;
 }
 
 /** Bytes the rung produces over the runtime. Unknown runtime gives 0, which admits itself. */
@@ -50,13 +78,14 @@ function fitted(width: number | undefined, height: number | undefined, rung: Con
 
 /**
  * The item as the converted file is: mp4, one H.264 stream at the rung, one AAC track at the
- * source's channel count capped at two, text subtitles kept for the sidecars, image ones gone.
+ * source's channel count capped at two, text subtitles kept for the sidecars, bitmap ones gone (the
+ * shown one may be burned into the picture).
  * Fields the encode does not fix (profile, level, HDR metadata) are dropped, never invented.
  */
-export function convertedItem(item: JellyfinVideoItem, rung: ConversionRung): JellyfinVideoItem {
+export function convertedItem(item: JellyfinVideoItem, rung: ConversionRung, pickedAudio?: number): JellyfinVideoItem {
   const streams = item.MediaStreams ?? [];
   const video = streams.find((stream) => stream.Type === "Video");
-  const audioIndex = conversionAudioIndex(item);
+  const audioIndex = conversionAudioIndex(item, pickedAudio);
   const audio = streams.find((stream) => stream.Type === "Audio" && stream.Index === audioIndex);
 
   const converted: JellyfinMediaStream[] = [];

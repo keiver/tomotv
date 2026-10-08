@@ -1,22 +1,20 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
 import { localeScreen } from "@/components/locale-boundary";
-import { COLORS } from "@/constants/colors";
-import { Ionicons } from "@expo/vector-icons";
 import { LoadingRow } from "@/components/loading-row";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
-import { SectionFooter } from "@/components/settings/SectionFooter";
 import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
-import { LinkLadder } from "@/components/settings/LinkLadder";
-import { ListRow, TRAILING_SIZE } from "@/components/settings/ListRow";
-import { QualityMark } from "@/components/settings/QualityMark";
+import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { SERVER_GLYPH } from "@/components/settings/ServerRow";
+import { settingsStyles as styles } from "@/components/settings/styles";
+import { transcodingRowSubtitle } from "@/components/settings/transcodingCopy";
 import { UiSection } from "@/components/settings/UiSection";
-import { IS_PAD, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles as styles } from "@/components/settings/styles";
-import { carriedRungs, linkCarriesPreset, ORIGINAL_INDEX, pickStartupIndex, presetNeedsMbps } from "@/services/adaptiveQuality";
+import { useTranscodePermissions } from "@/hooks/useTranscodePermissions";
+import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
-import { QUALITY_PRESETS as PLAYER_PRESETS } from "@/services/jellyfin/constants";
+import { refreshTranscodePermissions } from "@/services/jellyfin/transcodePermissions";
 import { DEMO_USERNAME, getStoredUserName, getUserImageUrl, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
 import { logger } from "@/utils/logger";
@@ -25,50 +23,16 @@ import { pokeInbox } from "@/services/diagnosticsInbox";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
 
 const STORAGE_KEYS = {
   SERVER_URL: "jellyfin_server_url",
   API_KEY: "jellyfin_api_key",
   USER_ID: "jellyfin_user_id",
-  VIDEO_QUALITY: "app_video_quality",
-};
-
-// Original leads: it is the default and the only option that never re-encodes.
-// `value` is the index into QUALITY_PRESETS in services/jellyfin/constants.ts
-// and is what gets persisted, so the display order is free to differ from it.
-// Labels name what the row controls; each subtitle states what the row does on
-// the connection LinkSpeedHeading measured, off the player's own entry rule.
-// The leading mark is drawn from `value`: a picture block per rung, the connection
-// meter on Auto. No glyph is stored here.
-const QUALITY_PRESETS: { value: number }[] = [{ value: 5 }, { value: 4 }, { value: 3 }, { value: 2 }, { value: 1 }, { value: 0 }];
-
-/** The row label for a preset value, in the active language. */
-const qualityLabel = (value: number): string => {
-  switch (value) {
-    case 5:
-      return t("settings.quality.auto");
-    case 4:
-      return t("settings.quality.max4k");
-    case 3:
-      return t("settings.quality.max1080");
-    case 2:
-      return t("settings.quality.max720");
-    case 1:
-      return t("settings.quality.max540");
-    default:
-      return t("settings.quality.max480");
-  }
 };
 
 type ScreenState = "LOADING" | "NOT_CONNECTED" | "CONNECTED";
-
-/** Green at rest so the choice reads without the row filling; on the gold bar it takes the
- *  bar's ink like every other mark. */
-function qualityTick({ color }: { color: string }) {
-  return <Ionicons name="checkmark" size={TRAILING_SIZE} color={color === COLORS.TEXT_TERTIARY ? COLORS.SUCCESS : color} />;
-}
 
 export default localeScreen(SettingsScreen);
 
@@ -79,25 +43,25 @@ function SettingsScreen() {
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
   const [connectedUserName, setConnectedUserName] = useState("");
   const [connectedUserId, setConnectedUserId] = useState("");
-  // Default mirrors DEFAULT_QUALITY in jellyfinApi.ts (Original), so the
-  // highlighted row matches what playback actually uses before a choice is saved
-  const [videoQuality, setVideoQuality] = useState(5);
+  const { serverTranscoding } = useUiPreferences();
+  const permissions = useTranscodePermissions();
+  const [measuredBps, setMeasuredBps] = useState<number | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  const [streamingHeadingFocused, setStreamingHeadingFocused] = useState(false);
+  const probeRevision = useRef(0);
 
   const loadCurrentState = async (): Promise<ScreenState> => {
     try {
-      const [savedUrl, savedKey, savedUserId, savedQuality, savedUserName, demoActive] = await Promise.all([
+      const [savedUrl, savedKey, savedUserId, savedUserName, demoActive] = await Promise.all([
         SecureStore.getItemAsync(STORAGE_KEYS.SERVER_URL),
         SecureStore.getItemAsync(STORAGE_KEYS.API_KEY),
         SecureStore.getItemAsync(STORAGE_KEYS.USER_ID),
-        SecureStore.getItemAsync(STORAGE_KEYS.VIDEO_QUALITY),
         getStoredUserName(),
         isDemoMode(),
       ]);
 
-      if (savedQuality) setVideoQuality(parseInt(savedQuality, 10));
-
-      // A stored session shows the connected card + Switch Server (and Video Quality).
-      // This only reads saved creds — it never pings the server, preserving the
+      // A stored session shows the connected card + Switch Server (and the streaming rows).
+      // This only reads saved creds, it never pings the server, preserving the
       // no-auto-connect behavior.
       if (savedUrl && savedKey && savedUserId) {
         setConnectedServerUrl(savedUrl || "");
@@ -118,11 +82,6 @@ function SettingsScreen() {
     }
   };
 
-  // Measured link to the connected server, feeding the quality heading and the rows'
-  // capacity marks. On focus, not on mount: the tab stays mounted across a server switch.
-  const [measuredBps, setMeasuredBps] = useState<number | null>(null);
-  const [measuring, setMeasuring] = useState(false);
-  const [headingFocused, setHeadingFocused] = useState(false);
   const [syncPlay, setSyncPlay] = useState<SyncPlaySnapshot | null>(null);
 
   useEffect(() => subscribeSyncPlay(setSyncPlay), []);
@@ -130,18 +89,17 @@ function SettingsScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      probeRevision.current++;
+      setMeasuring(false);
       void (async () => {
         const state = await loadCurrentState();
         if (cancelled || state !== "CONNECTED") return;
         void refreshAccess();
+        void refreshTranscodePermissions();
         const status = await rememberedBitrateStatus();
         if (cancelled) return;
-        // Replaces the previous server's reading outright: null until measured.
         setMeasuredBps(status?.bps ?? null);
-        if (status?.fresh) {
-          setMeasuring(false);
-          return;
-        }
+        if (status?.fresh) return;
         setMeasuring(true);
         const bps = await measureIfIdle();
         if (cancelled) return;
@@ -150,19 +108,20 @@ function SettingsScreen() {
       })();
       return () => {
         cancelled = true;
+        probeRevision.current++;
         Keyboard.dismiss();
       };
     }, []),
   );
 
-  const handleRemeasure = useCallback(() => {
+  const handleRemeasure = useCallback(async () => {
     if (measuring) return;
+    const revision = probeRevision.current;
     setMeasuring(true);
-    void (async () => {
-      const bps = await remeasureBitrate();
-      if (bps != null) setMeasuredBps(bps);
-      setMeasuring(false);
-    })();
+    const bps = await remeasureBitrate();
+    if (revision !== probeRevision.current) return;
+    if (bps != null) setMeasuredBps(bps);
+    setMeasuring(false);
   }, [measuring]);
 
   // Sign-out fires from the pushed server list with this screen mounted behind it, so a state
@@ -194,25 +153,6 @@ function SettingsScreen() {
     [],
   );
 
-  // Every subtitle says what the row plays on the measured connection when the server transcodes,
-  // off that lane's own entry pick (pickStartupIndex); the engine measures each play itself. Every line is sized to the ~237pt subtitle budget on a 375pt
-  // phone (33 characters at most): these rows never wrap.
-  const carried = carriedRungs(measuredBps);
-  const rowSubtitle = (preset: { value: number }) => {
-    if (preset.value === ORIGINAL_INDEX) {
-      if (measuredBps == null) return t("settings.quality.adapts");
-      return carried === 0 ? t("settings.quality.onlyFor").replace("{label}", PLAYER_PRESETS[0].label) : t("settings.quality.upToFor").replace("{label}", PLAYER_PRESETS[carried - 1].label);
-    }
-    const needs = t("settings.quality.needsMbps").replace("{mbps}", String(presetNeedsMbps(preset.value)));
-    if (measuredBps == null) return needs;
-    if (linkCarriesPreset(measuredBps, preset.value)) return t("settings.quality.playsFull").replace("{needs}", needs);
-    // A pin is a ceiling: the session opens at the rung the link carries and climbs toward it.
-    const opensAt = pickStartupIndex(measuredBps, preset.value, null);
-    return opensAt === preset.value
-      ? t("settings.quality.mayStall").replace("{needs}", needs)
-      : t("settings.quality.playsFor").replace("{needs}", needs).replace("{label}", PLAYER_PRESETS[opensAt].label);
-  };
-
   // After a login from this screen, flip to the connected card, then drop the user on the root
   // view of the Library tab. The flow has already refreshed the library and cleared the folder
   // cache; awaiting the reload first lets the auth-change remounts settle before the pop runs,
@@ -227,37 +167,6 @@ function SettingsScreen() {
   // Menu/back walks home for free. Focus reload picks up whatever happened there.
   const handleSwitchServer = () => {
     router.push("/connect/servers");
-  };
-
-  // tvOS can only move focus UP and OUT of a ScrollView while its contentOffset.y is exactly 0:
-  // RCTScrollViewComponentView's shouldUpdateFocusInContext (RN 0.85, line 1391) rejects any
-  // upward focus update whose target lives outside the scroll view whenever the view is scrolled
-  // even slightly. A rejected update leaves the press to scroll the list instead, which is the
-  // "first Up does nothing, second Up reaches Sign Out" behavior. Landing on the first row is the
-  // only moment focus can leave upward, so pin the offset to 0 there — unanimated, since the focus
-  // engine's own reveal scroll is already in flight and the correction is a few points at most.
-  // The same rule blocks focus DOWN and out (isMovingDown, line 1392): an
-  // unfinished downward scroll swallows the press, which is the "first Down does
-  // nothing, second Down reaches Acknowledgements" behavior. The last row is the
-  // mirror of the first, so pin the offset to the bottom there.
-  const qualityListRef = useRef<ScrollView>(null);
-  const pinListToTop = useCallback(() => {
-    qualityListRef.current?.scrollTo({ y: 0, animated: false });
-  }, []);
-  const pinListToBottom = useCallback(() => {
-    qualityListRef.current?.scrollToEnd({ animated: false });
-  }, []);
-
-  const handleQualityChange = async (qualityValue: number) => {
-    try {
-      setVideoQuality(qualityValue);
-      // No confirmation dialog: the tick moves to the row and the row takes the
-      // gold, which is the confirmation.
-      await SecureStore.setItemAsync(STORAGE_KEYS.VIDEO_QUALITY, qualityValue.toString());
-    } catch (error) {
-      logger.error("Error saving video quality", error);
-      Alert.alert(t("common.error"), t("settings.qualitySaveFailed"));
-    }
   };
 
   if (screenState === "LOADING") {
@@ -276,7 +185,7 @@ function SettingsScreen() {
       {/* Everything from here to the ScrollView is decoration, and the order is
           load-bearing rather than cosmetic: siblings paint in order, so all of it
           sits BEHIND the rows. On tvOS a view drawn above a focusable occludes it and
-          the focus engine refuses to enter — pointerEvents cannot opt out of that.
+          the focus engine refuses to enter; pointerEvents cannot opt out of that.
           app/filters.tsx renders the same ghost title early for the same reason. The
           corners are also clear of the centred content column (1000pt wide, so
           x 460-1460 on a 1920 screen), so their frames never intersect a row. */}
@@ -333,51 +242,29 @@ function SettingsScreen() {
 
           {screenState === "CONNECTED" && (
             <>
-              <LinkSpeedHeading measuredBps={measuredBps} measuring={measuring} onRemeasure={handleRemeasure} onFocus={() => setHeadingFocused(true)} onBlur={() => setHeadingFocused(false)} />
-
-              {/* The preset list is taller than the space left under the server card, so it
-                  scrolls inside the section instead of running off the bottom of the screen.
-                  The wrapper carries the section's radius + overflow: hidden (clipping rows to
-                  the card corners) and its inset shadow, which stays pinned to the card edges
-                  while the transparent rows scroll over it. */}
-              <View style={[styles.section, headingFocused && styles.sectionCapped]}>
-                <ScrollView ref={qualityListRef} style={styles.sectionScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
-                  {QUALITY_PRESETS.map((preset, index) => {
-                    const selected = videoQuality === preset.value;
-                    return (
-                      <ListRow
-                        key={preset.value}
-                        icon={({ color }) => (preset.value === ORIGINAL_INDEX ? <LinkLadder carried={carried} color={color} /> : <QualityMark value={preset.value} color={color} />)}
-                        title={qualityLabel(preset.value)}
-                        subtitle={rowSubtitle(preset)}
-                        // Pinned leading: the section's height cap is QUALITY_ROW_HEIGHT times a
-                        // row count, and that arithmetic only holds if these two lines measure
-                        // what it assumes.
-                        titleStyle={screenStyles.qualityLabel}
-                        subtitleStyle={screenStyles.qualityDescription}
-                        // The tick alone marks the choice: gold at rest would make this the one
-                        // list in Settings that fills a row before anyone touches it.
-                        trailingIcon={selected ? qualityTick : undefined}
-                        onPress={() => handleQualityChange(preset.value)}
-                        onFocus={index === 0 ? pinListToTop : index === QUALITY_PRESETS.length - 1 ? pinListToBottom : undefined}
-                        isFirst={index === 0}
-                        accessibilityLabel={qualityLabel(preset.value)}
-                        accessibilityHint={rowSubtitle(preset)}
-                        accessibilityState={{ selected }}
-                      />
-                    );
-                  })}
-                </ScrollView>
-                <SectionFooter>
-                  <Text style={styles.sectionNote}>{t("settings.transcodeFooter")}</Text>
-                </SectionFooter>
+              <LinkSpeedHeading
+                title={t("settings.streaming")}
+                measuredBps={measuredBps}
+                measuring={measuring}
+                onRemeasure={handleRemeasure}
+                onFocus={() => setStreamingHeadingFocused(true)}
+                onBlur={() => setStreamingHeadingFocused(false)}
+              />
+              <View style={[styles.section, Platform.isTV && streamingHeadingFocused && styles.sectionCapped]}>
+                <ListRow
+                  icon={SERVER_GLYPH}
+                  title={t("settings.transcodingRow")}
+                  subtitle={transcodingRowSubtitle(serverTranscoding, permissions)}
+                  trailingIcon="chevron-forward"
+                  onPress={() => router.push("/transcoding")}
+                  isFirst
+                  isLast
+                />
               </View>
             </>
           )}
 
-          {/* In both states, as the stand-in every other tab renders logged out. Connected, the
-              UI row is what pinListToBottom exists for, being the first focusable below the
-              nested quality ScrollView. */}
+          {/* In both states, as the stand-in every other tab renders logged out. */}
           <UiSection />
           {/* No version line under this: the Open Source page carries it. */}
           <AboutSection showDiagnostics={screenState === "CONNECTED"} />
@@ -391,16 +278,6 @@ const screenStyles = StyleSheet.create({
   // Phone only: 4pt more air under the screen title than sectionHeaderFirst gives.
   serverHeader: {
     paddingTop: 12,
-  },
-  qualityLabel: {
-    lineHeight: QUALITY_TITLE_LINE_HEIGHT,
-  },
-  // marginTop 0 overrides ListRow's subtitle air — QUALITY_ROW_HEIGHT budgets
-  // only the title's 2pt gap between the lines.
-  qualityDescription: {
-    fontSize: Platform.isTV ? 22 : IS_PAD ? 15 : 14,
-    lineHeight: QUALITY_SUBTITLE_LINE_HEIGHT,
-    marginTop: 0,
   },
   loadingContainer: {
     flex: 1,

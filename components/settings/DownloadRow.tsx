@@ -1,6 +1,7 @@
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
+import { sizeChoice } from "@/services/downloads/sizeSheet";
 import { localArtworkUri } from "@/services/downloads/localSource";
 import { downloadManager, type DownloadProgress } from "@/services/downloads/manager";
 import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";
@@ -38,12 +39,12 @@ function progressLabel({ bytesWritten, totalBytes }: DownloadProgress): string {
 }
 
 /** What a press does. Silent where it does something the row does not offer; see the screen. */
-function pressCopy(state: DownloadState): string | null {
+function pressCopy(state: DownloadState, converted: boolean): string | null {
   switch (state) {
     case "ready":
       return t("downloads.playsFromDevice");
     case "downloading":
-      return t("downloads.pausesDownload");
+      return converted ? null : t("downloads.pausesDownload");
     case "paused":
       return t("downloads.resumesDownload");
     case "failed":
@@ -53,13 +54,21 @@ function pressCopy(state: DownloadState): string | null {
   }
 }
 
+/** A held file's size line: the rung it was converted to, Original for an unconverted video, the bare size for audio. */
+function heldSize(entry: DownloadEntry): string {
+  if (entry.converted) return sizeChoice(entry.converted.label, entry.totalBytes);
+  const video = (entry.item.MediaStreams ?? []).some((stream) => stream.Type === "Video");
+  return video ? sizeChoice(t("downloads.original"), entry.totalBytes) : formatFileSize(entry.totalBytes);
+}
+
 /** What each state says and does, so the row body has no branching of its own. */
 function stateCopy(entry: DownloadEntry): { subtitle: string; trailing?: IoniconName } {
   switch (entry.state) {
     case "ready":
-      return { subtitle: formatFileSize(entry.totalBytes), trailing: "play" };
+      return { subtitle: heldSize(entry), trailing: "play" };
     case "downloading":
-      return { subtitle: progressLabel(entry), trailing: "pause" };
+      // A server conversion cannot resume, so it offers no pause; see downloadManager.pause.
+      return { subtitle: progressLabel(entry), trailing: entry.converted ? undefined : "pause" };
     case "queued":
     case "repackaging":
       return { subtitle: t("downloads.waiting"), trailing: "close" };
@@ -92,7 +101,7 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, neste
   const { subtitle, trailing } = stateCopy(entry);
   const line = entry.state === "downloading" ? (live ?? subtitle) : subtitle;
   // A ready row's line is its size, which the trailing play mark already implies.
-  const hint = [entry.state === "ready" ? null : `${line}.`, pressCopy(entry.state), t("downloads.swipeRemove")].filter(Boolean).join(" ");
+  const hint = [entry.state === "ready" ? null : `${line}.`, pressCopy(entry.state, !!entry.converted), t("downloads.swipeRemove")].filter(Boolean).join(" ");
   const onAction = (event: { nativeEvent: { actionName: string } }) => {
     if (event.nativeEvent.actionName === "remove") onRemove();
   };

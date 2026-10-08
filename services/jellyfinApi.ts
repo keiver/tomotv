@@ -61,6 +61,7 @@ export {
   fetchChannelWindow,
   fetchListedChannels,
   fetchChannels,
+  fetchGuideHorizon,
   fetchGuidePrograms,
   fetchLiveTvManagement,
   fetchProgram,
@@ -165,6 +166,7 @@ export {
   fetchLibraryName,
   fetchLibraryVideos,
   fetchPlaylistContents,
+  fetchPlaylistDownloadables,
   fetchRecursiveDownloadables,
   fetchRecursivePhotos,
   fetchRecursiveVideos,
@@ -172,6 +174,7 @@ export {
 } from "./jellyfin/items";
 export { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "./jellyfin/facets";
 export { searchLiveTv, searchVideos } from "./jellyfin/search";
+export { invalidateLiveTvSearchIndex, liveTvSearchIndexVersion, subscribeLiveTvSearchIndex } from "./jellyfin/liveTvSearchIndex";
 
 export { markItemPlayed, setVideoFavorite, setVideoPlayed } from "./jellyfin/userData";
 export {

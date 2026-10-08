@@ -3,6 +3,7 @@ import { GlassSurface } from "@/components/glass-surface";
 import { INFO_PILL_RADIUS, PageViewer, VIEWER_CHROME_TINT, pageViewerStyles, type PageViewerHandle } from "@/components/page-viewer";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { getFolderCache } from "@/services/folderContentsCache";
 import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoPreviewUrl, getPhotoUrl, isPhoto, WEBP_ACCEPT } from "@/services/jellyfinApi";
 import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
@@ -38,6 +39,7 @@ export default function PhotoViewerScreen() {
   // the viewer then holds that one photo.
   const params = useLocalSearchParams<{ folderId?: string; photoId?: string; libraryId?: string; recursive?: string; slideshow?: string }>();
   const router = useRouter();
+  const { accent } = useCardPalette();
 
   // Filters live on the entered library (the grid scopes them to crumbs[0]), so the viewer reads
   // the same selection the grid was showing when the photo was pressed.
@@ -296,13 +298,13 @@ export default function PhotoViewerScreen() {
     <>
       {isPlaying && (
         <GlassSurface style={styles.countdownTrack} radius={COUNTDOWN_HEIGHT / 2} tintColor={VIEWER_CHROME_TINT} pointerEvents="none">
-          <Animated.View style={[styles.countdownFill, countdownStyle]} />
+          <Animated.View style={[styles.countdownFill, { backgroundColor: accent }, countdownStyle]} />
         </GlassSurface>
       )}
 
       {current && (
         <GlassSurface style={pageViewerStyles.infoPill} radius={INFO_PILL_RADIUS} tintColor={VIEWER_CHROME_TINT} pointerEvents="none">
-          {isPlaying && <Ionicons name="play" size={Platform.isTV ? 20 : 14} color={COLORS.ACCENT} />}
+          {isPlaying && <Ionicons name="play" size={Platform.isTV ? 20 : 14} color={accent} />}
           <Text style={pageViewerStyles.infoName} numberOfLines={1}>
             {cleanLabel(current.Name)}
           </Text>
@@ -372,6 +374,5 @@ const styles = StyleSheet.create({
     height: COUNTDOWN_HEIGHT - 2 * COUNTDOWN_FILL_INSET,
     marginHorizontal: COUNTDOWN_FILL_INSET,
     borderRadius: COUNTDOWN_FILL_INSET,
-    backgroundColor: COLORS.ACCENT,
   },
 });

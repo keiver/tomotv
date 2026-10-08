@@ -87,8 +87,9 @@ by the session itself.
   (`preflight.keptForTier`): the master opens on a rung, so the engine's own
   segment 0 is not the startup gate and a slow link is not a verdict against
   the device. See `memories/CLAUDE-slipstream.md`.
-- **Remembered per file.** `services/engineVerdicts.ts` keeps
-  `Documents/engine-verdicts.json`, keyed by server, item and media source. A
+- **Remembered per file.** `packages/tomo-engine/src/verdicts.ts` keeps
+  `Documents/engine-verdicts.json`, keyed by server, item and media source
+  (`services/engineVerdicts.ts` builds the key). A
   verdict is written only from a clean sample (thermal nominal or fair, no
   download repackage running); a session that produced no segment within
   the deadline is remembered too (`recordTimeoutVerdict`). A verdict only
@@ -122,8 +123,8 @@ says the software decoder, not the encode, is the ceiling on that box.
 **We build FFmpeg ourselves.** `scripts/ffmpeg/build.sh` compiles upstream
 FFmpeg (version pinned in `scripts/ffmpeg/sources.sh`) plus mbedTLS, dav1d,
 uavs3d and the libass font stack, for seven slices; CI publishes the
-xcframeworks and `scripts/fetch-ffmpeg.js` downloads them against the SHA256s in
-`scripts/ffmpeg/ffmpeg-lock.json`. **Nothing compiles on `npm install`.**
+xcframeworks and `packages/tomo-engine/scripts/fetch-ffmpeg.js` downloads them against the SHA256s in
+`packages/tomo-engine/ffmpeg-lock.json`. **Nothing compiles on `npm install`.**
 
 **dav1d ships under a private symbol prefix (`tomo_dav1d_`).** `expo-image` pulls
 `libavif/libdav1d` into the same binary, and a static link has one flat symbol
@@ -177,7 +178,7 @@ server.
 
 ## The video path, and why it used to be narrow
 
-`native/ios/LocalRemuxer/VideoTranscoder.swift` decodes in software and encodes
+`packages/tomo-engine/ios/LocalRemuxer/VideoTranscoder.swift` decodes in software and encodes
 with VideoToolbox. Its input contract is the whole story:
 
 - `h264_videotoolbox` accepts **8-bit `yuv420p` or `nv12`, nothing else**.
@@ -266,6 +267,52 @@ generation. The master playlist omits `VIDEO-RANGE`, `RESOLUTION` and
 AVPlayer decodes Vorbis in nothing, and refuses an Ogg container whatever is
 inside it.
 
+## Scrub previews: the I-frame rendition
+
+Every VOD session with video lists an `#EXT-X-I-FRAME-STREAM-INF` beside the
+copy, ladder masters included. Live and audio-only sessions get none. Direct
+play needs none: AVKit makes thumbnails from a progressive file itself
+(measured on tvOS and iOS 2026-10-05).
+
+- Entries: the demuxer's keyframes where it indexes them, measured on FFmpeg
+  8.1.3: Matroska/WebM (after the Cues seek), MP4/MOV and AVI list every
+  keyframe; ASF only after a timestamp seek; TS, PS and FLV only what was read.
+  Unindexed sources use the segment grid, the keyframe at or before each start
+  stamped at the start (`IFrameIndex.swift`). Thinned to one a second.
+- Frames come through an I-frame `FrameGrabber` of their own (`FrameGrabber+IFrames.swift`).
+  The rendition is always SDR (authoring spec 6.16): the keyframe is copied only
+  for an SDR picture inside 1920x1080 that playback copies; everything else
+  (HDR, 4K, a transcoded session, every server lane) is encoded as H.264 High
+  4.0 inside 1920x1080, PQ and HLG tone-mapped by VideoToolbox's pixel transfer
+  from the decoded frame's own colour tags (PQ to BT.709 measured on Apple TV
+  2026-10-07). Dolby Vision profile 5 gets no line. tfdt sits on the session
+  anchor; each sample lasts until the next tfdt (7.3); mfhd counts the entries.
+- `IFrameStore` never fails an entry: AVPlayer retries a 404 I-frame segment
+  without end and stops trick play (604 retries in 30 s, measured). Newest
+  request first; a request that waits past its budget (4 s on a copy link,
+  0.6 s under a ladder) gets the nearest made fragment restamped; a failing
+  source rests 5 s, then 30 s. 24 MB LRU.
+- Server lanes: `ProviderIFrames` on a frame provider, named by an absolute line
+  in the shimmed or multi-audio master. Stamps are source time minus the file's
+  start: Jellyfin's fMP4 output keeps that timeline, TS adds 10 s, and AVPlayer
+  lines our fMP4 I-frames up with both (pixel-identical at their times).
+- MPEG-TS seeks by byte estimate on a `ByteTimeMap` (ends, landings, keyframes
+  read): 1 to 3 seeks against FFmpeg's 5 to 17 requests (4.2 to 14.1 s) on a
+  30 min recording over HTTPS.
+- BANDWIDTH is RFC 8216's windowed peak over the I-frame EXTINFs (spec 6.9):
+  exact from MP4/AVI index sizes, else a bound (an encoded frame is re-encoded
+  toward 2 Mb/s over its EXTINF; a Matroska copy is bounded by its cluster positions).
+  AVERAGE-BANDWIDTH is the mean of 8 entries sampled once AVPlayer holds its
+  reservoir, kept per item across launches and declared from the item's next
+  master; until then it equals BANDWIDTH. Under the line this replaced (a 4K PQ
+  copy declaring the main variant's peak, no AVERAGE-BANDWIDTH) every resumed 4K
+  HDR session on tvOS failed with -16042 once it loaded the I-frame init; which
+  attribute tvOS objected to is not isolated (2026-10-06/07).
+- Measured 2026-10-05: tvOS AVKit draws thumbnails over the scrub bar from it;
+  iOS has no thumbnail and paints the scrub target into the video itself, from
+  the same fragments (126 fetched in one scrubbing run). Jellyfin's JPEG
+  trickplay is no input: `CODECS="jpeg"` is ignored and `"mjpg"` stalls AVPlayer.
+
 ## The retry ladder
 
 Three rungs, in order: **direct, engine, server.**
@@ -283,10 +330,37 @@ carries that state, and it appears in **both** the remux condition and the
 transcode condition — without the second, a file the engine declines falls back
 to direct play and fails identically forever.
 
+## The server transcoding setting
+
+Settings > Streaming > Server transcoding, stored per device as
+`serverTranscoding` in `services/uiPreferences.ts`, read through the two
+predicates in `services/transcodePolicy.ts`. The server's own per-user
+permission (`SupportsTranscoding`, which Jellyfin writes from
+`EnableVideoPlaybackTranscoding` for a video and `EnableAudioPlaybackTranscoding`
+for an audio item) caps every level; `services/jellyfin/transcodePermissions.ts`
+reads the same policy off `/Users/Me` so the setting page can say so out loud.
+
+| Level                  | Rungs for the link | Files the device cannot play | Live server rung                      | Convert and Download | Uncarriable audio supplier |
+| ---------------------- | ------------------ | ---------------------------- | ------------------------------------- | -------------------- | -------------------------- |
+| `linkOrFile` (default) | yes                | yes                          | yes                                   | yes                  | yes                        |
+| `fileOnly`             | no                 | yes                          | yes                                   | yes                  | yes                        |
+| `never`                | no                 | no: the item is unplayable   | no: error after the one engine reopen | hidden               | no: the item is unplayable |
+
+`fileOnly` is `linkRungsAllowed` false: `offeredTierRungs` declares no rung
+unless the session is a server-video gateway, so the master is the copy alone,
+the engine skips its startup link probe (`RemuxSession+LinkProbe`, empty
+ladder), no tier report arrives and `copyOnlyRef` stays false, so a read-bound
+sample never hands over (`handOverToServer`). A produce-bound stall still does:
+that is the device, not the link. `never` is `serverTranscodeAllowed` false:
+`serverDenied` in `useVideoPlayback`, `canRemuxLocally` declining an
+uncarriable track, `openLiveServerRung` answering null, `planLiveErrorRecovery`
+and `planLaneGates` taking `serverTranscodingAllowed`, `predictPlaybackLane`
+reporting `"unplayable"` for the item panel and the download sheet.
+
 ## Rules of engagement
 
-1. `ios/` and `tvos/` are generated and gitignored. Native edits go in
-   `native/ios/`, and every one needs `npm run prebuild:tv`, which is Keiver's
+1. `ios/` and `tvos/` are generated and gitignored. Engine edits go in
+   `packages/tomo-engine/ios/`, Tomo-only native edits in `native/ios/`, and every one needs `npm run prebuild:tv`, which is Keiver's
    command to run, never Claude's.
 2. Verify codec availability with `npm run probe:codecs`, never from memory and
    never from `nm`.

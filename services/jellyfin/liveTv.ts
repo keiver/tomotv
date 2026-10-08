@@ -18,6 +18,10 @@ import { fetchWithTimeout } from "./http";
 import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
 import { didConfigReadFail, getAuthHeader, getConfig, getQualitySettings, throwRequestError } from "./session";
+import { type ChannelOrigin, clearOpenFailure } from "@keiver/tomo-live";
+
+export type { ChannelOrigin };
+export { noteOpenFailed, openRecentlyFailed } from "@keiver/tomo-live";
 
 const LIVE_BITRATE_CAP = 200_000_000;
 
@@ -160,22 +164,6 @@ async function originVariantUrl(masterUrl: string, headers: Record<string, strin
     }
   }
   return variant ?? masterUrl;
-}
-
-/** A channel whose open failed or timed out is left out of the ring and the sampler for this long: a dead origin can hang the server's probe. */
-const OPEN_FAILURE_TTL_MS = 10 * 60_000;
-const openFailedAt = new Map<string, number>();
-
-export function noteOpenFailed(channelId: string): void {
-  openFailedAt.set(channelId, Date.now());
-}
-
-export function openRecentlyFailed(channelId: string): boolean {
-  const at = openFailedAt.get(channelId);
-  if (at === undefined) return false;
-  if (Date.now() - at < OPEN_FAILURE_TTL_MS) return true;
-  openFailedAt.delete(channelId);
-  return false;
 }
 
 const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports: "isSports", kids: "isKids", movie: "isMovie", series: "isSeries" };
@@ -393,15 +381,6 @@ async function describeChannel(
   return { channel, playable: { ...described, liveStreamUrl: origin.url, ...(origin.headers ? { liveHttpHeaders: origin.headers } : {}) } };
 }
 
-/** What the engine reads for a manifest channel: the origin's variant, with the headers it requires. */
-export interface ChannelOrigin {
-  url: string;
-  headers?: Record<string, string>;
-  /** A raw TS channel: the provider whose connection budget a grab spends, and the server's pass-through. */
-  originKey?: string;
-  fallbackUrl?: string;
-}
-
 async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigin> {
   const url = await originVariantUrl(source.Path!, source.RequiredHttpHeaders);
   return { url, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
@@ -498,7 +477,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     void closeLiveStream(source.LiveStreamId, origin);
     throw error;
   }
-  openFailedAt.delete(channelId);
+  clearOpenFailure(channelId);
   if (source.LiveStreamId) {
     openOrigins.set(source.LiveStreamId, origin);
     recordOpen(source.LiveStreamId, { server: config.server, deviceId: config.deviceId });
@@ -594,7 +573,8 @@ export async function closeLeftoverOpens(): Promise<void> {
     if (token) await closeLiveStream(liveStreamId, { ...open, apiKey: token });
     else recordClose(liveStreamId);
   }
-  logger.info("Live opens left by a previous run closed", { service: "LiveTv", count: ids.length });
+  const kept = ids.filter((liveStreamId) => liveStreamId in recordedOpens()).length;
+  logger.info("Live opens left by a previous run", { service: "LiveTv", count: ids.length, kept });
 }
 
 async function liveTvRequest(path: string, init: RequestInit = {}, timeout: number = API_TIMEOUTS.NORMAL): Promise<Response> {
@@ -635,6 +615,25 @@ export async function fetchGuidePrograms({ channelIds, startMs, endMs }: GuideWi
   const response = await liveTvRequest("/LiveTv/Programs", { method: "POST", body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED);
   const json = await response.json();
   return (json.Items ?? []) as JellyfinProgram[];
+}
+
+/** When the server's guide ends: the start of its last program, or null for a guide with none. */
+export async function fetchGuideHorizon(): Promise<number | null> {
+  const config = await getConfig();
+  const body = {
+    UserId: config.userId,
+    SortBy: ["StartDate"],
+    SortOrder: ["Descending"],
+    Limit: 1,
+    EnableImages: false,
+    EnableUserData: false,
+    EnableTotalRecordCount: false,
+    Fields: [],
+  };
+  const response = await liveTvRequest("/LiveTv/Programs", { method: "POST", body: JSON.stringify(body) });
+  const json = await response.json();
+  const start = ((json.Items ?? []) as JellyfinProgram[])[0]?.StartDate;
+  return start ? Date.parse(start) : null;
 }
 
 export async function fetchTimers(): Promise<JellyfinTimer[]> {

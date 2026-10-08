@@ -20,6 +20,12 @@ export function preferredAudioStreamIndex(tracks: AudioStream[], tag: string | n
   return (matches.find((track) => track.IsDefault) ?? matches[0])?.Index ?? null;
 }
 
+/** An item's audio track in the stored language, for a download that keeps only one; undefined leaves the file's default. */
+export function preferredAudioIndexIn(streams: { Type?: string; Index?: number; Language?: string | null; IsDefault?: boolean }[], tag: string | null): number | undefined {
+  const tracks = streams.flatMap((stream) => (stream.Type === "Audio" && stream.Index !== undefined ? [{ Index: stream.Index, Language: stream.Language ?? "", IsDefault: stream.IsDefault }] : []));
+  return preferredAudioStreamIndex(tracks, tag) ?? undefined;
+}
+
 // MARK: - Storage
 
 /** Jellyfin's rule: while it prefers the file's default track, no language is remembered. */

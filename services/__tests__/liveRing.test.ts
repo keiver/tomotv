@@ -8,18 +8,21 @@ import { setLiveSessionPriority, setLiveWindow, startLocalRemux, stopLocalRemux 
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
+jest.mock("@keiver/tomo-live/src/openFailures", () => ({
+  noteOpenFailed: jest.fn(),
+  openRecentlyFailed: jest.fn(() => false),
+}));
 jest.mock("@/services/jellyfinApi", () => ({
   resolveChannel: jest.fn((id: string) => Promise.resolve({ Id: id, Name: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://origin/${id}.m3u8` })),
   closeLiveStream: jest.fn(() => Promise.resolve()),
-  noteOpenFailed: jest.fn(),
-  openRecentlyFailed: jest.fn(() => false),
+  noteOpenFailed: jest.requireMock("@keiver/tomo-live/src/openFailures").noteOpenFailed,
+  openRecentlyFailed: jest.requireMock("@keiver/tomo-live/src/openFailures").openRecentlyFailed,
 }));
 
 const mockThroughput = new Map<string, () => void>();
 const mockFailures = new Map<string, (failure: { message: string }) => void>();
-jest.mock("@/services/localRemux", () => ({
-  canRemuxLocally: jest.fn(() => Promise.resolve(true)),
-  startLocalRemux: jest.fn((details: { Id: string }) => Promise.resolve(`http://127.0.0.1:1/${details.Id}-s/master.m3u8`)),
+jest.mock("@keiver/tomo-engine", () => ({
+  ...jest.requireActual("@keiver/tomo-engine"),
   stopLocalRemux: jest.fn(() => Promise.resolve()),
   localRemuxToken: (url: string | null) => url?.split("/").at(-2) ?? null,
   setLiveWindow: jest.fn(() => Promise.resolve()),
@@ -32,6 +35,11 @@ jest.mock("@/services/localRemux", () => ({
     mockFailures.set(token, listener);
     return jest.fn();
   }),
+}));
+jest.mock("@/services/localRemux", () => ({
+  ...jest.requireMock("@keiver/tomo-engine"),
+  canRemuxLocally: jest.fn(() => Promise.resolve(true)),
+  startLocalRemux: jest.fn((details: { Id: string }) => Promise.resolve(`http://127.0.0.1:1/${details.Id}-s/master.m3u8`)),
 }));
 
 const RING = Array.from({ length: 30 }, (_, i) => ({ Id: `c${i}` }));

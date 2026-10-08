@@ -49,6 +49,8 @@ export interface PlayerSessionRequest {
   isLive?: boolean;
   /** A queue advance: under a PiP window the item swaps inside the one player. */
   advance?: boolean;
+  /** An item of the play queue: a window with no route left rolls into the next one itself. */
+  queueMode?: boolean;
 }
 
 /** Which session a route believes it owns. */
@@ -69,6 +71,8 @@ export interface PlayerSessionHandlers {
   onTransportBarButtonSelected: (event: { id: string }) => void;
   /** Leave the player: the phone's ✕/swipe, and the tvOS Menu press. */
   onRequestBack: () => void;
+  /** A PiP window took the video: leave the player, keeping the session and its queue for the window. */
+  onPipStarted?: () => void;
 }
 
 /** State the host publishes for the route to render from. */

@@ -38,6 +38,12 @@ export function playsRepackaged(itemId: string): boolean {
   return entry?.state === "ready" && entry.repackaged === true && readyFileUri(itemId) !== null;
 }
 
+/** The held file is a server conversion, which carries no subtitle track: its text tracks are the saved sidecars. */
+export function playsConverted(itemId: string): boolean {
+  const entry = manifestEntry(itemId);
+  return entry?.state === "ready" && entry.converted !== undefined && readyFileUri(itemId) !== null;
+}
+
 /**
  * The source stream index of the bitmap track a player ordinal refers to, or null when that
  * ordinal is a text track or none of ours.

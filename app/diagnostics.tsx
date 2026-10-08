@@ -4,6 +4,7 @@ import { GlassButton } from "@/components/glass-button";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { getSends, refreshSends } from "@/services/diagnosticsInbox";
 import { documentLines, logText } from "@/services/diagnosticsLog";
 import { sendSession, type SentSession } from "@/services/diagnosticsOutbox";
@@ -49,6 +50,7 @@ const bySender = (sender: string | undefined) => (sender ? (getSends().find((sen
 export default function DiagnosticsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  const { accent } = useCardPalette();
   const { sender } = useLocalSearchParams<{ sender?: string }>();
   const [own] = useState<PlaybackSession | null>(readLastSession);
   const [sent, setSent] = useState<SentSession | null>(() => bySender(sender));
@@ -134,7 +136,7 @@ export default function DiagnosticsScreen() {
                   <FocusableButton
                     title={copied ? t("common.copied") : t("common.copy")}
                     variant="link"
-                    icon={<Ionicons name={copied ? "checkmark" : "copy-outline"} size={16} color={COLORS.ACCENT} />}
+                    icon={<Ionicons name={copied ? "checkmark" : "copy-outline"} size={16} color={accent} />}
                     onPress={copy}
                     accessibilityLabel={t("diagnostics.copy")}
                   />
@@ -142,12 +144,12 @@ export default function DiagnosticsScreen() {
               },
               {
                 type: "custom",
-                element: <FocusableButton variant="link" icon={<Ionicons name="share-outline" size={20} color={COLORS.ACCENT} />} onPress={share} accessibilityLabel={t("diagnostics.shareFile")} />,
+                element: <FocusableButton variant="link" icon={<Ionicons name="share-outline" size={20} color={accent} />} onPress={share} accessibilityLabel={t("diagnostics.shareFile")} />,
               },
             ]
           : [],
     }),
-    [session, copied, copy, share],
+    [session, copied, copy, share, accent],
   );
 
   return (
@@ -214,7 +216,7 @@ export default function DiagnosticsScreen() {
                   this is the answer. */}
               {story && (
                 <SectionFooter>
-                  <Text style={[settingsStyles.sectionNote, styles.story]}>{story}</Text>
+                  <Text style={[settingsStyles.sectionNote, styles.story, { color: accent }]}>{story}</Text>
                 </SectionFooter>
               )}
             </View>
@@ -232,8 +234,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 44, fontWeight: "800", color: COLORS.TEXT_PRIMARY, letterSpacing: -1 },
   sendCluster: { flexDirection: "row", alignItems: "center", gap: 20 },
   sendNote: { fontSize: 20, color: COLORS.TEXT_SECONDARY },
-  // The note in the active gold and a step larger: it is the answer, not a footnote.
-  story: { color: COLORS.ACCENT, fontSize: IS_TV ? 22 : 14, lineHeight: IS_TV ? 30 : 20 },
+  // The note in the accent and a step larger: it is the answer, not a footnote.
+  story: { fontSize: IS_TV ? 22 : 14, lineHeight: IS_TV ? 30 : 20 },
   // flex: 1 is the whole point: the card eats the height the heading did not.
   log: { flex: 1 },
   logScroll: { flex: 1 },

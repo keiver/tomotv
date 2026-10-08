@@ -10,6 +10,7 @@ import { downloadManager } from "@/services/downloads/manager";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { fetchVideoDetails } from "@/services/jellyfinApi";
 import { predictPlaybackLane } from "@/services/localRemux";
+import { serverTranscodeBlock } from "@/services/transcodePolicy";
 import { Alert } from "react-native";
 import type { DownloadsUIState } from "@/services/downloads/manager";
 
@@ -51,11 +52,29 @@ jest.mock("@/services/localRemux", () => ({ predictPlaybackLane: jest.fn(async (
 
 jest.mock("@/utils/mediaInfo", () => ({ formatFileSize: (bytes: number) => `${bytes} B` }));
 
-const mockEstimate = jest.fn(() => 0);
+const RUNG = { label: "1080p", bitrate: 8000000, width: 1920, height: 1080 };
+const mockEstimate = jest.fn((_item: unknown, _rung: { bitrate: number }) => 0);
+const mockRungs = jest.fn((): (typeof RUNG)[] => []);
 jest.mock("@/services/downloads/convert", () => ({
-  conversionRung: jest.fn(async () => ({ label: "1080p", bitrate: 8000000, width: 1920, height: 1080 })),
-  estimatedConvertedBytes: (...args: unknown[]) => mockEstimate(...(args as [])),
+  downloadRungs: (...args: unknown[]) => mockRungs(...(args as [])),
+  estimatedConvertedBytes: (item: unknown, rung: { bitrate: number }) => mockEstimate(item, rung),
 }));
+jest.mock("@/services/transcodePolicy", () => ({ serverTranscodeBlock: jest.fn(() => null) }));
+const mockConversionTracks = jest.fn(async (): Promise<{ audioIndex?: number; burnSubtitleIndex?: number }> => ({}));
+jest.mock("@/services/downloads/conversionTracks", () => ({ conversionTracks: () => mockConversionTracks() }));
+// The sheet is replayed as an Alert so one helper reads both: a disabled size keeps no onPress.
+jest.mock("@/services/downloads/sizeSheet", () => {
+  const actual = jest.requireActual("@/services/downloads/sizeSheet");
+  const { Alert } = require("react-native");
+  return {
+    ...actual,
+    showSizeSheet: (title: string, message: string, choices: { text: string; disabled?: boolean; onPress: () => void }[]) =>
+      Alert.alert(title, message, [
+        ...choices.map((choice) => ({ text: choice.text, disabled: choice.disabled, onPress: choice.disabled ? undefined : choice.onPress })),
+        { text: "Cancel", style: "cancel" },
+      ]),
+  };
+});
 
 const manager = downloadManager as jest.Mocked<typeof downloadManager>;
 let listener: ((state: DownloadsUIState) => void) | null = null;
@@ -63,7 +82,7 @@ let listener: ((state: DownloadsUIState) => void) | null = null;
 const ITEM = { Id: "a", Name: "Bloom", Type: "Audio" } as never;
 
 /** Presses a button on the last Alert offered. */
-async function confirm(text = "Download") {
+async function confirm(text = "Original · 10 B") {
   const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string; onPress?: () => void }[] | undefined;
   await act(async () => {
     buttons?.find((button) => button.text === text)?.onPress?.();
@@ -91,6 +110,9 @@ function setState(state: string, bytes: { bytesWritten: number; totalBytes: numb
 beforeEach(() => {
   jest.clearAllMocks();
   mockEstimate.mockReturnValue(0);
+  mockRungs.mockReturnValue([]);
+  mockConversionTracks.mockResolvedValue({});
+  (serverTranscodeBlock as jest.Mock).mockReturnValue(null);
   mockEntries.length = 0;
   listener = null;
   (downloadsSupported as jest.Mock).mockReturnValue(true);
@@ -130,7 +152,7 @@ describe("useItemDownload", () => {
     });
     expect(fetchVideoDetails).toHaveBeenCalledWith("a");
     await confirm();
-    expect(manager.enqueue).toHaveBeenCalledWith({ Id: "a", Name: "Bloom", MediaSources: [{ Id: "s", Size: 10 }] }, { convert: false });
+    expect(manager.enqueue).toHaveBeenCalledWith({ Id: "a", Name: "Bloom", MediaSources: [{ Id: "s", Size: 10 }] }, {});
   });
 
   it("leaves for the Downloads tab once the item is queued, because queuing is otherwise invisible", async () => {
@@ -200,10 +222,52 @@ describe("useItemDownload", () => {
     await act(async () => {
       await result.current?.toggle?.();
     });
-    const [title, body] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
+    const [title, body, buttons] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
     expect(title).toBe("Bloom");
-    expect(body).toContain("10 B");
+    expect(body).toContain(`${100 * 1024 * 1024 * 1024} B free`);
+    expect(buttons.map((button: { text: string }) => button.text)).toEqual(["Original · 10 B", "Cancel"]);
     expect(manager.enqueue).not.toHaveBeenCalled();
+  });
+
+  // The reviewer's ask: a playable file still offers the server's smaller encodes under the
+  // original, each with its size, and the pick rides to the manager as the rung itself.
+  it("offers the smaller sizes under the original and queues the chosen rung", async () => {
+    mockRungs.mockReturnValue([RUNG, { label: "720p", bitrate: 4000000, width: 1280, height: 720 }]);
+    mockEstimate.mockImplementation((_item: unknown, rung: { bitrate: number }) => rung.bitrate / 1000);
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string }[];
+    expect(mockRungs).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), true);
+    expect(buttons.map((button) => button.text)).toEqual(["Original · 10 B", "1080p · 8000 B", "720p · 4000 B", "Cancel"]);
+    await confirm("720p · 4000 B");
+    expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { convert: { label: "720p", bitrate: 4000000, width: 1280, height: 720 } });
+  });
+
+  // The tracks a conversion records are decided at download time (services/downloads/conversionTracks).
+  it("queues a smaller size with the audio track and burned subtitle picked for it", async () => {
+    mockRungs.mockReturnValue([RUNG]);
+    mockEstimate.mockReturnValue(4000);
+    mockConversionTracks.mockResolvedValue({ audioIndex: 2, burnSubtitleIndex: 3 });
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    await confirm("1080p · 4000 B");
+    expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { convert: RUNG, audioIndex: 2, burnSubtitleIndex: 3 });
+  });
+
+  it("drops a size that would not fit and keeps the ones that do", async () => {
+    mockRungs.mockReturnValue([RUNG]);
+    (fetchVideoDetails as jest.Mock).mockResolvedValue({ Id: "a", Name: "Bloom", MediaSources: [{ Id: "s", Size: 200 * 1024 * 1024 * 1024 }] });
+    mockEstimate.mockReturnValue(1024);
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string }[];
+    expect(buttons.map((button) => button.text)).toEqual(["1080p · 1024 B", "Cancel"]);
   });
 
   it("queues nothing when the confirmation is declined", async () => {
@@ -219,21 +283,58 @@ describe("useItemDownload", () => {
   // server, so the original is never queued: the server re-encodes it on the way down instead.
   it("offers a conversion for an item only the server can play, and queues it as one", async () => {
     (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "server", smallFeedFirst: false });
+    mockRungs.mockReturnValue([RUNG]);
     const result = mount(ITEM);
     await act(async () => {
       await result.current?.toggle?.();
     });
-    expect((Alert.alert as jest.Mock).mock.calls.at(-1)?.[1]).toContain("won't play offline");
+    const [, body, buttons] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
+    expect(body).toContain("won't play offline");
+    // The original is never offered, and the ladder is asked without the shrink rule.
+    expect(buttons.map((button: { text: string }) => button.text)).toEqual(["1080p", "Cancel"]);
+    expect(mockRungs).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), false);
     expect(manager.enqueue).not.toHaveBeenCalled();
-    await confirm("Download");
-    expect(manager.enqueue).not.toHaveBeenCalled();
-    await confirm("Convert and Download");
-    expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { convert: true });
+    await confirm("1080p");
+    expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { convert: RUNG });
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/downloads", params: { highlight: "a" } });
+  });
+
+  // Server transcoding off in Settings: the smaller sizes stay listed, greyed, and the sheet says why.
+  it("greys the smaller sizes and names the setting when transcoding is off on this device", async () => {
+    (serverTranscodeBlock as jest.Mock).mockReturnValue("device");
+    mockRungs.mockReturnValue([RUNG]);
+    mockEstimate.mockReturnValue(4000);
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const [, body, buttons] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
+    expect(body).toContain("off in Settings");
+    expect(buttons.map((button: { text: string; disabled?: boolean }) => [button.text, !!button.disabled])).toEqual([
+      ["Original · 10 B", false],
+      ["1080p · 4000 B", true],
+      ["Cancel", false],
+    ]);
+    await confirm("1080p · 4000 B");
+    expect(manager.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing for a file that needs a server this device will not ask", async () => {
+    (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "unplayable", smallFeedFirst: false });
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const alert = (Alert.alert as jest.Mock).mock.calls.at(-1);
+    expect(alert?.[1]).toContain("server transcoding is off");
+    expect(alert?.[2].map((button: { text: string }) => button.text)).toEqual(["OK"]);
+    expect(manager.enqueue).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it("refuses a conversion the estimate says will not fit, before offering it", async () => {
     (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "server", smallFeedFirst: false });
+    mockRungs.mockReturnValue([RUNG]);
     mockEstimate.mockReturnValue(200 * 1024 * 1024 * 1024);
     const result = mount(ITEM);
     await act(async () => {

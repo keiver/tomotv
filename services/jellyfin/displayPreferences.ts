@@ -28,19 +28,29 @@ async function readFrom(target: PreferencesTarget): Promise<DisplayPreferences> 
   return (await response.json()) as DisplayPreferences;
 }
 
-export async function getDisplayPreferences(id: string, client: string): Promise<DisplayPreferences> {
-  return readFrom(await endpoint(id, client));
+/** The account a read or write belongs to, when the caller captured it before the request. */
+export type PreferencesOwner = { server: string; userId: string };
+
+function assertOwner(target: PreferencesTarget, owner: PreferencesOwner | undefined): void {
+  if (owner && (owner.server !== target.server || owner.userId !== target.userId)) throw new Error("The account changed before the request.");
+}
+
+export async function getDisplayPreferences(id: string, client: string, owner?: PreferencesOwner): Promise<DisplayPreferences> {
+  const target = await endpoint(id, client);
+  assertOwner(target, owner);
+  return readFrom(target);
 }
 
 /** A read then a write of one shared record. The API carries no ETag, so writers on two devices
  *  cannot be made safe against each other; this keeps THIS device's writes in line. */
 let writeChain: Promise<unknown> = Promise.resolve();
 
-async function writeCustomPrefs(id: string, client: string, edit: (current: Record<string, string | null>) => Record<string, string | null>): Promise<void> {
+async function writeCustomPrefs(id: string, client: string, edit: (current: Record<string, string | null>) => Record<string, string | null>, owner?: PreferencesOwner): Promise<void> {
   const run = writeChain.then(async () => {
     // One target for both halves, and the account is re-read before the write: a switch while the
     // read was in flight, or while this write waited its turn, would merge one account into another.
     const target = await endpoint(id, client);
+    assertOwner(target, owner);
     const current = await readFrom(target);
     const now = await getConfig();
     if (now.server !== target.server || now.userId !== target.userId) throw new Error("The account changed during the write.");
@@ -58,8 +68,8 @@ export function updateDisplayPreferences(id: string, client: string, customPrefs
   return writeCustomPrefs(id, client, (current) => ({ ...current, ...customPrefs }));
 }
 
-export function editDisplayPreferences(id: string, client: string, edit: (current: Record<string, string | null>) => Record<string, string | null>): Promise<void> {
-  return writeCustomPrefs(id, client, edit);
+export function editDisplayPreferences(id: string, client: string, edit: (current: Record<string, string | null>) => Record<string, string | null>, owner?: PreferencesOwner): Promise<void> {
+  return writeCustomPrefs(id, client, edit, owner);
 }
 
 /** Drops one custom key, leaving the rest as the server holds them. */

@@ -1,6 +1,6 @@
 import { AccountAvatar } from "@/components/settings/AccountAvatar";
-import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { PEOPLE_PANEL_WIDTH, STRIP_INSET, settingsStyles } from "@/components/settings/styles";
 import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from "react-native";
@@ -51,6 +51,7 @@ export const AccountStrip = forwardRef<AccountStripHandle, AccountStripProps>(fu
   useImperativeHandle(ref, () => ({ scrollToStart: () => listRef.current?.scrollTo({ x: 0, y: 0, animated: true }) }), []);
   // TV: the last person, for the guide in the empty panel under the column.
   const [lastNode, setLastNode] = useState<View | null>(null);
+  const { accent } = useCardPalette();
   const list = (
     <ScrollView
       ref={listRef}
@@ -98,7 +99,7 @@ export const AccountStrip = forwardRef<AccountStripHandle, AccountStripProps>(fu
   // the column (one person, a low row) would reach nothing, so that space is a guide to the last
   // person, the nearest one. Nothing sits over the people.
   return IS_TV ? (
-    <View style={styles.panel}>
+    <View style={[styles.panel, { backgroundColor: accent }]}>
       {list}
       <TVFocusGuideView style={styles.panelFill} destinations={lastNode ? [lastNode] : undefined} />
     </View>
@@ -139,14 +140,14 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   // The column sits beside the rows, never over them (sectionMain keeps them clear), and wears
-  // the focused row's fill. No shadow of its own: the card's inset lips and rim paint over it.
+  // the focused row's fill (the theme's accent, set inline). No shadow of its own: the card's inset
+  // lips and rim paint over it.
   panel: {
     position: "absolute",
     top: 0,
     right: 0,
     bottom: 0,
     width: PEOPLE_PANEL_WIDTH,
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
   },
   // Sized to its people and no taller; the guide takes whatever is left.
   panelList: {

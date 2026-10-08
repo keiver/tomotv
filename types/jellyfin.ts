@@ -35,6 +35,7 @@ export interface JellyfinMediaStream {
   // Subtitle-specific fields
   IsDefault?: boolean; // Whether this is the default track
   IsForced?: boolean; // Whether this is a forced subtitle track
+  IsHearingImpaired?: boolean; // SDH: dialogue plus sound descriptions
 }
 
 export interface JellyfinMediaSource {
@@ -160,6 +161,7 @@ export interface JellyfinVideoItem {
   EndDate?: string;
   ChannelId?: string;
   ChannelName?: string;
+  EpisodeTitle?: string;
   // Only present when the request asked for Fields=Chapters (fetchItemDetails does).
   Chapters?: JellyfinChapter[];
   Type: string;

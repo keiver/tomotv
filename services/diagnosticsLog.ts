@@ -34,6 +34,8 @@ export type SessionSummary = {
   error: string | null;
   retriedAfter: string | null;
   engineDeclined: string | null;
+  /** The error ID the screen showed last (utils/errorIds.ts), retried or not. */
+  errorCode: string | null;
   /** The playback in words (playbackStory.ts); carried by the exports, shown under the document on screen. */
   description?: string;
 };
@@ -45,6 +47,7 @@ export function summarize(session: PlaybackSession): SessionSummary {
   const failure = lastEvent(session, "error");
   const message = failure?.message ? String(failure.message) : null;
   const declined = lastEvent(session, "decline")?.reason;
+  const code = lastEvent(session, "errorCode")?.code;
   return {
     item: String(lastEvent(session, "source")?.name ?? playback.itemId),
     started: new Date(playback.startedAt).toLocaleString(),
@@ -53,6 +56,7 @@ export function summarize(session: PlaybackSession): SessionSummary {
     error: failure?.willRetry ? null : message,
     retriedAfter: failure?.willRetry ? message : null,
     engineDeclined: declined ? String(declined) : null,
+    errorCode: code ? String(code) : null,
   };
 }
 

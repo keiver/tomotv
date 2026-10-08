@@ -1,7 +1,60 @@
 /**
  * When an item's subtitle choice is applied, and what counts as the viewer making one.
  */
-import { classifyObservedChoice, planSubtitleApplication, subtitleSelectionForReport } from "../videoPlayback/subtitleSession";
+import { classifyObservedChoice, keepsCurrentPick, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "../videoPlayback/subtitleSession";
+
+// Device log: AVPlayer picked English SDH at load, then a stored "eng" moved it to the plain track AVKit's Language list lacks.
+describe("keepsCurrentPick", () => {
+  const english = { kind: "apply", preference: { kind: "language", tag: "eng" } } as const;
+  const sdh = { language: "eng", isForced: false };
+
+  it("keeps the player's own non-forced pick in the stored language, whatever its spelling", () => {
+    expect(keepsCurrentPick(english, sdh)).toBe(true);
+    expect(keepsCurrentPick({ kind: "apply", preference: { kind: "language", tag: "en" } }, sdh)).toBe(true);
+  });
+
+  it("moves a forced pick that shares the language", () => {
+    expect(keepsCurrentPick(english, { language: "eng", isForced: true })).toBe(false);
+  });
+
+  it("applies the preference over nothing selected or another language", () => {
+    expect(keepsCurrentPick(english, null)).toBe(false);
+    expect(keepsCurrentPick(english, { language: "spa", isForced: false })).toBe(false);
+  });
+
+  it("leaves the file's own default and subtitles off to their own paths", () => {
+    expect(keepsCurrentPick({ kind: "autoDefault", preference: { kind: "language", tag: "eng" }, tag: "eng" }, sdh)).toBe(false);
+    expect(keepsCurrentPick({ kind: "apply", preference: { kind: "off" } }, sdh)).toBe(false);
+  });
+});
+
+describe("renditionForPlan", () => {
+  const forced = { index: 2, language: "eng", isDefault: false, isForced: true };
+  const sdh = { index: 3, language: "eng", isDefault: false, isForced: false };
+  const english = { kind: "apply", preference: { kind: "language", tag: "eng" } } as const;
+
+  it("lands a chosen language on its full track, never the forced one", () => {
+    expect(renditionForPlan(english, [forced, sdh])).toBe(3);
+    expect(renditionForPlan({ kind: "apply", preference: { kind: "language", tag: "en" } }, [forced, sdh])).toBe(3);
+  });
+
+  it("leaves a language with one track to the language match", () => {
+    expect(renditionForPlan(english, [sdh, { index: 4, language: "spa", isDefault: false, isForced: false }])).toBeNull();
+  });
+
+  it("takes a language's first track when every one is forced", () => {
+    expect(renditionForPlan(english, [forced, { ...forced, index: 5 }])).toBe(2);
+  });
+
+  it("selects the file's own default, forced or not", () => {
+    const plan = { kind: "autoDefault", preference: { kind: "language", tag: "eng" }, tag: "eng" } as const;
+    expect(renditionForPlan(plan, [sdh, { ...forced, isDefault: true }])).toBe(2);
+  });
+
+  it("has nothing to pick for subtitles off", () => {
+    expect(renditionForPlan({ kind: "apply", preference: { kind: "off" } }, [forced, sdh])).toBeNull();
+  });
+});
 
 describe("subtitleSelectionForReport", () => {
   const renditions = [

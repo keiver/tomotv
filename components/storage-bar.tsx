@@ -1,12 +1,13 @@
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { COLORS } from "@/constants/colors";
+import { themedStyles, useCardPalette } from "@/hooks/useCardPalette";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { Ionicons } from "@expo/vector-icons";
 import React, { type ComponentProps } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
 
-/** A floor wide enough that the red reads as a bar, not a sliver, when little is used. */
+/** A floor wide enough that the fill reads as a bar, not a sliver, when little is used. */
 const MIN_VISIBLE_FRACTION = 0.06;
 
 /** Shorter than a row, so the card's last band reads as a rule rather than another entry. */
@@ -32,28 +33,41 @@ interface StorageBarProps {
   used: number;
   /** Bytes still free on the device. */
   free: number;
-  /** Clears what `used` counts, behind a confirmation. */
-  onClear: () => void;
+  /** Clears what `used` counts, behind a confirmation. Omitted, the band is a reading only. */
+  onClear?: () => void;
   /** Replaces the downloads wording of the used part. */
   usedLabel?: string;
+  /** Replaces the whole reading. */
+  label?: string;
+  /** Overrides the red storage fill for readings such as successful channel matches. */
+  fillColor?: string;
   hint?: string;
   layout?: ComponentProps<typeof SectionFooter>["layout"];
 }
 
 /**
- * How much of the device the downloads hold, drawn as the band a section card ends in: a gold
+ * How much of the device the downloads hold, drawn as the band a section card ends in: an accent
  * track the used fraction fills red across its full height, the reading centred over it.
  * It is its card's footer: phone wraps it in SectionFooter, tvOS leaves it bare because the
  * footer's overlay would occlude it from focus. Pressing it clears everything.
  */
-export function StorageBar({ used, free, onClear, usedLabel, hint, layout }: StorageBarProps) {
+export function StorageBar({ used, free, onClear, usedLabel, label: reading, fillColor = COLORS.DESTRUCTIVE, hint, layout }: StorageBarProps) {
   const { percent, accessibleNow } = storageBarFill(used, free);
   const usedPart = usedLabel ?? (used > 0 ? t("downloads.usedDownloaded").replace("{size}", formatFileSize(used)) : t("downloads.nothingDownloaded"));
-  const label = t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
+  const label = reading ?? t("downloads.freeStorage").replace("{used}", usedPart).replace("{free}", formatFileSize(free));
+  const palette = useCardPalette();
+  const themed = useThemedStyles();
 
-  const bar = (
+  const bar = !onClear ? (
+    <View style={[styles.track, themed.track]} accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: accessibleNow }}>
+      <View style={[styles.fill, { width: `${percent}%`, backgroundColor: fillColor }]} />
+      <View style={styles.row}>
+        <Text style={[styles.label, themed.label]}>{label}</Text>
+      </View>
+    </View>
+  ) : (
     <Pressable
-      style={styles.track}
+      style={[styles.track, themed.track]}
       onPress={onClear}
       onLongPress={onClear}
       hitSlop={{ top: TOUCH_SLOP, bottom: TOUCH_SLOP }}
@@ -64,14 +78,14 @@ export function StorageBar({ used, free, onClear, usedLabel, hint, layout }: Sto
       tvParallaxProperties={{ enabled: false }}>
       {({ focused }) => (
         <>
-          <View style={[styles.fill, { width: `${percent}%` }]} pointerEvents="none" />
+          <View style={[styles.fill, { width: `${percent}%`, backgroundColor: fillColor }]} pointerEvents="none" />
           <View style={styles.row} pointerEvents="none">
-            <Ionicons name="trash-outline" size={ICON_SIZE} color={COLORS.ON_ACCENT} style={styles.mark} />
+            <Ionicons name="trash-outline" size={ICON_SIZE} color={palette.onAccent} style={styles.mark} />
             {/* Unclamped: at the accessibility text sizes the reading is wider than the band, and
                 wrapping it is the difference between a long reading and half a reading. */}
-            <Text style={styles.label}>{label}</Text>
+            <Text style={[styles.label, themed.label]}>{label}</Text>
           </View>
-          {/* tvOS: the band is gold at rest, so focus is a ring rather than a fill. */}
+          {/* tvOS: the band is the accent at rest, so focus is a ring rather than a fill. */}
           {focused ? <View style={styles.focusRing} pointerEvents="none" /> : null}
         </>
       )}
@@ -86,7 +100,6 @@ const styles = StyleSheet.create({
   track: {
     minHeight: BAR_HEIGHT,
     justifyContent: "center",
-    backgroundColor: COLORS.ACCENT,
   },
   // The used space, filling the whole band from the left to the used fraction.
   fill: {
@@ -94,7 +107,6 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: COLORS.DESTRUCTIVE,
   },
   row: {
     flexDirection: "row",
@@ -122,8 +134,16 @@ const styles = StyleSheet.create({
   label: {
     flexShrink: 1,
     textAlign: "center",
-    color: COLORS.ON_ACCENT,
     fontSize: Platform.isTV ? 24 : 13,
     fontWeight: "500",
   },
 });
+
+const useThemedStyles = themedStyles((palette) => ({
+  track: {
+    backgroundColor: palette.accent,
+  },
+  label: {
+    color: palette.onAccent,
+  },
+}));

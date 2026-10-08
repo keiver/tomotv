@@ -5,12 +5,12 @@ import { clearRequestCache } from "../requestCache";
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
 jest.mock("@/services/liveSources", () => ({
-  isLiveSourcesAvailable: jest.fn(() => true),
+  isTunerGroupsAvailable: jest.fn(() => true),
   loadTunerPlaylist: jest.fn(),
   cancelTunerGroups: jest.fn(),
 }));
 const mockLiveSources = jest.requireMock("@/services/liveSources") as {
-  isLiveSourcesAvailable: jest.Mock;
+  isTunerGroupsAvailable: jest.Mock;
   loadTunerPlaylist: jest.Mock;
   cancelTunerGroups: jest.Mock;
 };
@@ -67,15 +67,37 @@ describe("fetchTunerGroups", () => {
       complete: true,
     });
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledTimes(2);
-    expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledWith(expect.any(String), "http://t/one.m3u", "UA/1");
-    expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledWith(expect.any(String), "https://t/two.m3u", undefined);
+    expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledWith(expect.any(String), "http://t/one.m3u", "UA/1", "http://t/one.m3u");
+    expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledWith(expect.any(String), "https://t/two.m3u", undefined, "https://t/two.m3u");
     // The second call is served from the cache.
     await fetchTunerGroups();
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("reads a tuner the server reaches on its own loopback at the server's host, hashing ids with the stored URL", async () => {
+    const session = jest.requireMock("../jellyfin/session") as { getConfig: jest.Mock };
+    session.getConfig.mockResolvedValueOnce({ server: "http://192.168.1.5:8096", apiKey: "k", userId: "u", deviceId: "d" });
+    global.fetch = jest.fn().mockResolvedValue(
+      configResponse([
+        { Type: "m3u", Url: "http://127.0.0.1:9109/a.m3u" },
+        { Type: "m3u", Url: "http://localhost/b.m3u" },
+        { Type: "m3u", Url: "https://[::1]:8443/c.m3u" },
+        { Type: "m3u", Url: "http://localhost.example.com/d.m3u" },
+      ]),
+    );
+    mockLiveSources.loadTunerPlaylist.mockResolvedValue({ groups: [], channels: [], tvgUrls: [] });
+    const data = await fetchTunerData();
+    expect(mockLiveSources.loadTunerPlaylist.mock.calls.map(([, url, , fetchUrl]) => [url, fetchUrl])).toEqual([
+      ["http://127.0.0.1:9109/a.m3u", "http://192.168.1.5:9109/a.m3u"],
+      ["http://localhost/b.m3u", "http://192.168.1.5/b.m3u"],
+      ["https://[::1]:8443/c.m3u", "https://192.168.1.5:8443/c.m3u"],
+      ["http://localhost.example.com/d.m3u", "http://localhost.example.com/d.m3u"],
+    ]);
+    expect(data.tunerUrls).toEqual(["http://127.0.0.1:9109/a.m3u", "http://localhost/b.m3u", "https://[::1]:8443/c.m3u", "http://localhost.example.com/d.m3u"]);
+  });
+
   it("returns no groups without the native module and never reads the config", async () => {
-    mockLiveSources.isLiveSourcesAvailable.mockReturnValueOnce(false);
+    mockLiveSources.isTunerGroupsAvailable.mockReturnValueOnce(false);
     global.fetch = jest.fn();
     await expect(fetchTunerGroups()).resolves.toEqual([]);
     expect(global.fetch).not.toHaveBeenCalled();

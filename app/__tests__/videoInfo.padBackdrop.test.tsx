@@ -34,6 +34,11 @@ jest.mock("expo-blur", () => {
 });
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
+jest.mock("react-native-gesture-handler", () => {
+  const { View } = require("react-native");
+  const chain: any = new Proxy(() => chain, { get: () => () => chain, apply: () => chain });
+  return { Gesture: { Pan: () => chain, Native: () => chain }, GestureDetector: ({ children }: { children: React.ReactNode }) => children, GestureHandlerRootView: View };
+});
 jest.mock("@/services/localRemux", () => ({
   predictPlaybackLane: jest.fn(async () => null),
   posterFrameIfCached: jest.fn(() => undefined),

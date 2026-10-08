@@ -1,6 +1,6 @@
 {
   "name": "tomotv",
-  "version": "2.2.9",
+  "version": "2.2.10",
   "description": "Stream videos from your Jellyfin server on Apple TV with automatic transcoding",
   "main": "expo-router/entry",
   "author": "Keiver Hernandez <contact@keiver.dev>",
@@ -32,8 +32,10 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "postinstall": "patch-package --error-on-fail && node scripts/fetch-ffmpeg.js && node scripts/generate-licenses.mjs --if-stale && bash scripts/check-cocoapods.sh",
-    "fetch:ffmpeg": "node scripts/fetch-ffmpeg.js",
+    "postinstall": "patch-package --error-on-fail && node scripts/generate-licenses.mjs --if-stale && bash scripts/check-cocoapods.sh",
+    "fetch:ffmpeg": "node packages/tomo-engine/scripts/fetch-ffmpeg.js",
+    "release:engine": "npm version --no-git-tag-version -w packages/tomo-engine",
+    "release:live": "npm version --no-git-tag-version -w packages/tomo-live",
     "build:ffmpeg": "bash scripts/ffmpeg/build.sh",
     "prestart": "bash scripts/check-firewall.sh",
     "start": "expo start --dev-client",
@@ -52,7 +54,7 @@
     "report:playback": "node scripts/playback-report.mjs",
     "make:test-media": "node scripts/make-test-media.mjs",
     "probe:codecs": "node scripts/probe-codecs.mjs",
-    "test:engine": "swift test --package-path native/ios",
+    "test:engine": "set -o pipefail; mkdir -p packages/tomo-engine/.build native/ios/.build && swift test --package-path packages/tomo-engine 2>&1 | tee packages/tomo-engine/.build/test.log && swift test --package-path native/ios 2>&1 | tee native/ios/.build/test.log",
     "shots": "node scripts/appstore-shots.mjs",
     "shots:upload": "node scripts/appstore-upload-shots.mjs",
     "shots:sims": "node scripts/capture-sims.mjs",
@@ -76,22 +78,28 @@
     "demo:livetv": "scripts/demo-livetv/deploy.sh",
     "demo:livetv:audit": "scripts/demo-livetv/audit.sh"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
+    "@expo/ui": "~57.0.21",
     "@expo/vector-icons": "^15.0.2",
+    "@keiver/tomo-engine": "^1.0.0",
+    "@keiver/tomo-live": "^1.0.0",
     "entities": "^6.0.1",
-    "expo": "^57.0.0",
+    "expo": "~57.0.26",
     "expo-blur": "~57.0.3",
     "expo-build-properties": "~57.0.21",
     "expo-clipboard": "~57.0.2",
-    "expo-constants": "~57.0.19",
+    "expo-constants": "~57.0.20",
     "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.3",
     "expo-image": "~57.0.5",
     "expo-linking": "~57.0.10",
-    "expo-modules-core": "~57.0.18",
-    "expo-router": "~57.0.22",
+    "expo-modules-core": "~57.0.20",
+    "expo-router": "~57.0.24",
     "expo-secure-store": "~57.0.4",
     "expo-splash-screen": "~57.0.9",
     "expo-tvos-search": "^2.3.0",
@@ -126,13 +134,14 @@
     "prettier": "^3.6.2",
     "react-test-renderer": "19.2.3",
     "ts-jest": "^29.4.5",
-    "tvos-assets": "^1.5.0",
+    "tvos-assets": "^1.6.2",
     "typescript": "~5.9.2"
   },
   "expo": {
     "install": {
       "exclude": [
         "react-native",
+        "react-native-gesture-handler",
         "react-native-screens",
         "typescript"
       ]

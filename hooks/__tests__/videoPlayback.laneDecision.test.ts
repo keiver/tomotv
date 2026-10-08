@@ -28,6 +28,7 @@ function pick(details: JellyfinVideoItem, options: Options = {}): { mode: Playba
     hasTriedTranscoding: false,
     heldEngineSpent: false,
     liveLane: "engine",
+    serverTranscodingAllowed: true,
     ...gateInput,
   });
   const lane = selectLane(gates, { canRemux: gates.engineGate && engineAccepts, subtitlesOff });
@@ -183,6 +184,15 @@ describe("lane selection", () => {
     it("reads the repackaged MP4, not the container the metadata still names", () => {
       expect(pick(mkvItem([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2 }]), { heldOnDisk: true, heldAsMp4: true }).mode).toBe("direct");
     });
+
+    // Jellyfin's conversion carries no subtitle track, so the source's embedded text exists only
+    // as the sidecars saved with it, and only the engine attaches those.
+    it("reaches the engine for a server conversion's text tracks, embedded or not, repackaged or not", () => {
+      const converted = mp4Item([{ Type: "Subtitle", Codec: "subrip", IsExternal: false, Index: 2 }]);
+      expect(pick(converted, { heldOnDisk: true, heldConverted: true }).mode).toBe("localRemux");
+      expect(pick(converted, { heldOnDisk: true, heldConverted: true, heldAsMp4: true }).mode).toBe("localRemux");
+      expect(pick(mp4Item([]), { heldOnDisk: true, heldConverted: true }).mode).toBe("direct");
+    });
   });
 
   describe("live channels", () => {
@@ -201,6 +211,13 @@ describe("lane selection", () => {
 
     it("refuses a channel neither lane can play rather than picking one", () => {
       expect(pick(channel({}), { engineAccepts: false }).unplayable).toMatch(/cannot reach the engine/);
+    });
+
+    it("leaves the server's transcode untaken when the server is not to be asked, whichever rung the channel is on", () => {
+      const offered = channel({ liveStreamUrl: "http://origin/live.ts", liveTranscodeUrl: "http://server/live.m3u8" });
+      expect(pick(offered, { engineAccepts: false, serverTranscodingAllowed: false }).unplayable).toMatch(/server offers no transcode/);
+      expect(pick(offered, { liveLane: "server", engineAccepts: false, serverTranscodingAllowed: false }).unplayable).toMatch(/server offers no transcode/);
+      expect(pick(offered, { engineAccepts: false }).mode).toBe("transcode");
     });
   });
 });

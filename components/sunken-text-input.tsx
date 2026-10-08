@@ -1,5 +1,6 @@
 import { CONTROL_HEIGHT, RECESS_EDGE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import React, { forwardRef, useState } from "react";
 import { Platform, StyleProp, StyleSheet, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 
@@ -13,7 +14,7 @@ interface SunkenTextInputProps extends TextInputProps {
 /**
  * Text input in the settings cards' sunken-card treatment, on every platform:
  * a #2C2C2E rounded card, an inset shadow, and a transparent border that turns
- * gold while the field is focused. The same visual language as the section
+ * the accent while the field is focused. The same visual language as the section
  * cards and the Quick Connect code container.
  *
  * The shadow is painted BY THE WRAPPER, not by an overlay child, which is what
@@ -32,14 +33,15 @@ interface SunkenTextInputProps extends TextInputProps {
  */
 export const SunkenTextInput = forwardRef<TextInput, SunkenTextInputProps>(function SunkenTextInput({ containerStyle, children, onFocus, onBlur, ...inputProps }, ref) {
   const [isFocused, setIsFocused] = useState(false);
+  const { accent } = useCardPalette();
 
   return (
-    <View style={[styles.wrapper, containerStyle, isFocused && styles.wrapperFocused]}>
+    <View style={[styles.wrapper, containerStyle, isFocused && { borderColor: accent }]}>
       <TextInput
         ref={ref}
         // The caret and the selection are the app's tint too, not iOS's blue. Ahead of the
         // spread, so a call site can still name its own.
-        selectionColor={COLORS.ACCENT}
+        selectionColor={accent}
         {...inputProps}
         onFocus={(e) => {
           setIsFocused(true);
@@ -56,7 +58,7 @@ export const SunkenTextInput = forwardRef<TextInput, SunkenTextInputProps>(funct
 });
 
 const styles = StyleSheet.create({
-  // The resting border is transparent so the gold focus ring doesn't shift
+  // The resting border is transparent so the accent focus ring doesn't shift
   // layout. Same inset-shadow recipe as settingsStyles.section, one step tighter
   // for the smaller surface: it reads as a well cut into the card rather than as
   // a vignette across a field this shallow.
@@ -71,8 +73,5 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
     backgroundColor: COLORS.SURFACE,
     boxShadow: `${Platform.isTV ? "inset 0 10px 10px rgba(0,0,0,0.55)" : "inset 0 6px 6px rgba(0,0,0,0.55)"}, ${RECESS_EDGE.LIP_BOTTOM}, ${RECESS_EDGE.RIM}`,
-  },
-  wrapperFocused: {
-    borderColor: COLORS.ACCENT,
   },
 });

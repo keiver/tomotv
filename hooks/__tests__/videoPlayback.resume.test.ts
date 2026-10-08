@@ -29,6 +29,10 @@ describe("resolveResume", () => {
     expect(resolveResume({ live: true, pendingSeekSec: null, startPositionTicks: 600 * TICKS_PER_SECOND, userDataTicks: 90 * TICKS_PER_SECOND })).toEqual({ seconds: null, source: null });
   });
 
+  it("starts over on an explicit zero from the caller despite a server position", () => {
+    expect(resolveResume({ live: false, pendingSeekSec: null, startPositionTicks: 0, userDataTicks: 90 * TICKS_PER_SECOND })).toEqual({ seconds: null, source: null });
+  });
+
   it.each([
     ["absent", undefined],
     ["zero", 0],

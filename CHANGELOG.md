@@ -2,6 +2,59 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.10]
+
+### Added
+
+- Server transcoding, in Settings: when the server may be asked to transcode on this device. "When needed" (the default) also sends smaller server streams on a slow connection; "Only for unsupported files" never transcodes for the connection, so a file plays as it is or buffers; "Off" plays only what the device supports. The card ends with the server's own setting for the account, its state in green or red, and the levels are disabled while the server refuses video transcoding
+- Themes, in Settings > Appearance: Gold, Blue, Green or Purple, or a colour of your own from a swatch grid, a hex code or hue, saturation and brightness sliders, named when saved. The app's accent takes the theme's colour, and the editor warns when a colour is hard to see on the dark background. Saved themes are kept in the Jellyfin user's display preferences, so every device signed in as that user lists them; removing one removes it everywhere, and each device keeps its own pick
+- Folder color, in Settings > Appearance, turns a folder's blurred artwork background on or off (on by default)
+- On iPhone, iPad and Mac an info panel drags left or right to its neighbours: a video's series across its seasons or its folder, a song's album, the folder, photo or book beside it in its folder, the next library, or the next channel in the guide
+- A day strip over the guide's channel column opens the guide on a picked day, today and the 13 days after it, one day at a time. Days without listings are dimmed. On iPhone and iPad a touch opens the system calendar, bounded to the days with listings
+- The player's error screen shows an error ID for the failing cause, with the lane and the native error code, and Diagnostics records it. With server transcoding off for the item, the screen says who turned it off: the account or this device
+- A programme from a guide source opens its own info panel, with its name, times, genres and rating, and accounts that manage recordings can record it: a timer on its channel for its start and end, named after the programme
+- Programme cards in Live TV search and the channel wall wear REC in place of LIVE while a recording covers them, and a scheduled programme's time wears the camera
+- Scrubbing shows the frame under the playhead: a thumbnail over the scrub bar on Apple TV, the picture itself on iPhone and iPad. A file the player opens as it is gets them from the system; a file the device plays itself, in any container, and a server stream get them from the file's own keyframes, read on demand. A picture larger than 1080p is scaled to 1080p and an HDR picture is converted to standard range first, as Apple's own streams do. Jellyfin's trickplay images are not needed. A Dolby Vision profile 5 file the engine or server plays, and a server stream of a codec the engine does not decode, have no scrub frames
+- Every download asks for a size: Original, or a smaller copy the server converts on the way down at 1080p, 720p or 480p, each with its estimated size. A size is offered at or under the video's own width or height and, when the original is offered too, under its bitrate; one the device has no room for is left out. With server transcoding off in Settings, or not allowed for the account, the smaller sizes are listed greyed with the reason. A held row names its size, Original or the rung
+- A smaller copy records one audio track, in your audio language, keeps the file's text subtitles as tracks to switch between, and burns the subtitle you would see into the picture when it is a picture subtitle (PGS, DVD or DVB)
+- The Downloads ON THIS DEVICE heading shows the download rate while anything downloads
+- Holding Resume on an info panel asks, then plays from the beginning
+
+### Changed
+
+- Settings' Streaming section is the measured connection speed over one row, Server transcoding, whose page holds the levels and, while the server may transcode video, the quality presets under them
+- The device posters setting reads "Generate missing posters", made locally and only when the server has none
+- Live TV search, on the Search tab and the Apple TV channel wall, finds programmes through the end of tomorrow by their name, episode title or description, from the server's guide and the guide sources alike, so a game named only in its description shows before it airs. A show repeating on a channel is one card, its next airing. The server's listings are read in the background and the results fill in when they land; a guide refresh reads them again
+- On iPhone and iPad the Channels screen's search is a search button in the navigation bar that opens the Search tab with its field focused
+- A programme card names its episode after the show, or its channel when the guide gives no episode, so a show on a channel of the same name no longer reads its name twice
+- A scheduled recording's info panel leaves out the Record status line; the Cancel Recording button already says it
+- Seeking in an MPEG-TS file, a Live TV recording among them, jumps by estimated byte position instead of FFmpeg's search over the wire: one to three requests where a recording over HTTPS took 5 to 17
+- The on-device playback engine is its own package, `@keiver/tomo-engine`, in the repository's `packages/` workspace: the remuxer, live sources and the FFmpeg build reach the app as the TomoEngine, TomoLiveSources and TomoFFmpeg pods through the package's config plugin, with their host tests alongside. The engine knows no Jellyfin routes; the app maps its server onto the engine's API, and the tuner groups module stays in the app
+- The live TV services are their own package, `@keiver/tomo-live`, beside the engine: the neighbour channel ring, the focused card's warm session, live frames and clips, channel health, XMLTV guide sources and the `LiveClip` view. The app hands it its channels once through `configureLive`; the engine's per-file verdict store moves into `@keiver/tomo-engine`
+- The download prompts read in German, French and Spanish
+- The Open Source list shows eight rows on iPhone and iPad and five on Apple TV
+
+### Fixed
+
+- On Apple TV with automatic subtitles on, the subtitle track the system marks On loads
+- A download the server converts played without its saved subtitles (since 2.2.2)
+- Pausing a download the server converts restarted it from zero: Jellyfin streams a conversion with no ranges to resume from, so its row has no pause
+- An original download rewrapped into MP4 kept only the audio tracks MP4 carries, so a film with DTS or TrueHD beside AC-3 kept the AC-3 alone. A file with such a track keeps its own container and every track, and plays through the engine (since 2.2.0)
+- The Downloads card could sit over the ON THIS DEVICE heading, and a new row draw over the old one, after the list changed
+- The Spanish playback line reads "sin trabajo en el servidor"
+- A file with a forced and an SDH image subtitle track in one language: subtitles set to that language land on the SDH track, not the forced one. The SDH track leads its language in the player's list and is marked as SDH for the system (#94)
+- A channel card whose airing programme shares the channel's name shows the name once
+- A picked channel group keeps its green wash while focused
+- An MP4 with its moov at the end plays instead of failing on segment 0: the engine's input opens a fresh connection per request (regressed in 2.2.9 by 62988f68)
+- Seeking in a file whose audio sits just behind the keyframe the seek lands on no longer closes the app: that audio is dropped instead of aborting the muxer (since 2.2.3, 3c04697b)
+- At "Only for unsupported files" or "Off", a slow link waits for the engine instead of reaching the server or erroring; with the server ruled out, the engine gets one fresh session before the error
+- The loading spinner holds until AVPlayer is playing, not on the start tick it sends while still filling its buffer
+- Picture in Picture leaves the player for where playback started, the window rolls a queue into its next item, and restoring it reopens the player
+- Tuner channel groups load from an M3U tuner the server reads on its own loopback, read at the server's host
+- A guide source's footer leaves out the playlist URL
+- A file read that stalls on an open connection reconnects at its offset after 2 seconds instead of waiting up to 15
+- A picture subtitle picked beside a text subtitle in the same language draws: both reported selected, and the pick could not be read
+
 ## [2.2.9]
 
 ### Added

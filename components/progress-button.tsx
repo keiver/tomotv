@@ -1,5 +1,5 @@
 import { BUTTON_BORDER_WIDTH, FocusableButton } from "@/components/FocusableButton";
-import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import React, { forwardRef, useCallback, useMemo, useState } from "react";
 import { LayoutChangeEvent, NativeSyntheticEvent, StyleSheet, TargetedEvent, View } from "react-native";
@@ -16,8 +16,8 @@ interface ProgressButtonProps extends FocusableButtonProps {
 }
 
 /**
- * A FocusableButton whose fill states how far into the video you are: bright gold up to the
- * watched fraction, muted gold past it, hard edge between. The two tones are a gradient on
+ * A FocusableButton whose fill states how far into the video you are: the bright accent up to the
+ * watched fraction, the muted accent past it, hard edge between. The two tones are a gradient on
  * the button's OWN background, not a layer behind it — tvOS magnifies the focused button,
  * and anything painted outside it would sit still while it grows.
  */
@@ -53,20 +53,21 @@ export const ProgressButton = forwardRef<View, ProgressButtonProps>(function Pro
     [onBlur],
   );
 
+  const palette = useCardPalette();
   const percent = progress != null ? Math.round(Math.min(progress, 1) * 100) : 0;
 
   const fillStyle = useMemo(() => {
     if (percent <= 0 || size == null) return undefined;
     const stop = Math.max(percent, MIN_STOP);
-    const watched = focused ? COLORS.ACCENT_FOCUSED : COLORS.ACCENT;
-    const remaining = focused ? COLORS.ACCENT_DIM_FOCUSED : COLORS.ACCENT_DIM;
+    const watched = focused ? palette.accentFocused : palette.accent;
+    const remaining = focused ? palette.accentDimFocused : palette.accentDim;
     return {
       experimental_backgroundImage: `linear-gradient(90deg, ${watched} 0%, ${watched} ${stop}%, ${remaining} ${stop}%, ${remaining} 100%)`,
       experimental_backgroundSize: [{ x: size.width, y: size.height }],
       experimental_backgroundPosition: [{ top: -BUTTON_BORDER_WIDTH, left: -BUTTON_BORDER_WIDTH }],
       experimental_backgroundRepeat: [{ x: "no-repeat" as const, y: "no-repeat" as const }],
     };
-  }, [percent, focused, size]);
+  }, [percent, focused, size, palette]);
 
   return (
     <FocusableButton

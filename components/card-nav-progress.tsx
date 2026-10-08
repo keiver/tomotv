@@ -1,5 +1,6 @@
 import { DESIGN, GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import React, { useEffect } from "react";
 import { Dimensions, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
@@ -50,6 +51,7 @@ export function CardNavProgress({ active, title, startFraction }: CardNavProgres
   const progress = useSharedValue(0);
   const opacity = useSharedValue(0);
   const reducedMotion = useReducedMotion();
+  const { accent } = useCardPalette();
 
   useEffect(() => {
     if (active) {
@@ -76,9 +78,9 @@ export function CardNavProgress({ active, title, startFraction }: CardNavProgres
 
   return (
     <Animated.View pointerEvents="none" style={[styles.bar, barStyle]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Animated.View style={[styles.fill, fillStyle]} />
+      <Animated.View style={[styles.fill, { backgroundColor: accent }, fillStyle]} />
       <View style={styles.titleBlend}>
-        <Text style={styles.title} numberOfLines={1}>
+        <Text style={[styles.title, { color: accent }]} numberOfLines={1}>
           {title}
         </Text>
       </View>
@@ -112,16 +114,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
-    backgroundColor: COLORS.ACCENT,
   },
   titleBlend: {
     width: "100%",
     mixBlendMode: "difference",
   },
-  // Gold through the difference blend: black over the fill, gold over the dark
+  // The accent through the difference blend: black over the fill, the accent over the dark
   // remainder, identical treatment to the Continue Watching title bar.
   title: {
-    color: COLORS.ACCENT,
     fontSize: TITLE_SIZE,
     fontWeight: "700",
     textAlign: "center",

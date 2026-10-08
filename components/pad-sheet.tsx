@@ -41,6 +41,31 @@ interface PadSheetProps {
  * a dim that dismisses on tap, and a page sheet's own width and top gap.
  */
 export function PadSheet({ onClose, closeHint, fit, children }: PadSheetProps) {
+  return (
+    <PadSheetBackdrop onClose={onClose} fit={fit}>
+      <PadSheetFrame onClose={onClose} closeHint={closeHint} fit={fit}>
+        {children}
+      </PadSheetFrame>
+    </PadSheetBackdrop>
+  );
+}
+
+/** The blur and the dismissing dim, laying out what rides above them by `fit`. */
+export function PadSheetBackdrop({ onClose, fit, children }: Omit<PadSheetProps, "closeHint">) {
+  return (
+    <View style={[styles.root, fit === "center" && styles.rootCenter, fit === "bottom" && styles.rootBottom]}>
+      {/* iOS has no blurred presentation style of its own: UIModalPresentationBlurOverFullScreen is tvOS only. */}
+      <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+      {/* The dim rides on the dismiss target: blurred artwork is still bright artwork, and it
+          is what hides the screen behind if a device gives us no blur. */}
+      <Pressable style={[StyleSheet.absoluteFill, styles.dim]} onPress={onClose} accessibilityRole="button" accessibilityLabel={t("info.close")} />
+      {children}
+    </View>
+  );
+}
+
+/** The card itself, with its close button. */
+export function PadSheetFrame({ onClose, closeHint, fit, children }: PadSheetProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const frame = fit
@@ -54,16 +79,9 @@ export function PadSheet({ onClose, closeHint, fit, children }: PadSheetProps) {
       ]
     : [styles.sheet, { width: padSheetWidth(width), marginTop: insets.top + 8 }];
   return (
-    <View style={[styles.root, fit === "center" && styles.rootCenter, fit === "bottom" && styles.rootBottom]}>
-      {/* iOS has no blurred presentation style of its own: UIModalPresentationBlurOverFullScreen is tvOS only. */}
-      <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-      {/* The dim rides on the dismiss target: blurred artwork is still bright artwork, and it
-          is what hides the screen behind if a device gives us no blur. */}
-      <Pressable style={[StyleSheet.absoluteFill, styles.dim]} onPress={onClose} accessibilityRole="button" accessibilityLabel={t("info.close")} />
-      <View style={frame}>
-        {children}
-        <CloseOverlayButton onPress={onClose} style={styles.close} accessibilityHint={closeHint} />
-      </View>
+    <View style={frame}>
+      {children}
+      <CloseOverlayButton onPress={onClose} style={styles.close} accessibilityHint={closeHint} />
     </View>
   );
 }

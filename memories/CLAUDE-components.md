@@ -1,11 +1,11 @@
 # CLAUDE-components.md
 
-**Last Updated:** January 24, 2026
+**Last Updated:** October 4, 2026
 
 ## Quick Reference
 
 **Category:** Implementation
-**Keywords:** components, UI, VideoGridItem, FolderGridItem, performance, React.memo, FlatList
+**Keywords:** components, UI, design system, section footers, VideoGridItem, FolderGridItem, performance, React.memo, FlatList
 
 All reusable UI components in TomoTV with optimization patterns, props, and performance considerations.
 
@@ -232,6 +232,15 @@ When using grid items in FlatList:
 ```
 
 ---
+
+## Design Rules
+
+### Section footers
+
+- Help text, explanations, and source attribution belong at the **bottom** of their section, after its rows. Do not place an always-visible help band at the top of a card.
+- Use `SectionFooter` with its default bottom edge and `settingsStyles.sectionNote` for the dark background and smaller, muted text.
+- Omit help text that adds no useful information, as on Guide sources.
+- Reserve `SectionFooter edge="top"` for conditional warnings that affect the choices below, such as the server blocking transcoding. This exception does not apply to general help or attribution.
 
 ## Design System / Color Palette
 

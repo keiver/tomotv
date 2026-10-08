@@ -11,13 +11,11 @@
  * the item keeps playing through the engine.
  */
 
+import { canRepackage, cancelRepackage as cancelEngineRepackage, repackageDownload as engineRepackageDownload } from "@keiver/tomo-engine";
 import { File, Paths } from "expo-file-system";
-import { NativeModules } from "react-native";
 import { logger } from "@/utils/logger";
 import type { DownloadEntry } from "./manifest";
 import { DISK_HEADROOM_BYTES, filePath, repackagedFile } from "./paths";
-
-const { LocalRemuxer } = NativeModules;
 
 /**
  * Containers AVFoundation already opens; rewrapping them would copy bytes for nothing, and an
@@ -35,17 +33,6 @@ export interface RepackageOutcome {
   skipped?: boolean;
   subtitleStreamIndices?: number[];
   imageSubtitleIndices?: number[];
-}
-
-interface NativeResult {
-  repackaged?: boolean;
-  reason?: string;
-  failed?: boolean;
-  permanent?: boolean;
-  subtitleStreamIndices?: number[];
-  imageSubtitleIndices?: number[];
-  droppedAudioIndices?: number[];
-  elapsedSeconds?: number;
 }
 
 /** Containers whose rewrap wrote an MP4 holding no track AVFoundation will open. */
@@ -100,7 +87,7 @@ function hasRoomFor(sourceBytes: number): boolean {
 export async function repackageDownload(entry: DownloadEntry, source: File): Promise<RepackageOutcome> {
   const keepSource: RepackageOutcome = { file: source, repackaged: false, declinedPermanently: false };
 
-  if (!LocalRemuxer?.repackageDownload) return { ...keepSource, skipped: true };
+  if (!canRepackage()) return { ...keepSource, skipped: true };
   if (alreadyNative(entry)) return keepSource;
 
   const output = repackagedFile(entry.itemId);
@@ -121,7 +108,7 @@ export async function repackageDownload(entry: DownloadEntry, source: File): Pro
   }
 
   try {
-    const result: NativeResult = await LocalRemuxer.repackageDownload({
+    const result = await engineRepackageDownload({
       itemId: entry.itemId,
       inputPath: filePath(source.uri),
       outputPath: filePath(output.uri),
@@ -172,6 +159,5 @@ export async function repackageDownload(entry: DownloadEntry, source: File): Pro
 
 /** Aborts a repackage in flight, for a download being deleted mid-pass. */
 export function cancelRepackage(itemId: string): void {
-  if (!LocalRemuxer?.cancelRepackage) return;
-  void LocalRemuxer.cancelRepackage(itemId);
+  cancelEngineRepackage(itemId);
 }

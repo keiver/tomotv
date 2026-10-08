@@ -13,8 +13,11 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 jest.mock("@/services/jellyfinApi", () => ({ resolveChannelWithoutOpen: (id: string) => mockResolveWithoutOpen(id) }));
 jest.mock("@/services/localRemux", () => ({
   canRemuxLocally: async () => true,
-  localRemuxToken: (url: string) => url.split("/")[3],
   startLocalRemux: (...args: unknown[]) => mockStart(...args),
+}));
+jest.mock("@keiver/tomo-engine", () => ({
+  ...jest.requireActual("@keiver/tomo-engine"),
+  localRemuxToken: (url: string) => url.split("/")[3],
   stopLocalRemux: (token: string | null) => mockStop(token),
   setLiveWindow: (token: string, seconds: number) => mockSetWindow(token, seconds),
   setLiveSessionPriority: (token: string, priority: string) => mockSetPriority(token, priority),

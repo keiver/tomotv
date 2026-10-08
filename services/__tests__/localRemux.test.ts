@@ -13,6 +13,7 @@ import {
   offeredTierBandwidths,
   predictPlaybackLane,
   resolveSubtitlePick,
+  serverIFramePlan,
   slipstreamTierBandwidth,
   slipstreamInputBandwidth,
   sourceBandwidthForItem,
@@ -23,6 +24,7 @@ import {
   subscribeEngineStage,
   subscribeEngineTier,
   subtitleRenditions,
+  tierStopRequests,
   videoCodecTag,
   type ImageSubtitleEvent,
   type ThroughputSample,
@@ -31,6 +33,7 @@ import type { VideoDecodeSupport } from "@/constants/codecs";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { getAudioTracks } from "../multiAudioLoader";
 import { getCachedConfig } from "@/services/jellyfin/session";
+import { updateUiPreferences } from "@/services/uiPreferences";
 
 const mockStartRemux = jest.fn();
 const mockStopRemux = jest.fn();
@@ -44,6 +47,8 @@ const mockNativeEvents: string[] = ["onEnginePlan", "onEngineThroughput", "onEng
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios" },
+  // The device preferences store (the server transcoding level) reads and writes these.
+  Settings: { get: jest.fn(), set: jest.fn() },
   NativeModules: {
     LocalRemuxer: {
       startRemux: (...args: unknown[]) => mockStartRemux(...args),
@@ -74,8 +79,9 @@ jest.mock("@/services/jellyfin/session", () => ({
   generatePlaySessionId: () => "test-session",
 }));
 
-// Nothing remembered: the lane predictor's verdict lookup answers null here.
-jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: async () => null }));
+// Nothing remembered unless a test says so: the lane predictor's verdict lookup answers null.
+const mockRememberedVerdict = jest.fn(async (): Promise<object | null> => null);
+jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: () => mockRememberedVerdict() }));
 
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
@@ -646,6 +652,9 @@ describe("startLocalRemux", () => {
     expect(config.tiers.map((tier: { bandwidth: number }) => tier.bandwidth)).toEqual(offeredTierBandwidths(source, undefined, { serverVideoOnly: true }));
     expect(config.audioTracks[0]).toMatchObject({ index: 1, usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: 120_000 });
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioStreamIndex=1");
+    // One DELETE per server job the session may start: the seven rungs and the audio rendition.
+    expect(config.stopRequests).toHaveLength(8);
+    expect(config.stopRequests[0]).toEqual({ url: expect.stringContaining("/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=test-session&ApiKey="), method: "DELETE" });
     expect(config.subtitles[0].serverVttUrl).toContain("Subtitles/2/Stream.vtt");
     expect(config.primaryVideoCodecs).toBe("");
   });
@@ -1142,7 +1151,7 @@ describe("startLocalRemux", () => {
     );
 
     const { subtitles } = mockStartRemux.mock.calls[0][0];
-    expect(subtitles).toEqual([expect.objectContaining({ index: 2, isForced: true, isDefault: false }), expect.objectContaining({ index: 3, isForced: false, isDefault: true })]);
+    expect(subtitles).toEqual([expect.objectContaining({ index: 3, isForced: false, isDefault: true }), expect.objectContaining({ index: 2, isForced: true, isDefault: false })]);
   });
 
   // The engine's plan is the only account of its decisions that reaches a
@@ -1426,6 +1435,25 @@ describe("subtitleRenditions", () => {
     expect(renditions[0]).toMatchObject({ index: 2, isForced: true, isDefault: true, isImage: true });
   });
 
+  // HLS authoring spec 9.17 orders a language's renditions general to specific, and 4.5 needs the
+  // hearing-impaired flag to mark SDH. Each language keeps the positions it held.
+  it("orders a language's tracks full, then SDH, then forced, and carries the hearing-impaired flag", () => {
+    const renditions = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Video", Codec: "av1", Index: 0 },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 2, Language: "eng", DisplayTitle: "English - Forced - PGSSUB", IsForced: true },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 3, Language: "eng", DisplayTitle: "English - Hearing Impaired - PGSSUB", IsHearingImpaired: true },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 4, Language: "spa", DisplayTitle: "Spanish - PGSSUB" },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 5, Language: "eng", DisplayTitle: "English - PGSSUB" },
+        ],
+      }),
+    );
+
+    expect(renditions.map((rendition) => rendition.index)).toEqual([5, 3, 4, 2]);
+    expect(renditions.map((rendition) => rendition.isHearingImpaired)).toEqual([false, true, false, false]);
+  });
+
   // The other real shape: every track already distinguishable by language, so
   // the labels must be left exactly as they are.
   it("leaves a file whose tracks all have distinct languages alone", () => {
@@ -1465,6 +1493,41 @@ describe("subtitleRenditions", () => {
     await startLocalRemux(item({ streams }));
 
     expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual(subtitleRenditions(item({ streams })));
+  });
+});
+
+describe("serverIFramePlan", () => {
+  it("encodes every source's frames as the SDR rendition, declared by the cap the provider holds them under", async () => {
+    const plan = await serverIFramePlan(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 8_000_000 }],
+        streams: [{ Type: "Video", Codec: "h264", Profile: "High", Level: 31, Width: 1920, Height: 1080, VideoRangeType: "SDR", Index: 0 }],
+      } as Partial<JellyfinVideoItem>),
+    );
+    expect(plan).toEqual({ transcode: true, durationSeconds: 3600, bandwidth: 2_000_000, averageBandwidth: 1_000_000, codecs: "avc1.640028", width: 1920, height: 1080 });
+  });
+
+  it("fits a 4K HDR source inside 1920x1080", async () => {
+    const plan = await serverIFramePlan(
+      item({ streams: [{ Type: "Video", Codec: "hevc", Profile: "Main 10", Level: 153, BitDepth: 10, Width: 3840, Height: 1600, VideoRangeType: "HDR10", Index: 0 }] }),
+    );
+    expect(plan).toMatchObject({ transcode: true, codecs: "avc1.640028", width: 1920, height: 800 });
+  });
+
+  it("is null for Dolby Vision profile 5, which has no HDR10 base layer to tone-map", async () => {
+    const plan = await serverIFramePlan(
+      item({ streams: [{ Type: "Video", Codec: "hevc", Profile: "Main 10", Level: 150, DvProfile: 5, DvBlSignalCompatibilityId: 0, Width: 3840, Height: 2160, Index: 0 }] }),
+    );
+    expect(plan).toBeNull();
+  });
+
+  it("is null for an item with nothing to scrub", async () => {
+    await expect(serverIFramePlan(item({ streams: [{ Type: "Audio", Codec: "flac", Index: 0 }] }))).resolves.toBeNull();
+    await expect(serverIFramePlan(item({ RunTimeTicks: 0 }))).resolves.toBeNull();
+  });
+
+  it("is null for a codec the engine cannot decode: no rendition is named that its playlist would 404", async () => {
+    await expect(serverIFramePlan(item({ streams: [{ Type: "Video", Codec: "asv1", Width: 1280, Height: 720, VideoRangeType: "SDR", Index: 0 }] }))).resolves.toBeNull();
   });
 });
 
@@ -1565,6 +1628,43 @@ describe("resolveSubtitlePick", () => {
 
     expect(pick.imageStreamIndex).toBeNull();
     expect(pick.reason).toMatch(/2 tracks report selected/);
+  });
+
+  describe("same-language twins", () => {
+    // AVFoundation's displayName is the language alone (probed): a PGS track and its SRT twin both report selected.
+    const twins = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "PGSSUB", Index: 4, Language: "eng", DisplayTitle: "English SDH - Hearing Impaired - PGSSUB", IsHearingImpaired: true },
+          { Type: "Subtitle", Codec: "subrip", Index: 5, Language: "eng", DisplayTitle: "English SDH - Hearing Impaired - SUBRIP", IsHearingImpaired: true },
+          { Type: "Subtitle", Codec: "subrip", Index: 6, Language: "eng", DisplayTitle: "English - SUBRIP", IsExternal: true, DeliveryUrl: "/Videos/x/Subtitles/6/Stream.vtt" },
+        ],
+      }),
+    );
+    const ordinalOf = (stream: number) => twins.findIndex((rendition) => rendition.index === stream);
+    const tie = (streams: number[]) => twins.map((rendition, index) => ({ index, title: rendition.name, selected: streams.includes(rendition.index) }));
+
+    it("breaks the tie with the rendition AVPlayer last asked the engine for", () => {
+      const image = resolveSubtitlePick(twins, tie([4, 5]), 4);
+      const text = resolveSubtitlePick(twins, tie([4, 5]), 5);
+
+      expect(image).toMatchObject({ imageStreamIndex: 4, ordinal: ordinalOf(4) });
+      expect(text).toMatchObject({ imageStreamIndex: null, ordinal: ordinalOf(5) });
+      expect(text.rendition?.index).toBe(5);
+      expect(image.reason ?? text.reason).toBeUndefined();
+    });
+
+    it("refuses a tie when no request, or one outside the tie, names the pick", () => {
+      expect(resolveSubtitlePick(twins, tie([4, 5])).reason).toMatch(/2 tracks report selected/);
+      expect(resolveSubtitlePick(twins, tie([4, 5]), 9).reason).toMatch(/2 tracks report selected/);
+    });
+
+    // A remote sidecar is fetched from the server, so its pick leaves no request and an older one would win.
+    it("refuses a tie holding a rendition the engine does not serve", () => {
+      expect(ordinalOf(6)).toBeGreaterThanOrEqual(0);
+      expect(resolveSubtitlePick(twins, tie([4, 6]), 4).reason).toMatch(/2 tracks report selected/);
+    });
   });
 
   // iOS hands back a legible group carrying two options the engine never
@@ -1760,6 +1860,64 @@ describe("startLocalRemux Slipstream tier config", () => {
 
     await expect(startLocalRemux(source, undefined, undefined, { serverVideoOnly: true })).rejects.toThrow("Server video transcoding is not permitted");
     expect(mockStartRemux).not.toHaveBeenCalled();
+  });
+
+  describe("the device's server transcoding level", () => {
+    afterEach(() => updateUiPreferences({ serverTranscoding: "linkOrFile" }));
+    const slow = () => item({ MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }] });
+    // XMA is not on the engine's carriable list, so the track needs the server's audio rendition.
+    const xmaAudio = () =>
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Audio", Codec: "xma2", Index: 1 },
+        ],
+      });
+    const asv1 = () =>
+      item({
+        streams: [
+          { Type: "Video", Codec: "asv1", Index: 0 },
+          { Type: "Audio", Codec: "aac", Index: 1 },
+        ],
+      });
+
+    it("offers no rungs for the link at fileOnly, and still the whole ladder to a server-video gateway", async () => {
+      updateUiPreferences({ serverTranscoding: "fileOnly" });
+      expect(offeredTierRungs(slow())).toEqual([]);
+      expect(offeredTierRungs(slow(), undefined, { serverVideoOnly: true })).toHaveLength(7);
+      await startLocalRemux(slow());
+      expect(mockStartRemux.mock.calls[0][0].tiers).toEqual([]);
+      await expect(canRemuxLocally(xmaAudio())).resolves.toBe(true);
+      await expect(predictPlaybackLane(asv1())).resolves.toEqual({ lane: "server", smallFeedFirst: false });
+    });
+
+    it("asks the server for nothing at never: no rungs, no gateway, no audio supplier, and the file that needs it is unplayable", async () => {
+      updateUiPreferences({ serverTranscoding: "never" });
+      expect(offeredTierRungs(slow(), undefined, { serverVideoOnly: true })).toEqual([]);
+      await expect(startLocalRemux(slow(), undefined, undefined, { serverVideoOnly: true })).rejects.toThrow("Server video transcoding is not permitted");
+      mockProbeEmit.mockClear();
+      await expect(canRemuxLocally(xmaAudio())).resolves.toBe(false);
+      expect(mockProbeEmit).toHaveBeenCalledWith("decline", expect.objectContaining({ reason: "audio track requires an unavailable server supplier" }));
+      await expect(startLocalRemux(xmaAudio())).rejects.toThrow("Audio track requires an unavailable server supplier");
+      await expect(predictPlaybackLane(asv1())).resolves.toEqual({ lane: "unplayable", smallFeedFirst: false });
+      await expect(predictPlaybackLane(xmaAudio())).resolves.toEqual({ lane: "unplayable", smallFeedFirst: false });
+    });
+
+    it("ignores a remembered verdict at never, as playback does: the engine still takes the file", async () => {
+      updateUiPreferences({ serverTranscoding: "never" });
+      mockRememberedVerdict.mockResolvedValue({ produceSeconds: 9, segmentSeconds: 6, at: 1 });
+      const predicted = await predictPlaybackLane(item());
+      mockRememberedVerdict.mockResolvedValue(null);
+      expect(predicted).toMatchObject({ lane: "copy" });
+    });
+
+    it("hands an uncarriable track to the server's audio rendition at the default level", async () => {
+      await expect(canRemuxLocally(xmaAudio())).resolves.toBe(true);
+      await startLocalRemux(xmaAudio());
+      const track = mockStartRemux.mock.calls[0][0].audioTracks[0];
+      expect(track.usesServerAudio).toBe(true);
+      expect(track.serverAudioUrl).toContain("/Videos/item1/main.m3u8");
+    });
   });
 
   it("keeps local playback and every track without ladder audio when video transcoding is forbidden", async () => {
@@ -2350,5 +2508,22 @@ describe("startLocalRemux on a live channel", () => {
 
   it("predicts the engine lane for a live channel with no verdict lookup", async () => {
     await expect(predictPlaybackLane(live())).resolves.toEqual({ lane: "deviceTranscode", smallFeedFirst: false });
+  });
+});
+
+describe("tierStopRequests", () => {
+  it("names the DELETE that ends each transcode a rung or audio URL started, and skips URLs without a session", () => {
+    expect(
+      tierStopRequests([
+        "https://jf.example:8920/Videos/i/main.m3u8?ApiKey=k&PlaySessionId=p1",
+        "https://jf.example:8920/Audio/i/main.m3u8?PlaySessionId=p2&ApiKey=k",
+        "",
+        "https://jf.example/Videos/i/main.m3u8?ApiKey=k",
+        "not a url",
+      ]),
+    ).toEqual([
+      { url: "https://jf.example:8920/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=p1&ApiKey=k", method: "DELETE" },
+      { url: "https://jf.example:8920/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=p2&ApiKey=k", method: "DELETE" },
+    ]);
   });
 });

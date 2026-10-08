@@ -1,0 +1,505 @@
+//
+//  LocalHTTPServer.swift
+//  TomoTV
+//
+//  Loopback-only HTTP server that serves the local remux session to AVPlayer:
+//  in-memory playlists and on-disk fMP4 segments. Hand-rolled on NWListener so
+//  the app takes no server-library dependency; the traffic is one player on
+//  127.0.0.1 requesting a playlist and a ~6s segment at a time, not a web load.
+//
+
+import Compression
+import Foundation
+import Libavutil
+import Network
+
+/// What the server hands back for a routed path.
+enum LocalHTTPResponse {
+    case data(Data, contentType: String)
+    case file(URL, contentType: String)
+    /// Headers go out immediately (200, chunked transfer); `provider` then
+    /// blocks until the body file exists and is streamed, or returns nil and
+    /// the connection is aborted mid-response: a loud, truncated failure the
+    /// player acts on, never a fake success. Headers alone do not hold AVPlayer:
+    /// a media request that sends no body bytes for 6s fails (-12889, measured).
+    case streamed(contentType: String, provider: () -> URL?)
+    /// A media segment that is fetched whole before it can be sent. `lead` is the segment's own
+    /// opening box and goes out at once; `padding` (a free box) follows every two seconds until
+    /// the body is ready. AVPlayer fails a segment it hears nothing from in 6s (-12889, measured on
+    /// rungs above the opening one at 750 kb/s), and a whole rung segment can take longer to land.
+    case segment(contentType: String, lead: Data = Data(), padding: Data = Data(), provider: (SegmentRequest) -> URL?)
+    case notFound
+    /// 410: this variant is gone for good. AVPlayer does not retry it and moves to another variant
+    /// of the same master (measured; WWDC17 514 says the same of permanent errors).
+    case gone
+    case temporarilyUnavailable
+}
+
+/// One segment response in flight. The server marks it abandoned when the player closes the
+/// connection (measured: a reset the moment AVPlayer gives a segment up; a half-close never
+/// looks like one), so the work behind it can stop.
+final class SegmentRequest {
+    private let lock = NSLock()
+    private var abandoned = false
+    private var handler: (() -> Void)?
+
+    var isAbandoned: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return abandoned
+    }
+
+    /// Runs `work` when the player goes away, at once if it already has.
+    func onAbandon(_ work: @escaping () -> Void) {
+        lock.lock()
+        let gone = abandoned
+        if !gone { handler = work }
+        lock.unlock()
+        if gone { work() }
+    }
+
+    func abandon() {
+        lock.lock()
+        let work = abandoned ? nil : handler
+        abandoned = true
+        handler = nil
+        lock.unlock()
+        work?()
+    }
+
+    /// The response is over: a connection closing after this is not the player leaving.
+    func settle() {
+        lock.lock()
+        handler = nil
+        lock.unlock()
+    }
+}
+
+/// One served request, timed: ms from routing start to the first body byte handed to the stack,
+/// and to the stack having processed the last one (not the peer's receipt).
+struct LocalHTTPRequestRecord {
+    let path: String
+    let status: Int
+    let bytes: Int
+    let firstBodyMs: Int
+    let doneMs: Int
+}
+
+final class LocalHTTPServer {
+    private var listener: NWListener?
+    private let queue = DispatchQueue(label: "tv.tomo.localhttp")
+
+    /// Routing runs here, NOT on GCD's shared global pool.
+    ///
+    /// `route` blocks: `segmentURL` waits up to 20s for a segment still being
+    /// written. Dispatching those waits onto `DispatchQueue.global()` put them in
+    /// the same bounded pool every other subsystem draws from, so enough
+    /// simultaneous requests parked every available thread and the VIDEO init
+    /// segment never got one: playback died with NSURLErrorDomain -1001 while
+    /// the producer looked healthy. Adding subtitle image routes multiplies the
+    /// request count per session, which is what made this worth fixing first.
+    ///
+    /// A private concurrent queue keeps those waits off the shared pool.
+    /// Deliberately uncapped: a ceiling here can only delay a segment AVPlayer
+    /// is already waiting on, and subtitle images share this path.
+    private let workQueue = DispatchQueue(label: "tv.tomo.localhttp.route", attributes: .concurrent)
+
+    /// Routes a request path (e.g. "/abc123/master.m3u8") to a response.
+    /// Called on `workQueue`; may block (segment-wait logic).
+    private let route: (String) -> LocalHTTPResponse
+
+    private(set) var port: UInt16 = 0
+    /// Every request, timed (drills). Set before start().
+    var requestObserver: ((LocalHTTPRequestRecord) -> Void)?
+    /// Logs every request with timing: `-TomoRequestLog YES` launch argument or TOMO_REQUEST_LOG=1.
+    private static let logsEveryRequest =
+        UserDefaults.standard.bool(forKey: "TomoRequestLog") || ProcessInfo.processInfo.environment["TOMO_REQUEST_LOG"] == "1"
+
+    private func record(_ path: String, status: Int, bytes: Int, started: DispatchTime, firstBody: DispatchTime?) {
+        let ms = { (t: DispatchTime) in Int((t.uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000) }
+        let entry = LocalHTTPRequestRecord(path: path, status: status, bytes: bytes, firstBodyMs: firstBody.map(ms) ?? -1, doneMs: ms(.now()))
+        if Self.logsEveryRequest {
+            NSLog("[LocalHTTPServer] REQ %@ status=%d bytes=%d firstBodyMs=%d doneMs=%d", path, status, bytes, entry.firstBodyMs, entry.doneMs)
+        }
+        requestObserver?(entry)
+    }
+    /// Playlist paths already logged; a live playlist is reloaded every target duration.
+    private var loggedPlaylists = Set<String>()
+    private let loggedPlaylistsLock = NSLock()
+
+    private func noteFirstRequest(_ path: String) -> Bool {
+        guard path.hasSuffix(".m3u8") else { return true }
+        loggedPlaylistsLock.lock()
+        defer { loggedPlaylistsLock.unlock() }
+        if loggedPlaylists.count > 256 { loggedPlaylists.removeAll() }
+        return loggedPlaylists.insert(path).inserted
+    }
+
+    /// Set on the listener's queue when it fails or is cancelled. A Bool write
+    /// is the only cross-queue access, and a stale read just means one wasted
+    /// restart check next session.
+    private var dead = false
+
+    /// False once the OS has torn the listener down (app suspension does this).
+    ///
+    /// A state flag is necessary and not sufficient. `listener.h` documents listener states as
+    /// forward-only, so a listener that reached `.ready` never reports its way back out, and
+    /// the socket the OS reclaims on suspension is announced by nothing at all. `answers()`
+    /// is the test that does not depend on being told.
+    var isListening: Bool { listener != nil && !dead }
+
+    /// Whether the server still takes a connection, asked by making one.
+    ///
+    /// Plain TCP to our own port, which is what AVPlayer does, so a pass here means the next
+    /// session URL is reachable by the only client that matters. Cheap on a live loopback and
+    /// bounded when the socket is gone, which is the case worth catching: a cached port that
+    /// answers nothing is NSURLError -1004 at the player and an engine that looks broken.
+    func answers(timeout: TimeInterval = 0.25) -> Bool {
+        guard listener != nil, !dead, let endpointPort = NWEndpoint.Port(rawValue: port) else { return false }
+
+        let probe = NWConnection(to: .hostPort(host: "127.0.0.1", port: endpointPort), using: .tcp)
+        let done = DispatchSemaphore(value: 0)
+        var reachable = false
+        probe.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                reachable = true
+                done.signal()
+            case .failed, .cancelled:
+                done.signal()
+            default:
+                break
+            }
+        }
+        probe.start(queue: queue)
+        _ = done.wait(timeout: .now() + timeout)
+        probe.cancel()
+        return reachable
+    }
+
+    init(route: @escaping (String) -> LocalHTTPResponse) {
+        self.route = route
+    }
+
+    /// Bind to an ephemeral port on the loopback interface. Returns the port.
+    ///
+    /// Pinned to the loopback interface first, so a listener serving a file already on this
+    /// device is not evaluated against a general path that a plane leaves unsatisfied. That
+    /// the pin helps is unmeasured, so it is not depended on: a bind that fails with it is
+    /// tried again without it, which is the bind this app shipped before.
+    func start() throws -> UInt16 {
+        do {
+            return try bind(pinnedToLoopback: true)
+        } catch {
+            NSLog("[LocalHTTPServer] loopback-pinned bind failed (%@), retrying unpinned", error.localizedDescription)
+            return try bind(pinnedToLoopback: false)
+        }
+    }
+
+    private func bind(pinnedToLoopback: Bool) throws -> UInt16 {
+        let params = NWParameters.tcp
+        // Loopback only: never reachable from the network.
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
+        params.allowLocalEndpointReuse = true
+        if pinnedToLoopback { params.requiredInterfaceType = .loopback }
+
+        let listener = try NWListener(using: params)
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.handle(connection)
+        }
+
+        let ready = DispatchSemaphore(value: 0)
+        var startError: Error?
+        listener.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                self?.dead = false
+                ready.signal()
+            case .waiting(let error):
+                // Reachable only before the listener is ready, since states are forward-only.
+                // Logged because a bind that sits here is a path that will not satisfy.
+                NSLog("[LocalHTTPServer] listener waiting: %@", error.localizedDescription)
+            case .failed(let error):
+                // After startup this is the suspend/resume path: the OS can kill
+                // the socket while the app is backgrounded, and a player pointed
+                // at the old port then gets NSURLError -1004. The owner checks
+                // isListening before reusing this server.
+                self?.dead = true
+                NSLog("[LocalHTTPServer] listener failed: %@", error.localizedDescription)
+                startError = error
+                ready.signal()
+            case .cancelled:
+                self?.dead = true
+            default:
+                break
+            }
+        }
+        listener.start(queue: queue)
+
+        if ready.wait(timeout: .now() + 5) == .timedOut {
+            listener.cancel()
+            throw NSError(domain: "LocalHTTPServer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Listener start timed out"])
+        }
+        if let startError {
+            listener.cancel()
+            throw startError
+        }
+
+        guard let boundPort = listener.port?.rawValue else {
+            listener.cancel()
+            throw NSError(domain: "LocalHTTPServer", code: 2, userInfo: [NSLocalizedDescriptionKey: "Listener has no port"])
+        }
+
+        self.listener = listener
+        self.port = boundPort
+        return boundPort
+    }
+
+    func stop() {
+        listener?.cancel()
+        listener = nil
+    }
+
+    // MARK: - Connection handling
+
+    private func handle(_ connection: NWConnection) {
+        connection.start(queue: queue)
+        receiveRequest(connection, buffered: Data())
+    }
+
+    /// Accumulate until the request head is complete. Bodies are ignored: the
+    /// only client is AVPlayer issuing GETs.
+    private func receiveRequest(_ connection: NWConnection, buffered: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16384) { [weak self] data, _, isComplete, error in
+            guard let self, error == nil, let data, !data.isEmpty else {
+                connection.cancel()
+                return
+            }
+            var buffer = buffered
+            buffer.append(data)
+
+            if let headEnd = buffer.range(of: Data("\r\n\r\n".utf8)) {
+                let head = String(decoding: buffer[..<headEnd.lowerBound], as: UTF8.self)
+                self.respond(connection, head: head)
+            } else if buffer.count > 65536 || isComplete {
+                connection.cancel()
+            } else {
+                self.receiveRequest(connection, buffered: buffer)
+            }
+        }
+    }
+
+    private func respond(_ connection: NWConnection, head: String) {
+        let requestLine = head.components(separatedBy: "\r\n").first ?? ""
+        let parts = requestLine.split(separator: " ")
+        guard parts.count >= 2, parts[0] == "GET" else {
+            send(connection, status: "405 Method Not Allowed", contentType: "text/plain", body: Data())
+            return
+        }
+        let path = String(parts[1].split(separator: "?").first ?? "")
+
+        // Single-range support: AVPlayer occasionally probes with Range requests.
+        let rangeHeader = head.components(separatedBy: "\r\n")
+            .first { $0.lowercased().hasPrefix("range:") }?
+            .split(separator: ":", maxSplits: 1).last.map { $0.trimmingCharacters(in: .whitespaces) }
+        let acceptsGzip = head.components(separatedBy: "\r\n")
+            .first { $0.lowercased().hasPrefix("accept-encoding:") }?.lowercased().contains("gzip") ?? false
+
+        // Routing may block (waiting on a segment mid-write); do it off the
+        // listener callback so other connections keep being accepted, and on our
+        // own queue so those waits never occupy the shared global pool.
+        workQueue.async { [weak self] in
+            guard let self else { return }
+            // Init segments and the first request of each playlist name the request sequence
+            // preceding a player-side failure; media segments and a live playlist's reloads would
+            // log every few seconds.
+            if !Self.logsEveryRequest, !path.hasSuffix(".m4s"), self.noteFirstRequest(path) { NSLog("[LocalHTTPServer] GET %@", path) }
+            let started = DispatchTime.now()
+            let traced = { (status: Int, bytes: Int) -> (DispatchTime?) -> Void in
+                { [weak self] firstBody in self?.record(path, status: status, bytes: bytes, started: started, firstBody: firstBody) }
+            }
+            switch self.route(path) {
+            case .data(let data, let contentType):
+                // Authoring spec 10.1: playlists go out gzip-encoded to a client that takes it.
+                if acceptsGzip, contentType == "application/vnd.apple.mpegurl", let packed = Self.gzip(data) {
+                    self.send(connection, status: "200 OK", contentType: contentType, body: packed, extraHeaders: "Content-Encoding: gzip\r\n",
+                              onDone: traced(200, packed.count))
+                } else {
+                    self.send(connection, status: "200 OK", contentType: contentType, body: data, onDone: traced(200, data.count))
+                }
+            case .file(let url, let contentType):
+                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                    NSLog("[LocalHTTPServer] 404 (unreadable) %@", path)
+                    self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data(), onDone: traced(404, 0))
+                    return
+                }
+                if let (slice, header) = self.slice(data, rangeHeader: rangeHeader) {
+                    self.send(connection, status: "206 Partial Content", contentType: contentType, body: slice, extraHeaders: header, onDone: traced(206, slice.count))
+                } else {
+                    self.send(connection, status: "200 OK", contentType: contentType, body: data, onDone: traced(200, data.count))
+                }
+            case .streamed(let contentType, let provider):
+                self.sendStreamed(connection, contentType: contentType, provider: { _ in provider() }) { firstBody, bytes in
+                    traced(bytes > 0 ? 200 : 0, bytes)(firstBody)
+                }
+            case .segment(let contentType, let lead, let padding, let provider):
+                self.sendStreamed(connection, contentType: contentType, lead: lead, padding: padding, provider: provider) { firstBody, bytes in
+                    traced(bytes > 0 ? 200 : 0, bytes)(firstBody)
+                }
+            case .gone:
+                NSLog("[LocalHTTPServer] 410 %@", path)
+                self.send(connection, status: "410 Gone", contentType: "text/plain", body: Data(), onDone: traced(410, 0))
+            case .temporarilyUnavailable:
+                self.send(connection, status: "503 Service Unavailable", contentType: "text/plain", body: Data(), extraHeaders: "Retry-After: 1\r\n", onDone: traced(503, 0))
+            case .notFound:
+                NSLog("[LocalHTTPServer] 404 %@", path)
+                self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data(), onDone: traced(404, 0))
+            }
+        }
+    }
+
+    /// Chunked response: head first, THEN block on the provider (we are on the
+    /// uncapped workQueue, same as every segment wait). Sends on one connection
+    /// are FIFO, so the linear sequence needs no nesting; a dead connection
+    /// just absorbs the later sends. Apple's own LL-HLS delivers segment parts
+    /// over chunked transfer, so the client side of this is well-trodden.
+    private func sendStreamed(_ connection: NWConnection, contentType: String, lead: Data = Data(), padding: Data = Data(), provider: (SegmentRequest) -> URL?, onDone: @escaping (DispatchTime?, Int) -> Void) {
+        let request = SegmentRequest()
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .failed, .cancelled: request.abandon()
+            default: break
+            }
+        }
+        var head = "HTTP/1.1 200 OK\r\n"
+        head += "Content-Type: \(contentType)\r\n"
+        head += "Transfer-Encoding: chunked\r\n"
+        head += "Cache-Control: no-cache\r\n"
+        head += "Connection: close\r\n\r\n"
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { error in
+            if error != nil { connection.cancel() }
+        })
+        func chunk(_ bytes: Data) {
+            connection.send(content: Data(String(format: "%X\r\n", bytes.count).utf8) + bytes + Data("\r\n".utf8), completion: .contentProcessed { error in
+                if error != nil { request.abandon() }
+            })
+        }
+        // The lock orders the last padding box before the body: none may land inside it.
+        let gate = NSLock()
+        var waiting = true
+        var keepAlive: DispatchSourceTimer?
+        if !lead.isEmpty {
+            chunk(lead)
+            if !padding.isEmpty {
+                let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+                timer.schedule(deadline: .now() + 2, repeating: 2)
+                timer.setEventHandler {
+                    gate.lock()
+                    if waiting { chunk(padding) }
+                    gate.unlock()
+                }
+                timer.resume()
+                keepAlive = timer
+            }
+        }
+
+        let url = provider(request)
+        request.settle()
+        gate.lock()
+        waiting = false
+        gate.unlock()
+        keepAlive?.cancel()
+        guard let url, let whole = try? Data(contentsOf: url, options: .mappedIfSafe), !whole.isEmpty else {
+            // Truncated chunked body: the peer sees a hard failure, not silence.
+            connection.cancel()
+            onDone(nil, 0)
+            return
+        }
+        // The lead has gone out already; what follows is the rest of the same bytes.
+        let body = !lead.isEmpty && whole.starts(with: lead) ? whole.dropFirst(lead.count) : whole[...]
+        // One chunk carries the whole segment; the mapped Data goes out as its
+        // own send (same no-copy rule as send() below).
+        let firstBody = DispatchTime.now()
+        connection.send(content: Data(String(format: "%X\r\n", body.count).utf8), completion: .contentProcessed { _ in })
+        connection.send(content: body, completion: .contentProcessed { _ in })
+        connection.send(content: Data("\r\n0\r\n\r\n".utf8), completion: .contentProcessed { _ in
+            connection.cancel()
+            onDone(firstBody, body.count)
+        })
+    }
+
+    /// RFC 1952 gzip: the Compression framework's raw DEFLATE between a minimal header and the CRC-32/size trailer.
+    static func gzip(_ data: Data) -> Data? {
+        guard !data.isEmpty else { return nil }
+        let capacity = data.count + 1024
+        var deflated = Data(count: capacity)
+        let written = deflated.withUnsafeMutableBytes { out in
+            data.withUnsafeBytes { input in
+                compression_encode_buffer(out.bindMemory(to: UInt8.self).baseAddress!, capacity,
+                                          input.bindMemory(to: UInt8.self).baseAddress!, data.count, nil, COMPRESSION_ZLIB)
+            }
+        }
+        guard written > 0 else { return nil }
+        let crc = data.withUnsafeBytes { input in
+            av_crc(av_crc_get_table(AV_CRC_32_IEEE_LE), UInt32.max, input.bindMemory(to: UInt8.self).baseAddress, data.count) ^ UInt32.max
+        }
+        let size = UInt32(truncatingIfNeeded: data.count)
+        let little = { (value: UInt32) in Data((0..<4).map { UInt8((value >> (8 * $0)) & 0xFF) }) }
+        return Data([0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 0xFF]) + deflated.prefix(written) + little(crc) + little(size)
+    }
+
+    /// Apply a single "bytes=a-b" range. Returns nil to serve the whole body.
+    private func slice(_ data: Data, rangeHeader: String?) -> (Data, String)? {
+        guard let rangeHeader, rangeHeader.hasPrefix("bytes=") else { return nil }
+        let spec = rangeHeader.dropFirst("bytes=".count)
+        // Only the simple forms "a-b" and "a-" are supported; anything else
+        // falls back to a full 200 response, which is always valid.
+        let bounds = spec.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard bounds.count == 2, let start = Int(bounds[0]), start >= 0, start < data.count else { return nil }
+        let end = Int(bounds[1]).map { min($0, data.count - 1) } ?? (data.count - 1)
+        guard end >= start else { return nil }
+        let slice = data.subdata(in: start..<(end + 1))
+        return (slice, "Content-Range: bytes \(start)-\(end)/\(data.count)\r\n")
+    }
+
+    private func send(_ connection: NWConnection, status: String, contentType: String, body: Data, extraHeaders: String = "", onDone: ((DispatchTime?) -> Void)? = nil) {
+        var head = "HTTP/1.1 \(status)\r\n"
+        head += "Content-Type: \(contentType)\r\n"
+        head += "Content-Length: \(body.count)\r\n"
+        head += "Accept-Ranges: bytes\r\n"
+        head += "Cache-Control: no-cache\r\n"
+        head += extraHeaders
+        head += "Connection: close\r\n\r\n"
+
+        // Header and body go out as two sends rather than one concatenated
+        // buffer. Appending the body allocated a second full copy of every
+        // segment: tens of megabytes per request on a high-bitrate remux, and
+        // it undid the memory mapping respond() asks for with .mappedIfSafe.
+        // Nothing bounds how many of those coexist, since workQueue is
+        // uncapped by design.
+        //
+        // The body send is nested in the header's completion rather than issued
+        // straight after it, so ordering holds by construction instead of by
+        // the stream-context rule in connection.h, and a header that failed can
+        // never be followed by segment bytes the peer would read as a status
+        // line. The completion fires once the data is enqueued, not once the
+        // peer acknowledges it, so this costs no round trip.
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { error in
+            guard error == nil else {
+                connection.cancel()
+                onDone?(nil)
+                return
+            }
+            guard !body.isEmpty else {
+                connection.cancel()
+                onDone?(nil)
+                return
+            }
+            let firstBody = DispatchTime.now()
+            connection.send(content: body, completion: .contentProcessed { _ in
+                connection.cancel()
+                onDone?(firstBody)
+            })
+        })
+    }
+}

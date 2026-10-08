@@ -10,7 +10,7 @@
  * shared text.
  *
  * The media stack entries are the libraries scripts/ffmpeg/build.sh compiles and
- * native/ios/TomoFFmpeg.podspec vendors. Keep all three in sync when the
+ * packages/tomo-engine/ios/TomoFFmpeg.podspec vendors. Keep all three in sync when the
  * dependency set changes: an entry here with no framework is a false claim, and
  * a framework with no entry here is an attribution we owe and have not made.
  *
@@ -174,15 +174,14 @@ export const LGPL3_NOTE = "The GNU Lesser General Public License version 3 incor
  * shipped in this app are publicly available from the linked upstreams.
  *
  * The wording says STATIC on purpose. It previously said the app "dynamically
- * bundles" these libraries, which is not what happens: native/ios/TomoFFmpeg.podspec
+ * bundles" these libraries, which is not what happens: packages/tomo-engine/ios/TomoFFmpeg.podspec
  * vendors static xcframeworks and states so twice ("The vendored frameworks are
  * static archives"). Describing static linking as dynamic is exactly the claim
  * that would have satisfied LGPL-3.0 section 4's relinking option, so it is not a
  * harmless imprecision. This corrects the factual description only and asserts
  * nothing about whether the distribution complies; that is a question for counsel.
  */
-export const LGPL_SOURCE_NOTICE =
-  "Tomo TV links these libraries unmodified as static archives. Complete corresponding source code for each library is available from the project links above. The exact binaries in this app are built by scripts/ffmpeg/build.sh in the Tomo TV repository, from the versions pinned in scripts/ffmpeg/sources.sh, and are published with their checksums at github.com/keiver/tomotv.";
+export const LGPL_SOURCE_NOTICE = "Tomo TV uses unmodified, statically linked libraries. Find their source links, build scripts, versions, and checksums at github.com/keiver/tomotv.";
 
 export const LICENSE_TEXTS: Record<LicenseId, string> = {
   "LGPL-2.1":

@@ -31,12 +31,14 @@ import { cleanLabel } from "@/utils/cleanLabel";
 import { activeRecordTimer, adjacentChannelId, channelWindow, durationLabel, programTimes, ringWithCenter } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { playsFromDisk } from "@/services/downloads/localSource";
-import { stageStopped } from "@/hooks/usePlaybackStage";
+import { serverOffText, stageStopped } from "@/hooks/usePlaybackStage";
 import { currentPlaybackStage } from "@/services/playbackStage";
 import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPlayManager";
 import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
+import { formatErrorRef } from "@/utils/errorIds";
+import { APP_BUILD_LABEL } from "@/constants/app";
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
@@ -217,8 +219,9 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       adopt: params.adopt === "1",
       isLive: isLiveChannel,
       advance: params.advance === "1",
+      queueMode: isQueueMode,
     });
-  }, [requestSession, sessionKey, videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel, params.advance]);
+  }, [requestSession, sessionKey, videoId, params.videoName, params.startTicks, params.played, params.probe, params.adopt, isLiveChannel, params.advance, isQueueMode]);
 
   // tvOS channel flipping rides AVKit's own swipe: the channel ring is the list the channel was tuned
   // from (the filter and sort at open), and a flip swaps the channel under the one player.
@@ -691,6 +694,14 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     popThisScreen();
   }, [pause, popThisScreen, isQueueMode, clear, stopSession]);
 
+  // A PiP window took the video: back to where playback started, the queue kept for the window to roll on.
+  const handlePipStarted = useCallback(() => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
+    stopSession();
+    popThisScreen();
+  }, [popThisScreen, stopSession]);
+
   // Interstitial CTAs, and the tvOS content proposal's Play Now / Close. Play Now
   // (and the countdown expiring) advances the queue — the router.replace updates
   // the params, and the effect above asks the host for the next item.
@@ -844,9 +855,10 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       onSkipChannel: handleSkipChannel,
       onTransportBarButtonSelected: handleTransportBarButtonSelected,
       onRequestBack: handleBack,
+      onPipStarted: handlePipStarted,
     });
     return () => setHandlers(null);
-  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleTransportBarButtonSelected, handleBack]);
+  }, [setHandlers, handlePlaybackEnd, handleInterstitialPlay, handleInterstitialClose, handleInfoPanelItemSelected, handleSkipChannel, handleTransportBarButtonSelected, handleBack, handlePipStarted]);
 
   // Handle Android TV back button
   useEffect(() => {
@@ -923,12 +935,15 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     // Only show error UI if retry is not possible or has already failed. The failing stage stays
     // on the store until the next attempt, so the screen can say where it stopped.
     const failedStage = currentPlaybackStage().stage;
+    const { serverOff } = playbackState;
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
         <Text style={styles.errorTitle}>{t("player.unableToPlay")}</Text>
-        <Text style={styles.errorText}>{playbackState.error}</Text>
+        <Text style={styles.errorText}>{serverOff?.needed ? serverOffText(serverOff) : playbackState.error}</Text>
         {failedStage ? <Text style={styles.errorStage}>{stageStopped(failedStage, { live: isLiveChannel, local: playsFromDisk(videoId) })}</Text> : null}
+        {serverOff && !serverOff.needed ? <Text style={styles.errorStage}>{serverOffText(serverOff)}</Text> : null}
+        {playbackState.ref ? <Text style={styles.errorCode}>{`${t("player.errorCode")}: ${formatErrorRef(playbackState.ref, APP_BUILD_LABEL)}`}</Text> : null}
 
         <View style={styles.buttonGroup}>
           <FocusableButton
@@ -1010,6 +1025,13 @@ const styles = StyleSheet.create({
   },
   errorStage: {
     marginTop: 4,
+    fontSize: 16,
+    color: COLORS.TEXT_TERTIARY,
+    textAlign: "center",
+  },
+  errorCode: {
+    marginTop: 8,
+    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
     fontSize: 16,
     color: COLORS.TEXT_TERTIARY,
     textAlign: "center",

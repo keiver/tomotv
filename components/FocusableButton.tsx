@@ -1,5 +1,7 @@
 import { CONTROL_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { themedStyles, useCardPalette } from "@/hooks/useCardPalette";
+import { withAlpha } from "@/utils/color";
 import React, { forwardRef } from "react";
 import { ActivityIndicator, Platform, Pressable, PressableProps, StyleSheet, Text, TextStyle, View, ViewStyle } from "react-native";
 
@@ -44,24 +46,26 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
   { title, variant = "primary", isLoading = false, icon, hasTVPreferredFocus = false, disabled = false, style, textStyle, ...pressableProps }: FocusableButtonProps,
   ref,
 ) {
+  const palette = useCardPalette();
+  const themed = useThemedStyles();
   const getButtonStyle = (focused: boolean): ViewStyle => {
     const baseStyle = [
       styles.button,
       // Variant-specific styles
-      variant === "primary" && styles.primaryButton,
-      variant === "primary" && focused && styles.primaryButtonFocused,
-      variant === "secondary" && styles.secondaryButton,
-      variant === "secondary" && focused && styles.secondaryButtonFocused,
-      variant === "record" && styles.recordButton,
-      variant === "record" && focused && styles.recordButtonFocused,
+      variant === "primary" && themed.primaryButton,
+      variant === "primary" && focused && themed.primaryButtonFocused,
+      variant === "secondary" && themed.secondaryButton,
+      variant === "secondary" && focused && themed.secondaryButtonFocused,
+      variant === "record" && themed.secondaryButton,
+      variant === "record" && focused && themed.secondaryButtonFocused,
       variant === "destructive" && styles.destructiveButton,
       variant === "destructive" && focused && styles.destructiveButtonFocused,
       variant === "debug" && styles.debugButton,
       variant === "debug" && focused && styles.debugButtonFocused,
-      variant === "retry" && styles.retryButton,
-      variant === "retry" && focused && styles.retryButtonFocused,
+      variant === "retry" && themed.primaryButton,
+      variant === "retry" && focused && themed.primaryButtonFocused,
       variant === "link" && styles.linkButton,
-      variant === "link" && focused && styles.linkButtonFocused,
+      variant === "link" && focused && themed.linkButtonFocused,
       // Disabled state
       (disabled || isLoading) && styles.buttonDisabled,
       // Custom styles
@@ -75,13 +79,13 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
     const baseStyle = [
       styles.buttonText,
       // Variant-specific text styles
-      variant === "primary" && styles.primaryButtonText,
-      variant === "secondary" && styles.secondaryButtonText,
-      variant === "record" && styles.recordButtonText,
+      variant === "primary" && themed.primaryButtonText,
+      variant === "secondary" && themed.secondaryButtonText,
+      variant === "record" && themed.secondaryButtonText,
       variant === "destructive" && styles.destructiveButtonText,
       variant === "debug" && styles.debugButtonText,
-      variant === "retry" && styles.retryButtonText,
-      variant === "link" && styles.linkButtonText,
+      variant === "retry" && themed.primaryButtonText,
+      variant === "link" && [styles.linkButtonText, themed.secondaryButtonText],
       // Disabled state
       (disabled || isLoading) && styles.buttonTextDisabled,
       // Custom text styles
@@ -111,9 +115,10 @@ export const FocusableButton = forwardRef<View, FocusableButtonProps>(function F
         busy: isLoading,
       }}
       tvParallaxProperties={pressableProps.tvParallaxProperties ?? { magnification: 1.05, pressMagnification: 1.0 }}>
-      <View style={styles.buttonContent}>
+      {/* Kept in the native tree: flattened, the spinner swap and optional title renumber the focusable's children. */}
+      <View style={styles.buttonContent} collapsable={false}>
         {isLoading ? (
-          <ActivityIndicator color={variant === "primary" ? COLORS.ON_ACCENT : variant === "record" ? COLORS.DESTRUCTIVE : COLORS.ACCENT} size={"small"} />
+          <ActivityIndicator color={variant === "primary" ? palette.onAccent : variant === "record" ? COLORS.DESTRUCTIVE : palette.accent} size={"small"} />
         ) : (
           <>
             {icon}
@@ -170,54 +175,6 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // Primary variant (Yellow background, black text)
-  primaryButton: {
-    backgroundColor: COLORS.ACCENT,
-    borderColor: "transparent",
-  },
-  primaryButtonFocused: {
-    backgroundColor: COLORS.ACCENT_FOCUSED,
-    borderColor: COLORS.BORDER_FOCUSED,
-    shadowColor: COLORS.ACCENT,
-    shadowOpacity: 0.5,
-    elevation: 8,
-  },
-  primaryButtonText: {
-    color: COLORS.ON_ACCENT,
-  },
-
-  // Secondary variant (Transparent with yellow border)
-  secondaryButton: {
-    backgroundColor: "transparent",
-    borderColor: COLORS.ACCENT,
-  },
-  secondaryButtonFocused: {
-    backgroundColor: "rgba(255, 195, 18, 0.15)",
-    borderColor: COLORS.ACCENT_FOCUSED,
-    shadowColor: COLORS.ACCENT,
-    shadowOpacity: 0.4,
-    elevation: 6,
-  },
-  secondaryButtonText: {
-    color: COLORS.ACCENT,
-  },
-
-  // Record variant: the secondary outline; the caller's icon carries the recording red
-  recordButton: {
-    backgroundColor: "transparent",
-    borderColor: COLORS.ACCENT,
-  },
-  recordButtonFocused: {
-    backgroundColor: "rgba(255, 195, 18, 0.15)",
-    borderColor: COLORS.ACCENT_FOCUSED,
-    shadowColor: COLORS.ACCENT,
-    shadowOpacity: 0.4,
-    elevation: 6,
-  },
-  recordButtonText: {
-    color: COLORS.ACCENT,
-  },
-
   // Destructive variant (Red text)
   destructiveButton: {
     backgroundColor: "transparent",
@@ -252,22 +209,6 @@ const styles = StyleSheet.create({
     fontSize: Platform.isTV ? 24 : 17,
   },
 
-  // Retry variant (Yellow background)
-  retryButton: {
-    backgroundColor: COLORS.ACCENT,
-    borderColor: "transparent",
-  },
-  retryButtonFocused: {
-    backgroundColor: COLORS.ACCENT_FOCUSED,
-    borderColor: COLORS.BORDER_FOCUSED,
-    shadowColor: COLORS.ACCENT,
-    shadowOpacity: 0.5,
-    elevation: 8,
-  },
-  retryButtonText: {
-    color: COLORS.ON_ACCENT,
-  },
-
   // Link variant (bare text, for the alternates under a primary CTA)
   // Sheds every pill affordance — fill, border, shadow, minimum size — so a row
   // of these reads as text, not as more buttons competing with the CTA above.
@@ -282,19 +223,51 @@ const styles = StyleSheet.create({
     elevation: 0,
     boxShadow: "none",
   },
-  // Focus is a tinted rounded field behind the text, the way ServerRow carries
-  // it: getTextStyle() takes no focus argument, so the state can't live on the
-  // glyphs without changing the primitive's signature for one variant.
-  linkButtonFocused: {
-    backgroundColor: "rgba(255, 195, 18, 0.15)",
-    borderColor: "transparent",
-  },
-  // Gold, not gray: these are the alternate actions on a screen, not disabled
-  // ones, and at TV viewing distance a muted label reads as unavailable. The
-  // pill fill still separates them from the primary — the color is shared.
+  // The accent, not gray (themed.secondaryButtonText): these are the alternate actions on a screen,
+  // not disabled ones, and at TV viewing distance a muted label reads as unavailable. The pill fill
+  // still separates them from the primary; the color is shared.
   linkButtonText: {
-    color: COLORS.ACCENT,
     fontSize: Platform.isTV ? 24 : 15,
     fontWeight: "600",
   },
 });
+
+// The accent-bearing variants. Retry wears the primary's; record wears the secondary's outline (the
+// caller's icon carries the recording red).
+const useThemedStyles = themedStyles((palette) => ({
+  // Primary: the accent fill, its ink.
+  primaryButton: {
+    backgroundColor: palette.accent,
+    borderColor: "transparent",
+  },
+  primaryButtonFocused: {
+    backgroundColor: palette.accentFocused,
+    borderColor: COLORS.BORDER_FOCUSED,
+    shadowColor: palette.accent,
+    shadowOpacity: 0.5,
+    elevation: 8,
+  },
+  primaryButtonText: {
+    color: palette.onAccent,
+  },
+  // Secondary: transparent with an accent border.
+  secondaryButton: {
+    backgroundColor: "transparent",
+    borderColor: palette.accent,
+  },
+  secondaryButtonFocused: {
+    backgroundColor: withAlpha(palette.accent, 0.15),
+    borderColor: palette.accentFocused,
+    shadowColor: palette.accent,
+    shadowOpacity: 0.4,
+    elevation: 6,
+  },
+  secondaryButtonText: {
+    color: palette.accent,
+  },
+  // Focus is a tinted rounded field behind the text, the way ServerRow carries it.
+  linkButtonFocused: {
+    backgroundColor: withAlpha(palette.accent, 0.15),
+    borderColor: "transparent",
+  },
+}));

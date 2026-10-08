@@ -58,6 +58,8 @@ export interface DownloadEntry {
   repackageDeclined?: boolean;
   /** Re-encoded by the server at this rung on the way down: `item` describes the MP4 that lands. */
   converted?: ConversionRung;
+  /** The subtitle stream a conversion burns into the picture: the shown track, when it is PGS, DVD or DVB. */
+  burnedSubtitle?: number;
   /** Bounds the heal sweep, so a file that fails every time stops being retried. */
   repackageAttempts?: number;
   /**

@@ -5,6 +5,7 @@
 import {
   createPreflightGate,
   dropThroughputWatch,
+  engineStillReading,
   forwardBufferFor,
   keptForReason,
   linkAffordsChapterFrames,
@@ -51,6 +52,20 @@ describe("createPreflightGate", () => {
     const gate = createPreflightGate();
     gate.close();
     expect(gate.settle({ failed: "too late" })).toBe(false);
+  });
+});
+
+describe("engineStillReading", () => {
+  it("waits on any new bytes from a live session, however little of its time went to reading", () => {
+    expect(engineStillReading({ alive: true, bytesRead: 2_000, elapsedSeconds: 20, readSeconds: 1 }, 1_000)).toBe(true);
+    expect(engineStillReading({ alive: true, bytesRead: 1, elapsedSeconds: 20, readSeconds: 0 }, -1)).toBe(true);
+  });
+
+  it("stops on no new bytes, no bytes at all, a dead session or no reading", () => {
+    expect(engineStillReading({ alive: true, bytesRead: 2_000, elapsedSeconds: 20, readSeconds: 18 }, 2_000)).toBe(false);
+    expect(engineStillReading({ alive: true, bytesRead: 0, elapsedSeconds: 20, readSeconds: 0 }, -1)).toBe(false);
+    expect(engineStillReading({ alive: false, bytesRead: 9_000, elapsedSeconds: 20, readSeconds: 18 }, 1_000)).toBe(false);
+    expect(engineStillReading(null, 1_000)).toBe(false);
   });
 });
 

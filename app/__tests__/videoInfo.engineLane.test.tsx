@@ -25,6 +25,11 @@ jest.mock("expo-router", () => ({
 }));
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
+jest.mock("react-native-gesture-handler", () => {
+  const { View } = require("react-native");
+  const chain: any = new Proxy(() => chain, { get: () => () => chain, apply: () => chain });
+  return { Gesture: { Pan: () => chain, Native: () => chain }, GestureDetector: ({ children }: { children: React.ReactNode }) => children, GestureHandlerRootView: View };
+});
 jest.mock("@/services/localRemux", () => ({
   predictPlaybackLane: jest.fn(async () => null),
   posterFrameIfCached: jest.fn(() => undefined),
@@ -86,7 +91,7 @@ async function laneLine(plan: unknown): Promise<string> {
     .findAllByType(Text)
     .flatMap((node) => (Array.isArray(node.props.children) ? node.props.children : [node.props.children]))
     .filter((child): child is string => typeof child === "string");
-  return lines.find((line) => line.startsWith("Direct Play") || line.startsWith("Re-encoded") || line.startsWith("Transcoded")) ?? "";
+  return lines.find((line) => line.startsWith("Direct Play") || line.startsWith("Re-encoded") || line.startsWith("Transcoded") || line.startsWith("Needs")) ?? "";
 }
 
 describe("the engine line on the item panel", () => {
@@ -107,6 +112,10 @@ describe("the engine line on the item panel", () => {
 
   it("names the server outright when the whole file goes through it", async () => {
     expect(await laneLine({ lane: "server", smallFeedFirst: false })).toBe("Transcoded by the server");
+  });
+
+  it("says the file needs a server this device will not ask", async () => {
+    expect(await laneLine({ lane: "unplayable", smallFeedFirst: false })).toBe("Needs server transcoding, which is off");
   });
 
   it("says nothing at all until the lane is known", async () => {

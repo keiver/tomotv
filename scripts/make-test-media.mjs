@@ -740,6 +740,136 @@ async function buildSidecarShift() {
   return [{ ...SIDECAR_SHIFT, out }];
 }
 
+/**
+ * Two English PGS tracks in one file: a forced one with two early images, then an SDH one with a cue
+ * every six seconds. FFmpeg has no PGS encoder, so the .sup streams are written here.
+ */
+const FORCED_SDH = { id: "T107", title: "T107 REMUX H264 PGS forced SDH", seconds: 180 };
+const PGS_CANVAS = { width: 1920, height: 1080 };
+const PGS_LABEL = { width: 800, height: 80 };
+
+function pgsSegment(seconds, type, payload) {
+  const ticks = Math.round(seconds * 90000);
+  const head = Buffer.alloc(13);
+  head.write("PG", 0, "ascii");
+  head.writeUInt32BE(ticks, 2);
+  head.writeUInt32BE(ticks, 6);
+  head.writeUInt8(type, 10);
+  head.writeUInt16BE(payload.length, 11);
+  return Buffer.concat([head, payload]);
+}
+
+/** PGS run-length coding of one row of palette indices, terminated by 00 00. */
+function pgsRow(row) {
+  const out = [];
+  for (let x = 0; x < row.length;) {
+    let run = 1;
+    while (x + run < row.length && row[x + run] === row[x] && run < 16383) run++;
+    const color = row[x];
+    if (color === 0) out.push(0, ...(run < 64 ? [run] : [0x40 | (run >> 8), run & 0xff]));
+    else if (run < 3) out.push(...Array(run).fill(color));
+    else out.push(0, ...(run < 64 ? [0x80 | run] : [0xc0 | (run >> 8), run & 0xff]), color);
+    x += run;
+  }
+  out.push(0, 0);
+  return out;
+}
+
+/** One display set: a label bitmap at (x, y) from `start`, erased at `end`. */
+function pgsCue({ start, end, x, y, pixels, forced, composition }) {
+  const u16 = (n) => [n >> 8, n & 0xff];
+  const window = Buffer.from([1, 0, ...u16(x), ...u16(y), ...u16(PGS_LABEL.width), ...u16(PGS_LABEL.height)]);
+  const pcs = (number, objects) =>
+    Buffer.from([
+      ...u16(PGS_CANVAS.width),
+      ...u16(PGS_CANVAS.height),
+      0x10,
+      ...u16(number),
+      objects ? 0x80 : 0x00,
+      0,
+      0,
+      objects,
+      ...(objects ? [0, 0, 0, forced ? 0x40 : 0, ...u16(x), ...u16(y)] : []),
+    ]);
+  const palette = Buffer.from([0, 0, 0, 16, 128, 128, 0, 1, 235, 128, 128, 255]);
+  const rows = [];
+  for (let row = 0; row < PGS_LABEL.height; row++) rows.push(...pgsRow([...pixels.subarray(row * PGS_LABEL.width, (row + 1) * PGS_LABEL.width)].map((v) => (v > 128 ? 1 : 0))));
+  const length = rows.length + 4;
+  const object = Buffer.from([0, 0, 0, 0xc0, length >> 16, (length >> 8) & 0xff, length & 0xff, ...u16(PGS_LABEL.width), ...u16(PGS_LABEL.height), ...rows]);
+  return Buffer.concat([
+    pgsSegment(start, 0x16, pcs(composition, 1)),
+    pgsSegment(start, 0x17, window),
+    pgsSegment(start, 0x14, palette),
+    pgsSegment(start, 0x15, object),
+    pgsSegment(start, 0x80, Buffer.alloc(0)),
+    pgsSegment(end, 0x16, pcs(composition + 1, 0)),
+    pgsSegment(end, 0x17, window),
+    pgsSegment(end, 0x80, Buffer.alloc(0)),
+  ]);
+}
+
+/** A label drawn by ffmpeg as 8-bit gray, one byte per pixel. */
+async function labelPixels(text) {
+  const { stdout } = await exec(
+    FFMPEG,
+    [
+      ...["-v", "error", "-f", "lavfi", "-i", `color=c=black:s=${PGS_LABEL.width}x${PGS_LABEL.height}:d=1`],
+      ...["-vf", `drawtext=fontfile=${FONT}:text='${text}':fontsize=56:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2`],
+      ...["-frames:v", "1", "-pix_fmt", "gray", "-f", "rawvideo", "pipe:1"],
+    ],
+    { encoding: "buffer", maxBuffer: 16 * 1024 * 1024 },
+  );
+  return stdout;
+}
+
+async function pgsTrack(file, cues, { y, forced }) {
+  const sets = [];
+  for (const [n, cue] of cues.entries()) {
+    sets.push(pgsCue({ ...cue, x: (PGS_CANVAS.width - PGS_LABEL.width) / 2, y, pixels: await labelPixels(cue.text), forced, composition: n * 2 }));
+  }
+  fs.writeFileSync(file, Buffer.concat(sets));
+}
+
+async function buildForcedSdh() {
+  if (!wanted(FORCED_SDH.id)) return [];
+  const out = path.join(VIDEO_DIR, `${FORCED_SDH.title}.mkv`);
+  if (exists(out) && !FORCE) {
+    log(`  = ${FORCED_SDH.title}`);
+    return [{ ...FORCED_SDH, out }];
+  }
+  log(`  + ${FORCED_SDH.title}`);
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const seconds = FORCED_SDH.seconds;
+  const forcedSup = path.join(CACHE_DIR, "forced-sdh-forced.sup");
+  const sdhSup = path.join(CACHE_DIR, "forced-sdh-sdh.sup");
+  await pgsTrack(
+    forcedSup,
+    [5, 15].map((start, n) => ({ start, end: start + 4, text: `FORCED ${n + 1}` })),
+    { y: 280, forced: true },
+  );
+  const sdhCues = Array.from({ length: Math.floor((seconds - 6) / 6) }, (_, n) => ({ start: 2 + n * 6, end: 6 + n * 6, text: `SDH ${String(n + 1).padStart(2, "0")}` }));
+  await pgsTrack(sdhSup, sdhCues, { y: 920, forced: false });
+  const argv = [
+    "-y",
+    ...["-f", "lavfi", "-i", `testsrc2=size=1920x1080:rate=24:duration=${seconds}`],
+    ...["-f", "lavfi", "-i", `sine=frequency=440:duration=${seconds}:sample_rate=${RATE}`],
+    ...["-f", "sup", "-i", forcedSup, "-f", "sup", "-i", sdhSup],
+    // Each .sup starts at its first cue; without -copyts that cue would be moved to zero.
+    "-copyts",
+    ...["-filter_complex", `[0:v]${legend("T107 forced + SDH PGS", "FORCED 5s 15s   SDH every 6s")}[v]`],
+    ...["-map", "[v]", "-map", "1:a", "-map", "2:s", "-map", "3:s"],
+    ...["-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-b:v", "3M", "-maxrate", "4M", "-bufsize", "8M", "-g", "48"],
+    ...["-c:a", "aac", "-b:a", "128k", "-c:s", "copy"],
+    ...["-metadata:s:a:0", "language=eng", "-metadata:s:s:0", "language=eng", "-disposition:s:0", "forced", "-metadata:s:s:1", "language=eng", "-disposition:s:1", "hearing_impaired"],
+    out,
+  ];
+  if (!(await ff(argv, FORCED_SDH.title))) {
+    failures.push(`${FORCED_SDH.id} encode failed`);
+    return [];
+  }
+  return [{ ...FORCED_SDH, out }];
+}
+
 async function buildSlipstream() {
   const built = [];
   const items = SLIPSTREAM.filter((item) => wanted(item.id));
@@ -1240,6 +1370,9 @@ async function main() {
 
   log("\nSidecar index shift item");
   await buildSidecarShift();
+
+  log("\nForced + SDH PGS item");
+  await buildForcedSdh();
 
   let downloaded = [];
   let atmos = [];

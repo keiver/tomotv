@@ -1,9 +1,12 @@
 import type { DownloadCircleState } from "@/components/info-action-row";
-import { conversionRung, estimatedConvertedBytes } from "@/services/downloads/convert";
+import { conversionTracks } from "@/services/downloads/conversionTracks";
+import { downloadRungs, estimatedConvertedBytes, type ConversionRung } from "@/services/downloads/convert";
 import { downloadManager } from "@/services/downloads/manager";
 import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
+import { blockedSizesNote, showSizeSheet, sizeChoice } from "@/services/downloads/sizeSheet";
 import { fetchVideoDetails, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { predictPlaybackLane } from "@/services/localRemux";
+import { serverTranscodeBlock } from "@/services/transcodePolicy";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { logger } from "@/utils/logger";
@@ -11,11 +14,20 @@ import { Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { Alert } from "react-native";
 import { useCallback, useEffect, useState } from "react";
+import { t } from "@/services/i18n";
 
 interface ItemDownload {
   /** undefined where a download cannot exist, which is what hides the circle. */
   state: DownloadCircleState | undefined;
   toggle: (() => Promise<boolean>) | undefined;
+}
+
+/** One size button: the original or a server rung, with the bytes it would take. */
+interface SizeChoice {
+  text: string;
+  bytes: number;
+  convert?: ConversionRung;
+  disabled?: boolean;
 }
 
 /** What the manager holds for one item right now; the manifest is the source of truth. */
@@ -79,11 +91,12 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       // the push, so a server that refuses still reports on the panel.
       const details = await fetchVideoDetails(itemId);
       if (!details) return false;
+      const name = details.Name ?? t("downloads.title");
 
-      const queue = (convert: boolean) => {
+      const queue = (convert?: ConversionRung) => {
         void (async () => {
           try {
-            await downloadManager.enqueue(details, { convert });
+            await downloadManager.enqueue(details, convert ? { convert, ...(await conversionTracks(details)) } : {});
             leave();
           } catch (error) {
             logger.warn("Download action failed", error, { service: "Downloads", itemId });
@@ -92,39 +105,40 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       };
 
       // A file only the server can play is dead weight on the device: the download would
-      // finish and then need the very server it exists to do without. The server can re-encode
-      // it on the way down instead, which is what the second button queues.
+      // finish and then need the very server it exists to do without, so the original is not
+      // offered and the server re-encodes it on the way down instead.
       const { lane } = await predictPlaybackLane(details);
       const free = Paths.availableDiskSpace;
-      if (lane === "server") {
-        const estimate = estimatedConvertedBytes(details, await conversionRung());
-        if (estimate > 0 && free - estimate < DISK_HEADROOM_BYTES) {
-          Alert.alert("Not enough space", `${formatFileSize(estimate)} needed, and only ${formatFileSize(free)} is free.`);
-          return true;
-        }
-        Alert.alert(
-          details.Name ?? "This item",
-          "This device can't play this file on its own, so a download of it won't play offline.\n\nYour server can convert it while it downloads. That's slower, and the server does the work.",
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Convert and Download", onPress: () => queue(true) },
-          ],
-        );
+      // Neither the device nor, by this device's setting, the server plays it: nothing to queue.
+      if (lane === "unplayable") {
+        Alert.alert(name, t("downloads.unplayableOffline"), [{ text: t("common.ok") }]);
         return true;
+      }
+      // The server lane is only reached when the server may transcode, so a block greys the
+      // smaller sizes of a playable file and the sheet says why.
+      const block = lane === "server" ? null : serverTranscodeBlock(details);
+      const choices: SizeChoice[] = [];
+      if (lane !== "server") choices.push({ text: sizeChoice(t("downloads.original"), sizeOf(details)), bytes: sizeOf(details) });
+      for (const rung of downloadRungs(details, lane !== "server")) {
+        const bytes = estimatedConvertedBytes(details, rung);
+        choices.push({ text: sizeChoice(rung.label, bytes), bytes, convert: rung, disabled: block !== null });
       }
 
-      // The one place a single press commits real storage, so the arithmetic is stated first.
-      // The folder path has always done this; a single item used to queue tens of gigabytes
-      // with nothing said. An undeclared size admits itself rather than claiming zero.
-      const size = sizeOf(details);
-      if (size > 0 && free - size < DISK_HEADROOM_BYTES) {
-        Alert.alert("Not enough space", `${formatFileSize(size)} needed, and only ${formatFileSize(free)} is free.`);
+      // The one place a single press commits real storage, so every button carries its size.
+      // An undeclared size admits itself rather than claiming zero.
+      const offered = choices.filter((choice) => choice.bytes <= 0 || free - choice.bytes >= DISK_HEADROOM_BYTES);
+      if (!offered.some((choice) => !choice.disabled)) {
+        const smallest = Math.min(...choices.filter((choice) => !choice.disabled).map((choice) => choice.bytes));
+        Alert.alert(t("downloads.notEnoughSpace"), t("downloads.needsSpace").replace("{size}", formatFileSize(smallest)).replace("{free}", formatFileSize(free)));
         return true;
       }
-      Alert.alert(details.Name ?? "Download", `Download ${size > 0 ? formatFileSize(size) : "an unknown size"}?\n${formatFileSize(free)} free on this device.`, [
-        { text: "Cancel", style: "cancel" },
-        { text: "Download", onPress: () => queue(false) },
-      ]);
+      const body = lane === "server" ? t("downloads.convertOnly") : t("downloads.chooseSize").replace("{free}", formatFileSize(free));
+      const note = offered.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
+      showSizeSheet(
+        name,
+        note ? `${body}\n\n${note}` : body,
+        offered.map((choice) => ({ text: choice.text, disabled: choice.disabled, onPress: () => queue(choice.convert) })),
+      );
       return true;
     } catch (error) {
       logger.warn("Download action failed", error, { service: "Downloads", itemId });

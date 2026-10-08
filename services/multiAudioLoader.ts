@@ -143,10 +143,11 @@ export function getAudioTracks(videoItem: JellyfinVideoItem): AudioTrackInfo[] {
  * @param videoItem - Video metadata from Jellyfin
  * @param baseUrl - HLS transcoding base URL (from getTranscodingStreamUrl)
  * @param apiKey - Jellyfin API key
+ * @param iframeStreamInf - A frame provider's I-frame line for the master, or "" for none
  * @returns Custom protocol URL for multi-audio playback (jellyfin-multi://...)
  * @throws Error if native module is not available or configuration fails
  */
-export async function prepareMultiAudioPlayback(videoId: string, videoItem: JellyfinVideoItem, baseUrl: string, apiKey: string): Promise<string> {
+export async function prepareMultiAudioPlayback(videoId: string, videoItem: JellyfinVideoItem, baseUrl: string, apiKey: string, iframeStreamInf = ""): Promise<string> {
   // Verify native module is available
   if (!isMultiAudioAvailable()) {
     throw new Error("Multi-audio native module not available on this platform");
@@ -177,6 +178,10 @@ export async function prepareMultiAudioPlayback(videoId: string, videoItem: Jell
   try {
     // Configure resource loader with track info
     const configuredUrl = await MultiAudioResourceLoader.configureResourceLoader(baseUrl, apiKey, videoId, audioTracks);
+    // A binary built before the method existed plays on without the rendition.
+    if (iframeStreamInf && typeof MultiAudioResourceLoader.setIFrameStreamInf === "function") {
+      await MultiAudioResourceLoader.setIFrameStreamInf(iframeStreamInf, videoId);
+    }
 
     // Generate custom URL
     const customUrl = typeof configuredUrl === "string" ? configuredUrl : await MultiAudioResourceLoader.generateCustomUrl(videoId);

@@ -15,7 +15,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 jest.mock("@/services/localRemux", () => ({ posterFrameIfCached: (id: string) => mockCached(id), posterFrameGeneration: () => mockGeneration(), posterFrameRevision: () => mockRevision() }));
 
-import { folderPosterSource, heroArtFrame, posterSource, posterUri, wantsPosterFrame } from "../itemArtwork";
+import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame, posterSource, posterUri, showsChannelLogo, wantsPosterFrame } from "../itemArtwork";
 import { updateUiPreferences } from "@/services/uiPreferences";
 
 const item = (extra: Record<string, unknown> = {}) => ({ Id: "a", Type: "Movie", RunTimeTicks: 0, ...extra });
@@ -56,6 +56,14 @@ describe("posterSource", () => {
     mockCached.mockReturnValue("file:///pool/p/poster.jpg");
     expect(posterSource(item({ Id: "p", Type: "Program", ChannelId: "ch1" }), 300)?.uri).toBe("https://jf/Items/ch1/Images/Primary?maxHeight=300");
     expect(wantsPosterFrame({ Type: "Program" })).toBe(false);
+  });
+
+  it("names a logo only where the card shows a channel's picture", () => {
+    expect(showsChannelLogo(item({ Type: "TvChannel" }))).toBe(true);
+    expect(showsChannelLogo(item({ Type: "Program", ChannelId: "ch1" }))).toBe(true);
+    expect(showsChannelLogo(item({ Type: "Program", ChannelId: "ch1", ImageTags: { Primary: "tag1" } }))).toBe(false);
+    expect(showsChannelLogo(item({ Type: "Program" }))).toBe(false);
+    expect(showsChannelLogo(item())).toBe(false);
   });
 
   it("falls back to the keyframe the engine has settled", () => {
@@ -133,14 +141,18 @@ describe("heroArtFrame", () => {
     expect(heroArtFrame(1100, 618.75, 4000, 1000)).toEqual({ width: 2475, height: 618.75 });
   });
 
-  it("keeps a wide logo whole, full width and shorter than the area", () => {
-    expect(heroArtFrame(1100, 618.75, 4000, 1000, true)).toEqual({ width: 1100, height: 275 });
-    expect(heroArtFrame(1100, 618.75, 503, 125, true).width).toBe(1100);
+  // .black (576p)'s logo is 68x16: drawn full width it is a 16x blow-up.
+  it("boxes a logo and a picture too small to fill the hero at 3x", () => {
+    expect(heroArtBoxed(1100, 1000, 1000, true)).toBe(true);
+    expect(heroArtBoxed(1100, 68, 16, false)).toBe(true);
+    expect(heroArtBoxed(1100, 1920, 1080, false)).toBe(false);
+    expect(heroArtBoxed(1100, 300, 600, false)).toBe(false);
   });
 
-  // .black (576p)'s logo is 68x16: drawn full width it is a 16x blow-up.
-  it("stops a tiny landscape picture at 3x its own size", () => {
-    expect(heroArtFrame(1100, 618.75, 68, 16)).toEqual({ width: 204, height: 48 });
+  it("fits a boxed picture whole inside its box, never past 3x its own size", () => {
+    expect(heroBoxFrame(940, 410, 1000, 1000)).toEqual({ width: 410, height: 410 });
+    expect(heroBoxFrame(940, 410, 4000, 1000)).toEqual({ width: 940, height: 235 });
+    expect(heroBoxFrame(940, 410, 68, 16)).toEqual({ width: 204, height: 48 });
   });
 
   // A 940pt-wide backdrop on the TV card, a 533pt one on a landscape phone: full width, never boxed.

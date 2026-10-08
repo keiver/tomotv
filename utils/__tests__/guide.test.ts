@@ -1,17 +1,28 @@
 import {
   activeRecordTimer,
+  programRecording,
   adjacentChannelId,
   cellAtEdge,
   cellGeometry,
   cellInSpan,
   channelWindow,
+  dayHasListings,
+  dayStartMs,
+  dayStripFirst,
   durationLabel,
+  exitsToCard,
+  formatDayBox,
+  formatDayHeading,
+  GUIDE_DAYS,
   GUIDE_SPAN_MINUTES,
+  guideDays,
+  guideDayWindow,
   guideMetrics,
   guideRefreshOutcome,
   guideWindowStart,
   isActiveTimer,
   isAiring,
+  isRowStart,
   keepRange,
   mergePrograms,
   MINUTE_MS,
@@ -19,7 +30,6 @@ import {
   NO_GUIDE_PREFIX,
   programCategory,
   revealOffset,
-  rewindsStandIn,
   ringWithCenter,
   rowSnap,
   rulerTicks,
@@ -100,12 +110,22 @@ describe("guide geometry", () => {
     expect(revealOffset({ left: 2000, width: 2400 }, 1200)).toBeUndefined();
   });
 
-  it("rewinds a scrolled grid on a Left press or swipe while a no-listings row holds focus, and only then", () => {
-    expect(rewindsStandIn("left", true, 900)).toBe(true);
-    expect(rewindsStandIn("swipeLeft", true, 900)).toBe(true);
-    expect(rewindsStandIn("left", true, 0)).toBe(false);
-    expect(rewindsStandIn("left", false, 900)).toBe(false);
-    expect(rewindsStandIn("right", true, 900)).toBe(false);
+  it("hands Left to the channel card from a row's first cell in a scrolled grid, and only then", () => {
+    expect(exitsToCard("left", true, 900)).toBe(true);
+    expect(exitsToCard("swipeLeft", true, 900)).toBe(true);
+    expect(exitsToCard("left", true, 0)).toBe(false);
+    expect(exitsToCard("left", false, 900)).toBe(false);
+    expect(exitsToCard("right", true, 900)).toBe(false);
+  });
+
+  it("calls a cell its row's start when no cell in the row starts before it", () => {
+    const at = (startMin: number, endMin: number, Id: string) => ({ Id, StartDate: new Date(T0 + startMin * MINUTE_MS).toISOString(), EndDate: new Date(T0 + endMin * MINUTE_MS).toISOString() });
+    const cells = [at(30, 60, "b"), at(-30, 30, "a"), at(60, 90, "c")];
+    expect(isRowStart(cells, cells[1])).toBe(true);
+    expect(isRowStart(cells, cells[0])).toBe(false);
+    expect(isRowStart(cells, cells[2])).toBe(false);
+    const standIn = at(0, 360, `${NO_GUIDE_PREFIX}ch1`);
+    expect(isRowStart([standIn], standIn)).toBe(true);
   });
 
   it("clips a cell that runs past the window end", () => {
@@ -199,6 +219,22 @@ describe("guide geometry", () => {
     it("gives a channel whatever timer records it now", () => {
       expect(activeRecordTimer([recordingA], { channelId: "c1" }, now)?.Id).toBe("a");
       expect(activeRecordTimer([recordingA], { channelId: "c1" }, T0 + 90 * MINUTE_MS)).toBeNull();
+    });
+
+    it("matches an external programme by its scheduled span instead of the current clock", () => {
+      const future = timer("future", 150, 180);
+      const target = { channelId: "c1", program: span(150, 180) };
+      expect(activeRecordTimer([manual, recordingA], target, now)).toBeNull();
+      expect(activeRecordTimer([manual, future], target, now)?.Id).toBe("future");
+      expect(activeRecordTimer([{ ...future, Status: "Cancelled" }], target, now)).toBeNull();
+    });
+
+    it("programRecording marks a programme card its timer covers, never a channel card", () => {
+      const scheduled = timer("s", 150, 180, "S");
+      const card = { Id: "S", Type: "Program", ChannelId: "c1", ...span(150, 180) };
+      expect(programRecording([scheduled], card, now)).toBe(true);
+      expect(programRecording([{ ...scheduled, Status: "Cancelled" }], card, now)).toBe(false);
+      expect(programRecording([recordingA], { ...card, Type: "TvChannel" }, now)).toBe(false);
     });
   });
 
@@ -342,5 +378,67 @@ describe("durationLabel", () => {
     expect(durationLabel(90 * MINUTE_MS)).toBe("1 Std. 30 Min.");
     __setLocaleForTests("fr");
     expect(durationLabel(90 * MINUTE_MS)).toBe("1 h 30 min");
+  });
+});
+
+describe("the day strip", () => {
+  // Local times: the strip works in the viewer's days, and a DST change on the second day only moves a midnight.
+  const midnight = (y: number, m: number, d: number) => new Date(y, m, d).getTime();
+  const noon = new Date(2026, 9, 24, 12, 0).getTime();
+  const span = GUIDE_SPAN_MINUTES * MINUTE_MS;
+
+  it("finds the local midnight of any moment", () => {
+    expect(dayStartMs(noon)).toBe(midnight(2026, 9, 24));
+    expect(dayStartMs(new Date(2026, 9, 24, 23, 59).getTime())).toBe(midnight(2026, 9, 24));
+  });
+
+  it("offers today and the thirteen days after it by their midnights, across a month end", () => {
+    const days = guideDays(noon);
+    expect(days).toHaveLength(GUIDE_DAYS);
+    expect(days[0]).toBe(midnight(2026, 9, 24));
+    expect(days[7]).toBe(midnight(2026, 9, 31));
+    expect(days[8]).toBe(midnight(2026, 10, 1));
+    expect(guideDays(noon, 3)).toEqual([midnight(2026, 9, 24), midnight(2026, 9, 25), midnight(2026, 9, 26)]);
+  });
+
+  it("opens today on the current half hour and ends at midnight, or one span later when the evening is short", () => {
+    const afternoon = guideDayWindow(midnight(2026, 9, 24), new Date(2026, 9, 24, 14, 20).getTime());
+    expect(afternoon).toEqual({ startMs: new Date(2026, 9, 24, 14, 0).getTime(), horizonMs: midnight(2026, 9, 25) });
+    const late = guideDayWindow(midnight(2026, 9, 24), new Date(2026, 9, 24, 23, 40).getTime());
+    expect(late).toEqual({ startMs: new Date(2026, 9, 24, 23, 30).getTime(), horizonMs: new Date(2026, 9, 24, 23, 30).getTime() + span });
+  });
+
+  it("opens another day at its midnight and ends at the next", () => {
+    expect(guideDayWindow(midnight(2026, 9, 26), noon)).toEqual({ startMs: midnight(2026, 9, 26), horizonMs: midnight(2026, 9, 27) });
+  });
+
+  it("tells a day's listings from the server guide's end, a loaded day, or neither yet", () => {
+    const end = new Date(2026, 9, 30, 22, 0).getTime();
+    expect(dayHasListings(midnight(2026, 9, 24), end, new Set())).toBe(true);
+    expect(dayHasListings(midnight(2026, 9, 30), end, new Set())).toBe(true);
+    expect(dayHasListings(midnight(2026, 9, 31), end, new Set())).toBe(false);
+    expect(dayHasListings(midnight(2026, 9, 31), end, new Set([midnight(2026, 9, 31)]))).toBe(true);
+    expect(dayHasListings(midnight(2026, 9, 24), null, new Set())).toBeNull();
+    expect(dayHasListings(midnight(2026, 9, 24), null, new Set([midnight(2026, 9, 24)]))).toBe(true);
+  });
+
+  it("heads a day by its name and short date, and numbers its box by the day of the month, the month on the first", () => {
+    const labels = { today: "Today", tomorrow: "Tomorrow" };
+    const short = (ms: number) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
+    expect(formatDayHeading(midnight(2026, 9, 24), noon, labels)).toBe(`Today · ${short(midnight(2026, 9, 24))}`);
+    expect(formatDayHeading(midnight(2026, 9, 25), noon, labels)).toBe(`Tomorrow · ${short(midnight(2026, 9, 25))}`);
+    expect(formatDayHeading(midnight(2026, 9, 27), noon, labels)).toBe(`${new Date(2026, 9, 27).toLocaleDateString([], { weekday: "long" })} · ${short(midnight(2026, 9, 27))}`);
+    expect(formatDayBox(midnight(2026, 9, 31))).toBe("31");
+    expect(formatDayBox(midnight(2026, 10, 1))).toBe(new Date(2026, 10, 1).toLocaleDateString([], { month: "short" }));
+  });
+
+  it("keeps the strip still for a day in view and lands one past either edge on that edge", () => {
+    expect(dayStripFirst(5, 3, 4)).toBe(3);
+    expect(dayStripFirst(3, 3, 4)).toBe(3);
+    expect(dayStripFirst(6, 3, 4)).toBe(3);
+    expect(dayStripFirst(7, 3, 4)).toBe(4);
+    expect(dayStripFirst(2, 3, 4)).toBe(2);
+    expect(dayStripFirst(0, 9, 4)).toBe(0);
+    expect(dayStripFirst(13, 0, 4)).toBe(10);
   });
 });

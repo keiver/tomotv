@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** September 27, 2026
+**Last Updated:** October 5, 2026
 
 ## Quick Reference
 
@@ -36,10 +36,10 @@ Tomo TV, a Jellyfin Client
 Movies, Live TV, Music, Books
 ```
 
-### Promotional Text (156 / 170)
+### Promotional Text (165 / 170)
 
 ```text
-Free and open source, no ads, no account. Plays 4K, Dolby Vision and Dolby Atmos in Apple's own player, and finds your Jellyfin server with nothing to type.
+Free and open source, no ads, no account. Plays Live TV, 4K, Dolby Vision and Dolby Atmos in Apple's own player, and finds your Jellyfin server with nothing to type.
 ```
 
 ### Keywords (99 / 100)
@@ -96,6 +96,51 @@ PRIVACY
 No analytics. No tracking. No ads. No account with us. Your credentials stay in the device Keychain, and video streams straight from your server to your device.
 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
+```
+
+### What's New (2.2.10), iOS (1705 / 4000)
+
+```text
+- Choose when your server transcodes: when needed, only for files this device can't play, or off. Settings also shows what your server allows
+- Pick a theme in Settings > Appearance, or make your own and name it. Saved themes show on your other devices signed in to the same Jellyfin account
+- Live TV search finds programmes through tomorrow by name, episode title or description, in your XMLTV guides too
+- Pick a day in the Live TV guide from the calendar, up to two weeks ahead
+- Record programmes from your XMLTV guides from their info panel
+- Programmes being recorded show REC in Live TV search
+- Scrubbing a video shows the picture as you drag
+- Choose a size for each download: the original, or a smaller copy at 1080p, 720p or 480p that your server converts, in your audio language with your subtitles
+- Downloads shows how fast files are coming down
+- Hold Resume to play from the beginning
+- Swipe an info panel left or right to the item beside it, like the next episode, even across seasons
+- The Channels screen's search is a button in the navigation bar that opens Search
+- With subtitles set to a language, its full track loads instead of a forced-only track
+- MP4 files that keep their index at the end play again
+- Downloads your server converts play their subtitles
+- Downloaded originals keep every audio track
+- With server transcoding limited, a slow connection waits for the file instead of stopping with an error
+- The loading spinner stays until the video is actually playing
+- Starting Picture in Picture takes you back to where you started playing, and a queue moves on to its next item inside the window
+- The error screen shows an error code to quote when you report a problem
+```
+
+### What's New (2.2.10), tvOS (1319 / 4000)
+
+```text
+- Choose when your server transcodes: when needed, only for files this device can't play, or off. Settings also shows what your server allows
+- Pick a theme in Settings > Appearance, or make your own and name it. Saved themes show on your other devices signed in to the same Jellyfin account
+- Live TV search finds programmes through tomorrow by name, episode title or description, in your XMLTV guides too
+- A day strip above the channels opens the Live TV guide on any day up to two weeks ahead
+- Record programmes from your XMLTV guides from their info panel
+- Programmes being recorded show REC in Live TV search
+- Scrubbing a video shows a preview of each scene above the timeline
+- Hold Resume to play from the beginning
+- With automatic subtitles on, the subtitle track Apple TV turns on loads
+- With subtitles set to a language, its full track loads instead of a forced-only track
+- MP4 files that keep their index at the end play again
+- With server transcoding limited, a slow connection waits for the file instead of stopping with an error
+- The loading spinner stays until the video is actually playing
+- Starting Picture in Picture takes you back to where you started playing, and a queue moves on to its next item inside the window
+- The error screen shows an error code to quote when you report a problem
 ```
 
 ### What's New (2.2.9), iOS (535 / 4000)
@@ -287,6 +332,8 @@ archive cannot replace copy a reader has already passed over.
 Same rule as the English blocks above: these win. Product nouns follow
 Jellyfin's own translations, platform nouns follow Apple's localized pages.
 Keywords are capped in bytes, not characters, so an accent costs two.
+Each language keeps one register: German du, French vous, Spanish tú (never
+vosotros, since one block serves es-ES and es-MX).
 
 ### German (de-DE)
 
@@ -302,10 +349,10 @@ Tomo TV, Jellyfin-Client
 Filme, Live-TV, Musik, Bücher
 ```
 
-#### Promotional Text (166 / 170 chars)
+#### Promotional Text (167 / 170 chars)
 
 ```text
-Kostenlos, quelloffen, ohne Werbung und ohne Konto. Spielt 4K, Dolby Vision und Dolby Atmos in Apples eigenem Player und findet deinen Jellyfin-Server ohne Eintippen.
+Kostenlos, quelloffen, ohne Werbung und ohne Konto. Spielt Live-TV, 4K, Dolby Vision und Dolby Atmos in Apples Player und findet deinen Jellyfin-Server ohne Eintippen.
 ```
 
 #### Keywords (97 / 100 bytes)
@@ -362,6 +409,51 @@ DATENSCHUTZ
 Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsdaten bleiben im Schlüsselbund des Geräts, und das Video läuft direkt von deinem Server auf dein Gerät.
 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
+```
+
+#### What's New (2.2.10), iOS (1962 / 4000 chars)
+
+```text
+- Lege fest, wann dein Server umwandelt: „Bei Bedarf“, „Nur für nicht unterstützte Dateien“ oder „Aus“. Die Einstellungen zeigen auch, was dein Server erlaubt
+- Wähle unter Einstellungen > Darstellung ein Thema oder erstelle und benenne dein eigenes. Gespeicherte Themen erscheinen auf deinen anderen Geräten mit demselben Jellyfin-Konto
+- Die Live-TV-Suche findet Sendungen bis morgen nach Titel, Episodentitel oder Beschreibung, auch in deinen XMLTV-Guides
+- Wähle im Live-TV-Guide einen Tag aus dem Kalender, bis zu zwei Wochen im Voraus
+- Nimm Sendungen aus deinen XMLTV-Guides direkt im Info-Bereich auf
+- Sendungen, die gerade aufgenommen werden, zeigen in der Live-TV-Suche REC
+- Beim Spulen folgt das Bild deinem Finger
+- Wähle für jeden Download eine Größe: das Original oder eine kleinere Kopie in 1080p, 720p oder 480p, die dein Server umwandelt, in deiner Audiosprache und mit deinen Untertiteln
+- Downloads zeigt, wie schnell gerade geladen wird
+- Halte „Fortsetzen“ gedrückt, um von vorne abzuspielen
+- Wische einen Info-Bereich nach links oder rechts zum benachbarten Titel, etwa zur nächsten Folge, auch über Staffeln hinweg
+- Die Suche in „Kanäle“ ist eine Schaltfläche in der Navigationsleiste, die „Suche“ öffnet
+- Ist eine Untertitelsprache eingestellt, wird ihre vollständige Spur geladen statt einer Spur nur mit erzwungenen Untertiteln
+- MP4-Dateien mit dem Index am Dateiende lassen sich wieder abspielen
+- Downloads, die dein Server umwandelt, zeigen ihre Untertitel
+- Heruntergeladene Originale behalten jede Tonspur
+- Ist die Server-Umwandlung eingeschränkt, wartet eine langsame Verbindung auf die Datei, statt mit einem Fehler abzubrechen
+- Der Ladekreis bleibt, bis das Video wirklich läuft
+- Bild-in-Bild bringt dich zurück dorthin, wo du die Wiedergabe gestartet hast, und eine Warteschlange geht im Fenster zum nächsten Titel weiter
+- Der Fehlerbildschirm zeigt einen Fehlercode, den du nennen kannst, wenn du ein Problem meldest
+```
+
+#### What's New (2.2.10), tvOS (1550 / 4000 chars)
+
+```text
+- Lege fest, wann dein Server umwandelt: „Bei Bedarf“, „Nur für nicht unterstützte Dateien“ oder „Aus“. Die Einstellungen zeigen auch, was dein Server erlaubt
+- Wähle unter Einstellungen > Darstellung ein Thema oder erstelle und benenne dein eigenes. Gespeicherte Themen erscheinen auf deinen anderen Geräten mit demselben Jellyfin-Konto
+- Die Live-TV-Suche findet Sendungen bis morgen nach Titel, Episodentitel oder Beschreibung, auch in deinen XMLTV-Guides
+- Eine Tagesleiste über den Kanälen öffnet den Live-TV-Guide an jedem Tag bis zu zwei Wochen im Voraus
+- Nimm Sendungen aus deinen XMLTV-Guides direkt im Info-Bereich auf
+- Sendungen, die gerade aufgenommen werden, zeigen in der Live-TV-Suche REC
+- Beim Spulen erscheint über der Zeitleiste eine Vorschau der jeweiligen Szene
+- Halte „Fortsetzen“ gedrückt, um von vorne abzuspielen
+- Sind automatische Untertitel an, wird die Untertitelspur geladen, die Apple TV einschaltet
+- Ist eine Untertitelsprache eingestellt, wird ihre vollständige Spur geladen statt einer Spur nur mit erzwungenen Untertiteln
+- MP4-Dateien mit dem Index am Dateiende lassen sich wieder abspielen
+- Ist die Server-Umwandlung eingeschränkt, wartet eine langsame Verbindung auf die Datei, statt mit einem Fehler abzubrechen
+- Der Ladekreis bleibt, bis das Video wirklich läuft
+- Bild-in-Bild bringt dich zurück dorthin, wo du die Wiedergabe gestartet hast, und eine Warteschlange geht im Fenster zum nächsten Titel weiter
+- Der Fehlerbildschirm zeigt einen Fehlercode, den du nennen kannst, wenn du ein Problem meldest
 ```
 
 #### What's New (2.2.9), iOS (651 / 4000 chars)
@@ -426,7 +518,7 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Die Tonspurauswahl bei Videos mit separaten Untertiteldateien wurde korrigiert, und ein Buch, das sich nicht darstellen lässt, blockiert den Reader nicht mehr
 ```
 
-#### What's New (2.2.7), tvOS (1153 / 4000 chars)
+#### What's New (2.2.7), tvOS (1154 / 4000 chars)
 
 ```text
 - Die Wiedergabe folgt deiner Verbindung: Originalqualität bei schneller Verbindung, kleinere Streams bei langsamer, und wieder Originalqualität, sobald sie sich erholt
@@ -488,6 +580,52 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - HDR-Filme laufen jetzt auch, wenn der Server sie umwandelt
 ```
 
+#### What's New (2.2.1), iOS (1643 / 4000 chars)
+
+```text
+- Zoome ein Foto mit zwei Fingern, tippe doppelt, um auf die berührte Stelle zu zoomen oder wieder heraus, und teile es aus seinem Info-Bereich
+- Wische nach links oder rechts zum nächsten Foto, ohne seitliche Tippflächen, die dem Wischen in die Quere kommen, und nach unten, um die Ansicht zu schließen
+- Schließen und Diashow der Fotoansicht sind ein einziges Glas-Bedienelement, das beide aus sich heraus öffnet
+- Fotos öffnen das Bild, das du wirklich gewählt hast, aus einem Info-Bereich oder aus den Reihen „Neu“, „Favoriten“ und „Suche“
+- „Im Verzeichnis zeigen“ öffnet das Objekt sichtbar und ausgewählt, statt erst später dorthin zu scrollen
+- Hardware-Tastatur am Mac: Leertaste und Zeilenschalter spielen ab und pausieren, die Pfeiltasten springen fünfzehn Sekunden, und ein Doppelklick auf ein Video füllt den Rahmen
+- Das Cover im Musikplayer ist eine abgerundete Karte über einem Schleier aus sich selbst, in jedem Fenster frei von der Steuerleiste
+- Die Sprungtasten des Mini-Players werden an den Enden der Warteschlange gedimmt, und ein Tippen auf Pause landet nicht mehr auf Weiter
+- Diagnose, in den Einstellungen unter „Über Tomo TV“: was die Engine bei der letzten Wiedergabe getan hat, welchen Weg sie gewählt hat und warum sie eine Datei abgelehnt hat, die Streams, die dein Server beschrieben hat, jeder Fehler und die Version. Kopiere sie in einen Fehlerbericht. Nur die letzte Sitzung wird behalten, und sie verlässt das Gerät nie
+- Die Qualitätsstufen sind Obergrenzen, „Bis zu 1080p“, mit einem Hinweis, wann eine Obergrenze greift: bei einer langsamen Verbindung oder bei einer Datei, die der Server umwandeln muss
+```
+
+#### What's New (2.2.1), tvOS (878 / 4000 chars)
+
+```text
+- Kapitel: Ein Film oder eine Episode mit Kapitelmarken listet sie im Info-Bereich des Players, und eine Auswahl springt dorthin (#71)
+- Fotos öffnen das Bild, das du wirklich gewählt hast, aus einem Info-Bereich oder aus den Reihen „Neu“, „Favoriten“ und „Suche“
+- „Im Verzeichnis zeigen“ öffnet das Objekt sichtbar und ausgewählt, statt erst später dorthin zu scrollen
+- Diagnose, in den Einstellungen unter „Über Tomo TV“: was die Engine bei der letzten Wiedergabe getan hat, welchen Weg sie gewählt hat und warum sie eine Datei abgelehnt hat, die Streams, die dein Server beschrieben hat, jeder Fehler und die Version. Nur die letzte Sitzung wird behalten, und sie verlässt das Gerät nie
+- Die Qualitätsstufen sind Obergrenzen, „Bis zu 1080p“, mit einem Hinweis, wann eine Obergrenze greift: bei einer langsamen Verbindung oder bei einer Datei, die der Server umwandeln muss
+```
+
+#### What's New (2.2.0), iOS (582 / 4000 chars)
+
+```text
+- Downloads: Behalte ein Objekt oder einen ganzen Ordner auf dem Gerät und spiel es ohne den Server ab; der Fortschritt offline wird danach synchronisiert
+- Dolby Vision läuft als Dolby Vision, auch von Discs mit zwei Ebenen
+- Ein Mini-Player hält die Musik am Laufen, während du stöberst, und Titel zeigen Disc und Track statt S1E1 (#68)
+- Ordner öffnen sich in einer echten Navigationsleiste
+- Drücke lange auf ein Suchergebnis für seinen Info-Bereich und spiel es mit deiner Position und einer Warteschlange ab
+- Bessere Handhabung von Wiedergabelisten mit mehr als 500 Einträgen
+```
+
+#### What's New (2.2.0), tvOS (425 / 4000 chars)
+
+```text
+- Dolby Vision läuft als Dolby Vision, auch von Discs mit zwei Ebenen
+- Musik spielt weiter, wenn du den Player verlässt, und Titel zeigen Disc und Track statt S1E1 (#68)
+- Drücke lange auf ein Suchergebnis für seinen Info-Bereich und spiel es mit deiner Position und einer Warteschlange ab
+- Mediathek-Kacheln sagen, was sie zählen: Episoden, Titel, Fotos
+- Bessere Handhabung von Wiedergabelisten mit mehr als 500 Einträgen
+```
+
 ### French (fr-FR)
 
 #### App Name (24 / 30 chars)
@@ -505,7 +643,7 @@ Ciné, TV live, musique, livres
 #### Promotional Text (167 / 170 chars)
 
 ```text
-Gratuit et open source, sans pub, sans compte. Lit la 4K, le Dolby Vision et le Dolby Atmos dans le lecteur d'Apple, et trouve votre serveur Jellyfin sans rien saisir.
+Gratuit, open source, sans pub ni compte. Lit la TV en direct, la 4K, le Dolby Vision et le Dolby Atmos dans le lecteur d'Apple, et trouve seul votre serveur Jellyfin.
 ```
 
 #### Keywords (85 / 100 bytes)
@@ -562,6 +700,51 @@ CONFIDENTIALITÉ
 Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos identifiants restent dans le trousseau de l'appareil, et la vidéo est diffusée directement de votre serveur vers votre appareil.
 
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
+```
+
+#### What's New (2.2.10), iOS (2146 / 4000 chars)
+
+```text
+- Choisissez quand votre serveur convertit : « Si nécessaire », « Seulement pour les fichiers non pris en charge » ou « Désactivé ». Réglages affiche aussi ce que votre serveur autorise
+- Choisissez un thème dans Réglages > Apparence, ou créez et nommez le vôtre. Vos thèmes enregistrés apparaissent sur vos autres appareils connectés au même compte Jellyfin
+- La recherche de TV en direct trouve les programmes jusqu'à demain par titre, titre d'épisode ou description, y compris dans vos guides XMLTV
+- Choisissez un jour du guide de TV en direct dans le calendrier, jusqu'à deux semaines à l'avance
+- Enregistrez les programmes de vos guides XMLTV depuis leur panneau d'informations
+- Les programmes en cours d'enregistrement affichent REC dans la recherche de TV en direct
+- En faisant défiler une vidéo, l'image suit votre doigt
+- Choisissez une taille pour chaque téléchargement : l'original, ou une copie plus légère en 1080p, 720p ou 480p que votre serveur convertit, dans votre langue audio et avec vos sous-titres
+- Téléchargements affiche la vitesse de téléchargement en cours
+- Maintenez « Reprendre » pour lire depuis le début
+- Balayez un panneau d'informations vers la gauche ou la droite pour passer à l'élément voisin, comme l'épisode suivant, même d'une saison à l'autre
+- La recherche de l'écran « Chaînes » est un bouton de la barre de navigation qui ouvre « Recherche »
+- Avec une langue de sous-titres choisie, sa piste complète se charge au lieu d'une piste de sous-titres forcés seuls
+- Les fichiers MP4 dont l'index est à la fin du fichier se lisent à nouveau
+- Les téléchargements convertis par votre serveur affichent leurs sous-titres
+- Les originaux téléchargés gardent toutes leurs pistes audio
+- Quand la conversion par le serveur est limitée, une connexion lente attend le fichier au lieu de s'arrêter sur une erreur
+- L'indicateur de chargement reste affiché jusqu'à ce que la vidéo démarre vraiment
+- Image dans l'image vous ramène là où vous avez lancé la lecture, et une file d'attente passe à l'élément suivant dans la fenêtre
+- L'écran d'erreur affiche un code d'erreur à citer quand vous signalez un problème
+```
+
+#### What's New (2.2.10), tvOS (1676 / 4000 chars)
+
+```text
+- Choisissez quand votre serveur convertit : « Si nécessaire », « Seulement pour les fichiers non pris en charge » ou « Désactivé ». Réglages affiche aussi ce que votre serveur autorise
+- Choisissez un thème dans Réglages > Apparence, ou créez et nommez le vôtre. Vos thèmes enregistrés apparaissent sur vos autres appareils connectés au même compte Jellyfin
+- La recherche de TV en direct trouve les programmes jusqu'à demain par titre, titre d'épisode ou description, y compris dans vos guides XMLTV
+- Une barre de jours au-dessus des chaînes ouvre le guide de TV en direct sur n'importe quel jour, jusqu'à deux semaines à l'avance
+- Enregistrez les programmes de vos guides XMLTV depuis leur panneau d'informations
+- Les programmes en cours d'enregistrement affichent REC dans la recherche de TV en direct
+- En faisant défiler une vidéo, un aperçu de la scène s'affiche au-dessus de la barre de lecture
+- Maintenez « Reprendre » pour lire depuis le début
+- Avec les sous-titres automatiques activés, la piste de sous-titres activée par l'Apple TV se charge
+- Avec une langue de sous-titres choisie, sa piste complète se charge au lieu d'une piste de sous-titres forcés seuls
+- Les fichiers MP4 dont l'index est à la fin du fichier se lisent à nouveau
+- Quand la conversion par le serveur est limitée, une connexion lente attend le fichier au lieu de s'arrêter sur une erreur
+- L'indicateur de chargement reste affiché jusqu'à ce que la vidéo démarre vraiment
+- Image dans l'image vous ramène là où vous avez lancé la lecture, et une file d'attente passe à l'élément suivant dans la fenêtre
+- L'écran d'erreur affiche un code d'erreur à citer quand vous signalez un problème
 ```
 
 #### What's New (2.2.9), iOS (712 / 4000 chars)
@@ -688,6 +871,52 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Les films HDR se lisent maintenant quand le serveur les convertit
 ```
 
+#### What's New (2.2.1), iOS (1681 / 4000 chars)
+
+```text
+- Pincez pour zoomer sur une photo, touchez deux fois pour zoomer sur l'endroit touché ou revenir en arrière, et partagez-la depuis son panneau d'informations
+- Faites glisser vers la gauche ou la droite pour changer de photo, sans zones de toucher latérales qui gênent le geste, et vers le bas pour fermer la visionneuse
+- La fermeture et le diaporama de la visionneuse sont une seule commande en verre qui les déploie d'elle-même
+- Les photos ouvrent celle que vous avez vraiment choisie, depuis un panneau d'informations ou depuis les rangées « Nouveautés », « Favoris » et « Recherche »
+- « Afficher dans le dossier » arrive avec l'élément à l'écran et sélectionné au lieu d'y défiler plus tard
+- Clavier physique sur Mac : la barre d'espace et Retour lancent et mettent en pause, les flèches avancent ou reculent de quinze secondes, et un double-clic sur une vidéo remplit le cadre
+- La pochette du lecteur de musique est une carte arrondie sur un voile d'elle-même, dégagée de la barre de lecture dans toute fenêtre
+- Les boutons de saut du mini-lecteur s'estompent aux extrémités de la file d'attente, et un appui sur Pause ne tombe plus sur Suivant
+- Diagnostic, dans Réglages sous « À propos de Tomo TV » : ce que le moteur a fait lors de la dernière lecture, la voie choisie et pourquoi il a refusé un fichier, les flux décrits par votre serveur, chaque erreur et la version. Copiez-le dans un rapport de bogue. Seule la dernière session est conservée et elle ne quitte jamais l'appareil
+- Les réglages de qualité sont des plafonds, « Jusqu'à 1080p », avec une note sur le moment où un plafond s'applique : une connexion lente, ou un fichier que le serveur doit convertir
+```
+
+#### What's New (2.2.1), tvOS (905 / 4000 chars)
+
+```text
+- Chapitres : un film ou un épisode avec des marqueurs les liste dans le panneau d'informations du lecteur, et en choisir un y mène directement (#71)
+- Les photos ouvrent celle que vous avez vraiment choisie, depuis un panneau d'informations ou depuis les rangées « Nouveautés », « Favoris » et « Recherche »
+- « Afficher dans le dossier » arrive avec l'élément à l'écran et sélectionné au lieu d'y défiler plus tard
+- Diagnostic, dans Réglages sous « À propos de Tomo TV » : ce que le moteur a fait lors de la dernière lecture, la voie choisie et pourquoi il a refusé un fichier, les flux décrits par votre serveur, chaque erreur et la version. Seule la dernière session est conservée et elle ne quitte jamais l'appareil
+- Les réglages de qualité sont des plafonds, « Jusqu'à 1080p », avec une note sur le moment où un plafond s'applique : une connexion lente, ou un fichier que le serveur doit convertir
+```
+
+#### What's New (2.2.0), iOS (622 / 4000 chars)
+
+```text
+- Téléchargements : gardez un élément ou un dossier entier sur l'appareil et lisez-le sans le serveur ; la progression hors ligne se synchronise ensuite
+- Dolby Vision se lit en Dolby Vision, disques double couche compris
+- Un mini-lecteur garde la musique pendant que vous naviguez, et les morceaux affichent le disque et la piste au lieu de S1E1 (#68)
+- Les dossiers s'ouvrent dans une vraie barre de navigation
+- Appuyez longuement sur un résultat de recherche pour ouvrir son panneau d'informations et lisez-le avec votre position et une file d'attente
+- Meilleure gestion des listes de lecture de plus de 500 éléments
+```
+
+#### What's New (2.2.0), tvOS (489 / 4000 chars)
+
+```text
+- Dolby Vision se lit en Dolby Vision, disques double couche compris
+- La musique continue quand vous quittez le lecteur, et les morceaux affichent le disque et la piste au lieu de S1E1 (#68)
+- Appuyez longuement sur un résultat de recherche pour ouvrir son panneau d'informations et lisez-le avec votre position et une file d'attente
+- Les tuiles de bibliothèque indiquent ce qu'elles comptent : épisodes, morceaux, photos
+- Meilleure gestion des listes de lecture de plus de 500 éléments
+```
+
 ### Spanish (es-ES, es-MX)
 
 #### App Name (25 / 30 chars)
@@ -705,7 +934,7 @@ Cine, en vivo, música, libros
 #### Promotional Text (170 / 170 chars)
 
 ```text
-Gratis, de código abierto, sin anuncios ni registro. Reproduce 4K, Dolby Vision y Dolby Atmos en el reproductor de Apple y detecta tu servidor Jellyfin sin escribir nada.
+Gratis, código abierto, sin anuncios ni cuenta. Reproduce TV en vivo, 4K, Dolby Vision y Dolby Atmos en el reproductor de Apple y halla tu servidor Jellyfin sin escribir.
 ```
 
 #### Keywords (94 / 100 bytes)
@@ -714,7 +943,7 @@ Gratis, de código abierto, sin anuncios ni registro. Reproduce 4K, Dolby Vision
 reproductor,descargas,servidor,nas,atmos,dolby,hevc,mkv,subtitulos,audiolibro,cine,comics,epub
 ```
 
-#### Description (3827 / 4000 chars)
+#### Description (3831 / 4000 chars)
 
 ```text
 Tu Apple TV, tu iPhone y tu iPad hacen el trabajo que suele hacer un servidor, así que casi nada tiene que pasar por el conversor de tu servidor. Películas y series en H.264 y HEVC se reproducen directamente desde el archivo, en cualquier contenedor, con 4K, HDR10, HLG y Dolby Vision incluidos. Los formatos más antiguos o menos comunes se convierten en el propio dispositivo. La conversión en el servidor solo entra en juego cuando una conexión lenta necesita una versión más ligera o tu dispositivo no puede reproducir el archivo.
@@ -738,7 +967,7 @@ QUÉ INCLUYE
 - Saltar intro y saltar créditos cuando tu servidor aporta los marcadores
 - Mantén pulsada cualquier ficha para ver reparto, valoraciones, sinopsis y toda la ficha técnica, además de Reanudar, Favorito y visto
 - Varias pistas de audio, conmutables durante la reproducción
-- SyncPlay: ved juntos con todo tu servidor Jellyfin, en sincronía
+- SyncPlay: mira junto con todos en tu servidor Jellyfin, en sincronía
 - Tu elección de subtítulos se recuerda de un episodio al siguiente
 - Música y audiolibros en una cola sin silencios, con controles en la pantalla bloqueada
 - Visor de fotos y pase de diapositivas
@@ -762,6 +991,51 @@ PRIVACIDAD
 Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenciales se quedan en el llavero del dispositivo, y el vídeo va directo de tu servidor a tu dispositivo.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.10), iOS (2041 / 4000 chars)
+
+```text
+- Elige cuándo convierte tu servidor: «Cuando haga falta», «Solo para archivos no compatibles» o «Desactivada». Ajustes también muestra lo que permite tu servidor
+- Elige un tema en Ajustes > Apariencia, o crea el tuyo y ponle nombre. Tus temas guardados aparecen en tus otros dispositivos con la misma cuenta de Jellyfin
+- La búsqueda de Televisión en vivo encuentra programas hasta mañana por título, título del episodio o descripción, también en tus guías XMLTV
+- Elige un día de la guía de Televisión en vivo en el calendario, hasta con dos semanas de antelación
+- Graba programas de tus guías XMLTV desde su panel de información
+- Los programas que se están grabando muestran REC en la búsqueda de Televisión en vivo
+- Al desplazarte por un video, la imagen sigue tu dedo
+- Elige un tamaño para cada descarga: el original, o una copia más pequeña en 1080p, 720p o 480p que convierte tu servidor, en tu idioma de audio y con tus subtítulos
+- Descargas muestra a qué velocidad se está descargando
+- Mantén pulsado «Reanudar» para reproducir desde el principio
+- Desliza un panel de información a la izquierda o a la derecha para pasar al elemento de al lado, como el siguiente episodio, incluso entre temporadas
+- La búsqueda de la pantalla «Canales» es un botón de la barra de navegación que abre «Buscar»
+- Con un idioma de subtítulos elegido, se carga su pista completa en lugar de una pista solo de subtítulos forzados
+- Los archivos MP4 con el índice al final vuelven a reproducirse
+- Las descargas que convierte tu servidor muestran sus subtítulos
+- Los originales descargados conservan todas sus pistas de audio
+- Con la conversión del servidor limitada, una conexión lenta espera al archivo en lugar de detenerse con un error
+- El indicador de carga se mantiene hasta que el video empieza de verdad
+- Imagen dentro de imagen te lleva de vuelta a donde iniciaste la reproducción, y una cola pasa al siguiente elemento dentro de la ventana
+- La pantalla de error muestra un código de error para indicarlo cuando reportes un problema
+```
+
+#### What's New (2.2.10), tvOS (1604 / 4000 chars)
+
+```text
+- Elige cuándo convierte tu servidor: «Cuando haga falta», «Solo para archivos no compatibles» o «Desactivada». Ajustes también muestra lo que permite tu servidor
+- Elige un tema en Ajustes > Apariencia, o crea el tuyo y ponle nombre. Tus temas guardados aparecen en tus otros dispositivos con la misma cuenta de Jellyfin
+- La búsqueda de Televisión en vivo encuentra programas hasta mañana por título, título del episodio o descripción, también en tus guías XMLTV
+- Una franja de días sobre los canales abre la guía de Televisión en vivo en cualquier día, hasta con dos semanas de antelación
+- Graba programas de tus guías XMLTV desde su panel de información
+- Los programas que se están grabando muestran REC en la búsqueda de Televisión en vivo
+- Al desplazarte por un video, aparece una vista previa de la escena sobre la línea de tiempo
+- Mantén pulsado «Reanudar» para reproducir desde el principio
+- Con los subtítulos automáticos activados, se carga la pista de subtítulos que activa el Apple TV
+- Con un idioma de subtítulos elegido, se carga su pista completa en lugar de una pista solo de subtítulos forzados
+- Los archivos MP4 con el índice al final vuelven a reproducirse
+- Con la conversión del servidor limitada, una conexión lenta espera al archivo en lugar de detenerse con un error
+- El indicador de carga se mantiene hasta que el video empieza de verdad
+- Imagen dentro de imagen te lleva de vuelta a donde iniciaste la reproducción, y una cola pasa al siguiente elemento dentro de la ventana
+- La pantalla de error muestra un código de error para indicarlo cuando reportes un problema
 ```
 
 #### What's New (2.2.9), iOS (682 / 4000 chars)
@@ -864,10 +1138,10 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Las pistas de subtítulos ASS y SSA también se leen en el Apple TV y llegan junto con la imagen
 ```
 
-#### What's New (2.2.5), iOS (842 / 4000 chars)
+#### What's New (2.2.5), iOS (846 / 4000 chars)
 
 ```text
-- SyncPlay: ved juntos con todo tu servidor Jellyfin, en sincronía
+- SyncPlay: mira junto con todos en tu servidor Jellyfin, en sincronía
 - Las películas HEVC de 10 bits vuelven a reproducirse en dispositivos sin decodificador HEVC, convertidas en el dispositivo o por el servidor en vez de no arrancar
 - Una película más alta de lo que admite el decodificador de tu dispositivo se convierte en vez de quedarse a trompicones
 - Abrir un archivo grande ya no retiene la app hasta que llegan sus listas de reproducción
@@ -877,15 +1151,61 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Diagnóstico es un documento estructurado con el dispositivo, el sistema y lo que decodifica, listo para pegar en un informe de error
 ```
 
-#### What's New (2.2.5), tvOS (585 / 4000 chars)
+#### What's New (2.2.5), tvOS (589 / 4000 chars)
 
 ```text
-- SyncPlay: ved juntos con todo tu servidor Jellyfin, en sincronía
+- SyncPlay: mira junto con todos en tu servidor Jellyfin, en sincronía
 - El Apple TV HD vuelve a reproducir películas HEVC de 10 bits, convertidas en el dispositivo o por el servidor en vez de no arrancar
 - Una película más alta de lo que admite el decodificador del Apple TV se convierte en vez de quedarse a trompicones
 - Abrir un archivo grande ya no retiene la app hasta que llegan sus listas de reproducción
 - Los pósteres tomados de un archivo evitan fundidos y fotogramas negros y mantienen los colores correctos
 - Las películas HDR ya se reproducen cuando el servidor las convierte
+```
+
+#### What's New (2.2.1), iOS (1521 / 4000 chars)
+
+```text
+- Pellizca para ampliar una foto, toca dos veces para ampliar el punto que tocaste o volver atrás, y compártela desde su panel de información
+- Desliza a la izquierda o a la derecha para cambiar de foto, sin zonas laterales que estorben el gesto, y hacia abajo para cerrar el visor
+- Cerrar y la presentación del visor de fotos son un solo control de cristal que los despliega de sí mismo
+- Las fotos abren la que de verdad elegiste, desde un panel de información o desde las filas «Novedades», «Favoritos» y «Buscar»
+- «Mostrar en la carpeta» llega con el elemento en pantalla y seleccionado en vez de desplazarse hasta él después
+- Teclado físico en el Mac: espacio y Retorno reproducen y pausan, las flechas saltan quince segundos, y un doble clic en un video llena el cuadro
+- La carátula del reproductor de música es una tarjeta redondeada sobre un velo de sí misma, libre de la barra de reproducción en cualquier ventana
+- Los saltos del minirreproductor se atenúan en los extremos de la cola, y una pulsación en Pausa ya no cae en Siguiente
+- Diagnóstico, en Ajustes dentro de «Acerca de Tomo TV»: lo que hizo el motor en la última reproducción, la vía que eligió y por qué rechazó un archivo, los flujos que describió tu servidor, cada error y la versión. Cópialo en un informe de error. Solo se guarda la última sesión y nunca sale del dispositivo
+- Las opciones de calidad son techos, «Hasta 1080p», con una nota de cuándo se aplica un techo: una conexión lenta, o un archivo que el servidor tiene que convertir
+```
+
+#### What's New (2.2.1), tvOS (821 / 4000 chars)
+
+```text
+- Capítulos: una película o un episodio con marcas las muestra en el panel de información del reproductor, y elegir una salta allí (#71)
+- Las fotos abren la que de verdad elegiste, desde un panel de información o desde las filas «Novedades», «Favoritos» y «Buscar»
+- «Mostrar en la carpeta» llega con el elemento en pantalla y seleccionado en vez de desplazarse hasta él después
+- Diagnóstico, en Ajustes dentro de «Acerca de Tomo TV»: lo que hizo el motor en la última reproducción, la vía que eligió y por qué rechazó un archivo, los flujos que describió tu servidor, cada error y la versión. Solo se guarda la última sesión y nunca sale del dispositivo
+- Las opciones de calidad son techos, «Hasta 1080p», con una nota de cuándo se aplica un techo: una conexión lenta, o un archivo que el servidor tiene que convertir
+```
+
+#### What's New (2.2.0), iOS (590 / 4000 chars)
+
+```text
+- Descargas: guarda un elemento o una carpeta entera en el dispositivo y reprodúcelo sin el servidor; el progreso sin conexión se sincroniza después
+- Dolby Vision se reproduce como Dolby Vision, discos de doble capa incluidos
+- Un minirreproductor mantiene la música mientras navegas, y las canciones muestran disco y pista en lugar de S1E1 (#68)
+- Las carpetas se abren en una barra de navegación de verdad
+- Mantén pulsado un resultado de búsqueda para ver su panel de información y reprodúcelo con tu posición y una cola
+- Mejor manejo de listas de reproducción con más de 500 elementos
+```
+
+#### What's New (2.2.0), tvOS (452 / 4000 chars)
+
+```text
+- Dolby Vision se reproduce como Dolby Vision, discos de doble capa incluidos
+- La música sigue sonando al salir del reproductor, y las canciones muestran disco y pista en lugar de S1E1 (#68)
+- Mantén pulsado un resultado de búsqueda para ver su panel de información y reprodúcelo con tu posición y una cola
+- Los mosaicos de la biblioteca dicen lo que cuentan: episodios, pistas, fotos
+- Mejor manejo de listas de reproducción con más de 500 elementos
 ```
 
 ---
@@ -1547,7 +1867,7 @@ stale by years: resume, Continue Watching, Top Shelf and binge queueing all ship
 | ---------------- | ----- | --------- | ------ |
 | App Name         | 30    | 26        | ✅     |
 | Subtitle         | 30    | 29        | ✅     |
-| Promotional Text | 170   | 156       | ✅     |
+| Promotional Text | 170   | 165       | ✅     |
 | Description      | 4,000 | 3,476     | ✅     |
 | Keywords         | 100   | 99        | ✅     |
 | What's New 2.2.7 | 4,000 | 540 / 495 | ✅     |

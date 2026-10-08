@@ -9,7 +9,7 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
-import { DIRECT_STALL_DEADLINE_MS, ENGINE_SEGMENT_DEADLINE_MS, LIVE_STALL_DEADLINE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
+import { DIRECT_STALL_DEADLINE_MS, ENGINE_SEGMENT_DEADLINE_MS, LIVE_STALL_DEADLINE_MS, SUBTITLE_CAPTURE_SETTLE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
 import { AUTOMATIC_RETRY_BUDGET_MS } from "@/hooks/videoPlayback/errorRecovery";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import {
@@ -33,7 +33,9 @@ import {
   liveSubtitleRenditions,
   offeredTierBandwidths,
   resolveSubtitlePick,
+  serverIFramePlan,
   sessionSubtitleRenditions,
+  startFrameProvider,
   startLocalRemux,
   startPlaylistShim,
   stopLocalRemux,
@@ -50,6 +52,7 @@ import { recordTimeoutVerdict, recordVerdict, rememberedVerdict } from "@/servic
 import { getAudioTracks, isMultiAudioAvailable, prepareMultiAudioPlayback, shouldUseMultiAudio } from "@/services/multiAudioLoader";
 import { getSubtitlePreferenceSync, observedFromReport, selectedTextTrackFor } from "@/services/subtitlePreference";
 import { getAudioPreferenceSync, readAudioPreference, saveAudioPreference } from "@/services/audioPreference";
+import { updateUiPreferences } from "@/services/uiPreferences";
 import { logger } from "@/utils/logger";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
@@ -115,6 +118,7 @@ const mockPlaysFromDisk = jest.fn((_itemId: string) => false);
 jest.mock("@/services/downloads/localSource", () => ({
   playsFromDisk: (id: string) => mockPlaysFromDisk(id),
   playsRepackaged: jest.fn(() => false),
+  playsConverted: jest.fn(() => false),
   heldImageSubtitleForOrdinal: jest.fn(() => null),
 }));
 
@@ -157,6 +161,8 @@ jest.mock("@/services/localRemux", () => ({
   localRemuxToken: jest.fn((url: string) => `token:${url}`),
   posterFrameWorkInFlight: jest.fn(() => false),
   resolveSubtitlePick: jest.fn(() => null),
+  serverIFramePlan: jest.fn(() => Promise.resolve(null)),
+  iframeStreamInf: jest.requireActual("@/services/localRemux").iframeStreamInf,
   sessionBaseUrl: jest.fn((url: string) => url.slice(0, url.lastIndexOf("/") + 1)),
   slipstreamEligible: jest.fn(() => false),
   slipstreamInputBandwidth: jest.fn((details: JellyfinVideoItem) => details.MediaSources?.[0]?.Bitrate ?? 0),
@@ -342,7 +348,7 @@ describe("useVideoPlayback (mounted)", () => {
         const mounted = await mount({ videoId: "video-1" });
         const { ref } = mounted;
         renderer = mounted.renderer;
-        const terminalError = { type: "ERROR", error: "Video not found on server", autoRetry: false, canRetryWithTranscode: false };
+        const terminalError = { type: "ERROR", error: "Video not found on server", autoRetry: false, canRetryWithTranscode: false, ref: { id: "PB-META" } };
         expect(ref.current!.get().state).toEqual(terminalError);
         expect(ref.current!.get().showLoadingOverlay).toBe(false);
 
@@ -393,6 +399,187 @@ describe("useVideoPlayback (mounted)", () => {
       await act(async () => renderer.unmount());
     });
 
+    it("settles a same-language tie with the subtitle rendition AVPlayer asks the engine for after the report", async () => {
+      mockCanRemux.mockResolvedValue(true);
+      (resolveSubtitlePick as jest.Mock).mockImplementation((_renditions, tracks: { selected: boolean }[], requested) =>
+        !tracks.some((track) => track.selected)
+          ? { imageStreamIndex: null, rendition: null, ordinal: null }
+          : requested === 4
+            ? { imageStreamIndex: 4, rendition: null, ordinal: 0 }
+            : { imageStreamIndex: null, rendition: null, ordinal: null, reason: "2 tracks report selected" },
+      );
+      const { ref } = await mount({ videoId: "video-1" });
+      const twins = [0, 1].map((index) => ({ index, title: `twin ${index}`, language: "eng", type: "text/vtt", selected: true }));
+
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: twins } as never);
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+
+      await act(async () => {
+        mockSubtitleRequest!({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", streamIndex: 4, requestedAt: Date.now() });
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(4);
+      expect(resolveSubtitlePick).toHaveBeenLastCalledWith(expect.anything(), twins, 4);
+
+      // And a report landing after the request reads it too.
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: twins.map((track) => ({ ...track, selected: false })) } as never);
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: twins } as never);
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(4);
+    });
+
+    // Picking an image rendition leaves the item's tracks unchanged, so no report follows it (probed).
+    it("draws a VOD image track the moment AVPlayer asks the engine for it, with no report", async () => {
+      mockCanRemux.mockResolvedValue(true);
+      (sessionSubtitleRenditions as jest.Mock).mockReturnValue([
+        { index: 4, name: "English", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false },
+        { index: 5, name: "English SRT", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: false, isEngineText: true },
+      ]);
+      const { ref } = await mount({ videoId: "video-1" });
+      const request = (streamIndex: number, requestedAt: number) =>
+        act(async () => {
+          mockSubtitleRequest!({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", streamIndex, requestedAt });
+        });
+
+      await request(4, Date.now() + 1);
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(4);
+
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, title: "English", language: "eng", type: "text/vtt", selected: false }] } as never);
+      });
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+      // A request that left before the deselect is the old selection's; picking the same track again is not.
+      await request(4, Date.now() - 1_000);
+      expect(ref.current!.get().activeImageSubtitleStream).toBeNull();
+      await request(4, Date.now() + 5);
+      expect(ref.current!.get().activeImageSubtitleStream).toBe(4);
+    });
+
+    describe("a VOD image track picked with no report", () => {
+      const { saveSubtitlePreference, nextPreference } = jest.requireMock("@/services/subtitlePreference") as { saveSubtitlePreference: jest.Mock; nextPreference: jest.Mock };
+      const rendition = (index: number, name: string, language: string, isImage: boolean, isDefault = false) => ({
+        index,
+        name,
+        language,
+        vttUrl: "",
+        localVtt: "",
+        isDefault,
+        isForced: false,
+        isImage,
+        isEngineText: !isImage,
+      });
+      const srt = rendition(8, "English SRT", "eng", false);
+      const tracks = (selected: number | null) =>
+        ["Deutsch", "English", "English SRT", "Unknown"].map((title, index) => ({ index, title, language: ["deu", "eng", "eng", ""][index], type: "text/vtt", selected: index === selected }));
+      const settle = () => act(async () => jest.advanceTimersByTime(SUBTITLE_CAPTURE_SETTLE_MS));
+
+      /** Plays the engine lane to stable playback; `openingRequest` is the default's request before then, if any. */
+      async function playing(openingRequest: boolean) {
+        mockCanRemux.mockResolvedValue(true);
+        (sessionSubtitleRenditions as jest.Mock).mockReturnValue([rendition(4, "Deutsch", "deu", true, true), rendition(6, "English", "eng", true), srt, rendition(9, "Unknown", "", true)]);
+        nextPreference.mockImplementation(jest.requireActual("@/services/subtitlePreference").nextPreference);
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        const request = (streamIndex: number) =>
+          act(async () => {
+            mockSubtitleRequest!({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", streamIndex, requestedAt: Date.now() + 1 });
+          });
+        const report = (selected: number | null) =>
+          act(async () => {
+            ref.current!.get().videoCallbacks.onTextTracks({ textTracks: tracks(selected) } as never);
+          });
+        await report(0);
+        if (openingRequest) await request(4);
+        jest.useFakeTimers();
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onLoad({ duration: 120 } as never);
+          jest.advanceTimersByTime(101);
+        });
+        await act(async () => {
+          ref.current!.get().play();
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
+          jest.advanceTimersByTime(501);
+        });
+        return { ref, renderer, request, report };
+      }
+
+      afterEach(() => {
+        nextPreference.mockImplementation((p: unknown) => p);
+        jest.useRealTimers();
+      });
+
+      it("holds and remembers it once it settles, and ignores the opening track's repeat requests", async () => {
+        const { ref, renderer, request } = await playing(true);
+        await request(4);
+        await settle();
+        expect(saveSubtitlePreference).not.toHaveBeenCalled();
+
+        await request(6);
+        expect(ref.current!.get().activeImageSubtitleStream).toBe(6);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "1" });
+        expect(saveSubtitlePreference).toHaveBeenCalledWith({ kind: "language", tag: "eng" });
+        await request(6);
+        await settle();
+        expect(saveSubtitlePreference).toHaveBeenCalledTimes(1);
+        await act(async () => renderer.unmount());
+      });
+
+      it("never stores the file's own default when its first request lands after playback is stable", async () => {
+        const { ref, renderer, request } = await playing(false);
+        await request(4);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "0" });
+        expect(saveSubtitlePreference).not.toHaveBeenCalled();
+        await act(async () => renderer.unmount());
+      });
+
+      it("never stores an image track whose language is unknown", async () => {
+        const { ref, renderer, request } = await playing(true);
+        await request(9);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "3" });
+        expect(saveSubtitlePreference).not.toHaveBeenCalled();
+        await act(async () => renderer.unmount());
+      });
+
+      it("lets the later image pick win over a text pick still settling", async () => {
+        const { ref, renderer, request, report } = await playing(true);
+        (resolveSubtitlePick as jest.Mock).mockReturnValueOnce({ imageStreamIndex: null, rendition: srt, ordinal: 2 });
+        (observedFromReport as jest.Mock).mockReturnValueOnce({ kind: "language", tag: "eng-srt" });
+        await report(2);
+        await request(6);
+        await settle();
+        expect(saveSubtitlePreference.mock.calls).toEqual([[{ kind: "language", tag: "eng" }]]);
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "1" });
+        await act(async () => renderer.unmount());
+      });
+
+      it("weighs a return to an image track after a text pick", async () => {
+        const { ref, renderer, request, report } = await playing(true);
+        await request(6);
+        await settle();
+        (resolveSubtitlePick as jest.Mock).mockReturnValueOnce({ imageStreamIndex: null, rendition: srt, ordinal: 2 });
+        (observedFromReport as jest.Mock).mockReturnValueOnce({ kind: "language", tag: "fra" });
+        await report(2);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "2" });
+        await request(6);
+        expect(ref.current!.get().activeImageSubtitleStream).toBe(6);
+        await settle();
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "1" });
+        expect(saveSubtitlePreference.mock.calls.at(-1)).toEqual([{ kind: "language", tag: "eng" }]);
+        await act(async () => renderer.unmount());
+      });
+    });
+
     it.each(["auto", "fixed"])("does not apply a %s ladder cap when video transcoding is forbidden", async (mode) => {
       mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 8_000_000, SupportsTranscoding: false }] }));
       mockCanRemux.mockResolvedValue(true);
@@ -425,7 +612,7 @@ describe("useVideoPlayback (mounted)", () => {
         const mounted = await mount({ videoId: "video-1" });
         const { ref } = mounted;
         renderer = mounted.renderer;
-        const terminalError = { type: "ERROR", error: "Failed to create video stream. Please check your settings.", autoRetry: false, canRetryWithTranscode: false };
+        const terminalError = { type: "ERROR", error: "Failed to load video", autoRetry: false, canRetryWithTranscode: false, serverOff: { by: "account", needed: true }, ref: { id: "PB-NOLANE" } };
         expect(ref.current!.get().state).toEqual(terminalError);
         expect(ref.current!.get().showLoadingOverlay).toBe(false);
 
@@ -442,6 +629,46 @@ describe("useVideoPlayback (mounted)", () => {
         expect(mockStartLocalRemux).not.toHaveBeenCalled();
         expect(mockTranscodeUrl).not.toHaveBeenCalled();
         expect(prepareMultiAudioPlayback).not.toHaveBeenCalled();
+      } finally {
+        await act(async () => renderer?.unmount());
+        jest.useRealTimers();
+      }
+    });
+
+    it("names this device's setting when nothing but the server takes the file", async () => {
+      updateUiPreferences({ serverTranscoding: "never" });
+      try {
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", SupportsTranscoding: true }] }));
+        mockNeedsTranscoding.mockReturnValue(true);
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", autoRetry: false, canRetryWithTranscode: false, serverOff: { by: "device", needed: true }, ref: { id: "PB-NOLANE" } });
+        expect(mockProbeEmit).toHaveBeenCalledWith("errorCode", { code: "PB-NOLANE", willRetry: false });
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
+        await act(async () => renderer.unmount());
+      } finally {
+        updateUiPreferences({ serverTranscoding: "linkOrFile" });
+      }
+    });
+
+    it("says the account kept the server off when the engine's stream fails in the player", async () => {
+      jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+      let renderer: TestRenderer.ReactTestRenderer | undefined;
+      try {
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 8_000_000, SupportsTranscoding: false }] }));
+        mockCanRemux.mockResolvedValue(true);
+        (isLocalRemuxAvailable as jest.Mock).mockReturnValue(true);
+        const mounted = await mount({ videoId: "video-1" });
+        renderer = mounted.renderer;
+        await act(async () => {
+          mounted.ref.current!.get().videoCallbacks.onError({ error: { code: -11800, domain: "AVFoundationErrorDomain" } } as never);
+        });
+        await act(async () => jest.advanceTimersByTime(1));
+        expect(mounted.ref.current!.get().state).toMatchObject({
+          type: "ERROR",
+          serverOff: { by: "account", needed: false },
+          ref: { id: "PB-AVPLAYER", lane: "ENG", native: { domain: "AVFoundationErrorDomain", code: -11800 } },
+        });
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
       } finally {
         await act(async () => renderer?.unmount());
         jest.useRealTimers();
@@ -482,6 +709,109 @@ describe("useVideoPlayback (mounted)", () => {
         expect(ref.current!.get().imageSubtitleSessionUrl).toBe(ref.current!.get().sourceUri);
         expect(mockTranscodeUrl).not.toHaveBeenCalled();
         expect(prepareMultiAudioPlayback).not.toHaveBeenCalled();
+      } finally {
+        await act(async () => renderer?.unmount());
+        jest.useRealTimers();
+      }
+    });
+
+    /** The three ways the connection stops being a reason to ask the server. */
+    const linkHeldBy = (by: string) => {
+      if (by !== "account") updateUiPreferences({ serverTranscoding: by === "never" ? "never" : "fileOnly" });
+      mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 8_000_000, SupportsTranscoding: by !== "account" }] }));
+    };
+
+    it.each(["account", "never", "fileOnly"])("waits out a slow player open on the engine when the link is no reason to ask the server (%s)", async (by) => {
+      jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+      let renderer: TestRenderer.ReactTestRenderer | undefined;
+      try {
+        linkHeldBy(by);
+        mockCanRemux.mockResolvedValue(true);
+        const mounted = await mount({ videoId: "video-1" });
+        renderer = mounted.renderer;
+        expect(mounted.ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
+        await act(async () => jest.advanceTimersByTime(VOD_OPEN_DEADLINE_MS * 4));
+        expect(mounted.ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "localRemux" });
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+      } finally {
+        updateUiPreferences({ serverTranscoding: "linkOrFile" });
+        await act(async () => renderer?.unmount());
+        jest.useRealTimers();
+      }
+    });
+
+    it.each(["account", "never", "fileOnly"])("waits out a stall the engine reads through when the link is no server reason (%s), then recovers", async (by) => {
+      jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+      let renderer: TestRenderer.ReactTestRenderer | undefined;
+      const flush = async () => {
+        for (let hop = 0; hop < 12; hop++) await Promise.resolve();
+      };
+      try {
+        linkHeldBy(by);
+        mockCanRemux.mockResolvedValue(true);
+        let bytes = 0;
+        let reading = true;
+        mockProgress = () => ({ alive: true, bytesRead: reading ? (bytes += 500_000) : bytes, readSeconds: 19, elapsedSeconds: 20, recovering: false, hasPlayableSupplier: true });
+        const mounted = await mount({ videoId: "video-1" });
+        renderer = mounted.renderer;
+        mounted.ref.current!.get().currentTimeRef.current = 12;
+        await act(async () => {
+          mounted.ref.current!.get().videoCallbacks.onError({ error: { code: -12889, domain: "CoreMediaErrorDomain" } } as never);
+        });
+        await act(flush);
+        for (let round = 0; round < 3; round += 1) {
+          await act(async () => jest.advanceTimersByTime(ENGINE_SEGMENT_DEADLINE_MS));
+          await act(flush);
+        }
+        expect(mounted.ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER" });
+        reading = false;
+        await act(async () => jest.advanceTimersByTime(ENGINE_SEGMENT_DEADLINE_MS));
+        await act(flush);
+        await act(async () => jest.advanceTimersByTime(1));
+        expect(mounted.ref.current!.get().state).toMatchObject({ type: "ERROR", ref: { id: "PB-AVPLAYER", lane: "ENG" } });
+      } finally {
+        updateUiPreferences({ serverTranscoding: "linkOrFile" });
+        await act(async () => renderer?.unmount());
+        jest.useRealTimers();
+      }
+    });
+
+    it.each(["startup", "playback"])("shows the error after one fresh engine session when a %s failure repeats and server video is forbidden", async (failureAt) => {
+      jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+      let renderer: TestRenderer.ReactTestRenderer | undefined;
+      try {
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 8_000_000, SupportsTranscoding: false }] }));
+        mockCanRemux.mockResolvedValue(true);
+        (isLocalRemuxAvailable as jest.Mock).mockReturnValue(true);
+        if (failureAt === "startup") mockStartLocalRemux.mockRejectedValueOnce(new Error("engine failed")).mockRejectedValueOnce(new Error("engine failed"));
+
+        const mounted = await mount({ videoId: "video-1" });
+        const { ref } = mounted;
+        renderer = mounted.renderer;
+        const failPlayback = async () => {
+          if (failureAt !== "playback") return;
+          await act(async () => {
+            ref.current!.get().videoCallbacks.onError({ error: { code: -11800, domain: "AVFoundationErrorDomain" } } as never);
+          });
+          await act(async () => jest.advanceTimersByTime(1));
+        };
+        await failPlayback();
+        await act(async () => {
+          jest.advanceTimersByTime(500);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        await failPlayback();
+
+        expect(ref.current!.get().state).toMatchObject({
+          type: "ERROR",
+          canRetryWithTranscode: false,
+          autoRetry: false,
+          serverOff: { by: "account", needed: false },
+          ref: { id: failureAt === "startup" ? "PB-ENGINE-START" : "PB-AVPLAYER", lane: "ENG" },
+        });
+        await act(async () => jest.advanceTimersByTime(AUTOMATIC_RETRY_BUDGET_MS));
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
       } finally {
         await act(async () => renderer?.unmount());
         jest.useRealTimers();
@@ -570,7 +900,10 @@ describe("useVideoPlayback (mounted)", () => {
         mockPreflight = () => null;
         jest.useFakeTimers();
       });
-      afterEach(() => jest.useRealTimers());
+      afterEach(() => {
+        jest.useRealTimers();
+        updateUiPreferences({ serverTranscoding: "linkOrFile" });
+      });
 
       it("waits on a session still pulling its bytes at the link's pace, then keeps the segment it delivers", async () => {
         let bytes = 40_000_000;
@@ -620,6 +953,78 @@ describe("useVideoPlayback (mounted)", () => {
         expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/master.m3u8");
       });
 
+      it.each(["account", "device"])("with the server off by the %s, waits past the cap while bytes keep arriving, at any pace, then plays the segment", async (by) => {
+        if (by === "device") updateUiPreferences({ serverTranscoding: "never" });
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 6_000_000, SupportsTranscoding: by === "device" }] }));
+        let bytes = 0;
+        mockProgress = () => ({ alive: true, bytesRead: (bytes += 1_000_000), readSeconds: 2, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+        for (let round = 0; round < 4; round += 1) {
+          await act(async () => jest.advanceTimersByTime(20_000));
+          await act(flush);
+        }
+        expect(mockProbeEmit).toHaveBeenCalledWith("preflight", expect.objectContaining({ extendedSeconds: 80 }));
+        expect(ref.current!.get().state.type).toBe("CREATING_STREAM");
+        await act(async () => {
+          throughputListener!({
+            token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+            generation: 0,
+            segment: 0,
+            produceSeconds: 85,
+            segmentSeconds: 6,
+            readSeconds: 84,
+            cushion: 0,
+            throttled: false,
+            thermal: "nominal",
+          });
+        });
+        await act(flush);
+        expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+        expect(recordTimeoutVerdict).not.toHaveBeenCalled();
+        expect(mockRecordVerdict).not.toHaveBeenCalled();
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+      });
+
+      it("at Only for files, waits past the cap on a read the link holds back, and never asks the server for it", async () => {
+        updateUiPreferences({ serverTranscoding: "fileOnly" });
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 6_000_000 }] }));
+        let bytes = 0;
+        mockProgress = () => ({ alive: true, bytesRead: (bytes += 1_000_000), readSeconds: 19, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+        for (let round = 0; round < 4; round += 1) {
+          await act(async () => jest.advanceTimersByTime(20_000));
+          await act(flush);
+        }
+        expect(mockProbeEmit).toHaveBeenCalledWith("preflight", expect.objectContaining({ extendedSeconds: 80 }));
+        expect(ref.current!.get().state.type).toBe("CREATING_STREAM");
+        expect(recordTimeoutVerdict).not.toHaveBeenCalled();
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
+      });
+
+      it("at Only for files, still sends a session the device holds back to the server", async () => {
+        updateUiPreferences({ serverTranscoding: "fileOnly" });
+        mockProgress = () => ({ alive: true, bytesRead: 1_000, readSeconds: 2, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+        await act(async () => jest.advanceTimersByTime(20_000));
+        await act(flush);
+        expect(recordTimeoutVerdict).toHaveBeenCalledWith(expect.objectContaining({ Id: "video-1" }), 20, { busy: false });
+        expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/master.m3u8");
+      });
+
+      it("with the server off, ends at the error once a round adds no bytes, with no device verdict", async () => {
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 6_000_000, SupportsTranscoding: false }] }));
+        mockProgress = () => ({ alive: true, bytesRead: 5_000_000, readSeconds: 19, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+        await act(async () => jest.advanceTimersByTime(20_000));
+        await act(flush);
+        expect(ref.current!.get().state.type).toBe("CREATING_STREAM");
+        await act(async () => jest.advanceTimersByTime(20_000));
+        await act(flush);
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", ref: { id: "PB-ENGINE-NOSEG", lane: "ENG" } });
+        expect(recordTimeoutVerdict).not.toHaveBeenCalled();
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
+      });
+
       it("records no verdict for a session that read nothing", async () => {
         mockProgress = () => ({ alive: true, bytesRead: 0, readSeconds: 0, elapsedSeconds: 20 });
         const { ref } = await mount({ videoId: "video-1" });
@@ -647,6 +1052,36 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/shim-1/master.m3u8");
     });
 
+    it("scrubs the server stream on the source's keyframes: a frame provider's line in the shimmed master", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(false);
+      const plan = { transcode: true, durationSeconds: 3600, bandwidth: 2_000_000, averageBandwidth: 1_000_000, codecs: "avc1.640028", width: 1920, height: 1080 };
+      (serverIFramePlan as jest.Mock).mockResolvedValueOnce(plan);
+      (startPlaylistShim as jest.Mock).mockResolvedValueOnce("http://127.0.0.1:9999/shim-1/master.m3u8");
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(startFrameProvider).toHaveBeenCalledWith(expect.any(String), "video-1", { transcode: true, durationSeconds: 3600 });
+      expect(startPlaylistShim).toHaveBeenCalledWith("https://server/Videos/id/master.m3u8", 0, {
+        sdrInit: false,
+        iframeStreamInf:
+          '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=2000000,AVERAGE-BANDWIDTH=1000000,CODECS="avc1.640028",RESOLUTION=1920x1080,VIDEO-RANGE=SDR,URI="http://127.0.0.1:9999/frame-1/iframes.m3u8"',
+      });
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/shim-1/master.m3u8");
+    });
+
+    it("plays the server stream as it is when no frame provider starts", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(false);
+      (serverIFramePlan as jest.Mock).mockResolvedValueOnce({ transcode: true, durationSeconds: 3600, bandwidth: 1, averageBandwidth: 1, codecs: "avc1.640028", width: 0, height: 0 });
+      (startFrameProvider as jest.Mock).mockResolvedValueOnce(null);
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(startPlaylistShim).not.toHaveBeenCalled();
+      expect(ref.current!.get().sourceUri).toBe("https://server/Videos/id/master.m3u8");
+    });
+
     it("ends as not found when the server answers the engine's read with a 404, without asking the server to convert", async () => {
       // Both lanes read the same path on the server, so the transcode would fail the same way,
       // and a session that read nothing measured nothing about the device.
@@ -658,7 +1093,7 @@ describe("useVideoPlayback (mounted)", () => {
 
       const { ref } = await mount({ videoId: "video-1" });
 
-      expect(ref.current!.get().state).toEqual({ type: "ERROR", error: "Video not found on server", canRetryWithTranscode: false });
+      expect(ref.current!.get().state).toEqual({ type: "ERROR", error: "Video not found on server", canRetryWithTranscode: false, ref: { id: "PB-INPUT-404", lane: "ENG" } });
       expect(mockTranscodeUrl).not.toHaveBeenCalled();
       expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
       expect(recordTimeoutVerdict).not.toHaveBeenCalled();
@@ -903,6 +1338,20 @@ describe("useVideoPlayback (mounted)", () => {
       expect(closeLiveStream).not.toHaveBeenCalledWith("ls-2");
     });
 
+    it("says this device's setting kept the server off when a channel fails on the engine", async () => {
+      updateUiPreferences({ serverTranscoding: "never" });
+      try {
+        mockPreflight = () => null;
+        mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
+        const { ref } = await mount({ videoId: "video-1" });
+        expect(openChannel).not.toHaveBeenCalled();
+        expect(ref.current!.get().sourceUri).toBeNull();
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", serverOff: { by: "device", needed: false }, ref: { id: "PB-ENGINE-FAILED", lane: "ENG" } });
+      } finally {
+        updateUiPreferences({ serverTranscoding: "linkOrFile" });
+      }
+    });
+
     it("plays a channel on the server lane as a live session", async () => {
       mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
       (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined, LiveStreamId: "ls-2" }));
@@ -1072,7 +1521,7 @@ describe("useVideoPlayback (mounted)", () => {
       await act(async () => {
         ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, title: "deu", language: "deu", type: "text/vtt", selected: true }] } as never);
       });
-      expect(resolveSubtitlePick).toHaveBeenCalledWith(found, expect.anything());
+      expect(resolveSubtitlePick).toHaveBeenCalledWith(found, expect.anything(), null);
     });
 
     it("plays through the engine when it opens, and never builds a server URL of its own", async () => {
@@ -1108,6 +1557,7 @@ describe("useVideoPlayback (mounted)", () => {
         ref.current!.get().play();
       });
       await act(async () => {
+        ref.current!.get().videoCallbacks.onProgress({ currentTime: 0.75, playableDuration: 6, seekableDuration: 0 } as never);
         ref.current!.get().videoCallbacks.onProgress({ currentTime: 1, playableDuration: 6, seekableDuration: 0 } as never);
         await new Promise((resolve) => setTimeout(resolve, 600));
       });
@@ -1614,7 +2064,7 @@ describe("useVideoPlayback (mounted)", () => {
       (isMultiAudioAvailable as jest.Mock).mockReturnValue(true);
       const { ref, renderer } = await mount({ videoId: "video-1", startPositionTicks: 420_000_000 });
 
-      expect(prepareMultiAudioPlayback).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), "https://server/Videos/id/master.m3u8", "key");
+      expect(prepareMultiAudioPlayback).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), "https://server/Videos/id/master.m3u8", "key", "");
       expect(ref.current!.get()).toMatchObject({ sourceUri: "jellyfin-multi://session", maxBitRate: null, forwardBufferSeconds: null, imageSubtitleSessionUrl: null });
       expect(ref.current!.get().state).toMatchObject({ mode: "transcode" });
       expect(mockTranscodeUrl.mock.calls[0].slice(2, 6)).toEqual([undefined, undefined, undefined, undefined]);
@@ -1658,6 +2108,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onAudioTracks({
             audioTracks: [
@@ -1740,6 +2191,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           jest.advanceTimersByTime(501);
         });
@@ -1807,6 +2259,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           jest.advanceTimersByTime(501);
         });
@@ -1819,6 +2272,45 @@ describe("useVideoPlayback (mounted)", () => {
       } finally {
         (getSubtitlePreferenceSync as jest.Mock).mockImplementation(() => ({ kind: "system" }));
         (selectedTextTrackFor as jest.Mock).mockImplementation(() => ({ type: "system" }));
+        jest.useRealTimers();
+      }
+    });
+
+    // Device log: AVPlayer picked English SDH at load and a stored "eng" moved it to a plain twin AVKit's Language list lacks.
+    it("holds the player's own pick when it is already in the stored language", async () => {
+      mockCanRemux.mockResolvedValue(true);
+      const plain = { index: 2, name: "English", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false };
+      const sdh = { ...plain, index: 4, name: "English SDH", isHearingImpaired: true };
+      (sessionSubtitleRenditions as jest.Mock).mockReturnValue([plain, sdh]);
+      (resolveSubtitlePick as jest.Mock).mockReturnValue({ imageStreamIndex: 4, rendition: sdh, ordinal: 1 });
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      jest.useFakeTimers();
+      try {
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation(() => ({ kind: "language", tag: "eng" }));
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onLoad({ duration: 120 } as never);
+          jest.advanceTimersByTime(101);
+        });
+        await act(async () => {
+          ref.current!.get().play();
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
+          jest.advanceTimersByTime(501);
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onTextTracks({
+            textTracks: [
+              { index: 0, title: "English", language: "eng", selected: false },
+              { index: 1, title: "English SDH", language: "eng", selected: true },
+            ],
+          } as never);
+        });
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "1" });
+        await act(async () => renderer.unmount());
+      } finally {
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation(() => ({ kind: "system" }));
         jest.useRealTimers();
       }
     });
@@ -1844,6 +2336,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           jest.advanceTimersByTime(501);
         });
@@ -1899,6 +2392,7 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().play();
         });
         await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
           ref.current!.get().videoCallbacks.onAudioTracks({
             audioTracks: [
@@ -2266,11 +2760,72 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().paused).toBe(false);
 
       await act(async () => {
+        ref.current!.get().videoCallbacks.onProgress({ currentTime: 2.75, playableDuration: 30, seekableDuration: 120 } as never);
         ref.current!.get().videoCallbacks.onProgress({ currentTime: 3, playableDuration: 30, seekableDuration: 120 } as never);
         await new Promise((resolve) => setImmediate(resolve));
       });
       expect(ref.current!.get().state).toMatchObject({ type: "PLAYING", mode: "transcode" });
       expect(ref.current!.get().currentTimeRef.current).toBe(3);
+    });
+
+    describe("keeps the spinner over a player still filling its buffer", () => {
+      const tick = (ref: React.RefObject<HookRef | null>, currentTime: number) => ref.current!.get().videoCallbacks.onProgress({ currentTime, playableDuration: 30, seekableDuration: 120 } as never);
+      const unpaused = async (ref: React.RefObject<HookRef | null>) => {
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onLoad({ duration: 120, currentTime: 0, naturalSize: { width: 1920, height: 1080, orientation: "landscape" } } as never);
+        });
+        await act(async () => {
+          ref.current!.get().play();
+        });
+      };
+
+      it("on the start tick AVPlayer sends while it still waits", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          tick(ref, 0);
+          tick(ref, 0);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        });
+        expect(ref.current!.get().state.type).toBe("READY");
+        expect(ref.current!.get().showLoadingOverlay).toBe(true);
+      });
+
+      it("on a seek's jump", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          tick(ref, 0);
+          tick(ref, 1200);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        });
+        expect(ref.current!.get().state.type).toBe("READY");
+        expect(ref.current!.get().showLoadingOverlay).toBe(true);
+      });
+
+      it("and drops it once the player reports playing", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onPlaybackStateChanged({ isPlaying: true, isSeeking: false } as never);
+          tick(ref, 0);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        });
+        expect(ref.current!.get().state.type).toBe("PLAYING");
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+      });
+
+      it("and drops it once the playhead steps without a playing report", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          tick(ref, 1200);
+          tick(ref, 1200.25);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        });
+        expect(ref.current!.get().state.type).toBe("PLAYING");
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+      });
     });
 
     it("re-derives the chapter picture directory when the engine restarts its session", async () => {
@@ -2299,6 +2854,7 @@ describe("useVideoPlayback (mounted)", () => {
             ref.current!.get().play();
           });
           await act(async () => {
+            ref.current!.get().videoCallbacks.onProgress({ currentTime: 11.75, playableDuration: 30, seekableDuration: 120 } as never);
             ref.current!.get().videoCallbacks.onProgress({ currentTime: 12, playableDuration: 30, seekableDuration: 120 } as never);
             jest.advanceTimersByTime(1);
             await hops();
@@ -2472,8 +3028,8 @@ describe("useVideoPlayback (mounted)", () => {
       await load(ref);
       expect(ref.current!.get().paused).toBe(false);
       await act(async () => {
-        callbacks(ref).onProgress({ currentTime: 10, playableDuration: 30, seekableDuration: 120 } as never);
         callbacks(ref).onPlaybackStateChanged(nativePlay as never);
+        callbacks(ref).onProgress({ currentTime: 10, playableDuration: 30, seekableDuration: 120 } as never);
         jest.advanceTimersByTime(501);
       });
     }

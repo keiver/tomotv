@@ -48,7 +48,6 @@ export default function LicensesScreen() {
 
   const credits = CREDITS.map((credit, index) => {
     const expanded = expandedName === credit.name;
-    const isLast = index === CREDITS.length - 1;
     const paragraphs = expanded && IS_TV ? licenseParagraphs(LICENSE_TEXTS[credit.license]) : [];
     return (
       <View key={credit.name}>
@@ -60,29 +59,22 @@ export default function LicensesScreen() {
           // Pinned leading: the phone cap is QUALITY_ROW_HEIGHT times a row count.
           titleStyle={screenStyles.rowTitle}
           subtitleStyle={screenStyles.rowSubtitle}
-          onFocus={isLast && !expanded ? pinListToBottom : undefined}
           hasTVPreferredFocus={index === 0}
           isFirst={index === 0}
-          isLast={isLast && !expanded}
           accessibilityLabel={`${credit.name}, ${credit.licenseLabel}`}
           accessibilityState={{ expanded }}
           accessibilityHint={expanded ? t("licenses.collapseText") : t("licenses.expandText")}
         />
 
         {expanded && (
-          <View style={[screenStyles.licenseBody, isLast && screenStyles.licenseBodyLast]}>
+          <View style={screenStyles.licenseBody}>
             {credit.copyright ? <Text style={screenStyles.copyright}>{credit.copyright}</Text> : null}
             {credit.license === "LGPL-3.0" ? <Text style={screenStyles.copyright}>{LGPL3_NOTE}</Text> : null}
             {IS_TV ? (
               paragraphs.map((paragraph, paragraphIndex) => (
                 // Role "text": focusable only so the remote can walk the license, with no
                 // action behind it, and a button trait would promise one.
-                <Pressable
-                  key={paragraphIndex}
-                  isTVSelectable={true}
-                  accessibilityRole="text"
-                  onFocus={isLast && paragraphIndex === paragraphs.length - 1 ? pinListToBottom : undefined}
-                  style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
+                <Pressable key={paragraphIndex} isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [screenStyles.paragraph, focused && screenStyles.paragraphFocused]}>
                   {({ focused }) => <Text style={[screenStyles.licenseText, focused && screenStyles.licenseTextFocused]}>{paragraph}</Text>}
                 </Pressable>
               ))
@@ -110,27 +102,23 @@ export default function LicensesScreen() {
           </View>
           <Text style={screenStyles.intro}>{t("licenses.engineStandsOn")}</Text>
 
-          {/* The card is capped and scrolls its rows internally (creditsScrollable): ten credits,
-              and an expanded license, run past the bottom of either screen. */}
+          {/* Credits and Bundled Packages share a capped list above the source notice. */}
           <View style={settingsStyles.section}>
             <ScrollView ref={creditsRef} style={settingsStyles.creditsScrollable} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
               {credits}
+              <ListRow
+                title={t("licenses.bundled")}
+                subtitle={t("licenses.packagesCount").replace("{count}", String(BUNDLED_PACKAGE_COUNT))}
+                trailingIcon="chevron-forward"
+                onPress={() => router.push("/bundled-licenses")}
+                titleStyle={screenStyles.rowTitle}
+                subtitleStyle={screenStyles.rowSubtitle}
+                onFocus={pinListToBottom}
+                accessibilityRole="link"
+                accessibilityLabel={t("licenses.packagesA11y").replace("{count}", String(BUNDLED_PACKAGE_COUNT))}
+                accessibilityHint={t("licenses.opensFullList")}
+              />
             </ScrollView>
-          </View>
-
-          {/* The npm tree is hundreds of packages and cannot be curated by hand, so it
-              lives on its own generated route. See scripts/generate-licenses.mjs. */}
-          <View style={settingsStyles.section}>
-            <ListRow
-              title={t("licenses.bundled")}
-              subtitle={t("licenses.packagesCount").replace("{count}", String(BUNDLED_PACKAGE_COUNT))}
-              trailingIcon="chevron-forward"
-              onPress={() => router.push("/bundled-licenses")}
-              isFirst
-              accessibilityRole="link"
-              accessibilityLabel={t("licenses.packagesA11y").replace("{count}", String(BUNDLED_PACKAGE_COUNT))}
-              accessibilityHint={t("licenses.opensFullList")}
-            />
             <SectionFooter>
               <Text style={settingsStyles.sectionNote}>{LGPL_SOURCE_NOTICE}</Text>
             </SectionFooter>
@@ -168,13 +156,6 @@ const screenStyles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.25)",
     paddingVertical: IS_TV ? 20 : 14,
     paddingHorizontal: IS_TV ? 24 : 16,
-  },
-  // The last credit's body becomes the card's own bottom edge, and it carries an opaque-enough
-  // fill to draw a corner of its own. Rounded to the card's radius so it can never square off
-  // the card while the row it replaced hands the corner over.
-  licenseBodyLast: {
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
   },
   copyright: {
     fontSize: IS_TV ? 22 : 12,

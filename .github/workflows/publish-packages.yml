@@ -1,8 +1,8 @@
 name: Publish packages
 
 # Publishes @keiver/tomo-engine and @keiver/tomo-live when their package.json carries a
-# version npm does not have yet. The bump lands in the PR (npm run release:engine -- patch);
-# this workflow never commits, so main's protection stays as it is. Auth is npm trusted
+# version npm does not have yet. The bump lands in the PR (the pre-commit hook patches it,
+# scripts/package-versions.mjs; Test PR fails without it); this workflow never commits. Auth is npm trusted
 # publishing (OIDC), configured per package on npmjs.com against this workflow file.
 
 on:
@@ -26,7 +26,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The Swift host tests need macOS and the fetched xcframeworks; a failure blocks the publish.
+  engine:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
+      - name: Engine tests
+        run: npm run test:engine
+
   publish:
+    needs: engine
     runs-on: ubuntu-latest
 
     steps:
@@ -49,6 +73,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Tarballs carry what their sources and specs need
+        run: node scripts/package-versions.mjs --files
+
       # Engine first: tomo-live peer-depends on it.
       - name: Publish what npm does not have
         env:
@@ -66,5 +93,7 @@ jobs:
             fi
             npm publish -w "$dir"
             awk -v v="## $version" '$0 == v {found=1; next} found && /^## / {exit} found {print}' "$dir/CHANGELOG.md" > notes.md
-            gh release create "$pkg-v$version" --target "$GITHUB_SHA" --title "$name $version" --notes-file notes.md
+            # An automatic patch bump has no CHANGELOG section: the release lists the merged PRs instead.
+            if [ -s notes.md ]; then notes=(--notes-file notes.md); else notes=(--generate-notes); fi
+            gh release create "$pkg-v$version" --target "$GITHUB_SHA" --title "$name $version" "${notes[@]}"
           done

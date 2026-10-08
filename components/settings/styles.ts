@@ -1,7 +1,9 @@
 import { COLORS } from "@/constants/colors";
+import { themedStyles } from "@/hooks/useCardPalette";
+import { withAlpha } from "@/utils/color";
 import { Platform, StyleSheet } from "react-native";
 
-import { CARD_FOCUS, CONTENT_EDGE_PHONE, CONTROL_HEIGHT, RECESS_EDGE } from "@/constants/app";
+import { CONTENT_EDGE_PHONE, CONTROL_HEIGHT, RECESS_EDGE } from "@/constants/app";
 
 /** iPad draws the phone layout at a tablet's viewing distance, so its rows take a step up in type. */
 export const IS_PAD = !Platform.isTV && Platform.OS === "ios" && Platform.isPad;
@@ -25,13 +27,13 @@ export const TITLE_LINE_HEIGHT = pick(36, 26, 24);
 // the label's 2pt gap) is taller than ROW_CONTENT_MIN_HEIGHT and that floor never binds:
 // LIST_ROW_HEIGHT does not describe these rows. Their line heights are pinned rather than
 // left to the font's own metrics, which is what makes QUALITY_ROW_HEIGHT arithmetic instead
-// of an estimate — the section's height cap is derived from it. Both land within a point of
-// what SF renders at these sizes, so pinning them moves nothing on screen. Applied in
-// app/(tabs)/settings.tsx; the shared listItemSubtitle stays unpinned because ServerRow
-// resizes the subtitle and would inherit the wrong leading.
+// of an estimate, and the credits list's height cap is derived from it. Both land within a
+// point of what SF renders at these sizes, so pinning them moves nothing on screen. Applied in
+// StreamingQuality and app/licenses.tsx; the shared listItemSubtitle stays unpinned because
+// ServerRow resizes the subtitle and would inherit the wrong leading.
 export const QUALITY_TITLE_LINE_HEIGHT = TITLE_LINE_HEIGHT;
 // The description runs at the shared subtitle size (qualityDescription in
-// settings.tsx), pinned so the row-height arithmetic holds.
+// quality.tsx), pinned so the row-height arithmetic holds.
 export const QUALITY_SUBTITLE_LINE_HEIGHT = pick(26, 18, 16);
 const TITLE_GAP = 2; // listItemTitle's marginBottom
 
@@ -42,12 +44,6 @@ export const MARK_HEIGHT = Platform.isTV ? 22 : 16;
 
 /** Exact height of one Video Quality row: 120 on TV, 70 on iPad, 66 on phone. */
 export const QUALITY_ROW_HEIGHT = ROW_PADDING_V * 2 + QUALITY_TITLE_LINE_HEIGHT + TITLE_GAP + QUALITY_SUBTITLE_LINE_HEIGHT;
-
-// Rows a capped, internally-scrolling list shows before it clips. Phone stands 5 whole rows
-// (350): a part-row peek looked like a rendering fault, and only 480p sits below the cut.
-//
-// TV keeps the ~2.9 it already had, the server card above it eating the rest of that screen.
-const VISIBLE_QUALITY_ROWS = Platform.isTV ? 2.9 : 5;
 
 /** A row's subtitle line (ListRow), pinned so a title-over-subtitle row's height is arithmetic. */
 export const SUBTITLE_LINE_HEIGHT = pick(26, 17, 16);
@@ -71,10 +67,9 @@ export const STRIP_INSET = Platform.isTV ? 25 : 13;
 /** TV: the people column on the card's right side, one cell wide plus its insets. */
 export const PEOPLE_PANEL_WIDTH = AVATAR_CELL_WIDTH + STRIP_INSET * 2;
 
-// The Open Source credits, capped at whole rows on both platforms so Bundled Packages and the
-// source notice stay on the first screen. A credit row is a title over a subtitle at the quality
-// list's pinned leading, so QUALITY_ROW_HEIGHT is its height too: 480 on TV, 350 on phone.
-const VISIBLE_CREDIT_ROWS = Platform.isTV ? 4 : 5;
+// Open Source caps its package list at whole rows so the source notice stays on screen.
+// Each row uses the quality list's pinned leading and QUALITY_ROW_HEIGHT.
+const VISIBLE_CREDIT_ROWS = Platform.isTV ? 5 : 8;
 
 // --- Downloads rows ---
 // The list holds whatever is on the device and an expanded folder adds its members inline, so it
@@ -132,6 +127,34 @@ const goldRowShadows = StyleSheet.create(
 export function goldRowShadow(first: boolean, last: boolean, flushRight: boolean) {
   return goldRowShadows[`${first}-${last}-${flushRight}`];
 }
+
+/**
+ * The rows' accent states, in the theme's colour. Background lives on the Pressable itself, never on
+ * an overlay: anything above a focusable on tvOS occludes it and the focus engine refuses to enter.
+ */
+export const useSettingsAccentStyles = themedStyles((palette) => ({
+  // A row that goes somewhere, focused (and the quality list's selected row): the accent fill, ink to
+  // match the focused card's title bar.
+  listItemFocused: {
+    backgroundColor: palette.accent,
+  },
+  listItemTitleFocused: {
+    color: palette.ink,
+  },
+  // Same ink held back, so the subtitle stays secondary on the fill instead of matching the title.
+  listItemSubtitleFocused: {
+    color: withAlpha(palette.ink, 0.75),
+  },
+  // Focus resting on the quality list's already-selected row: a step lighter, so focus stays visible
+  // on the row that wears the accent anyway.
+  listItemFocusedSelected: {
+    backgroundColor: palette.accentFocused,
+  },
+  // Press feedback: the same accent a step deeper.
+  listItemPressed: {
+    backgroundColor: palette.accentDeep,
+  },
+}));
 
 // The Add Server slot holds a real field, not a label line, so it is taller than
 // a plain row — the same way a field row is taller than a label row in a system
@@ -231,17 +254,11 @@ export const settingsStyles = StyleSheet.create({
     marginBottom: Platform.isTV ? 32 : 12,
     boxShadow: `${LIP_TOP}, ${LIP_BOTTOM}, ${RIM}`,
   },
-  // A card whose gold heading holds focus: the heading is its top edge, so no top corners or lip at the seam.
+  // The focused heading supplies the top corners and lip; the card continues below it.
   sectionCapped: {
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
     boxShadow: `${LIP_BOTTOM}, ${RIM_SIDES}`,
-  },
-  // Video Quality is the one section long enough to run past the bottom of the
-  // screen, so it caps its height and scrolls internally. The cap is derived, not
-  // dialled in by eye: see QUALITY_ROW_HEIGHT and VISIBLE_QUALITY_ROWS above.
-  sectionScrollable: {
-    maxHeight: Math.round(QUALITY_ROW_HEIGHT * VISIBLE_QUALITY_ROWS),
   },
   // The destinations half of the JELLYFIN SERVER card, capped so the rows past
   // VISIBLE_SERVER_ROWS scroll instead of pushing the people strip off screen.
@@ -356,30 +373,6 @@ export const settingsStyles = StyleSheet.create({
   listItemFirst: {
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-  },
-  // A row that goes somewhere, focused (and the quality list's selected row):
-  // filled with the action gold, ink to match the focused card's title bar
-  // (CARD_FOCUS). Background lives on the Pressable itself, never on an
-  // overlay: anything above a focusable on tvOS occludes it and the focus
-  // engine refuses to enter.
-  listItemFocused: {
-    backgroundColor: CARD_FOCUS.TITLE_BG_FOCUSED,
-  },
-  listItemTitleFocused: {
-    color: CARD_FOCUS.TITLE_TEXT_FOCUSED,
-  },
-  // Same ink held back, so the subtitle stays secondary on gold instead of matching the title (5.4:1).
-  listItemSubtitleFocused: {
-    color: "rgba(43, 31, 5, 0.75)",
-  },
-  // Focus resting on the quality list's already-selected row: a step lighter,
-  // so focus stays visible on the row that wears the gold anyway.
-  listItemFocusedSelected: {
-    backgroundColor: COLORS.ACCENT_FOCUSED,
-  },
-  // Press feedback: the same gold a step deeper.
-  listItemPressed: {
-    backgroundColor: COLORS.ACCENT_DEEP,
   },
   // Form cards (login, add server) hold labelled fields, not tap targets, so they
   // don't want listItem's row height. The card supplies a thin lip and the rows

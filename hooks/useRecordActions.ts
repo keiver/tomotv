@@ -13,12 +13,12 @@ export type RecordBusy = "record" | "series" | "cancel" | "cancelSeries" | null;
 /** The series rule a stand-in timer names: set, but with no id the server knows. */
 const STAND_IN_SERIES_ID = "stand-in";
 
-/** A program to record, or (no programId) a channel that records a manual timer for the settings length. */
+/** A server programme, an external programme recorded by time, or a channel recorded for the settings length. */
 export interface RecordTarget {
   programId?: string;
   channelId: string;
   channelName: string;
-  program?: Pick<JellyfinProgram, "StartDate" | "EndDate"> | null;
+  program?: (Pick<JellyfinProgram, "StartDate" | "EndDate"> & Partial<Pick<JellyfinProgram, "Name" | "Overview">>) | null;
   /** A known timer (a Schedule row): read by id while it is live, so a future manual timer is found. */
   timerId?: string;
 }
@@ -136,17 +136,30 @@ export function useRecordActions(target: RecordTarget | null) {
       return run("record", async () => createTimer(await fetchTimerDefaults(programId)), doneToast, standIn(endMs, airing));
     }
     if (!channelId) return;
-    const recordingMs = getLiveTvPreferences().recordingMinutes * 60_000;
+    const nowMs = Date.now();
+    const span = program ? programTimes(program) : null;
+    const scheduled = !!span && Number.isFinite(span.startMs) && Number.isFinite(span.endMs) && span.endMs > span.startMs;
+    if (scheduled && span.endMs <= nowMs) return;
+    const startMs = scheduled ? Math.max(nowMs, span.startMs) : nowMs;
+    const endMs = scheduled ? span.endMs : nowMs + getLiveTvPreferences().recordingMinutes * 60_000;
+    const airing = startMs <= nowMs;
     // The timer's name becomes the recording folder; Jellyfin's scanner ignores "**/.*".
-    const timerName = channelName.replace(/^[.\s]+/, "") || channelId;
+    const timerName = (program?.Name || channelName).replace(/^[.\s]+/, "") || channelId;
     return run(
       "record",
       async () => {
         const defaults = await fetchTimerDefaults();
-        await createTimer({ ...defaults, ChannelId: channelId, Name: timerName, StartDate: new Date().toISOString(), EndDate: new Date(Date.now() + recordingMs).toISOString() });
+        await createTimer({
+          ...defaults,
+          ChannelId: channelId,
+          Name: timerName,
+          ...(program?.Overview ? { Overview: program.Overview } : {}),
+          StartDate: new Date(startMs).toISOString(),
+          EndDate: new Date(endMs).toISOString(),
+        });
       },
-      t("liveTv.recordingStartedFor").replace("{duration}", durationLabel(recordingMs)),
-      standIn(Date.now() + recordingMs, true),
+      airing ? t("liveTv.recordingStartedFor").replace("{duration}", durationLabel(endMs - startMs)) : t("liveTv.recordingScheduled"),
+      { ...standIn(endMs, airing), Name: timerName, StartDate: new Date(startMs).toISOString() },
     );
   }, [run, standIn, programId, program, channelId, channelName]);
   const recordSeries = useCallback(() => {

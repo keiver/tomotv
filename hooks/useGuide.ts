@@ -3,7 +3,7 @@ import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
 import { useHealthGeneration } from "@/hooks/useChannelHealth";
 import { healthFor } from "@/services/channelHealth";
-import { fetchChannels, fetchChannelsByIds, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
+import { fetchChannels, fetchChannelsByIds, fetchGuideHorizon, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { activeGuideUrls, fetchExternalProgramWindow } from "@/services/externalGuide";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
@@ -11,10 +11,12 @@ import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import {
   activeRecordTimer,
+  dayHasListings,
+  dayStartMs,
   EXTERNAL_GUIDE_PREFIX,
-  GUIDE_HORIZON_MINUTES,
   GUIDE_SPAN_MINUTES,
-  guideWindowStart,
+  guideDays,
+  guideDayWindow,
   isActiveTimer,
   keepRange,
   mergePrograms,
@@ -42,11 +44,23 @@ export interface GuideRow {
   programs: JellyfinProgram[];
 }
 
+/** One day the strip offers; null listings until the server has said where its guide ends. */
+export interface GuideDay {
+  startMs: number;
+  hasListings: boolean | null;
+}
+
 export interface GuideState {
   rows: GuideRow[];
   windowStartMs: number;
   windowEndMs: number;
   nowMs: number;
+  /** Today and the days after it, with whether each has listings. */
+  days: GuideDay[];
+  /** The picked day's local midnight. */
+  selectedDayMs: number;
+  /** Opens the guide on a day: today from the current half hour, another day from its midnight. */
+  selectDay: (dayMs: number) => void;
   /** Live timers by program id; a cell reads its recording state here, never off the program. */
   timersByProgramId: Map<string, JellyfinTimer>;
   /** Channels a timer covers right now; their cards wear REC. */
@@ -134,9 +148,18 @@ export function useGuide(): GuideState {
   const [channels, setChannels] = useState<JellyfinItem[]>([]);
   const [programsByChannel, setProgramsByChannel] = useState<Record<string, JellyfinProgram[]>>({});
   const [timers, setTimers] = useState<JellyfinTimer[]>([]);
-  const [windowStartMs, setWindowStartMs] = useState(() => guideWindowStart(Date.now()));
+  // The picked day: its window start, and the horizon nothing loads or scrolls past.
+  const [day, setDay] = useState(() => {
+    const now = Date.now();
+    return { dayMs: dayStartMs(now), ...guideDayWindow(dayStartMs(now), now) };
+  });
+  const [windowStartMs, setWindowStartMs] = useState(day.startMs);
   const [windowEndMs, setWindowEndMs] = useState(() => windowStartMs + GUIDE_SPAN_MINUTES * MINUTE_MS);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // Where the server's guide ends and the days loaded listings fell on: the strip's availability marks.
+  const [guideEndMs, setGuideEndMs] = useState<number | null>(null);
+  const [coveredDays, setCoveredDays] = useState<ReadonlySet<number>>(() => new Set());
+  const [externalGuides, setExternalGuides] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingPrograms, setPendingPrograms] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -163,9 +186,13 @@ export function useGuide(): GuideState {
     setTimers([]);
     setError(null);
     setIsLoading(true);
-    const start = guideWindowStart(nowMs);
-    setWindowStartMs(start);
-    setWindowEndMs(start + GUIDE_SPAN_MINUTES * MINUTE_MS);
+    setGuideEndMs(null);
+    setCoveredDays(new Set());
+    setExternalGuides(false);
+    const today = { dayMs: dayStartMs(nowMs), ...guideDayWindow(dayStartMs(nowMs), nowMs) };
+    setDay(today);
+    setWindowStartMs(today.startMs);
+    setWindowEndMs(today.startMs + GUIDE_SPAN_MINUTES * MINUTE_MS);
   }
   // Another group opens at the window's start, where the canvas rewinds to.
   const [rowsFilter, setRowsFilter] = useState(preferences.filter);
@@ -175,6 +202,16 @@ export function useGuide(): GuideState {
   }
 
   const applyPrograms = useCallback((list: JellyfinItem[], programs: JellyfinProgram[], window: { from: number; to: number }) => {
+    // A program landing on a day proves the day has listings, whichever guide it came from.
+    setCoveredDays((current) => {
+      let next: Set<number> | null = null;
+      for (const program of programs) {
+        const dayMs = program.StartDate ? dayStartMs(Date.parse(program.StartDate)) : NaN;
+        if (Number.isNaN(dayMs) || current.has(dayMs) || next?.has(dayMs)) continue;
+        (next ??= new Set(current)).add(dayMs);
+      }
+      return next ?? current;
+    });
     setProgramsByChannel((current) => {
       const next = { ...current };
       const byChannel = new Map<string, JellyfinProgram[]>();
@@ -309,6 +346,14 @@ export function useGuide(): GuideState {
     [applyPrograms],
   );
   const loadMoreRows = useCallback(() => loadNextPage(loadRef.current), []);
+  // An added guide can list past the server's end, so while one is active the server's end closes no day.
+  const readExternalGuides = useCallback((load: GuideLoad) => {
+    void fetchTunerData()
+      .catch(() => null)
+      .then((data) => {
+        if (!load.retired) setExternalGuides(activeGuideUrls(getLiveTvPreferences(), data?.tvgUrls ?? []).length > 0);
+      });
+  }, []);
 
   useEffect(() => {
     channelsRef.current = [];
@@ -333,6 +378,12 @@ export function useGuide(): GuideState {
         load.hasMore = hasMore;
         load.loaded = pageLength;
         refreshTimers();
+        readExternalGuides(load);
+        fetchGuideHorizon()
+          .then((end) => {
+            if (!load.retired) setGuideEndMs(end);
+          })
+          .catch((err) => logger.warn("Guide horizon read failed", err, { hook: "useGuide" }));
       } catch (err) {
         if (load.retired) return;
         logger.error("Guide load failed", err, { hook: "useGuide" });
@@ -350,7 +401,7 @@ export function useGuide(): GuideState {
     return () => {
       load.retired = true;
     };
-  }, [attempt, session, loadChannelPage, landFor, refreshTimers, playlistIds]);
+  }, [attempt, session, loadChannelPage, landFor, refreshTimers, playlistIds, readExternalGuides]);
 
   // Ticks on the clock's minute boundaries, rescheduled each time so the ruler's now mark lands on :00.
   // Timers stall while the app is suspended, so a return to the foreground resyncs at once.
@@ -402,7 +453,7 @@ export function useGuide(): GuideState {
       const start = loadedStartRef.current;
       const end = windowEndRef.current;
       const wantFrom = Math.max(windowStartMs, windowStartMs + Math.floor((needFromMs - windowStartMs) / span) * span);
-      const wantTo = Math.min(windowStartMs + GUIDE_HORIZON_MINUTES * MINUTE_MS, windowStartMs + Math.ceil((needToMs - windowStartMs) / span) * span);
+      const wantTo = Math.min(day.horizonMs, windowStartMs + Math.ceil((needToMs - windowStartMs) / span) * span);
       // Wholly past the horizon: nothing to load.
       if (wantFrom >= wantTo) return;
       // A stretch with a gap to the loaded one starts over there; one touching it grows the nearer edge.
@@ -433,7 +484,24 @@ export function useGuide(): GuideState {
           if (!load.retired && load.pagePending) loadMoreRows();
         });
     },
-    [windowStartMs, loadPrograms, loadMoreRows, setLoaded],
+    [windowStartMs, day.horizonMs, loadPrograms, loadMoreRows, setLoaded],
+  );
+
+  /** A fresh load on the picked day's window; today's pick again rewinds to the current half hour. */
+  const selectDay = useCallback((dayMs: number) => {
+    const now = Date.now();
+    const next = { dayMs, ...guideDayWindow(dayMs, now) };
+    setDay(next);
+    setWindowStartMs(next.startMs);
+    setWindowEndMs(next.startMs + GUIDE_SPAN_MINUTES * MINUTE_MS);
+    setProgramsByChannel({});
+    setIsLoading(true);
+    setError(null);
+    setAttempt((n) => n + 1);
+  }, []);
+  const days = useMemo<GuideDay[]>(
+    () => guideDays(nowMs).map((startMs) => ({ startMs, hasListings: dayHasListings(startMs, externalGuides ? null : guideEndMs, coveredDays) })),
+    [nowMs, guideEndMs, coveredDays, externalGuides],
   );
 
   // The minute tick retries a page that failed.
@@ -451,9 +519,10 @@ export function useGuide(): GuideState {
       Object.fromEntries(Object.entries(current).map(([channelId, programs]) => [channelId, programs.filter((program) => !program.Id?.startsWith(EXTERNAL_GUIDE_PREFIX))])),
     );
     const load = loadRef.current;
+    readExternalGuides(load);
     if (load.retired || channelsRef.current.length === 0) return;
     loadPrograms(channelsRef.current, loadedStartRef.current, windowEndRef.current, load).catch((err) => logger.warn("Guide source reload failed", err, { hook: "useGuide" }));
-  }, [guideSources, loadPrograms]);
+  }, [guideSources, loadPrograms, readExternalGuides]);
 
   const retry = useCallback(() => {
     setIsLoading(true);
@@ -494,6 +563,9 @@ export function useGuide(): GuideState {
     windowStartMs,
     windowEndMs,
     nowMs,
+    days,
+    selectedDayMs: day.dayMs,
+    selectDay,
     timersByProgramId,
     recordingChannelIds,
     isLoading: isLoading || playlistIds === "loading",

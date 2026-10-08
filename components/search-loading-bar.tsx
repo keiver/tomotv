@@ -1,4 +1,4 @@
-import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import React, { useEffect } from "react";
 import { Platform, StyleSheet } from "react-native";
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
@@ -11,8 +11,8 @@ interface SearchLoadingBarProps {
 }
 
 /**
- * Indeterminate gold sweep pinned to the bottom edge of the search field while a
- * query is in flight. Same gold-on-dark language as CardNavProgress and
+ * Indeterminate accent sweep pinned to the bottom edge of the search field while a
+ * query is in flight. Same accent-on-dark language as CardNavProgress and
  * FolderLoadingBar, but looping — a search has no measurable progress to trickle
  * toward. Honors Reduce Motion (static full-width fill, no sweep). Purely
  * presentational and hidden from assistive tech; the results list announces its
@@ -41,9 +41,11 @@ export function SearchLoadingBar({ active }: SearchLoadingBarProps) {
   // The segment enters fully off-track left and exits fully off-track right.
   const fillStyle = useAnimatedStyle(() => ({ left: `${-SEGMENT + sweep.value * (100 + SEGMENT)}%` }));
 
+  const { accent } = useCardPalette();
+
   return (
     <Animated.View pointerEvents="none" style={[styles.track, trackStyle]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Animated.View style={[styles.fill, reducedMotion ? styles.fillStatic : fillStyle]} />
+      <Animated.View style={[styles.fill, { backgroundColor: accent }, reducedMotion ? styles.fillStatic : fillStyle]} />
     </Animated.View>
   );
 }
@@ -64,7 +66,6 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: `${SEGMENT}%`,
-    backgroundColor: COLORS.ACCENT,
   },
   fillStatic: {
     left: 0,

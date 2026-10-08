@@ -3,14 +3,16 @@ import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
 import { HUD_BAR_HEIGHT } from "@/components/live-tv/guide-hud";
 import { GuideColumnDivider, useColumnResize } from "@/components/live-tv/guide-column-divider";
+import { GuideDayStrip } from "@/components/live-tv/guide-day-strip";
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
 import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler, useRulerScrub } from "@/components/live-tv/guide-time-ruler";
 import { COLORS } from "@/constants/colors";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { cellAtEdge, cellGeometry, guideMetrics, isAiring, MINUTE_MS, mountSpanFor, programTimes, revealOffset, rewindsStandIn, rowSnap, standInChannelId } from "@/utils/guide";
+import { cellAtEdge, cellGeometry, exitsToCard, guideMetrics, isAiring, isRowStart, MINUTE_MS, mountSpanFor, programTimes, revealOffset, rowSnap } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -65,6 +67,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, holdWindow, loadMoreRows } = guide;
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
   const isScreenFocused = useIsFocused();
+  const { onAccent } = useCardPalette();
 
   const insets = useSafeAreaInsets();
   // Phone: the column reopens the way it was last left.
@@ -86,8 +89,17 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   // so the resize drag never re-renders the two lists.
   const columnW = useSharedValue(initialCompact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
   const canvasW = useSharedValue(0);
-  const resize = useColumnResize({ columnW, canvasW, minWidth: METRICS.compactColumnWidth, maxWidth: METRICS.channelColumnWidth, initialCompact, onCompactChange: handleCompactChange });
   const [viewportWidth, setViewportWidth] = useState(0);
+  const handleColumnSettle = useCallback((width: number) => setViewportWidth(canvasW.get() - width + SEAM_REACH), [canvasW]);
+  const resize = useColumnResize({
+    columnW,
+    canvasW,
+    minWidth: METRICS.compactColumnWidth,
+    maxWidth: METRICS.channelColumnWidth,
+    initialCompact,
+    onCompactChange: handleCompactChange,
+    onSettle: handleColumnSettle,
+  });
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
     setViewportWidth(event.nativeEvent.layout.width);
@@ -177,11 +189,12 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     },
     [driver, rowsRef],
   );
-  // Another group opens at its first channel and the window's start; the old rows hold until its first page replaces them.
-  const lastFilterRef = useRef(filter);
+  // Another group, or another day, opens at its first channel and the window's start; the old rows hold until its first page replaces them.
+  const rewindKey = `${filter}|${windowStartMs}`;
+  const lastRewindRef = useRef(rewindKey);
   useEffect(() => {
-    if (lastFilterRef.current === filter) return;
-    lastFilterRef.current = filter;
+    if (lastRewindRef.current === rewindKey) return;
+    lastRewindRef.current = rewindKey;
     if (!gridShown) return;
     rewindToTop(false);
     runOnUI(() => {
@@ -192,7 +205,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       mountPageUi.set(0);
       runOnJS(setMountPage)(0);
     })();
-  }, [filter, gridShown, rewindToTop, stopScrub, gridRef, mountPageUi]);
+  }, [rewindKey, gridShown, rewindToTop, stopScrub, gridRef, mountPageUi]);
 
   // Mac: Escape from a scrolled guide rewinds it to the top; the next press pops as usual.
   useEffect(() => {
@@ -257,7 +270,13 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   );
   // The row the last focused cell sat in: a focus in that same row came from Left or Right.
   const lastCellRowRef = useRef<string | null>(null);
-  const standInFocusedRef = useRef(false);
+  // The focused cell's channel while that cell is its row's first, else null.
+  const rowStartChannelRef = useRef<string | null>(null);
+  const cardNodesRef = useRef(new Map<string, unknown>());
+  const handleCardNode = useCallback((channelId: string, node: unknown) => {
+    if (node) cardNodesRef.current.set(channelId, node);
+    else cardNodesRef.current.delete(channelId);
+  }, []);
   const handleCellFocus = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
       if (!IS_TV) return;
@@ -274,7 +293,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         }
       }
       lastCellRowRef.current = channel.Id;
-      standInFocusedRef.current = standInChannelId(program.Id) !== null;
+      const row = rowDataRef.current.find((candidate) => candidate.channel.Id === channel.Id);
+      rowStartChannelRef.current = row && isRowStart(rowCells(row.channel, row.programs, windowStartMs, windowEndMs, METRICS), program) ? channel.Id : null;
       driver.set("grid");
       setFocusLatched(true);
       // A dwell on the row promotes its channel to the sampler's front; its card plays its clip.
@@ -283,20 +303,22 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     },
     [driver, windowStartMs, windowEndMs, scrollX, gridRef],
   );
-  // A no-listings row is one cell: Left finds none before it, and a scrolled grid lets no focus out to the channel card.
+  // The scrolled grid refuses Left out of a row's first cell, so the press rewinds it and hands focus to the row's card.
   useTVEventHandler(
     useCallback(
       (event: { eventType: string }) => {
+        const channelId = rowStartChannelRef.current;
         // Remote events reach every mounted screen: a press on the player over this one is not the guide's.
-        if (!rewindsStandIn(event.eventType, isScreenFocused && standInFocusedRef.current, scrollX.get())) return;
-        // Past a screen away the rewind jumps: an animated one would mount every page it crosses.
-        const animated = scrollX.get() <= viewportWidth;
+        if (!channelId || !exitsToCard(event.eventType, isScreenFocused, scrollX.get())) return;
+        const focusCard = () => (cardNodesRef.current.get(channelId) as { requestTVFocus?: () => void } | undefined)?.requestTVFocus?.();
+        // Instant, then the card: the focus request lands on a grid already at offset 0.
         runOnUI(() => {
           "worklet";
-          scrollTo(gridRef, 0, 0, animated);
+          scrollTo(gridRef, 0, 0, false);
+          runOnJS(focusCard)();
         })();
       },
-      [isScreenFocused, scrollX, gridRef, viewportWidth],
+      [isScreenFocused, scrollX, gridRef],
     ),
   );
   // While focus sits in the cells region the entry guide points back up at the HUD, so both
@@ -305,7 +327,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const handleCellsEnter = useCallback(() => setCellsFocused(true), []);
   const handleCellsLeave = useCallback(() => {
     lastCellRowRef.current = null;
-    standInFocusedRef.current = false;
+    rowStartChannelRef.current = null;
     setCellsFocused(false);
     setLiveFrameFocus(null);
     setFocusedGuideRow(null);
@@ -374,7 +396,12 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
 
-  const corner = <Animated.View style={[styles.corner, { height: METRICS.rulerHeight }, cornerWidthStyle]} />;
+  // The day strip fills the corner; the column's seam grip is the phone's one resize handle.
+  const corner = (
+    <Animated.View style={[styles.corner, { height: METRICS.rulerHeight }, cornerWidthStyle]}>
+      <GuideDayStrip days={guide.days} selectedMs={guide.selectedDayMs} nowMs={nowMs} onSelect={guide.selectDay} />
+    </Animated.View>
+  );
   const rulerClip = (
     <View style={styles.rulerClip}>
       <RNAnimated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
@@ -385,13 +412,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   // The ruler band: the corner cell, then the ruler mirroring the rows' horizontal scroll.
   const rulerRow = (
     <View style={[styles.topRow, { height: METRICS.rulerHeight }]}>
-      {IS_TV ? (
-        corner
-      ) : (
-        <GestureHandlerRootView style={styles.cornerHost}>
-          <GestureDetector gesture={resize.corner}>{corner}</GestureDetector>
-        </GestureHandlerRootView>
-      )}
+      {corner}
       {IS_TV ? (
         rulerClip
       ) : (
@@ -413,7 +434,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         <View style={styles.center}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorText}>{error}</Text>
-          <FocusableButton title={t("common.retry")} variant="primary" onPress={retry} hasTVPreferredFocus icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={COLORS.ON_ACCENT} />} />
+          <FocusableButton title={t("common.retry")} variant="primary" onPress={retry} hasTVPreferredFocus icon={<Ionicons name="refresh-outline" size={IS_TV ? 24 : 20} color={onAccent} />} />
         </View>
         {seamMark}
       </View>
@@ -463,6 +484,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           onChannelLongPress={onChannelLongPress}
           onChannelFocus={handleChannelFocus}
           onFirstHandle={onEntryHandle}
+          onCardNode={IS_TV ? handleCardNode : undefined}
           onEndReached={loadMoreRows}
         />
         <TVFocusGuideView style={styles.scrollHost} onLayout={handleCanvasLayout} onFocusEnter={IS_TV ? handleCellsEnter : undefined} onFocusLeave={IS_TV ? handleCellsLeave : undefined}>
@@ -533,13 +555,7 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: "hidden",
   },
-  // Unstyled, RNGH's root defaults to flex: 1 and takes half the top row from the ruler.
-  cornerHost: {
-    flexGrow: 0,
-  },
   corner: {
-    justifyContent: "center",
-    alignItems: "center",
     borderBottomWidth: 1,
     borderBottomColor: GRID_LINE,
   },

@@ -2,6 +2,7 @@ import { EmptyCard } from "@/components/empty-card";
 import { localeScreen } from "@/components/locale-boundary";
 import { AmbientBackground } from "@/components/ambient-background";
 import { DownloadRow, removeActions } from "@/components/settings/DownloadRow";
+import { DownloadSpeedHeading } from "@/components/settings/DownloadSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
@@ -24,16 +25,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { LinearTransition } from "react-native-reanimated";
 import { t } from "@/services/i18n";
-
-// A removed row leaves and the stack closes over it, which is the one list animation UIKit does
-// for free and the only reason a delete reads as a delete. It rides the cell rather than the
-// row: a recycled cell would play an exiting animation for a scroll.
-const ROW_SHIFT = LinearTransition.duration(220);
-// The panel's height changes with its rows and Yoga hands it the new height in one frame; without
-// this the card, the list's clip and the footer snap while the rows move under them.
-const PANEL_SHIFT = LinearTransition.duration(220);
 
 /** A folder wears the first artwork it holds: its own cover, in practice, for an album or a season. */
 function groupArtwork(group: DownloadGroup): string | null {
@@ -334,38 +326,26 @@ function DownloadsScreen() {
             // A card rather than a floating block: Remove All empties the list in place, and the
             // section it emptied should still be there, holding what to do about it.
             <>
-              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
-                <Text style={styles.sectionHeaderText} accessibilityRole="header">
-                  {t("downloads.onThisDevice")}
-                </Text>
-              </View>
+              <DownloadSpeedHeading />
               <EmptyCard icon="arrow-down-circle-outline" text={t("downloads.emptyState")} />
             </>
           ) : (
             <>
-              <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst]}>
-                <Text style={styles.sectionHeaderText} accessibilityRole="header">
-                  {t("downloads.onThisDevice")}
-                </Text>
-              </View>
+              <DownloadSpeedHeading />
 
               {/* Capped at whole rows (8 on phone, 4 on TV) and scrolling inside the card, so a
                   device full of downloads, or an expanded folder, cannot run off the bottom of
                   the screen. The wrapper keeps the radius, the clipping and the inset shadow. */}
-              <Animated.View style={[styles.section, screenStyles.card]} layout={PANEL_SHIFT}>
+              <View style={[styles.section, screenStyles.card]}>
                 {/* The rows swipe, and a GestureDetector throws in dev without a root above it.
                     Styled, because the default is flex: 1 and this sits in a content-sized card. */}
                 <GestureHandlerRootView style={screenStyles.gestureRoot}>
-                  <Animated.FlatList
+                  <FlatList
                     ref={listRef}
                     data={flat}
                     keyExtractor={keyOf}
                     renderItem={renderRow}
                     getItemLayout={itemLayout}
-                    itemLayoutAnimation={ROW_SHIFT}
-                    // A screen whose every row fades in reads as a screen still loading, and a
-                    // cell leaving the window is a scroll, not a delete.
-                    skipEnteringExitingAnimations
                     style={[styles.downloadsScrollable, { maxHeight: listHeight }]}
                     initialNumToRender={12}
                     maxToRenderPerBatch={8}
@@ -377,8 +357,8 @@ function DownloadsScreen() {
 
                 {/* The card runs out into the gauge rather than stopping above it: square across
                     the top, the card's own corners at the bottom. */}
-                <StorageBar used={stored} free={Paths.availableDiskSpace} onClear={confirmRemoveAll} layout={PANEL_SHIFT} />
-              </Animated.View>
+                <StorageBar used={stored} free={Paths.availableDiskSpace} onClear={confirmRemoveAll} />
+              </View>
             </>
           )}
         </View>

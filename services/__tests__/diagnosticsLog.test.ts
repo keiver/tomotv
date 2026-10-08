@@ -52,6 +52,12 @@ describe("summarize", () => {
     const summary = summarize(session([at("error", { message: "first" }), at("error", { message: "second" }), at("decline", { reason: "a" }), at("decline", { reason: "b" })]));
     expect(summary).toMatchObject({ error: "second", engineDeclined: "b" });
   });
+
+  it("carries the last error ID the screen showed, and none without one", () => {
+    const codes = [at("errorCode", { code: "PB-ENGINE-NOSEG · ENG", willRetry: true }), at("errorCode", { code: "PB-AVPLAYER · ENG (AVF -11800)", willRetry: false })];
+    expect(summarize(session(codes)).errorCode).toBe("PB-AVPLAYER · ENG (AVF -11800)");
+    expect(summarize(session([at("error", { message: "gave up" })])).errorCode).toBeNull();
+  });
 });
 
 describe("documentText", () => {

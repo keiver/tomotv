@@ -22,6 +22,12 @@ RCT_EXTERN_METHOD(configureResourceLoader:(NSString *)baseUrl
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject)
 
+// The engine frame provider's I-frame line for the configured item
+RCT_EXTERN_METHOD(setIFrameStreamInf:(NSString *)line
+                  itemId:(NSString *)itemId
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+
 // Generate a custom protocol URL for multi-audio playback
 RCT_EXTERN_METHOD(generateCustomUrl:(NSString *)itemId
                   resolve:(RCTPromiseResolveBlock)resolve

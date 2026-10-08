@@ -1,9 +1,9 @@
 /**
  * The `group-title` groups and per-channel tvg-ids of the server's M3U tuners. Jellyfin drops both,
- * so the device streams each playlist through the native module (native/ios/LiveSources), which
- * parses it and computes the item id the server gave every entry.
+ * so the device streams each playlist through the native module (native/ios/TunerGroups over the
+ * engine's playlist loader), which parses it and computes the item id the server gave every entry.
  */
-import { cancelTunerGroups, isLiveSourcesAvailable, loadTunerPlaylist, type TunerGroup, type TunerPlaylist } from "@/services/liveSources";
+import { cancelTunerGroups, isTunerGroupsAvailable, loadTunerPlaylist, type TunerGroup, type TunerPlaylist } from "@/services/liveSources";
 import { cachedRequest, invalidateRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS } from "./constants";
@@ -33,6 +33,14 @@ interface TunerHost {
   Type?: string;
   Url?: string;
   UserAgent?: string;
+}
+
+const LOOPBACK_ORIGIN = /^(https?:\/\/)(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?=[:/?#]|$)/i;
+
+/** A tuner the server reads on its own loopback is at the server's host for this device. */
+function reachableTunerUrl(tunerUrl: string, server: string): string {
+  const host = /^https?:\/\/([^/?#:]+|\[[^\]]+\])/i.exec(server)?.[1];
+  return host ? tunerUrl.replace(LOOPBACK_ORIGIN, `$1${host}`) : tunerUrl;
 }
 
 const TUNER_GROUPS_TTL_MS = 60 * 60 * 1000;
@@ -79,7 +87,7 @@ async function readTuners(config: Awaited<ReturnType<typeof getConfig>>): Promis
 /** The server's http(s) M3U tuners read in one pass: groups and tvg-ids together. `revalidate` reads
  *  the tuner list first and drops the cached read when a playlist was added or removed on the server. */
 export async function fetchTunerData(options: { revalidate?: boolean } = {}): Promise<TunerData> {
-  if (!isLiveSourcesAvailable()) return NO_DATA;
+  if (!isTunerGroupsAvailable()) return NO_DATA;
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const key = `tunerGroups:${config.server}:${config.userId}`;
@@ -110,7 +118,7 @@ export async function fetchTunerData(options: { revalidate?: boolean } = {}): Pr
           const tunerKey = `${key}|${tuner.Url}`;
           let playlist: TunerPlaylist | undefined;
           try {
-            playlist = await loadTunerPlaylist(`tuner-${++requestSeq}`, tuner.Url!, tuner.UserAgent);
+            playlist = await loadTunerPlaylist(`tuner-${++requestSeq}`, tuner.Url!, tuner.UserAgent, reachableTunerUrl(tuner.Url!, config.server));
             if (gen === generation) lastPlaylist.set(tunerKey, playlist);
           } catch (error) {
             logger.warn("Tuner playlist read failed", error, { service: "TunerGroups" });

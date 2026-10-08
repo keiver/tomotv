@@ -22,6 +22,7 @@
  * is the playlist's LANGUAGE on both HLS lanes (`eng`) and 639-1 in an MP4 (`en`), so
  * the item's own spelling is applied (planSubtitleApplication).
  */
+import { isImageBasedSubtitleCodec } from "@/services/jellyfin/subtitles";
 import { getTrackSettingsSync, recordSubtitlePick, type TrackSettings } from "@/services/jellyfin/trackSettings";
 
 /**
@@ -259,6 +260,33 @@ export function subtitlePreferenceFrom(settings: TrackSettings, playingAudioLang
 export function getSubtitlePreferenceSync(playingAudioLanguage?: string | null): SubtitlePreference {
   return subtitlePreferenceFrom(getTrackSettingsSync(), playingAudioLanguage);
 }
+
+type SubtitleStream = { Type?: string; Index?: number; Codec?: string; Language?: string | null; IsForced?: boolean; IsDefault?: boolean };
+
+/** Full tracks before forced ones, text before bitmap, the file's default first within each. */
+function bestOf(candidates: SubtitleStream[]): number | undefined {
+  const rank = (stream: SubtitleStream) => (stream.IsForced === true ? 2 : 0) + (isImageBasedSubtitleCodec(stream.Codec) ? 1 : 0);
+  return [...candidates].sort((a, b) => rank(a) - rank(b) || Number(b.IsDefault === true) - Number(a.IsDefault === true))[0]?.Index;
+}
+
+/**
+ * The subtitle track a viewer would see under `preference`, for a download that has to decide it up
+ * front. System follows AVKit's automatic pick: the device language under audio in another, else forced.
+ */
+export function subtitleShownFor(streams: SubtitleStream[], preference: SubtitlePreference, audioLanguage: string | null | undefined, deviceLanguage: string): number | undefined {
+  const subtitles = streams.filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
+  const inLanguage = (tag: string | null) => {
+    const wanted = knownLanguage(tag);
+    return bestOf(wanted ? subtitles.filter((stream) => knownLanguage(stream.Language) === wanted) : []);
+  };
+  if (preference.kind === "off") return undefined;
+  if (preference.kind === "language") return inLanguage(preference.tag);
+  const audio = knownLanguage(audioLanguage);
+  const device = knownLanguage(deviceLanguage);
+  if (audio && device && audio !== device) return inLanguage(deviceLanguage);
+  return bestOf(subtitles.filter((stream) => stream.IsForced === true && (!audio || knownLanguage(stream.Language) === audio)));
+}
+
 /** `tag` is Jellyfin's spelling of the stream's language, the one its settings expect. */
 export async function saveSubtitlePreference(preference: SubtitlePreference): Promise<void> {
   if (preference.kind !== "system") recordSubtitlePick(preference);

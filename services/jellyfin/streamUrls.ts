@@ -79,10 +79,17 @@ export function getRemoteVideoStreamUrl(itemId: string, videoItem?: JellyfinVide
 }
 
 /**
- * The server's progressive re-encode of the original: chunked fragmented MP4 written as
- * ffmpeg produces it, with no length and no ranges. What a converted download fetches.
+ * The server's progressive re-encode a converted download fetches. Jellyfin names its output from
+ * the media path, device and play session only (StreamingHelpers.GetOutputFilePath), so each fetch
+ * carries its own session or it can be handed an earlier conversion's file at another size.
  */
-export function getConvertedDownloadUrl(itemId: string, videoItem: JellyfinVideoItem, rung: ConversionRung, audioStreamIndex: number | undefined): string {
+export function getConvertedDownloadUrl(
+  itemId: string,
+  videoItem: JellyfinVideoItem,
+  rung: ConversionRung,
+  audioStreamIndex: number | undefined,
+  options: { playSessionId: string; burnSubtitleIndex?: number },
+): string {
   const config = getCachedConfig();
   if (!config.server || !config.apiKey) return "";
   const mediaSourceId = videoItem.MediaSources?.[0]?.Id || itemId;
@@ -94,6 +101,8 @@ export function getConvertedDownloadUrl(itemId: string, videoItem: JellyfinVideo
     `&VideoBitrate=${rung.bitrate}&AudioBitrate=${CONVERT_AUDIO_BITRATE}` +
     `&MaxWidth=${rung.width}&MaxHeight=${rung.height}` +
     `&TranscodingMaxAudioChannels=2` +
+    (options.burnSubtitleIndex !== undefined ? `&SubtitleMethod=Encode&SubtitleStreamIndex=${options.burnSubtitleIndex}` : "") +
+    `&PlaySessionId=${options.playSessionId}` +
     `&ApiKey=${config.apiKey}`
   );
 }
