@@ -70,6 +70,7 @@ const FIELD_LABELS = {
   keywords: "Keywords",
   "whatsNew.IOS": "What's New, iOS",
   "whatsNew.TV_OS": "What's New, tvOS",
+  "whatsNew.MAC_OS": "What's New, macOS",
   description: "Description",
 };
 
@@ -105,7 +106,7 @@ function jobs() {
   const english = doc["en-US"];
   const previous = priorRelease();
   const out = [];
-  for (const platform of ["IOS", "TV_OS"]) {
+  for (const platform of Object.keys(PLATFORM_LABELS)) {
     const key = `whatsNew.${platform}`;
     const text = english[key];
     if (!text) fail(`No English What's New for ${VERSION} ${PLATFORM_LABELS[platform]} in ${DOC}`);
@@ -374,7 +375,8 @@ if (WRITE) {
   if (!accepted.length) fail("Nothing to write. --write needs the document's own English notes, not --file.");
   const file = path.join(ROOT, DOC);
   let lines = fs.readFileSync(file, "utf8").split("\n");
-  for (const { locale, field, platform, out } of [...accepted].sort((a, b) => (a.platform === b.platform ? 0 : a.platform === "TV_OS" ? -1 : 1))) {
+  const platformOrder = Object.keys(PLATFORM_LABELS);
+  for (const { locale, field, platform, out } of [...accepted].sort((a, b) => platformOrder.indexOf(b.platform) - platformOrder.indexOf(a.platform))) {
     lines = field === "promotionalText" ? writePromotionalText(lines, STORE_LOCALES[locale], out) : writeWhatsNew(lines, STORE_LOCALES[locale], VERSION, platform, out);
   }
   fs.writeFileSync(file, lines.join("\n"));

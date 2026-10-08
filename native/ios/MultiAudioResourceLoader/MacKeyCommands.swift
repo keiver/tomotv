@@ -228,7 +228,7 @@ class MacKeyCommands: RCTEventEmitter {
     private static weak var listener: MacKeyCommands?
 
     /// Both ways this app reaches a desktop: the iOS binary run by macOS, and a
-    /// future Catalyst build. False on every device we ship to today.
+    /// Mac Catalyst build. False on iPhone, iPad, and Apple TV.
     static var isMacHost: Bool {
         let info = ProcessInfo.processInfo
         return info.isiOSAppOnMac || info.isMacCatalystApp

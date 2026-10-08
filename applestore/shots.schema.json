@@ -37,7 +37,7 @@
     "shots": { "type": "array", "items": { "$ref": "#/$defs/shot" } }
   },
   "$defs": {
-    "device": { "enum": ["iphone", "ipad", "tv"] },
+    "device": { "enum": ["iphone", "ipad", "tv", "mac"] },
     "locale": { "type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$" },
     "text": {
       "type": "object",

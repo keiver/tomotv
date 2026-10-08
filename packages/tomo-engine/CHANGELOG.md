@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+
+- Add universal Mac Catalyst slices (Apple Silicon and Intel) to the pinned FFmpeg frameworks, targeting macOS 13.4 or later. VideoToolbox requests Metal-compatible pixel buffers on Catalyst, and Metal shaders target the same OS minimum.
+- Support checksum-verified local artifact installation through `TOMO_FFMPEG_ARTIFACTS_DIR` for validation before publishing a release.
+
 ## 1.0.1
 
 - An I-frame rendition for scrubbing on every VOD session with video: `#EXT-X-I-FRAME-STREAM-INF` beside the copy, ladder or not. Entries are the demuxer's keyframes where it indexes them (Matroska, WebM, MP4/MOV, AVI), else the segment grid. Each is the keyframe in a fragment of its own over a video-only init, read through a `FrameGrabber` of its own. The rendition is always SDR (HLS authoring spec 6.16): the keyframe is copied for an SDR picture inside 1920x1080 that the session copies, and otherwise encoded as H.264 High 4.0 inside 1920x1080, PQ and HLG tone-mapped to BT.709; Dolby Vision profile 5 gets none. The line declares RFC 8216's peak and AVERAGE-BANDWIDTH, each sample lasts until the next fragment's tfdt, and playlists go out gzip-encoded. A frame that cannot be read is answered with the nearest made one, never a miss.

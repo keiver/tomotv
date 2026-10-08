@@ -1,7 +1,7 @@
 # @keiver/tomo-engine
 
 The on-device playback engine behind [Tomo TV](https://github.com/keiver/tomotv), for
-Expo apps on Apple TV and iOS. FFmpeg demuxes any container; H.264 and HEVC are stream
+Expo apps on Apple TV, iOS, and Mac Catalyst. FFmpeg demuxes any container; H.264 and HEVC are stream
 copied, everything else is transcoded on the device with VideoToolbox, and the result
 is served to the native player as HLS from a loopback server. Text subtitles become HLS
 renditions, image subtitles become timed bitmaps, Dolby and multi-audio pass through.
@@ -25,6 +25,12 @@ npm install @keiver/tomo-engine
 ```
 
 Then run `expo prebuild`.
+
+The pinned frameworks include Apple Silicon and Intel Catalyst slices for macOS
+13.4 or later. A Catalyst host app must enable outgoing and incoming network
+connections in its sandbox: the engine serves AVPlayer from a loopback listener.
+For local artifact validation before publishing, set `TOMO_FFMPEG_ARTIFACTS_DIR`
+to the directory of built ZIPs; installation still checks the pinned SHA256s.
 
 ## Native modules
 

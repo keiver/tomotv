@@ -30,6 +30,7 @@
       }
     },
     "plugins": [
+      "./plugins/withMacCatalyst",
       "expo-router",
       [
         "expo-build-properties",

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# archive-both.sh -- build App Store artifacts for iOS and tvOS in one run.
+# archive-both.sh -- build App Store artifacts for iOS, Mac Catalyst and tvOS.
 #
 # Usage:
 #   npm run archive -- <buildNumber>            # archive + export + validate, no upload
-#   npm run archive -- <buildNumber> --upload   # same, then upload both to App Store Connect
+#   npm run archive -- <buildNumber> --upload   # same, then upload all three to App Store Connect
 #                                               # (--upload also composes and uploads the
 #                                               #  screenshots and the listing text, every
 #                                               #  store language)
@@ -15,7 +15,7 @@
 #                                               #  the lockfile is never deleted)
 #
 # Per platform: expo prebuild -> xcodebuild archive (lands in Xcode Organizer)
-# -> export signed .ipa -> local verification -> App Store validation, or with
+# -> export signed .ipa/.pkg -> local verification -> App Store validation, or with
 # --upload a single upload (Apple validates it) confirmed by its delivery id.
 # iOS runs first; tvOS runs last so the working tree is
 # left in tvOS state for normal development.
@@ -29,9 +29,9 @@
 #   NTFY_TOPIC=<optional ntfy.sh topic, pinged when a run fails>
 #
 # Without credentials the script still produces signed, locally verified
-# .ipas and skips ASC validation with a notice. --upload requires them.
+# artifacts and skips ASC validation with a notice. --upload requires them.
 #
-# Signing: the export signs manually with the local "Apple Distribution"
+# Signing: iOS/tvOS export with the local "Apple Distribution"
 # identity plus a named App Store profile, per platform (exportOptions-ios.plist,
 # exportOptions-tvos.plist). Nothing in the export path needs an Xcode Apple ID
 # session. Before 2026-08-27 there was no distribution certificate on this
@@ -39,10 +39,13 @@
 # silently made every release depend on a keychain session token that no machine
 # migration can carry. The certificate and its private key now live in the login
 # keychain, backed up at ~/nogit/tomotv-signing/.
+# Mac archive and export use Xcode-managed signing with the same API key and
+# -allowProvisioningUpdates; Xcode manages its distribution signing assets.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+source scripts/native-build-lock.sh
 
 # ---------------------------------------------------------------- args / env
 
@@ -120,6 +123,7 @@ fi
 if [[ -n "$SEED" ]]; then
   echo "  WARNING: seed toolchain allowed by ALLOW_SEED_TOOLCHAIN=1; App Store will reject." >&2
 fi
+bash scripts/check-xcode-tools.sh
 
 if [[ -f .env.archive ]]; then
   set -a
@@ -193,10 +197,11 @@ fi
 if [[ $UPLOAD -eq 1 ]]; then
   echo "Checking the release notes and listing text before building"
   if [[ $NOTES -eq 1 ]]; then
-    node scripts/appstore-upload-meta.mjs --check --locale en-US
+    node scripts/appstore-upload-meta.mjs --check-online --locale en-US
   else
-    node scripts/appstore-upload-meta.mjs --check
+    node scripts/appstore-upload-meta.mjs --check-online
   fi
+  node scripts/appstore-shots.mjs --check-captures
   echo ""
 fi
 
@@ -291,27 +296,46 @@ build_platform() {
   local archive="$ORGANIZER_DIR/TomoTV-$label-$TS.xcarchive"
   local export_dir="$EXPORT_ROOT/$label"
   local validated="skipped (no ASC credentials)" uploaded="-"
+  local workspace=ios/TomoTV.xcworkspace scheme=TomoTV
+  local mac_settings=()
+  local export_auth=()
 
   echo "[$label]"
-  run_logged "$label-prebuild.log" env CI=1 EXPO_TV="$expo_tv" npx expo prebuild --clean -p ios
+  if [[ "$label" == macOS ]]; then
+    run_logged "$label-prebuild.log" env CI=1 bash scripts/prebuild-mac.sh
+    workspace=macos/TomoTV.xcworkspace
+    scheme=TomoTV-macOS
+    mac_settings=("ARCHS=arm64 x86_64" ONLY_ACTIVE_ARCH=NO)
+    export_auth=(${XCODE_API_AUTH[@]+"${XCODE_API_AUTH[@]}"} -allowProvisioningUpdates)
+  else
+    run_logged "$label-prebuild.log" env CI=1 EXPO_MACCATALYST=0 EXPO_TV="$expo_tv" npx expo prebuild --clean -p ios
+  fi
   run_logged "$label-archive.log" xcodebuild archive \
-    -workspace ios/TomoTV.xcworkspace -scheme TomoTV -configuration Release \
+    -workspace "$workspace" -scheme "$scheme" -configuration Release \
     -destination "$dest" -archivePath "$archive" \
+    ${mac_settings[@]+"${mac_settings[@]}"} \
     ${XCODE_API_AUTH[@]+"${XCODE_API_AUTH[@]}"} -allowProvisioningUpdates
   # Export copies with openrsync, which runs `rsync` from PATH as its server; a
   # Homebrew rsync there rejects openrsync's flags and the IPA step dies with "Copy failed".
   #
-  # No credentials and no -allowProvisioningUpdates here on purpose: the export
-  # plists sign manually against the local "Apple Distribution" identity with a
-  # named profile, so this step is fully offline. See exportOptions-ios.plist.
+  # iOS/tvOS retain their local distribution identity and named profiles.
+  # Mac export uses the archive's API authentication and automatic provisioning
+  # so no Mac-specific certificate/profile setup is required before this run.
   run_logged "$label-export.log" env PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     xcodebuild -exportArchive -archivePath "$archive" \
-    -exportOptionsPlist "$export_plist" -exportPath "$export_dir"
+    -exportOptionsPlist "$export_plist" -exportPath "$export_dir" \
+    ${export_auth[@]+"${export_auth[@]}"}
 
   local ipa
-  ipa=$(ls "$export_dir"/*.ipa | head -1)
   echo "  -> verifying signature, platform, build number"
-  verify_ipa "$ipa" "$dt_platform"
+  if [[ "$label" == macOS ]]; then
+    ipa=$(find "$export_dir" -maxdepth 1 -name '*.pkg' -print -quit)
+    [[ -n "$ipa" ]] || { echo "No Mac installer package exported" >&2; exit 1; }
+    run_logged "$label-verify.log" bash scripts/verify-mac-package.sh "$ipa" "$BUILD_NUMBER" "$VERSION"
+  else
+    ipa=$(ls "$export_dir"/*.ipa | head -1)
+    verify_ipa "$ipa" "$dt_platform"
+  fi
 
   # The upload runs Apple's validation itself, so validating first would send the .ipa twice.
   if [[ $HAVE_CREDS -eq 1 && $UPLOAD -eq 1 ]]; then
@@ -335,7 +359,7 @@ build_platform() {
 
 # ---------------------------------------------------------------- pipeline
 
-STEPS=$([[ $UPLOAD -eq 1 ]] && echo 7 || echo 4)
+STEPS=$([[ $UPLOAD -eq 1 ]] && echo 8 || echo 5)
 
 echo "[1/$STEPS] Stamping build number $BUILD_NUMBER into app.json"
 node -e 'const fs=require("fs");const n=process.argv[1];const s=fs.readFileSync("app.json","utf8");const out=s.replace(/("buildNumber":\s*")[^"]*(")/,"$1"+n+"$2");if(!out.includes(`"buildNumber": "${n}"`))throw new Error("buildNumber not stamped in app.json");fs.writeFileSync("app.json",out);' "$BUILD_NUMBER"
@@ -350,12 +374,16 @@ else
   echo "[2/$STEPS] Install (npm i, lockfile versions)"
   run_logged "npm-install.log" npm i
 fi
+python3 scripts/check-catalyst-frameworks.py
 echo ""
 
 echo "[3/$STEPS] iOS"
 build_platform iOS "generic/platform=iOS" ios iphoneos 0 scripts/exportOptions-ios.plist
 
-echo "[4/$STEPS] tvOS"
+echo "[4/$STEPS] Mac Catalyst"
+build_platform macOS "generic/platform=macOS,variant=Mac Catalyst" macos macosx 0 scripts/exportOptions-macos.plist
+
+echo "[5/$STEPS] tvOS"
 build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/exportOptions-tvos.plist
 
 # ---------------------------------------------------------------- summary
@@ -367,12 +395,11 @@ build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/export
 # here rather than trusted, because generated/ is gitignored and what sits on
 # this disk may predate the .ipa that just went up.
 #
-# Deliberately the plain run, never --capture: driving the simulators is
-# unreliable on some screens, so the captures are taken by hand and this step
-# only composes and uploads them.
+# Captures are taken by hand. --render composes those staged files directly;
+# an archive must not import unrelated screenshots from the Desktop.
 if [[ $UPLOAD -eq 1 ]]; then
-  echo "[5/$STEPS] Screenshots"
-  npm run shots || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
+  echo "[6/$STEPS] Screenshots"
+  npm run shots -- --render || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
   # --create-version: the binary for this version just went up, so opening its
   # draft to hang the shots on is intended, not the silent open the flag guards.
   npm run shots:upload -- --create-version || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
@@ -392,13 +419,13 @@ if [[ $UPLOAD -eq 1 ]]; then
 
   # A language with screenshots and no description cannot be submitted, so the
   # text goes up in the same run as the pictures.
-  echo "[6/$STEPS] Listing text"
+  echo "[7/$STEPS] Listing text"
   npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
-  RESULTS+=("listing text | uploaded, every store language, both platforms")
+  RESULTS+=("listing text | uploaded, every store language, all three platforms")
 
-  echo "[7/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
+  echo "[8/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
   node scripts/appstore-attach-build.mjs "$BUILD_NUMBER" || { echo "Selecting the build failed; everything is uploaded, pick build $BUILD_NUMBER in App Store Connect." >&2; exit 1; }
-  RESULTS+=("build $BUILD_NUMBER | selected on both $VERSION versions")
+  RESULTS+=("build $BUILD_NUMBER | selected on all three $VERSION versions")
 fi
 
 echo "Done. TomoTV $VERSION ($BUILD_NUMBER)"

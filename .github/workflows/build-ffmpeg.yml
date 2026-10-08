@@ -16,6 +16,8 @@ on:
     paths:
       - "scripts/ffmpeg/build.sh"
       - "scripts/ffmpeg/sources.sh"
+      - "scripts/ffmpeg/run-linktest.sh"
+      - "scripts/check-xcode-tools.sh"
       - "packages/tomo-engine/ffmpeg-lock.json"
       - ".github/workflows/build-ffmpeg.yml"
   workflow_dispatch:
@@ -64,8 +66,7 @@ jobs:
   build:
     needs: check
     if: needs.check.outputs.exists != 'true'
-    # arm64 runner: the shipped slices are all arm64 except the two x86_64
-    # simulator halves, which cross-compile fine from here.
+    # arm64 runner; cross-compile the Intel Catalyst and simulator halves.
     runs-on: macos-15
     timeout-minutes: 300
 
@@ -87,6 +88,8 @@ jobs:
           meson --version
 
       - name: Build
+        env:
+          TOMOTV_INSTALL_XCODE_COMPONENTS: "1"
         run: bash scripts/ffmpeg/build.sh
 
       # A link failure here is the whole point of the gate: it means the app
@@ -96,6 +99,11 @@ jobs:
 
       - name: Link test (macOS slice, runs)
         run: bash scripts/ffmpeg/run-linktest.sh macos-arm64
+
+      - name: Link test (Mac Catalyst, Apple Silicon and Intel)
+        run: |
+          bash scripts/ffmpeg/run-linktest.sh catalyst-arm64
+          bash scripts/ffmpeg/run-linktest.sh catalyst-x86_64
 
       - name: Write lock file
         run: |

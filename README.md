@@ -1,13 +1,13 @@
 # Tomo TV
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-tvOS%20%7C%20iOS%20%7C%20iPadOS-lightgrey.svg)
+![Platform](https://img.shields.io/badge/platform-tvOS%20%7C%20iOS%20%7C%20iPadOS%20%7C%20macOS-lightgrey.svg)
 [![Tests](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml/badge.svg)](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml)
 [![Download on the App Store](https://img.shields.io/badge/App_Store-Download-black?logo=apple&logoColor=white)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 [![@keiver/tomo-engine](https://img.shields.io/npm/v/@keiver/tomo-engine?label=%40keiver%2Ftomo-engine)](https://www.npmjs.com/package/@keiver/tomo-engine)
 [![@keiver/tomo-live](https://img.shields.io/npm/v/@keiver/tomo-live?label=%40keiver%2Ftomo-live)](https://www.npmjs.com/package/@keiver/tomo-live)
 
-A free, open source Jellyfin client for Apple TV, iPhone and iPad. Files play at
+A free, open source Jellyfin client for Apple TV, iPhone, iPad and Mac. Files play at
 original quality in Apple's own player, with an on-device FFmpeg engine doing the
 format work the server would otherwise transcode: MKV and AVI, Dolby Vision,
 Dolby Atmos, PGS subtitles and Live TV. Built with React Native (react-native-tvos)
@@ -241,9 +241,11 @@ of `packages/`: it ships to npm.
 
 ## Known limitations
 
-- **Platforms.** tvOS, iOS and iPadOS; the iPad app also runs on Apple silicon
-  Macs. No Android.
-- **Downloads** are iPhone and iPad only: tvOS gives apps no persistent storage.
+- **Platforms.** tvOS, iOS, iPadOS, and Mac Catalyst on macOS 13.4 or later
+  (Apple Silicon and Intel). No Android. `npm run clear` prepares all three
+  Xcode schemes; `npm run clearmac` prepares just Mac. See
+  [release setup](docs/RELEASING.md#mac-setup-and-local-validation) for signing and screenshots.
+- **Downloads** are available on iPhone, iPad and Mac: tvOS gives apps no persistent storage.
 - **Server.** Jellyfin only.
 - **Network.** HTTP is allowed on every network. Use HTTPS beyond your LAN.
 

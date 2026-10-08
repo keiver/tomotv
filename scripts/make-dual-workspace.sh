@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# Generates a root-level TomoTV.xcworkspace that references both the iOS (ios/)
-# and tvOS (tvos/) projects plus their Pods, so both platforms open in one
-# Xcode window. Renames the project bundles, Pods projects, and schemes with
-# -iOS / -tvOS suffixes so the two platforms are distinguishable in the
-# navigator and the scheme picker. Safe: nothing else references the bundle
-# filenames (pbxproj has zero refs, Podfile declares no project, expo CLI
-# globs ios/*.xcodeproj) except the scheme's ReferencedContainer, patched here.
-# Run by `npm run prebuild:dual` after both prebuilds finish. Idempotent.
+# Generates a root-level TomoTV.xcworkspace for iOS and tvOS, plus macOS with
+# --all. Renames the project bundles, Pods projects, and schemes with
+# -iOS / -tvOS / -macOS suffixes so the platforms are distinguishable in the
+# navigator and the scheme picker. Retargets the scheme, fallback workspace,
+# and explicit app-to-Pods dependency to the renamed bundles.
+# Run by prebuild:dual and prebuild:all after generation. Idempotent.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+source scripts/native-build-lock.sh
 
 # suffix_platform <dir> <suffix>: rename TomoTV.xcodeproj, Pods.xcodeproj, and
 # the shared scheme in <dir> to carry <suffix>. Pieces already renamed are
@@ -21,7 +20,7 @@ suffix_platform() {
     mv "$dir/TomoTV.xcodeproj" "$dir/TomoTV-$suffix.xcodeproj"
   fi
   if [ ! -d "$dir/TomoTV-$suffix.xcodeproj" ]; then
-    echo "make-dual-workspace: no TomoTV project in $dir/. Run npm run prebuild:dual first." >&2
+    echo "make-dual-workspace: no TomoTV project in $dir/. Run npm run prebuild:all first." >&2
     exit 1
   fi
 
@@ -37,6 +36,7 @@ suffix_platform() {
   if [ -f "$schemes/TomoTV-$suffix.xcscheme" ]; then
     sed -i '' "s|container:TomoTV.xcodeproj|container:TomoTV-$suffix.xcodeproj|g" "$schemes/TomoTV-$suffix.xcscheme"
   fi
+  node scripts/link-platform-pods.js "$dir" "$suffix"
 
   # Keep the per-platform fallback workspace working with the renamed bundles.
   cat > "$dir/TomoTV.xcworkspace/contents.xcworkspacedata" <<EOF
@@ -53,28 +53,38 @@ suffix_platform() {
 EOF
 }
 
-suffix_platform ios iOS
-suffix_platform tvos tvOS
+PLATFORMS=("ios:iOS" "tvos:tvOS")
+case "${1:-}" in
+  --mac-only) suffix_platform macos macOS; exit 0 ;;
+  --all) PLATFORMS=("ios:iOS" "macos:macOS" "tvos:tvOS") ;;
+  "") ;;
+  *) echo "Usage: $0 [--all|--mac-only]" >&2; exit 1 ;;
+esac
+for platform in "${PLATFORMS[@]}"; do
+  IFS=: read -r dir suffix <<< "$platform"
+  suffix_platform "$dir" "$suffix"
+done
 
 mkdir -p TomoTV.xcworkspace
-cat > TomoTV.xcworkspace/contents.xcworkspacedata <<'EOF'
+{
+  cat <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <Workspace
    version = "1.0">
-   <FileRef
-      location = "group:ios/TomoTV-iOS.xcodeproj">
-   </FileRef>
-   <FileRef
-      location = "group:ios/Pods/Pods-iOS.xcodeproj">
-   </FileRef>
-   <FileRef
-      location = "group:tvos/TomoTV-tvOS.xcodeproj">
-   </FileRef>
-   <FileRef
-      location = "group:tvos/Pods/Pods-tvOS.xcodeproj">
-   </FileRef>
-</Workspace>
 EOF
+  for platform in "${PLATFORMS[@]}"; do
+    IFS=: read -r dir suffix <<< "$platform"
+    cat <<EOF
+   <FileRef
+      location = "group:$dir/TomoTV-$suffix.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "group:$dir/Pods/Pods-$suffix.xcodeproj">
+   </FileRef>
+EOF
+  done
+  echo '</Workspace>'
+} > TomoTV.xcworkspace/contents.xcworkspacedata
 
 # Stop Xcode from auto-creating schemes for every target (Pods, extensions),
 # which would put duplicate unlabeled "TomoTV" entries back in the picker.

@@ -70,6 +70,9 @@ jobs:
       - name: Screenshot slots hold their own captions
         run: npm run test:shots
 
+      - name: Release platforms, captures, and Xcode setup
+        run: npm run test:release
+
   # Both Swift packages are platforms: [.macOS(.v14)] and link the FFmpeg xcframeworks, which
   # packages/tomo-engine/scripts/fetch-ffmpeg.js refuses to download off darwin. The engine
   # cannot ride the ubuntu job.

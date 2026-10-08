@@ -1,11 +1,48 @@
 #!/usr/bin/env bash
-# Prebuilds both platforms into ios/ + tvos/ and writes the dual workspace.
+# Prebuilds iOS, optionally Mac Catalyst, then tvOS into separate projects.
 # Each pod install is bracketed by the RN artifact cache so `--clean` wipes
 # don't force a full re-download of the prebuilt tarballs every run.
 # Updates the existing trees in place so Xcode keeps compiled Pods: project
 # inputs changed -> --clean, pod inputs changed -> pod install, else neither.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/native-build-lock.sh
+WITH_MAC=0
+case "${1:-}" in
+  --with-mac) WITH_MAC=1 ;;
+  "") ;;
+  *) echo "Usage: $0 [--with-mac]" >&2; exit 1 ;;
+esac
+[ $# -le 1 ] || { echo "Usage: $0 [--with-mac]" >&2; exit 1; }
+export EXPO_MACCATALYST=0
+export EXPO_TV=0
+bash scripts/check-xcode-tools.sh
+if [ "$WITH_MAC" = "1" ]; then
+  bash scripts/prebuild-mac.sh --recover
+  python3 scripts/check-catalyst-frameworks.py
+fi
+
+# tvOS temporarily uses ios/. Restore the completed iOS tree after a failure
+# or interruption, including a previous process that was killed before cleanup.
+recover_ios() {
+  [ -d ios.iphone ] || return 0
+  if [ -d ios ]; then
+    rm -rf tvos
+    mv ios tvos
+  fi
+  mv ios.iphone ios
+}
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  recover_ios
+  if [ -n "${MTIMES:-}" ]; then rm -f "$MTIMES"; fi
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+recover_ios
 
 cache() { bash scripts/rn-artifact-cache.sh "$@"; }
 
@@ -21,7 +58,7 @@ hash_files() {
 
 # Plugins carry the native file lists, so a removed native file changes this too.
 project_hash() {
-  hash_files app.json package.json package-lock.json scripts/prebuild-dual.sh scripts/make-dual-workspace.sh \
+  hash_files app.json package.json package-lock.json scripts/prebuild-dual.sh scripts/make-dual-workspace.sh scripts/link-platform-pods.js \
     $(find plugins patches assets/brand -type f -not -name .DS_Store | LC_ALL=C sort)
 }
 
@@ -47,6 +84,7 @@ unsuffix() {
   local schemes="$dir/TomoTV.xcodeproj/xcshareddata/xcschemes"
   mv "$dir/TomoTV-$suffix.xcodeproj" "$dir/TomoTV.xcodeproj"
   mv "$dir/Pods/Pods-$suffix.xcodeproj" "$dir/Pods/Pods.xcodeproj"
+  sed -i '' "s|Pods-$suffix.xcodeproj|Pods.xcodeproj|g" "$dir/TomoTV.xcodeproj/project.pbxproj"
   mv "$schemes/TomoTV-$suffix.xcscheme" "$schemes/TomoTV.xcscheme"
   sed -i '' "s|container:TomoTV-$suffix.xcodeproj|container:TomoTV.xcodeproj|g" "$schemes/TomoTV.xcscheme"
 }
@@ -68,52 +106,62 @@ rm -f "$PROJECT_STAMP" "$PODS_STAMP"
 
 if [ "$INCREMENTAL" = "1" ]; then
   MTIMES="$(mktemp)"
-  trap 'rm -f "$MTIMES"' EXIT
   /usr/bin/python3 scripts/preserve-mtimes.py snapshot "$MTIMES" ios tvos
   if [ "$RUN_PODS" = "1" ]; then
     echo "prebuild-dual: project inputs unchanged, pod inputs changed: updating in place with pod install"
   else
     echo "prebuild-dual: project and pod inputs unchanged: updating in place, skipping pod install"
   fi
-  # tvOS: expo only writes to ios/, so park the iOS tree while tvOS is updated.
-  # pod install runs from tvos/ so Pods record the final path.
-  mv ios ios.iphone && mv tvos ios
-  unsuffix ios tvOS
-  # --no-clean: since Expo SDK 57 prebuild clears the tree, Pods included, unless told not to.
-  EXPO_TV=1 expo prebuild --no-clean --platform ios --no-install
-  mv ios tvos && mv ios.iphone ios
-  if [ "$RUN_PODS" = "1" ]; then
-    cache seed tvos
-    ( cd tvos && EXPO_TV=1 pod install )
-    cache save tvos
-  fi
-
-  unsuffix ios iOS
-  expo prebuild --no-clean --platform ios --no-install
-  if [ "$RUN_PODS" = "1" ]; then
-    cache seed ios
-    ( cd ios && pod install )
-    cache save ios
-  fi
 else
   echo "prebuild-dual: project inputs changed or no complete prior run: prebuilding --clean"
-  rm -rf ios.iphone
+fi
 
-  # tvOS: prebuild as ios/ (no pods yet), rename to tvos/, then install.
-  EXPO_TV=1 expo prebuild --clean --platform ios --no-install
-  rm -rf tvos && mv ios tvos
-  cache seed tvos
-  ( cd tvos && EXPO_TV=1 pod install )
-  cache save tvos
-
-  # iOS: prebuild without auto-install so we can seed before pods.
+STEPS=2
+if [ "$WITH_MAC" = "1" ]; then STEPS=3; fi
+echo "prebuild: [1/$STEPS] iOS"
+if [ "$INCREMENTAL" = "1" ]; then
+  unsuffix ios iOS
+  # Expo SDK 57 clears the tree, Pods included, unless told not to.
+  expo prebuild --no-clean --platform ios --no-install
+else
   expo prebuild --clean --platform ios --no-install
+fi
+if [ "$RUN_PODS" = "1" ]; then
   cache seed ios
   ( cd ios && pod install )
   cache save ios
 fi
 
-bash scripts/make-dual-workspace.sh
+if [ "$WITH_MAC" = "1" ]; then
+  echo "prebuild: [2/$STEPS] Mac Catalyst"
+  bash scripts/prebuild-mac.sh
+fi
+
+echo "prebuild: [$STEPS/$STEPS] tvOS"
+# Expo only writes ios/. Park iOS while generating tvOS, then install Pods
+# from tvos/ so their generated paths point at the final location.
+mv ios ios.iphone
+if [ "$INCREMENTAL" = "1" ]; then
+  mv tvos ios
+  unsuffix ios tvOS
+  EXPO_TV=1 expo prebuild --no-clean --platform ios --no-install
+else
+  EXPO_TV=1 expo prebuild --clean --platform ios --no-install
+  rm -rf tvos
+fi
+mv ios tvos
+mv ios.iphone ios
+if [ "$RUN_PODS" = "1" ]; then
+  cache seed tvos
+  ( cd tvos && EXPO_TV=1 pod install )
+  cache save tvos
+fi
+
+if [ "$WITH_MAC" = "1" ]; then
+  bash scripts/make-dual-workspace.sh --all
+else
+  bash scripts/make-dual-workspace.sh
+fi
 if [ "$INCREMENTAL" = "1" ]; then
   /usr/bin/python3 scripts/preserve-mtimes.py restore "$MTIMES"
 fi

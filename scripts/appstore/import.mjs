@@ -14,6 +14,7 @@ import { DEVICES } from "./compose.mjs";
 
 /** Folder-name patterns, most specific first: "tvos" must not be read as iOS. */
 const FOLDER_PATTERNS = [
+  ["mac", /(^|[^a-z])(mac|macos|catalyst)([^a-z]|$)/i],
   ["tv", /(tvos|appletv|apple-tv|\btv\b)/i],
   ["ipad", /(ipad|tablet)/i],
   ["iphone", /(iphone|\bios\b)/i],

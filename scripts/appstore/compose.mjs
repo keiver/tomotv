@@ -40,6 +40,11 @@ const descentOf = (stack) => {
 };
 
 export const DEVICES = {
+  mac: {
+    canvas: [2880, 1800],
+    bleed: true,
+    tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.86, clearance: 0.04 },
+  },
   iphone: {
     simulator: "iPhone 18 Pro Max",
     canvas: [1320, 2868],
@@ -68,6 +73,7 @@ export const DEVICES = {
 export async function wrongOrientation(file, deviceKey) {
   const [cw, ch] = DEVICES[deviceKey].canvas;
   const meta = await sharp(file).metadata();
+  if (deviceKey === "mac" && Math.abs(meta.width / meta.height - cw / ch) / (cw / ch) > 0.01) return `${meta.width}x${meta.height}; Mac captures must be landscape 16:10`;
   const landscape = meta.width > meta.height;
   if (landscape === cw > ch) return null;
   return `${meta.width}x${meta.height} is ${landscape ? "landscape" : "portrait"}; ${deviceKey} takes ${cw > ch ? "landscape" : "portrait"} only`;
