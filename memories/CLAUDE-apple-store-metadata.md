@@ -98,23 +98,21 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.11), iOS (350 / 4000)
+### What's New (2.2.11), iOS (142 / 4000)
 
 ```text
-- Pick a channel's groups from its info panel, including your tuner's playlist groups, which keep the channels you add or remove
-- Multi-episode files show their episode range, like S01E01-E02
-- The Open Source list fills the screen, and Streaming Quality shows three presets at a time
-- Programmes shorter than a minute show their times with seconds
+- Add a channel to any group from its info panel
+- Multi-episode files show the full range, like S01E01-E02
+- Settings lists fit on the screen
 ```
 
-### What's New (2.2.11), tvOS (452 / 4000)
+### What's New (2.2.11), tvOS (223 / 4000)
 
 ```text
-- Pick a channel's groups from the bar along the bottom of its info panel, including your tuner's playlist groups, which keep the channels you add or remove
-- Multi-episode files show their episode range, like S01E01-E02
-- In the Live TV guide, Left from any programme reaches its channel card
-- Closing an info panel or the player takes you back to the programme you picked in the guide
-- Programmes shorter than a minute show their times with seconds
+- Add a channel to any group from its info panel
+- Multi-episode files show the full range, like S01E01-E02
+- Swiping left in the Live TV guide always reaches the channels
+- Back from a programme, the guide keeps your place
 ```
 
 ### What's New (2.2.10), iOS (1705 / 4000)
@@ -430,23 +428,21 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.11), iOS (393 / 4000 chars)
+#### What's New (2.2.11), iOS (182 / 4000 chars)
 
 ```text
-- Wähle die Gruppen eines Kanals direkt im Info-Bereich, auch die Wiedergabelistengruppen deines Tuners, die die hinzugefügten oder entfernten Kanäle behalten
-- Dateien mit mehreren Folgen zeigen ihren Folgenbereich, etwa S01E01-E02
-- Die Open-Source-Liste füllt den Bildschirm, und Streaming-Qualität zeigt drei Stufen auf einmal
-- Sendungen unter einer Minute zeigen ihre Zeiten mit Sekunden
+- Füge einen Kanal im Info-Bereich jeder Gruppe hinzu
+- Dateien mit mehreren Folgen zeigen den ganzen Bereich, etwa S01E01-E02
+- Listen in den Einstellungen passen auf den Bildschirm
 ```
 
-#### What's New (2.2.11), tvOS (491 / 4000 chars)
+#### What's New (2.2.11), tvOS (248 / 4000 chars)
 
 ```text
-- Wähle die Gruppen eines Kanals in der Leiste unten im Info-Bereich, auch die Wiedergabelistengruppen deines Tuners, die die hinzugefügten oder entfernten Kanäle behalten
-- Dateien mit mehreren Folgen zeigen ihren Folgenbereich, etwa S01E01-E02
-- Im Live-TV-Guide führt Links von jeder Sendung zu ihrer Kanalkarte
-- Schließt du einen Info-Bereich oder den Player, landest du wieder auf der Sendung, die du im Guide gewählt hast
-- Sendungen unter einer Minute zeigen ihre Zeiten mit Sekunden
+- Füge einen Kanal im Info-Bereich jeder Gruppe hinzu
+- Dateien mit mehreren Folgen zeigen den ganzen Bereich, etwa S01E01-E02
+- Nach links gelangst du im Live-TV-Guide immer zu den Kanälen
+- Zurück von einer Sendung behält der Guide deine Position
 ```
 
 #### What's New (2.2.10), iOS (1962 / 4000 chars)
@@ -740,23 +736,21 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.11), iOS (444 / 4000 chars)
+#### What's New (2.2.11), iOS (202 / 4000 chars)
 
 ```text
-- Choisissez les groupes d'une chaîne depuis son panneau d'informations, y compris les groupes de listes de lecture de votre tuner, qui gardent les chaînes ajoutées ou retirées
-- Les fichiers à plusieurs épisodes affichent leur plage d'épisodes, comme S01E01-E02
-- La liste Open Source remplit l'écran, et Qualité de diffusion affiche trois préréglages à la fois
-- Les programmes de moins d'une minute affichent leurs horaires avec les secondes
+- Ajoutez une chaîne à n'importe quel groupe depuis son panneau d'informations
+- Les fichiers à plusieurs épisodes affichent toute la plage, comme S01E01-E02
+- Les listes des Réglages tiennent à l'écran
 ```
 
-#### What's New (2.2.11), tvOS (557 / 4000 chars)
+#### What's New (2.2.11), tvOS (281 / 4000 chars)
 
 ```text
-- Choisissez les groupes d'une chaîne dans la barre en bas de son panneau d'informations, y compris les groupes de listes de lecture de votre tuner, qui gardent les chaînes ajoutées ou retirées
-- Les fichiers à plusieurs épisodes affichent leur plage d'épisodes, comme S01E01-E02
-- Dans le guide de TV en direct, Gauche depuis n'importe quel programme mène à la carte de sa chaîne
-- Fermer un panneau d'informations ou le lecteur vous ramène au programme choisi dans le guide
-- Les programmes de moins d'une minute affichent leurs horaires avec les secondes
+- Ajoutez une chaîne à n'importe quel groupe depuis son panneau d'informations
+- Les fichiers à plusieurs épisodes affichent toute la plage, comme S01E01-E02
+- Vers la gauche, le guide de TV en direct mène toujours aux chaînes
+- De retour d'un programme, le guide garde votre place
 ```
 
 #### What's New (2.2.10), iOS (2146 / 4000 chars)
@@ -1050,23 +1044,21 @@ Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenci
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.11), iOS (433 / 4000 chars)
+#### What's New (2.2.11), iOS (189 / 4000 chars)
 
 ```text
-- Elige los grupos de un canal desde su panel de información, incluidos los grupos de listas de reproducción de tu sintonizador, que conservan los canales que añades o quitas
-- Los archivos con varios episodios muestran su rango de episodios, como S01E01-E02
-- La lista de Código abierto llena la pantalla, y Calidad de reproducción muestra tres opciones a la vez
-- Los programas de menos de un minuto muestran sus horas con segundos
+- Añade un canal a cualquier grupo desde su panel de información
+- Los archivos con varios episodios muestran el rango completo, como S01E01-E02
+- Las listas de Ajustes caben en la pantalla
 ```
 
-#### What's New (2.2.11), tvOS (546 / 4000 chars)
+#### What's New (2.2.11), tvOS (278 / 4000 chars)
 
 ```text
-- Elige los grupos de un canal en la barra inferior de su panel de información, incluidos los grupos de listas de reproducción de tu sintonizador, que conservan los canales que añades o quitas
-- Los archivos con varios episodios muestran su rango de episodios, como S01E01-E02
-- En la guía de Televisión en vivo, Izquierda desde cualquier programa lleva a la tarjeta de su canal
-- Al cerrar un panel de información o el reproductor, vuelves al programa que elegiste en la guía
-- Los programas de menos de un minuto muestran sus horas con segundos
+- Añade un canal a cualquier grupo desde su panel de información
+- Los archivos con varios episodios muestran el rango completo, como S01E01-E02
+- Hacia la izquierda, la guía de Televisión en vivo siempre llega a los canales
+- Al volver de un programa, la guía conserva tu lugar
 ```
 
 #### What's New (2.2.10), iOS (2041 / 4000 chars)
