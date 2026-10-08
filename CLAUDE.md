@@ -95,6 +95,7 @@ Add 10 blank lines BEFORE and AFTER response text for visual breathing room in t
 - App Store screenshots: iPhone/iPad portrait only, tvOS landscape. 1320x2868 goes in the hidden 6.9" slot. Caption band: gold #FFC312, ink #2B1F05, Space Grotesk SemiBold.
 - Naming "Tomo TV, a Jellyfin Client" is the branding doc's own example: never propose a rename or logo change.
 - App Review Notes must be filled for any new platform submission; adding a platform is a new-app review.
+- App Store What's New: a few short lines, one user benefit each, in the viewer's words. No internals (engine, codecs, M3U/playlist, focus targets, row counts, timings) and no niche fixes; those stay in CHANGELOG.
 
 ## Engine and Platform Facts
 
