@@ -94,8 +94,8 @@ let batchDepth = 0;
 let batchDirty = false;
 
 /**
- * Coalesces every manifest write inside `run` into one at the end. For bursts that touch
- * many entries (a folder enqueue), which otherwise serialize the whole file once per item.
+ * Coalesces the burst writes inside `run` (a folder enqueue's puts) into one at the end;
+ * state transitions still land at once.
  */
 export async function withManifestBatch<T>(run: () => Promise<T>): Promise<T> {
   batchDepth += 1;

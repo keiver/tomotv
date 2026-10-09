@@ -9,9 +9,9 @@
  * URLs stay raw. Armed only by __DEV__ AND a probe param.
  *
  * SESSION sink: the Diagnostics screen (app/diagnostics.tsx). Always armed. The
- * MOST RECENT playback only, capped and redacted, living in memory. Every event
- * mirrors it to Caches/last-session.json off the JS thread, so a reload or a crash
- * leaves the playback behind, and nothing empty is ever written over it.
+ * MOST RECENT playback only, capped and redacted, living in memory and mirrored to
+ * Caches/last-session.json off the JS thread: deciding events at once, the rest
+ * coalesced, progress never. Nothing empty is ever written over a stored session.
  */
 import { APP_BUILD_NUMBER, APP_VERSION, BRAND_NAME } from "@/constants/app";
 import { parseSession, SCHEMA_VERSION, type DeviceDecode, type PlaybackSession, type SessionEvent, type SessionHead } from "@/services/diagnosticsSchema";
