@@ -462,6 +462,10 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     if (focusedRef.current) refresh();
     else staleRef.current = true;
   }, [refresh]);
+  // A foreground return playback swallowed is owed: the screen reads once it is next shown.
+  const markStale = useCallback(() => {
+    staleRef.current = true;
+  }, []);
 
   // A timer write starts or stops a recording, so a mounted recordings-library browse refetches.
   useEffect(() => {
@@ -469,7 +473,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   }, [refreshWhenShown]);
 
   // Refetch the visible folder when the app returns to the foreground.
-  useAppStateRefresh(refreshWhenShown, "useFolderContents");
+  useAppStateRefresh(refreshWhenShown, "useFolderContents", markStale);
 
   return { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh };
 }

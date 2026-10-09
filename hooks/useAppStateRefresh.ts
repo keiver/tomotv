@@ -12,9 +12,14 @@ import { logger } from "@/utils/logger";
  *
  * @param onForeground - Callback to execute when app enters foreground
  * @param context - Context name for logging (e.g., "LibraryContext")
+ * @param onSkipped - Called when playback made the refresh skip, so a screen can owe one for later
  */
-export function useAppStateRefresh(onForeground: () => void, context: string): void {
+export function useAppStateRefresh(onForeground: () => void, context: string, onSkipped?: () => void): void {
   const wasBackgrounded = useRef(AppState.currentState === "background");
+  const onSkippedRef = useRef(onSkipped);
+  useEffect(() => {
+    onSkippedRef.current = onSkipped;
+  });
 
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -26,6 +31,7 @@ export function useAppStateRefresh(onForeground: () => void, context: string): v
       wasBackgrounded.current = false;
       if (isPlaybackHeld()) {
         logger.debug("Foreground refresh skipped (playback active)", { context });
+        onSkippedRef.current?.();
       } else {
         logger.info("App came to foreground, triggering refresh", { context });
         onForeground();

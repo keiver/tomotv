@@ -922,6 +922,16 @@ describe("useFolderContents", () => {
       expect(mockFolder).toHaveBeenCalledTimes(1);
     });
 
+    it("a foreground the playback hold swallowed is owed on focus", async () => {
+      const show = await mountHidden();
+      const onSkipped = (useAppStateRefresh as jest.Mock).mock.calls.at(-1)?.[2] as () => void;
+      await act(async () => onSkipped());
+      expect(mockFolder).not.toHaveBeenCalled();
+
+      await show();
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
     it("still reads at once on a sign-in or sign-out", async () => {
       await mountHidden();
       await act(async () => latestCall(subscribeAuthChange as jest.Mock)());
