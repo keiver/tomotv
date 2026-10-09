@@ -199,16 +199,17 @@ function parseFacetsFromQuery(term: string, genreNames: string[], artists: Jelly
 
 /**
  * Build the genre/artist search requests for a term by matching its words against the
- * server's genre and artist names. Returns [] when nothing matches. A facet-list fetch
- * failure degrades to title-only search rather than failing the whole search.
+ * server's genre and artist names, each from its own offset; a source with no offset is not
+ * asked. Returns nothing when nothing matches. A facet-list fetch failure degrades to
+ * title-only search rather than failing the whole search.
  */
 async function buildFacetSearchRequests(
   config: JellyfinConfig,
   term: string,
   years: number[],
-  { startIndex, limit }: { startIndex: number; limit: number },
-): Promise<Promise<{ items: JellyfinVideoItem[]; total?: number }>[]> {
-  if (!term) return [];
+  { offsets, limit }: { offsets: Omit<SearchCursor, "title">; limit: number },
+): Promise<Partial<Record<FacetSource, Promise<{ items: JellyfinVideoItem[]; total?: number }>>>> {
+  if (!term || (offsets.genre === undefined && offsets.artist === undefined)) return {};
 
   const [genreNames, artists] = await Promise.all([
     fetchLibraryGenres().catch((error) => {
@@ -222,7 +223,7 @@ async function buildFacetSearchRequests(
   ]);
 
   const { term: leftover, genres, artistIds } = parseFacetsFromQuery(term, genreNames, artists);
-  if (genres.length === 0 && artistIds.length === 0) return [];
+  if (genres.length === 0 && artistIds.length === 0) return {};
 
   logger.debug("Search facets matched", {
     service: "JellyfinAPI",
@@ -232,20 +233,19 @@ async function buildFacetSearchRequests(
   });
 
   const shared = {
-    startIndex,
     limit,
     searchTerm: leftover || undefined,
     years: years.length > 0 ? years : undefined,
     timeoutMs: 15000,
   };
 
-  const requests: Promise<{ items: JellyfinVideoItem[]; total?: number }>[] = [];
-  if (genres.length > 0) {
-    requests.push(requestLibraryItems(config, { ...shared, genres, includeAllTypes: true, includeSeries: true }));
+  const requests: Partial<Record<FacetSource, Promise<{ items: JellyfinVideoItem[]; total?: number }>>> = {};
+  if (genres.length > 0 && offsets.genre !== undefined) {
+    requests.genre = requestLibraryItems(config, { ...shared, startIndex: offsets.genre, genres, includeAllTypes: true, includeSeries: true });
   }
-  if (artistIds.length > 0) {
+  if (artistIds.length > 0 && offsets.artist !== undefined) {
     // Matched genres also constrain the artist query ("queen rock" → Queen's rock items)
-    requests.push(requestLibraryItems(config, { ...shared, artistIds, genres: genres.length > 0 ? genres : undefined }));
+    requests.artist = requestLibraryItems(config, { ...shared, startIndex: offsets.artist, artistIds, genres: genres.length > 0 ? genres : undefined });
   }
   return requests;
 }
@@ -306,6 +306,24 @@ async function fetchSeriesEpisodes(config: JellyfinConfig, seriesId: string, ser
   }
 }
 
+type FacetSource = "genre" | "artist";
+const FACET_SOURCES: FacetSource[] = ["genre", "artist"];
+
+/** Where the next page of a search starts in each source; a source left out has nothing more. */
+export interface SearchCursor {
+  title?: number;
+  genre?: number;
+  artist?: number;
+}
+
+/** A source's next offset from the raw page it returned, or undefined once it is exhausted. */
+export function nextOffset(offset: number | undefined, page: { items: unknown[]; total?: number } | undefined, limit: number): number | undefined {
+  if (offset === undefined || !page) return undefined;
+  const reached = offset + page.items.length;
+  const more = page.total !== undefined ? reached < page.total : page.items.length === limit;
+  return more && page.items.length > 0 ? reached : undefined;
+}
+
 /**
  * Remote search for videos using Jellyfin's SearchTerm filter
  * Supports searching by:
@@ -317,10 +335,10 @@ async function fetchSeriesEpisodes(config: JellyfinConfig, seriesId: string, ser
  * Genre/artist matches union with title matches: a word naming a genre or artist adds
  * those results in parallel without narrowing the title search.
  */
-export async function searchVideos(searchTerm: string, { limit = 60, startIndex = 0 }: { limit?: number; startIndex?: number } = {}): Promise<{ items: JellyfinVideoItem[]; total?: number }> {
+export async function searchVideos(searchTerm: string, { limit = 60, cursor }: { limit?: number; cursor?: SearchCursor } = {}): Promise<{ items: JellyfinVideoItem[]; next: SearchCursor | null }> {
   const trimmed = searchTerm.trim();
   if (!trimmed) {
-    return { items: [], total: 0 };
+    return { items: [], next: null };
   }
 
   const config = await getConfig();
@@ -339,7 +357,8 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
     yearCount: years.length,
   });
 
-  const cacheKey = `search:${config.userId}:${term}:${years.join(",")}:${startIndex}:${limit}`;
+  const offsets: SearchCursor = cursor ?? { title: 0, genre: 0, artist: 0 };
+  const cacheKey = `search:${config.userId}:${term}:${years.join(",")}:${offsets.title ?? "-"},${offsets.genre ?? "-"},${offsets.artist ?? "-"}:${limit}`;
   return cachedRequest(
     cacheKey,
     () =>
@@ -347,32 +366,34 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
         async () => {
           // Title search: playable items + Series (to expand into episodes). Fired before
           // the facet-list fetch so a cold facet cache never delays it.
-          const titleRequest = requestLibraryItems(config, {
-            startIndex,
-            limit,
-            searchTerm: term || undefined,
-            years: years.length > 0 ? years : undefined,
-            includeAllTypes: true,
-            includeSeries: true, // Also search for Series to expand
-            timeoutMs: 15000,
-          });
+          const titleRequest =
+            offsets.title === undefined
+              ? Promise.resolve(undefined)
+              : requestLibraryItems(config, {
+                  startIndex: offsets.title,
+                  limit,
+                  searchTerm: term || undefined,
+                  years: years.length > 0 ? years : undefined,
+                  includeAllTypes: true,
+                  includeSeries: true, // Also search for Series to expand
+                  timeoutMs: 15000,
+                });
 
-          const facetRequests = await buildFacetSearchRequests(config, term, years, { startIndex, limit });
+          const facetRequests = await buildFacetSearchRequests(config, term, years, { offsets, limit });
           const titleResult = await titleRequest;
 
           // Union semantics: a failed genre/artist request drops its results, never the search
-          const facetResults: { items: JellyfinVideoItem[]; total?: number }[] = [];
-          for (const settled of await Promise.allSettled(facetRequests)) {
-            if (settled.status === "fulfilled") {
-              facetResults.push(settled.value);
-            } else {
-              logger.warn("Facet search request failed", settled.reason, { service: "JellyfinAPI" });
-            }
-          }
+          const facetPages: Partial<Record<FacetSource, { items: JellyfinVideoItem[]; total?: number }>> = {};
+          const asked = FACET_SOURCES.filter((source) => facetRequests[source]);
+          (await Promise.allSettled(asked.map((source) => facetRequests[source]))).forEach((settled, index) => {
+            if (settled.status === "fulfilled" && settled.value) facetPages[asked[index]] = settled.value;
+            else if (settled.status === "rejected") logger.warn("Facet search request failed", settled.reason, { service: "JellyfinAPI" });
+          });
+          const facetResults = FACET_SOURCES.flatMap((source) => facetPages[source] ?? []);
 
           // Separate playable items from Series; the same Series can arrive from both the
           // title and genre queries, so key by Id to expand each only once
-          const results = [titleResult, ...facetResults];
+          const results = [...(titleResult ? [titleResult] : []), ...facetResults];
           const playableItems: JellyfinVideoItem[] = [];
           const seriesById = new Map<string, JellyfinVideoItem>();
 
@@ -412,12 +433,20 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
             return true;
           });
 
-          // Preserve server totals for proper pagination. Title-only keeps the exact server
-          // count; with facet queries the sum overcounts duplicates, which pagination
-          // tolerates the same way it does series expansion.
+          // The next page asks each source from what it returned itself: expanded episodes and
+          // the other sources' hits never move a server offset.
+          const next: SearchCursor = {
+            title: nextOffset(offsets.title, titleResult, limit),
+            genre: nextOffset(offsets.genre, facetPages.genre, limit),
+            artist: nextOffset(offsets.artist, facetPages.artist, limit),
+          };
+          const continues = Object.values(next).some((offset) => offset !== undefined);
+          // A facet whose request failed is asked again from the same place, riding a page another
+          // source still fills, so a facet that keeps failing never drives a page of its own.
+          if (continues) for (const source of asked) if (!facetPages[source]) next[source] = offsets[source];
           return {
             items: uniqueItems,
-            total: facetResults.length === 0 ? (titleResult.total ?? uniqueItems.length) : results.reduce((sum, r) => sum + (r.total ?? r.items.length), 0),
+            next: continues ? next : null,
           };
         },
         { maxAttempts: 3 },
@@ -585,6 +614,21 @@ function fetchProgramDetails(config: JellyfinConfig, programId: string): Promise
  * here. Never waits on the index: subscribeLiveTvSearchIndex says when it lands. A failed source keeps
  * the others.
  */
+/**
+ * Opens the guide sources for the search window before the first query. The open downloads and
+ * ingests the whole XMLTV natively, seconds no search should wait on; one warm per screen is
+ * enough since the open guide is reused while its window covers.
+ */
+export async function warmLiveTvSearch(): Promise<void> {
+  try {
+    const config = await getConfig();
+    if (!config.server || !config.apiKey || !config.userId) return;
+    await searchGuideSources(config, "guide warmup probe");
+  } catch {
+    // A failed warm costs nothing: the first search opens the guide itself.
+  }
+}
+
 export async function searchLiveTv(searchTerm: string): Promise<JellyfinVideoItem[]> {
   const trimmed = searchTerm.trim();
   if (!trimmed) return [];

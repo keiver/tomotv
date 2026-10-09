@@ -18,10 +18,9 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useLiveTvSearchRefresh } from "@/hooks/useLiveTvSearchRefresh";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
-import { connectToDemoServer, searchLiveTv, searchVideos } from "@/services/jellyfinApi";
-import { subscribeItemRemoved } from "@/services/jellyfin/events";
+import { useServerSearch } from "@/hooks/useServerSearch";
+import { connectToDemoServer } from "@/services/jellyfinApi";
 import { JellyfinVideoItem } from "@/types/jellyfin";
-import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -110,21 +109,30 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
   const openInfoPanel = useItemLongPress();
   const colorScheme = useColorScheme();
   const searchTextColor = colorScheme === "light" ? COLORS.TEXT_PRIMARY : undefined;
-  const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
-  const [liveResults, setLiveResults] = useState<JellyfinVideoItem[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [query, setQuery] = useState("");
+  const handleSearchResults = useCallback((term: string, count: number, live: number) => {
+    logger.debug("Search results", { service: "NativeSearchScreen", query: term, count, live });
+  }, []);
+  const handleSearchError = useCallback((error: unknown, term: string) => {
+    logger.error("Search failed", error, { service: "NativeSearchScreen", query: term });
+    // Show alert for connection errors so user knows something went wrong
+    const message = error instanceof Error ? error.message : t("search.unableBody");
+    if (message.includes("not configured") || message.includes("network") || message.includes("timeout")) {
+      Alert.alert(t("search.error"), message);
+    }
+  }, []);
+  const {
+    query,
+    results: searchResults,
+    liveResults,
+    setLiveResults,
+    isSearching,
+    isLoadingMore,
+    search,
+    loadMore,
+  } = useServerSearch({ waitOnEveryChange: true, onResults: handleSearchResults, onError: handleSearchError });
   // React sizes the child against the whole native view; the results region is smaller. The view
   // measures it and reports it, so the grid packs against the box it is actually drawn in.
   const [region, setRegion] = useState<{ width: number; height: number } | null>(null);
-  const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Bumped by every keystroke: a response for an older query lands nothing.
-  const searchSeqRef = useRef(0);
-  useEffect(() => {
-    return () => {
-      if (searchDelayRef.current) clearTimeout(searchDelayRef.current);
-    };
-  }, []);
   useLiveTvSearchRefresh(query, (_term, items) => setLiveResults(items));
 
   // Doubles as the readiness edge: SwiftUI lays this region out only once NavigationView + .searchable
@@ -138,56 +146,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
     [onReady],
   );
 
-  const handleSearch = useCallback((event: { nativeEvent: { query: string } }) => {
-    const nextQuery = event.nativeEvent.query;
-    const seq = ++searchSeqRef.current;
-    setQuery(nextQuery);
-
-    if (searchDelayRef.current) {
-      clearTimeout(searchDelayRef.current);
-    }
-
-    if (nextQuery.trim().length < 2) {
-      setSearchResults([]);
-      setLiveResults([]);
-      setIsSearching(false);
-      return;
-    }
-
-    setIsSearching(true);
-    searchDelayRef.current = setTimeout(async () => {
-      try {
-        const [{ items }, live] = await Promise.all([searchVideos(nextQuery.trim(), { limit: 60 }), searchLiveTv(nextQuery.trim())]);
-        if (seq !== searchSeqRef.current) return;
-        logger.debug("Search results", { service: "NativeSearchScreen", query: nextQuery.trim(), count: items.length, live: live.length });
-        setSearchResults(items);
-        setLiveResults(live);
-      } catch (error) {
-        if (seq !== searchSeqRef.current) return;
-        logger.error("Search failed", error, { service: "NativeSearchScreen", query: nextQuery.trim() });
-        setSearchResults([]);
-        setLiveResults([]);
-        // Show alert for connection errors so user knows something went wrong
-        const message = error instanceof Error ? error.message : t("search.unableBody");
-        if (message.includes("not configured") || message.includes("network") || message.includes("timeout")) {
-          Alert.alert(t("search.error"), message);
-        }
-      } finally {
-        if (seq === searchSeqRef.current) setIsSearching(false);
-      }
-    }, 300);
-  }, []);
-
-  useEffect(
-    () =>
-      subscribeItemRemoved((itemId) => {
-        setSearchResults((items) => items.filter((item) => item.Id !== itemId));
-        setLiveResults((items) => items.filter((item) => item.Id !== itemId));
-        // Retire pending responses and read the newly invalidated search cache.
-        handleSearch({ nativeEvent: { query } });
-      }),
-    [query, handleSearch],
-  );
+  const handleSearch = useCallback((event: { nativeEvent: { query: string } }) => search(event.nativeEvent.query), [search]);
 
   // The native field has no JS-settable text, so a seeded query drives the results only.
   const seeded = useRef(false);
@@ -240,7 +199,17 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
       onSearchFieldBlurred={handleSearchFieldBlurred}
       onContentLayout={handleContentLayout}
       style={styles.nativeSearchView}>
-      <NativeSearchResults query={query} results={searchResults} liveResults={liveResults} isSearching={isSearching} region={region} onItemPress={openItem} onItemLongPress={openInfoPanel} />
+      <NativeSearchResults
+        query={query}
+        results={searchResults}
+        liveResults={liveResults}
+        isSearching={isSearching}
+        isLoadingMore={isLoadingMore}
+        region={region}
+        onItemPress={openItem}
+        onItemLongPress={openInfoPanel}
+        onEndReached={loadMore}
+      />
     </TvosSearchView>
   );
 }
@@ -254,17 +223,21 @@ function NativeSearchResults({
   results,
   liveResults,
   isSearching,
+  isLoadingMore,
   region,
   onItemPress,
   onItemLongPress,
+  onEndReached,
 }: {
   query: string;
   results: JellyfinVideoItem[];
   liveResults: JellyfinVideoItem[];
   isSearching: boolean;
+  isLoadingMore: boolean;
   region: { width: number; height: number } | null;
   onItemPress: (item: JellyfinVideoItem) => void;
   onItemLongPress: (item: JellyfinVideoItem) => void;
+  onEndReached: () => void;
 }) {
   // Until the region is measured, flex fills whatever React thinks the box is. That lands on the
   // first layout pass, while the results are still empty.
@@ -279,6 +252,7 @@ function NativeSearchResults({
         onItemLongPress={onItemLongPress}
         availableWidth={region?.width}
         edgePadding={region ? 0 : undefined}
+        onEndReached={onEndReached}
         // With two sections on screen, each wears its heading; a lone grid stays unlabelled.
         ListHeaderComponent={
           liveResults.length > 0 ? (
@@ -286,6 +260,13 @@ function NativeSearchResults({
               <LiveTvSearchShelf items={liveResults} />
               {results.length > 0 && <ShelfHeading title={t("search.libraryHeading")} />}
             </>
+          ) : null
+        }
+        ListFooterComponent={
+          isLoadingMore ? (
+            <View style={styles.footerLoading}>
+              <LoadingRow label={t("search.loadingMore")} />
+            </View>
           ) : null
         }
       />
@@ -351,22 +332,24 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const palette = useCardPalette();
   const { showGlobalLoader, hideGlobalLoader } = useLoadingActions();
   const { refreshLibrary, isLoading, error } = useLibrary();
-  const [searchResults, setSearchResults] = useState<JellyfinVideoItem[]>([]);
-  const [liveResults, setLiveResults] = useState<JellyfinVideoItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState(initialQuery ?? "");
+  const {
+    query: searchQuery,
+    activeQuery,
+    results: searchResults,
+    liveResults,
+    setLiveResults,
+    isSearching,
+    isLoadingMore,
+    error: searchError,
+    search,
+    retry: handleRetrySearch,
+    loadMore: handleLoadMore,
+    clearError,
+  } = useServerSearch({ initialQuery });
   const seededQuery = useRef(false);
-  const [activeQuery, setActiveQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [hasMoreResults, setHasMoreResults] = useState(false);
   const [firstResultHandle, setFirstResultHandle] = useState<number | undefined>(undefined);
   const [isConnectingToDemo, setIsConnectingToDemo] = useState(false);
   const searchInputRef = useRef<TextInput>(null);
-  const searchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Bumped by every new query: a page for an older one lands nothing.
-  const searchSeqRef = useRef(0);
-  const nextStartIndexRef = useRef(0);
   const gridRef = useRef<SearchResultsGridHandle>(null);
 
   const handleVideoPress = useOpenShelfItem();
@@ -376,91 +359,8 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const focusFirstResult = useCallback(() => gridRef.current?.focusFirstCard(), []);
 
   useEffect(() => {
-    if (isLoading && searchError) {
-      // Guarded one-shot reset when a fresh load starts; not a render cascade.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSearchError(null);
-    }
-  }, [isLoading, searchError]);
-
-  const executeSearch = useCallback(async (term: string, append: boolean = false) => {
-    const trimmed = term.trim();
-    if (!trimmed) return;
-    const seq = append ? searchSeqRef.current : ++searchSeqRef.current;
-
-    if (append) {
-      setIsLoadingMore(true);
-    } else {
-      setIsSearching(true);
-      setIsLoadingMore(false);
-      setSearchError(null);
-      nextStartIndexRef.current = 0;
-      setHasMoreResults(false);
-    }
-
-    try {
-      const startIndex = append ? nextStartIndexRef.current : 0;
-      const pageSize = 60;
-      // Live TV matches ride the first page only; searchLiveTv answers empty rather than throwing.
-      const [{ items, total }, live] = await Promise.all([searchVideos(trimmed, { limit: pageSize, startIndex }), append ? null : searchLiveTv(trimmed)]);
-      if (seq !== searchSeqRef.current) return;
-      if (live) setLiveResults(live);
-
-      if (append) {
-        setSearchResults((prev) => {
-          const newResults = [...prev, ...items];
-          setHasMoreResults(total !== undefined && newResults.length < total);
-          return newResults;
-        });
-      } else {
-        setSearchResults(items);
-        setHasMoreResults(total !== undefined && items.length < total);
-      }
-      nextStartIndexRef.current = startIndex + items.length;
-      setActiveQuery(trimmed);
-    } catch (err) {
-      if (seq !== searchSeqRef.current) return;
-      setSearchError(getLoadErrorMessage(err));
-      if (!append) {
-        setSearchResults([]);
-        setLiveResults([]);
-      }
-    } finally {
-      if (seq === searchSeqRef.current) {
-        if (append) setIsLoadingMore(false);
-        else setIsSearching(false);
-      }
-    }
-  }, []);
-
-  const handleRetrySearch = useCallback(() => {
-    if (searchQuery.trim().length >= 2) {
-      executeSearch(searchQuery.trim());
-    }
-  }, [searchQuery, executeSearch]);
-
-  useEffect(
-    () =>
-      subscribeItemRemoved((itemId) => {
-        setSearchResults((items) => items.filter((item) => item.Id !== itemId));
-        setLiveResults((items) => items.filter((item) => item.Id !== itemId));
-        ++searchSeqRef.current;
-        if (searchDelayRef.current) clearTimeout(searchDelayRef.current);
-        setIsLoadingMore(false);
-        setHasMoreResults(false);
-        // Deletion shifts server offsets. Reload page zero so the next page cannot skip an item,
-        // and the response of a page already in flight cannot bring the deleted card back.
-        if (searchQuery.trim().length >= 2) void executeSearch(searchQuery);
-        else setIsSearching(false);
-      }),
-    [searchQuery, executeSearch],
-  );
-
-  const handleLoadMore = useCallback(() => {
-    if (hasMoreResults && !isLoadingMore && !isSearching && activeQuery) {
-      executeSearch(activeQuery, true);
-    }
-  }, [hasMoreResults, isLoadingMore, isSearching, activeQuery, executeSearch]);
+    if (isLoading && searchError) clearError();
+  }, [isLoading, searchError, clearError]);
 
   const handleTryDemo = useCallback(async () => {
     if (isConnectingToDemo) return; // Prevent double-click
@@ -497,33 +397,8 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   useEffect(() => {
     if (seededQuery.current || !initialQuery) return;
     seededQuery.current = true;
-    setSearchQuery(initialQuery);
-  }, [initialQuery]);
-
-  useEffect(() => {
-    if (searchDelayRef.current) {
-      clearTimeout(searchDelayRef.current);
-    }
-
-    const trimmed = searchQuery.trim();
-    if (trimmed.length < 2) {
-      searchSeqRef.current += 1;
-      // Guarded reset when the query is cleared; not a render cascade.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSearchResults([]);
-      setLiveResults([]);
-      setSearchError(null);
-      setIsSearching(false);
-      setIsLoadingMore(false);
-      setHasMoreResults(false);
-      return;
-    }
-
-    searchDelayRef.current = setTimeout(() => executeSearch(trimmed), 300);
-    return () => {
-      if (searchDelayRef.current) clearTimeout(searchDelayRef.current);
-    };
-  }, [searchQuery, executeSearch]);
+    search(initialQuery);
+  }, [initialQuery, search]);
 
   const hasSearchQuery = searchQuery.trim().length >= 2;
   const shouldShowResults = hasSearchQuery && (searchResults.length > 0 || liveResults.length > 0);
@@ -634,14 +509,14 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     () => (
       <SearchHeader
         initialQuery={initialQuery}
-        onChangeText={setSearchQuery}
+        onChangeText={search}
         onSubmitEditing={handleSubmitEditing}
         inputRef={searchInputCallbackRef}
         nextFocusDown={firstResultHandle}
         isSearching={isSearching}
       />
     ),
-    [initialQuery, handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching],
+    [initialQuery, search, handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching],
   );
 
   return (

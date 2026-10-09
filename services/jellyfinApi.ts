@@ -3,7 +3,7 @@
  *
  * This file is a barrel: the implementation lives in the domain modules under
  * ./jellyfin/, and everything they expose publicly is re-exported here. Import from
- * "@/services/jellyfinApi" and nothing else — the submodule paths are internal.
+ * "@/services/jellyfinApi" and nothing else: the submodule paths are internal.
  *
  * That rule is load-bearing, not stylistic. A dozen test files mock this module by
  * specifier (`jest.mock("@/services/jellyfinApi")`). A consumer that imported
@@ -173,7 +173,7 @@ export {
   fetchVideoDetails,
 } from "./jellyfin/items";
 export { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "./jellyfin/facets";
-export { searchLiveTv, searchVideos } from "./jellyfin/search";
+export { searchLiveTv, searchVideos, warmLiveTvSearch } from "./jellyfin/search";
 export { invalidateLiveTvSearchIndex, liveTvSearchIndexVersion, subscribeLiveTvSearchIndex } from "./jellyfin/liveTvSearchIndex";
 
 export { markItemPlayed, setVideoFavorite, setVideoPlayed } from "./jellyfin/userData";

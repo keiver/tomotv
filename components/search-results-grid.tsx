@@ -159,6 +159,11 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
       renderItem={renderRow}
       keyExtractor={(row) => row.cards[0].item.Id}
       contentContainerStyle={[styles.gridContent, { paddingLeft: edgeLeft, paddingRight: edgeRight }]}
+      // Live results land after the viewer has scrolled and mount a header above row 0; without
+      // the anchor the rows shift under the focused card and tvOS drags focus back row by row.
+      // At the top the anchor would instead hide the new shelf above the viewport, so a viewer
+      // who has not scrolled past the first row gets scrolled up to it.
+      maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
       showsVerticalScrollIndicator={false}
       // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
       initialNumToRender={Platform.isTV ? 8 : 6}
