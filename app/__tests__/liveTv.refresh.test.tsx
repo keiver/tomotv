@@ -124,11 +124,29 @@ describe("Live TV refresh", () => {
     expect(showToast).toHaveBeenLastCalledWith({ id: "guide-refresh", title: "liveTv.guideUnavailable", kind: "error" });
   });
 
-  it("stays silent on the first open", async () => {
-    Object.assign(mockGuide, { rows: [{ programs: [{}] }], isLoading: false, error: null });
+  it("stays silent on a first open that fetched no programs", async () => {
+    Object.assign(mockGuide, { rows: [{ programs: [{}] }], isLoading: false, isUpdating: false, error: null });
     await act(async () => {
       TestRenderer.create(<LiveTvRoute />);
     });
     expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("announces the first open once its load fetched programs, then later loads stay silent", async () => {
+    Object.assign(mockGuide, { rows: [], isLoading: true, isUpdating: true, error: null });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<LiveTvRoute />);
+    });
+    expect(showToast).not.toHaveBeenCalled();
+    Object.assign(mockGuide, { rows: [{ programs: [{}] }], isLoading: false, isUpdating: false });
+    await act(async () => renderer.update(<LiveTvRoute />));
+    expect(showToast.mock.calls).toEqual([[{ id: "guide-refresh", title: "liveTv.guideUpdated", kind: "success" }]]);
+    // A day pick loads under the same flags; it says nothing.
+    Object.assign(mockGuide, { isLoading: true, isUpdating: true });
+    await act(async () => renderer.update(<LiveTvRoute />));
+    Object.assign(mockGuide, { isLoading: false, isUpdating: false });
+    await act(async () => renderer.update(<LiveTvRoute />));
+    expect(showToast).toHaveBeenCalledTimes(1);
   });
 });

@@ -88,13 +88,20 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   const filtered = preferences.filter !== "all";
   const recording = useIsRecording();
   const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
-  // A refresh's first load announces its outcome; the passive loads (first open, paging, window growth) stay silent.
+  // A refresh's first load announces its outcome, and so does the first open once it fetched
+  // programs behind the spinner; later loads (day picks, paging, window growth) stay silent.
   const refreshToastArmed = useRef(refreshed);
+  const firstLoadRef = useRef(true);
   const guideWorking = guide.isLoading || guide.isUpdating;
   const guideFailed = !!guide.error;
   const hasListings = guide.rows.some((row) => row.programs.length > 0);
   useEffect(() => {
-    if (guideWorking || !refreshToastArmed.current) return;
+    if (firstLoadRef.current && guide.isLoading && guide.isUpdating) refreshToastArmed.current = true;
+  }, [guide.isLoading, guide.isUpdating]);
+  useEffect(() => {
+    if (guideWorking) return;
+    firstLoadRef.current = false;
+    if (!refreshToastArmed.current) return;
     refreshToastArmed.current = false;
     const outcome = guideRefreshOutcome(guideFailed, hasListings);
     showToast({ id: "guide-refresh", title: t(outcome.title), kind: outcome.kind });
