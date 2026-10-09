@@ -58,6 +58,9 @@ export default function PhotoViewerScreen() {
   const isPlayingRef = useRef(false);
   const viewerRef = useRef<PageViewerHandle>(null);
   const advanceRef = useRef<() => void>(() => {});
+  // Remount key: a reseat past the viewer's page count can't step there (goTo drops an index
+  // beyond the pages it still renders), so the viewer remounts on the photo it was showing.
+  const [viewerEpoch, setViewerEpoch] = useState(0);
 
   const countdown = useSharedValue(0); // 0 → 1 over the slideshow interval
 
@@ -99,11 +102,43 @@ export default function PhotoViewerScreen() {
         if (!applyPhotos(items)) openRequestedAlone();
         return;
       }
+      const before = photosRef.current.length;
       photosRef.current = photoItems;
       setPhotos(photoItems);
-      if (next !== (viewerRef.current?.index() ?? 0)) {
+      if (next === (viewerRef.current?.index() ?? 0)) return;
+      if (next < before) {
         viewerRef.current?.goTo(next, 1, "fade");
+      } else {
+        setStartIndex(next);
+        setIndex(next);
+        setViewerEpoch((epoch) => epoch + 1);
       }
+    };
+
+    // Pressed photo first: it paints while the full set is still being fetched. Ignored once
+    // the set has landed, and quiet on failure: the set fetch owns the error state.
+    let setApplied = false;
+    const paintPressedFirst = () => {
+      if (!params.photoId) return;
+      fetchItemDetails(params.photoId)
+        .then((item) => {
+          if (!cancelled && !setApplied && item && isPhoto(item)) applyPhotos([item]);
+        })
+        .catch((err) => {
+          logger.warn("Pressed photo could not paint first", err, { service: "PhotoViewer", photoId: params.photoId });
+        });
+    };
+
+    // The set, into a viewer that may already show the pressed photo alone: merge and keep it
+    // shown. A set that lacks the pressed photo leaves the single in place; with nothing shown
+    // yet it falls back exactly as before.
+    const applySet = (items: JellyfinItem[]) => {
+      setApplied = true;
+      if (photosRef.current.length > 0) {
+        if (items.filter(isPhoto).some((p) => p.Id === params.photoId)) widenPhotos(items);
+        return;
+      }
+      if (!applyPhotos(items) && params.photoId) openRequestedAlone();
     };
 
     // No folder to step through: the shelf card that opened this carried no ParentId, so the
@@ -123,13 +158,14 @@ export default function PhotoViewerScreen() {
     // put the whole library back under the user's thumb. Fetch the complete filtered set
     // instead, the same call the filtered play queue uses, and keep the photos.
     if (isFiltered) {
+      paintPressedFirst();
       fetchFilteredVideos(folderId, filters)
         .then((items) => {
-          if (!cancelled && !applyPhotos(items) && params.photoId) openRequestedAlone();
+          if (!cancelled) applySet(items);
         })
         .catch((err) => {
           if (cancelled) return;
-          setError(getLoadErrorMessage(err));
+          if (photosRef.current.length === 0) setError(getLoadErrorMessage(err));
           logger.error("Error loading filtered photos for viewer", err, { service: "PhotoViewer", folderId: params.folderId });
         });
 
@@ -142,13 +178,14 @@ export default function PhotoViewerScreen() {
     // most of its photos inside albums, and the CTA that opened this was offered off the
     // recursive count. The folder cache holds direct children, so it is skipped here.
     if (params.recursive === "true") {
+      paintPressedFirst();
       fetchRecursivePhotos(folderId)
         .then((items) => {
-          if (!cancelled && !applyPhotos(items) && params.photoId) openRequestedAlone();
+          if (!cancelled) applySet(items);
         })
         .catch((err) => {
           if (cancelled) return;
-          setError(getLoadErrorMessage(err));
+          if (photosRef.current.length === 0) setError(getLoadErrorMessage(err));
           logger.error("Error loading photos for viewer", err, { service: "PhotoViewer", folderId: params.folderId });
         });
 
@@ -329,6 +366,7 @@ export default function PhotoViewerScreen() {
 
   return (
     <PageViewer
+      key={viewerEpoch}
       ref={viewerRef}
       pages={photos.length}
       uriAt={uriAt}
