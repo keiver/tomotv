@@ -623,42 +623,79 @@ export async function warmLiveTvSearch(): Promise<void> {
   try {
     const config = await getConfig();
     if (!config.server || !config.apiKey || !config.userId) return;
-    await searchGuideSources(config, "guide warmup probe");
+    // The airing read rides along: its TTL cache then serves the first query off the query path.
+    await Promise.allSettled([searchGuideSources(config, "guide warmup probe"), fetchAiringPrograms(config)]);
   } catch {
     // A failed warm costs nothing: the first search opens the guide itself.
   }
 }
 
-export async function searchLiveTv(searchTerm: string): Promise<JellyfinVideoItem[]> {
+export async function searchLiveTv(searchTerm: string, onUpdate?: (items: JellyfinVideoItem[]) => void): Promise<JellyfinVideoItem[]> {
   const trimmed = searchTerm.trim();
   if (!trimmed) return [];
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) return [];
-  const [names, airing, guideSources] = await Promise.allSettled([fetchLiveTvNameMatches(config, trimmed), fetchAiringPrograms(config), searchGuideSources(config, trimmed)]);
-  const warn = (source: string, settled: PromiseRejectedResult) =>
-    logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: settled.reason instanceof Error ? settled.reason.message : "unknown" });
-  if (names.status === "rejected") warn("names", names);
-  if (airing.status === "rejected") warn("airing", airing);
-  if (guideSources.status === "rejected") warn("guide sources", guideSources);
-  const items = names.status === "fulfilled" ? [...names.value] : [];
-  const seen = new Set(items.map((item) => item.Id));
-  for (const settled of [airing, guideSources]) {
-    if (settled.status !== "fulfilled") continue;
-    for (const program of settled.value) {
-      if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && matchesProgramText(program, trimmed)) {
-        seen.add(program.Id);
-        items.push(program);
+  const quiet = (source: string, work: Promise<JellyfinVideoItem[]>) =>
+    work.catch((error): JellyfinVideoItem[] => {
+      logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: error instanceof Error ? error.message : "unknown" });
+      return [];
+    });
+  const namesWork = quiet("names", fetchLiveTvNameMatches(config, trimmed));
+  const programWork = [quiet("airing", fetchAiringPrograms(config)), quiet("guide sources", searchGuideSources(config, trimmed))];
+
+  const assemble = (names: JellyfinVideoItem[], programTiers: readonly JellyfinVideoItem[][]): JellyfinVideoItem[] => {
+    const items = [...names];
+    const seen = new Set(items.map((item) => item.Id));
+    for (const tier of programTiers) {
+      for (const program of tier) {
+        if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && matchesProgramText(program, trimmed)) {
+          seen.add(program.Id);
+          items.push(program);
+        }
       }
     }
+    for (const program of indexedMatches(config, trimmed)) {
+      if (seen.has(program.Id)) continue;
+      seen.add(program.Id);
+      items.push(program);
+    }
+    return orderLiveTvResults(items, Date.now());
+  };
+  // Channel name and artwork for the cards shown; the fills land in already-sized cards, so they
+  // never gate a paint and never move layout.
+  const hydrate = (shown: JellyfinVideoItem[]): Promise<JellyfinVideoItem[]> =>
+    Promise.all(
+      shown.map(async (item) => (item.Type === "Program" && !item.ChannelName && !item.Id.startsWith(EXTERNAL_GUIDE_PREFIX) ? ((await fetchProgramDetails(config, item.Id)) ?? item) : item)),
+    );
+
+  // The name tier answers at library speed through `onUpdate`; each slower tier lands merged in
+  // order, bare cards first, details behind. The resolved value is always the complete set.
+  let finished = false;
+  if (onUpdate) {
+    let emitSeq = 0;
+    const partial: { names?: JellyfinVideoItem[]; programs: JellyfinVideoItem[][] } = { programs: [] };
+    const emit = () => {
+      if (!partial.names) return;
+      const mine = ++emitSeq;
+      const bare = assemble(partial.names, partial.programs);
+      if (!finished) onUpdate(bare);
+      void hydrate(bare).then((full) => {
+        if (!finished && mine === emitSeq) onUpdate(full);
+      });
+    };
+    void namesWork.then((names) => {
+      partial.names = names;
+      emit();
+    });
+    for (const tier of programWork) {
+      void tier.then((programs) => {
+        partial.programs.push(programs);
+        emit();
+      });
+    }
   }
-  for (const program of indexedMatches(config, trimmed)) {
-    if (seen.has(program.Id)) continue;
-    seen.add(program.Id);
-    items.push(program);
-  }
-  const shown = orderLiveTvResults(items, Date.now());
-  // Only the cards shown are completed, with their channel and artwork; a read that fails keeps the bare card.
-  return Promise.all(
-    shown.map(async (item) => (item.Type === "Program" && !item.ChannelName && !item.Id.startsWith(EXTERNAL_GUIDE_PREFIX) ? ((await fetchProgramDetails(config, item.Id)) ?? item) : item)),
-  );
+
+  const [names, ...programTiers] = await Promise.all([namesWork, ...programWork]);
+  finished = true;
+  return hydrate(assemble(names, programTiers));
 }

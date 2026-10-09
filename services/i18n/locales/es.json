@@ -442,6 +442,7 @@
   "search.emptyHint": "Busca por título, género, artista o año…",
   "search.unableBody": "No se pudo buscar. Comprueba tu conexión.",
   "search.noResultsFor": "Sin resultados para",
+  "search.noLiveTvMatches": "Sin resultados de televisión en vivo",
   "search.libraryHeading": "Biblioteca",
   "search.demoFailedTitle": "No se pudo conectar al servidor de demostración",
   "settings.quality.auto": "Automático",

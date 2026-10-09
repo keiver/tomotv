@@ -2,7 +2,7 @@ import { ArtworkSlotShape, gridEdgePadding, shelfSpacing, slotCardPadding, slotR
 import { COLORS } from "@/constants/colors";
 import { useScrollToTop } from "expo-router";
 import React, { ReactElement, useCallback, useMemo, useRef } from "react";
-import { FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -15,6 +15,8 @@ interface MediaShelfProps<T> {
   title: string;
   /** A red dot after the heading: something on the shelf is live. */
   dot?: boolean;
+  /** A small spinner after the heading: more cards are still on their way. */
+  pending?: boolean;
   data: readonly T[];
   /** The item's snapped card shape, which decides its height in the row (see slotRowHeights). */
   slotShapeFor: (item: T) => ArtworkSlotShape;
@@ -24,13 +26,14 @@ interface MediaShelfProps<T> {
 }
 
 /** The shelf's index-mark heading, exported so sibling sections can label themselves alike. */
-export function ShelfHeading({ title, dot = false }: { title: string; dot?: boolean }) {
+export function ShelfHeading({ title, dot = false, pending = false }: { title: string; dot?: boolean; pending?: boolean }) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const spacing = shelfSpacing(IS_TV, windowWidth, windowHeight);
   return (
     <View style={[styles.headingRow, { marginBottom: spacing.headingGap }]}>
       <Text style={[styles.heading, { fontSize: spacing.headingSize, lineHeight: spacing.headingLine }]}>{title}</Text>
       {dot ? <View style={styles.headingDot} testID="shelf-dot" /> : null}
+      {pending ? <ActivityIndicator size="small" color={COLORS.TEXT_SECONDARY} style={styles.headingSpinner} testID="shelf-spinner" /> : null}
     </View>
   );
 }
@@ -43,7 +46,7 @@ export function ShelfHeading({ title, dot = false }: { title: string; dot?: bool
  * presentational: data loading, press routing and focus side effects belong to the wrapper
  * that instantiates it. Renders null with no items so empty shelves collapse.
  */
-export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyExtractor }: MediaShelfProps<T>) {
+export function MediaShelf<T>({ title, dot, pending, data, slotShapeFor, renderItem, keyExtractor }: MediaShelfProps<T>) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -93,7 +96,7 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
 
   return (
     <View style={[styles.container, containerStyle]}>
-      <ShelfHeading title={title} dot={dot} />
+      <ShelfHeading title={title} dot={dot} pending={pending} />
       {/* Fixed height keeps the layout stable while a focus-triggered reload swaps items. */}
       <View style={rowAreaStyle}>
         <FlatList
@@ -128,6 +131,11 @@ const styles = StyleSheet.create({
     height: IS_TV ? 14 : 8,
     borderRadius: IS_TV ? 7 : 4,
     backgroundColor: COLORS.DESTRUCTIVE,
+  },
+  headingSpinner: {
+    alignSelf: "center",
+    marginLeft: IS_TV ? 16 : 10,
+    transform: IS_TV ? undefined : [{ scale: 0.7 }],
   },
   // A quiet index mark over the ambient canvas, not a display title: the artwork leads.
   // TV stays at tvOS caption size so it still reads at 10 feet.

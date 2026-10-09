@@ -82,7 +82,7 @@ it("lands nothing from a term the viewer has typed past", async () => {
   expect(latest().results.map((video) => video.Id)).toEqual(["new"]);
 });
 
-it("paints once: the library results wait out the live facet and both land in the same commit", async () => {
+it("shows the library results without waiting for the live facet, which lands on its own", async () => {
   const { searchLiveTv } = require("@/services/jellyfinApi") as { searchLiveTv: jest.Mock };
   let finishLive!: (channels: JellyfinVideoItem[]) => void;
   searchLiveTv.mockImplementationOnce(() => new Promise((resolve) => (finishLive = resolve)));
@@ -93,16 +93,66 @@ it("paints once: the library results wait out the live facet and both land in th
   await act(async () => {
     jest.advanceTimersByTime(300);
   });
-  expect(latest().results).toEqual([]);
+  expect(latest().results.map((video) => video.Id)).toEqual(["a"]);
+  expect(latest().isSearching).toBe(false);
   expect(latest().liveResults).toEqual([]);
-  expect(latest().isSearching).toBe(true);
+  expect(latest().isLiveSearching).toBe(true);
 
   await act(async () => {
     finishLive([item("channel")]);
   });
-  expect(latest().results.map((video) => video.Id)).toEqual(["a"]);
   expect(latest().liveResults.map((video) => video.Id)).toEqual(["channel"]);
-  expect(latest().isSearching).toBe(false);
+  expect(latest().isLiveSearching).toBe(false);
+});
+
+it("shows the live name matches at once through the partial callback, still spinning until the tiers land", async () => {
+  const { searchLiveTv } = require("@/services/jellyfinApi") as { searchLiveTv: jest.Mock };
+  let emit!: (items: JellyfinVideoItem[]) => void;
+  let finishLive!: (items: JellyfinVideoItem[]) => void;
+  searchLiveTv.mockImplementationOnce((_term: string, onUpdate: (items: JellyfinVideoItem[]) => void) => {
+    emit = onUpdate;
+    return new Promise((resolve) => (finishLive = resolve));
+  });
+  mockSearch.mockResolvedValueOnce({ items: [item("a")], next: null });
+  const latest = await mount();
+
+  act(() => latest().search("film"));
+  await act(async () => {
+    jest.advanceTimersByTime(300);
+  });
+  expect(latest().isLiveSearching).toBe(true);
+
+  await act(async () => emit([item("channel")]));
+  expect(latest().liveResults.map(({ Id }) => Id)).toEqual(["channel"]);
+  expect(latest().isLiveSearching).toBe(true);
+
+  await act(async () => finishLive([item("channel"), item("programme")]));
+  expect(latest().liveResults.map(({ Id }) => Id)).toEqual(["channel", "programme"]);
+  expect(latest().isLiveSearching).toBe(false);
+});
+
+it("lands nothing from a live partial for a term the viewer has typed past", async () => {
+  const { searchLiveTv } = require("@/services/jellyfinApi") as { searchLiveTv: jest.Mock };
+  let emitOld!: (items: JellyfinVideoItem[]) => void;
+  searchLiveTv
+    .mockImplementationOnce((_term: string, onUpdate: (items: JellyfinVideoItem[]) => void) => {
+      emitOld = onUpdate;
+      return new Promise(() => {});
+    })
+    .mockResolvedValueOnce([]);
+  mockSearch.mockResolvedValue({ items: [], next: null });
+  const latest = await mount();
+
+  act(() => latest().search("fil"));
+  await act(async () => {
+    jest.advanceTimersByTime(300);
+  });
+  act(() => latest().search("film"));
+  await act(async () => {
+    jest.advanceTimersByTime(300);
+  });
+  await act(async () => emitOld([item("stale-channel")]));
+  expect(latest().liveResults).toEqual([]);
 });
 
 it("drops a live page for a term the viewer has typed past", async () => {
@@ -126,7 +176,7 @@ it("drops a live page for a term the viewer has typed past", async () => {
   expect(latest().liveResults).toEqual([]);
 });
 
-it("keeps the live cards when the library request fails", async () => {
+it("keeps the live cards already shown when the library request fails", async () => {
   const { searchLiveTv } = require("@/services/jellyfinApi") as { searchLiveTv: jest.Mock };
   searchLiveTv.mockResolvedValueOnce([item("channel")]);
   let failLibrary!: (reason: Error) => void;
@@ -137,6 +187,8 @@ it("keeps the live cards when the library request fails", async () => {
   await act(async () => {
     jest.advanceTimersByTime(300);
   });
+  expect(latest().liveResults.map(({ Id }) => Id)).toEqual(["channel"]);
+
   await act(async () => {
     failLibrary(new Error("server down"));
   });

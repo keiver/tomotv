@@ -26,7 +26,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { isNativeSearchAvailable, TvosSearchView } from "expo-tvos-search";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getLiveTvAvailability, subscribeLiveTvAvailability } from "@/services/liveTvAvailability";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alert, findNodeHandle, Platform, StyleSheet, Text, TextInput, TVEventControl, View } from "react-native";
 import { t } from "@/services/i18n";
 import { takeSearchFocusRequest } from "@/services/searchFocus";
@@ -126,6 +127,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
     liveResults,
     setLiveResults,
     isSearching,
+    isLiveSearching,
     isLoadingMore,
     search,
     loadMore,
@@ -204,6 +206,7 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
         results={searchResults}
         liveResults={liveResults}
         isSearching={isSearching}
+        isLiveSearching={isLiveSearching}
         isLoadingMore={isLoadingMore}
         region={region}
         onItemPress={openItem}
@@ -223,6 +226,7 @@ function NativeSearchResults({
   results,
   liveResults,
   isSearching,
+  isLiveSearching,
   isLoadingMore,
   region,
   onItemPress,
@@ -233,12 +237,17 @@ function NativeSearchResults({
   results: JellyfinVideoItem[];
   liveResults: JellyfinVideoItem[];
   isSearching: boolean;
+  isLiveSearching: boolean;
   isLoadingMore: boolean;
   region: { width: number; height: number } | null;
   onItemPress: (item: JellyfinVideoItem) => void;
   onItemLongPress: (item: JellyfinVideoItem) => void;
   onEndReached: () => void;
 }) {
+  // On a server with Live TV the shelf row is reserved from the first paint: it mounts with the
+  // grid at a fixed height and only its contents change, so nothing ever inserts above row 0.
+  const hasLiveTv = useSyncExternalStore(subscribeLiveTvAvailability, getLiveTvAvailability);
+  const showLiveRow = hasLiveTv || liveResults.length > 0;
   // Until the region is measured, flex fills whatever React thinks the box is. That lands on the
   // first layout pass, while the results are still empty.
   const body =
@@ -255,9 +264,9 @@ function NativeSearchResults({
         onEndReached={onEndReached}
         // With two sections on screen, each wears its heading; a lone grid stays unlabelled.
         ListHeaderComponent={
-          liveResults.length > 0 ? (
+          showLiveRow ? (
             <>
-              <LiveTvSearchShelf items={liveResults} />
+              <LiveTvSearchShelf items={liveResults} pending={isLiveSearching} />
               {results.length > 0 && <ShelfHeading title={t("search.libraryHeading")} />}
             </>
           ) : null
@@ -339,6 +348,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
     liveResults,
     setLiveResults,
     isSearching,
+    isLiveSearching,
     isLoadingMore,
     error: searchError,
     search,
@@ -402,6 +412,10 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
 
   const hasSearchQuery = searchQuery.trim().length >= 2;
   const shouldShowResults = hasSearchQuery && (searchResults.length > 0 || liveResults.length > 0);
+  // On a server with Live TV the shelf row is reserved from the first paint: it mounts with the
+  // grid at a fixed height and only its contents change, so nothing ever inserts above row 0.
+  const hasLiveTv = useSyncExternalStore(subscribeLiveTvAvailability, getLiveTvAvailability);
+  const showLiveRow = hasLiveTv || liveResults.length > 0;
 
   const [searchInputHandle, setSearchInputHandle] = useState<number | undefined>(undefined);
 
@@ -536,9 +550,9 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
           onEndReached={handleLoadMore}
           // With two sections on screen, each wears its heading; a lone grid stays unlabelled.
           ListHeaderComponent={
-            liveResults.length > 0 ? (
+            showLiveRow ? (
               <>
-                <LiveTvSearchShelf items={liveResults} />
+                <LiveTvSearchShelf items={liveResults} pending={isLiveSearching} />
                 {searchResults.length > 0 && <ShelfHeading title={t("search.libraryHeading")} />}
               </>
             ) : null

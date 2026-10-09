@@ -347,6 +347,23 @@ describe("searchLiveTv", () => {
       searchExternalPrograms.mockRejectedValue(new Error("guide down"));
       await expect(searchLiveTv("yankees")).resolves.toEqual([channel("ch")]);
     });
+
+    it("answers with the name matches at once and merges a late guide programme in order, never appended", async () => {
+      const nameMatch = {
+        ...airing("p-name", "tbs", "Yankees at Rays.", "Yankees Tonight"),
+        StartDate: new Date(Date.now() + 5 * 3_600_000).toISOString(),
+        EndDate: new Date(Date.now() + 7 * 3_600_000).toISOString(),
+      };
+      serve(ok([channel("mlb"), nameMatch]), ok([]));
+      let finishGuide!: (items: unknown[]) => void;
+      searchExternalPrograms.mockImplementationOnce(() => new Promise((resolve) => (finishGuide = resolve)));
+      const updates: string[][] = [];
+      const result = searchLiveTv("yankees", (items) => updates.push(items.map(({ Id }) => Id)));
+      for (let i = 0; i < 20 && updates.length === 0; i++) await new Promise((resolve) => setImmediate(resolve));
+      expect(updates[updates.length - 1]).toEqual(["mlb", "p-name"]);
+      finishGuide([listing("tbs", 60, "Yankees pregame.")]);
+      expect((await result).map(({ Id }) => Id)).toEqual(["mlb", "epg:tbs:60", "p-name"]);
+    });
   });
 
   it("answers empty for a blank term without asking the server", async () => {

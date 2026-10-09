@@ -442,6 +442,7 @@
   "search.emptyHint": "Find by title, genre, artist, or year…",
   "search.unableBody": "Unable to search. Please check your connection.",
   "search.noResultsFor": "No results for",
+  "search.noLiveTvMatches": "No Live TV matches",
   "search.libraryHeading": "Library",
   "search.demoFailedTitle": "Unable to connect to demo server",
   "settings.quality.auto": "Auto",

@@ -35,11 +35,15 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
   const [results, setResults] = useState<JellyfinVideoItem[]>([]);
   const [liveResults, setLiveResults] = useState<JellyfinVideoItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  // True while a slower live tier (airing, guide sources, card details) is still due for the term on screen.
+  const [isLiveSearching, setIsLiveSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [next, setNext] = useState<SearchCursor | null>(null);
   // Bumped by every query change and removal: a page for an older one lands nothing.
   const seqRef = useRef(0);
+  // Cards shown so far, for the live facet's late onResults report.
+  const resultCountRef = useRef(0);
   const delayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryRef = useRef(initialQuery ?? "");
   const callbacksRef = useRef({ onResults, onError });
@@ -68,21 +72,33 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
       if (append) {
         const page = await searchVideos(term, { limit: PAGE_SIZE, cursor });
         if (seq !== seqRef.current) return;
+        resultCountRef.current += page.items.length;
         setResults((shown) => appendUnique(shown, page.items));
         setNext(page.next);
         return;
       }
-      // One paint: the live facet and the library page land in the same commit, so the shelf
-      // never mounts above a grid already on screen. Settled apart, a failed library keeps the
-      // live cards; the previous term's cards stay up until this term's replace them.
-      const [live, page] = await Promise.allSettled([searchLiveTv(term), searchVideos(term, { limit: PAGE_SIZE })]);
+      // The live facet never gates the library paint: its tiers land through the partial callback,
+      // merged in order, and the reserved shelf row (LiveTvSearchShelf) keeps the layout fixed so
+      // late cards fill a frame that never moves. The previous term's cards stay up until replaced.
+      setIsLiveSearching(true);
+      void searchLiveTv(term, (partial) => {
+        if (seq === seqRef.current) setLiveResults(partial);
+      })
+        .then((live) => {
+          if (seq !== seqRef.current) return;
+          setLiveResults(live);
+          setIsLiveSearching(false);
+          callbacksRef.current.onResults?.(term, resultCountRef.current, live.length);
+        })
+        .catch(() => {
+          if (seq === seqRef.current) setIsLiveSearching(false);
+        });
+      const page = await searchVideos(term, { limit: PAGE_SIZE });
       if (seq !== seqRef.current) return;
-      if (live.status === "fulfilled") setLiveResults(live.value);
-      if (page.status === "rejected") throw page.reason;
-      setResults(page.value.items);
-      setNext(page.value.next);
+      resultCountRef.current = page.items.length;
+      setResults(page.items);
+      setNext(page.next);
       setActiveQuery(term);
-      callbacksRef.current.onResults?.(term, page.value.items.length, live.status === "fulfilled" ? live.value.length : 0);
     } catch (err) {
       if (seq !== seqRef.current) return;
       setError(getLoadErrorMessage(err));
@@ -113,6 +129,7 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
         setError(null);
         setNext(null);
         setIsSearching(false);
+        setIsLiveSearching(false);
         setIsLoadingMore(false);
         return;
       }
@@ -162,5 +179,5 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
     [],
   );
 
-  return { query, activeQuery, results, liveResults, setLiveResults, isSearching, isLoadingMore, hasMore: next !== null, error, search, retry, loadMore, clearError };
+  return { query, activeQuery, results, liveResults, setLiveResults, isSearching, isLiveSearching, isLoadingMore, hasMore: next !== null, error, search, retry, loadMore, clearError };
 }
