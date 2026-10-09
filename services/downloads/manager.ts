@@ -55,6 +55,7 @@ export interface DownloadProgress {
 type Listener = (state: DownloadsUIState) => void;
 type ProgressListener = (progress: DownloadProgress) => void;
 type ThroughputListener = (bytesPerSecond: number) => void;
+type SideKind = "art" | "subs";
 
 class DownloadManager {
   private tasks = new Map<string, DownloadTask>();
@@ -72,6 +73,10 @@ class DownloadManager {
   private hydrated = false;
   private hydrating: Promise<void> | null = null;
   private healOnRelease: (() => void) | null = null;
+  /** Poster and subtitle fetches, each kind MAX_ACTIVE at a time so a whole folder does not fetch at
+   *  once; apart, so a subtitle never waits behind a keyframe decode. */
+  private sideQueues: Record<SideKind, { itemId: string; run: () => Promise<void> }[]> = { art: [], subs: [] };
+  private sideRunning: Record<SideKind, number> = { art: 0, subs: 0 };
 
   isSupported(): boolean {
     return downloadsSupported();
@@ -105,8 +110,8 @@ class DownloadManager {
           // so the screen offers a re-download instead of the row failing at play time.
           if (!file.exists) patchEntry(entry.itemId, { state: "failed", error: "No longer on this device" });
           else {
-            void this.cacheSubtitles(entry.item);
-            if (!entry.artworkUri) void this.cacheArtwork(entry.item);
+            this.queueSide("subs", entry.itemId, () => this.cacheSubtitles(entry.item));
+            if (!entry.artworkUri) this.queueSide("art", entry.itemId, () => this.cacheArtwork(entry.item));
           }
           continue;
         }
@@ -223,8 +228,8 @@ class DownloadManager {
       item: stored,
     });
     this.notify();
-    void this.cacheArtwork(item);
-    void this.cacheSubtitles(stored);
+    this.queueSide("art", item.Id, () => this.cacheArtwork(item));
+    this.queueSide("subs", item.Id, () => this.cacheSubtitles(stored));
     this.pump();
   }
 
@@ -263,6 +268,7 @@ class DownloadManager {
       this.syncRateSampler();
     }
     this.resumeStates.delete(itemId);
+    for (const kind of ["art", "subs"] as const) this.sideQueues[kind] = this.sideQueues[kind].filter((task) => task.itemId !== itemId);
     cancelRepackage(itemId);
     this.clearProgressTimer(itemId);
     removeEntry(itemId);
@@ -342,6 +348,12 @@ class DownloadManager {
       return;
     }
 
+    // A remove that landed during the awaits above already dropped the entry; registering
+    // this task now would orphan a transfer nothing tracks or cancels.
+    if (!manifestEntry(entry.itemId)) {
+      task.cancel();
+      return;
+    }
     this.tasks.set(entry.itemId, task);
     this.syncRateSampler();
     // Consumed: the blob is single-use, and a failed resume has to start a fresh request.
@@ -518,6 +530,23 @@ class DownloadManager {
       } catch (error) {
         logger.warn("Could not cache a download subtitle track", error, { service: "Downloads", itemId: item.Id, index });
       }
+    }
+  }
+
+  private queueSide(kind: SideKind, itemId: string, run: () => Promise<void>): void {
+    this.sideQueues[kind].push({ itemId, run });
+    this.drainSide(kind);
+  }
+
+  private drainSide(kind: SideKind): void {
+    while (this.sideRunning[kind] < MAX_ACTIVE) {
+      const task = this.sideQueues[kind].shift();
+      if (!task) return;
+      this.sideRunning[kind] += 1;
+      void task.run().finally(() => {
+        this.sideRunning[kind] -= 1;
+        this.drainSide(kind);
+      });
     }
   }
 

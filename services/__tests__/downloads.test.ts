@@ -48,7 +48,7 @@ jest.mock("@/services/jellyfin/subtitles", () => ({
 import { downloadManager, resetDownloadPolicyCache } from "@/services/downloads/manager";
 import { localArtworkUri, localSubtitleUri, playbackArtworkUri } from "@/services/downloads/localSource";
 import { getConvertedDownloadUrl } from "@/services/jellyfin/streamUrls";
-import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache } from "@/services/downloads/manifest";
+import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache, withManifestBatch } from "@/services/downloads/manifest";
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
 import { hasPoster } from "@/services/jellyfin/images";
 import { wantsPosterFrame } from "@/services/itemArtwork";
@@ -114,6 +114,53 @@ describe("downloads manifest", () => {
     manifestFile().write("{ not json");
     resetManifestCache();
     await expect(loadManifest()).resolves.toEqual({});
+  });
+
+  it("a batched folder enqueue serializes the manifest once, not per item", async () => {
+    const manifestWrites: number[] = [];
+    const write = File.prototype.write;
+    const spy = jest.spyOn(File.prototype, "write").mockImplementation(function (this: File, content: string) {
+      if (this.uri.endsWith("manifest.json")) manifestWrites.push(content.length);
+      return write.call(this, content);
+    });
+    try {
+      await withManifestBatch(async () => {
+        for (let i = 0; i < 100; i += 1) {
+          await downloadManager.enqueue(ITEM(`b${i}`), { group: { id: "g", name: "G" } });
+        }
+      });
+      await flushManifest();
+      expect(manifestWrites).toHaveLength(1);
+      // Plan acceptance: total serialized bytes at most 2x the final manifest size.
+      const final = manifestWrites[manifestWrites.length - 1];
+      expect(manifestWrites.reduce((sum, bytes) => sum + bytes, 0)).toBeLessThanOrEqual(2 * final);
+      expect(Object.keys(JSON.parse(await manifestFile().text()))).toHaveLength(100);
+    } finally {
+      spy.mockRestore();
+    }
+    await settle();
+    await downloadManager.removeAll();
+  });
+
+  it("flushManifest inside a batch still lands the latest change", async () => {
+    await withManifestBatch(async () => {
+      await downloadManager.enqueue(ITEM("f1"));
+      await flushManifest();
+      expect(JSON.parse(await manifestFile().text())).toHaveProperty("f1");
+    });
+    await settle();
+    await downloadManager.removeAll();
+  });
+
+  it("a state change after the batch ends writes immediately again", async () => {
+    await withManifestBatch(async () => {
+      await downloadManager.enqueue(ITEM("p1"));
+    });
+    await settle();
+    await downloadManager.pause("p1");
+    await flushManifest();
+    expect(JSON.parse(await manifestFile().text()).p1.state).toBe("paused");
+    await downloadManager.removeAll();
   });
 });
 
@@ -227,6 +274,14 @@ describe("downloadManager", () => {
     downloadManager.resume("a");
     await settle();
     expect(DownloadTask.fromSavable).toHaveBeenCalled();
+  });
+
+  it("never registers a transfer for an item removed while it was starting", async () => {
+    await downloadManager.enqueue(ITEM("gone"));
+    // Removed before start() has built its task: the late task must be cancelled, not orphaned.
+    await downloadManager.remove("gone");
+    await settle();
+    expect((downloadManager as unknown as { tasks: Map<string, unknown> }).tasks.size).toBe(0);
   });
 
   it("restarts a transfer paused before any byte landed as a fresh request", async () => {
@@ -580,5 +635,69 @@ describe("downloads outlive the session", () => {
 
     expect(source).not.toMatch(/downloads\/manager/);
     expect(source).not.toMatch(/removeAll/);
+  });
+});
+
+describe("poster and subtitle fetches", () => {
+  const fetchPoster = File.downloadFileAsync as jest.Mock;
+  const original = fetchPoster.getMockImplementation();
+  const held: { uri: string; land: () => void }[] = [];
+
+  beforeEach(() => {
+    held.length = 0;
+    fetchPoster.mockImplementation(
+      (_url: string, destination: File) =>
+        new Promise((resolve) =>
+          held.push({
+            uri: destination.uri,
+            land: () => {
+              destination.write("poster-bytes");
+              resolve(destination);
+            },
+          }),
+        ),
+    );
+  });
+
+  afterEach(async () => {
+    held.forEach((fetch) => fetch.land());
+    fetchPoster.mockImplementation(original);
+    await downloadManager.removeAll();
+  });
+
+  it("run two at a time however many items are queued", async () => {
+    for (const id of ["a", "b", "c", "d"]) await downloadManager.enqueue(ITEM(id));
+    await settle();
+    expect(held).toHaveLength(2);
+
+    held.shift()?.land();
+    await settle();
+    expect(held).toHaveLength(2);
+  });
+
+  it("fetch subtitles in their own lane, never behind posters still landing", async () => {
+    textSubtitles.push({ Index: 3 });
+    for (const id of ["a", "b", "c"]) await downloadManager.enqueue(ITEM(id));
+    await settle();
+    expect(held.filter((fetch) => fetch.uri.endsWith("poster.jpg"))).toHaveLength(2);
+    expect(held.filter((fetch) => fetch.uri.endsWith(".vtt"))).toHaveLength(2);
+  });
+
+  it("never run for an item removed while they waited", async () => {
+    for (const id of ["a", "b", "c"]) await downloadManager.enqueue(ITEM(id));
+    await downloadManager.remove("c");
+    while (held.length) {
+      held.shift()?.land();
+      await settle();
+    }
+    expect(fetchPoster.mock.calls.map(([, destination]: [string, File]) => destination.uri)).not.toContain("file:///doc/downloads/c/poster.jpg");
+  });
+
+  it("fetch again for an item queued again while its first fetch still runs", async () => {
+    await downloadManager.enqueue(ITEM("a"));
+    await downloadManager.remove("a");
+    await downloadManager.enqueue(ITEM("a"));
+    await settle();
+    expect(fetchPoster.mock.calls.filter(([, destination]: [string, File]) => destination.uri === "file:///doc/downloads/a/poster.jpg")).toHaveLength(2);
   });
 });

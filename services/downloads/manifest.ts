@@ -89,6 +89,22 @@ let loading: Promise<Manifest> | null = null;
 // Serialized so two whole-file writes can never interleave.
 let writeChain: Promise<void> | null = null;
 let pendingWrite: ReturnType<typeof setTimeout> | null = null;
+let batchDepth = 0;
+let batchDirty = false;
+
+/**
+ * Coalesces every manifest write inside `run` into one at the end. For bursts that touch
+ * many entries (a folder enqueue), which otherwise serialize the whole file once per item.
+ */
+export async function withManifestBatch<T>(run: () => Promise<T>): Promise<T> {
+  batchDepth += 1;
+  try {
+    return await run();
+  } finally {
+    batchDepth -= 1;
+    if (batchDepth === 0 && batchDirty) writeNow();
+  }
+}
 
 /** Reads the manifest once per launch. A missing or unparseable file starts empty. */
 export function loadManifest(): Promise<Manifest> {
@@ -162,9 +178,14 @@ export function resetManifestCache(): void {
   loading = null;
   if (pendingWrite) clearTimeout(pendingWrite);
   pendingWrite = null;
+  batchDirty = false;
 }
 
 function scheduleWrite(immediate = true): void {
+  if (batchDepth > 0) {
+    batchDirty = true;
+    return;
+  }
   if (immediate) {
     if (pendingWrite) {
       clearTimeout(pendingWrite);
@@ -181,6 +202,7 @@ function scheduleWrite(immediate = true): void {
 }
 
 function writeNow(): void {
+  batchDirty = false;
   const snapshot = JSON.stringify(entries);
   const run = (writeChain ?? Promise.resolve())
     .then(async () => {
@@ -198,8 +220,8 @@ function writeNow(): void {
 
 /** Waits for the manifest to hit disk, running any interval write that is still pending. */
 export async function flushManifest(): Promise<void> {
-  if (pendingWrite) {
-    clearTimeout(pendingWrite);
+  if (pendingWrite || batchDirty) {
+    if (pendingWrite) clearTimeout(pendingWrite);
     pendingWrite = null;
     writeNow();
   }
