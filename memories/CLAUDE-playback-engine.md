@@ -211,7 +211,15 @@ CODECS token through `hdrFallbackTag`.
 
 Interlaced sources go through a `buffer -> bwdif -> buffersink` graph in
 `VideoTranscoder` (`mode=send_frame`, parity from the container's field order,
-`deint=all`). Two properties are load-bearing:
+`deint=all`). Interlaced H.264 is in that set: `needsTranscode` refuses it the
+copy (HLS authoring spec 1.14 forbids interlaced samples; AVPlayer weaves
+them, and a PAFF copy puts one FIELD per fMP4 sample). A live TS answers
+`field_order` unknown and `extradata` empty whatever the probe terms
+(measured on a 1080i25 PAFF HLS origin), so the pipeline reads to the opening
+keyframe, lifts its parameter sets, and `H264ParameterSets` reads
+`frame_mbs_only_flag` to pick the lane; such SPS-driven sessions run bwdif
+`parity=auto:deint=interlaced`, by each frame's own flags. Two properties are
+load-bearing:
 
 - **The filter code lives in the FFmpeg frameworks, compiled -O2 whatever the
   app builds at.** The previous hand-written Swift pass ran ~300x slower at
@@ -229,9 +237,9 @@ survives a seek.
 
 `yadif_videotoolbox` (Metal GPU) remains a possible upgrade, its own change with
 its own comparison. Apple's `kVTDecompressionPropertyKey_FieldMode` only applies
-to streams VideoToolbox decodes itself, and our interlaced sources are MPEG-2
-decoded in software; `VideoTranscoder.logDecodeSupport()` logs per-device what
-VideoToolbox can decode.
+to streams VideoToolbox decodes itself, and our interlaced sources (MPEG-2 and
+interlaced H.264 alike) are decoded in software; `VideoTranscoder.logDecodeSupport()`
+logs per-device what VideoToolbox can decode.
 
 ## The audio path has no such ceiling
 

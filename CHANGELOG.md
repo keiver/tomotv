@@ -24,6 +24,7 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV, closing an info panel or the player opened from the guide hands focus back to the programme you pressed, or the channel card you held, instead of the tab bar
 - A programme shorter than a minute shows its start and end with seconds, in the guide, the schedule and its info panel, instead of the same minute twice
 - A focused guide cell's ring no longer draws over the programme's artwork or live frames
+- An interlaced H.264 channel or file plays a clean deinterlaced picture instead of woven, flickering fields: the engine routes it through its deinterlacer, reading the field coding from the stream's own opening keyframe when a live tune hides it
 
 ## [2.2.10]
 
