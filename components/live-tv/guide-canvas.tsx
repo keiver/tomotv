@@ -1,4 +1,5 @@
 import { FocusableButton } from "@/components/FocusableButton";
+import { LoadingRow } from "@/components/loading-row";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
 import { HUD_BAR_HEIGHT } from "@/components/live-tv/guide-hud";
@@ -566,6 +567,12 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
             />
           </Animated.ScrollView>
         </TVFocusGuideView>
+        {/* Shown only while the band is empty, so it never sits over a focusable (tvOS rule). */}
+        {isLoading && rows.length === 0 ? (
+          <View style={[StyleSheet.absoluteFill, styles.loadingOverlay]} pointerEvents="none">
+            <LoadingRow label={t("liveTv.loadingGuide")} />
+          </View>
+        ) : null}
       </View>
       {IS_TV ? <View style={[styles.seam, { left: METRICS.channelColumnWidth - 1 }]} pointerEvents="none" /> : null}
       {IS_TV ? null : (
@@ -603,6 +610,10 @@ const styles = StyleSheet.create({
   bandRow: {
     flex: 1,
     flexDirection: "row",
+  },
+  loadingOverlay: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   entryRow: {
     flexDirection: "row",
