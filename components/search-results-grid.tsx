@@ -100,6 +100,13 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
   const contentWidth = availableWidth ?? windowWidth - edgeLeft - edgeRight;
 
   const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, Platform.isTV, "grid"), [windowWidth, windowHeight, insets.left, insets.right]);
+  // First render covers the window: a fixed first chunk painted a tall Mac window in visible
+  // top-to-bottom batches. Counted against the shortest row shape so it never undershoots.
+  const viewportRows = useMemo(() => {
+    const rowPad = 2 * (Platform.isTV ? 24 : 6);
+    const minRowHeight = Math.min(rowHeights.portrait, rowHeights.square, rowHeights.landscape) + rowPad;
+    return Math.ceil(windowHeight / minRowHeight) + 1;
+  }, [rowHeights, windowHeight]);
   const packedRows = useMemo(
     () => packArtworkRows(items, contentWidth, (item) => ({ ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[itemSlotShape(item.PrimaryImageAspectRatio)] }), CARD_PADDING),
     [items, contentWidth, rowHeights],
@@ -166,8 +173,8 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
       maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
       showsVerticalScrollIndicator={false}
       // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
-      initialNumToRender={Platform.isTV ? 8 : 6}
-      maxToRenderPerBatch={Platform.isTV ? 8 : 6}
+      initialNumToRender={viewportRows}
+      maxToRenderPerBatch={viewportRows}
       windowSize={5}
       removeClippedSubviews={!Platform.isTV}
       onEndReached={onEndReached}
