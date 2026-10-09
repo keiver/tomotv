@@ -42,7 +42,8 @@ const descentOf = (stack) => {
 export const DEVICES = {
   mac: {
     canvas: [2880, 1800],
-    bleed: true,
+    // Window captures carry their own edge and shadow, so the panel draws neither.
+    windowed: true,
     tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.86, clearance: 0.04 },
   },
   iphone: {
@@ -176,7 +177,7 @@ function panelRect(device, top, reserved = 0) {
 
   if (!device.frame) {
     const { width, y } = place(H / W);
-    return { shell: null, screen: { x: (W - width) / 2, y, width, height: width * (H / W), radius: W * PANEL_RADIUS } };
+    return { shell: null, screen: { x: (W - width) / 2, y, width, height: width * (H / W), radius: device.windowed ? 0 : W * PANEL_RADIUS } };
   }
   const [, , vw, vh] = FRAMES[device.frame].viewBox;
   const { width, y } = place(vh / vw);
@@ -213,6 +214,7 @@ function layout(device, shot, shared) {
     accent: shot.accent ?? head.length - 1,
     captionSize: m.headSize,
     bleed: Boolean(device.bleed),
+    windowed: Boolean(device.windowed),
     shell,
     screen,
   };
@@ -255,8 +257,8 @@ async function base(L, background) {
   <rect x="${round(s.x + dx)}" y="${round(s.y + dy)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius ?? 0)}" fill="${INK.shadow}" opacity="${opacity}" filter="url(#${id})"/>`;
 
   const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}">
-  ${shadow(L.W * 0.012, L.H * 0.026, L.W * 0.03, round(INK.shadowOpacity * 0.72), "cast")}
-  ${shadow(L.W * 0.002, L.H * 0.005, L.W * 0.005, round(INK.shadowOpacity * 0.85), "contact")}
+  ${L.windowed ? "" : shadow(L.W * 0.012, L.H * 0.026, L.W * 0.03, round(INK.shadowOpacity * 0.72), "cast")}
+  ${L.windowed ? "" : shadow(L.W * 0.002, L.H * 0.005, L.W * 0.005, round(INK.shadowOpacity * 0.85), "contact")}
 </svg>`);
   const master = await rasterise(background);
   const art = await raw(sharp(master.data, { raw: master.info }).resize(L.W, L.H, { fit: "cover", position: "centre", kernel: "lanczos3" }).flatten({ background: COLORS.BACKGROUND_DEEP }));
@@ -294,11 +296,12 @@ async function screen(capture, s, W, H) {
 /** Panel hairline or device shell. */
 function frame(device, L) {
   const s = L.screen;
-  const body = device.bleed
-    ? ""
-    : device.frame
-      ? `<g transform="${L.shell.transform}">${frameBody(device.frame)}</g>`
-      : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="${round(L.W * PANEL_STROKE)}"/>`;
+  const body =
+    device.bleed || device.windowed
+      ? ""
+      : device.frame
+        ? `<g transform="${L.shell.transform}">${frameBody(device.frame)}</g>`
+        : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="${round(L.W * PANEL_STROKE)}"/>`;
   return raw(sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}" fill="none">${body}</svg>`)));
 }
 
