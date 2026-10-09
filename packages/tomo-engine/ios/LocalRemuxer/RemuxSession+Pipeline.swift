@@ -1458,6 +1458,75 @@ extension RemuxSession {
             return .some(transcoder)
         }
 
+        /// Reads to the first keyframe carrying parameter sets, lifts them (and
+        /// missing dimensions) onto the stream, and returns that keyframe for the
+        /// read loop to replay. Skipped packets are scanned for embedded captions.
+        func readToOpeningParameterSets(videoStream: UnsafeMutablePointer<AVStream>) -> UnsafeMutablePointer<AVPacket>? {
+            var packet = av_packet_alloc()
+            defer { av_packet_free(&packet) }
+            guard let pkt = packet else { return nil }
+            let hevc = videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
+            var bareKeyframes = 0
+            var queued: UnsafeMutablePointer<AVPacket>? = nil
+            while av_read_frame(input, pkt) >= 0 {
+                let isKeyframe = pkt.pointee.stream_index == videoIn && pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+                // An open-GOP recovery point is flagged a keyframe yet carries no parameter sets
+                // (only IDRs do), so the session opens on the first keyframe that has them.
+                let sets = isKeyframe ? TierRewrapper.annexBParameterSets(pkt, hevc: hevc) : nil
+                let opensOnKeyframe = sets != nil
+                if isKeyframe, !opensOnKeyframe { bareKeyframes += 1 }
+                if pkt.pointee.stream_index == videoIn, TierRewrapper.annexBHasA53Captions(pkt, hevc: hevc) {
+                    stateLock.lock()
+                    embeddedCaptions = true
+                    stateLock.unlock()
+                }
+                if let sets, let buf = av_mallocz(sets.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
+                    sets.withUnsafeBytes { raw in buf.copyMemory(from: raw.baseAddress!, byteCount: sets.count) }
+                    videoStream.pointee.codecpar.pointee.extradata = buf.assumingMemoryBound(to: UInt8.self)
+                    videoStream.pointee.codecpar.pointee.extradata_size = Int32(sets.count)
+                    NSLog("[LocalRemuxer] Parameter sets lifted from the opening keyframe (%d bytes, %d keyframes without them skipped)", sets.count, bareKeyframes)
+                }
+                // Stream info that opened far from a keyframe holds no dimensions either, and the
+                // muxer refuses a video track without them; the parser reads them off the SPS.
+                if opensOnKeyframe,
+                   videoStream.pointee.codecpar.pointee.width <= 0 || videoStream.pointee.codecpar.pointee.height <= 0,
+                   let parser = av_parser_init(Int32(videoStream.pointee.codecpar.pointee.codec_id.rawValue)),
+                   let codec = avcodec_find_decoder(videoStream.pointee.codecpar.pointee.codec_id),
+                   let codecCtx = avcodec_alloc_context3(codec) {
+                    var parsed: UnsafeMutablePointer<UInt8>? = nil
+                    var parsedSize: Int32 = 0
+                    _ = av_parser_parse2(parser, codecCtx, &parsed, &parsedSize, pkt.pointee.data, pkt.pointee.size, SWIFT_AV_NOPTS_VALUE, SWIFT_AV_NOPTS_VALUE, -1)
+                    if parser.pointee.width > 0, parser.pointee.height > 0 {
+                        videoStream.pointee.codecpar.pointee.width = parser.pointee.width
+                        videoStream.pointee.codecpar.pointee.height = parser.pointee.height
+                        NSLog("[LocalRemuxer] Dimensions read from the opening keyframe: %dx%d", parser.pointee.width, parser.pointee.height)
+                    }
+                    var freeing: UnsafeMutablePointer<AVCodecContext>? = codecCtx
+                    avcodec_free_context(&freeing)
+                    av_parser_close(parser)
+                }
+                if opensOnKeyframe {
+                    queued = av_packet_clone(pkt)
+                    av_packet_unref(pkt)
+                    break
+                }
+                av_packet_unref(pkt)
+            }
+            mark("parameter_sets")
+            return queued
+        }
+
+        // A live TS answers neither field_order nor extradata at the probe, so an
+        // interlaced H.264 copy would reach AVPlayer woven. Read to the opening
+        // keyframe first: its SPS picks the lane, and the keyframe replays below.
+        var liftedKeyframe: UnsafeMutablePointer<AVPacket>? = nil
+        if config.isLive, hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
+           videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264,
+           videoStream.pointee.codecpar.pointee.extradata_size == 0,
+           videoStream.pointee.codecpar.pointee.field_order == AV_FIELD_UNKNOWN {
+            liftedKeyframe = readToOpeningParameterSets(videoStream: videoStream)
+        }
+
         // Video AVPlayer cannot decode is re-encoded to H.264 through
         // VideoToolbox; H.264/HEVC (and hardware-gated AV1) keep copying.
         // Built before the muxers, which describe the output track from the
@@ -1577,58 +1646,12 @@ extension RemuxSession {
         // extract_extradata bsf), and movenc reads codecpar once, when the muxer is built.
         // The parameter sets ride a keyframe: read up to the first that carries them, lift them
         // onto the input stream, and replay that keyframe as the loop's first packet.
-        var queuedPacket: UnsafeMutablePointer<AVPacket>? = nil
-        if hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
+        var queuedPacket: UnsafeMutablePointer<AVPacket>? = liftedKeyframe
+        if hasVideo, queuedPacket == nil, let videoStream = input.pointee.streams[Int(videoIn)],
            videoStream.pointee.codecpar.pointee.extradata_size == 0,
            videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264 || videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC,
            builtRenditions.contains(where: { $0.videoTranscoder == nil && $0.inputStreams.contains(videoIn) }) {
-            let hevc = videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
-            var bareKeyframes = 0
-            while av_read_frame(input, pkt) >= 0 {
-                let isKeyframe = pkt.pointee.stream_index == videoIn && pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
-                // An open-GOP recovery point is flagged a keyframe yet carries no parameter sets
-                // (only IDRs do), so the session opens on the first keyframe that has them.
-                let sets = isKeyframe ? TierRewrapper.annexBParameterSets(pkt, hevc: hevc) : nil
-                let opensOnKeyframe = sets != nil
-                if isKeyframe, !opensOnKeyframe { bareKeyframes += 1 }
-                if pkt.pointee.stream_index == videoIn, TierRewrapper.annexBHasA53Captions(pkt, hevc: hevc) {
-                    stateLock.lock()
-                    embeddedCaptions = true
-                    stateLock.unlock()
-                }
-                if let sets, let buf = av_mallocz(sets.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
-                    sets.withUnsafeBytes { raw in buf.copyMemory(from: raw.baseAddress!, byteCount: sets.count) }
-                    videoStream.pointee.codecpar.pointee.extradata = buf.assumingMemoryBound(to: UInt8.self)
-                    videoStream.pointee.codecpar.pointee.extradata_size = Int32(sets.count)
-                    NSLog("[LocalRemuxer] Parameter sets lifted from the opening keyframe (%d bytes, %d keyframes without them skipped)", sets.count, bareKeyframes)
-                }
-                // Stream info that opened far from a keyframe holds no dimensions either, and the
-                // muxer refuses a video track without them; the parser reads them off the SPS.
-                if opensOnKeyframe,
-                   videoStream.pointee.codecpar.pointee.width <= 0 || videoStream.pointee.codecpar.pointee.height <= 0,
-                   let parser = av_parser_init(Int32(videoStream.pointee.codecpar.pointee.codec_id.rawValue)),
-                   let codec = avcodec_find_decoder(videoStream.pointee.codecpar.pointee.codec_id),
-                   let codecCtx = avcodec_alloc_context3(codec) {
-                    var parsed: UnsafeMutablePointer<UInt8>? = nil
-                    var parsedSize: Int32 = 0
-                    _ = av_parser_parse2(parser, codecCtx, &parsed, &parsedSize, pkt.pointee.data, pkt.pointee.size, SWIFT_AV_NOPTS_VALUE, SWIFT_AV_NOPTS_VALUE, -1)
-                    if parser.pointee.width > 0, parser.pointee.height > 0 {
-                        videoStream.pointee.codecpar.pointee.width = parser.pointee.width
-                        videoStream.pointee.codecpar.pointee.height = parser.pointee.height
-                        NSLog("[LocalRemuxer] Dimensions read from the opening keyframe: %dx%d", parser.pointee.width, parser.pointee.height)
-                    }
-                    var freeing: UnsafeMutablePointer<AVCodecContext>? = codecCtx
-                    avcodec_free_context(&freeing)
-                    av_parser_close(parser)
-                }
-                if opensOnKeyframe {
-                    queuedPacket = av_packet_clone(pkt)
-                    av_packet_unref(pkt)
-                    break
-                }
-                av_packet_unref(pkt)
-            }
-            mark("parameter_sets")
+            queuedPacket = readToOpeningParameterSets(videoStream: videoStream)
         }
 
         stateLock.lock()
