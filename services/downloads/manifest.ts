@@ -11,6 +11,7 @@
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import type { ConversionRung } from "./convert";
 import { logger } from "@/utils/logger";
+import { writeAsStringAsync } from "expo-file-system/legacy";
 import { downloadsSupported, ensureDownloadsRoot, manifestFile, resolveItemFile } from "./paths";
 
 export type DownloadState = "queued" | "downloading" | "repackaging" | "paused" | "ready" | "failed";
@@ -151,7 +152,7 @@ export function readyFileUri(itemId: string): string | null {
 
 export function putEntry(entry: DownloadEntry): void {
   entries[entry.itemId] = entry;
-  scheduleWrite();
+  scheduleWrite("burst");
 }
 
 /**
@@ -163,13 +164,13 @@ export function patchEntry(itemId: string, patch: Partial<DownloadEntry>, soon =
   if (!current) return undefined;
   const next = { ...current, ...patch };
   entries[itemId] = next;
-  scheduleWrite(soon);
+  scheduleWrite(soon ? "transition" : "interval");
   return next;
 }
 
 export function removeEntry(itemId: string): void {
   delete entries[itemId];
-  scheduleWrite();
+  scheduleWrite("transition");
 }
 
 /** Drops the in-memory manifest without touching disk. Remove All, and the tests. */
@@ -181,12 +182,14 @@ export function resetManifestCache(): void {
   batchDirty = false;
 }
 
-function scheduleWrite(immediate = true): void {
-  if (batchDepth > 0) {
+/** A burst is a batched enqueue's put; a transition (pause, ready, failed, removal) is worth
+ *  landing at once even inside a batch; byte counts ride the interval. */
+function scheduleWrite(urgency: "burst" | "transition" | "interval" = "transition"): void {
+  if (batchDepth > 0 && urgency !== "transition") {
     batchDirty = true;
     return;
   }
-  if (immediate) {
+  if (urgency !== "interval") {
     if (pendingWrite) {
       clearTimeout(pendingWrite);
       pendingWrite = null;
@@ -207,7 +210,8 @@ function writeNow(): void {
   const run = (writeChain ?? Promise.resolve())
     .then(async () => {
       await ensureDownloadsRoot();
-      manifestFile().write(snapshot);
+      // Legacy module: its write is async and atomic, where File.write blocks the JS thread.
+      await writeAsStringAsync(manifestFile().uri, snapshot);
     })
     .catch((error) => {
       logger.warn("Downloads manifest write failed", error, { service: "Downloads" });

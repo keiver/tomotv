@@ -8,6 +8,14 @@
  */
 
 jest.mock("expo-file-system", () => require("./fakeFileSystem"));
+// The manifest writer goes through the legacy async API; land it in the same fake fs so the
+// write-counting spy on File.prototype.write still sees every manifest write.
+jest.mock("expo-file-system/legacy", () => ({
+  writeAsStringAsync: async (uri: string, content: string) => {
+    const { File: FakeFile } = require("./fakeFileSystem");
+    new FakeFile(uri).write(content);
+  },
+}));
 
 jest.mock("react-native", () => ({
   Platform: { OS: "ios", isTV: false },
@@ -130,7 +138,8 @@ describe("downloads manifest", () => {
         }
       });
       await flushManifest();
-      expect(manifestWrites).toHaveLength(1);
+      // The batch's puts coalesce to one write; the pump's two slot transitions write through.
+      expect(manifestWrites.length).toBeLessThanOrEqual(3);
       // Plan acceptance: total serialized bytes at most 2x the final manifest size.
       const final = manifestWrites[manifestWrites.length - 1];
       expect(manifestWrites.reduce((sum, bytes) => sum + bytes, 0)).toBeLessThanOrEqual(2 * final);
@@ -147,6 +156,28 @@ describe("downloads manifest", () => {
       await downloadManager.enqueue(ITEM("f1"));
       await flushManifest();
       expect(JSON.parse(await manifestFile().text())).toHaveProperty("f1");
+    });
+    await settle();
+    await downloadManager.removeAll();
+  });
+
+  it("a pause and a remove inside a batch write through at once, while enqueues stay deferred", async () => {
+    await withManifestBatch(async () => {
+      await downloadManager.enqueue(ITEM("e1"));
+      await downloadManager.enqueue(ITEM("e2"));
+      await settle();
+      // Both slots are busy: this put has no transition behind it and stays deferred.
+      await downloadManager.enqueue(ITEM("wb2"));
+      await settle();
+      expect(JSON.parse(await manifestFile().text())).not.toHaveProperty("wb2");
+
+      await downloadManager.pause("e1");
+      await settle();
+      expect(JSON.parse(await manifestFile().text()).e1.state).toBe("paused");
+
+      await downloadManager.remove("e2");
+      await settle();
+      expect(JSON.parse(await manifestFile().text())).not.toHaveProperty("e2");
     });
     await settle();
     await downloadManager.removeAll();

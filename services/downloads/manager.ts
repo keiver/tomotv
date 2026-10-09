@@ -492,7 +492,9 @@ class DownloadManager {
     try {
       const file = hasPoster(item) ? await File.downloadFileAsync(getPosterUrl(item.Id, 600), artworkFile(item.Id), { idempotent: true }) : await this.copyPosterFrame(item);
       if (!file) return;
-      patchEntry(item.Id, { artworkUri: file.uri });
+      // Not a state transition: a lost artwork URI is refetched at the next hydrate, so it
+      // rides the interval write instead of forcing one per poster in a folder enqueue.
+      patchEntry(item.Id, { artworkUri: file.uri }, false);
       this.notify();
     } catch (error) {
       logger.warn("Could not cache download artwork", error, { service: "Downloads", itemId: item.Id });
