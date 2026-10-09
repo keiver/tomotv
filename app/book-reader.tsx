@@ -54,7 +54,8 @@ export default function BookReaderScreen() {
   const bookRef = useRef<OpenedBook | null>(null);
   const progressRef = useRef<ReadingProgress | null>(null);
   const zoomRef = useRef(1);
-  const inFlight = useRef(new Set<string>());
+  // Keyed by gen:page:zoom; the promise lets a page stepped onto mid-render commit alone.
+  const inFlight = useRef(new Map<string, Promise<readonly [number, string] | null>>());
   // Bumped by a relayout, a fixed book's rotation and leaving: a render begun before lands nothing.
   const generationRef = useRef(0);
   const layoutRef = useRef<BookLayout>({ pageWidth: viewportWidth, pageHeight: viewportHeight, scale, fontSize: FONT_SIZES[DEFAULT_FONT_STEP] });
@@ -71,16 +72,17 @@ export default function BookReaderScreen() {
     const generation = generationRef.current;
     const key = `${generation}:${at}:${zoom}`;
     if (inFlight.current.has(key)) return;
-    inFlight.current.add(key);
-    try {
-      const page = await renderPage(opened.token, at, zoom, layoutRef.current);
-      if (generationRef.current !== generation) return;
-      setUris((prev) => (prev[at]?.[zoom] === page.uri ? prev : { ...prev, [at]: { ...prev[at], [zoom]: page.uri } }));
-    } catch (err) {
-      logger.warn("Book page render failed", err, { service: "BookReader", page: at, zoom });
-    } finally {
-      inFlight.current.delete(key);
-    }
+    const job = renderPage(opened.token, at, zoom, layoutRef.current)
+      .then((page) => [at, page.uri] as const)
+      .catch((err) => {
+        logger.warn("Book page render failed", err, { service: "BookReader", page: at, zoom });
+        return null;
+      })
+      .finally(() => inFlight.current.delete(key));
+    inFlight.current.set(key, job);
+    const result = await job;
+    if (!result || generationRef.current !== generation) return;
+    setUris((prev) => (prev[at]?.[zoom] === result[1] ? prev : { ...prev, [at]: { ...prev[at], [zoom]: result[1] } }));
   }, []);
 
   /** The window around a page at zoom 1, all asked at once: the page on screen commits as it lands,
@@ -96,17 +98,18 @@ export default function BookReaderScreen() {
         if (at >= 0 && at < total && !inFlight.current.has(keyOf(at))) wanted.push(at);
       }
     }
-    if (wanted.length === 0) return;
-    wanted.forEach((at) => inFlight.current.add(keyOf(at)));
-    const renders = wanted.map((at) =>
-      renderPage(opened.token, at, 1, layoutRef.current)
+    const renders = wanted.map((at) => {
+      const key = keyOf(at);
+      const job = renderPage(opened.token, at, 1, layoutRef.current)
         .then((page) => [at, page.uri] as const)
         .catch((err) => {
           logger.warn("Book page render failed", err, { service: "BookReader", page: at, zoom: 1 });
           return null;
         })
-        .finally(() => inFlight.current.delete(keyOf(at))),
-    );
+        .finally(() => inFlight.current.delete(key));
+      inFlight.current.set(key, job);
+      return job;
+    });
     const commit = (results: (readonly [number, string] | null)[]) => {
       if (bookRef.current !== opened || generationRef.current !== generation) return;
       setUris((prev) => {
@@ -123,6 +126,12 @@ export default function BookReaderScreen() {
     };
     const shown = wanted.indexOf(around);
     if (shown >= 0) void renders[shown].then((result) => commit([result]));
+    // The page stepped onto can already be in flight from an earlier window; it commits alone
+    // when it lands instead of waiting out that window's batch.
+    else {
+      const flying = inFlight.current.get(keyOf(around));
+      if (flying) void flying.then((result) => commit([result]));
+    }
     void Promise.all(renders.filter((_render, index) => index !== shown)).then(commit);
   }, []);
 
@@ -217,6 +226,8 @@ export default function BookReaderScreen() {
           setRelaying(true);
           const current = landedPageRef.current ?? viewerRef.current?.index() ?? 0;
           const result = await relayoutBook(opened.token, current, next);
+          // The screen can close while native repaginates; landing now would resurrect the book.
+          if (bookRef.current?.token !== opened.token) return;
           landedPageRef.current = result.page;
           bookRef.current = { ...opened, pages: result.pages };
           generationRef.current += 1;

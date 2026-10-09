@@ -167,6 +167,49 @@ describe("book reader", () => {
     expect(mockViewerProps.uriAt(0)).toBe("");
   });
 
+  it("commits a page stepped onto mid-render without waiting for its batch", async () => {
+    const land = holdRenders();
+    await act(async () => {
+      TestRenderer.create(<BookReaderScreen />);
+    });
+    await settle();
+    await land("1-1-1000");
+
+    // Page 2 is still in flight from the first window's batch; stepping onto it must not
+    // wait for page 0.
+    await act(async () => {
+      mockViewerProps.onIndexChange(2);
+    });
+    await land("2-1-1000");
+    expect(mockViewerProps.uriAt(2)).toBe("file:///cache/books/t1/2-1-1000.jpg");
+    expect(mockViewerProps.uriAt(0)).toBe("");
+  });
+
+  it("a relayout landing after the reader closed changes nothing", async () => {
+    mockOpenBook.mockResolvedValue({ token: "t1", kind: "text", pages: 3, title: "Novel" });
+    let landRelayout!: (result: { page: number; pages: number }) => void;
+    mockRelayout.mockImplementation(() => new Promise((resolve) => (landRelayout = resolve)));
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(<BookReaderScreen />);
+    });
+    await settle();
+    await act(async () => {
+      mockViewerProps.actions.find((action: { key: string }) => action.key === "bigger").onPress();
+    });
+
+    tree.unmount();
+    await settle();
+    const rendersBefore = mockRenderPage.mock.calls.length;
+    await act(async () => {
+      landRelayout({ page: 5, pages: 8 });
+    });
+    await settle();
+    expect(mockRenderPage.mock.calls.length).toBe(rendersBefore);
+    expect(mockGoTo).not.toHaveBeenCalled();
+    expect(mockCloseBook).toHaveBeenCalledTimes(1);
+  });
+
   it("drops renders made for the size before a rotation and draws the page again", async () => {
     const land = holdRenders();
     let tree!: TestRenderer.ReactTestRenderer;
