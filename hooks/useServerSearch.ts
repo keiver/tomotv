@@ -40,8 +40,6 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
   const [next, setNext] = useState<SearchCursor | null>(null);
   // Bumped by every query change and removal: a page for an older one lands nothing.
   const seqRef = useRef(0);
-  // Cards shown so far, for the live facet's late onResults report.
-  const resultCountRef = useRef(0);
   const delayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryRef = useRef(initialQuery ?? "");
   const callbacksRef = useRef({ onResults, onError });
@@ -67,25 +65,24 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
       setNext(null);
     }
     try {
-      // Live TV matches ride the first page only, and never gate it: opening a guide can take
-      // seconds, and the library results are ready in a fraction of that. The channel cards
-      // land on their own when they do, replacing the previous term's in place; clearing them
-      // up front would unmount the shelf and shift the grid under focus on every keystroke.
-      if (!append) {
-        void searchLiveTv(term)
-          .then((live) => {
-            if (seq !== seqRef.current) return;
-            setLiveResults(live);
-            callbacksRef.current.onResults?.(term, resultCountRef.current, live.length);
-          })
-          .catch(() => {});
+      if (append) {
+        const page = await searchVideos(term, { limit: PAGE_SIZE, cursor });
+        if (seq !== seqRef.current) return;
+        setResults((shown) => appendUnique(shown, page.items));
+        setNext(page.next);
+        return;
       }
-      const page = await searchVideos(term, append ? { limit: PAGE_SIZE, cursor } : { limit: PAGE_SIZE });
+      // One paint: the live facet and the library page land in the same commit, so the shelf
+      // never mounts above a grid already on screen. Settled apart, a failed library keeps the
+      // live cards; the previous term's cards stay up until this term's replace them.
+      const [live, page] = await Promise.allSettled([searchLiveTv(term), searchVideos(term, { limit: PAGE_SIZE })]);
       if (seq !== seqRef.current) return;
-      resultCountRef.current = append ? resultCountRef.current + page.items.length : page.items.length;
-      setResults((shown) => (append ? appendUnique(shown, page.items) : page.items));
-      setNext(page.next);
+      if (live.status === "fulfilled") setLiveResults(live.value);
+      if (page.status === "rejected") throw page.reason;
+      setResults(page.value.items);
+      setNext(page.value.next);
       setActiveQuery(term);
+      callbacksRef.current.onResults?.(term, page.value.items.length, live.status === "fulfilled" ? live.value.length : 0);
     } catch (err) {
       if (seq !== seqRef.current) return;
       setError(getLoadErrorMessage(err));

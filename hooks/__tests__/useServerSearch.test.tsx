@@ -82,7 +82,7 @@ it("lands nothing from a term the viewer has typed past", async () => {
   expect(latest().results.map((video) => video.Id)).toEqual(["new"]);
 });
 
-it("shows the library results without waiting for the live facet, which lands on its own", async () => {
+it("paints once: the library results wait out the live facet and both land in the same commit", async () => {
   const { searchLiveTv } = require("@/services/jellyfinApi") as { searchLiveTv: jest.Mock };
   let finishLive!: (channels: JellyfinVideoItem[]) => void;
   searchLiveTv.mockImplementationOnce(() => new Promise((resolve) => (finishLive = resolve)));
@@ -93,14 +93,16 @@ it("shows the library results without waiting for the live facet, which lands on
   await act(async () => {
     jest.advanceTimersByTime(300);
   });
-  expect(latest().results.map((video) => video.Id)).toEqual(["a"]);
-  expect(latest().isSearching).toBe(false);
+  expect(latest().results).toEqual([]);
   expect(latest().liveResults).toEqual([]);
+  expect(latest().isSearching).toBe(true);
 
   await act(async () => {
     finishLive([item("channel")]);
   });
+  expect(latest().results.map((video) => video.Id)).toEqual(["a"]);
   expect(latest().liveResults.map((video) => video.Id)).toEqual(["channel"]);
+  expect(latest().isSearching).toBe(false);
 });
 
 it("drops a live page for a term the viewer has typed past", async () => {
@@ -124,7 +126,7 @@ it("drops a live page for a term the viewer has typed past", async () => {
   expect(latest().liveResults).toEqual([]);
 });
 
-it("keeps the live cards already shown when the library request fails", async () => {
+it("keeps the live cards when the library request fails", async () => {
   const { searchLiveTv } = require("@/services/jellyfinApi") as { searchLiveTv: jest.Mock };
   searchLiveTv.mockResolvedValueOnce([item("channel")]);
   let failLibrary!: (reason: Error) => void;
@@ -135,8 +137,6 @@ it("keeps the live cards already shown when the library request fails", async ()
   await act(async () => {
     jest.advanceTimersByTime(300);
   });
-  expect(latest().liveResults.map(({ Id }) => Id)).toEqual(["channel"]);
-
   await act(async () => {
     failLibrary(new Error("server down"));
   });
