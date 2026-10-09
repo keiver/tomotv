@@ -17,7 +17,8 @@ interface AmbientBackgroundProps {
 //
 // The default canvas is three layers: the base field on the View, a black shade mask
 // holding the vignette, and a glow mask drawn as a template image (tintColor colours by
-// alpha) so the chosen theme hues the light. The Tomo canvas tints it the neutral white.
+// alpha) so the chosen theme hues the light. Every canvas but the theme-tinted one keeps
+// the neutral white.
 const CANVAS_BASE = "#1C1C1E";
 const DEFAULT_MASKS = {
   shade: {
@@ -55,7 +56,7 @@ export function preloadAmbientBackgrounds(): void {
 
 /**
  * Full-screen ambient background: a soft light from above the frame over a theater-black
- * vignette, the light in the chosen theme's glow (the Tomo canvas keeps it neutral).
+ * vignette, the light in the chosen theme's glow on the tinted canvas, neutral otherwise.
  * Rendered as an absolute-fill layer behind screen content; never intercepts focus or
  * touch. One static canvas everywhere, since a focus-driven artwork wash was tried and
  * pulled: it fought the grid for attention.

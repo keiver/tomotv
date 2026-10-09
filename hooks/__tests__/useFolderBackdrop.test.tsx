@@ -80,7 +80,7 @@ describe("useFolderBackdrop", () => {
     expect(mockDetails).toHaveBeenCalledTimes(1);
     expect(ref.current?.get()).toEqual({ uri: "blur://f1/Backdrop" });
 
-    await act(async () => updateUiPreferences({ background: "tomo" }));
+    await act(async () => updateUiPreferences({ background: "clear" }));
     expect(ref.current?.get()).toBeNull();
     act(() => tree.unmount());
   });

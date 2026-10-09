@@ -20,14 +20,14 @@ export interface UiPreferences {
   serverTranscoding: ServerTranscoding;
   /** A copy of the chosen theme, so the cards draw it from the first frame, offline, or after it was deleted elsewhere. */
   cardTheme: CardTheme;
-  /** The canvas behind every screen: the Tomo light, the theme's tint on it, or folder artwork over it. */
+  /** The canvas behind every screen: folder artwork over the light, the theme's tint on it, or the clear light alone. */
   background: BackgroundMode;
 }
 
-export type BackgroundMode = "tomo" | "accent" | "artwork";
-export const BACKGROUND_MODES: readonly BackgroundMode[] = ["tomo", "accent", "artwork"];
+export type BackgroundMode = "clear" | "accent" | "artwork";
+export const BACKGROUND_MODES: readonly BackgroundMode[] = ["artwork", "accent", "clear"];
 
-export const DEFAULT_UI_PREFERENCES: UiPreferences = { version: 1, devicePosters: true, serverTranscoding: "linkOrFile", cardTheme: DEFAULT_CARD_THEME, background: "tomo" };
+export const DEFAULT_UI_PREFERENCES: UiPreferences = { version: 1, devicePosters: true, serverTranscoding: "linkOrFile", cardTheme: DEFAULT_CARD_THEME, background: "artwork" };
 
 let current: UiPreferences | null = null;
 const listeners = new Set<() => void>();
@@ -48,8 +48,13 @@ export function parseUiPreferences(raw: unknown): UiPreferences {
     devicePosters: typeof source.devicePosters === "boolean" ? source.devicePosters : DEFAULT_UI_PREFERENCES.devicePosters,
     serverTranscoding: SERVER_TRANSCODING_LEVELS.includes(source.serverTranscoding as ServerTranscoding) ? (source.serverTranscoding as ServerTranscoding) : DEFAULT_UI_PREFERENCES.serverTranscoding,
     cardTheme: parseCardTheme(source.cardTheme) ?? DEFAULT_UI_PREFERENCES.cardTheme,
-    // A document from before the mode: the retired folder-colour switch kept or dropped the artwork.
-    background: BACKGROUND_MODES.includes(source.background as BackgroundMode) ? (source.background as BackgroundMode) : source.folderTint === true ? "artwork" : DEFAULT_UI_PREFERENCES.background,
+    // Earlier documents: the mode's first name for clear, and before the mode, the retired
+    // folder-colour switch, whose "off" meant the clear light.
+    background: BACKGROUND_MODES.includes(source.background as BackgroundMode)
+      ? (source.background as BackgroundMode)
+      : source.background === "tomo" || source.folderTint === false
+        ? "clear"
+        : DEFAULT_UI_PREFERENCES.background,
   };
 }
 

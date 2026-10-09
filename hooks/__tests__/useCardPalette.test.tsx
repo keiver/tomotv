@@ -15,7 +15,7 @@ function Probe() {
 }
 
 describe("useCardPalette", () => {
-  afterEach(() => act(() => updateUiPreferences({ cardTheme: DEFAULT_CARD_THEME, background: "tomo", devicePosters: true })));
+  afterEach(() => act(() => updateUiPreferences({ cardTheme: DEFAULT_CARD_THEME, background: "artwork", devicePosters: true })));
 
   it("re-renders on an accent change only", () => {
     renders.length = 0;

@@ -90,14 +90,14 @@ export default function AppearanceScreen() {
             <Text style={settingsStyles.sectionHeaderText}>{t("appearance.backgroundHeader")}</Text>
           </View>
           <View style={settingsStyles.section}>
-            {/* One canvas at a time: the Tomo light, the theme's tint on it, or folder artwork over it. */}
+            {/* One canvas at a time, the default first: folder artwork over the light, the theme's tint on it, or the clear light alone. */}
             <ListRow
-              icon="sparkles-outline"
-              title={t("appearance.backgroundTomo")}
-              subtitle={t("appearance.backgroundTomoHint")}
-              trailingIcon={background === "tomo" ? tick : undefined}
-              onPress={() => updateUiPreferences({ background: "tomo" })}
-              accessibilityState={{ selected: background === "tomo" }}
+              icon="images-outline"
+              title={t("appearance.backgroundArtwork")}
+              subtitle={t("appearance.backgroundArtworkHint")}
+              trailingIcon={background === "artwork" ? tick : undefined}
+              onPress={() => updateUiPreferences({ background: "artwork" })}
+              accessibilityState={{ selected: background === "artwork" }}
               isFirst
             />
             <ListRow
@@ -109,12 +109,12 @@ export default function AppearanceScreen() {
               accessibilityState={{ selected: background === "accent" }}
             />
             <ListRow
-              icon="images-outline"
-              title={t("appearance.backgroundArtwork")}
-              subtitle={t("appearance.backgroundArtworkHint")}
-              trailingIcon={background === "artwork" ? tick : undefined}
-              onPress={() => updateUiPreferences({ background: "artwork" })}
-              accessibilityState={{ selected: background === "artwork" }}
+              icon="ellipse-outline"
+              title={t("appearance.backgroundClear")}
+              subtitle={t("appearance.backgroundClearHint")}
+              trailingIcon={background === "clear" ? tick : undefined}
+              onPress={() => updateUiPreferences({ background: "clear" })}
+              accessibilityState={{ selected: background === "clear" }}
               isLast
             />
           </View>

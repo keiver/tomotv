@@ -55,11 +55,11 @@ describe("Appearance", () => {
     act(() => tree.unmount());
   });
 
-  it("picks exactly one canvas: the Tomo light, the theme's colour, or folder artwork", () => {
+  it("picks exactly one canvas: folder artwork, the theme's colour, or the clear light", () => {
     const tree = render();
     const row = (title: string) => tree.root.findAll((node) => node.props.title === title && typeof node.props.onPress === "function" && node.props.subtitle !== undefined)[0];
-    act(() => row("Tomo").props.onPress());
-    expect(getUiPreferences().background).toBe("tomo");
+    act(() => row("Clear").props.onPress());
+    expect(getUiPreferences().background).toBe("clear");
     act(() => row("Theme color").props.onPress());
     expect(getUiPreferences().background).toBe("accent");
     act(() => row("Folder artwork").props.onPress());

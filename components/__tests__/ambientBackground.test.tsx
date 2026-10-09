@@ -1,4 +1,4 @@
-/** The ambient canvas: the glow mask tinted by the chosen theme, neutral on the Tomo canvas, filters untinted. */
+/** The ambient canvas: the glow mask tinted by the chosen theme, neutral on the other canvases, filters untinted. */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
@@ -29,8 +29,8 @@ describe("AmbientBackground", () => {
     expect(glowTint()).toBe(NEUTRAL_GLOW);
   });
 
-  it("keeps the neutral light on the Tomo and artwork canvases whatever the theme", () => {
-    updateUiPreferences({ cardTheme: BUILT_IN_THEMES[2], background: "tomo" });
+  it("keeps the neutral light on the clear and artwork canvases whatever the theme", () => {
+    updateUiPreferences({ cardTheme: BUILT_IN_THEMES[2], background: "clear" });
     expect(glowTint()).toBe(NEUTRAL_GLOW);
     updateUiPreferences({ background: "artwork" });
     expect(glowTint()).toBe(NEUTRAL_GLOW);

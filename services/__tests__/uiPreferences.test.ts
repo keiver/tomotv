@@ -11,18 +11,19 @@ describe("uiPreferences", () => {
       devicePosters: true,
       serverTranscoding: "linkOrFile",
       cardTheme: { id: "gold", name: "", accent: "#FFC312" },
-      background: "tomo",
+      background: "artwork",
     });
     expect(getUiPreferences().devicePosters).toBe(true);
     expect(getUiPreferences().serverTranscoding).toBe("linkOrFile");
   });
 
-  it("reads the canvas mode, and maps a document from before it by its folder-colour switch", () => {
-    expect(parseUiPreferences(JSON.stringify({ background: "artwork" }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "artwork" });
+  it("reads the canvas mode, and maps earlier documents: clear's first name and the folder-colour switch", () => {
+    expect(parseUiPreferences(JSON.stringify({ background: "clear" }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "clear" });
     expect(parseUiPreferences(JSON.stringify({ background: "accent" }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "accent" });
     expect(parseUiPreferences(JSON.stringify({ background: "disco" }))).toEqual(DEFAULT_UI_PREFERENCES);
-    expect(parseUiPreferences(JSON.stringify({ folderTint: true }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "artwork" });
-    expect(parseUiPreferences(JSON.stringify({ folderTint: false }))).toEqual(DEFAULT_UI_PREFERENCES);
+    expect(parseUiPreferences(JSON.stringify({ background: "tomo" }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "clear" });
+    expect(parseUiPreferences(JSON.stringify({ folderTint: false }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "clear" });
+    expect(parseUiPreferences(JSON.stringify({ folderTint: true }))).toEqual(DEFAULT_UI_PREFERENCES);
   });
 
   it("reads the chosen theme, falling back on a malformed one", () => {
