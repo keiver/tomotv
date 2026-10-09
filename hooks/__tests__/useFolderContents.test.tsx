@@ -932,6 +932,30 @@ describe("useFolderContents", () => {
       expect(mockFolder).toHaveBeenCalledTimes(1);
     });
 
+    it("a focused screen pays the owed read when playback lets go", async () => {
+      const { setPlaybackHold } = require("@/services/playbackHold") as { setPlaybackHold: (owner: string, active: boolean) => void };
+      focused.mockReturnValue(true);
+      const ref = React.createRef<HookRef>();
+      let tree!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        tree = TestRenderer.create(<Harness ref={ref} folderId="folder-1" />);
+      });
+      mockFolder.mockClear();
+
+      try {
+        setPlaybackHold("video", true);
+        const onSkipped = (useAppStateRefresh as jest.Mock).mock.calls.at(-1)?.[2] as () => void;
+        await act(async () => onSkipped());
+        expect(mockFolder).not.toHaveBeenCalled();
+
+        await act(async () => setPlaybackHold("video", false));
+        expect(mockFolder).toHaveBeenCalledTimes(1);
+      } finally {
+        setPlaybackHold("video", false);
+        tree.unmount();
+      }
+    });
+
     it("still reads at once on a sign-in or sign-out", async () => {
       await mountHidden();
       await act(async () => latestCall(subscribeAuthChange as jest.Mock)());

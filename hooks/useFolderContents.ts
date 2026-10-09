@@ -20,6 +20,7 @@ import {
   subscribeResumeChange,
 } from "@/services/jellyfinApi";
 import { attemptConnectionRecovery } from "@/services/connectionRecovery";
+import { onPlaybackHoldReleased } from "@/services/playbackHold";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -466,6 +467,17 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const markStale = useCallback(() => {
     staleRef.current = true;
   }, []);
+  // PiP keeps the hold while this screen stays focused, so focus alone never pays the debt:
+  // the release does.
+  useEffect(
+    () =>
+      onPlaybackHoldReleased(() => {
+        if (!focusedRef.current || !staleRef.current) return;
+        staleRef.current = false;
+        refresh();
+      }),
+    [refresh],
+  );
 
   // A timer write starts or stops a recording, so a mounted recordings-library browse refetches.
   useEffect(() => {
