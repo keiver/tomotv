@@ -337,8 +337,8 @@ describe("setPosterFramesPaused", () => {
     // The grab mid-run at pause time may still be finishing.
     expect(posterFrameWorkInFlight()).toBe(true);
 
-    // A fresh ask settles: the runner is done, and only the parked job remains.
-    mockPosterFrame.mockResolvedValueOnce({ uri: "file:///caches/chapter-frames/fresh/poster.jpg", cancelled: false });
+    // A fresh ask decodes through the drain: the runner is done, only the parked job remains.
+    mockPosterFrame.mockResolvedValueOnce({ uri: "file:///caches/chapter-frames/fresh/poster.jpg", cancelled: false, fresh: true });
     await requestPosterFrame({ Id: "fresh", RunTimeTicks: 0 });
     expect(posterFrameWorkInFlight()).toBe(false);
 
@@ -359,7 +359,7 @@ describe("setPosterFramesPaused", () => {
   it("a caller joining a parked job kicks it loose past the pause", async () => {
     let settleParked!: (value: { uri: string | null; cancelled: boolean }) => void;
     mockPosterFrame.mockImplementationOnce(() => new Promise((resolve) => (settleParked = resolve)));
-    mockPosterFrame.mockResolvedValueOnce({ uri: "file:///caches/chapter-frames/a/poster.jpg", cancelled: false });
+    mockPosterFrame.mockResolvedValueOnce({ uri: "file:///caches/chapter-frames/a/poster.jpg", cancelled: false, fresh: true });
     const card = requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
     setPosterFramesPaused(true);
 
@@ -386,6 +386,17 @@ describe("setPosterFramesPaused", () => {
     cancelPosterFrame("parked");
     settleParked({ uri: null, cancelled: true });
     await parked;
+    expect(posterFrameWorkInFlight()).toBe(true);
+  });
+
+  it("a pool hit does not clear the busy flag the running grab holds", async () => {
+    mockPosterFrame.mockImplementationOnce(() => new Promise(() => {}));
+    void requestPosterFrame({ Id: "running", RunTimeTicks: 0 });
+    setPosterFramesPaused(true);
+
+    // The pool answers on the caller's thread (fresh: false); nothing decoded.
+    mockPosterFrame.mockResolvedValueOnce({ uri: "file:///caches/chapter-frames/hit/poster.jpg", cancelled: false, fresh: false });
+    await requestPosterFrame({ Id: "hit", RunTimeTicks: 0 });
     expect(posterFrameWorkInFlight()).toBe(true);
   });
 

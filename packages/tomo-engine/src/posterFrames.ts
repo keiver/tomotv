@@ -120,9 +120,10 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
         result = await engineModule().posterFrame({ itemId: request.id, inputUrl, seconds: request.seconds });
         // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
       } while (result?.cancelled && generation === posterFrameGen && (posterFrameWaiters.get(request.id) ?? 0) > 0);
-      // A real decode outcome off the serial queue means the grab running at pause time is
-      // done. A withdrawn parked job answers cancelled without decoding, so it proves nothing.
-      if (!result?.cancelled) posterFramePauseRunner = false;
+      // Only an outcome the serial drain produced (a fresh decode, or a decode that ran and
+      // failed) proves the grab running at pause time is done. A withdrawn parked job answers
+      // cancelled, and a pool hit answers on the caller's thread: neither decoded anything.
+      if (!result?.cancelled && (result?.fresh || result?.uri == null)) posterFramePauseRunner = false;
       if (result?.cancelled) return null;
       const uri = result?.uri ?? null;
       if (generation === posterFrameGen) {
