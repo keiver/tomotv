@@ -400,6 +400,21 @@ describe("setPosterFramesPaused", () => {
     expect(posterFrameWorkInFlight()).toBe(true);
   });
 
+  it("owner churn repeating the pause does not misfile a fresh ask as parked", async () => {
+    mockPosterFrame.mockImplementationOnce(() => new Promise(() => {}));
+    void requestPosterFrame({ Id: "parked", RunTimeTicks: 0 });
+    setPosterFramesPaused(true);
+    mockPosterFrame.mockResolvedValueOnce({ uri: "file:///caches/chapter-frames/done/poster.jpg", cancelled: false, fresh: true });
+    await requestPosterFrame({ Id: "done", RunTimeTicks: 0 });
+    mockPosterFrame.mockImplementationOnce(() => new Promise(() => {}));
+    void requestPosterFrame({ Id: "fresh", RunTimeTicks: 0 });
+    expect(posterFrameWorkInFlight()).toBe(true);
+
+    // Audio joins the video hold: the change listener sends true again.
+    setPosterFramesPaused(true);
+    expect(posterFrameWorkInFlight()).toBe(true);
+  });
+
   it("does nothing when the installed binary lacks the pause method", () => {
     const module = require("react-native").NativeModules.LocalRemuxer as Record<string, unknown>;
     const method = module.setPosterQueuePaused;

@@ -155,6 +155,9 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
 export function setPosterFramesPaused(paused: boolean): void {
   if (!isLocalRemuxAvailable() || !engineModule()?.setPosterQueuePaused) return;
   void engineModule().setPosterQueuePaused(paused);
+  // Owner churn repeats the same state (audio joining a video hold): re-snapshotting here
+  // would misfile the fresh asks already in flight as parked.
+  if (paused === (pausedBacklog !== null)) return;
   pausedBacklog = paused ? new Set(posterFramesInFlight.keys()) : null;
   posterFramePauseRunner = paused && posterFramesInFlight.size > 0;
 }
