@@ -102,16 +102,16 @@ const PANEL_STROKE = 0.0013;
  * app's tab bar sits under the headline and cut rows under the band. The foot is a canvas fraction.
  */
 const CORNER_STOPS = [
-  [0, 0.97],
-  [0.4, 0.92],
-  [0.6, 0.62],
-  [0.82, 0.2],
+  [0, 0.9],
+  [0.4, 0.82],
+  [0.6, 0.5],
+  [0.82, 0.14],
   [1, 0],
 ];
 const BOTTOM_STOPS = [
   [0, 0],
-  [0.55, 0.45],
-  [1, 0.92],
+  [0.55, 0.36],
+  [1, 0.84],
 ];
 const FOOT_WASH = 0.22;
 
