@@ -8,9 +8,11 @@ import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotC
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useChannelHealth } from "@/hooks/useChannelHealth";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useMinuteClock } from "@/hooks/useMinuteClock";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
+import { type ChannelHealth } from "@/services/channelHealth";
 import { t } from "@/services/i18n";
 import { showsChannelLogo } from "@/services/itemArtwork";
 import { isAudioItem, isBook } from "@/services/jellyfinApi";
@@ -44,9 +46,9 @@ const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
-export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
-  // A channel with something on air wears the live mark; the title bar names the programme.
-  if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
+export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false, channelHealth?: ChannelHealth): BadgeSegment[] | null {
+  // A channel wears the live mark only once the engine's own sampler proved the stream.
+  if (video.Type === "TvChannel") return channelHealth === "up" ? [{ label: t("liveTv.live") }] : null;
   // A programme from search: live while it airs, when it starts before then, nothing once it ended.
   // Recording, REC takes LIVE's place and a scheduled start wears the camera.
   if (video.Type === "Program") {
@@ -236,10 +238,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // item objects without touching these fields, and must not re-parse every card.
   // A programme's badge follows the clock: it goes live at its start and clears at its end.
   const clockMs = useMinuteClock(video.Type === "Program");
+  const channelHealth = useChannelHealth(video.Type === "TvChannel" ? video.Id : "");
   const badgeSegments = useMemo(
-    () => indexBadgeSegments(video, clockMs || Date.now(), recording),
+    () => indexBadgeSegments(video, clockMs || Date.now(), recording, channelHealth),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, video.StartDate, video.EndDate, video.UserData?.Played, clockMs, recording],
+    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.StartDate, video.EndDate, video.UserData?.Played, clockMs, recording, channelHealth],
   );
   const isChannel = video.Type === "TvChannel";
   const logoPoster = showsChannelLogo(video) && !liveFrame;

@@ -29,6 +29,16 @@ describe("indexBadgeSegments", () => {
     expect(indexBadgeSegments(channel)).toBeNull();
   });
 
+  it("marks a channel live only on the engine's own verdict, never the guide's", () => {
+    const channel = item({ Type: "TvChannel", CurrentProgram: { Name: "On Air" } as JellyfinVideoItem["CurrentProgram"] });
+    expect(indexBadgeSegments(channel, Date.now(), false, "up")).toEqual([{ label: "LIVE" }]);
+    expect(indexBadgeSegments(channel, Date.now(), false, "unknown")).toBeNull();
+    expect(indexBadgeSegments(channel, Date.now(), false, "down")).toBeNull();
+    expect(indexBadgeSegments(channel)).toBeNull();
+    const bare = item({ Type: "TvChannel" });
+    expect(indexBadgeSegments(bare, Date.now(), false, "up")).toEqual([{ label: "LIVE" }]);
+  });
+
   it("marks a searched programme live only while it airs", () => {
     const now = Date.UTC(2026, 8, 29, 20, 0);
     const program = (startMin: number, endMin: number) => item({ Type: "Program", StartDate: new Date(now + startMin * 60_000).toISOString(), EndDate: new Date(now + endMin * 60_000).toISOString() });
