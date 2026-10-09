@@ -93,6 +93,30 @@ class LocalRemuxer: RCTEventEmitter {
         Self.lock.unlock()
     }
 
+    /// Tokens whose session this module instance started. One instance exists per
+    /// React runtime, so these are the sessions a Metro reload orphans.
+    private var ownedTokens: Set<String> = []
+
+    /// Runtime teardown (Metro reload, host shutdown). The JS stop calls race the
+    /// dying runtime and can be dropped, so the sessions this runtime started are
+    /// stopped here. Scoped to this instance: a newer runtime's sessions live on.
+    override func invalidate() {
+        super.invalidate()
+        Self.lock.lock()
+        var orphans: [RemuxSession] = []
+        for token in ownedTokens {
+            guard let session = Self.sessions.removeValue(forKey: token) else { continue }
+            Self.sessionOrder.removeAll { $0 == token }
+            orphans.append(session)
+        }
+        ownedTokens.removeAll()
+        Self.lock.unlock()
+        for orphan in orphans {
+            NSLog("[LocalRemuxer] stopping session %@ left by runtime teardown", orphan.token)
+            orphan.stop()
+        }
+    }
+
     /// Called on the pipeline thread. Emitting with no listeners registered
     /// makes RCTEventEmitter warn, so the plan is only sent when someone is
     /// listening; it is retained either way for a later subscriber.
@@ -368,6 +392,7 @@ class LocalRemuxer: RCTEventEmitter {
             session.start()
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)
+            ownedTokens.insert(session.token)
 
             NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%@)", port, isLive ? "live" : "\(session.segmentCount) segments")
             resolve("http://127.0.0.1:\(port)/\(session.token)/master.m3u8")

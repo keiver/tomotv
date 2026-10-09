@@ -357,6 +357,23 @@ uncarriable track, `openLiveServerRung` answering null, `planLiveErrorRecovery`
 and `planLaneGates` taking `serverTranscodingAllowed`, `predictPlaybackLane`
 reporting `"unplayable"` for the item panel and the download sheet.
 
+## Sessions survive a Metro reload until invalidate stops them
+
+Engine state is static (`LocalRemuxer.sessions`, the loopback server, its port),
+so a reload keeps it: only the JS runtime is replaced, and the `stopLocalRemux`
+calls in effect cleanups race the dying runtime and can be dropped. Each
+`LocalRemuxer` module instance records the tokens it started (`ownedTokens`)
+and its `invalidate()` override stops exactly those when the runtime is torn
+down (reload or host shutdown), so a newer runtime's sessions are untouched.
+The call chain is RCTHost `_reloadWithShouldRestartSurfaces` -> RCTInstance
+`invalidate` -> RCTTurboModuleManager `invalidate` -> the module, dispatched to
+the dying instance's threads while the new one boots; the per-instance token
+set, not timing, is what keeps the new run's sessions safe. This is RN's own
+cleanup hook (`RCTInvalidating`; RCTNetworking cancels its tasks the same way),
+not a dev-only shim. Release never reloads, so there it only runs at shutdown. The "footprint N MB" segment
+lines print whole-process `phys_footprint` (`RemuxSession+Pipeline.swift`),
+the number to watch across reloads.
+
 ## Rules of engagement
 
 1. `ios/` and `tvos/` are generated and gitignored. Engine edits go in
