@@ -38,8 +38,22 @@ jest.mock("expo-file-system", () => {
     textSync() {
       return files.get(this.name) ?? "";
     }
+    get uri() {
+      return `${this.dir}${this.name}`;
+    }
   }
   return { Paths: { document: "file:///docs/", cache: "file:///cache/" }, File, __writes: writes, __files: files };
+});
+
+jest.mock("expo-file-system/legacy", () => {
+  const { __writes, __files } = jest.requireMock("expo-file-system") as { __writes: { dir: string; name: string; content: string }[]; __files: Map<string, string> };
+  return {
+    writeAsStringAsync: jest.fn(async (uri: string, content: string) => {
+      const slash = uri.lastIndexOf("/") + 1;
+      __writes.push({ dir: uri.slice(0, slash), name: uri.slice(slash), content });
+      __files.set(uri.slice(slash), content);
+    }),
+  };
 });
 
 jest.mock("@/services/engineVerdicts", () => ({ clearVerdicts: jest.fn() }));
@@ -47,8 +61,12 @@ const { clearVerdicts } = jest.requireMock("@/services/engineVerdicts") as { cle
 
 const { __writes: writes, __files: files } = jest.requireMock("expo-file-system") as { __writes: { dir: string; name: string; content: string }[]; __files: Map<string, string> };
 
+const { writeAsStringAsync } = jest.requireMock("expo-file-system/legacy") as { writeAsStringAsync: jest.Mock };
+
 const suiteWrites = () => writes.filter((w) => w.name === PROBE_FILENAME);
 const sessionWrites = () => writes.filter((w) => w.name === SESSION_FILENAME);
+/** Lets an async session write land. */
+const landWrites = () => new Promise((resolve) => setImmediate(resolve));
 
 /** Events parsed from the suite sink's most recent full-file rewrite. */
 function lastFileEvents(): { event: string; itemId: string | null; [k: string]: unknown }[] {
@@ -152,11 +170,12 @@ describe("playbackProbe suite sink", () => {
 });
 
 describe("playbackProbe session sink", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     writes.length = 0;
     files.clear();
     setPlaybackProbeEnabled(null, "none");
     probeEmit("ended");
+    await landWrites();
     writes.length = 0;
     files.clear();
     setPlaybackProbeEnabled(null, "reset");
@@ -254,16 +273,61 @@ describe("playbackProbe session sink", () => {
     expect(readLastSession()?.playback.outcome).toBe("ended");
   });
 
-  it("mirrors to disk on every event, progress included, and never into Documents", () => {
+  it("mirrors to disk on every event, progress included, and never into Documents", async () => {
     setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
+    await landWrites();
     expect(sessionWrites()).toHaveLength(1);
     expect(sessionWrites()[0].dir).toBe("file:///cache/");
 
     probeProgress(5);
+    await landWrites();
     probeEmit("ended");
+    await landWrites();
     expect(sessionWrites()).toHaveLength(3);
     expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}")).toMatchObject({ schemaVersion: 2, playback: { outcome: "ended", progress: [{ position: 5 }] } });
+  });
+
+  it("events arriving while a write lands leave only the latest snapshot waiting", async () => {
+    let land!: () => void;
+    writeAsStringAsync.mockClear();
+    writeAsStringAsync.mockImplementationOnce(
+      (uri: string, content: string) =>
+        new Promise<void>((resolve) => {
+          land = () => {
+            files.set(uri.slice(uri.lastIndexOf("/") + 1), content);
+            resolve();
+          };
+        }),
+    );
+    setPlaybackProbeEnabled(null, "item-a");
+    probeEmit("mode", { mode: "direct" });
+    probeEmit("qualitySwitch", { to: "q1" });
+    probeEmit("qualitySwitch", { to: "q2" });
+    land();
+    await landWrites();
+
+    expect(writeAsStringAsync).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}").playback.events.at(-1)).toMatchObject({ to: "q2" });
+  });
+
+  it("a clear while a write is landing leaves no file behind", async () => {
+    let land!: () => void;
+    writeAsStringAsync.mockImplementationOnce(
+      (uri: string, content: string) =>
+        new Promise<void>((resolve) => {
+          land = () => {
+            files.set(uri.slice(uri.lastIndexOf("/") + 1), content);
+            resolve();
+          };
+        }),
+    );
+    setPlaybackProbeEnabled(null, "item-a");
+    probeEmit("ended");
+    clearLastSession();
+    land();
+    await landWrites();
+    expect(files.has(SESSION_FILENAME)).toBe(false);
   });
 
   it("stamps the session with the build and the machine that recorded it", () => {
@@ -284,7 +348,7 @@ describe("playbackProbe session sink", () => {
     expect(readLastSession()?.device.decode).toEqual({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
   });
 
-  it("recovers a stored document when memory is empty, lifts a version 1 file, and drops one without a stamp", () => {
+  it("recovers a stored document when memory is empty, lifts a version 1 file, and drops one without a stamp", async () => {
     const stored = { itemId: "old", startedAt: 0, outcome: "ended", events: [{ t: 1, event: "mode" }], progress: [] };
     files.set(SESSION_FILENAME, JSON.stringify({ ...stored, app: "Tomo TV 1.0.0 (1)", os: "tvOS 18.1" }));
     expect(readLastSession()).toMatchObject({
@@ -296,7 +360,8 @@ describe("playbackProbe session sink", () => {
     });
 
     setPlaybackProbeEnabled(null, "item-a");
-    probeEmit("mode", { mode: "direct" });
+    probeEmit("ended");
+    await landWrites();
     const document = files.get(SESSION_FILENAME) ?? "{}";
     setPlaybackProbeEnabled(null, "");
     clearLastSession();
@@ -307,13 +372,15 @@ describe("playbackProbe session sink", () => {
     expect(readLastSession()).toBeNull();
   });
 
-  it("never writes an empty session over a stored one", () => {
+  it("never writes an empty session over a stored one", async () => {
     setPlaybackProbeEnabled(null, "item-a");
     probeEmit("mode", { mode: "direct" });
     probeEmit("ended");
+    await landWrites();
     const stored = sessionWrites().length;
 
     setPlaybackProbeEnabled(null, "item-b");
+    await landWrites();
     expect(sessionWrites()).toHaveLength(stored);
     expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}").playback.itemId).toBe("item-a");
   });
@@ -329,9 +396,10 @@ describe("playbackProbe session sink", () => {
     expect(readLastSession()).toBeNull();
   });
 
-  it("clearing forgets memory and the file, and a playback still running records nothing more", () => {
+  it("clearing forgets memory and the file, and a playback still running records nothing more", async () => {
     setPlaybackProbeEnabled(null, "item-a");
-    probeEmit("mode", { mode: "direct" });
+    probeEmit("playing");
+    await landWrites();
     expect(files.has(SESSION_FILENAME)).toBe(true);
 
     clearLastSession();
@@ -339,6 +407,7 @@ describe("playbackProbe session sink", () => {
     expect(files.has(SESSION_FILENAME)).toBe(false);
 
     probeEmit("ended");
+    await landWrites();
     expect(readLastSession()).toBeNull();
     expect(files.has(SESSION_FILENAME)).toBe(false);
   });

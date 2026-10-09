@@ -10,8 +10,8 @@
  *
  * SESSION sink: the Diagnostics screen (app/diagnostics.tsx). Always armed. The
  * MOST RECENT playback only, capped and redacted, living in memory. Every event
- * mirrors it to Caches/last-session.json, so a reload or a crash leaves the
- * playback behind, and nothing empty is ever written over it.
+ * mirrors it to Caches/last-session.json off the JS thread, so a reload or a crash
+ * leaves the playback behind, and nothing empty is ever written over it.
  */
 import { APP_BUILD_NUMBER, APP_VERSION, BRAND_NAME } from "@/constants/app";
 import { parseSession, SCHEMA_VERSION, type DeviceDecode, type PlaybackSession, type SessionEvent, type SessionHead } from "@/services/diagnosticsSchema";
@@ -20,6 +20,7 @@ import { DEVICE_CORES, DEVICE_MARKETING_NAME, DEVICE_MEMORY_BYTES, DEVICE_MODEL,
 import { clearVerdicts } from "@/services/engineVerdicts";
 import { logger, redactSecrets } from "@/utils/logger";
 import { File, Paths } from "expo-file-system";
+import { writeAsStringAsync } from "expo-file-system/legacy";
 import { Platform } from "react-native";
 
 export type { PlaybackSession, SessionEvent } from "@/services/diagnosticsSchema";
@@ -150,17 +151,45 @@ function sessionFile(): File {
   return new File(Paths.cache, SESSION_FILENAME);
 }
 
-/** Mirrors memory to disk. Nothing empty is ever written, so a blank session cannot replace
- *  a real one that a reload would otherwise have recovered. */
+let sessionWriting = false;
+let pendingSnapshot: string | null = null;
+/** Bumped by every clear, so a write that lands after one is deleted. */
+let clearCount = 0;
+
+/** Mirrors memory to disk off the JS thread, one write at a time; events arriving while one lands
+ *  leave only the latest snapshot waiting. Nothing empty is ever written, so a blank session cannot
+ *  replace a stored one. */
 function writeSession(): void {
   if (!session?.playback.events.length) return;
+  const snapshot = JSON.stringify(session);
+  if (sessionWriting) {
+    pendingSnapshot = snapshot;
+    return;
+  }
+  landSnapshot(snapshot);
+}
+
+function landSnapshot(snapshot: string): void {
+  sessionWriting = true;
+  const clears = clearCount;
+  writeAsStringAsync(sessionFile().uri, snapshot)
+    .catch((error) => logger.warn("Session log write failed", error, { service: "PlaybackProbe" }))
+    .finally(() => {
+      sessionWriting = false;
+      // Cleared while it landed: the file it left belongs to the forgotten session.
+      if (clears !== clearCount) deleteSessionFile();
+      const next = pendingSnapshot;
+      pendingSnapshot = null;
+      if (next) landSnapshot(next);
+    });
+}
+
+function deleteSessionFile(): void {
   try {
     const file = sessionFile();
     if (file.exists) file.delete();
-    file.create();
-    file.write(JSON.stringify(session));
   } catch (error) {
-    logger.warn("Session log write failed", error, { service: "PlaybackProbe" });
+    logger.warn("Session log delete failed", error, { service: "PlaybackProbe" });
   }
 }
 
@@ -208,12 +237,9 @@ export function readLastSession(): PlaybackSession | null {
 /** Forgets the last playback, memory and file. A playback still running records nothing more. */
 export function clearLastSession(): void {
   session = null;
-  try {
-    const file = sessionFile();
-    if (file.exists) file.delete();
-  } catch (error) {
-    logger.warn("Session log delete failed", error, { service: "PlaybackProbe" });
-  }
+  pendingSnapshot = null;
+  clearCount += 1;
+  deleteSessionFile();
   notifySession();
 }
 
