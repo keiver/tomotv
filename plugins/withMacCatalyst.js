@@ -2,13 +2,26 @@ const { withDangerousMod, withEntitlementsPlist, withInfoPlist, withPodfile, wit
 const fs = require("node:fs");
 const path = require("node:path");
 
-/** Mac uses the dedicated Catalyst project. iOS/tvOS retain their Pods. */
+/** Keep Apple autolinking in its own project; Mac uses dedicated Catalyst Pods. */
 function withMacCatalyst(config) {
   const catalyst = process.env.EXPO_MACCATALYST === "1";
-  if (process.env.EXPO_TV === "1") {
-    if (catalyst) throw new Error("Mac Catalyst and tvOS cannot be enabled together.");
+  const tv = process.env.EXPO_TV === "1";
+  if (tv && catalyst) throw new Error("Mac Catalyst and tvOS cannot be enabled together.");
+  config = withPodfile(config, (config) => {
+    const autolinking = "config = use_native_modules!(config_command)";
+    const sourceDir = "config_command += ['--source-dir', __dir__] if config_command.include?('expo-modules-autolinking')";
+    if (!config.modResults.contents.includes(sourceDir)) {
+      if (!config.modResults.contents.includes(autolinking)) throw new Error("Apple Pods: cannot locate Expo's native module autolinking call.");
+      config.modResults.contents = config.modResults.contents.replace(
+        autolinking,
+        `# TomoTV autolinking root: pod install runs from the final platform directory.
+  ${sourceDir}
+  ${autolinking}`,
+      );
+    }
     return config;
-  }
+  });
+  if (tv) return config;
   config = withXcodeProject(config, (config) => {
     const project = config.modResults;
     const target = project.getFirstTarget().firstTarget;
@@ -20,7 +33,20 @@ function withMacCatalyst(config) {
     }
     return config;
   });
-  if (!catalyst) return config;
+  if (!catalyst) {
+    return withPodfile(config, (config) => {
+      if (!config.modResults.contents.includes("# TomoTV prebuilt Swift imports")) {
+        config.modResults.contents += `
+# TomoTV prebuilt Swift imports: ignore modules left by earlier source builds.
+post_integrate do |installer|
+  require_relative '../scripts/prebuilt-swift-imports'
+  TomoPrebuiltSwiftImports.apply(installer)
+end
+`;
+      }
+      return config;
+    });
+  }
   config.ios = { ...config.ios, usePrecompiledModules: false };
 
   config = withPodfileProperties(config, (config) => {
@@ -28,16 +54,6 @@ function withMacCatalyst(config) {
     return config;
   });
   config = withPodfile(config, (config) => {
-    const autolinking = "config = use_native_modules!(config_command)";
-    if (!config.modResults.contents.includes("# TomoTV Catalyst autolinking root")) {
-      if (!config.modResults.contents.includes(autolinking)) throw new Error("Catalyst: cannot locate Expo's native module autolinking call.");
-      config.modResults.contents = config.modResults.contents.replace(
-        autolinking,
-        `# TomoTV Catalyst autolinking root: pod install runs after ios/ moves to macos/.
-  config_command += ['--source-dir', __dir__] if config_command.include?('expo-modules-autolinking')
-  ${autolinking}`,
-      );
-    }
     const pattern = /:mac_catalyst_enabled\s*=>\s*(?:false|true)/;
     if (!pattern.test(config.modResults.contents)) throw new Error("Catalyst: Expo's react_native_post_install hook changed.");
     config.modResults.contents = config.modResults.contents.replace(pattern, ":mac_catalyst_enabled => true");

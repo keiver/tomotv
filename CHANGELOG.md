@@ -6,12 +6,14 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
+- A Mac app through Mac Catalyst, for Apple Silicon and Intel Macs on macOS 13.4 or later, using the iPad interface and the same Jellyfin account, playback engine and offline downloads
 - A channel's info panel lists every group it can join: Favorites, your own groups and the groups its tuner's M3U playlist declares, each ticked while the channel is in it, and a press adds or removes it. On Apple TV they are a bar along the card's foot that starts with New group; on iPhone and iPad a Groups list, four rows before it scrolls, ends in a New group field
 - A playlist group keeps the channels you add to it or remove from it, per user: the guide, the channel wall and channel flipping follow your edits
 - A multi-episode file shows its episode range, S01E01-E02, on its card and info panel, between episodes, and in the Apple TV player's queue
 
 ### Changed
 
+- `npm run clear` prepares iOS, Mac and tvOS in that order, with a separate project and scheme for each; `npm run archive` produces both IPAs and the signed Mac installer with one shared build number. Mac store screenshots use manually captured images in `applestore/captures/mac/`
 - A channel's info panel ends at its groups, leaving out the description, cast, streams, details, file and playback sections; the Groups button is gone
 - The info panel shows a wide picture whole in a box when filling the artwork would blow it past 3x its size, such as a programme's title logo
 - On iPhone and iPad the Open Source list fills the screen under its intro and the Streaming Quality list shows three rows at a time

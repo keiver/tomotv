@@ -16,14 +16,21 @@ describe("Mac Catalyst prebuild", () => {
     process.env.EXPO_TV = "0";
     return withMacCatalyst(structuredClone(expo));
   };
-  it("does not change the tvOS project", () => {
+  it("keeps tvOS autolinking in its final directory without changing its build settings", async () => {
     process.env.EXPO_MACCATALYST = "0";
     process.env.EXPO_TV = "1";
     const input = structuredClone(expo);
     expect(withMacCatalyst(input)).toBe(input);
-    expect(input.mods).toBeUndefined();
+    expect(input.mods.ios.xcodeproj).toBeUndefined();
+    expect(input.mods.ios.podfileProperties).toBeUndefined();
+    const podfile = await input.mods.ios.podfile({ ...input, modResults: { contents: "config = use_native_modules!(config_command)" }, modRequest: {} });
+    expect(podfile.modResults.contents).toContain("config_command += ['--source-dir', __dir__]");
+    expect(podfile.modResults.contents.indexOf("'--source-dir'")).toBeLessThan(podfile.modResults.contents.indexOf("use_native_modules!(config_command)"));
+    expect(podfile.modResults.contents).not.toContain("mac_catalyst_enabled");
+    const again = await input.mods.ios.podfile({ ...input, modResults: podfile.modResults, modRequest: {} });
+    expect(again.modResults.contents).toBe(podfile.modResults.contents);
   });
-  it("hides iOS-on-Mac without changing iPhone, iPad, Vision, or iOS Pods settings", async () => {
+  it("hides iOS-on-Mac without changing iPhone, iPad, Vision, or iOS precompiled module settings", async () => {
     process.env.EXPO_MACCATALYST = "0";
     process.env.EXPO_TV = "0";
     const c = withMacCatalyst(structuredClone(expo));
@@ -39,8 +46,13 @@ describe("Mac Catalyst prebuild", () => {
       expect(buildSettings).toEqual({ ...settings, SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: "NO" });
     }
     expect(c.ios).toEqual(expo.ios);
-    expect(c.mods.ios.podfile).toBeUndefined();
     expect(c.mods.ios.podfileProperties).toBeUndefined();
+    const podfile = await c.mods.ios.podfile({ ...c, modResults: { contents: "target 'TomoTV' do\n  config = use_native_modules!(config_command)\nend\n" }, modRequest: {} });
+    expect(podfile.modResults.contents).toContain("config_command += ['--source-dir', __dir__]");
+    expect(podfile.modResults.contents).toContain("require_relative '../scripts/prebuilt-swift-imports'");
+    expect(podfile.modResults.contents).toContain("TomoPrebuiltSwiftImports.apply(installer)");
+    const again = await c.mods.ios.podfile({ ...c, modResults: podfile.modResults, modRequest: {} });
+    expect(again.modResults.contents).toBe(podfile.modResults.contents);
   });
   it("rejects combining tvOS and Catalyst", () => {
     process.env.EXPO_MACCATALYST = "1";

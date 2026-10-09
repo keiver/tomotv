@@ -1,6 +1,6 @@
 {
   "name": "@keiver/tomo-live",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Live TV services over @keiver/tomo-engine for Apple TV and iOS: a warm channel ring for instant zapping, focus previews, live frame and clip sampling, channel health, and XMLTV guide sources",
   "license": "MIT",
   "author": "Keiver Hernandez <contact@keiver.dev>",

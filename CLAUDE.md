@@ -19,7 +19,7 @@ only acceptable form.
 - Open every file my own search returned before theorizing about it.
 - Confirming a defect is real is not confirming a fix is safe: find the invariant the current shape protects first.
 
-**TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS) and iOS. Playback runs through an on-device engine (packages/tomo-engine, the `@keiver/tomo-engine` workspace package: ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
+**TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS), iPhone, iPad and Mac Catalyst on macOS 13.4 or later (Apple Silicon and Intel). Playback runs through an on-device engine (packages/tomo-engine, the `@keiver/tomo-engine` workspace package: ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
 
 ## Communication Format
 
@@ -195,14 +195,23 @@ npm run ios                       # Build and run on iOS simulator
 npm test                          # Run all tests once
 npm run test:watch                # Watch mode for tests
 npm run test:coverage             # Generate coverage report
-npm run lint                      # Lint and auto-fix with ESLint
+npm run lint                      # ESLint and Prettier checks
+npm run clear                     # Prepare iOS, Mac, tvOS; open Xcode and start Metro (user runs it)
+npm run clearmac                  # Prepare Mac Catalyst, open Xcode and start Metro (user runs it)
+npm run prebuild:all              # Generate all three projects without Xcode/Metro (user runs it)
+npm run prebuild:mac              # Generate only the Catalyst project (user runs it)
 npm run prebuild                  # Clean native prebuild (user runs it)
 npm run prebuild:tv               # Prebuild with Apple TV support, EXPO_TV=1 (user runs it)
+npm run archive -- <next-build>   # Archive iOS, Mac, tvOS with one increasing build number (user runs it)
 ```
+
+The root workspace has `TomoTV-iOS`, `TomoTV-macOS` and `TomoTV-tvOS`. Use
+**My Mac (Mac Catalyst)** for the Mac scheme. Signing, Metal Toolchain consent
+and manual captures in `applestore/captures/mac/` are documented in `docs/RELEASING.md`.
 
 ## Native Code Development
 
-**CRITICAL: Always edit files in `packages/tomo-engine/ios/`, `native/` and `plugins/`, NOT `ios/` or `android/`.** Prebuild deletes and regenerates `ios/`/`android/`, copies Tomo's native sources from `native/ios/` and links the engine as the TomoEngine pod.
+**CRITICAL: Edit native sources in `packages/*/ios/` and `native/`, and project configuration in `plugins/` and `scripts/`, NOT generated `ios/`, `macos/`, `tvos/` or `android/`.** Prebuild regenerates the platform projects, copies Tomo's native sources from `native/ios/` and links the engine as the TomoEngine pod.
 
 ## Code Quality Standards
 

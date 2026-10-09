@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** October 5, 2026
+**Last Updated:** October 8, 2026
 
 ## Quick Reference
 
@@ -23,6 +23,11 @@ table; if they ever disagree with these blocks, **these blocks win**. What the
 listing actually carries today is recorded under
 [The listing as it stands](#the-listing-as-it-stands); the two are not the same
 text.
+
+The 2.2.11 Mac block is release copy for the first Mac Catalyst version, in all
+four languages. The uploader omits What's New on a platform's first release;
+the offline metadata check still requires the blocks. See
+[the release guide](../docs/RELEASING.md) for the Mac listing and manual captures.
 
 ### App Name (26 / 30)
 
@@ -98,10 +103,10 @@ No analytics. No tracking. No ads. No account with us. Your credentials stay in 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.11), macOS (72 / 4000)
+### What's New (2.2.11), macOS (73 / 4000)
 
 ```text
-- TomoTV is now available on Mac with Apple Silicon and Intel processors
+- Tomo TV is now available on Mac with Apple Silicon and Intel processors
 ```
 
 ### What's New (2.2.11), iOS (142 / 4000)
@@ -434,10 +439,10 @@ Keine Analyse. Kein Tracking. Keine Werbung. Kein Konto bei uns. Deine Zugangsda
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.11), macOS (77 / 4000)
+#### What's New (2.2.11), macOS (78 / 4000)
 
 ```text
-- TomoTV ist jetzt auf Macs mit Apple Silicon und Intel-Prozessoren verfügbar
+- Tomo TV ist jetzt auf Macs mit Apple Silicon und Intel-Prozessoren verfügbar
 ```
 
 #### What's New (2.2.11), iOS (182 / 4000 chars)
@@ -748,10 +753,10 @@ Aucune analyse. Aucun suivi. Aucune publicité. Aucun compte chez nous. Vos iden
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.11), macOS (85 / 4000)
+#### What's New (2.2.11), macOS (86 / 4000)
 
 ```text
-- TomoTV est maintenant disponible sur les Mac avec processeur Apple Silicon ou Intel
+- Tomo TV est maintenant disponible sur les Mac avec processeur Apple Silicon ou Intel
 ```
 
 #### What's New (2.2.11), iOS (202 / 4000 chars)
@@ -1062,10 +1067,10 @@ Sin analítica. Sin rastreo. Sin anuncios. Sin cuenta con nosotros. Tus credenci
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.11), macOS (73 / 4000)
+#### What's New (2.2.11), macOS (74 / 4000)
 
 ```text
-- TomoTV ya está disponible en Mac con procesadores Apple Silicon e Intel
+- Tomo TV ya está disponible en Mac con procesadores Apple Silicon e Intel
 ```
 
 #### What's New (2.2.11), iOS (189 / 4000 chars)

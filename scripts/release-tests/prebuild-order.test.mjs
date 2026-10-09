@@ -20,6 +20,7 @@ function fixture(t) {
     "preserve-mtimes.py",
     "catalyst-frameworks.rb",
     "fix-catalyst-framework.py",
+    "prebuilt-swift-imports.rb",
   ])
     fs.copyFileSync(`scripts/${file}`, path.join(root, "scripts", file));
   for (const file of ["app.json", "package.json", "package-lock.json", "node_modules/.package-lock.json", "packages/tomo-engine/ffmpeg-lock.json"]) fs.writeFileSync(path.join(root, file), "{}\n");

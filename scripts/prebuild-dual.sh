@@ -58,7 +58,7 @@ hash_files() {
 
 # Plugins carry the native file lists, so a removed native file changes this too.
 project_hash() {
-  hash_files app.json package.json package-lock.json scripts/prebuild-dual.sh scripts/make-dual-workspace.sh scripts/link-platform-pods.js \
+  hash_files app.json package.json package-lock.json scripts/prebuild-dual.sh scripts/make-dual-workspace.sh scripts/link-platform-pods.js scripts/prebuilt-swift-imports.rb \
     $(find plugins patches assets/brand -type f -not -name .DS_Store | LC_ALL=C sort)
 }
 
