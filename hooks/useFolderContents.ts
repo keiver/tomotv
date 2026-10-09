@@ -24,6 +24,7 @@ import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyf
 import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { orderSortNameTies } from "@/utils/seasonEpisode";
+import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PAGE_SIZE = 60;
@@ -447,13 +448,28 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     return subscribeAuthChange(() => refresh());
   }, [refresh]);
 
-  // A timer write starts or stops a recording, so a mounted recordings-library browse refetches.
+  // A screen out of sight owes a read instead of making it, and pays it once when shown.
+  const isFocused = useIsFocused();
+  const focusedRef = useRef(isFocused);
+  const staleRef = useRef(false);
   useEffect(() => {
-    return subscribeRecordingsChange(() => refresh());
+    focusedRef.current = isFocused;
+    if (!isFocused || !staleRef.current) return;
+    staleRef.current = false;
+    refresh();
+  }, [isFocused, refresh]);
+  const refreshWhenShown = useCallback(() => {
+    if (focusedRef.current) refresh();
+    else staleRef.current = true;
   }, [refresh]);
 
+  // A timer write starts or stops a recording, so a mounted recordings-library browse refetches.
+  useEffect(() => {
+    return subscribeRecordingsChange(refreshWhenShown);
+  }, [refreshWhenShown]);
+
   // Refetch the visible folder when the app returns to the foreground.
-  useAppStateRefresh(refresh, "useFolderContents");
+  useAppStateRefresh(refreshWhenShown, "useFolderContents");
 
   return { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh };
 }
