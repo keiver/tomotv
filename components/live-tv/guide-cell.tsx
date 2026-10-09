@@ -7,11 +7,9 @@ import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { pinOffset, visibleSpan } from "@/components/live-tv/guide-pin";
-import { formatClock, formatClockRange, guideMetrics, programCategory, standInChannelId, TICK_MINUTES } from "@/utils/guide";
-import { serverPoster } from "@/services/itemArtwork";
+import { formatClock, formatClockRange, programCategory, standInChannelId } from "@/utils/guide";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { t } from "@/services/i18n";
-import { GuideCellArt } from "@/components/live-tv/guide-cell-art";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, Animated as RNAnimated, StyleSheet, Text, useAnimatedValue, View } from "react-native";
@@ -22,9 +20,6 @@ const NO_INFO = /^\s*no info(rmation)?( available)?\s*$/i;
 export const GRID_LINE = "rgba(255, 255, 255, 0.14)";
 
 const AnimatedPressable = RNAnimated.createAnimatedComponent(Pressable);
-/** The first half hour of a cell is text alone: the art is clipped out of it, so a short cell shows none. */
-const PX_PER_MINUTE = guideMetrics(IS_TV).pxPerMinute;
-const ART_START = PX_PER_MINUTE * TICK_MINUTES;
 /** The cell's own floor, so the label reads on its floor over the poster and the fade ends in the same grey. */
 const SCRIM_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 44, 46, 0) 100%)";
 const LABEL_PAD_LEFT = IS_TV ? 16 : 10;
@@ -47,7 +42,7 @@ interface GuideCellProps {
   /** The canvas's native-driven horizontal offset; the label rides it so it stays on the visible edge. */
   scrollX: RNAnimated.Value;
   viewportWidth?: number;
-  /** The poster and the reel show only while this holds; the canvas sets it for the cells in view once scrolling settles. */
+  /** The reel and its seen time show only while this holds; the canvas sets it for the cells in view once scrolling settles. */
   showArt?: boolean;
   onPress: (program: JellyfinProgram) => void;
   onLongPress: (program: JellyfinProgram) => void;
@@ -96,12 +91,6 @@ function GuideCellComponent({
   // A guide's "no info available" placeholder gets no slot of its own.
   const slot = formatClockRange(startMs, endMs);
   const meta = [`${slot.start} – ${slot.end}`, programCategory(program), program.OfficialRating, program.Genres?.[0]].filter((part) => part && !NO_INFO.test(part)).join("  ·  ");
-  const art = showArt && program.Id && program.ImageTags?.Primary ? serverPoster(program.Id, program.ImageTags.Primary, height * 2) : undefined;
-  // The art box is the picture's own shape at the cell's height, cut down to what fits past the
-  // text; the picture keeps its right end, and its fade leads in over the floor before it.
-  const artWidth = Math.min(Math.round(height * (program.PrimaryImageAspectRatio || 16 / 9)), Math.max(0, width - ART_START));
-  const artShown = art !== undefined && artWidth > 0;
-  const artLead = Math.min(artWidth, width - artWidth);
   // A node, not state: a measured width that re-rendered the cell doubled every mount.
   const labelWidth = useAnimatedValue(0);
   const [focused, setFocused] = useState(false);
@@ -212,8 +201,6 @@ function GuideCellComponent({
     <>
       {/* Inside the focus ring's band, so focus only recolours a frame every cell already leaves clear. */}
       <View style={styles.band} pointerEvents="none" testID="guide-cell-band">
-        {/* Bled in from the right, full height in its own shape, kept out of the first half hour. */}
-        {art && artShown ? <GuideCellArt source={art} width={artWidth} lead={artLead} reelShown={reelShown} /> : null}
         {reelScrimStyles ? (
           <View style={styles.reelScrimClip} pointerEvents="none" testID="guide-cell-reel-scrim-clip">
             <RNAnimated.View style={[styles.reelScrim, reelScrimStyles.body]} testID="guide-cell-reel-scrim" />

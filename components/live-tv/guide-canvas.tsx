@@ -114,7 +114,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const [mountPage, setMountPage] = useState(0);
   const mountPageUi = useSharedValue(0);
   const mountSpan = useMemo(() => (viewportWidth > 0 ? mountSpanFor(mountPage, viewportWidth) : undefined), [mountPage, viewportWidth]);
-  // Posters and reels load only for the cells and rows in view, once the scroll rests there; a fling past loads none.
+  // Reels load only for the cells and rows in view, once the scroll rests there; a fling past loads none.
   const [artPage, setArtPage] = useState(0);
   useEffect(() => {
     const timer = setTimeout(() => setArtPage(mountPage), ART_SETTLE_MS);
