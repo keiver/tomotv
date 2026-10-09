@@ -15,8 +15,6 @@ const mockPush = jest.fn();
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }) }));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
-jest.mock("react-native-gesture-handler", () => ({ GestureHandlerRootView: ({ children }: { children: React.ReactNode }) => children }));
-jest.mock("@/components/settings/SwipeToRemove", () => ({ SwipeToRemove: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/settings/SectionFooter", () => ({ SectionFooter: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock("@/hooks/useSavedThemes", () => ({ useSavedThemes: () => ({ themes: [{ id: "t1", name: "Sea", accent: "#12CBC4" }], pending: [], status: "ready" }) }));
@@ -31,7 +29,10 @@ function render() {
   return tree;
 }
 
-const seaRow = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => node.props.title === "Sea" && typeof node.props.onLongPress === "function")[0];
+/** The strip's cells, by their theme-cell test ids; only the Pressable element itself carries the handlers. */
+const cells = (tree: TestRenderer.ReactTestRenderer) =>
+  tree.root.findAll((node) => typeof node.props.testID === "string" && node.props.testID.startsWith("theme-cell-") && typeof node.props.onPress === "function");
+const seaRow = (tree: TestRenderer.ReactTestRenderer) => cells(tree).filter((node) => node.props.accessibilityLabel === "Sea")[0];
 
 describe("Appearance", () => {
   beforeEach(() => {
@@ -39,10 +40,18 @@ describe("Appearance", () => {
     updateUiPreferences({ cardTheme: DEFAULT_CARD_THEME, background: "artwork" });
   });
 
-  it("lists the four built-in themes ahead of the saved ones, Tomo chosen by default", () => {
+  it("strips the four built-in themes ahead of the saved ones, Tomo chosen by default", () => {
     const tree = render();
-    const titles = tree.root.findAll((node) => typeof node.props.title === "string" && typeof node.props.onPress === "function" && node.props.isLast === undefined).map((node) => node.props.title);
-    expect([...new Set(titles)].slice(0, 5)).toEqual(["Tomo", "Blue", "Green", "Purple", "Sea"]);
+    const labels = cells(tree).map((node) => node.props.accessibilityLabel);
+    expect(labels).toEqual(["Tomo", "Blue", "Green", "Purple", "Sea"]);
+    expect(cells(tree)[0].props.accessibilityState).toEqual({ selected: true });
+    act(() => tree.unmount());
+  });
+
+  it("opens the editor on the chosen built-in's colour alone, so a save mints a new theme", () => {
+    const tree = render();
+    act(() => cells(tree)[0].props.onPress());
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/theme-editor", params: { accent: DEFAULT_CARD_THEME.accent } });
     act(() => tree.unmount());
   });
 
