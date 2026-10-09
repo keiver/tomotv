@@ -24,14 +24,14 @@ const IS_TV = Platform.isTV;
 const VISIBLE_THEME_ROWS = 5;
 
 /**
- * The card theme and the folder colour. A press applies at once and the page stays; the chosen saved
+ * The card theme and the canvas. A press applies at once and the page stays; the chosen saved
  * theme pressed again opens in the editor. A saved theme goes with a swipe or a long press, as a download does.
  */
 export default function AppearanceScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const router = useRouter();
-  const { cardTheme, folderTint } = useUiPreferences();
+  const { cardTheme, background } = useUiPreferences();
   const saved = useSavedThemes();
   const custom: { theme: CardTheme; pending: boolean }[] = [...saved.themes.map((theme) => ({ theme, pending: false })), ...saved.pending.map((theme) => ({ theme, pending: true }))];
   const hasFooter = saved.status === "failed" || custom.length > 0;
@@ -149,14 +149,31 @@ export default function AppearanceScreen() {
             <Text style={settingsStyles.sectionHeaderText}>{t("appearance.backgroundHeader")}</Text>
           </View>
           <View style={settingsStyles.section}>
+            {/* One canvas at a time: the Tomo light, the theme's tint on it, or folder artwork over it. */}
             <ListRow
-              icon="color-filter-outline"
-              title={t("appearance.folderTint")}
-              subtitle={t("appearance.folderTintHint")}
-              trailingIcon={folderTint ? tick : undefined}
-              onPress={() => updateUiPreferences({ folderTint: !folderTint })}
-              accessibilityState={{ checked: folderTint }}
+              icon="sparkles-outline"
+              title={t("appearance.backgroundTomo")}
+              subtitle={t("appearance.backgroundTomoHint")}
+              trailingIcon={background === "tomo" ? tick : undefined}
+              onPress={() => updateUiPreferences({ background: "tomo" })}
+              accessibilityState={{ selected: background === "tomo" }}
               isFirst
+            />
+            <ListRow
+              icon="color-palette-outline"
+              title={t("appearance.backgroundAccent")}
+              subtitle={t("appearance.backgroundAccentHint")}
+              trailingIcon={background === "accent" ? tick : undefined}
+              onPress={() => updateUiPreferences({ background: "accent" })}
+              accessibilityState={{ selected: background === "accent" }}
+            />
+            <ListRow
+              icon="images-outline"
+              title={t("appearance.backgroundArtwork")}
+              subtitle={t("appearance.backgroundArtworkHint")}
+              trailingIcon={background === "artwork" ? tick : undefined}
+              onPress={() => updateUiPreferences({ background: "artwork" })}
+              accessibilityState={{ selected: background === "artwork" }}
               isLast
             />
           </View>

@@ -36,13 +36,25 @@ const seaRow = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node
 describe("Appearance", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    updateUiPreferences({ cardTheme: DEFAULT_CARD_THEME });
+    updateUiPreferences({ cardTheme: DEFAULT_CARD_THEME, background: "artwork" });
   });
 
-  it("lists the four built-in themes ahead of the saved ones, Gold chosen by default", () => {
+  it("lists the four built-in themes ahead of the saved ones, Tomo chosen by default", () => {
     const tree = render();
     const titles = tree.root.findAll((node) => typeof node.props.title === "string" && typeof node.props.onPress === "function" && node.props.isLast === undefined).map((node) => node.props.title);
-    expect([...new Set(titles)].slice(0, 5)).toEqual(["Gold", "Blue", "Green", "Purple", "Sea"]);
+    expect([...new Set(titles)].slice(0, 5)).toEqual(["Tomo", "Blue", "Green", "Purple", "Sea"]);
+    act(() => tree.unmount());
+  });
+
+  it("picks exactly one canvas: the Tomo light, the theme's colour, or folder artwork", () => {
+    const tree = render();
+    const row = (title: string) => tree.root.findAll((node) => node.props.title === title && typeof node.props.onPress === "function" && node.props.subtitle !== undefined)[0];
+    act(() => row("Tomo").props.onPress());
+    expect(getUiPreferences().background).toBe("tomo");
+    act(() => row("Theme color").props.onPress());
+    expect(getUiPreferences().background).toBe("accent");
+    act(() => row("Folder artwork").props.onPress());
+    expect(getUiPreferences().background).toBe("artwork");
     act(() => tree.unmount());
   });
 

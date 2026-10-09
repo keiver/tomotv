@@ -15,7 +15,7 @@ function Probe() {
 }
 
 describe("useCardPalette", () => {
-  afterEach(() => act(() => updateUiPreferences({ cardTheme: DEFAULT_CARD_THEME, folderTint: true, devicePosters: true })));
+  afterEach(() => act(() => updateUiPreferences({ cardTheme: DEFAULT_CARD_THEME, background: "tomo", devicePosters: true })));
 
   it("re-renders on an accent change only", () => {
     renders.length = 0;
@@ -24,7 +24,7 @@ describe("useCardPalette", () => {
       tree = TestRenderer.create(<Probe />);
     });
     expect(renders).toEqual([DEFAULT_CARD_THEME.accent]);
-    act(() => updateUiPreferences({ folderTint: false }));
+    act(() => updateUiPreferences({ background: "accent" }));
     act(() => updateUiPreferences({ devicePosters: false }));
     expect(renders).toHaveLength(1);
     act(() => updateUiPreferences({ cardTheme: { id: "teal", name: "", accent: "#1DBFAE" } }));
