@@ -21,6 +21,8 @@ class DeviceEnvironment: NSObject {
         return [
             // Both ways the app reaches a desktop: the iOS binary run by macOS, and a Catalyst build.
             "isMac": info.isiOSAppOnMac || info.isMacCatalystApp,
+            // True only for the iPad binary run by macOS; a Catalyst build reads false.
+            "isiOSAppOnMac": info.isiOSAppOnMac,
             "model": model,
             "marketingName": DeviceEnvironment.marketingName(for: model) ?? NSNull(),
             "cores": info.activeProcessorCount,

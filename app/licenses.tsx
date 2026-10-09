@@ -7,6 +7,7 @@ import { APP_ABOUT_LINE, APP_BUILD_LABEL } from "@/constants/app";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
+import { APP_PLATFORM } from "@/utils/hostEnvironment";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -107,6 +108,7 @@ export default function LicensesScreen() {
         <View style={settingsStyles.contentContainer}>
           <View style={screenStyles.build}>
             {__DEV__ ? <AccountPill label="DEV" onGold={false} tag={{ tint: COLORS.SUCCESS }} /> : null}
+            <AccountPill label={APP_PLATFORM} onGold={false} />
             <AccountPill label={`v${APP_BUILD_LABEL}`} onGold={false} />
             <AccountPill label={APP_ABOUT_LINE} onGold={false} />
           </View>
