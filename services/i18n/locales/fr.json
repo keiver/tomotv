@@ -62,7 +62,7 @@
   "liveTv.recordingFailed": "Échec de l'action d'enregistrement",
   "liveTv.noManagement": "Tu n'as pas les permissions de gestion de la TV en direct sur ce serveur.",
   "liveTv.lastSeen": "Vu à {time}",
-  "liveTv.streamingNow": "En diffusion",
+  "liveTv.streamAvailable": "Diffusion disponible",
   "liveTv.seemsOffline": "La chaîne semble hors ligne",
   "liveTv.offline": "Hors ligne",
   "liveTv.hideOffline": "Masquer les chaînes hors ligne",

@@ -6,7 +6,7 @@ import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { pinOffset, pinRightOffset, visibleSpan } from "@/components/live-tv/guide-pin";
+import { pinOffset, visibleSpan } from "@/components/live-tv/guide-pin";
 import { formatClock, formatClockRange, guideMetrics, programCategory, standInChannelId, TICK_MINUTES } from "@/utils/guide";
 import { serverPoster } from "@/services/itemArtwork";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
@@ -27,10 +27,6 @@ const PX_PER_MINUTE = guideMetrics(IS_TV).pxPerMinute;
 const ART_START = PX_PER_MINUTE * TICK_MINUTES;
 /** The cell's own floor, so the label reads on its floor over the poster and the fade ends in the same grey. */
 const SCRIM_FADE = "linear-gradient(to right, " + COLORS.SURFACE + " 0%, rgba(44, 44, 46, 0) 100%)";
-/** The corner box: one line, a sliver of padding, its bottom rule. */
-const SEEN_LINE = IS_TV ? 16 : 10;
-const SEEN_PAD = IS_TV ? 2 : 1;
-const SEEN_BOX_HEIGHT = SEEN_LINE + 2 * SEEN_PAD + 1;
 const LABEL_PAD_LEFT = IS_TV ? 16 : 10;
 const LABEL_PAD_RIGHT = IS_TV ? 14 : 8;
 const RING_WIDTH = IS_TV ? 2 : 1;
@@ -124,6 +120,7 @@ function GuideCellComponent({
   const seenAt = useSyncExternalStore(subscribeReel, readReel);
   const reelShown = seenAt > 0;
   const [seenLead, seenTail] = t("liveTv.lastSeen").split("{time}");
+  const seenClock = seenTail === undefined ? null : <Text style={{ color: accent }}>{formatClock(seenAt)}</Text>;
   const handleLabelLayout = useCallback((event: LayoutChangeEvent) => labelWidth.setValue(event.nativeEvent.layout.width), [labelWidth]);
   const pin = useMemo(() => pinOffset(scrollX, left, width, labelWidth), [scrollX, left, width, labelWidth]);
   const pinStyle = useMemo(() => ({ transform: [{ translateX: pin }] }), [pin]);
@@ -144,10 +141,6 @@ function GuideCellComponent({
           }
         : undefined,
     [reelShown, standIn, pin, labelWidth],
-  );
-  const seenPinStyle = useMemo(
-    () => (reelShown && viewportWidth ? { transform: [{ translateX: pinRightOffset(scrollX, left, width, viewportWidth) }] } : undefined),
-    [reelShown, scrollX, left, width, viewportWidth],
   );
   // A no-listings cell runs the whole window: its ring frames the stretch on screen and rides the scroll like the label.
   const ringStyle = useMemo(() => {
@@ -185,7 +178,7 @@ function GuideCellComponent({
         </View>
       ) : null}
       {standInChannel ? (
-        <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} />
+        <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} seenAt={seenAt} />
       ) : (
         <View style={styles.text}>
           <View style={styles.titleRow}>
@@ -200,9 +193,20 @@ function GuideCellComponent({
               {episodeTitle}
             </Text>
           ) : null}
-          <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
-            {meta}
-          </Text>
+          {/* Grabbed frames lead the slot line with their clock time; the slot follows unchanged. */}
+          {reelShown ? (
+            <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+              {seenLead}
+              {seenClock}
+              {seenTail}
+              {meta ? "  ·  " : null}
+              {meta}
+            </Text>
+          ) : (
+            <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+              {meta}
+            </Text>
+          )}
         </View>
       )}
     </>
@@ -225,17 +229,6 @@ function GuideCellComponent({
           <View style={styles.reelClip} pointerEvents="none">
             <GuideFocusReel channelId={seenChannel} left={left} width={width} cellHeight={height} scrollX={scrollX} viewportWidth={viewportWidth} active={focused || cardFocused} compact={!standIn} />
           </View>
-        ) : null}
-        {/* A box set into the band's top right corner, its edges closing it: when this device grabbed the frames.
-            A cell running past the screen holds it on the screen's right edge. */}
-        {reelShown ? (
-          <RNAnimated.View style={[styles.seenBox, seenPinStyle]} pointerEvents="none" testID="guide-cell-seen">
-            <Text style={styles.seenText} numberOfLines={1}>
-              {seenLead}
-              {seenTail === undefined ? null : <Text style={{ color: accent }}>{formatClock(seenAt)}</Text>}
-              {seenTail}
-            </Text>
-          </RNAnimated.View>
         ) : null}
       </View>
       {/* Before the label in the tree, so it never sits over the focusable (tvOS occlusion). */}
@@ -344,8 +337,8 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     paddingLeft: LABEL_PAD_LEFT,
     paddingRight: LABEL_PAD_RIGHT,
-    // The same band above the title on every row, with or without the corner box, so the text lines up.
-    paddingTop: Math.round(((SEEN_BOX_HEIGHT + (IS_TV ? 6 : 3)) * 2) / 3),
+    // The same band above the title on every row, so the text lines up.
+    paddingTop: IS_TV ? 18 : 11,
   },
   text: {
     gap: IS_TV ? 4 : 2,
@@ -402,26 +395,6 @@ const styles = StyleSheet.create({
   meta: {
     color: COLORS.TEXT_TERTIARY,
     fontSize: IS_TV ? 17 : 10,
-  },
-  // Flush in the band's top right corner.
-  seenBox: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    paddingHorizontal: IS_TV ? 8 : 5,
-    paddingVertical: SEEN_PAD,
-    borderBottomWidth: 1,
-    borderLeftWidth: 1,
-    borderColor: GRID_LINE,
-    backgroundColor: COLORS.SURFACE_SUNKEN,
-  },
-  seenText: {
-    color: COLORS.TEXT_SECONDARY,
-    fontSize: IS_TV ? 13 : 8,
-    lineHeight: SEEN_LINE,
-    fontWeight: "600",
-    letterSpacing: IS_TV ? 0.8 : 0.4,
-    textTransform: "uppercase",
   },
   titleRow: {
     flexDirection: "row",

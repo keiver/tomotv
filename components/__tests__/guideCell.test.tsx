@@ -3,7 +3,6 @@ import TestRenderer, { act } from "react-test-renderer";
 import { Animated, StyleSheet, Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
 import { artFadeGradient } from "@/components/live-tv/guide-cell-art";
-import * as guidePin from "@/components/live-tv/guide-pin";
 import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 import * as guideChannelFocus from "@/services/guideChannelFocus";
 import { formatClock, guideMetrics, MINUTE_MS, NO_GUIDE_PREFIX, TICK_MINUTES } from "@/utils/guide";
@@ -43,6 +42,7 @@ function render(overrides: Partial<React.ComponentProps<typeof GuideCell>> = {})
 }
 
 const texts = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByType(Text).map((node) => node.props.children);
+const flatText = (node: TestRenderer.ReactTestInstance): string => node.children.map((child) => (typeof child === "string" ? child : flatText(child))).join("");
 const testIds = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => typeof node.props.testID === "string").map((node) => node.props.testID as string);
 
 describe("GuideCell", () => {
@@ -65,19 +65,6 @@ describe("GuideCell", () => {
     const withSeconds = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
     const shown = texts(render({ startMs: T0 + 1_000, endMs: T0 + 31_000 }));
     expect(shown.some((text) => typeof text === "string" && text.startsWith(`${withSeconds(T0 + 1_000)} – ${withSeconds(T0 + 31_000)}`))).toBe(true);
-  });
-
-  it("builds the seen box's pin only while grabbed frames show", () => {
-    const pinRight = jest.spyOn(guidePin, "pinRightOffset");
-    try {
-      render({ viewportWidth: 1600 });
-      expect(pinRight).not.toHaveBeenCalled();
-      mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
-      render({ program: { ...program, Id: "p12", ChannelId: "c1" }, viewportWidth: 1600 });
-      expect(pinRight).toHaveBeenCalledTimes(1);
-    } finally {
-      pinRight.mockRestore();
-    }
   });
 
   it("listens for its channel card's focus only while it can wear a reel", () => {
@@ -120,12 +107,12 @@ describe("GuideCell", () => {
     expect(scrim()).toEqual(resting);
   });
 
-  it("paints the art, reel and seen box inside the focus ring's reserved band", () => {
+  it("paints the art and reel inside the focus ring's reserved band", () => {
     mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
     const tree = render({ program: { ...program, Id: "p14", ChannelId: "c1", ImageTags: { Primary: "tag" } }, viewportWidth: 1600 });
     const band = hostById(tree, "guide-cell-band");
     expect(StyleSheet.flatten(band.props.style)).toEqual(expect.objectContaining({ position: "absolute", top: 1, bottom: 1, left: 0, right: 0, overflow: "hidden" }));
-    for (const id of ["guide-cell-art", "guide-cell-reel-scrim-clip", "guide-focus-reel", "guide-cell-seen"]) {
+    for (const id of ["guide-cell-art", "guide-cell-reel-scrim-clip", "guide-focus-reel"]) {
       expect(band.findAll((node) => node.props.testID === id).length).toBeGreaterThan(0);
     }
   });
@@ -155,13 +142,12 @@ describe("GuideCell", () => {
     expect(clip.findAll((node) => node.props.testID === "guide-cell-scrim-tail" && typeof node.type === "string")).toHaveLength(1);
   });
 
-  it("lays a playing cell's scrim under its reel and seen box, never over them", () => {
+  it("lays a playing cell's scrim under its reel, never over it", () => {
     mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
     const tree = render({ program: { ...program, Id: "p10", ChannelId: "c1", ImageTags: { Primary: "tag" } } });
     const ids = testIds(tree);
     expect(ids.indexOf("guide-cell-reel-scrim")).toBeGreaterThan(-1);
     expect(ids.indexOf("guide-cell-reel-scrim")).toBeLessThan(ids.indexOf("guide-focus-reel"));
-    expect(ids.indexOf("guide-cell-reel-scrim")).toBeLessThan(ids.indexOf("guide-cell-seen"));
     expect(ids).not.toContain("guide-cell-scrim");
     const clip = hostById(tree, "guide-cell-reel-scrim-clip");
     expect(StyleSheet.flatten(clip.props.style)).toEqual(expect.objectContaining({ position: "absolute", left: 0, right: 0, overflow: "hidden" }));
@@ -193,7 +179,7 @@ describe("GuideCell", () => {
     expect(testIds(render({ program: withArt, showArt: true }))).toContain("guide-cell-art");
   });
 
-  it("wears no reel, seen box or reel scrim, and listens for no card focus, while the canvas has the cell out of view", () => {
+  it("wears no reel, seen line or reel scrim, and listens for no card focus, while the canvas has the cell out of view", () => {
     mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
     const subscribe = jest.spyOn(guideChannelFocus, "subscribeGuideChannelFocus");
     try {
@@ -202,12 +188,13 @@ describe("GuideCell", () => {
       for (const cell of [airing, standIn]) {
         const away = testIds(render({ program: cell, showArt: false }));
         expect(away).not.toContain("guide-focus-reel");
-        expect(away).not.toContain("guide-cell-seen");
+        expect(away).not.toContain("guide-cell-seen-line");
         expect(away).not.toContain("guide-cell-reel-scrim");
       }
       expect(testIds(render({ program: airing, showArt: false }))).toContain("guide-cell-scrim");
       expect(subscribe).not.toHaveBeenCalled();
-      expect(testIds(render({ program: airing, showArt: true }))).toEqual(expect.arrayContaining(["guide-focus-reel", "guide-cell-seen"]));
+      expect(testIds(render({ program: airing, showArt: true }))).toContain("guide-focus-reel");
+      expect(testIds(render({ program: standIn, showArt: true }))).toContain("guide-cell-seen-line");
     } finally {
       subscribe.mockRestore();
     }
@@ -228,21 +215,28 @@ describe("GuideCell", () => {
     expect(focusedIds({ program: { ...airing, ImageTags: { Primary: "tag" } }, airing: false })).not.toContain("guide-focus-reel");
   });
 
-  it("sets when this device grabbed the frames in a box flush in the top right corner, on airing and no-listings cells, only while they show", () => {
+  it("sets when this device grabbed the frames as a stand-in's second line and leading a programme's slot line, only while they show", () => {
     const airing = { ...program, Id: "p8", ChannelId: "c1" };
     const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c2`, Name: "No listings", EpisodeTitle: undefined };
-    expect(testIds(render({ program: airing }))).not.toContain("guide-cell-seen");
-    expect(testIds(render({ program: standIn }))).not.toContain("guide-cell-seen");
+    for (const cell of [airing, standIn]) {
+      expect(testIds(render({ program: cell }))).not.toContain("guide-cell-seen-line");
+    }
+    expect(flatText(render({ program: airing }).root).includes("Seen at")).toBe(false);
 
     mockReel = { at: T0 + 10 * MINUTE_MS, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
-    for (const cell of [airing, standIn]) {
-      const box = render({ program: cell }).root.findByProps({ testID: "guide-cell-seen" });
-      expect(StyleSheet.flatten(box.props.style)).toMatchObject({ position: "absolute", top: 0, right: 0, borderBottomWidth: 1, borderLeftWidth: 1 });
-      const line = box.findByType(Text);
-      expect(StyleSheet.flatten(line.props.style).textTransform).toBe("uppercase");
-      expect(line.props.children[0]).toBe("Seen at ");
-      expect(box.findAllByType(Text)[1].props.children).toBe(formatClock(T0 + 10 * MINUTE_MS));
-    }
+    const time = formatClock(T0 + 10 * MINUTE_MS);
+
+    const quiet = render({ program: standIn });
+    const seenLine = quiet.root.findByProps({ testID: "guide-cell-seen-line" });
+    expect(flatText(seenLine)).toBe(`Seen at ${time}`);
+    expect(seenLine.findAllByType(Text).some((node) => node.props.children === time)).toBe(true);
+    const lines = quiet.root.findAllByType(Text).map((node) => flatText(node));
+    expect(lines.indexOf(`Seen at ${time}`)).toBe(lines.indexOf("No listings") + 1);
+
+    const cell = render({ program: airing });
+    const slotLine = cell.root.findAllByType(Text).find((node) => flatText(node).includes(" – "))!;
+    expect(flatText(slotLine).startsWith(`Seen at ${time}  ·  ${formatClock(T0)}`)).toBe(true);
+    expect(slotLine.findAllByType(Text).some((node) => node.props.children === time)).toBe(true);
   });
 
   it("fades the poster down while grabbed frames show over it, focused or not, and only then", () => {
@@ -325,14 +319,19 @@ describe("GuideCell", () => {
     expect(flatText(tree)).toBe("No listings");
   });
 
-  it("says under a stand-in what the sampler concluded: streaming after a burst, offline after the origin refuses twice, nothing before", () => {
+  it("says under a stand-in what the sampler concluded: available after a burst only until frames show, offline after the origin refuses twice", () => {
     const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c9`, Name: "No listings", EpisodeTitle: undefined };
     const status = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByProps({ testID: "guide-cell-status" })[0]?.findByType(Text).props.children;
     try {
       const tree = render({ program: standIn });
       expect(status(tree)).toBeUndefined();
       act(() => noteChannelAlive("c9"));
-      expect(status(tree)).toBe("Streaming now");
+      expect(status(tree)).toBe("Available to stream");
+      // Shown frames carry the claim themselves: the seen line replaces the dot.
+      mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
+      const withFrames = render({ program: standIn });
+      expect(status(withFrames)).toBeUndefined();
+      expect(testIds(withFrames)).toContain("guide-cell-seen-line");
       act(() => {
         noteChannelOpenFailure("c9", "HTTP 404");
         noteChannelOpenFailure("c9", "HTTP 404");

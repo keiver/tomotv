@@ -30,12 +30,3 @@ export function visibleSpan(scrollX: Node, left: number, width: number, viewport
   const span = Animated.subtract(shown, floorAtZero(Animated.subtract(shown, new Animated.Value(viewportWidth))));
   return { translateX: Animated.add(start, Animated.multiply(span, 0.5)), scaleX: span };
 }
-
-/**
- * How far a box anchored to a cell's right edge slides left to stay on the grid's visible right
- * edge: min(0, scrollX + viewportWidth - (left + width)).
- */
-export function pinRightOffset(scrollX: Node, left: number, width: number, viewportWidth: number): Animated.AnimatedInterpolation<number> {
-  const overhang = floorAtZero(Animated.subtract(new Animated.Value(left + width - viewportWidth), scrollX));
-  return Animated.subtract(new Animated.Value(0), overhang);
-}
