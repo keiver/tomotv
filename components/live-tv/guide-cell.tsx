@@ -168,7 +168,7 @@ function GuideCellComponent({
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
 
   const cellStyle = [styles.cell, standIn && styles.cellQuiet, { left, width, height }];
-  const accessibilityLabel = episodeTitle ? `${programName}, ${episodeTitle}` : programName;
+  const accessibilityLabel = episodeTitle ? `${episodeTitle}, ${programName}` : programName;
   const lines = (
     <>
       {/* Moves with the label, so it costs no animated node of its own. A playing cell's lies under its reel instead. */}
@@ -184,15 +184,12 @@ function GuideCellComponent({
           <View style={styles.titleRow}>
             {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
             {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
+            {/* One title row: the episode leads, the show name trails dim; the channel column already names the channel. */}
             <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
-              {programName}
+              {episodeTitle || programName}
+              {episodeTitle ? <Text style={styles.titleTrail}>{`  ·  ${programName}`}</Text> : null}
             </Text>
           </View>
-          {episodeTitle ? (
-            <Text style={[styles.subtitle, past && styles.textPast]} numberOfLines={1}>
-              {episodeTitle}
-            </Text>
-          ) : null}
           {/* Grabbed frames lead the slot line with their clock time; the slot follows unchanged. */}
           {reelShown ? (
             <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
@@ -407,9 +404,10 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     flexShrink: 1,
   },
-  subtitle: {
-    color: COLORS.TEXT_SECONDARY,
-    fontSize: IS_TV ? 19 : 11,
+  titleTrail: {
+    color: COLORS.TEXT_TERTIARY,
+    fontSize: IS_TV ? 17 : 10,
+    fontWeight: "400",
   },
   textPast: {
     opacity: 0.5,

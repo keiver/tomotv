@@ -50,10 +50,13 @@ describe("GuideCell", () => {
     mockReel = undefined;
   });
 
-  it("shows the title, episode and the slot line", () => {
-    const shown = texts(render());
-    expect(shown).toEqual(expect.arrayContaining(["Evening News", "Episode 9"]));
+  it("leads one title row with the episode, the show name trailing, and the slot line", () => {
+    const shown = render()
+      .root.findAllByType(Text)
+      .map((node) => flatText(node));
+    expect(shown).toContain("Episode 9  ·  Evening News");
     expect(shown.some((text) => text.includes(" – ") && text.includes("news"))).toBe(true);
+    expect(flatText(render({ program: { ...program, Id: "p15", EpisodeTitle: undefined } }).root)).toContain("Evening News");
   });
 
   it("prints the slot the row parsed, never the programme's dates again", () => {
