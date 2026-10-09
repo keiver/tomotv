@@ -89,9 +89,10 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
     } catch (err) {
       if (seq !== seqRef.current) return;
       setError(getLoadErrorMessage(err));
+      // liveResults stay: the live facet answered for this same term, and wiping it would
+      // visibly pull the shelf because the library request failed.
       if (!append) {
         setResults([]);
-        setLiveResults([]);
         callbacksRef.current.onError?.(err, term);
       }
     } finally {

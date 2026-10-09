@@ -124,6 +124,27 @@ it("drops a live page for a term the viewer has typed past", async () => {
   expect(latest().liveResults).toEqual([]);
 });
 
+it("keeps the live cards already shown when the library request fails", async () => {
+  const { searchLiveTv } = require("@/services/jellyfinApi") as { searchLiveTv: jest.Mock };
+  searchLiveTv.mockResolvedValueOnce([item("channel")]);
+  let failLibrary!: (reason: Error) => void;
+  mockSearch.mockImplementationOnce(() => new Promise((_resolve, reject) => (failLibrary = reject)));
+  const latest = await mount();
+
+  act(() => latest().search("film"));
+  await act(async () => {
+    jest.advanceTimersByTime(300);
+  });
+  expect(latest().liveResults.map(({ Id }) => Id)).toEqual(["channel"]);
+
+  await act(async () => {
+    failLibrary(new Error("server down"));
+  });
+  expect(latest().error).not.toBeNull();
+  expect(latest().results).toEqual([]);
+  expect(latest().liveResults.map(({ Id }) => Id)).toEqual(["channel"]);
+});
+
 it("warms the live guide once at mount, before any query", async () => {
   const { warmLiveTvSearch } = require("@/services/jellyfinApi") as { warmLiveTvSearch: jest.Mock };
   warmLiveTvSearch.mockClear();
