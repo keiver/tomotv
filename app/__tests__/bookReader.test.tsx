@@ -25,6 +25,8 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ itemId: "book-1" }), useRouter: () => ({ back: jest.fn(), push: jest.fn() }) }));
 jest.mock("@/components/glass-surface", () => ({ GlassSurface: ({ children }: { children?: React.ReactNode }) => children ?? null }));
+let mockWindow = { width: 1000, height: 800, scale: 2, fontScale: 1 };
+jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({ __esModule: true, default: () => mockWindow }));
 
 let mockViewerProps: any = null;
 /** Every goTo, with the page count the viewer had rendered when it was asked. */
@@ -52,6 +54,7 @@ async function settle() {
 describe("book reader", () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    mockWindow = { width: 1000, height: 800, scale: 2, fontScale: 1 };
     mockViewerProps = null;
     mockOpenBook.mockReset().mockResolvedValue({ token: "t1", kind: "fixed", pages: 3, title: "Comic" });
     mockRenderPage.mockReset().mockImplementation(async (_token: string, index: number, zoom: number) => ({ uri: `file:///cache/books/t1/${index}-${zoom}.jpg`, width: 1200, height: 1600 }));
@@ -137,5 +140,54 @@ describe("book reader", () => {
     await settle();
     expect(mockRenderPage).toHaveBeenCalledWith("t1", 1, 2, expect.any(Object));
     expect(mockViewerProps.uriAt(1)).toBe("file:///cache/books/t1/1-2.jpg");
+  });
+
+  /** renderPage held until the test lands it, keyed by page, zoom and the page width asked for. */
+  function holdRenders() {
+    const held = new Map<string, () => void>();
+    mockRenderPage.mockImplementation(
+      (_token: string, index: number, zoom: number, layout: { pageWidth: number }) =>
+        new Promise((resolve) => held.set(`${index}-${zoom}-${layout.pageWidth}`, () => resolve({ uri: `file:///cache/books/t1/${index}-${zoom}-${layout.pageWidth}.jpg`, width: 1, height: 1 }))),
+    );
+    return async (key: string) => {
+      await act(async () => held.get(key)?.());
+      await settle();
+    };
+  }
+
+  it("shows the page on screen before its neighbours finish", async () => {
+    const land = holdRenders();
+    await act(async () => {
+      TestRenderer.create(<BookReaderScreen />);
+    });
+    await settle();
+
+    await land("1-1-1000");
+    expect(mockViewerProps.uriAt(1)).toBe("file:///cache/books/t1/1-1-1000.jpg");
+    expect(mockViewerProps.uriAt(0)).toBe("");
+  });
+
+  it("drops renders made for the size before a rotation and draws the page again", async () => {
+    const land = holdRenders();
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(<BookReaderScreen />);
+    });
+    await settle();
+    await act(async () => {
+      mockViewerProps.onZoomSettled(2);
+    });
+
+    mockWindow = { width: 800, height: 1000, scale: 2, fontScale: 1 };
+    await act(async () => tree.update(<BookReaderScreen />));
+    await settle();
+    await land("1-1-1000");
+    await land("1-2-1000");
+    expect(mockViewerProps.uriAt(1)).toBe("");
+
+    await land("1-1-800");
+    expect(mockViewerProps.uriAt(1)).toBe("file:///cache/books/t1/1-1-800.jpg");
+    await land("1-2-800");
+    expect(mockViewerProps.uriAt(1)).toBe("file:///cache/books/t1/1-2-800.jpg");
   });
 });

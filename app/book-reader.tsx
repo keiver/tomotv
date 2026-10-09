@@ -55,6 +55,8 @@ export default function BookReaderScreen() {
   const progressRef = useRef<ReadingProgress | null>(null);
   const zoomRef = useRef(1);
   const inFlight = useRef(new Set<string>());
+  // Bumped by a relayout, a fixed book's rotation and leaving: a render begun before lands nothing.
+  const generationRef = useRef(0);
   const layoutRef = useRef<BookLayout>({ pageWidth: viewportWidth, pageHeight: viewportHeight, scale, fontSize: FONT_SIZES[DEFAULT_FONT_STEP] });
 
   const layout = useMemo<BookLayout>(() => ({ pageWidth: viewportWidth, pageHeight: viewportHeight, scale, fontSize: FONT_SIZES[fontStep] }), [viewportWidth, viewportHeight, scale, fontStep]);
@@ -66,11 +68,13 @@ export default function BookReaderScreen() {
   const render = useCallback(async (at: number, zoom: number) => {
     const opened = bookRef.current;
     if (!opened || at < 0) return;
-    const key = `${at}:${zoom}`;
+    const generation = generationRef.current;
+    const key = `${generation}:${at}:${zoom}`;
     if (inFlight.current.has(key)) return;
     inFlight.current.add(key);
     try {
       const page = await renderPage(opened.token, at, zoom, layoutRef.current);
+      if (generationRef.current !== generation) return;
       setUris((prev) => (prev[at]?.[zoom] === page.uri ? prev : { ...prev, [at]: { ...prev[at], [zoom]: page.uri } }));
     } catch (err) {
       logger.warn("Book page render failed", err, { service: "BookReader", page: at, zoom });
@@ -79,30 +83,32 @@ export default function BookReaderScreen() {
     }
   }, []);
 
-  /** The window around a page at zoom 1, rendered together and committed as one state update. */
+  /** The window around a page at zoom 1, all asked at once: the page on screen commits as it lands,
+   *  its neighbours together after. */
   const prerender = useCallback((around: number, total: number) => {
     const opened = bookRef.current;
     if (!opened) return;
+    const generation = generationRef.current;
+    const keyOf = (at: number) => `${generation}:${at}:1`;
     const wanted: number[] = [];
     for (let offset = 0; offset <= PRERENDER_WINDOW; offset++) {
       for (const at of offset === 0 ? [around] : [around + offset, around - offset]) {
-        if (at >= 0 && at < total && !inFlight.current.has(`${at}:1`)) wanted.push(at);
+        if (at >= 0 && at < total && !inFlight.current.has(keyOf(at))) wanted.push(at);
       }
     }
     if (wanted.length === 0) return;
-    wanted.forEach((at) => inFlight.current.add(`${at}:1`));
-    void Promise.all(
-      wanted.map((at) =>
-        renderPage(opened.token, at, 1, layoutRef.current)
-          .then((page) => [at, page.uri] as const)
-          .catch((err) => {
-            logger.warn("Book page render failed", err, { service: "BookReader", page: at, zoom: 1 });
-            return null;
-          }),
-      ),
-    ).then((results) => {
-      wanted.forEach((at) => inFlight.current.delete(`${at}:1`));
-      if (bookRef.current !== opened) return;
+    wanted.forEach((at) => inFlight.current.add(keyOf(at)));
+    const renders = wanted.map((at) =>
+      renderPage(opened.token, at, 1, layoutRef.current)
+        .then((page) => [at, page.uri] as const)
+        .catch((err) => {
+          logger.warn("Book page render failed", err, { service: "BookReader", page: at, zoom: 1 });
+          return null;
+        })
+        .finally(() => inFlight.current.delete(keyOf(at))),
+    );
+    const commit = (results: (readonly [number, string] | null)[]) => {
+      if (bookRef.current !== opened || generationRef.current !== generation) return;
       setUris((prev) => {
         let next = prev;
         for (const result of results) {
@@ -114,7 +120,10 @@ export default function BookReaderScreen() {
         }
         return next;
       });
-    });
+    };
+    const shown = wanted.indexOf(around);
+    if (shown >= 0) void renders[shown].then((result) => commit([result]));
+    void Promise.all(renders.filter((_render, index) => index !== shown)).then(commit);
   }, []);
 
   // Open: details, file, native book, resume page.
@@ -164,6 +173,7 @@ export default function BookReaderScreen() {
       void progressRef.current?.flush();
       const opened = bookRef.current;
       bookRef.current = null;
+      generationRef.current += 1;
       if (opened) void closeBook(opened.token);
     };
   }, []);
@@ -209,6 +219,7 @@ export default function BookReaderScreen() {
           const result = await relayoutBook(opened.token, current, next);
           landedPageRef.current = result.page;
           bookRef.current = { ...opened, pages: result.pages };
+          generationRef.current += 1;
           setBook(bookRef.current);
           setUris({});
           setPages(result.pages);
@@ -261,6 +272,7 @@ export default function BookReaderScreen() {
       return;
     }
     const current = viewerRef.current?.index() ?? 0;
+    generationRef.current += 1;
     setUris({});
     prerender(current, opened.pages);
     if (zoomRef.current > 1) void render(current, zoomRef.current);
