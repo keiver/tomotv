@@ -1,0 +1,25 @@
+# Security updates only: open-pull-requests-limit 0 disables version-update PRs,
+# which never applies to security updates. All security fixes land as one grouped PR.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    # Versions set by Expo SDK alignment or deliberate pins (react-native is the
+    # tvos fork, react-native-video carries a patch). Alerts still appear; only
+    # the automatic bump PR is suppressed.
+    ignore:
+      - dependency-name: "react-native*"
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "expo*"
+      - dependency-name: "@expo/*"
+      - dependency-name: "@react-native*"
+      - dependency-name: "typescript"
+      - dependency-name: "jest-expo"

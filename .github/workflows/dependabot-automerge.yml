@@ -1,0 +1,27 @@
+name: Dependabot auto-merge
+
+# Arms auto-merge on every Dependabot PR; the merge happens only after the
+# required checks (test, engine) pass. Version updates are disabled in
+# .github/dependabot.yml, so every Dependabot PR here is a security fix.
+#
+# AUTOMERGE_PAT (a Dependabot secret: this workflow runs as the dependabot
+# actor and cannot read Actions secrets) attributes the merge to the account
+# rather than GITHUB_TOKEN, whose merges would not trigger the push workflows
+# on main, licenses-regen.yml among them.
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Enable auto-merge
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.AUTOMERGE_PAT }}

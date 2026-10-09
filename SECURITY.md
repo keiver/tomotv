@@ -14,7 +14,9 @@ report it privately. **Do not open a public issue, pull request, or
 discussion for security problems**, as that would disclose the issue before
 a fix is available.
 
-Instead, email the details to:
+Instead, use GitHub's private reporting form at
+[Security Advisories](https://github.com/keiver/tomotv/security/advisories/new),
+or email the details to:
 
 **contact@keiver.dev**
 

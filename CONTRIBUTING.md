@@ -4,7 +4,7 @@ Thank you for your interest in contributing to TomoTV! This document provides gu
 
 ## Development Setup
 
-See [CLAUDE-development.md](./CLAUDE-development.md) for detailed setup instructions.
+See [CLAUDE-development.md](./memories/CLAUDE-development.md) for detailed setup instructions.
 
 **Quick Start:**
 
@@ -22,14 +22,14 @@ Connect code, or username/password).
 
 ### Testing
 
-- **Minimum coverage:** 60% overall
+- **Minimum coverage:** the floor in `jest.config.js` (`coverageThreshold`), which only ratchets upward
 - All new features must include tests
 - Run tests before submitting PR: `npm test`
 - Check coverage: `npm run test:coverage`
 
 ### TypeScript
 
-- Code must pass TypeScript strict mode: `npx tsc --noEmit --strict`
+- Code must pass TypeScript strict mode: `npx tsc --noEmit` (strict is set in `tsconfig.json`; this is the exact CI command)
 - No `@ts-ignore` or `@ts-expect-error` without justification
 - Use proper types, not `any`
 
