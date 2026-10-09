@@ -49,7 +49,10 @@ jobs:
       # already run --if-stale by this point, so the file on disk is current either
       # way and a byte-compare would pass over a stale COMMIT. The full run (no
       # --if-stale) also catches a generated file edited by hand.
+      # Dependabot edits only the lockfile and cannot regenerate the file; its
+      # merges are reconciled by licenses-regen.yml on main instead.
       - name: Licenses are current
+        if: github.actor != 'dependabot[bot]'
         run: npm run licenses && git diff --exit-code constants/bundled-licenses.ts
 
       # Merging to main publishes every package version npm lacks, so a package change has to
