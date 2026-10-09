@@ -35,6 +35,7 @@ import {
   manifestName,
   publishedRenditionNames,
   requestPosterFrame as requestEnginePosterFrame,
+  setPosterFramesPaused,
   startSession,
   videoCodecTag as engineVideoCodecTag,
   videoDecodeSupport,
@@ -54,6 +55,7 @@ import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downl
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
+import { isPlaybackHeld, onPlaybackHoldChange } from "@/services/playbackHold";
 import { noteDeviceDecode, probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
 
@@ -125,6 +127,10 @@ export type {
 } from "@keiver/tomo-engine";
 
 configureEngine({ log: logger, onProbe: probeEmit, onDeviceDecode: noteDeviceDecode });
+
+// Video playback idles the engine's poster backlog; release resumes it. Audio alone does not:
+// posters do not compete with an audio stream the way they do with video startup.
+onPlaybackHoldChange(() => setPosterFramesPaused(isPlaybackHeld("video")));
 
 /**
  * Live segment target. AVPlayer starts a live playlist three target durations in (tvOS sim,

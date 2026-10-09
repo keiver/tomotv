@@ -205,6 +205,69 @@ final class PosterQueueTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("film-b/\(PosterQueue.fileName)").path))
     }
 
+    func testPausedHoldsThePendingJobAndUnpauseDrainsIt() throws {
+        let clip = try clip()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = PosterQueue(root: root)
+
+        queue.setPaused(true)
+        let done = XCTestExpectation(description: "poster")
+        var outcome: PosterQueue.Outcome?
+        queue.request(itemId: "film-a", inputUrl: clip.absoluteString, milliseconds: 2000) {
+            outcome = $0
+            done.fulfill()
+        }
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertNil(outcome, "a paused queue must not decode")
+
+        queue.setPaused(false)
+        wait(for: [done], timeout: 15)
+        guard case .poster? = outcome else { return XCTFail("no poster after unpause, got \(String(describing: outcome))") }
+    }
+
+    func testUnpauseDrainsNewestFirst() throws {
+        let clip = try clip()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = PosterQueue(root: root)
+
+        queue.setPaused(true)
+        var order: [String] = []
+        let both = XCTestExpectation(description: "both posters")
+        both.expectedFulfillmentCount = 2
+        for itemId in ["film-a", "film-b"] {
+            queue.request(itemId: itemId, inputUrl: clip.absoluteString, milliseconds: 2000) { _ in
+                order.append(itemId)
+                both.fulfill()
+            }
+        }
+        queue.setPaused(false)
+        wait(for: [both], timeout: 30)
+
+        XCTAssertEqual(order, ["film-b", "film-a"], "the backlog keeps its newest-first order across a pause")
+    }
+
+    func testCancelWhilePausedAnswersAtOnce() throws {
+        let clip = try clip()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = PosterQueue(root: root)
+
+        queue.setPaused(true)
+        let done = XCTestExpectation(description: "cancelled")
+        var outcome: PosterQueue.Outcome?
+        queue.request(itemId: "film-b", inputUrl: clip.absoluteString, milliseconds: 2000) {
+            outcome = $0
+            done.fulfill()
+        }
+        queue.cancel(itemId: "film-b")
+        wait(for: [done], timeout: 2)
+
+        guard case .cancelled? = outcome else { return XCTFail("expected a cancelled outcome, got \(String(describing: outcome))") }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("film-b/\(PosterQueue.fileName)").path))
+    }
+
     func testAPosterFoundInThePoolIsNotFresh() throws {
         let clip = try clip()
         let root = try scratchRoot()

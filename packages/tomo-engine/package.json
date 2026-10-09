@@ -1,6 +1,6 @@
 {
   "name": "@keiver/tomo-engine",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "On-device playback engine for Apple TV and iOS: FFmpeg demux, stream copy or VideoToolbox transcode into HLS for the native player, with XMLTV guide and M3U playlist sources",
   "license": "MIT",
   "author": "Keiver Hernandez <contact@keiver.dev>",

@@ -128,6 +128,13 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
   return job;
 }
 
+/** Idles the native backlog while video plays; the grab already running finishes. Guarded on
+ *  the method: a Metro reload can carry JS newer than the installed binary. */
+export function setPosterFramesPaused(paused: boolean): void {
+  if (!isLocalRemuxAvailable()) return;
+  if (engineModule()?.setPosterQueuePaused) void engineModule().setPosterQueuePaused(paused);
+}
+
 /** A card leaving the screen. The engine drops the job once no card waits on it. */
 export function cancelPosterFrame(itemId: string): void {
   const waiting = posterFrameWaiters.get(itemId) ?? 0;

@@ -28,9 +28,21 @@ final class PosterQueue {
     private var cancelled = Set<String>()
     private var pending: [Pending] = []
     private var draining = false
+    // Video playback idles the backlog; the grab already running finishes either way.
+    private var paused = false
 
     init(root: URL = ChapterFramePool.root) {
         self.root = root
+    }
+
+    /// Pausing gates the next pop, never the decode in flight; unpausing drains what queued up.
+    func setPaused(_ value: Bool) {
+        lock.lock()
+        let resume = paused && !value && !pending.isEmpty && !draining
+        paused = value
+        if resume { draining = true }
+        lock.unlock()
+        if resume { queue.async { [self] in drain() } }
     }
 
     /// Resolution of a request: the poster's file URL (`fresh` when decoded now rather than found),
@@ -61,7 +73,7 @@ final class PosterQueue {
         // The pool the caller asked into; a purge before the job's turn leaves it nothing to answer for.
         pending.append(Pending(itemId: itemId, inputUrl: inputUrl, milliseconds: milliseconds,
                                epoch: ChapterFramePool.epoch, completion: completion))
-        let start = !draining
+        let start = !draining && !paused
         if start { draining = true }
         lock.unlock()
         if start { queue.async { [self] in drain() } }
@@ -70,7 +82,7 @@ final class PosterQueue {
     private func drain() {
         while true {
             lock.lock()
-            guard let job = pending.popLast() else {
+            guard !paused, let job = pending.popLast() else {
                 draining = false
                 lock.unlock()
                 return

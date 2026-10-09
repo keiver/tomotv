@@ -605,6 +605,16 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
+    /// Paused while video plays: the backlog waits, the grab already running finishes.
+    @objc func setPosterQueuePaused(
+        _ paused: Bool,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.posters.setPaused(paused)
+        resolve(nil)
+    }
+
     /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval, clipSpan (seconds),
     /// count, shownPts, shownUri. Each burst frame is announced as `onLiveFrame` while the burst is read.
     /// Resolves `{uris, clip, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.

@@ -15,7 +15,7 @@ import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { t } from "@/services/i18n";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
-jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn() }));
+jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn(), isPlaybackHeld: jest.fn(() => false), onPlaybackHoldChange: jest.fn(() => () => {}) }));
 const mockAutoPlay = { enabled: true };
 jest.mock("@/services/jellyfinApi", () => ({
   getPosterUrl: jest.fn(() => "https://server/poster.jpg"),
