@@ -185,6 +185,53 @@ test("a set that lands first mounts at the pressed index, and the late single re
   tree.unmount();
 });
 
+test("a set that fails before the pressed photo lands still shows the photo, not the error screen", async () => {
+  mockParams = { folderId: "f1", photoId: "p2", recursive: "true" };
+  let failSet!: (reason: Error) => void;
+  let resolveSingle!: (item: unknown) => void;
+  (fetchRecursivePhotos as jest.Mock).mockReturnValueOnce(new Promise((_resolve, reject) => (failSet = reject)));
+  (fetchItemDetails as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (resolveSingle = resolve)));
+
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => {
+    failSet(new Error("server down"));
+  });
+  expect(counter(tree)).toContain("Unable to Load Photos");
+
+  await act(async () => {
+    resolveSingle(mockPhotos[1]);
+  });
+  expect(counter(tree)).not.toContain("Unable to Load Photos");
+  expect(counter(tree)).toContain("Two");
+  tree.unmount();
+});
+
+test("a plain open with no cached folder paints the pressed photo first, then the sweep widens it", async () => {
+  mockParams = { folderId: "f1", photoId: "p2" };
+  let resolveSet!: (items: unknown) => void;
+  (fetchFolderPhotos as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (resolveSet = resolve)));
+  (fetchItemDetails as jest.Mock).mockResolvedValueOnce(mockPhotos[1]);
+
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(counter(tree)).toContain("Two");
+
+  await act(async () => {
+    resolveSet(mockPhotos);
+  });
+  expect(counter(tree)).toContain("Two");
+  expect(counter(tree)).toMatch(/2\| \/ \|2/);
+  tree.unmount();
+});
+
 test("a set without the pressed photo leaves it shown alone", async () => {
   mockParams = { folderId: "f1", photoId: "px", recursive: "true" };
   let resolveSet!: (items: unknown) => void;

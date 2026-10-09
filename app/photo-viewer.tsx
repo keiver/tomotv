@@ -74,6 +74,8 @@ export default function PhotoViewerScreen() {
       setPhotos(photoItems);
       setStartIndex(start >= 0 ? start : 0);
       setIndex(start >= 0 ? start : 0);
+      // A paint dismisses an earlier failure: the set fetch may have errored before this landed.
+      if (photoItems.length > 0) setError(null);
       return start >= 0;
     };
 
@@ -198,19 +200,21 @@ export default function PhotoViewerScreen() {
     // entry is the exact list the user was just looking at, so it paints frame one. It holds
     // the pages the grid had loaded, never the whole folder, so the sweep still runs.
     const cached = getFolderCache(folderId);
-    let painted = false;
     if (cached && cached.items.some((item) => item.Id === params.photoId)) {
       applyPhotos(cached.items);
-      painted = true;
+    } else {
+      paintPressedFirst();
     }
 
     fetchFolderPhotos(folderId)
       .then((items) => {
-        if (!cancelled) widenPhotos(items);
+        if (cancelled) return;
+        setApplied = true;
+        widenPhotos(items);
       })
       .catch((err) => {
         if (cancelled) return;
-        if (!painted) setError(getLoadErrorMessage(err));
+        if (photosRef.current.length === 0) setError(getLoadErrorMessage(err));
         logger.error("Error loading photos for viewer", err, { service: "PhotoViewer", folderId });
       });
 
