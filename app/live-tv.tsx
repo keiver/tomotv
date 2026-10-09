@@ -17,11 +17,11 @@ import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import { invalidateLiveTvSearchIndex } from "@/services/jellyfinApi";
-import { showToast } from "@/services/toast";
+import { dismissToast, showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { guideMetrics, guideRefreshOutcome } from "@/utils/guide";
 import { programInfoParams } from "@/utils/programInfo";
-import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
+import { Stack, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, findNodeHandle, Platform, StyleSheet, View } from "react-native";
@@ -90,22 +90,29 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
   // A refresh's first load announces its outcome, and so does the first open once it fetched
   // programs behind the spinner; later loads (day picks, paging, window growth) stay silent.
+  // The TV tab mounts and loads in the background, so only the focused screen arms or announces.
+  const isFocused = useIsFocused();
   const refreshToastArmed = useRef(refreshed);
   const firstLoadRef = useRef(true);
   const guideWorking = guide.isLoading || guide.isUpdating;
   const guideFailed = !!guide.error;
   const hasListings = guide.rows.some((row) => row.programs.length > 0);
   useEffect(() => {
-    if (firstLoadRef.current && guide.isLoading && guide.isUpdating) refreshToastArmed.current = true;
-  }, [guide.isLoading, guide.isUpdating]);
+    if (isFocused && firstLoadRef.current && guide.isLoading && guide.isUpdating) refreshToastArmed.current = true;
+  }, [isFocused, guide.isLoading, guide.isUpdating]);
   useEffect(() => {
     if (guideWorking) return;
     firstLoadRef.current = false;
     if (!refreshToastArmed.current) return;
     refreshToastArmed.current = false;
+    if (!isFocused) {
+      // A refresh left behind: resolve its progress toast quietly instead of announcing over another screen.
+      dismissToast("guide-refresh");
+      return;
+    }
     const outcome = guideRefreshOutcome(guideFailed, hasListings);
     showToast({ id: "guide-refresh", title: t(outcome.title), kind: outcome.kind });
-  }, [guideWorking, guideFailed, hasListings]);
+  }, [guideWorking, guideFailed, hasListings, isFocused]);
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
