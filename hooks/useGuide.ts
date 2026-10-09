@@ -66,7 +66,7 @@ export interface GuideState {
   /** Channels a timer covers right now; their cards wear REC. */
   recordingChannelIds: Set<string>;
   isLoading: boolean;
-  /** True while programs are being fetched; the HUD shows its thin bar for it. */
+  /** True while programs are being fetched; the refresh cell drops presses and spins. */
   isUpdating: boolean;
   error: string | null;
   retry: () => void;

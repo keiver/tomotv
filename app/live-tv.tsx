@@ -24,7 +24,7 @@ import { programInfoParams } from "@/utils/programInfo";
 import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
+import { ActivityIndicator, findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import { SafeAreaListener, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -187,7 +187,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
             label={t("liveTv.guideRefresh")}
             onPress={refreshGuide}
             disabled={guide.isUpdating}
-            icon={<SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={accent} weight="bold" />}
+            icon={guide.isUpdating ? <ActivityIndicator size="small" color={accent} /> : <SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={accent} weight="bold" />}
           />
         )
       }

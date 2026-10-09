@@ -6,7 +6,7 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import React, { useState } from "react";
 import type { NativeStackHeaderItemButton } from "expo-router";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 /** The symbol names the phone's native bar items accept; the TV cells draw the same names. */
@@ -27,7 +27,7 @@ interface HudActionProps {
   icon: React.ReactNode;
   label: string;
   onPress: () => void;
-  /** Stays focusable so TV focus is never ejected; presses drop and the icon dims. */
+  /** Stays focusable so TV focus is never ejected; presses drop. */
   disabled?: boolean;
   forwardedRef?: (node: View | null) => void;
   /** Draws the label beside the icon, as a group cell draws its name. */
@@ -58,7 +58,7 @@ export function HudAction({ icon, label, onPress, disabled, forwardedRef, titled
         tvParallaxProperties={{ enabled: false }}
         style={[styles.hit, titled && styles.hitTitled]}>
         {focused ? <View style={[styles.focusRing, rounded, { borderColor: accent }]} pointerEvents="none" /> : null}
-        <View style={disabled ? styles.iconDisabled : null}>{icon}</View>
+        {icon}
         {titled ? (
           <Text style={styles.title} numberOfLines={1}>
             {label}
@@ -77,7 +77,7 @@ interface GuideCornerActionsProps {
   onSchedule: () => void;
   /** Reloads the server's listings and re-downloads the external guides. */
   onRefreshGuide: () => void;
-  /** True while the guide is already working: the refresh cell drops presses and dims. */
+  /** True while the guide is already working: the refresh cell drops presses and spins. */
   refreshing?: boolean;
   /** A recording is in progress: the Schedule glyph wears its badge, turns red and breathes. */
   recording?: boolean;
@@ -106,7 +106,12 @@ export function GuideCornerActions({ filtered, onChannels, onRecordings, onSched
           </RecordingPulse>
         }
       />
-      <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} disabled={refreshing} icon={<SfSymbolIcon name="arrow.clockwise" size={ICON} color={accent} weight={WEIGHT} />} />
+      <HudAction
+        label={t("liveTv.guideRefresh")}
+        onPress={onRefreshGuide}
+        disabled={refreshing}
+        icon={refreshing ? <ActivityIndicator size="small" color={accent} /> : <SfSymbolIcon name="arrow.clockwise" size={ICON} color={accent} weight={WEIGHT} />}
+      />
     </View>
   );
 }
@@ -140,9 +145,6 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_PRIMARY,
     fontSize: IS_TV ? 24 : 14,
     fontWeight: "600",
-  },
-  iconDisabled: {
-    opacity: 0.35,
   },
   // The program cells' focus mark.
   focusRing: {

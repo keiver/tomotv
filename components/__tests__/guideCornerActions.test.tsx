@@ -30,10 +30,13 @@ describe("GuideCornerActions", () => {
     expect(onRefreshGuide).toHaveBeenCalledTimes(1);
   });
 
-  it("drops the refresh press while the guide is working", async () => {
+  it("drops the refresh press and spins while the guide is working", async () => {
+    const { ActivityIndicator } = require("react-native");
     const { refresh } = await renderCorner({ refreshing: true });
     expect(refresh.props.onPress).toBeUndefined();
     expect(refresh.props.accessibilityState).toEqual({ disabled: true });
+    expect(refresh.findAllByType(ActivityIndicator)).toHaveLength(1);
+    expect(refresh.findAll((node) => String(node.type) === "mock-symbol")).toHaveLength(0);
   });
 
   it("the Schedule glyph wears its badge in red while a recording runs, the other cells keep gold", async () => {
