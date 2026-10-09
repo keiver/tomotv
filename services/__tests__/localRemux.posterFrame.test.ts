@@ -374,6 +374,21 @@ describe("setPosterFramesPaused", () => {
     expect(posterFrameWorkInFlight()).toBe(false);
   });
 
+  it("withdrawing a parked job does not clear the busy flag the running grab holds", async () => {
+    mockPosterFrame.mockImplementationOnce(() => new Promise(() => {}));
+    let settleParked!: (value: { uri: string | null; cancelled: boolean }) => void;
+    mockPosterFrame.mockImplementationOnce(() => new Promise((resolve) => (settleParked = resolve)));
+    void requestPosterFrame({ Id: "running", RunTimeTicks: 0 });
+    const parked = requestPosterFrame({ Id: "parked", RunTimeTicks: 0 });
+    setPosterFramesPaused(true);
+
+    // The parked job's card leaves; the engine answers it cancelled without decoding anything.
+    cancelPosterFrame("parked");
+    settleParked({ uri: null, cancelled: true });
+    await parked;
+    expect(posterFrameWorkInFlight()).toBe(true);
+  });
+
   it("does nothing when the installed binary lacks the pause method", () => {
     const module = require("react-native").NativeModules.LocalRemuxer as Record<string, unknown>;
     const method = module.setPosterQueuePaused;

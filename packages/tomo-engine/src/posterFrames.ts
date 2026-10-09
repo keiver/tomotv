@@ -120,6 +120,9 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
         result = await engineModule().posterFrame({ itemId: request.id, inputUrl, seconds: request.seconds });
         // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
       } while (result?.cancelled && generation === posterFrameGen && (posterFrameWaiters.get(request.id) ?? 0) > 0);
+      // A real decode outcome off the serial queue means the grab running at pause time is
+      // done. A withdrawn parked job answers cancelled without decoding, so it proves nothing.
+      if (!result?.cancelled) posterFramePauseRunner = false;
       if (result?.cancelled) return null;
       const uri = result?.uri ?? null;
       if (generation === posterFrameGen) {
@@ -137,8 +140,6 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
       }
       return null;
     } finally {
-      // Any settle while paused means the running grab is done: parked jobs cannot settle.
-      posterFramePauseRunner = false;
       // A cleared generation owns none of these entries: a job started since holds them.
       // The waiter count is owed one cancel per mounted card, and settling is not a card leaving.
       if (generation === posterFrameGen) posterFramesInFlight.delete(request.id);
