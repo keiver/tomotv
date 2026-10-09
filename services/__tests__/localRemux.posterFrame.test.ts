@@ -4,6 +4,7 @@
  */
 const mockPosterFrame = jest.fn();
 const mockCancelPosterFrame = jest.fn();
+const mockSetPosterQueuePaused = jest.fn();
 const mockClearFramePool = jest.fn();
 const mockLocalMediaUri = jest.fn((_id: string): string | null => null);
 
@@ -14,6 +15,7 @@ jest.mock("react-native", () => ({
       startRemux: jest.fn(),
       posterFrame: (config: unknown) => mockPosterFrame(config),
       cancelPosterFrame: (itemId: string) => mockCancelPosterFrame(itemId),
+      setPosterQueuePaused: (paused: boolean) => mockSetPosterQueuePaused(paused),
       clearFramePool: () => mockClearFramePool(),
     },
   },
@@ -51,7 +53,9 @@ import {
   posterFrameIfCached,
   posterFrameRevision,
   posterFrameSeconds,
+  posterFrameWorkInFlight,
   requestPosterFrame,
+  setPosterFramesPaused,
 } from "../localRemux";
 
 const TICKS = 10_000_000;
@@ -310,5 +314,76 @@ describe("cancelPosterFrame", () => {
   it("does nothing for an item nobody is waiting on", () => {
     cancelPosterFrame("nobody");
     expect(mockCancelPosterFrame).not.toHaveBeenCalled();
+  });
+});
+
+describe("setPosterFramesPaused", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    clearPosterFrameCache();
+    mockLocalMediaUri.mockReturnValue(null);
+  });
+  afterEach(() => {
+    setPosterFramesPaused(false);
+  });
+
+  it("parked backlog is not busy work; the finishing grab and fresh asks are", async () => {
+    mockPosterFrame.mockImplementationOnce(() => new Promise(() => {}));
+    void requestPosterFrame({ Id: "parked", RunTimeTicks: 0 });
+    expect(posterFrameWorkInFlight()).toBe(true);
+
+    setPosterFramesPaused(true);
+    expect(mockSetPosterQueuePaused).toHaveBeenLastCalledWith(true);
+    // The grab mid-run at pause time may still be finishing.
+    expect(posterFrameWorkInFlight()).toBe(true);
+
+    // A fresh ask settles: the runner is done, and only the parked job remains.
+    mockPosterFrame.mockResolvedValueOnce({ uri: "file:///caches/chapter-frames/fresh/poster.jpg", cancelled: false });
+    await requestPosterFrame({ Id: "fresh", RunTimeTicks: 0 });
+    expect(posterFrameWorkInFlight()).toBe(false);
+
+    // A fresh ask in flight is real work.
+    let settleLate!: (value: { uri: string | null; cancelled: boolean }) => void;
+    mockPosterFrame.mockImplementationOnce(() => new Promise((resolve) => (settleLate = resolve)));
+    const late = requestPosterFrame({ Id: "late", RunTimeTicks: 0 });
+    expect(posterFrameWorkInFlight()).toBe(true);
+    settleLate({ uri: null, cancelled: false });
+    await late;
+    expect(posterFrameWorkInFlight()).toBe(false);
+
+    // Unpaused, the parked job counts again.
+    setPosterFramesPaused(false);
+    expect(posterFrameWorkInFlight()).toBe(true);
+  });
+
+  it("a caller joining a parked job kicks it loose past the pause", async () => {
+    let settleParked!: (value: { uri: string | null; cancelled: boolean }) => void;
+    mockPosterFrame.mockImplementationOnce(() => new Promise((resolve) => (settleParked = resolve)));
+    mockPosterFrame.mockResolvedValueOnce({ uri: "file:///caches/chapter-frames/a/poster.jpg", cancelled: false });
+    const card = requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    setPosterFramesPaused(true);
+
+    const player = requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    expect(mockCancelPosterFrame).toHaveBeenCalledWith("a");
+    settleParked({ uri: null, cancelled: true });
+
+    expect(await player).toBe("file:///caches/chapter-frames/a/poster.jpg");
+    expect(await card).toBe("file:///caches/chapter-frames/a/poster.jpg");
+    expect(mockPosterFrame).toHaveBeenCalledTimes(2);
+    // Kicked loose, the job is live work again.
+    expect(posterFrameWorkInFlight()).toBe(false);
+  });
+
+  it("does nothing when the installed binary lacks the pause method", () => {
+    const module = require("react-native").NativeModules.LocalRemuxer as Record<string, unknown>;
+    const method = module.setPosterQueuePaused;
+    delete module.setPosterQueuePaused;
+    try {
+      setPosterFramesPaused(true);
+      expect(mockSetPosterQueuePaused).not.toHaveBeenCalled();
+      expect(posterFrameWorkInFlight()).toBe(false);
+    } finally {
+      module.setPosterQueuePaused = method;
+    }
   });
 });

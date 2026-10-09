@@ -86,6 +86,7 @@ export {
   posterFrameIfCached,
   posterFrameRevision,
   posterFrameWorkInFlight,
+  setPosterFramesPaused,
   readBound,
   reportPlayerBuffer,
   resolveSubtitlePick,
@@ -130,7 +131,12 @@ configureEngine({ log: logger, onProbe: probeEmit, onDeviceDecode: noteDeviceDec
 
 // Video playback idles the engine's poster backlog; release resumes it. Audio alone does not:
 // posters do not compete with an audio stream the way they do with video startup.
-onPlaybackHoldChange(() => setPosterFramesPaused(isPlaybackHeld("video")));
+const syncPosterQueuePause = () => setPosterFramesPaused(isPlaybackHeld("video"));
+onPlaybackHoldChange(syncPosterQueuePause);
+// The native queue is process-static: a reload during playback leaves it paused with no JS
+// owner, so each runtime syncs it to its own hold state at load. A microtask, so module
+// initialization order never sees the call.
+queueMicrotask(syncPosterQueuePause);
 
 /**
  * Live segment target. AVPlayer starts a live playlist three target durations in (tvOS sim,

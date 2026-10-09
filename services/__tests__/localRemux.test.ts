@@ -2547,4 +2547,15 @@ describe("poster queue playback pause", () => {
     setPlaybackHold("video", false);
     expect(mockSetPosterQueuePaused).toHaveBeenLastCalledWith(false);
   });
+
+  it("a fresh runtime syncs the queue to its own hold state at load", async () => {
+    // The native queue is process-static: a reload during playback leaves it paused, and the
+    // new runtime holds nothing, so loading the module must send false.
+    mockSetPosterQueuePaused.mockClear();
+    jest.isolateModules(() => {
+      require("../localRemux");
+    });
+    await Promise.resolve();
+    expect(mockSetPosterQueuePaused).toHaveBeenCalledWith(false);
+  });
 });

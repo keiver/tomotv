@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0
+
+- `setPosterQueuePaused(paused)` parks the poster queue's waiting backlog while video plays and returns it on release. The grab already running finishes, a request made while parked still runs, and a cancel reaches a parked job at once. `setPosterFramesPaused` wraps it in JS, and `posterFrameWorkInFlight` stops counting parked jobs.
+- `LocalRemuxer.invalidate()` stops the sessions a dying React runtime started, so a Metro reload no longer leaves an orphaned pipeline running.
+
 ## 1.0.2
 
 - Add universal Mac Catalyst slices (Apple Silicon and Intel) to the pinned FFmpeg frameworks, targeting macOS 13.4 or later. VideoToolbox requests Metal-compatible pixel buffers on Catalyst, and Metal shaders target the same OS minimum.

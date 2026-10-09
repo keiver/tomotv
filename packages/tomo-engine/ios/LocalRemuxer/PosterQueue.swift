@@ -28,18 +28,27 @@ final class PosterQueue {
     private var cancelled = Set<String>()
     private var pending: [Pending] = []
     private var draining = false
-    // Video playback idles the backlog; the grab already running finishes either way.
+    // Video playback parks the jobs already waiting; the grab mid-run finishes, and a request
+    // made while parked still runs, so the player's own artwork is never held behind the backlog.
+    private var parked: [Pending] = []
     private var paused = false
 
     init(root: URL = ChapterFramePool.root) {
         self.root = root
     }
 
-    /// Pausing gates the next pop, never the decode in flight; unpausing drains what queued up.
+    /// Parks the waiting backlog, or returns it behind anything newer that asked meanwhile.
     func setPaused(_ value: Bool) {
         lock.lock()
-        let resume = paused && !value && !pending.isEmpty && !draining
+        if value && !paused {
+            parked.append(contentsOf: pending)
+            pending.removeAll()
+        } else if !value && paused {
+            pending.insert(contentsOf: parked, at: 0)
+            parked.removeAll()
+        }
         paused = value
+        let resume = !value && !pending.isEmpty && !draining
         if resume { draining = true }
         lock.unlock()
         if resume { queue.async { [self] in drain() } }
@@ -73,7 +82,7 @@ final class PosterQueue {
         // The pool the caller asked into; a purge before the job's turn leaves it nothing to answer for.
         pending.append(Pending(itemId: itemId, inputUrl: inputUrl, milliseconds: milliseconds,
                                epoch: ChapterFramePool.epoch, completion: completion))
-        let start = !draining && !paused
+        let start = !draining
         if start { draining = true }
         lock.unlock()
         if start { queue.async { [self] in drain() } }
@@ -82,7 +91,7 @@ final class PosterQueue {
     private func drain() {
         while true {
             lock.lock()
-            guard !paused, let job = pending.popLast() else {
+            guard let job = pending.popLast() else {
                 draining = false
                 lock.unlock()
                 return
@@ -119,8 +128,9 @@ final class PosterQueue {
     func cancel(itemId: String) {
         lock.lock()
         cancelled.insert(itemId)
-        let withdrawn = pending.filter { $0.itemId == itemId }
+        let withdrawn = pending.filter { $0.itemId == itemId } + parked.filter { $0.itemId == itemId }
         pending.removeAll { $0.itemId == itemId }
+        parked.removeAll { $0.itemId == itemId }
         lock.unlock()
         for job in withdrawn { job.completion(.cancelled) }
     }
