@@ -43,7 +43,7 @@ const BAR_PADDING_V = IS_TV ? 10 : 8;
 const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
-/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track, and the watched eye. */
+/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
 export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
   // A channel with something on air wears the live mark; the title bar names the programme.
   if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
@@ -63,9 +63,12 @@ export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Dat
     else if (badge.disc !== null) segments.push({ icon: "disc", label: badge.disc }, { icon: "musical-note", label: badge.label });
     else segments.push({ icon: "musical-note", label: badge.label });
   }
-  // Watched mark, the info panel's eye; music stays out (every full listen marks a track played, which is noise, not state).
-  if (video.UserData?.Played && video.Type !== "Audio") segments.push({ icon: "eye" });
   return segments.length > 0 ? segments : null;
+}
+
+/** Watched, as the title bar marks it; music stays out (every full listen marks a track played, which is noise, not state) and live cards never hold it. */
+export function isWatched(video: Pick<JellyfinVideoItem, "Type" | "UserData">): boolean {
+  return !!video.UserData?.Played && video.Type !== "Audio" && video.Type !== "TvChannel" && video.Type !== "Program";
 }
 
 type Mark = ComponentProps<typeof CardMark>;
@@ -151,8 +154,6 @@ interface VideoGridItemProps {
   inert?: boolean;
   /** A bundled picture (a require'd module) in place of the item's own: the theme editor's preview. */
   poster?: number;
-  /** The binge's next episode in its folder: its index pill wears the focused fill at rest too. */
-  bingeNext?: boolean;
 }
 
 /**
@@ -197,7 +198,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     inset,
     inert = false,
     poster,
-    bingeNext = false,
   },
   ref,
 ) {
@@ -246,8 +246,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
   // A channel card names what is on, then the channel: the logo and the badge already say which channel.
   const videoName = cleanLabel(video.Name);
+  const watched = isWatched(video);
   // A channel's marks ride its badge row; its title stays alone.
-  const titleMarkIcon = isChannel ? undefined : titleIcon;
+  // One mark at a time: the watched eye outranks a passed icon (a watched recording drops the camera).
+  const titleMarkIcon = isChannel ? undefined : watched ? "eye" : titleIcon;
   const marks = channelMarks(video, titleIcon, palette.accent);
   if (hideNumber) marks.number = undefined;
   const cardTitle = airingName ? joinTitle(cleanLabel(airingName), videoName) : video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown");
@@ -350,7 +352,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               />
               {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
               <CardScrim />
-              {(focused || bingeNext) && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
+              {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
               {liveFrame && posterSource ? (
                 <>
                   <CardCornerScrim corner="right" />
@@ -407,8 +409,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 </MarqueeText>
               </View>
             </View>
-          ) : // Focused: opaque gold bar
-          focused ? (
+          ) : // Focused or watched: opaque gold bar (the watched bar is the fill at its end state, under the ink eye)
+          focused || watched ? (
             <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
               <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(palette.ink)}
@@ -439,7 +441,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : isChannel && recording ? (
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
               ) : badgeSegments ? (
-                <CardBadge segments={badgeSegments} focused={focused || bingeNext} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
+                <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
               ) : null}
               {marks.trailing.map((mark) => (
                 <CardMark key={mark.icon} {...mark} />
@@ -511,8 +513,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.inset?.vertical === nextProps.inset?.vertical &&
     prevProps.inset?.horizontal === nextProps.inset?.horizontal &&
     prevProps.inert === nextProps.inert &&
-    prevProps.poster === nextProps.poster &&
-    prevProps.bingeNext === nextProps.bingeNext
+    prevProps.poster === nextProps.poster
   );
 }
 

@@ -1,4 +1,4 @@
-import { channelMarks, indexBadgeSegments, joinTitle, programCardTitle } from "@/components/video-grid-item";
+import { channelMarks, indexBadgeSegments, isWatched, joinTitle, programCardTitle } from "@/components/video-grid-item";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -8,23 +8,18 @@ jest.mock("expo-image", () => ({ Image: () => null }));
 const item = (overrides: Partial<JellyfinVideoItem>): JellyfinVideoItem => ({ Id: "v1", Name: "Item", Type: "Movie", ...overrides }) as JellyfinVideoItem;
 
 describe("indexBadgeSegments", () => {
-  it("marks a played movie with the eye alone", () => {
-    expect(indexBadgeSegments(item({ UserData: { Played: true } }))).toEqual([{ icon: "eye" }]);
+  it("holds no watched mark: a played movie wears no badge", () => {
+    expect(indexBadgeSegments(item({ UserData: { Played: true } }))).toBeNull();
     expect(indexBadgeSegments(item({}))).toBeNull();
   });
 
-  it("keeps the index tag first on a played episode", () => {
+  it("keeps the index tag alone on a played episode", () => {
     const episode = item({ Type: "Episode", ParentIndexNumber: 1, IndexNumber: 5, UserData: { Played: true } });
-    expect(indexBadgeSegments(episode)).toEqual([{ label: "S01E05" }, { icon: "eye" }]);
+    expect(indexBadgeSegments(episode)).toEqual([{ label: "S01E05" }]);
   });
 
   it("leaves an unplayed episode's tag unchanged", () => {
     expect(indexBadgeSegments(item({ Type: "Episode", ParentIndexNumber: 1, IndexNumber: 5 }))).toEqual([{ label: "S01E05" }]);
-  });
-
-  it("marks an audiobook the server holds finished", () => {
-    expect(indexBadgeSegments(item({ Type: "AudioBook", UserData: { Played: true } }))).toEqual([{ icon: "eye" }]);
-    expect(indexBadgeSegments(item({ Type: "AudioBook", UserData: { Played: false } }))).toBeNull();
   });
 
   it("never marks music tracks or live cards", () => {
@@ -48,6 +43,22 @@ describe("indexBadgeSegments", () => {
     expect(indexBadgeSegments(program(-30, 30), now, true)).toEqual([{ label: "REC" }]);
     const scheduled = indexBadgeSegments(program(30, 90), now, true);
     expect(scheduled).toEqual([{ icon: "videocam", label: indexBadgeSegments(program(30, 90), now)?.[0].label }]);
+  });
+});
+
+describe("isWatched", () => {
+  it("holds for played movies, episodes and finished audiobooks", () => {
+    expect(isWatched(item({ UserData: { Played: true } }))).toBe(true);
+    expect(isWatched(item({ Type: "Episode", UserData: { Played: true } }))).toBe(true);
+    expect(isWatched(item({ Type: "AudioBook", UserData: { Played: true } }))).toBe(true);
+    expect(isWatched(item({ Type: "AudioBook", UserData: { Played: false } }))).toBe(false);
+    expect(isWatched(item({}))).toBe(false);
+  });
+
+  it("never holds for music tracks or live cards", () => {
+    expect(isWatched(item({ Type: "Audio", UserData: { Played: true } }))).toBe(false);
+    expect(isWatched(item({ Type: "TvChannel", UserData: { Played: true } }))).toBe(false);
+    expect(isWatched(item({ Type: "Program", UserData: { Played: true } }))).toBe(false);
   });
 });
 
