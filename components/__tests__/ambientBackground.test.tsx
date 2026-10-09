@@ -14,7 +14,7 @@ function glowTint(variant?: "default" | "filters"): string | undefined {
   act(() => {
     tree = TestRenderer.create(<AmbientBackground variant={variant} />);
   });
-  const tints = tree.root.findAllByType("ExpoImage").map((node) => node.props.tintColor);
+  const tints = tree.root.findAll((node) => String(node.type) === "ExpoImage").map((node) => node.props.tintColor);
   act(() => tree.unmount());
   return tints.find((tint) => tint !== undefined);
 }

@@ -45,7 +45,7 @@ function canvas(asset: number): ImageRef | number {
 
 /** Decode every baked canvas once (called at startup) so screens never pop in. */
 export function preloadAmbientBackgrounds(): void {
-  for (const asset of [DEFAULT_MASKS.shade.landscape, DEFAULT_MASKS.shade.portrait, DEFAULT_MASKS.glow.landscape, DEFAULT_MASKS.glow.portrait, FILTERS.landscape, FILTERS.portrait]) {
+  for (const asset of [DEFAULT_MASKS.shade.landscape, DEFAULT_MASKS.shade.portrait, FILTERS.landscape, FILTERS.portrait]) {
     if (decodedCanvases.has(asset)) continue;
     Image.loadAsync(asset)
       .then((ref) => decodedCanvases.set(asset, ref))
@@ -75,7 +75,9 @@ export function AmbientBackground({ variant = "default" }: AmbientBackgroundProp
   return (
     <View pointerEvents="none" style={[styles.layer, { backgroundColor: CANVAS_BASE }]}>
       <Image source={canvas(DEFAULT_MASKS.shade[orientation])} contentFit="cover" transition={0} style={styles.layer} />
-      <Image source={canvas(DEFAULT_MASKS.glow[orientation])} contentFit="cover" transition={0} tintColor={glow} style={styles.layer} />
+      {/* The glow takes the asset module, never a decoded ref: expo-image draws a ref once in its
+          source setter and cannot re-tint it, so a theme change would leave the old colour. */}
+      <Image source={DEFAULT_MASKS.glow[orientation]} contentFit="cover" transition={0} tintColor={glow} style={styles.layer} />
     </View>
   );
 }
