@@ -1,0 +1,65 @@
+name: Regenerate bundled licenses
+
+# Dependabot merges skip Test PR's license gate because the bot edits only the
+# lockfile and cannot run the regen. This closes the loop: a lockfile change on
+# main regenerates constants/bundled-licenses.ts and, since main takes no direct
+# pushes (enforce_admins), lands the diff through a small auto-merging PR that
+# runs the full gates. A lockfile change that leaves the production tree alone
+# exits without a PR.
+#
+# AUTOMERGE_PAT (Actions secret): pushing the branch and arming auto-merge as
+# the account keeps follow-on workflow triggers alive, as in dependabot-automerge.yml.
+
+on:
+  push:
+    branches: [main]
+    paths: [package-lock.json]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: licenses-regen
+  cancel-in-progress: false
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.AUTOMERGE_PAT }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Regenerate licenses
+        run: npm run licenses
+
+      - name: Open auto-merging PR if the file changed
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMERGE_PAT }}
+        run: |
+          if git diff --quiet constants/bundled-licenses.ts; then
+            echo "Licenses current; nothing to do."
+            exit 0
+          fi
+          BRANCH="licenses-regen/${{ github.run_id }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add constants/bundled-licenses.ts
+          git commit -m "chore(licenses): regenerate after dependency bump"
+          git push origin "$BRANCH"
+          gh pr create --title "chore(licenses): regenerate after dependency bump" \
+            --body "Automated regen for the lockfile change in ${{ github.sha }}." \
+            --base main --head "$BRANCH"
+          gh pr merge --auto --squash "$BRANCH"
