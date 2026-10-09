@@ -21,7 +21,7 @@ import { clearVerdicts } from "@/services/engineVerdicts";
 import { logger, redactSecrets } from "@/utils/logger";
 import { File, Paths } from "expo-file-system";
 import { writeAsStringAsync } from "expo-file-system/legacy";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 
 export type { PlaybackSession, SessionEvent } from "@/services/diagnosticsSchema";
 
@@ -156,6 +156,39 @@ let pendingSnapshot: string | null = null;
 /** Bumped by every clear, so a write that lands after one is deleted. */
 let clearCount = 0;
 
+/** Events that do not decide the session ride one trailing write instead of one each. */
+const SESSION_WRITE_DELAY_MS = 5000;
+let sessionWriteTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleSessionWrite(): void {
+  if (sessionWriteTimer) return;
+  sessionWriteTimer = setTimeout(() => {
+    sessionWriteTimer = null;
+    writeSession();
+  }, SESSION_WRITE_DELAY_MS);
+  (sessionWriteTimer as unknown as { unref?: () => void }).unref?.();
+}
+
+function cancelSessionWrite(): void {
+  if (!sessionWriteTimer) return;
+  clearTimeout(sessionWriteTimer);
+  sessionWriteTimer = null;
+}
+
+function flushSessionWrite(): void {
+  cancelSessionWrite();
+  writeSession();
+}
+
+// Backgrounding is the last chance before a kill: the coalesced events land at once.
+try {
+  AppState.addEventListener("change", (state) => {
+    if (state === "background") flushSessionWrite();
+  });
+} catch {
+  // Test runtimes that stub react-native without AppState.
+}
+
 /** Mirrors memory to disk off the JS thread, one write at a time; events arriving while one lands
  *  leave only the latest snapshot waiting. Nothing empty is ever written, so a blank session cannot
  *  replace a stored one. */
@@ -199,6 +232,8 @@ function startSession(videoId: string): void {
   // The player mounts before it has an id; recording that would persist an empty session
   // over a real one.
   if (!videoId) return;
+  // A write still pending belongs to the session being replaced.
+  cancelSessionWrite();
   session = { ...HEAD, device: { ...HEAD.device, decode: deviceDecode }, playback: { itemId: videoId, startedAt: Date.now(), outcome: "playing", events: [], progress: [] } };
   lastProgressAt = 0;
 }
@@ -207,6 +242,7 @@ function recordSession(event: string, entry: SessionEvent): void {
   if (!session) return;
   const { playback } = session;
   if (event === "progress") {
+    // Memory only: a position every 2s is not worth a disk write; the next event's carries it.
     playback.progress.push({ t: entry.t, position: Number(entry.position) });
     if (playback.progress.length > MAX_PROGRESS) playback.progress.shift();
   } else {
@@ -216,8 +252,10 @@ function recordSession(event: string, entry: SessionEvent): void {
     // An error the player retries is not the verdict; the playback that follows decides it.
     if (event === "ended") playback.outcome = "ended";
     if (event === "error" && !entry.willRetry) playback.outcome = "error";
+    // The events that decide the session land at once; the rest coalesce into one write.
+    if (event === "playing" || event === "ended" || event === "error") flushSessionWrite();
+    else scheduleSessionWrite();
   }
-  writeSession();
   notifySession();
 }
 
@@ -238,6 +276,7 @@ export function readLastSession(): PlaybackSession | null {
 export function clearLastSession(): void {
   session = null;
   pendingSnapshot = null;
+  cancelSessionWrite();
   clearCount += 1;
   deleteSessionFile();
   notifySession();

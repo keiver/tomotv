@@ -273,19 +273,60 @@ describe("playbackProbe session sink", () => {
     expect(readLastSession()?.playback.outcome).toBe("ended");
   });
 
-  it("mirrors to disk on every event, progress included, and never into Documents", async () => {
-    setPlaybackProbeEnabled(null, "item-a");
+  it("progress never writes, deciding events write at once, the rest coalesce, never into Documents", async () => {
+    jest.useFakeTimers();
+    try {
+      setPlaybackProbeEnabled(null, "item-a");
+      probeEmit("mode", { mode: "direct" });
+      probeProgress(5);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(sessionWrites()).toHaveLength(0);
+
+      await jest.advanceTimersByTimeAsync(5000);
+      expect(sessionWrites()).toHaveLength(1);
+      expect(sessionWrites()[0].dir).toBe("file:///cache/");
+
+      probeEmit("ended");
+      await jest.advanceTimersByTimeAsync(0);
+      expect(sessionWrites()).toHaveLength(2);
+      expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}")).toMatchObject({ schemaVersion: 2, playback: { outcome: "ended", progress: [{ position: 5 }] } });
+
+      probeProgress(500);
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(sessionWrites()).toHaveLength(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("a clear drops a coalesced write still pending", async () => {
+    jest.useFakeTimers();
+    try {
+      setPlaybackProbeEnabled(null, "item-a");
+      probeEmit("mode", { mode: "direct" });
+      clearLastSession();
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(sessionWrites()).toHaveLength(0);
+      expect(files.has(SESSION_FILENAME)).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("backgrounding flushes the coalesced events at once", async () => {
+    // RN's jest preset mocks AppState.addEventListener, so the handler the module registered
+    // at import is sitting in its calls.
+    const { AppState } = require("react-native") as { AppState: { addEventListener: jest.Mock } };
+    const handler = AppState.addEventListener.mock.calls.find(([name]: [string]) => name === "change")?.[1] as ((state: string) => void) | undefined;
+    expect(handler).toBeDefined();
+
+    setPlaybackProbeEnabled(null, "item-bg");
     probeEmit("mode", { mode: "direct" });
+    expect(sessionWrites()).toHaveLength(0);
+
+    handler?.("background");
     await landWrites();
     expect(sessionWrites()).toHaveLength(1);
-    expect(sessionWrites()[0].dir).toBe("file:///cache/");
-
-    probeProgress(5);
-    await landWrites();
-    probeEmit("ended");
-    await landWrites();
-    expect(sessionWrites()).toHaveLength(3);
-    expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}")).toMatchObject({ schemaVersion: 2, playback: { outcome: "ended", progress: [{ position: 5 }] } });
   });
 
   it("events arriving while a write lands leave only the latest snapshot waiting", async () => {
@@ -301,14 +342,14 @@ describe("playbackProbe session sink", () => {
         }),
     );
     setPlaybackProbeEnabled(null, "item-a");
-    probeEmit("mode", { mode: "direct" });
-    probeEmit("qualitySwitch", { to: "q1" });
-    probeEmit("qualitySwitch", { to: "q2" });
+    probeEmit("playing", { afterSeconds: 1 });
+    probeEmit("error", { message: "first", willRetry: true });
+    probeEmit("error", { message: "second", willRetry: true });
     land();
     await landWrites();
 
     expect(writeAsStringAsync).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}").playback.events.at(-1)).toMatchObject({ to: "q2" });
+    expect(JSON.parse(files.get(SESSION_FILENAME) ?? "{}").playback.events.at(-1)).toMatchObject({ message: "second" });
   });
 
   it("a clear while a write is landing leaves no file behind", async () => {
