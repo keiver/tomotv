@@ -230,7 +230,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   );
 
   // The server poster, or the keyframe the engine makes for a card the server left blank.
-  const posterSource = useItemPoster(video, POSTER_SIZE);
+  const posterSource = useItemPoster(video, POSTER_SIZE, { deferWhileVideo: true });
 
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
