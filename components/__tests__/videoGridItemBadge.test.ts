@@ -1,5 +1,4 @@
-import { channelMarks, indexBadgeSegments, isWatched, joinTitle, programCardTitle } from "@/components/video-grid-item";
-import { COLORS } from "@/constants/colors";
+import { channelNumber, indexBadgeSegments, isWatched, joinTitle, programCardTitle } from "@/components/video-grid-item";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
@@ -72,20 +71,20 @@ describe("isWatched", () => {
   });
 });
 
-describe("channelMarks", () => {
+describe("channelNumber", () => {
   const channel = (ChannelNumber?: string) => item({ Type: "TvChannel", Name: "Caminandes", ChannelNumber });
 
-  it("gives the tuner's number to the gold pill and the favorite heart to the marks", () => {
-    expect(channelMarks(channel(" 3 "), "heart")).toEqual({ number: "3", trailing: [{ icon: "heart", color: COLORS.ACCENT }] });
+  it("labels the tuner's number as a channel", () => {
+    expect(channelNumber(channel(" 3 "))).toBe("CH 3");
   });
 
-  it("shows only what the channel has: no number and no favorite means no marks", () => {
-    expect(channelMarks(channel())).toEqual({ number: undefined, trailing: [] });
-    expect(channelMarks(channel("  "), "heart")).toEqual({ number: undefined, trailing: [{ icon: "heart", color: COLORS.ACCENT }] });
+  it("gives no pill without a number", () => {
+    expect(channelNumber(channel())).toBeUndefined();
+    expect(channelNumber(channel("  "))).toBeUndefined();
   });
 
   it("marks nothing but a channel", () => {
-    expect(channelMarks(item({ Type: "Movie", ChannelNumber: "2" }), "heart")).toEqual({ trailing: [] });
+    expect(channelNumber(item({ Type: "Movie", ChannelNumber: "2" }))).toBeUndefined();
   });
 });
 

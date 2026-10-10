@@ -49,6 +49,7 @@
   "liveTv.upcoming": "Próximas",
   "liveTv.live": "EN VIVO",
   "liveTv.rec": "REC",
+  "liveTv.ch": "CH",
   "liveTv.seriesRules": "Series",
   "liveTv.noRecordings": "Aún no hay grabaciones, o esta cuenta no tiene acceso a ellas.",
   "liveTv.noRecordingsHint": "Un administrador del servidor puede conceder el acceso en Jellyfin: Usuarios, esta cuenta, Acceso a la biblioteca y luego activar Grabaciones.",
