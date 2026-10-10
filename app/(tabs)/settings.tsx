@@ -104,6 +104,12 @@ function SettingsScreen() {
         if (cancelled) return;
         setMeasuredBps(status?.bps ?? null);
         if (status?.fresh) return;
+        // No probe beside a download or playback: it reads the leftover share. With no
+        // figure to show, the heading says why instead of sitting on "Not measured".
+        if (linkRateOutcome(status?.bps ?? null, isPlaybackHeld(), downloadManager.getState().activeCount) === "linkBusy") {
+          if (status == null) setMeasureOutcome("linkBusy");
+          return;
+        }
         setMeasuring(true);
         const bps = await measureIfIdle();
         if (cancelled) return;

@@ -19,7 +19,7 @@ interface LinkSpeedHeadingProps {
   measuredBps: number | null;
   /** A probe is running right now, so the figure reads as sampling. */
   measuring: boolean;
-  /** The last tap's answer, shown only while no figure landed. */
+  /** The last tap's answer; while set it replaces the figure until the next focus or tap. */
   outcome?: LinkRateOutcome | null;
   /** A press on the heading asks for a fresh measurement. */
   onRemeasure?: () => void;
@@ -31,8 +31,8 @@ interface LinkSpeedHeadingProps {
 /** The streaming heading: measured server speed, a press re-measures it. */
 export function LinkSpeedHeading({ title, measuredBps, measuring, outcome, onRemeasure, onFocus, onBlur }: LinkSpeedHeadingProps) {
   const measured = measuredBps != null && !measuring;
-  // A landed figure outranks the tap's answer; the answer outranks "Not measured".
-  const answered = !measuring && measuredBps == null ? outcome : null;
+  // The tap's answer outranks everything but a running check: a press always shows its outcome.
+  const answered = !measuring ? outcome : null;
   // Short on purpose: the pending strings share the header line with the title.
   const rate = measuring
     ? t("settings.checking")
@@ -46,7 +46,7 @@ export function LinkSpeedHeading({ title, measuredBps, measuring, outcome, onRem
   // connection carries a preset, red once it carries none. The server glyph is the
   // connected card's, in the same ink, so the figure reads as that server's speed.
   // A probe that read nothing is a verdict too; a busy link is not.
-  const rateInk = answered === "noReading" ? COLORS.DESTRUCTIVE : !measured ? undefined : carriedRungs(measuredBps) === 0 ? COLORS.DESTRUCTIVE : COLORS.SUCCESS;
+  const rateInk = answered ? (answered === "noReading" ? COLORS.DESTRUCTIVE : undefined) : !measured ? undefined : carriedRungs(measuredBps) === 0 ? COLORS.DESTRUCTIVE : COLORS.SUCCESS;
 
   return (
     <RateHeading

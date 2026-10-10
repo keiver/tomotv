@@ -51,12 +51,21 @@ describe("LinkSpeedHeading", () => {
     expect(StyleSheet.flatten(glyph(tree!).props.style)?.opacity).toBe(0);
   });
 
-  it("lets a landed figure outrank the tap's answer", () => {
+  it("shows the tap's answer over a landed figure", () => {
     let tree: TestRenderer.ReactTestRenderer | undefined;
     act(() => {
-      tree = TestRenderer.create(<LinkSpeedHeading measuredBps={50_000_000} measuring={false} outcome="noReading" onRemeasure={() => {}} />);
+      tree = TestRenderer.create(<LinkSpeedHeading measuredBps={50_000_000} measuring={false} outcome="linkBusy" onRemeasure={() => {}} />);
     });
-    expect(texts(tree!)).not.toContain(t("settings.noReading").toUpperCase());
+    expect(texts(tree!)).toContain(t("settings.linkBusy").toUpperCase());
+    expect(texts(tree!)).not.toContain("50 MBPS");
+  });
+
+  it("lets a running check outrank the tap's answer", () => {
+    let tree: TestRenderer.ReactTestRenderer | undefined;
+    act(() => {
+      tree = TestRenderer.create(<LinkSpeedHeading measuredBps={null} measuring outcome="linkBusy" onRemeasure={() => {}} />);
+    });
+    expect(texts(tree!)).toContain(t("settings.checking").toUpperCase());
   });
 });
 
