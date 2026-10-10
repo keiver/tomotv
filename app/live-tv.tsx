@@ -11,7 +11,7 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
-import { useGuide } from "@/hooks/useGuide";
+import { invalidateGuideReads, useGuide } from "@/hooks/useGuide";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
@@ -44,6 +44,7 @@ export default function LiveTvRoute() {
   const [refreshes, setRefreshes] = useState(0);
   const refreshGuide = useCallback(() => {
     refreshExternalGuide();
+    invalidateGuideReads();
     // Search reads the server's listings again too, so a refreshed guide answers in search at once.
     invalidateLiveTvSearchIndex();
     setRefreshes((count) => count + 1);
@@ -88,21 +89,15 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   const filtered = preferences.filter !== "all";
   const recording = useIsRecording();
   const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
-  // A refresh's first load announces its outcome, and so does the first open once it fetched
-  // programs behind the spinner; later loads (day picks, paging, window growth) stay silent.
-  // The TV tab mounts and loads in the background, so only the focused screen arms or announces.
+  // Only a refresh press announces its outcome: opens serve the cached reads and stay silent,
+  // as do later loads (day picks, paging, window growth).
   const isFocused = useIsFocused();
   const refreshToastArmed = useRef(refreshed);
-  const firstLoadRef = useRef(true);
   const guideWorking = guide.isLoading || guide.isUpdating;
   const guideFailed = !!guide.error;
   const hasListings = guide.rows.some((row) => row.programs.length > 0);
   useEffect(() => {
-    if (isFocused && firstLoadRef.current && guide.isLoading && guide.isUpdating) refreshToastArmed.current = true;
-  }, [isFocused, guide.isLoading, guide.isUpdating]);
-  useEffect(() => {
     if (guideWorking) return;
-    firstLoadRef.current = false;
     if (!refreshToastArmed.current) return;
     refreshToastArmed.current = false;
     if (!isFocused) {
