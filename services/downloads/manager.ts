@@ -10,7 +10,9 @@
  * restarts. Every entry is therefore re-checked against the file on disk at launch.
  */
 
-import { DownloadTask, File, Paths, type DownloadPauseState } from "expo-file-system";
+import { File, Paths } from "expo-file-system";
+
+import { createDownload, isPartedState, restoreDownload, type AnyDownload, type AnyPauseState } from "./partedDownload";
 import { API_TIMEOUTS } from "@/services/jellyfin/constants";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
@@ -58,9 +60,9 @@ type ThroughputListener = (bytesPerSecond: number) => void;
 type SideKind = "art" | "subs";
 
 class DownloadManager {
-  private tasks = new Map<string, DownloadTask>();
+  private tasks = new Map<string, AnyDownload>();
   /** Process-lifetime only; see the note on DownloadEntry for why it never reaches disk. */
-  private resumeStates = new Map<string, DownloadPauseState>();
+  private resumeStates = new Map<string, AnyPauseState>();
   private listeners = new Set<Listener>();
   private progressListeners = new Map<string, Set<ProgressListener>>();
   private progressTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -244,7 +246,7 @@ class DownloadManager {
     this.syncRateSampler();
     const saved = task.savable();
     // A pause before any byte landed carries no resume data; the next start opens a fresh request.
-    if (saved.resumeData) this.resumeStates.set(itemId, saved);
+    if (isPartedState(saved) ? saved.states.some((part) => part.done || part.savable) : Boolean(saved.resumeData)) this.resumeStates.set(itemId, saved);
     this.clearProgressTimer(itemId);
     patchEntry(itemId, { state: "paused" });
     this.notify();
@@ -332,7 +334,7 @@ class DownloadManager {
     }
 
     const saved = this.resumeStates.get(entry.itemId);
-    let task: DownloadTask;
+    let task: AnyDownload;
     try {
       const options = {
         headers: await authHeaders(),
@@ -342,7 +344,8 @@ class DownloadManager {
           this.emitProgressSoon(entry.itemId);
         },
       };
-      task = saved ? DownloadTask.fromSavable(saved, options) : File.createDownloadTask(await downloadUrl(entry), resolveItemFile(entry.itemId, entry.fileUri), options);
+      // A conversion streams with Accept-Ranges: none; only a Static original runs parted.
+      task = saved ? restoreDownload(saved, options) : await createDownload(await downloadUrl(entry), resolveItemFile(entry.itemId, entry.fileUri), options, !entry.converted);
     } catch (error) {
       this.fail(entry.itemId, error);
       return;

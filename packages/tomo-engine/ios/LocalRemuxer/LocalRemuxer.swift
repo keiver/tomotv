@@ -829,6 +829,28 @@ class LocalRemuxer: RCTEventEmitter {
     /// Cancellation flags for repackages in flight, keyed by item id.
     private static var repackCancels: Set<String> = []
 
+    /// Joins a parallel download's ranged part files into the one file the
+    /// repackager then reads; parts are removed as they are consumed.
+    @objc func mergeDownloadParts(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let parts = config["parts"] as? [String], !parts.isEmpty,
+              let outputPath = config["outputPath"] as? String else {
+            reject("invalid_config", "mergeDownloadParts needs parts and outputPath", nil)
+            return
+        }
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                try DownloadRepackager.mergeParts(parts.map { URL(fileURLWithPath: $0) }, into: URL(fileURLWithPath: outputPath))
+                resolve(nil)
+            } catch {
+                reject("merge_failed", error.localizedDescription, error)
+            }
+        }
+    }
+
     /// Rewraps a finished download into MP4 so it direct-plays. Resolves either way:
     /// `repackaged: false` carries the reason and leaves the source file alone, which
     /// is the item continuing to play through the engine exactly as before.

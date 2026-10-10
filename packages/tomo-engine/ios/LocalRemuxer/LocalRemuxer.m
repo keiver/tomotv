@@ -127,6 +127,11 @@ RCT_EXTERN_METHOD(repackageDownload
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(mergeDownloadParts
+                  : (NSDictionary *)config resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(cancelRepackage
                   : (nonnull NSString *)itemId resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

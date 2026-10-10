@@ -57,6 +57,27 @@ final class DownloadRepackager {
         let durationSeconds: Double
     }
 
+    /// Joins ranged part files into one, in order. The first part is renamed, the
+    /// rest stream-append and are removed as consumed, so peak disk stays near one file.
+    static func mergeParts(_ parts: [URL], into destination: URL) throws {
+        let fm = FileManager.default
+        guard let first = parts.first else { throw Failure.failed("mergeParts: no parts") }
+        if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+        try fm.moveItem(at: first, to: destination)
+        guard parts.count > 1 else { return }
+        let out = try FileHandle(forWritingTo: destination)
+        defer { try? out.close() }
+        try out.seekToEnd()
+        for part in parts.dropFirst() {
+            let input = try FileHandle(forReadingFrom: part)
+            defer { try? input.close() }
+            while let chunk = try input.read(upToCount: 8 << 20), !chunk.isEmpty {
+                try out.write(contentsOf: chunk)
+            }
+            try fm.removeItem(at: part)
+        }
+    }
+
     enum Failure: LocalizedError {
         /// The file stays as it is and keeps its engine session. Not an error state.
         /// `permanent` separates what this file will never allow from what this build
