@@ -4,7 +4,7 @@ import { localeScreen } from "@/components/locale-boundary";
 import { LoadingRow } from "@/components/loading-row";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
-import { LinkSpeedHeading } from "@/components/settings/LinkSpeedHeading";
+import { LinkSpeedHeading, linkRateOutcome, type LinkRateOutcome } from "@/components/settings/LinkSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
@@ -13,7 +13,9 @@ import { transcodingRowSubtitle } from "@/components/settings/transcodingCopy";
 import { UiSection } from "@/components/settings/UiSection";
 import { useTranscodePermissions } from "@/hooks/useTranscodePermissions";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
+import { downloadManager } from "@/services/downloads/manager";
 import { measureIfIdle, remeasureBitrate, rememberedBitrateStatus } from "@/services/jellyfin/bitrateTest";
+import { isPlaybackHeld } from "@/services/playbackHold";
 import { refreshTranscodePermissions } from "@/services/jellyfin/transcodePermissions";
 import { DEMO_USERNAME, getStoredUserName, getUserImageUrl, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
@@ -47,6 +49,7 @@ function SettingsScreen() {
   const permissions = useTranscodePermissions();
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
   const [measuring, setMeasuring] = useState(false);
+  const [measureOutcome, setMeasureOutcome] = useState<LinkRateOutcome | null>(null);
   const [streamingHeadingFocused, setStreamingHeadingFocused] = useState(false);
   const probeRevision = useRef(0);
 
@@ -91,6 +94,7 @@ function SettingsScreen() {
       let cancelled = false;
       probeRevision.current++;
       setMeasuring(false);
+      setMeasureOutcome(null);
       void (async () => {
         const state = await loadCurrentState();
         if (cancelled || state !== "CONNECTED") return;
@@ -116,11 +120,19 @@ function SettingsScreen() {
 
   const handleRemeasure = useCallback(async () => {
     if (measuring) return;
+    setMeasureOutcome(null);
+    // A busy link is named without probing: a reading taken beside a download
+    // or playback is the leftover share, and it would be remembered as the link.
+    if (linkRateOutcome(measuredBps, isPlaybackHeld(), downloadManager.getState().activeCount) === "linkBusy") {
+      setMeasureOutcome("linkBusy");
+      return;
+    }
     const revision = probeRevision.current;
     setMeasuring(true);
     const bps = await remeasureBitrate();
     if (revision !== probeRevision.current) return;
     if (bps != null) setMeasuredBps(bps);
+    setMeasureOutcome(linkRateOutcome(bps, false, 0));
     setMeasuring(false);
   }, [measuring]);
 
@@ -246,6 +258,7 @@ function SettingsScreen() {
                 title={t("settings.streaming")}
                 measuredBps={measuredBps}
                 measuring={measuring}
+                outcome={measureOutcome}
                 onRemeasure={handleRemeasure}
                 onFocus={() => setStreamingHeadingFocused(true)}
                 onBlur={() => setStreamingHeadingFocused(false)}

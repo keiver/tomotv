@@ -477,6 +477,8 @@
   "settings.addServer": "Añadir servidor",
   "settings.checking": "Comprobando…",
   "settings.notMeasured": "Sin medir",
+  "settings.linkBusy": "Enlace en uso",
+  "settings.noReading": "Sin lectura",
   "settings.mbps": "{mbps} Mbps",
   "settings.streamingConn": "Calidad de streaming. Conexión al servidor: {rate}",
   "settings.streamingRate": "Calidad de streaming. {rate}",
