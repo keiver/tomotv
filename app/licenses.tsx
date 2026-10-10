@@ -7,12 +7,13 @@ import { APP_ABOUT_LINE, APP_BUILD_LABEL } from "@/constants/app";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
 import { CREDITS, LGPL3_NOTE, LGPL_SOURCE_NOTICE, LICENSE_TEXTS, type Credit } from "@/constants/licenses";
-import { APP_PLATFORM } from "@/utils/hostEnvironment";
+import { toggleScreenshotSizeLock } from "@/services/screenshotSizeLock";
+import { APP_PLATFORM, IS_MAC } from "@/utils/hostEnvironment";
 import { licenseParagraphs } from "@/utils/licenseParagraphs";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
 
@@ -45,6 +46,13 @@ export default function LicensesScreen() {
 
   const toggle = useCallback((credit: Credit) => {
     setExpandedName((prev) => (prev === credit.name ? null : credit.name));
+  }, []);
+
+  // Internal screenshot aid, dev Mac builds only: a long press on the platform pill
+  // pins the window to the capture size (services/screenshotSizeLock).
+  const toggleSizeLock = useCallback(() => {
+    const enabled = toggleScreenshotSizeLock();
+    Alert.alert(enabled ? "Screenshot size lock enabled" : "Screenshot size lock disabled", enabled ? "Window pinned to 1440x900." : "Window limits restored.");
   }, []);
 
   // tvOS refuses a focus update leaving a ScrollView that is scrolled even slightly
@@ -108,7 +116,13 @@ export default function LicensesScreen() {
         <View style={settingsStyles.contentContainer}>
           <View style={screenStyles.build}>
             {__DEV__ ? <AccountPill label="DEV" onGold={false} tag={{ tint: COLORS.SUCCESS }} /> : null}
-            <AccountPill label={APP_PLATFORM} onGold={false} />
+            {__DEV__ && IS_MAC ? (
+              <Pressable onLongPress={toggleSizeLock}>
+                <AccountPill label={APP_PLATFORM} onGold={false} />
+              </Pressable>
+            ) : (
+              <AccountPill label={APP_PLATFORM} onGold={false} />
+            )}
             <AccountPill label={`v${APP_BUILD_LABEL}`} onGold={false} />
             <AccountPill label={APP_ABOUT_LINE} onGold={false} />
           </View>
