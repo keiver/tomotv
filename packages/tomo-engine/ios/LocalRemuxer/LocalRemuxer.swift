@@ -62,6 +62,8 @@ class LocalRemuxer: RCTEventEmitter {
 
     private static var server: LocalHTTPServer?
 
+    private static let memoryPressure = MemoryPressureMonitor.start()
+
     /// The most recent session's plan, held so a listener that subscribes after
     /// the pipeline thread has already decided still receives it. The plan is
     /// produced within milliseconds of startRemux resolving, so a JS subscriber
@@ -70,6 +72,11 @@ class LocalRemuxer: RCTEventEmitter {
     private static var hasListeners = false
 
     @objc override static func requiresMainQueueSetup() -> Bool { false }
+
+    override init() {
+        super.init()
+        _ = Self.memoryPressure
+    }
 
     /// What this build can emit. JS runs ahead of native on every Metro reload, and subscribing
     /// to an event the running binary does not declare is a hard error in RCTEventEmitter.
