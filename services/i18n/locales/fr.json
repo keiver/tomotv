@@ -444,7 +444,7 @@
   "search.emptyHint": "Rechercher par titre, genre, artiste ou année…",
   "search.unableBody": "Recherche impossible. Vérifie ta connexion.",
   "search.noResultsFor": "Aucun résultat pour",
-  "search.gatheringLive": "Recherche dans le guide…",
+  "search.gatheringLive": "Recherche dans tes guides…",
   "search.libraryHeading": "Médiathèque",
   "search.demoFailedTitle": "Impossible de se connecter au serveur de démonstration",
   "settings.quality.auto": "Auto",
