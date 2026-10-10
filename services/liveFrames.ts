@@ -25,6 +25,7 @@ export {
   LIVE_FRAME_TRANSITION_MS,
   liveClipFor,
   type LiveFrame,
+  liveFrameDueAt,
   liveFrameFor,
   liveFrameReel,
   type LiveFrameSurface,

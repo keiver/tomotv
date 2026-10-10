@@ -28,14 +28,10 @@ describe("indexBadgeSegments", () => {
     expect(indexBadgeSegments(channel)).toBeNull();
   });
 
-  it("marks a channel live only on the engine's own verdict, never the guide's", () => {
+  it("gives a channel no pill: its mark is the freshness badge", () => {
     const channel = item({ Type: "TvChannel", CurrentProgram: { Name: "On Air" } as JellyfinVideoItem["CurrentProgram"] });
-    expect(indexBadgeSegments(channel, Date.now(), false, "up")).toEqual([{ label: "LIVE" }]);
-    expect(indexBadgeSegments(channel, Date.now(), false, "unknown")).toBeNull();
-    expect(indexBadgeSegments(channel, Date.now(), false, "down")).toBeNull();
     expect(indexBadgeSegments(channel)).toBeNull();
-    const bare = item({ Type: "TvChannel" });
-    expect(indexBadgeSegments(bare, Date.now(), false, "up")).toEqual([{ label: "LIVE" }]);
+    expect(indexBadgeSegments(item({ Type: "TvChannel" }))).toBeNull();
   });
 
   it("marks a searched programme live only while it airs", () => {

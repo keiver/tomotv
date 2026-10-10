@@ -2,16 +2,15 @@ import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/car
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { LiveClip } from "@/components/live-tv/live-clip";
+import { LiveFreshnessBadge } from "@/components/live-tv/live-freshness-badge";
 import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
-import { useChannelHealth } from "@/hooks/useChannelHealth";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useMinuteClock } from "@/hooks/useMinuteClock";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
-import { type ChannelHealth } from "@/services/channelHealth";
 import { t } from "@/services/i18n";
 import { showsChannelLogo } from "@/services/itemArtwork";
 import { isAudioItem, isBook } from "@/services/jellyfinApi";
@@ -48,9 +47,9 @@ const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
-export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false, channelHealth?: ChannelHealth): BadgeSegment[] | null {
-  // A channel wears the live mark only once the engine's own sampler proved the stream.
-  if (video.Type === "TvChannel") return channelHealth === "up" ? [{ label: t("liveTv.live") }] : null;
+export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
+  // A channel's mark is the freshness badge, keyed to its own pictures, never a pill from here.
+  if (video.Type === "TvChannel") return null;
   // A programme from search: live while it airs, when it starts before then, nothing once it ended.
   // Recording, REC takes LIVE's place and a scheduled start wears the camera.
   if (video.Type === "Program") {
@@ -233,11 +232,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // item objects without touching these fields, and must not re-parse every card.
   // A programme's badge follows the clock: it goes live at its start and clears at its end.
   const clockMs = useMinuteClock(video.Type === "Program");
-  const channelHealth = useChannelHealth(video.Type === "TvChannel" ? video.Id : "");
   const badgeSegments = useMemo(
-    () => indexBadgeSegments(video, clockMs || Date.now(), recording, channelHealth),
+    () => indexBadgeSegments(video, clockMs || Date.now(), recording),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.StartDate, video.EndDate, video.UserData?.Played, clockMs, recording, channelHealth],
+    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.StartDate, video.EndDate, video.UserData?.Played, clockMs, recording],
   );
   const isChannel = video.Type === "TvChannel";
   const logoPoster = showsChannelLogo(video) && !liveFrame;
@@ -441,7 +439,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
-          {offline || badgeSegments || recording || numberPill ? (
+          {offline || badgeSegments || recording || numberPill || isChannel ? (
             <View style={styles.indexBadge} pointerEvents="none">
               {/* Gold at rest too: the number is the channel's, not a state of the card. */}
               {numberPill ? <CardBadge segments={[{ label: numberPill }]} focused slim /> : null}
@@ -449,8 +447,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} tone="live" />
               ) : isChannel && recording ? (
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
+              ) : isChannel ? (
+                <LiveFreshnessBadge channelId={video.Id} />
               ) : badgeSegments ? (
-                <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
+                <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "Program" ? "live" : "gold"} />
               ) : null}
             </View>
           ) : null}
