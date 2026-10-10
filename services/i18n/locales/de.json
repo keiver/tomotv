@@ -31,6 +31,7 @@
   "library.loadingLibraries": "Deine Bibliotheken werden geladen",
   "library.loadingMore": "Weitere Titel werden geladen",
   "liveTv.title": "Live-TV",
+  "liveTv.sourceTooSlow": "Die Quelle dieses Kanals sendet langsamer, als sie abspielt",
   "liveTv.guide": "Fernsehprogramm",
   "liveTv.channels": "Kanäle",
   "liveTv.recordings": "Aufnahmen",

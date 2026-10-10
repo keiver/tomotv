@@ -31,6 +31,7 @@
   "library.loadingLibraries": "Chargement de tes médiathèques",
   "library.loadingMore": "Chargement d'autres titres",
   "liveTv.title": "TV en direct",
+  "liveTv.sourceTooSlow": "La source de cette chaîne envoie plus lentement qu'elle ne se lit",
   "liveTv.guide": "Guide",
   "liveTv.channels": "Chaînes",
   "liveTv.recordings": "Enregistrements",

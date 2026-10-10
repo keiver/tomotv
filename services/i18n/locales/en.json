@@ -31,6 +31,7 @@
   "library.loadingLibraries": "Loading your libraries",
   "library.loadingMore": "Loading more items",
   "liveTv.title": "Live TV",
+  "liveTv.sourceTooSlow": "This channel's source is sending slower than it plays",
   "liveTv.guide": "Guide",
   "liveTv.channels": "Channels",
   "liveTv.recordings": "Recordings",

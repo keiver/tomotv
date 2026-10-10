@@ -6,6 +6,7 @@ import {
   engineInputMissing,
   engineProgress,
   engineStarving,
+  liveStarving,
   imagesAt,
   isLocalRemuxAvailable,
   localRemuxToken,
@@ -2360,6 +2361,21 @@ describe("engine throughput: the session's own clock", () => {
         sample({ generation: 1, segment: 11, produceSeconds: 9, cushion: 0 }),
       ]),
     ).toBe(true);
+  });
+
+  const starvedLive = (over: Partial<ThroughputSample> = {}) => sample({ produceSeconds: 8, readSeconds: 7, cushion: 1, ...over });
+
+  it("liveStarving: three read-bound slow segments with nothing ahead, splices included", () => {
+    expect(liveStarving([starvedLive({ generation: 0, segment: 1 }), starvedLive({ generation: 1, segment: 2 }), starvedLive({ generation: 2, segment: 3, cushion: 0 })])).toBe(true);
+  });
+
+  it("liveStarving: not on two segments, a cushion, a produce-bound stall, or a throttled producer", () => {
+    expect(liveStarving([starvedLive({ segment: 1 }), starvedLive({ segment: 2 })])).toBe(false);
+    expect(liveStarving([starvedLive({ segment: 1 }), starvedLive({ segment: 2 }), starvedLive({ segment: 3, cushion: 3 })])).toBe(false);
+    // The device, not the feed: the read was fast and the encode slow.
+    expect(liveStarving([starvedLive({ segment: 1 }), starvedLive({ segment: 2 }), starvedLive({ segment: 3, readSeconds: 1 })])).toBe(false);
+    expect(liveStarving([starvedLive({ segment: 1 }), starvedLive({ segment: 2, throttled: true }), starvedLive({ segment: 3 })])).toBe(false);
+    expect(liveStarving([])).toBe(false);
   });
 });
 

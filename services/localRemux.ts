@@ -79,6 +79,7 @@ export {
   imageSubtitleUrl,
   imagesAt,
   isLocalRemuxAvailable,
+  liveStarving,
   liveSubtitleRenditions,
   localRemuxToken,
   nativeEmits,
