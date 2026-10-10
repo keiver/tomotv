@@ -4,6 +4,7 @@
  * The card itself keeps its recorded clip. Nothing here ever opens a server stream.
  */
 import { engineLog, localRemuxToken, setLiveSessionPriority, setLiveWindow, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@keiver/tomo-engine";
+import { AppState } from "react-native";
 import { liveChannels } from "./config";
 import type { RingSession } from "./liveRing";
 
@@ -71,11 +72,21 @@ async function start(channelId: string, mine: number): Promise<void> {
   }
 }
 
+let memoryWired = false;
+
+/** Under memory pressure the warm session goes; the card keeps its clip. */
+function wireMemoryWarning(): void {
+  if (memoryWired) return;
+  memoryWired = true;
+  AppState.addEventListener("memoryWarning", () => stopLivePreview());
+}
+
 /**
  * The card focused past its dwell names its channel; null when focus leaves the cards. Another channel ends the
  * running session at once (it holds a provider connection); leaving the cards gives the player a moment to adopt it.
  */
 export function showLivePreview(channelId: string | null): void {
+  wireMemoryWarning();
   if (wanted === channelId) return;
   wanted = channelId;
   generation += 1;

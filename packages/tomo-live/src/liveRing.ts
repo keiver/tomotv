@@ -1,4 +1,5 @@
 import { engineLog, localRemuxToken, setLiveSessionPriority, setLiveWindow, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@keiver/tomo-engine";
+import { AppState } from "react-native";
 import { liveChannels } from "./config";
 import { noteOpenFailed, openRecentlyFailed } from "./openFailures";
 
@@ -211,11 +212,21 @@ async function heat(channelId: string): Promise<void> {
   }
 }
 
+let memoryWired = false;
+
+/** Under memory pressure every neighbour goes; the playing session is never touched. */
+function wireMemoryWarning(): void {
+  if (memoryWired) return;
+  memoryWired = true;
+  AppState.addEventListener("memoryWarning", () => coolDown("memory warning"));
+}
+
 /**
  * Move the ring onto `centerId`. The engine neighbours start only while the center plays, so a
  * burst of swipes does not start a session per channel passed.
  */
 export function recenterLiveRing(ring: readonly string[], centerId: string, playing: boolean): void {
+  wireMemoryWarning();
   active = true;
   // A new center is a flip (or the first channel opened); a lane retry keeps the old window.
   if (center !== centerId) armSurfWindow();
