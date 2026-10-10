@@ -65,8 +65,7 @@ interface GuideCanvasProps {
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
 export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudRow, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
-  const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, holdWindow, loadMoreRows } = guide;
-  const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * METRICS.pxPerMinute;
+  const { rows, windowStartMs, windowEndMs, horizonMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, holdWindow, loadMoreRows } = guide;
   const isScreenFocused = useIsFocused();
   const { onAccent } = useCardPalette();
 
@@ -91,6 +90,13 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const columnW = useSharedValue(initialCompact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
   const canvasW = useSharedValue(0);
   const [viewportWidth, setViewportWidth] = useState(0);
+  // A viewport wider than the day's whole span at the base density stretches the grid to fill it.
+  const metrics = useMemo(() => {
+    const dayMinutes = (horizonMs - windowStartMs) / MINUTE_MS;
+    const fill = dayMinutes > 0 ? viewportWidth / dayMinutes : 0;
+    return fill > METRICS.pxPerMinute ? { ...METRICS, pxPerMinute: fill } : METRICS;
+  }, [horizonMs, windowStartMs, viewportWidth]);
+  const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute;
   const handleColumnSettle = useCallback((width: number) => setViewportWidth(canvasW.get() - width + SEAM_REACH), [canvasW]);
   const resize = useColumnResize({
     columnW,
@@ -156,9 +162,9 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   // Asked again as rows land and each minute: a load refused or failed is retried.
   useEffect(() => {
     if (isLoading || viewportWidth <= 0) return;
-    const at = (px: number) => windowStartMs + (px / METRICS.pxPerMinute) * MINUTE_MS;
+    const at = (px: number) => windowStartMs + (px / metrics.pxPerMinute) * MINUTE_MS;
     holdWindow(at((mountPage - 2) * viewportWidth), at((mountPage + 3) * viewportWidth));
-  }, [isLoading, rows, nowMs, mountPage, viewportWidth, windowStartMs, holdWindow]);
+  }, [isLoading, rows, nowMs, mountPage, viewportWidth, windowStartMs, metrics, holdWindow]);
   // Only the list the viewer is moving scrolls the other, so the two never chase each other.
   // A drag picks it on phone; on TV focus picks it, since a focus scroll fires no drag.
   const driver = useSharedValue<"grid" | "column">("grid");
@@ -241,9 +247,9 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const entryProgramId = useMemo(() => {
     const first = rows[0];
     if (!IS_TV || !first) return undefined;
-    const cells = rowCells(first.channel, first.programs, windowStartMs, windowEndMs, METRICS);
+    const cells = rowCells(first.channel, first.programs, windowStartMs, windowEndMs, metrics);
     return (cells.find((program) => isAiring(program, nowMs)) ?? cells[0])?.Id;
-  }, [rows, nowMs, windowStartMs, windowEndMs]);
+  }, [rows, nowMs, windowStartMs, windowEndMs, metrics]);
   useEffect(() => {
     entryProgramIdRef.current = entryProgramId;
     setEntryHandle(entryProgramId ? handlesRef.current.get(entryProgramId) : undefined);
@@ -256,21 +262,21 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const neighbourHandle = useCallback(
     (row: GuideRowData | undefined, edgeMs: number) => {
       if (!row) return undefined;
-      const target = cellAtEdge(rowCells(row.channel, row.programs, windowStartMs, windowEndMs, METRICS), edgeMs);
+      const target = cellAtEdge(rowCells(row.channel, row.programs, windowStartMs, windowEndMs, metrics), edgeMs);
       return target?.Id ? handlesRef.current.get(target.Id) : undefined;
     },
-    [windowStartMs, windowEndMs],
+    [windowStartMs, windowEndMs, metrics],
   );
   const targetsFor = useCallback<FocusTargetsFor>(
     (rowIndex, program) => {
       const { startMs, endMs } = programTimes(program);
-      const left = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, METRICS)?.left ?? 0;
+      const left = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics)?.left ?? 0;
       // get(), never .value: the React Compiler hoists a `.value` read into its render-time
       // memo comparison, which is a shared-value read during render.
-      const edgeMs = windowStartMs + (Math.max(left, scrollX.get()) / METRICS.pxPerMinute) * MINUTE_MS;
+      const edgeMs = windowStartMs + (Math.max(left, scrollX.get()) / metrics.pxPerMinute) * MINUTE_MS;
       return { up: neighbourHandle(rowDataRef.current[rowIndex - 1], edgeMs), down: neighbourHandle(rowDataRef.current[rowIndex + 1], edgeMs) };
     },
-    [windowStartMs, windowEndMs, scrollX, neighbourHandle],
+    [windowStartMs, windowEndMs, metrics, scrollX, neighbourHandle],
   );
   // The row the last focused cell sat in: a focus in that same row came from Left or Right.
   const lastCellRowRef = useRef<string | null>(null);
@@ -291,7 +297,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       // The focusable is the cell's stretch on screen, so a Left move never scrolls back to the cell's start by itself.
       if (lastCellRowRef.current === channel.Id) {
         const { startMs, endMs } = programTimes(program);
-        const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, METRICS);
+        const geometry = cellGeometry(startMs, endMs, windowStartMs, windowEndMs, metrics);
         const target = geometry ? revealOffset(geometry, scrollX.get()) : undefined;
         if (target !== undefined) {
           runOnUI(() => {
@@ -308,7 +314,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       setLiveFrameFocus(channel.Id);
       setFocusedGuideRow(channel.Id);
     },
-    [driver, windowStartMs, windowEndMs, scrollX, gridRef],
+    [driver, windowStartMs, windowEndMs, metrics, scrollX, gridRef],
   );
   // The scrolled grid refuses Left out of a cell with no mounted cell before it, so the press rewinds it and hands focus to the row's card.
   useTVEventHandler(
@@ -319,7 +325,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         if (!focused || !isScreenFocused) return;
         const { program, channelId } = focused;
         const row = rowDataRef.current.find((candidate) => candidate.channel.Id === channelId);
-        const leavesRow = !!row && leftLeavesRow(rowCells(row.channel, row.programs, windowStartMs, windowEndMs, METRICS), program, windowStartMs, windowEndMs, METRICS, mountSpanRef.current);
+        const leavesRow = !!row && leftLeavesRow(rowCells(row.channel, row.programs, windowStartMs, windowEndMs, metrics), program, windowStartMs, windowEndMs, metrics, mountSpanRef.current);
         if (!exitsToCard(event.eventType, leavesRow, scrollX.get())) return;
         const focusCard = () => (cardNodesRef.current.get(channelId) as { requestTVFocus?: () => void } | undefined)?.requestTVFocus?.();
         // Instant, then the card: the focus request lands on a grid already at offset 0.
@@ -329,7 +335,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           runOnJS(focusCard)();
         })();
       },
-      [isScreenFocused, scrollX, gridRef, windowStartMs, windowEndMs],
+      [isScreenFocused, scrollX, gridRef, windowStartMs, windowEndMs, metrics],
     ),
   );
   // While focus sits in the cells region the entry guide points back up at the HUD, so both
@@ -395,7 +401,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         programs={item.programs}
         windowStartMs={windowStartMs}
         windowEndMs={windowEndMs}
-        metrics={METRICS}
+        metrics={metrics}
         spanPx={spanPx}
         nowMs={nowMs}
         timersByProgramId={timersByProgramId}
@@ -417,6 +423,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     [
       windowStartMs,
       windowEndMs,
+      metrics,
       spanPx,
       nowMs,
       timersByProgramId,
@@ -447,7 +454,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const rulerClip = (
     <View style={styles.rulerClip}>
       <RNAnimated.View style={[{ width: spanPx + SEAM_REACH, marginLeft: SEAM_REACH }, rulerShift]}>
-        <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={METRICS} spanPx={spanPx} nowMs={nowMs} mountSpan={mountSpan} />
+        <GuideTimeRuler windowStartMs={windowStartMs} windowEndMs={windowEndMs} metrics={metrics} spanPx={spanPx} nowMs={nowMs} mountSpan={mountSpan} />
       </RNAnimated.View>
     </View>
   );

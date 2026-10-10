@@ -54,6 +54,8 @@ export interface GuideState {
   rows: GuideRow[];
   windowStartMs: number;
   windowEndMs: number;
+  /** The picked day's limit: nothing loads or scrolls past it. */
+  horizonMs: number;
   nowMs: number;
   /** Today and the days after it, with whether each has listings. */
   days: GuideDay[];
@@ -562,6 +564,7 @@ export function useGuide(): GuideState {
     rows,
     windowStartMs,
     windowEndMs,
+    horizonMs: day.horizonMs,
     nowMs,
     days,
     selectedDayMs: day.dayMs,
