@@ -7,15 +7,24 @@ import { test } from "node:test";
 import xcode from "xcode";
 
 function projectFixture(targetName) {
+  // The section comments are load-bearing: the xcode parser only groups objects
+  // under their isa (objects.PBXProject and friends) inside them, and the files
+  // Xcode writes always carry them.
   return `// !$*UTF8*$!
 {
   archiveVersion = 1;
   classes = {};
   objectVersion = 54;
   objects = {
+/* Begin PBXProject section */
     AAAAAAAAAAAAAAAAAAAAAAAA = { isa = PBXProject; mainGroup = BBBBBBBBBBBBBBBBBBBBBBBB; targets = (CCCCCCCCCCCCCCCCCCCCCCCC,); };
+/* End PBXProject section */
+/* Begin PBXGroup section */
     BBBBBBBBBBBBBBBBBBBBBBBB = { isa = PBXGroup; children = (); sourceTree = "<group>"; };
+/* End PBXGroup section */
+/* Begin PBXNativeTarget section */
     CCCCCCCCCCCCCCCCCCCCCCCC = { isa = PBXNativeTarget; name = "${targetName}"; dependencies = (); };
+/* End PBXNativeTarget section */
   };
   rootObject = AAAAAAAAAAAAAAAAAAAAAAAA;
 }
