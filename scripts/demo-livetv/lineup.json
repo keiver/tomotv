@@ -81,6 +81,16 @@
     },
     {
       "number": 8,
+      "id": "utopia",
+      "name": "Utopia",
+      "colour": "#8C3B2E",
+      "port": 9106,
+      "sources": ["Live TV/Elono Colors.mp4"],
+      "category": "Movie",
+      "slots": []
+    },
+    {
+      "number": 9,
       "id": "elephants",
       "name": "Elephants",
       "colour": "#5C6B73",
@@ -90,7 +100,7 @@
       "slots": [30, 90, 30, 60]
     },
     {
-      "number": 9,
+      "number": 10,
       "id": "sintel",
       "name": "Sintel",
       "colour": "#6A3FA0",
@@ -100,7 +110,7 @@
       "slots": [60, 30, 30, 120, 60]
     },
     {
-      "number": 10,
+      "number": 11,
       "id": "classics",
       "name": "Classics",
       "colour": "#4A2B5C",
@@ -116,16 +126,6 @@
       ],
       "category": "Movie",
       "slots": [30]
-    },
-    {
-      "number": 11,
-      "id": "utopia",
-      "name": "Utopia",
-      "colour": "#8C3B2E",
-      "port": 9106,
-      "sources": ["Films/Utopia (1951)/Utopia (1951).mp4"],
-      "category": "Movie",
-      "slots": []
     }
   ]
 }
