@@ -1519,12 +1519,14 @@ extension RemuxSession {
         // A live TS answers neither field_order nor extradata at the probe, so an
         // interlaced H.264 copy would reach AVPlayer woven. Read to the opening
         // keyframe first: its SPS picks the lane, and the keyframe replays below.
-        var liftedKeyframe: UnsafeMutablePointer<AVPacket>? = nil
+        // The defer frees the clone on every exit that never replayed it.
+        var queuedPacket: UnsafeMutablePointer<AVPacket>? = nil
+        defer { if queuedPacket != nil { av_packet_free(&queuedPacket) } }
         if config.isLive, hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
            videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264,
            videoStream.pointee.codecpar.pointee.extradata_size == 0,
            videoStream.pointee.codecpar.pointee.field_order == AV_FIELD_UNKNOWN {
-            liftedKeyframe = readToOpeningParameterSets(videoStream: videoStream)
+            queuedPacket = readToOpeningParameterSets(videoStream: videoStream)
         }
 
         // Video AVPlayer cannot decode is re-encoded to H.264 through
@@ -1646,12 +1648,18 @@ extension RemuxSession {
         // extract_extradata bsf), and movenc reads codecpar once, when the muxer is built.
         // The parameter sets ride a keyframe: read up to the first that carries them, lift them
         // onto the input stream, and replay that keyframe as the loop's first packet.
-        var queuedPacket: UnsafeMutablePointer<AVPacket>? = liftedKeyframe
         if hasVideo, queuedPacket == nil, let videoStream = input.pointee.streams[Int(videoIn)],
            videoStream.pointee.codecpar.pointee.extradata_size == 0,
            videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264 || videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC,
            builtRenditions.contains(where: { $0.videoTranscoder == nil && $0.inputStreams.contains(videoIn) }) {
             queuedPacket = readToOpeningParameterSets(videoStream: videoStream)
+            // The early scan can end on a read error before any SPS arrived, leaving the lane
+            // decided blind. A copy the late lift now proves interlaced must not ship woven:
+            // fail the session, and the recovery reopen decides again with the SPS in hand.
+            if config.isLive, let par = videoStream.pointee.codecpar, par.pointee.codec_id == AV_CODEC_ID_H264,
+               H264ParameterSets.codedInterlaced(par) == true {
+                return failStartup("interlaced H.264 surfaced after a blind lane pick; reopening to transcode")
+            }
         }
 
         stateLock.lock()

@@ -115,7 +115,9 @@ enum H264ParameterSets {
         var lastScale = 8
         var nextScale = 8
         for _ in 0..<size {
-            if nextScale != 0 { nextScale = (lastScale + r.se() + 256) % 256 }
+            // Swift's % keeps the sign; a malformed delta below -256 must still land in 0...255
+            // or the walk drifts and frame_mbs_only_flag reads from the wrong bit.
+            if nextScale != 0 { nextScale = (((lastScale + r.se() + 256) % 256) + 256) % 256 }
             if nextScale != 0 { lastScale = nextScale }
         }
     }

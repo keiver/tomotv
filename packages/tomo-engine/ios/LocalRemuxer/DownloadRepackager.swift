@@ -65,16 +65,22 @@ final class DownloadRepackager {
         if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
         try fm.moveItem(at: first, to: destination)
         guard parts.count > 1 else { return }
-        let out = try FileHandle(forWritingTo: destination)
-        defer { try? out.close() }
-        try out.seekToEnd()
-        for part in parts.dropFirst() {
-            let input = try FileHandle(forReadingFrom: part)
-            defer { try? input.close() }
-            while let chunk = try input.read(upToCount: 8 << 20), !chunk.isEmpty {
-                try out.write(contentsOf: chunk)
+        do {
+            let out = try FileHandle(forWritingTo: destination)
+            defer { try? out.close() }
+            try out.seekToEnd()
+            for part in parts.dropFirst() {
+                let input = try FileHandle(forReadingFrom: part)
+                defer { try? input.close() }
+                while let chunk = try input.read(upToCount: 8 << 20), !chunk.isEmpty {
+                    try out.write(contentsOf: chunk)
+                }
+                try fm.removeItem(at: part)
             }
-            try fm.removeItem(at: part)
+        } catch {
+            // A half-joined file must not survive to be read as the download.
+            try? fm.removeItem(at: destination)
+            throw error
         }
     }
 

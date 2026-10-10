@@ -4,7 +4,7 @@
  * savable/cancel). Part files land beside the destination and the engine joins
  * them; anything that cannot run parted answers a plain DownloadTask instead.
  */
-import { mergeDownloadParts } from "@keiver/tomo-engine";
+import { canMergeParts, mergeDownloadParts } from "@keiver/tomo-engine";
 import { File, DownloadTask, type DownloadPauseState, type DownloadTaskOptions } from "expo-file-system";
 
 import { aggregateProgress, MIN_PART_BYTES, PART_CONCURRENCY, partRangeHeader, partSize, planParts, type DownloadPart } from "./partPlan";
@@ -31,6 +31,8 @@ export interface PartedDeps {
   createTask: (url: string, destination: File, options: DownloadTaskOptions) => DownloadTask;
   fromSavable: (state: DownloadPauseState, options: DownloadTaskOptions) => DownloadTask;
   merge: (request: { parts: string[]; outputPath: string }) => Promise<void>;
+  /** Whether the native binary carries the merge; an older build keeps the single task. */
+  canMerge: () => boolean;
   probe: typeof fetch;
 }
 
@@ -38,6 +40,7 @@ const defaultDeps: PartedDeps = {
   createTask: (url, destination, options) => File.createDownloadTask(url, destination, options),
   fromSavable: (state, options) => DownloadTask.fromSavable(state, options),
   merge: mergeDownloadParts,
+  canMerge: canMergeParts,
   probe: fetch,
 };
 
@@ -62,7 +65,7 @@ async function rangedSize(url: string, headers: Record<string, string> | undefin
  * splitting, the plain task otherwise.
  */
 export async function createDownload(url: string, destination: File, options: DownloadTaskOptions, allowParts: boolean, deps: PartedDeps = defaultDeps): Promise<AnyDownload> {
-  if (allowParts) {
+  if (allowParts && deps.canMerge()) {
     const total = await rangedSize(url, options.headers, deps.probe);
     if (total !== null && total >= 2 * MIN_PART_BYTES) {
       const plan = planParts(total);

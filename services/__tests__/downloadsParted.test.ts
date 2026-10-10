@@ -1,5 +1,5 @@
 jest.mock("expo-file-system", () => require("./fakeFileSystem"));
-jest.mock("@keiver/tomo-engine", () => ({ mergeDownloadParts: jest.fn() }));
+jest.mock("@keiver/tomo-engine", () => ({ mergeDownloadParts: jest.fn(), canMergeParts: jest.fn(() => true) }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
 import { File } from "./fakeFileSystem";
@@ -34,14 +34,15 @@ function probeAnswering(status: number, total = TOTAL): typeof fetch {
   })) as unknown as typeof fetch;
 }
 
-function deps(overrides: Partial<PartedDeps>): PartedDeps {
-  return {
+function deps(overrides: Partial<Record<keyof PartedDeps, unknown>>): PartedDeps {
+  const base = {
     createTask: jest.fn(() => finishedTask({})),
     fromSavable: jest.fn(() => finishedTask({})),
     merge: jest.fn(async () => {}),
+    canMerge: jest.fn(() => true),
     probe: probeAnswering(206),
-    ...overrides,
-  } as PartedDeps;
+  };
+  return { ...base, ...overrides } as unknown as PartedDeps;
 }
 
 const destination = () => new File("file:///doc/item/media.mkv");
@@ -54,6 +55,12 @@ describe("createDownload", () => {
     const task = await createDownload("http://s/file", destination() as never, options(), true, d);
     expect(task).toBe(plain);
     expect(d.createTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays plain when the native binary lacks the merge", async () => {
+    const d = deps({ canMerge: jest.fn(() => false) });
+    expect(await createDownload("http://s/f", destination() as never, options(), true, d)).not.toBeInstanceOf(PartedDownload);
+    expect(d.probe).not.toHaveBeenCalled();
   });
 
   it("stays plain below two minimum parts, and for conversions", async () => {
