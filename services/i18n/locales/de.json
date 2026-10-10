@@ -443,7 +443,7 @@
   "search.emptyHint": "Nach Titel, Genre, Interpret oder Jahr suchen…",
   "search.unableBody": "Suche nicht möglich. Bitte prüfe deine Verbindung.",
   "search.noResultsFor": "Keine Ergebnisse für",
-  "search.noLiveTvMatches": "Keine Live-TV-Treffer",
+  "search.gatheringLive": "Fernsehprogramm wird durchsucht…",
   "search.libraryHeading": "Bibliothek",
   "search.demoFailedTitle": "Verbindung zum Demoserver nicht möglich",
   "settings.quality.auto": "Automatisch",

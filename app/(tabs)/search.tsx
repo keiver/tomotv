@@ -1,12 +1,11 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
+import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LoadingRow } from "@/components/loading-row";
 import { localeScreen } from "@/components/locale-boundary";
 import { SearchLoadingBar } from "@/components/search-loading-bar";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
-import { LiveTvSearchShelf } from "@/components/live-tv/live-tv-search-shelf";
-import { ShelfHeading } from "@/components/media-shelf";
 import { SearchResultsGrid, type SearchResultsGridHandle } from "@/components/search-results-grid";
 import { IS_PAD, settingsStyles } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
@@ -26,8 +25,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { isNativeSearchAvailable, TvosSearchView } from "expo-tvos-search";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getLiveTvAvailability, subscribeLiveTvAvailability } from "@/services/liveTvAvailability";
-import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, findNodeHandle, Platform, StyleSheet, Text, TextInput, TVEventControl, View } from "react-native";
 import { t } from "@/services/i18n";
 import { takeSearchFocusRequest } from "@/services/searchFocus";
@@ -121,21 +119,15 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
       Alert.alert(t("search.error"), message);
     }
   }, []);
-  const {
-    query,
-    results: searchResults,
-    liveResults,
-    setLiveResults,
-    isSearching,
-    isLiveSearching,
-    isLoadingMore,
-    search,
-    loadMore,
-  } = useServerSearch({ waitOnEveryChange: true, onResults: handleSearchResults, onError: handleSearchError });
+  const { query, items, offerLiveResults, isSearching, isLiveSearching, isLoadingMore, search, loadMore } = useServerSearch({
+    waitOnEveryChange: true,
+    onResults: handleSearchResults,
+    onError: handleSearchError,
+  });
   // React sizes the child against the whole native view; the results region is smaller. The view
   // measures it and reports it, so the grid packs against the box it is actually drawn in.
   const [region, setRegion] = useState<{ width: number; height: number } | null>(null);
-  useLiveTvSearchRefresh(query, (_term, items) => setLiveResults(items));
+  useLiveTvSearchRefresh(query, (_term, found) => offerLiveResults(found));
 
   // Doubles as the readiness edge: SwiftUI lays this region out only once NavigationView + .searchable
   // are up, so the first fire is the search bar on screen. RN's wrapper onLayout fires a commit earlier.
@@ -186,34 +178,38 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
   );
 
   return (
-    // The native view keeps the search field and its on-screen keyboard; the results region is
-    // this child, so search results are the same cards the Library tab draws.
-    <TvosSearchView
-      results={[]}
-      placeholder={t("search.onServer")}
-      topInset={140}
-      colorScheme="dark"
-      textColor={searchTextColor}
-      accentColor={searchTextColor}
-      onSearch={handleSearch}
-      onSelectItem={NOOP_SELECT}
-      onSearchFieldFocused={handleSearchFieldFocused}
-      onSearchFieldBlurred={handleSearchFieldBlurred}
-      onContentLayout={handleContentLayout}
-      style={styles.nativeSearchView}>
-      <NativeSearchResults
-        query={query}
-        results={searchResults}
-        liveResults={liveResults}
-        isSearching={isSearching}
-        isLiveSearching={isLiveSearching}
-        isLoadingMore={isLoadingMore}
-        region={region}
-        onItemPress={openItem}
-        onItemLongPress={openInfoPanel}
-        onEndReached={loadMore}
-      />
-    </TvosSearchView>
+    <>
+      {/* The native view keeps the search field and its on-screen keyboard; the results region is
+          its child, so search results are the same cards the Library tab draws. */}
+      <TvosSearchView
+        results={[]}
+        placeholder={t("search.onServer")}
+        topInset={140}
+        colorScheme="dark"
+        textColor={searchTextColor}
+        accentColor={searchTextColor}
+        onSearch={handleSearch}
+        onSelectItem={NOOP_SELECT}
+        onSearchFieldFocused={handleSearchFieldFocused}
+        onSearchFieldBlurred={handleSearchFieldBlurred}
+        onContentLayout={handleContentLayout}
+        style={styles.nativeSearchView}>
+        <NativeSearchResults
+          query={query}
+          items={items}
+          isSearching={isSearching}
+          isLoadingMore={isLoadingMore}
+          region={region}
+          onItemPress={openItem}
+          onItemLongPress={openInfoPanel}
+          onEndReached={loadMore}
+        />
+      </TvosSearchView>
+      {/* Bottom loading bar, hosted exactly as library-grid hosts it: last child of the
+          screen-level container, mounted for the whole lifetime so the complete-then-fade
+          handoff plays over the arriving cards. */}
+      <FolderLoadingBar active={isSearching || isLiveSearching} title={isSearching ? query.trim() : t("search.gatheringLive")} />
+    </>
   );
 }
 
@@ -223,10 +219,8 @@ function NativeSearchScreen({ onReady, initialQuery }: { onReady: () => void; in
  */
 function NativeSearchResults({
   query,
-  results,
-  liveResults,
+  items,
   isSearching,
-  isLiveSearching,
   isLoadingMore,
   region,
   onItemPress,
@@ -234,43 +228,28 @@ function NativeSearchResults({
   onEndReached,
 }: {
   query: string;
-  results: JellyfinVideoItem[];
-  liveResults: JellyfinVideoItem[];
+  items: JellyfinVideoItem[];
   isSearching: boolean;
-  isLiveSearching: boolean;
   isLoadingMore: boolean;
   region: { width: number; height: number } | null;
   onItemPress: (item: JellyfinVideoItem) => void;
   onItemLongPress: (item: JellyfinVideoItem) => void;
   onEndReached: () => void;
 }) {
-  // On a server with Live TV the shelf row is reserved from the first paint: it mounts with the
-  // grid at a fixed height and only its contents change, so nothing ever inserts above row 0.
-  const hasLiveTv = useSyncExternalStore(subscribeLiveTvAvailability, getLiveTvAvailability);
-  const showLiveRow = hasLiveTv || liveResults.length > 0;
   // Until the region is measured, flex fills whatever React thinks the box is. That lands on the
   // first layout pass, while the results are still empty.
   const body =
-    results.length > 0 || liveResults.length > 0 ? (
+    items.length > 0 ? (
       // No initial focus claim: the search keyboard above owns focus until the viewer arrows down.
       // The region is already inside the tvOS safe area, so the grid adds no edge padding of its
       // own and packs against the full width, matching the Library tab's card size.
       <SearchResultsGrid
-        items={results}
+        items={items}
         onItemPress={onItemPress}
         onItemLongPress={onItemLongPress}
         availableWidth={region?.width}
         edgePadding={region ? 0 : undefined}
         onEndReached={onEndReached}
-        // With two sections on screen, each wears its heading; a lone grid stays unlabelled.
-        ListHeaderComponent={
-          showLiveRow ? (
-            <>
-              <LiveTvSearchShelf items={liveResults} pending={isLiveSearching} />
-              {results.length > 0 && <ShelfHeading title={t("search.libraryHeading")} />}
-            </>
-          ) : null
-        }
         ListFooterComponent={
           isLoadingMore ? (
             <View style={styles.footerLoading}>
@@ -344,9 +323,8 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const {
     query: searchQuery,
     activeQuery,
-    results: searchResults,
-    liveResults,
-    setLiveResults,
+    items,
+    offerLiveResults,
     isSearching,
     isLiveSearching,
     isLoadingMore,
@@ -364,7 +342,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
 
   const handleVideoPress = useOpenShelfItem();
   const handleVideoLongPress = useItemLongPress();
-  useLiveTvSearchRefresh(activeQuery, (_term, items) => setLiveResults(items));
+  useLiveTvSearchRefresh(activeQuery, (_term, found) => offerLiveResults(found));
 
   const focusFirstResult = useCallback(() => gridRef.current?.focusFirstCard(), []);
 
@@ -411,11 +389,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   }, [initialQuery, search]);
 
   const hasSearchQuery = searchQuery.trim().length >= 2;
-  const shouldShowResults = hasSearchQuery && (searchResults.length > 0 || liveResults.length > 0);
-  // On a server with Live TV the shelf row is reserved from the first paint: it mounts with the
-  // grid at a fixed height and only its contents change, so nothing ever inserts above row 0.
-  const hasLiveTv = useSyncExternalStore(subscribeLiveTvAvailability, getLiveTvAvailability);
-  const showLiveRow = hasLiveTv || liveResults.length > 0;
+  const shouldShowResults = hasSearchQuery && items.length > 0;
 
   const [searchInputHandle, setSearchInputHandle] = useState<number | undefined>(undefined);
 
@@ -527,10 +501,10 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
         onSubmitEditing={handleSubmitEditing}
         inputRef={searchInputCallbackRef}
         nextFocusDown={firstResultHandle}
-        isSearching={isSearching}
+        isSearching={isSearching || isLiveSearching}
       />
     ),
-    [initialQuery, search, handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching],
+    [initialQuery, search, handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching, isLiveSearching],
   );
 
   return (
@@ -541,22 +515,13 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
       {shouldShowResults ? (
         <SearchResultsGrid
           ref={gridRef}
-          items={searchResults}
+          items={items}
           onItemPress={handleVideoPress}
           onItemLongPress={handleVideoLongPress}
           nextFocusUpHandle={searchInputHandle}
           claimInitialFocus
           onFirstCardHandleChange={setFirstResultHandle}
           onEndReached={handleLoadMore}
-          // With two sections on screen, each wears its heading; a lone grid stays unlabelled.
-          ListHeaderComponent={
-            showLiveRow ? (
-              <>
-                <LiveTvSearchShelf items={liveResults} pending={isLiveSearching} />
-                {searchResults.length > 0 && <ShelfHeading title={t("search.libraryHeading")} />}
-              </>
-            ) : null
-          }
           ListFooterComponent={renderFooter}
         />
       ) : (

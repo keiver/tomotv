@@ -3,7 +3,7 @@ import type { SearchCursor } from "@/services/jellyfin/search";
 import { searchLiveTv, searchVideos, warmLiveTvSearch } from "@/services/jellyfinApi";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PAGE_SIZE = 60;
 const TYPING_DELAY_MS = 300;
@@ -16,6 +16,8 @@ export function appendUnique(shown: JellyfinVideoItem[], page: JellyfinVideoItem
   return fresh.length > 0 ? [...shown, ...fresh] : shown;
 }
 
+const idsOf = (items: readonly JellyfinVideoItem[]) => items.map((item) => item.Id).join("|");
+
 interface ServerSearchOptions {
   initialQuery?: string;
   /** The tvOS field's way: every change, a removal's reload included, waits out the typing delay
@@ -26,8 +28,12 @@ interface ServerSearchOptions {
 }
 
 /**
- * The server search both Search screens draw: every query change retires the pages in flight for
- * older terms, and each next page starts where each source left off.
+ * The server search both Search screens draw: ONE grid, live cards ranked first. Each debounced
+ * term paints one commit holding the library page and every live tier answered by then (the name
+ * tier gates the paint at library speed). While the live request is still out, `isLiveSearching`
+ * drives the visible progress bar; a partial that only completes shown cards fills them in place,
+ * and the moment the request finishes its complete set applies and the bar drops. Deterministic:
+ * request completion is the only trigger, never a gesture or focus position.
  */
 export function useServerSearch({ initialQuery, waitOnEveryChange = false, onResults, onError }: ServerSearchOptions = {}) {
   const [query, setQuery] = useState(initialQuery ?? "");
@@ -35,7 +41,7 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
   const [results, setResults] = useState<JellyfinVideoItem[]>([]);
   const [liveResults, setLiveResults] = useState<JellyfinVideoItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  // True while a slower live tier (airing, guide sources, card details) is still due for the term on screen.
+  // True while the current term's live facet is still gathering (slow tiers, card details).
   const [isLiveSearching, setIsLiveSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +50,10 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
   const seqRef = useRef(0);
   // Cards shown so far, for the live facet's late onResults report.
   const resultCountRef = useRef(0);
+  // The term's grid painted: later live changes buffer instead of moving it.
+  const livePaintedRef = useRef(false);
+  const liveLatestRef = useRef<JellyfinVideoItem[]>([]);
+  const liveShownRef = useRef<JellyfinVideoItem[]>([]);
   const delayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryRef = useRef(initialQuery ?? "");
   const callbacksRef = useRef({ onResults, onError });
@@ -57,64 +67,102 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
     void warmLiveTvSearch();
   }, []);
 
-  const run = useCallback(async (term: string, cursor: SearchCursor | null) => {
-    const append = cursor !== null;
-    const seq = append ? seqRef.current : ++seqRef.current;
-    if (append) {
-      setIsLoadingMore(true);
-    } else {
-      setIsSearching(true);
-      setIsLoadingMore(false);
-      setError(null);
-      setNext(null);
-    }
-    try {
-      if (append) {
-        const page = await searchVideos(term, { limit: PAGE_SIZE, cursor });
-        if (seq !== seqRef.current) return;
-        resultCountRef.current += page.items.length;
-        setResults((shown) => appendUnique(shown, page.items));
-        setNext(page.next);
+  const showLive = useCallback((items: JellyfinVideoItem[]) => {
+    liveShownRef.current = items;
+    setLiveResults(items);
+  }, []);
+
+  /** A partial for the CURRENT term: rides the next paint, or fills shown cards in place. A
+   *  partial with new cards is held; the finished request applies the complete set. */
+  const landLivePartial = useCallback(
+    (seq: number, items: JellyfinVideoItem[]) => {
+      if (seq !== seqRef.current) return;
+      if (!livePaintedRef.current) {
+        liveLatestRef.current = items;
         return;
       }
-      // The live facet never gates the library paint: its tiers land through the partial callback,
-      // merged in order, and the reserved shelf row (LiveTvSearchShelf) keeps the layout fixed so
-      // late cards fill a frame that never moves. The previous term's cards stay up until replaced.
-      setIsLiveSearching(true);
-      void searchLiveTv(term, (partial) => {
-        if (seq === seqRef.current) setLiveResults(partial);
-      })
-        .then((live) => {
+      // Same cards, completed (channel names, artwork): an in-place fill moves no layout.
+      if (idsOf(items) === idsOf(liveShownRef.current)) showLive(items);
+    },
+    [showLive],
+  );
+
+  /** A finished external refresh (the programme index landing) applies like any finished request. */
+  const offerLiveResults = useCallback((items: JellyfinVideoItem[]) => showLive(items), [showLive]);
+
+  const run = useCallback(
+    async (term: string, cursor: SearchCursor | null) => {
+      const append = cursor !== null;
+      const seq = append ? seqRef.current : ++seqRef.current;
+      if (append) {
+        setIsLoadingMore(true);
+      } else {
+        setIsSearching(true);
+        setIsLoadingMore(false);
+        setError(null);
+        setNext(null);
+      }
+      try {
+        if (append) {
+          const page = await searchVideos(term, { limit: PAGE_SIZE, cursor });
           if (seq !== seqRef.current) return;
-          setLiveResults(live);
-          setIsLiveSearching(false);
-          callbacksRef.current.onResults?.(term, resultCountRef.current, live.length);
+          resultCountRef.current += page.items.length;
+          setResults((shown) => appendUnique(shown, page.items));
+          setNext(page.next);
+          return;
+        }
+        // The paint waits for the library page AND the live facet's first answer (its name tier,
+        // an /Items read at library speed), so live cards lead the grid from the first commit.
+        // The slower tiers go through landLivePartial and never move the grid on their own.
+        livePaintedRef.current = false;
+        liveLatestRef.current = [];
+        setIsLiveSearching(true);
+        let settleFirstLive!: () => void;
+        const firstLive = new Promise<void>((resolve) => (settleFirstLive = resolve));
+        void searchLiveTv(term, (partial) => {
+          landLivePartial(seq, partial);
+          settleFirstLive();
         })
-        .catch(() => {
-          if (seq === seqRef.current) setIsLiveSearching(false);
-        });
-      const page = await searchVideos(term, { limit: PAGE_SIZE });
-      if (seq !== seqRef.current) return;
-      resultCountRef.current = page.items.length;
-      setResults(page.items);
-      setNext(page.next);
-      setActiveQuery(term);
-    } catch (err) {
-      if (seq !== seqRef.current) return;
-      setError(getLoadErrorMessage(err));
-      // liveResults stay: the live facet answered for this same term, and wiping it would
-      // visibly pull the shelf because the library request failed.
-      if (!append) {
-        setResults([]);
-        callbacksRef.current.onError?.(err, term);
+          .then((live) => {
+            settleFirstLive();
+            if (seq !== seqRef.current) return;
+            // The finished request is the one trigger that applies new live cards after the paint.
+            if (livePaintedRef.current) showLive(live);
+            else liveLatestRef.current = live;
+            setIsLiveSearching(false);
+            callbacksRef.current.onResults?.(term, resultCountRef.current, live.length);
+          })
+          .catch(() => {
+            settleFirstLive();
+            if (seq === seqRef.current) setIsLiveSearching(false);
+          });
+        const [page] = await Promise.all([searchVideos(term, { limit: PAGE_SIZE }), firstLive]);
+        if (seq !== seqRef.current) return;
+        livePaintedRef.current = true;
+        showLive(liveLatestRef.current);
+        resultCountRef.current = page.items.length;
+        setResults(page.items);
+        setNext(page.next);
+        setActiveQuery(term);
+      } catch (err) {
+        if (seq !== seqRef.current) return;
+        setError(getLoadErrorMessage(err));
+        if (!append) {
+          // The live cards that answered still paint: a failed library keeps the live facet.
+          livePaintedRef.current = true;
+          showLive(liveLatestRef.current);
+          setResults([]);
+          callbacksRef.current.onError?.(err, term);
+        }
+      } finally {
+        if (seq === seqRef.current) {
+          if (append) setIsLoadingMore(false);
+          else setIsSearching(false);
+        }
       }
-    } finally {
-      if (seq === seqRef.current) {
-        if (append) setIsLoadingMore(false);
-        else setIsSearching(false);
-      }
-    }
-  }, []);
+    },
+    [landLivePartial, showLive],
+  );
 
   const search = useCallback(
     (text: string) => {
@@ -125,7 +173,9 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
       const trimmed = text.trim();
       if (trimmed.length < MIN_QUERY) {
         setResults([]);
-        setLiveResults([]);
+        showLive([]);
+        liveLatestRef.current = [];
+        livePaintedRef.current = false;
         setError(null);
         setNext(null);
         setIsSearching(false);
@@ -136,7 +186,7 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
       if (waitOnEveryChange) setIsSearching(true);
       delayRef.current = setTimeout(() => void run(trimmed, null), TYPING_DELAY_MS);
     },
-    [run, waitOnEveryChange],
+    [run, waitOnEveryChange, showLive],
   );
 
   const retry = useCallback(() => {
@@ -154,7 +204,10 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
     () =>
       subscribeItemRemoved((itemId) => {
         setResults((items) => items.filter((item) => item.Id !== itemId));
-        setLiveResults((items) => items.filter((item) => item.Id !== itemId));
+        const drop = (items: JellyfinVideoItem[]) => items.filter((item) => item.Id !== itemId);
+        liveLatestRef.current = drop(liveLatestRef.current);
+        liveShownRef.current = drop(liveShownRef.current);
+        setLiveResults((items) => drop(items));
         // Deletion shifts server offsets. Reload page zero so the next page cannot skip an item,
         // and the response of a page already in flight cannot bring the deleted card back.
         setIsLoadingMore(false);
@@ -179,5 +232,28 @@ export function useServerSearch({ initialQuery, waitOnEveryChange = false, onRes
     [],
   );
 
-  return { query, activeQuery, results, liveResults, setLiveResults, isSearching, isLiveSearching, isLoadingMore, hasMore: next !== null, error, search, retry, loadMore, clearError };
+  // The one grid: live cards lead, the library follows, never repeating a live card.
+  const items = useMemo(() => {
+    if (liveResults.length === 0) return results;
+    const liveIds = new Set(liveResults.map((item) => item.Id));
+    return [...liveResults, ...results.filter((item) => !liveIds.has(item.Id))];
+  }, [liveResults, results]);
+
+  return {
+    query,
+    activeQuery,
+    items,
+    results,
+    liveResults,
+    offerLiveResults,
+    isSearching,
+    isLiveSearching,
+    isLoadingMore,
+    hasMore: next !== null,
+    error,
+    search,
+    retry,
+    loadMore,
+    clearError,
+  };
 }

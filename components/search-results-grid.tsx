@@ -9,6 +9,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // The card components' own outer padding, which the packer needs to size rows.
 const CARD_PADDING = slotCardPadding(Platform.isTV);
+// Extra room inside the list so the focused card's glow isn't clipped at the FlatList bounds
+// (a UIScrollView clips to bounds); negative margins cancel it so the layout doesn't move.
+const GLOW_PAD = Platform.isTV ? 24 : 12;
 
 /**
  * findNodeHandle is deprecated under Fabric, but react-native-tvos still has no replacement for
@@ -35,8 +38,6 @@ interface SearchResultsGridProps {
   onFirstCardHandleChange?: (handle: number | undefined) => void;
   onEndReached?: () => void;
   ListFooterComponent?: React.ComponentType<unknown> | React.ReactElement | null;
-  /** Above the rows: the Live TV matches. */
-  ListHeaderComponent?: React.ReactElement | null;
   /**
    * Width the rows are packed against. Defaults to the window minus its edge padding; the native
    * search view passes the results region it measured, which is already inset.
@@ -54,7 +55,7 @@ interface SearchResultsGridProps {
  * exactly fill the width. The list virtualizes ROWS, so its index space is rows.
  */
 export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, SearchResultsGridProps>(function SearchResultsGrid(
-  { items, onItemPress, onItemLongPress, nextFocusUpHandle, claimInitialFocus = false, onFirstCardHandleChange, onEndReached, ListFooterComponent, ListHeaderComponent, availableWidth, edgePadding },
+  { items, onItemPress, onItemLongPress, nextFocusUpHandle, claimInitialFocus = false, onFirstCardHandleChange, onEndReached, ListFooterComponent, availableWidth, edgePadding },
   ref,
 ) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -165,11 +166,11 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
       data={packedRows}
       renderItem={renderRow}
       keyExtractor={(row) => row.cards[0].item.Id}
-      contentContainerStyle={[styles.gridContent, { paddingLeft: edgeLeft, paddingRight: edgeRight }]}
-      // Live results land after the viewer has scrolled and mount a header above row 0; without
-      // the anchor the rows shift under the focused card and tvOS drags focus back row by row.
-      // At the top the anchor would instead hide the new shelf above the viewport, so a viewer
-      // who has not scrolled past the first row gets scrolled up to it.
+      style={styles.list}
+      contentContainerStyle={[styles.gridContent, { paddingLeft: edgeLeft + GLOW_PAD, paddingRight: edgeRight + GLOW_PAD }]}
+      // A merge the viewer asked for (pill, keyboard flush) can land while they sit mid-list;
+      // the anchor keeps the rows still under the card in hand, and near the top it scrolls up
+      // so the merged live cards are seen.
       maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
       showsVerticalScrollIndicator={false}
       // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
@@ -179,14 +180,18 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
       removeClippedSubviews={!Platform.isTV}
       onEndReached={onEndReached}
       onEndReachedThreshold={0.5}
-      ListHeaderComponent={ListHeaderComponent}
       ListFooterComponent={ListFooterComponent}
     />
   );
 });
 
 const styles = StyleSheet.create({
+  list: {
+    marginHorizontal: -GLOW_PAD,
+    marginTop: -GLOW_PAD,
+  },
   gridContent: {
+    paddingTop: GLOW_PAD,
     paddingBottom: Platform.isTV ? 120 : 100,
   },
   rowWrapper: {

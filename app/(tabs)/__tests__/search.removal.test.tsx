@@ -37,8 +37,6 @@ jest.mock("@/components/settings/styles", () => ({ IS_PAD: false, settingsStyles
 jest.mock("@/components/sunken-text-input", () => ({
   SunkenTextInput: require("react").forwardRef((props: object, ref: unknown) => require("react").createElement("SearchInput", { ...props, ref })),
 }));
-jest.mock("@/components/live-tv/live-tv-search-shelf", () => ({ LiveTvSearchShelf: () => null }));
-jest.mock("@/components/media-shelf", () => ({ ShelfHeading: () => null }));
 jest.mock("@/components/search-results-grid", () => ({
   SearchResultsGrid: require("react").forwardRef((props: object, ref: unknown) => require("react").createElement("ResultsGrid", { ...props, ref })),
 }));
