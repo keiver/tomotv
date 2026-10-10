@@ -28,8 +28,8 @@ export async function validateCaptures(root, config, devices = Object.keys(confi
         }
         if (device === "mac") {
           const meta = await sharp(file).metadata();
-          if (!meta.width || !meta.height || Math.abs(meta.width / meta.height - 1.6) / 1.6 > 0.01) {
-            problems.add(`${path.relative(root, file)}: Mac captures must be landscape 16:10 (for example 2880x1800)`);
+          if (!meta.width || !meta.height || meta.width <= meta.height) {
+            problems.add(`${path.relative(root, file)}: Mac captures must be landscape`);
           }
         }
       }

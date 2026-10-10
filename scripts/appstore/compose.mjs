@@ -74,7 +74,6 @@ export const DEVICES = {
 export async function wrongOrientation(file, deviceKey) {
   const [cw, ch] = DEVICES[deviceKey].canvas;
   const meta = await sharp(file).metadata();
-  if (deviceKey === "mac" && Math.abs(meta.width / meta.height - cw / ch) / (cw / ch) > 0.01) return `${meta.width}x${meta.height}; Mac captures must be landscape 16:10`;
   const landscape = meta.width > meta.height;
   if (landscape === cw > ch) return null;
   return `${meta.width}x${meta.height} is ${landscape ? "landscape" : "portrait"}; ${deviceKey} takes ${cw > ch ? "landscape" : "portrait"} only`;
@@ -165,7 +164,7 @@ export function setMetrics(device, shots) {
  * then centred in what is left. A cut-off device reads as a mistake, and on the
  * player shot it cropped the transport controls out of the frame.
  */
-function panelRect(device, top, reserved = 0) {
+function panelRect(device, top, reserved = 0, captureRatio) {
   const [W, H] = device.canvas;
   const t = device.tune;
   if (device.bleed) return { shell: null, screen: { x: 0, y: 0, width: W, height: H, radius: 0 } };
@@ -176,8 +175,10 @@ function panelRect(device, top, reserved = 0) {
   };
 
   if (!device.frame) {
-    const { width, y } = place(H / W);
-    return { shell: null, screen: { x: (W - width) / 2, y, width, height: width * (H / W), radius: device.windowed ? 0 : W * PANEL_RADIUS } };
+    // A windowed slot takes the capture's own ratio: the free-form window is never cropped.
+    const ratio = (device.windowed && captureRatio) || H / W;
+    const { width, y } = place(ratio);
+    return { shell: null, screen: { x: (W - width) / 2, y, width, height: width * ratio, radius: device.windowed ? 0 : W * PANEL_RADIUS } };
   }
   const [, , vw, vh] = FRAMES[device.frame].viewBox;
   const { width, y } = place(vh / vw);
@@ -185,7 +186,7 @@ function panelRect(device, top, reserved = 0) {
   return { shell: placed, screen: placed.screen };
 }
 
-function layout(device, shot, shared) {
+function layout(device, shot, shared, captureRatio) {
   const [W, H] = device.canvas;
   const t = device.tune;
   const margin = W * t.margin;
@@ -197,7 +198,7 @@ function layout(device, shot, shared) {
   // Shorter blocks centre inside the shared height rather than moving the panel.
   const headY = m.headTop + Math.max(0, m.headHeight - measured) / 2;
 
-  const { shell, screen } = panelRect(device, m.panelTop, m.barHeight);
+  const { shell, screen } = panelRect(device, m.panelTop, m.barHeight, captureRatio);
 
   return {
     W,
@@ -355,7 +356,8 @@ function overlay(L) {
 
 /** Alpha is rejected by App Store Connect, so the result is flattened to 3 channels. */
 export async function compose(device, shot, capturePath, outPath, shared, background) {
-  const L = layout(device, shot, shared);
+  const meta = device.windowed ? await sharp(capturePath).metadata() : null;
+  const L = layout(device, shot, shared, meta ? meta.height / meta.width : undefined);
   const key = JSON.stringify([device.frame, L.W, L.H, L.screen, L.shell?.transform, background]);
 
   const [bg, shell, panel] = await Promise.all([memo(`base ${key}`, () => base(L, background)), memo(`frame ${key}`, () => frame(device, L)), screen(capturePath, L.screen, L.W, L.H)]);

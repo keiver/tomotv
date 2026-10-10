@@ -26,9 +26,9 @@ test("Mac captures use English fallback and leave the original status bar alone"
   await validateCaptures(root, config);
   assert.equal((await stampStatusBar(capture, "mac")).input, capture);
 });
-test("missing and wrongly shaped Mac captures fail before release", async (t) => {
-  const { root, capture } = await fixture(t, 160, 90);
-  await assert.rejects(validateCaptures(root, config), /16:10/);
+test("missing and portrait Mac captures fail before release", async (t) => {
+  const { root, capture } = await fixture(t, 90, 160);
+  await assert.rejects(validateCaptures(root, config), /landscape/);
   fs.unlinkSync(capture);
   await assert.rejects(validateCaptures(root, config), /missing capture/);
 });
