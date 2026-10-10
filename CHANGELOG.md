@@ -10,6 +10,7 @@ All notable changes to Tomo TV are documented here.
 - A channel's info panel lists every group it can join: Favorites, your own groups and the groups its tuner's M3U playlist declares, each ticked while the channel is in it, and a press adds or removes it. On Apple TV they are a bar along the card's foot that starts with New group; on iPhone and iPad a Groups list, four rows before it scrolls, ends in a New group field
 - A playlist group keeps the channels you add to it or remove from it, per user: the guide, the channel wall and channel flipping follow your edits
 - A multi-episode file shows its episode range, S01E01-E02, on its card and info panel, between episodes, and in the Apple TV player's queue
+- Themes tint the ambient background, with an exclusive background choice: folder artwork by default, Clear for the bare light
 
 ### Changed
 
@@ -17,6 +18,12 @@ All notable changes to Tomo TV are documented here.
 - A channel's info panel ends at its groups, leaving out the description, cast, streams, details, file and playback sections; the Groups button is gone
 - The info panel shows a wide picture whole in a box when filling the artwork would blow it past 3x its size, such as a programme's title logo
 - On iPhone and iPad the Open Source list fills the screen under its intro and the Streaming Quality list shows three rows at a time
+- The theme picker is a horizontal strip of colour discs
+- The watched mark is the title bar's full gold fill and eye; the binge-next badge retires
+- Guide cells lead with the episode and carry seen time in their lines; programme posters leave the grid
+- The Open Source page names the platform the binary targets
+- Folder download enqueues batch their state writes into one manifest write, with bounded side fetches
+- The engine's poster work idles while a video plays
 
 ### Fixed
 
@@ -24,6 +31,10 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV, closing an info panel or the player opened from the guide hands focus back to the programme you pressed, or the channel card you held, instead of the tab bar
 - A programme shorter than a minute shows its start and end with seconds, in the guide, the schedule and its info panel, instead of the same minute twice
 - A focused guide cell's ring no longer draws over the programme's artwork or live frames
+- Continue Watching leads with the episode after the one just finished, and a card that leaves the row hands focus to the card in its slot
+- Search answers fast and holds the grid steady; a library failure keeps the live shelf
+- The pressed photo paints first on recursive and filtered opens, and a loaded photo dismisses the error screen
+- The reader commits the current page first and drops stale renders
 - An interlaced H.264 channel or file plays a clean deinterlaced picture instead of woven, flickering fields: the engine routes it through its deinterlacer, reading the field coding from the stream's own opening keyframe when a live tune hides it
 
 ## [2.2.10]

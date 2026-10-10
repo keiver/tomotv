@@ -49,10 +49,11 @@ Each session starts in one of four lanes:
 | **Server**              | Jellyfin transcodes; the fallback, not the default |
 
 The lane is measured on the device, not assumed. H.264 and HEVC are copied only
-when this device's VideoToolbox opens them in hardware at the file's own size;
-otherwise they are re-encoded locally, like every other codec the engine
-accepts. If on-device conversion cannot keep up, playback falls back to the
-server. Two such measurements on the same app build keep that file on the
+when this device's VideoToolbox opens them in hardware at the file's own size
+and the picture is progressive; interlaced sources are deinterlaced on device
+rather than copied, and everything else is re-encoded locally, like every other
+codec the engine accepts. If on-device conversion cannot keep up, playback
+falls back to the server. Two such measurements on the same app build keep that file on the
 server for 30 minutes.
 
 When the server may be asked at all is a setting, Settings > Server

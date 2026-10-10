@@ -109,19 +109,23 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Tomo TV is now available on Mac with Apple Silicon and Intel processors
 ```
 
-### What's New (2.2.11), iOS (142 / 4000)
+### What's New (2.2.11), iOS (273 / 4000)
 
 ```text
 - Add a channel to any group from its info panel
 - Multi-episode files show the full range, like S01E01-E02
+- Live channels that played with flickering lines look right
+- Your theme colours the background; pick artwork or a plain backdrop
 - Settings lists fit on the screen
 ```
 
-### What's New (2.2.11), tvOS (223 / 4000)
+### What's New (2.2.11), tvOS (354 / 4000)
 
 ```text
 - Add a channel to any group from its info panel
 - Multi-episode files show the full range, like S01E01-E02
+- Live channels that played with flickering lines look right
+- Your theme colours the background; pick artwork or a plain backdrop
 - Swiping left in the Live TV guide always reaches the channels
 - Back from a programme, the guide keeps your place
 ```
@@ -445,19 +449,23 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Tomo TV ist jetzt auf Macs mit Apple Silicon und Intel-Prozessoren verfügbar
 ```
 
-#### What's New (2.2.11), iOS (182 / 4000 chars)
+#### What's New (2.2.11), iOS (336 / 4000 chars)
 
 ```text
 - Füge einen Kanal im Info-Bereich jeder Gruppe hinzu
 - Dateien mit mehreren Folgen zeigen den ganzen Bereich, etwa S01E01-E02
+- Live-Kanäle, die mit flimmernden Streifen liefen, sehen richtig aus
+- Dein Thema färbt den Hintergrund; wähle Artwork oder einen schlichten Hintergrund
 - Listen in den Einstellungen passen auf den Bildschirm
 ```
 
-#### What's New (2.2.11), tvOS (248 / 4000 chars)
+#### What's New (2.2.11), tvOS (402 / 4000 chars)
 
 ```text
 - Füge einen Kanal im Info-Bereich jeder Gruppe hinzu
 - Dateien mit mehreren Folgen zeigen den ganzen Bereich, etwa S01E01-E02
+- Live-Kanäle, die mit flimmernden Streifen liefen, sehen richtig aus
+- Dein Thema färbt den Hintergrund; wähle Artwork oder einen schlichten Hintergrund
 - Nach links gelangst du im Live-TV-Guide immer zu den Kanälen
 - Zurück von einer Sendung behält der Guide deine Position
 ```
@@ -759,19 +767,23 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Tomo TV est maintenant disponible sur les Mac avec processeur Apple Silicon ou Intel
 ```
 
-#### What's New (2.2.11), iOS (202 / 4000 chars)
+#### What's New (2.2.11), iOS (367 / 4000 chars)
 
 ```text
 - Ajoutez une chaîne à n'importe quel groupe depuis son panneau d'informations
 - Les fichiers à plusieurs épisodes affichent toute la plage, comme S01E01-E02
+- Les chaînes en direct qui s'affichaient avec des lignes scintillantes sont nettes
+- Votre thème colore l'arrière-plan ; choisissez l'illustration ou un fond sobre
 - Les listes des Réglages tiennent à l'écran
 ```
 
-#### What's New (2.2.11), tvOS (281 / 4000 chars)
+#### What's New (2.2.11), tvOS (446 / 4000 chars)
 
 ```text
 - Ajoutez une chaîne à n'importe quel groupe depuis son panneau d'informations
 - Les fichiers à plusieurs épisodes affichent toute la plage, comme S01E01-E02
+- Les chaînes en direct qui s'affichaient avec des lignes scintillantes sont nettes
+- Votre thème colore l'arrière-plan ; choisissez l'illustration ou un fond sobre
 - Vers la gauche, le guide de TV en direct mène toujours aux chaînes
 - De retour d'un programme, le guide garde votre place
 ```
@@ -1073,19 +1085,23 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Tomo TV ya está disponible en Mac con procesadores Apple Silicon e Intel
 ```
 
-#### What's New (2.2.11), iOS (189 / 4000 chars)
+#### What's New (2.2.11), iOS (322 / 4000 chars)
 
 ```text
 - Añade un canal a cualquier grupo desde su panel de información
 - Los archivos con varios episodios muestran el rango completo, como S01E01-E02
+- Los canales en vivo que se veían con líneas parpadeantes se ven bien
+- Tu tema tiñe el fondo; elige la ilustración o un fondo liso
 - Las listas de Ajustes caben en la pantalla
 ```
 
-#### What's New (2.2.11), tvOS (278 / 4000 chars)
+#### What's New (2.2.11), tvOS (411 / 4000 chars)
 
 ```text
 - Añade un canal a cualquier grupo desde su panel de información
 - Los archivos con varios episodios muestran el rango completo, como S01E01-E02
+- Los canales en vivo que se veían con líneas parpadeantes se ven bien
+- Tu tema tiñe el fondo; elige la ilustración o un fondo liso
 - Hacia la izquierda, la guía de Televisión en vivo siempre llega a los canales
 - Al volver de un programa, la guía conserva tu lugar
 ```
