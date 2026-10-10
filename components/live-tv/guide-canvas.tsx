@@ -13,7 +13,21 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import { cellAtEdge, cellGeometry, exitsToCard, guideMetrics, isAiring, leftLeavesRow, MINUTE_MS, mountSpanFor, programTimes, restoreFocusNode, revealOffset, rowSnap } from "@/utils/guide";
+import {
+  cellAtEdge,
+  cellGeometry,
+  exitsToCard,
+  GUIDE_SPAN_MINUTES,
+  guideMetrics,
+  isAiring,
+  leftLeavesRow,
+  MINUTE_MS,
+  mountSpanFor,
+  programTimes,
+  restoreFocusNode,
+  revealOffset,
+  rowSnap,
+} from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -65,7 +79,7 @@ interface GuideCanvasProps {
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
 export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudRow, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
-  const { rows, windowStartMs, windowEndMs, horizonMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, holdWindow, loadMoreRows } = guide;
+  const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, holdWindow, loadMoreRows } = guide;
   const isScreenFocused = useIsFocused();
   const { onAccent } = useCardPalette();
 
@@ -90,12 +104,12 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const columnW = useSharedValue(initialCompact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
   const canvasW = useSharedValue(0);
   const [viewportWidth, setViewportWidth] = useState(0);
-  // A viewport wider than the day's whole span at the base density stretches the grid to fill it.
+  // The window never holds less than GUIDE_SPAN_MINUTES, so this density keeps every state of the
+  // grid, loading and no-listings rows included, at least as wide as the viewport.
   const metrics = useMemo(() => {
-    const dayMinutes = (horizonMs - windowStartMs) / MINUTE_MS;
-    const fill = dayMinutes > 0 ? viewportWidth / dayMinutes : 0;
+    const fill = viewportWidth / GUIDE_SPAN_MINUTES;
     return fill > METRICS.pxPerMinute ? { ...METRICS, pxPerMinute: fill } : METRICS;
-  }, [horizonMs, windowStartMs, viewportWidth]);
+  }, [viewportWidth]);
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute;
   const handleColumnSettle = useCallback((width: number) => setViewportWidth(canvasW.get() - width + SEAM_REACH), [canvasW]);
   const resize = useColumnResize({
