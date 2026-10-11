@@ -1068,6 +1068,14 @@ async function runItem(env, target, item, resolved, updateBaselines, probe) {
 
   const modeEvent = events.find((e) => e.event === "mode");
   result.actual = modeEvent?.mode ?? "(no mode event)";
+  // Level-pinned items that expect the lane to be refused judge the app's error code alone.
+  if (item.expect?.errorId) {
+    const code = events.find((e) => e.event === "errorCode")?.code;
+    result.actual = code ?? result.actual;
+    result.validation = code === item.expect.errorId ? "ok" : "FAIL";
+    if (code !== item.expect.errorId) result.problems.push(`expected error ${item.expect.errorId}, app answered ${code ?? "no errorCode event"}`);
+    return finish(env, target, result);
+  }
   if (!modeEvent) {
     // Errors without a mode event are the common case and they name the cause:
     // a 404 here means the app is signed in to a DIFFERENT server than
@@ -1386,7 +1394,10 @@ async function main() {
   for (const item of items) {
     console.log(`\n▶ ${item.id} ${item.title} (expect ${item.mode}, play ${item.playSeconds}s)`);
     const itemWork = fs.mkdtempSync(path.join(work, `${item.id}-`));
+    // An item that pins its own Server transcoding level runs under it; the run's level returns after.
+    if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, item.serverTranscoding);
     const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, probe);
+    if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, "linkOrFile");
     const received = listener.events(ids.get(item.title).id);
     if (received.length) {
       r.probePath = path.join(itemWork, PROBE_FILENAME);
