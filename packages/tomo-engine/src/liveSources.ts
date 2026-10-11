@@ -111,7 +111,7 @@ export interface PlaylistGroup {
 export interface PlaylistEntry {
   name: string;
   url: string;
-  /** The raw #EXTINF line. */
+  /** The raw URL line, `|headers` suffix included. */
   line: string;
   hasExtInf: boolean;
   tvgId: string | null;
