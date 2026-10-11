@@ -72,11 +72,11 @@ the framework root contains only `Versions` and the standard executable and
 `scripts/catalyst-frameworks.rb`, and calls `scripts/fix-catalyst-framework.py`
 for both Debug and Release, including after `clear` and during `archive`.
 
-Mac signing is automatic. The archive and export both use the existing App Store
-Connect API key with `-allowProvisioningUpdates`, letting Xcode manage the app's
-distribution profile and signing certificates, including the installer. There is
-no named Mac profile to create or select. The existing iOS/tvOS export settings
-stay in place.
+The Mac archive signs automatically, with the existing App Store Connect API key
+and `-allowProvisioningUpdates`. The export signs manually: `scripts/exportOptions-macos.plist`
+names the Apple Distribution certificate, the 3rd Party Mac Developer Installer
+certificate for the package, and the `TomoTV Mac Catalyst App Store` profile.
+The existing iOS/tvOS export settings stay in place.
 
 Native build commands check the optional Metal Toolchain. If it is missing they
 explain the requirement and ask before running

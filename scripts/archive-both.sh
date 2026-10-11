@@ -39,8 +39,9 @@
 # silently made every release depend on a keychain session token that no machine
 # migration can carry. The certificate and its private key now live in the login
 # keychain, backed up at ~/nogit/tomotv-signing/.
-# Mac archive and export use Xcode-managed signing with the same API key and
-# -allowProvisioningUpdates; Xcode manages its distribution signing assets.
+# The Mac archive uses Xcode-managed signing with the same API key and
+# -allowProvisioningUpdates; its export names the certificates and the profile
+# in exportOptions-macos.plist.
 
 set -euo pipefail
 
@@ -319,8 +320,8 @@ build_platform() {
   # Homebrew rsync there rejects openrsync's flags and the IPA step dies with "Copy failed".
   #
   # iOS/tvOS retain their local distribution identity and named profiles.
-  # Mac export uses the archive's API authentication and automatic provisioning
-  # so no Mac-specific certificate/profile setup is required before this run.
+  # Mac export passes the archive's API authentication and signs with the
+  # certificates and profile exportOptions-macos.plist names.
   run_logged "$label-export.log" env PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     xcodebuild -exportArchive -archivePath "$archive" \
     -exportOptionsPlist "$export_plist" -exportPath "$export_dir" \
