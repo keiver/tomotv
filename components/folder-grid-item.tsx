@@ -193,7 +193,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </>
           ) : preview.length > 0 ? (
             <>
-              <PosterCollage items={preview} height={POSTER_SIZE} />
+              <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo />
               <CardScrim />
               {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
             </>

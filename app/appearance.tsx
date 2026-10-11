@@ -2,10 +2,9 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles } from "@/components/settings/styles";
-import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { tick } from "@/components/settings/tick";
 import { themeName } from "@/components/theme/theme-name";
-import { ThemeSwatch } from "@/components/theme/theme-swatch";
+import { ThemeStrip } from "@/components/theme/theme-strip";
 import { useSavedThemes } from "@/hooks/useSavedThemes";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { BUILT_IN_THEMES, type CardTheme, DEFAULT_CARD_THEME } from "@/services/cardTheme";
@@ -15,23 +14,21 @@ import { getUiPreferences, updateUiPreferences } from "@/services/uiPreferences"
 import { logger } from "@/utils/logger";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-const VISIBLE_THEME_ROWS = 5;
 
 /**
- * The card theme and the folder colour. A press applies at once and the page stays; the chosen saved
- * theme pressed again opens in the editor. A saved theme goes with a swipe or a long press, as a download does.
+ * The card theme and the canvas. A press in the strip applies at once and the page stays; the
+ * chosen theme pressed again opens in the editor, and a long press asks to remove a saved one.
  */
 export default function AppearanceScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const router = useRouter();
-  const { cardTheme, folderTint } = useUiPreferences();
+  const { cardTheme, background } = useUiPreferences();
   const saved = useSavedThemes();
   const custom: { theme: CardTheme; pending: boolean }[] = [...saved.themes.map((theme) => ({ theme, pending: false })), ...saved.pending.map((theme) => ({ theme, pending: true }))];
   const hasFooter = saved.status === "failed" || custom.length > 0;
@@ -43,7 +40,13 @@ export default function AppearanceScreen() {
     if (latest && !themeSaveInFlight() && (latest.accent !== cardTheme.accent || latest.name !== cardTheme.name)) updateUiPreferences({ cardTheme: latest });
   }, [latest, cardTheme]);
 
-  const edit = (theme?: CardTheme) => router.push(theme ? { pathname: "/theme-editor", params: { id: theme.id, name: theme.name, accent: theme.accent } } : "/theme-editor");
+  // A built-in hands the editor only its colour: a save from it mints a new theme, never a rename of the built-in.
+  const edit = (theme?: CardTheme) =>
+    router.push(
+      theme
+        ? { pathname: "/theme-editor", params: BUILT_IN_THEMES.some((builtIn) => builtIn.id === theme.id) ? { accent: theme.accent } : { id: theme.id, name: theme.name, accent: theme.accent } }
+        : "/theme-editor",
+    );
   const confirmRemove = (theme: CardTheme) =>
     Alert.alert(themeName(theme), t("appearance.removeBody"), [
       { text: t("common.cancel"), style: "cancel" },
@@ -60,55 +63,7 @@ export default function AppearanceScreen() {
       },
     ]);
 
-  // tvOS moves focus out of a scroller only at the matching end, so the capped list pins itself
-  // when focus lands on its first or last row. Same pattern as the Downloads list.
-  const listRef = useRef<ScrollView>(null);
-  const [listCap, setListCap] = useState<number>();
-  const pinListToTop = () => listRef.current?.scrollTo({ y: 0, animated: false });
-  const pinListToBottom = () => listRef.current?.scrollToEnd({ animated: false });
-  const lastIndex = BUILT_IN_THEMES.length + custom.length - 1;
-  const pinFor = (index: number) => (index === 0 ? pinListToTop : index === lastIndex ? pinListToBottom : undefined);
-
-  const builtInRow = (theme: CardTheme, index: number) => {
-    const chosen = theme.id === cardTheme.id;
-    return (
-      <ListRow
-        key={theme.id}
-        icon={(ink) => <ThemeSwatch color={theme.accent} ring={ink.color} />}
-        title={themeName(theme)}
-        trailingIcon={chosen ? tick : undefined}
-        onPress={() => updateUiPreferences({ cardTheme: theme })}
-        onFocus={pinFor(index)}
-        hasTVPreferredFocus={chosen}
-        accessibilityState={{ selected: chosen }}
-        isFirst={index === 0}
-      />
-    );
-  };
-
-  const savedRow = ({ theme, pending }: { theme: CardTheme; pending: boolean }, index: number) => {
-    const chosen = theme.id === cardTheme.id;
-    return (
-      <SwipeToRemove key={theme.id} label={themeName(theme)} onRemove={() => confirmRemove(theme)}>
-        <ListRow
-          icon={(ink) => <ThemeSwatch color={theme.accent} ring={ink.color} />}
-          title={themeName(theme)}
-          subtitle={pending ? t("appearance.notSynced") : theme.accent}
-          trailingIcon={chosen ? tick : undefined}
-          onPress={() => (chosen ? edit(theme) : updateUiPreferences({ cardTheme: theme }))}
-          onLongPress={() => confirmRemove(theme)}
-          accessibilityActions={[
-            { name: "edit", label: t("appearance.edit") },
-            { name: "remove", label: t("common.remove") },
-          ]}
-          onAccessibilityAction={(event) => (event.nativeEvent.actionName === "remove" ? confirmRemove(theme) : edit(theme))}
-          onFocus={pinFor(BUILT_IN_THEMES.length + index)}
-          hasTVPreferredFocus={chosen}
-          accessibilityState={{ selected: chosen }}
-        />
-      </SwipeToRemove>
-    );
-  };
+  const strip = [...BUILT_IN_THEMES.map((theme) => ({ theme, saved: false, pending: false })), ...custom.map(({ theme, pending }) => ({ theme, saved: true, pending }))];
 
   return (
     <View style={styles.container}>
@@ -121,26 +76,12 @@ export default function AppearanceScreen() {
             <Text style={settingsStyles.sectionHeaderText}>{t("appearance.themesHeader")}</Text>
           </View>
           <View style={settingsStyles.section}>
-            {/* The swipe on a saved theme needs a gesture root. Styled: its default flex: 1 would stretch a content-sized card. */}
-            <GestureHandlerRootView style={styles.gestureRoot}>
-              {/* At most VISIBLE_THEME_ROWS whole rows, measured at the last visible row's bottom edge: saved rows carry a subtitle. */}
-              <ScrollView ref={listRef} style={{ maxHeight: listCap }} showsVerticalScrollIndicator={false} nestedScrollEnabled focusable={false}>
-                {[...BUILT_IN_THEMES.map(builtInRow), ...custom.map(savedRow)].map((row, index) =>
-                  index === VISIBLE_THEME_ROWS - 1 && lastIndex >= VISIBLE_THEME_ROWS ? (
-                    <View key={row.key} onLayout={({ nativeEvent: { layout } }) => setListCap(layout.y + layout.height)}>
-                      {row}
-                    </View>
-                  ) : (
-                    row
-                  ),
-                )}
-              </ScrollView>
-              {/* Not the card's last row when the footer follows it: the footer closes the card, square on top. */}
-              <ListRow icon="add-circle-outline" title={t("appearance.newTheme")} trailingIcon="chevron-forward" onPress={() => edit()} isLast={!hasFooter} />
-            </GestureHandlerRootView>
+            <ThemeStrip items={strip} chosenId={cardTheme.id} onPick={(theme) => updateUiPreferences({ cardTheme: theme })} onEdit={edit} onRemove={confirmRemove} />
+            {/* Not the card's last row when the footer follows it: the footer closes the card, square on top. */}
+            <ListRow icon="add-circle-outline" title={t("appearance.newTheme")} trailingIcon="chevron-forward" onPress={() => edit()} isLast={!hasFooter} />
             {hasFooter ? (
               <SectionFooter>
-                <Text style={settingsStyles.sectionNote}>{saved.status === "failed" ? t("appearance.loadFailed") : t(IS_TV ? "appearance.manageHintTv" : "appearance.manageHint")}</Text>
+                <Text style={settingsStyles.sectionNote}>{saved.status === "failed" ? t("appearance.loadFailed") : t("appearance.manageHint")}</Text>
               </SectionFooter>
             ) : null}
           </View>
@@ -149,14 +90,31 @@ export default function AppearanceScreen() {
             <Text style={settingsStyles.sectionHeaderText}>{t("appearance.backgroundHeader")}</Text>
           </View>
           <View style={settingsStyles.section}>
+            {/* One canvas at a time, the default first: folder artwork over the light, the theme's tint on it, or the clear light alone. */}
             <ListRow
-              icon="color-filter-outline"
-              title={t("appearance.folderTint")}
-              subtitle={t("appearance.folderTintHint")}
-              trailingIcon={folderTint ? tick : undefined}
-              onPress={() => updateUiPreferences({ folderTint: !folderTint })}
-              accessibilityState={{ checked: folderTint }}
+              icon="images-outline"
+              title={t("appearance.backgroundArtwork")}
+              subtitle={t("appearance.backgroundArtworkHint")}
+              trailingIcon={background === "artwork" ? tick : undefined}
+              onPress={() => updateUiPreferences({ background: "artwork" })}
+              accessibilityState={{ selected: background === "artwork" }}
               isFirst
+            />
+            <ListRow
+              icon="color-palette-outline"
+              title={t("appearance.backgroundAccent")}
+              subtitle={t("appearance.backgroundAccentHint")}
+              trailingIcon={background === "accent" ? tick : undefined}
+              onPress={() => updateUiPreferences({ background: "accent" })}
+              accessibilityState={{ selected: background === "accent" }}
+            />
+            <ListRow
+              icon="ellipse-outline"
+              title={t("appearance.backgroundClear")}
+              subtitle={t("appearance.backgroundClearHint")}
+              trailingIcon={background === "clear" ? tick : undefined}
+              onPress={() => updateUiPreferences({ background: "clear" })}
+              accessibilityState={{ selected: background === "clear" }}
               isLast
             />
           </View>
@@ -172,8 +130,5 @@ const styles = StyleSheet.create({
   },
   page: {
     alignItems: "center",
-  },
-  gestureRoot: {
-    flexShrink: 1,
   },
 });

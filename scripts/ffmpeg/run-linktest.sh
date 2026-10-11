@@ -23,6 +23,7 @@ OUTDIR="$WORK/linktest"
 [ -d "$PREFIX/lib" ] || { echo "no build at $PREFIX — run scripts/ffmpeg/build.sh --slice $SLICE" >&2; exit 1; }
 
 case "$SLICE" in
+  catalyst-*) SDK=macosx; MIN="--target=${SLICE#catalyst-}-apple-ios16.5-macabi" ;;
   tvos-sim-*) SDK=appletvsimulator; MIN="-mappletvsimulator-version-min=16.4" ;;
   tvos-*)     SDK=appletvos;        MIN="-mappletvos-version-min=16.4" ;;
   ios-sim-*)  SDK=iphonesimulator;  MIN="-mios-simulator-version-min=15.1" ;;
@@ -71,7 +72,13 @@ xcrun --sdk "$SDK" clang -O0 \
 echo "linked: $BIN"
 
 case "$SLICE" in
-  macos-*)
+  catalyst-x86_64)
+    if [ "$(uname -m)" = x86_64 ] || arch -x86_64 /usr/bin/true 2>/dev/null; then
+      "$BIN" ${URL:+"$URL"}
+    else
+      echo "Intel Catalyst: linked; execution requires an Intel Mac or Rosetta"
+    fi ;;
+  macos-*|catalyst-*)
     "$BIN" ${URL:+"$URL"} ;;
   tvos-sim-*|ios-sim-*)
     UDID="${SIM_UDID:-$(xcrun simctl list devices booted -j | python3 -c '

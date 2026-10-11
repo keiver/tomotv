@@ -89,6 +89,7 @@ import {
   LIVE_FRAME_RETRY_MS,
   LIVE_FRAME_SPACING_MS,
   liveClipFor,
+  liveFrameDueAt,
   liveFrameFor,
   liveFrameReel,
   setLiveFrameFocus,
@@ -557,7 +558,8 @@ describe("live frames", () => {
     await advance(LIVE_FRAME_REFRESH_MS);
     expect(grabs()).toHaveLength(2);
     expect(mockLiveFrame.mock.calls[1][0]).toMatchObject({ shownPts: 1 });
-    expect(listener).toHaveBeenCalledTimes(1);
+    // The verify re-dates the burst and moves its due: subscribers hear it, on the same burst object.
+    expect(listener).toHaveBeenCalledTimes(2);
     const shown = liveFrameFor("m1");
     // Each unchanged answer doubles the wait: 4 min, then the 5 min cap.
     for (const waitMs of [240_000, LIVE_FRAME_REFRESH_CAP_MS, LIVE_FRAME_REFRESH_CAP_MS, LIVE_FRAME_REFRESH_CAP_MS]) {
@@ -572,11 +574,52 @@ describe("live frames", () => {
     still = false;
     pts = 2;
     await advance(LIVE_FRAME_REFRESH_CAP_MS);
-    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenCalledTimes(7);
     const moved = grabs().length;
     await advance(LIVE_FRAME_REFRESH_MS);
     expect(grabs()).toHaveLength(moved + 1);
     expect(mockLiveFrame.mock.calls[moved][0]).toMatchObject({ shownPts: 2 });
+  });
+
+  describe("liveFrameDueAt", () => {
+    it("counts the shown burst's refresh from its grab; nothing before any picture", async () => {
+      expect(liveFrameDueAt("m1")).toBeUndefined();
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1"]);
+      await advance(0);
+      expect(liveFrameDueAt("m1")).toBe(1_000_000 + LIVE_FRAME_REFRESH_MS);
+    });
+
+    it("stretches with the doubled wait while the live edge stands still", async () => {
+      let still = false;
+      mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) =>
+        still ? { uris: [], unchanged: true, cancelled: false } : { uris: burst(channelId, Date.now()), pts: 1, cancelled: false },
+      );
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1"]);
+      await advance(0);
+      still = true;
+      await advance(LIVE_FRAME_REFRESH_MS);
+      expect(liveFrameDueAt("m1")).toBe(1_000_000 + LIVE_FRAME_REFRESH_MS + 240_000);
+    });
+
+    it("shortens to the focus floor on promotion and stretches back on leave, telling subscribers both times", async () => {
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1", "m2"]);
+      await advance(0);
+      await advance(LIVE_FRAME_SPACING_MS);
+      expect(grabs()).toEqual(["m1", "m2"]);
+      const grabbedAt = 1_000_000 + LIVE_FRAME_SPACING_MS;
+      const listener = jest.fn();
+      subscribeLiveFrame("m2", listener);
+      setLiveFrameFocus("m2");
+      await advance(LIVE_FRAME_FOCUS_DWELL_MS);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(liveFrameDueAt("m2")).toBe(grabbedAt + LIVE_FRAME_FOCUS_REFRESH_MS);
+      setLiveFrameFocus(null);
+      expect(listener).toHaveBeenCalledTimes(2);
+      expect(liveFrameDueAt("m2")).toBe(grabbedAt + LIVE_FRAME_REFRESH_MS);
+    });
   });
 
   it("opens a tuner channel on the server for its burst and closes it as soon as the burst is read", async () => {

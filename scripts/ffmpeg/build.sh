@@ -27,10 +27,12 @@ OUT="$ROOT/packages/tomo-engine/ios/Frameworks"
 
 # shellcheck source=./sources.sh
 source "$HERE/sources.sh"
+FF_SOURCE="$SRC/ffmpeg-$FFMPEG_VERSION"
 
 IOS_MIN="15.1"    # matches TomoFFmpeg.podspec s.ios.deployment_target
 TVOS_MIN="16.4"   # matches s.tvos.deployment_target and app.json tvosDeploymentTarget
 MACOS_MIN="12.0"  # probe slice only, never linked into the app
+CATALYST_MIN="16.5" # Catalyst 16.5 maps to macOS 13.4
 
 # The six libraries the app links. Names are load-bearing: FFmpeg's own headers
 # say `#include "libavutil/avutil.h"`, and that only resolves because the
@@ -47,6 +49,8 @@ DAV1D_PREFIX="tomo_dav1d_"
 
 # slice | sdk | arch | min-version flag | cmake system | meson cpu_family | meson cpu
 SLICES=(
+  "catalyst-arm64|macosx|arm64|--target=arm64-apple-ios$CATALYST_MIN-macabi|Darwin|aarch64|aarch64"
+  "catalyst-x86_64|macosx|x86_64|--target=x86_64-apple-ios$CATALYST_MIN-macabi|Darwin|x86_64|x86_64"
   "tvos-arm64|appletvos|arm64|-mappletvos-version-min=$TVOS_MIN|tvOS|aarch64|aarch64"
   "tvos-sim-arm64|appletvsimulator|arm64|-mappletvsimulator-version-min=$TVOS_MIN|tvOS|aarch64|aarch64"
   "tvos-sim-x86_64|appletvsimulator|x86_64|-mappletvsimulator-version-min=$TVOS_MIN|tvOS|x86_64|x86_64"
@@ -67,6 +71,7 @@ die()  { printf '\033[1;31m fail\033[0m %s\n' "$*" >&2; exit 1; }
 # ---------------------------------------------------------------- preflight
 
 preflight() {
+  bash "$ROOT/scripts/check-xcode-tools.sh"
   local missing=()
   for t in cmake meson ninja nasm pkg-config git curl xcrun lipo autoreconf automake autopoint; do
     command -v "$t" >/dev/null || missing+=("$t")
@@ -99,6 +104,8 @@ fetch() { # name url sha
   expected $sha
   got      $got"
   local dir="$SRC/$name"
+  # A downloaded new tarball must not reuse an older release's unpacked tree.
+  [ "$name" != ffmpeg ] || dir="$FF_SOURCE"
   if [ ! -d "$dir" ]; then
     log "unpack $name"
     mkdir -p "$dir"
@@ -121,6 +128,19 @@ clone() { # name repo tag
 sources() {
   mkdir -p "$SRC"
   fetch ffmpeg   "$FFMPEG_URL"   "$FFMPEG_SHA"
+  # Catalyst has no OpenGL ES pixel buffers. Keep iOS/tvOS behavior intact and
+  # request Metal-compatible VideoToolbox buffers on Catalyst only.
+  python3 - "$FF_SOURCE/libavcodec/videotoolbox.c" <<'PY'
+import pathlib, sys
+file = pathlib.Path(sys.argv[1])
+old = '#if TARGET_OS_IPHONE\n    CFDictionarySetValue(buffer_attributes, kCVPixelBufferOpenGLESCompatibilityKey, kCFBooleanTrue);'
+new = '#if TARGET_OS_MACCATALYST\n    CFDictionarySetValue(buffer_attributes, kCVPixelBufferMetalCompatibilityKey, kCFBooleanTrue);\n#elif TARGET_OS_IPHONE\n    CFDictionarySetValue(buffer_attributes, kCVPixelBufferOpenGLESCompatibilityKey, kCFBooleanTrue);'
+text = file.read_text()
+if old in text:
+    file.write_text(text.replace(old, new, 1))
+elif new not in text:
+    raise SystemExit('FFmpeg VideoToolbox patch no longer applies; review Catalyst pixel buffers')
+PY
   fetch dav1d    "$DAV1D_URL"    "$DAV1D_SHA"
   fetch freetype "$FREETYPE_URL" "$FREETYPE_SHA"
   fetch fribidi  "$FRIBIDI_URL"  "$FRIBIDI_SHA"
@@ -150,6 +170,18 @@ slice_env() { # slice-spec
     iOS)    MESON_SUBSYSTEM="ios";   MIN_VERSION="$IOS_MIN" ;;
     Darwin) MESON_SUBSYSTEM="macos"; MIN_VERSION="$MACOS_MIN" ;;
   esac
+  CMAKE_TARGET_ARGS=()
+  if [[ "$SLICE" == catalyst-* ]]; then
+    MESON_SUBSYSTEM="ios"
+    # Darwin prevents CMake rejecting the macOS SDK as an invalid iOS SDK.
+    # The compiler target, not a macOS deployment flag, selects Catalyst.
+    MIN_VERSION=""
+    CMAKE_TARGET_ARGS=(
+      "-DCMAKE_C_COMPILER_TARGET=$ARCH-apple-ios$CATALYST_MIN-macabi"
+      "-DCMAKE_CXX_COMPILER_TARGET=$ARCH-apple-ios$CATALYST_MIN-macabi"
+      "-DCMAKE_ASM_FLAGS=$MINFLAG"
+    )
+  fi
   PREFIX="$WORK/prefix/$SLICE"
   BUILD="$WORK/build/$SLICE"
   CFLAGS_COMMON="-arch $ARCH -isysroot $SYSROOT $MINFLAG -fno-common -O2"
@@ -233,6 +265,7 @@ cmake_build() { # name [--target T] -- extra args
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=OFF \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    ${CMAKE_TARGET_ARGS[@]+"${CMAKE_TARGET_ARGS[@]}"} \
     "$@" >"$BUILD/$name.log" 2>&1 || { tail -40 "$BUILD/$name.log"; die "$name: cmake configure failed ($BUILD/$name.log)"; }
   cmake --build "$dir" ${target:+--target "$target"} >>"$BUILD/$name.log" 2>&1 || { tail -40 "$BUILD/$name.log"; die "$name: build failed"; }
   cmake --install "$dir" >>"$BUILD/$name.log" 2>&1 || die "$name: install failed"
@@ -286,8 +319,8 @@ build_dav1d() {
               -Denable_tools=false -Denable_tests=false)
   # Assembly names are pasted together by assembler macros from PRIVATE_PREFIX,
   # so a C #define can never reach them. arm64 sets that prefix directly. The
-  # x86 slices take theirs from a meson-generated header instead, and they are
-  # simulator-only, so they drop assembly rather than patch upstream.
+  # x86 slices take theirs from a meson-generated header instead. They drop
+  # assembly to preserve the symbol isolation, including the Intel Mac slice.
   local prefix_args=(-include "$hdr")
   case "$ARCH" in
     x86_64) opts+=(-Denable_asm=false) ;;
@@ -463,7 +496,15 @@ build_libarchive() {
 
 build_ffmpeg() {
   local dir="$BUILD/ffmpeg"
-  [ -f "$PREFIX/.done-ffmpeg" ] && return 0
+  local stamp="$PREFIX/.done-ffmpeg-$FFMPEG_VERSION"
+  local metalcc="xcrun -sdk $SDK metal"
+  if [[ "$SLICE" == catalyst-* ]]; then
+    # Metal otherwise defaults to the host macOS version, even though clang
+    # targets Catalyst. The shader must support the same OS floor as the app.
+    metalcc="$metalcc -target air64-apple-ios$CATALYST_MIN-macabi"
+    stamp="$stamp-catalyst-$CATALYST_MIN-metal"
+  fi
+  [ -f "$stamp" ] && return 0
   log "[$SLICE] ffmpeg"
   rm -rf "$dir"; mkdir -p "$dir"
 
@@ -495,7 +536,7 @@ build_ffmpeg() {
   # udp and rtp are multicast IPTV and RTSP's UDP transport, rtmp/rtmps, mms and data: URIs
   # are what the rest of an IPTV list carries. libxml2 gates the dash demuxer, libzvbi is the
   # teletext decoder. Hardcoded tables trade binary size for decoder start-up.
-  ( cd "$dir" && "$SRC/ffmpeg/configure" \
+  ( cd "$dir" && "$FF_SOURCE/configure" \
       --prefix="$PREFIX" \
       --enable-cross-compile --target-os=darwin --arch="$ARCH" \
       --sysroot="$SYSROOT" \
@@ -503,7 +544,7 @@ build_ffmpeg() {
       --extra-cflags="$CFLAGS_COMMON -I$PREFIX/include -include $BUILD/dav1d-rename.h" \
       --extra-ldflags="$LDFLAGS_COMMON -L$PREFIX/lib" \
       --pkg-config-flags="--static" \
-      --metalcc="xcrun -sdk $metal_sdk metal" \
+      --metalcc="$metalcc" \
       --metallib="xcrun -sdk $metal_sdk metallib" \
       --enable-static --disable-shared --enable-pic \
       --disable-debug --enable-optimizations --disable-autodetect \
@@ -532,7 +573,7 @@ build_ffmpeg() {
 
   make -C "$dir" -j"$(sysctl -n hw.ncpu)" >"$BUILD/ffmpeg.log" 2>&1 || { tail -40 "$BUILD/ffmpeg.log"; die "ffmpeg: build failed"; }
   make -C "$dir" install >>"$BUILD/ffmpeg.log" 2>&1 || die "ffmpeg: install failed"
-  touch "$PREFIX/.done-ffmpeg"
+  touch "$stamp"
 }
 
 # ----------------------------------------------------------------- packaging
@@ -552,8 +593,8 @@ make_framework() { # module-name static-lib-path header-src-dir dest-dir platfor
   # dovi_rpu.h is FFmpeg-internal, so `make install` does not place it. The engine calls
   # ff_dovi_rpu_parse and ff_dovi_rpu_generate directly to rewrite profile 7 Dolby Vision
   # RPUs, and the header is self-contained against public ones, so it ships alongside them.
-  if [ "$module" = "Libavcodec" ] && [ -f "$SRC/ffmpeg/libavcodec/dovi_rpu.h" ]; then
-    cp "$SRC/ffmpeg/libavcodec/dovi_rpu.h" "$fw/Headers/"
+  if [ "$module" = "Libavcodec" ] && [ -f "$FF_SOURCE/libavcodec/dovi_rpu.h" ]; then
+    cp "$FF_SOURCE/libavcodec/dovi_rpu.h" "$fw/Headers/"
   fi
 
   # Headers for hardware backends we do not build. Left in the tree by
@@ -600,6 +641,7 @@ package() {
     "ios-arm64:ios-arm64:iPhoneOS:$IOS_MIN"
     "ios-arm64_x86_64-simulator:ios-sim-arm64 ios-sim-x86_64:iPhoneSimulator:$IOS_MIN"
     "macos-arm64:macos-arm64:MacOSX:$MACOS_MIN"
+    "ios-arm64_x86_64-maccatalyst:catalyst-arm64 catalyst-x86_64:MacOSX:13.4"
   )
 
   for spec in "${FF_LIBS[@]}" "${EXTRA_LIBS[@]}"; do
@@ -700,7 +742,7 @@ while [ $# -gt 0 ]; do
     --clean) rm -rf "$WORK/prefix" "$WORK/build"; shift ;;
     # Rebuild FFmpeg only, keeping the dependency trees. A configure-line
     # change costs ~2 min a slice this way instead of a 24 min full rebuild.
-    --refresh-ffmpeg) find "$WORK/prefix" -name ".done-ffmpeg" -delete 2>/dev/null || true; shift ;;
+    --refresh-ffmpeg) find "$WORK/prefix" -name ".done-ffmpeg*" -delete 2>/dev/null || true; shift ;;
     --slice) ONLY_SLICE="$2"; DO_PACKAGE=0; shift 2 ;;
     *) die "unknown argument: $1" ;;
   esac

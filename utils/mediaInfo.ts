@@ -52,6 +52,13 @@ export function formatIndexLine(item: SeasonEpisodeSource): string {
   return joinMeta([badge.disc != null ? `Disc ${badge.disc}` : "", `Track ${badge.label}`]);
 }
 
+/** A channel's number, "CH 5", when the tuner gives one; "" otherwise. */
+export function formatChannelNumber(item: Pick<JellyfinItem, "Type" | "ChannelNumber">): string {
+  if (item.Type !== "TvChannel") return "";
+  const number = item.ChannelNumber?.trim();
+  return number ? `${t("liveTv.ch")} ${number}` : "";
+}
+
 /** "4032×3024 · 12.2 MP" from a photo's pixel dimensions. */
 export function formatPixelSize(width: number | undefined, height: number | undefined): string {
   if (!width || !height || width <= 0 || height <= 0) return "";

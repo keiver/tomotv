@@ -18,7 +18,9 @@ jest.mock("@/services/jellyfinApi", () => ({
 jest.mock("@/services/liveTvPreferences", () => ({
   activePlaylistGroup: (filter: string) => (filter.startsWith("playlist:") ? filter.slice("playlist:".length) : null),
   updateLiveTvPreferences: jest.fn(),
+  playlistGroupIds: (ids: readonly string[]) => ids,
 }));
+jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ playlistEdits: {} }) }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
 const mockFetch = fetchTunerGroups as jest.Mock;

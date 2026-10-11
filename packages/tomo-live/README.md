@@ -1,7 +1,7 @@
 # @keiver/tomo-live
 
 The live TV services behind [Tomo TV](https://github.com/keiver/tomotv), over
-[`@keiver/tomo-engine`](../tomo-engine), for Expo apps on Apple TV and iOS: a warm ring of
+[`@keiver/tomo-engine`](../tomo-engine), for Expo apps on Apple TV, iOS and Mac Catalyst: a warm ring of
 neighbour channels so a flip binds a session already cutting segments, a warm session for the
 focused channel card, frame and clip sampling for channel cards, channel health judged from
 those grabs, and XMLTV guide sources cached on disk and matched to the app's channels.

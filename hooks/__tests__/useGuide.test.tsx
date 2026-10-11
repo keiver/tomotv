@@ -5,7 +5,8 @@ import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { AppState, type AppStateStatus } from "react-native";
 import { fetchChannels, fetchGuideHorizon, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
-import { GUIDE_CHANNEL_PAGE, useGuide } from "../useGuide";
+import { clearRequestCache } from "@/services/requestCache";
+import { GUIDE_CHANNEL_PAGE, invalidateGuideReads, useGuide } from "../useGuide";
 import { dayStartMs, GUIDE_DAYS, GUIDE_SPAN_MINUTES, guideDays, guideWindowStart, MINUTE_MS } from "@/utils/guide";
 import { noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 
@@ -24,6 +25,11 @@ jest.mock("@/services/jellyfinApi", () => ({
   },
 }));
 const mockAuthListeners = new Set<() => void>();
+/** A sign-in elsewhere: clearContentCaches drops the request cache before the auth change lands. */
+function signInElsewhere() {
+  clearRequestCache();
+  mockAuthListeners.forEach((cb) => cb());
+}
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
 jest.mock("@/services/jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] })) }));
 jest.mock("@/services/externalGuide", () => {
@@ -42,6 +48,7 @@ let mockPreferences = {
   sort: "number",
   favorites: [] as { id?: string; number?: string; name: string }[],
   groups: [] as { id: string; name: string; channels: { number?: string; name: string }[] }[],
+  playlistEdits: {},
   hideOffline: false,
 };
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => mockPreferences }));
@@ -96,8 +103,9 @@ describe("useGuide", () => {
   const CLOCK = new Date(2026, 9, 3, 0, 10).getTime();
   beforeEach(() => {
     jest.clearAllMocks();
+    clearRequestCache();
     jest.spyOn(Date, "now").mockReturnValue(CLOCK);
-    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], hideOffline: false };
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
   });
   afterEach(() => jest.restoreAllMocks());
@@ -124,13 +132,13 @@ describe("useGuide", () => {
 
     // The next server reuses the channel id; its programs must not merge into the last one's.
     (fetchChannels as jest.Mock).mockReturnValue(new Promise(() => {}));
-    await act(async () => mockAuthListeners.forEach((cb) => cb()));
+    await act(async () => signInElsewhere());
     expect(ref.current!.get().rows).toEqual([]);
     expect(ref.current!.get().isLoading).toBe(true);
 
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("new", "c1", 0, 30, startMs)]);
-    await act(async () => mockAuthListeners.forEach((cb) => cb()));
+    await act(async () => signInElsewhere());
     await settle();
     expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["new"]);
   });
@@ -142,7 +150,7 @@ describe("useGuide", () => {
     (fetchTimers as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (landOld = resolve)));
     const ref = await mount();
 
-    await act(async () => mockAuthListeners.forEach((cb) => cb()));
+    await act(async () => signInElsewhere());
     await settle();
     await act(async () => landOld([{ Id: "t-old", Name: "a", ProgramId: "a", StartDate: "", EndDate: "", Status: "New" }]));
     expect(ref.current!.get().timersByProgramId.size).toBe(0);
@@ -239,6 +247,27 @@ describe("useGuide", () => {
     });
     await settle();
     expect(fetchChannels).toHaveBeenCalledTimes(1);
+  });
+
+  it("a reopen serves channels, programs and horizon from the cached reads, until an invalidation", async () => {
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 30, startMs)]);
+    const ref = await mount();
+    expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["a"]);
+    act(() => mounted!.unmount());
+
+    const reopened = await mount();
+    expect(reopened.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["a"]);
+    expect(fetchChannels).toHaveBeenCalledTimes(1);
+    expect(fetchGuidePrograms).toHaveBeenCalledTimes(1);
+    expect(fetchGuideHorizon).toHaveBeenCalledTimes(1);
+    act(() => mounted!.unmount());
+
+    // The refresh press drops the cached reads: the next open fetches fresh.
+    invalidateGuideReads();
+    await mount();
+    expect(fetchChannels).toHaveBeenCalledTimes(2);
+    expect(fetchGuidePrograms).toHaveBeenCalledTimes(2);
   });
 
   it("pages channels with their programs and grows the window on request, merging programs without duplicates", async () => {
@@ -474,10 +503,12 @@ describe("useGuide", () => {
     const ref = await mount();
     expect(ref.current!.get().rows.map((row) => row.programs.length)).toEqual([2, 1]);
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 30, startMs)]);
+    invalidateGuideReads();
     await act(async () => ref.current!.get().retry());
     await settle();
     expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([["a"], []]);
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    invalidateGuideReads();
     await act(async () => ref.current!.get().retry());
     await settle();
     expect(ref.current!.get().rows.map((row) => row.programs)).toEqual([[], []]);
@@ -497,10 +528,12 @@ describe("useGuide", () => {
     expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([["old-server"], ["epg:c2"], ["epg:c3"]]);
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("new-server", "c1", 0, 30, startMs)]);
     fetchExternalProgramWindow.mockResolvedValueOnce({ programs: [], failedChannelIds: ["c2"] });
+    invalidateGuideReads();
     await act(async () => ref.current!.get().retry());
     await settle();
     expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([["new-server"], ["epg:c2"], []]);
     fetchExternalProgramWindow.mockResolvedValueOnce({ programs: [], failedChannelIds: [] });
+    invalidateGuideReads();
     await act(async () => ref.current!.get().retry());
     await settle();
     expect(ref.current!.get().rows.map((row) => row.programs.map((p) => p.Id))).toEqual([["new-server"], [], []]);
@@ -550,7 +583,7 @@ describe("useGuide", () => {
       expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual([`c2-${start + span}`]);
     });
 
-    it("a jump loads the stretch asked for alone, and going back reloads the span it let go", async () => {
+    it("a jump loads the stretch asked for alone, and going back serves the let-go span from the cache", async () => {
       (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
       listEveryStretch();
       const ref = await mount();
@@ -562,9 +595,11 @@ describe("useGuide", () => {
       expect(ref.current!.get().windowEndMs).toBe(start + 4 * span);
       expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([`c1-${start + 3 * span}`]);
 
+      const asked = (fetchGuidePrograms as jest.Mock).mock.calls.length;
       await act(async () => ref.current!.get().holdWindow(start, start + span));
       await settle();
-      expect(lastFetch()).toMatchObject({ startMs: start, endMs: start + span });
+      // The mount already fetched this span: it comes back from the cached read, no new ask.
+      expect((fetchGuidePrograms as jest.Mock).mock.calls).toHaveLength(asked);
       expect(ref.current!.get().windowEndMs).toBe(start + span);
       expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([`c1-${start}`]);
     });
@@ -609,11 +644,13 @@ describe("useGuide", () => {
       expect(lastFetch()).toMatchObject({ channelIds: ["c1"], startMs: day3, endMs: day3 + span });
       expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([`p-${day3}`]);
 
-      // Today again: back to now, the listings loaded afresh.
+      // Today again: back to now, its listings served from the cached read.
+      const asked = (fetchGuidePrograms as jest.Mock).mock.calls.length;
       await act(async () => ref.current!.get().selectDay(dayStartMs(now)));
       await settle();
       expect(ref.current!.get().windowStartMs).toBe(guideWindowStart(Date.now()));
-      expect(lastFetch().startMs).toBe(guideWindowStart(Date.now()));
+      expect((fetchGuidePrograms as jest.Mock).mock.calls).toHaveLength(asked);
+      expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual([`p-${guideWindowStart(Date.now())}`]);
     });
 
     it("marks the days up to the server guide's end as having listings, the rest as none, and a loaded day as having them whatever the server said", async () => {
@@ -723,6 +760,7 @@ describe("useGuide", () => {
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 30, startMs)]);
     const ref = await mount();
     (fetchGuidePrograms as jest.Mock).mockRejectedValueOnce(new Error("offline"));
+    invalidateGuideReads();
     await act(async () => ref.current!.get().retry());
     await settle();
     expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["a"]);
@@ -750,12 +788,14 @@ describe("useGuide minute tick", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], hideOffline: false };
+    clearRequestCache();
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [], total: 0 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
-    jest.spyOn(AppState, "addEventListener").mockImplementation((_type, handler) => {
-      appStateListener = handler as (state: AppStateStatus) => void;
+    jest.spyOn(AppState, "addEventListener").mockImplementation((type, handler) => {
+      // The request cache registers a memoryWarning listener too; keep the hook's change handler.
+      if (type === "change") appStateListener = handler as (state: AppStateStatus) => void;
       return { remove: jest.fn() } as unknown as ReturnType<typeof AppState.addEventListener>;
     });
     jest.useFakeTimers({ now: at(12, 28, 31) });

@@ -229,15 +229,15 @@ describe("Search Screen Focus Navigation", () => {
     it("should handle search returning exactly 1 result", async () => {
       const singleResult = {
         items: [{ Id: "1", Name: "Unique Video", ImageTags: { Primary: "abc" } } as any],
-        total: 1,
+        next: null,
       };
 
       mockSearchVideos.mockResolvedValueOnce(singleResult);
 
-      const result = await jellyfinApi.searchVideos("unique", { limit: 60, startIndex: 0 });
+      const result = await jellyfinApi.searchVideos("unique", { limit: 60 });
 
       expect(result.items).toHaveLength(1);
-      expect(result.total).toBe(1);
+      expect(result.next).toBeNull();
       expect(result.items[0].Name).toBe("Unique Video");
     });
 

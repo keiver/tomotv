@@ -20,10 +20,12 @@ import {
   subscribeResumeChange,
 } from "@/services/jellyfinApi";
 import { attemptConnectionRecovery } from "@/services/connectionRecovery";
+import { onPlaybackHoldReleased } from "@/services/playbackHold";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { orderSortNameTies } from "@/utils/seasonEpisode";
+import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PAGE_SIZE = 60;
@@ -447,13 +449,43 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     return subscribeAuthChange(() => refresh());
   }, [refresh]);
 
+  // A screen out of sight owes a read instead of making it, and pays it once when shown.
+  const isFocused = useIsFocused();
+  const focusedRef = useRef(isFocused);
+  const staleRef = useRef(false);
+  useEffect(() => {
+    focusedRef.current = isFocused;
+    if (!isFocused || !staleRef.current) return;
+    staleRef.current = false;
+    refresh();
+  }, [isFocused, refresh]);
+  const refreshWhenShown = useCallback(() => {
+    if (focusedRef.current) refresh();
+    else staleRef.current = true;
+  }, [refresh]);
+  // A foreground return playback swallowed is owed: the screen reads once it is next shown.
+  const markStale = useCallback(() => {
+    staleRef.current = true;
+  }, []);
+  // PiP keeps the hold while this screen stays focused, so focus alone never pays the debt:
+  // the release does.
+  useEffect(
+    () =>
+      onPlaybackHoldReleased(() => {
+        if (!focusedRef.current || !staleRef.current) return;
+        staleRef.current = false;
+        refresh();
+      }),
+    [refresh],
+  );
+
   // A timer write starts or stops a recording, so a mounted recordings-library browse refetches.
   useEffect(() => {
-    return subscribeRecordingsChange(() => refresh());
-  }, [refresh]);
+    return subscribeRecordingsChange(refreshWhenShown);
+  }, [refreshWhenShown]);
 
   // Refetch the visible folder when the app returns to the foreground.
-  useAppStateRefresh(refresh, "useFolderContents");
+  useAppStateRefresh(refreshWhenShown, "useFolderContents", markStale);
 
   return { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh };
 }

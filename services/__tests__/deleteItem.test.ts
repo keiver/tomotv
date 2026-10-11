@@ -4,6 +4,7 @@ jest.mock("expo-file-system", () => require("./fakeFileSystem"));
 jest.mock("react-native", () => ({
   Platform: { OS: "ios", isTV: false },
   NativeModules: { FileAttributes: { setExcludedFromBackup: jest.fn(async () => null) } },
+  AppState: { addEventListener: jest.fn(() => ({ remove: jest.fn() })) },
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 

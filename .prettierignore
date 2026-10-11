@@ -1,7 +1,10 @@
 node_modules
 ios
+macos
+tvos
 android
 dist
+build
 .expo
 
 # Written by scripts/ffmpeg/build.sh: vendored FFmpeg sources and build output.

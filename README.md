@@ -1,13 +1,13 @@
 # Tomo TV
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-tvOS%20%7C%20iOS%20%7C%20iPadOS-lightgrey.svg)
+![Platform](https://img.shields.io/badge/platform-tvOS%20%7C%20iOS%20%7C%20iPadOS%20%7C%20macOS-lightgrey.svg)
 [![Tests](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml/badge.svg)](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml)
 [![Download on the App Store](https://img.shields.io/badge/App_Store-Download-black?logo=apple&logoColor=white)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 [![@keiver/tomo-engine](https://img.shields.io/npm/v/@keiver/tomo-engine?label=%40keiver%2Ftomo-engine)](https://www.npmjs.com/package/@keiver/tomo-engine)
 [![@keiver/tomo-live](https://img.shields.io/npm/v/@keiver/tomo-live?label=%40keiver%2Ftomo-live)](https://www.npmjs.com/package/@keiver/tomo-live)
 
-A free, open source Jellyfin client for Apple TV, iPhone and iPad. Files play at
+A free, open source Jellyfin client for Apple TV, iPhone, iPad and Mac. Files play at
 original quality in Apple's own player, with an on-device FFmpeg engine doing the
 format work the server would otherwise transcode: MKV and AVI, Dolby Vision,
 Dolby Atmos, PGS subtitles and Live TV. Built with React Native (react-native-tvos)
@@ -23,7 +23,8 @@ Every file plays in the system's `AVPlayer`, so the transport, AirPlay and
 Picture in Picture are Apple's own. A file AVPlayer can open plays straight from
 the server. For everything else, an engine on the device reads the original file,
 does the format work with its own FFmpeg build, and hands AVPlayer an HLS stream
-it serves on loopback.
+it serves on loopback. It reads an original from the server over three ranged
+connections at once when the server answers range requests.
 
 ```
 Jellyfin server
@@ -49,10 +50,11 @@ Each session starts in one of four lanes:
 | **Server**              | Jellyfin transcodes; the fallback, not the default |
 
 The lane is measured on the device, not assumed. H.264 and HEVC are copied only
-when this device's VideoToolbox opens them in hardware at the file's own size;
-otherwise they are re-encoded locally, like every other codec the engine
-accepts. If on-device conversion cannot keep up, playback falls back to the
-server. Two such measurements on the same app build keep that file on the
+when this device's VideoToolbox opens them in hardware at the file's own size
+and the picture is progressive; interlaced sources are deinterlaced on device
+rather than copied, and everything else is re-encoded locally, like every other
+codec the engine accepts. If on-device conversion cannot keep up, playback
+falls back to the server. Two such measurements on the same app build keep that file on the
 server for 30 minutes.
 
 When the server may be asked at all is a setting, Settings > Server
@@ -102,19 +104,22 @@ permission on the server overrides all three.
   controls. Hold a channel for its info panel, to record, favorite or group it. On Apple TV, the remote's channel-skip
   gesture flips channels, and for 30 seconds after a flip the channels on either
   side keep running.
-- **Themes.** Gold, Blue, Green, Purple or a colour of your own, in Settings >
+- **Themes.** Tomo, Green, Blue, Purple or a colour of your own, in Settings >
   Appearance. Saved themes live in your Jellyfin user's display preferences, so
   each device signed in as you lists them, and each device keeps its own pick.
-  Folder color turns off the blurred artwork behind a folder's grid.
+  Background sets what sits behind the screens: Folder artwork (the default),
+  Theme color or Clear.
 - **Info panels** on iPhone, iPad and Mac drag sideways to the next item: an
   episode across seasons, a song on its album, the photo, book or folder beside
   it, the next library or channel.
 - **Books.** PDF, comics (CBZ, CBR, CBT, CB7), EPUB, MOBI and Kindle AZW/AZW3 in a
   full-screen reader, with the reading position saved to the server.
-- **Downloads** on iPhone and iPad: an item or a whole folder, playable with no
+- **Downloads** on iPhone, iPad and Mac: an item or a whole folder, playable with no
   server in reach, with watch positions synced back later. Keep the original, or
   a smaller copy at 1080p, 720p or 480p that the server converts on the way down,
-  in your audio language with the subtitle you would see.
+  in your audio language with the subtitle you would see. An original of 64 MB
+  or more comes down as up to four ranged parts, three at a time, where the
+  server answers range requests.
 - **SyncPlay**, Jellyfin's watch-together. The Apple TV shows a join code; a
   phone signed in to the same server scans it with the camera to join.
 - **Apple TV.** Skip Intro, Skip Credits and Skip Commercial from Jellyfin's
@@ -135,7 +140,7 @@ permission on the server overrides all three.
 ## The packages
 
 The engine and the live TV services are npm packages developed here, usable by
-any Expo app on Apple TV or iOS. Neither knows Jellyfin: Tomo connects them in
+any Expo app on Apple TV, iOS or Mac Catalyst. Neither knows Jellyfin: Tomo connects them in
 `services/localRemux.ts` and `services/liveChannels.ts`.
 
 | Package                                       | Holds                                                                                                     |
@@ -157,9 +162,23 @@ and Xcode 26 or later. CocoaPods is installed through Homebrew if missing.
 git clone https://github.com/keiver/tomotv.git
 cd tomotv
 npm install            # links the packages, fetches the FFmpeg frameworks, applies patches, regenerates licenses
-npm run prebuild:tv    # generates the native project (replaces ios/)
-npm run ios            # builds and runs on the tvOS simulator
+npm run clear         # prepares iOS, Mac, then tvOS; opens Xcode and starts Metro
 ```
+
+In the root `TomoTV.xcworkspace`, choose the scheme for your device:
+
+| Scheme         | Destination                                |
+| -------------- | ------------------------------------------ |
+| `TomoTV-iOS`   | iPhone or iPad                             |
+| `TomoTV-macOS` | My Mac (Mac Catalyst), macOS 13.4 or later |
+| `TomoTV-tvOS`  | Apple TV                                   |
+
+Build and run from Xcode. The Mac app supports Apple Silicon and Intel. For Mac
+alone, use `npm run clearmac`. To prepare the projects without opening Xcode or
+starting Metro, use `npm run prebuild:all` or `npm run prebuild:mac`.
+The scripts detect a missing Metal Toolchain and offer to install it after
+approval. Signing and local FFmpeg setup are covered in
+[the release guide](docs/RELEASING.md#mac-setup-and-local-validation).
 
 In the app, open **Settings → Scan Network** to find servers on your network, or
 type an address; reverse-proxy paths work. Sign in with Quick Connect or a
@@ -175,10 +194,12 @@ npm run lint            # eslint + prettier
 npm test                # jest unit and integration tests, the packages' JS included
 npm run test:engine     # the engine's Swift tests, on the Mac
 npm run test:playback   # the playback suite, against a real server
+npm run test:release    # project generation, signing hooks and store workflow checks
 ```
 
-Native code lives in `packages/*/ios` and `native/`. The `ios/` folder is
-generated by prebuild, and edits there are lost.
+Native code lives in `packages/*/ios` and `native/`; `plugins/` and `scripts/`
+configure the projects. The `ios/`, `macos/` and `tvos/` folders are generated by
+prebuild, and edits there are lost.
 
 ```
 app/                    expo-router screens
@@ -231,6 +252,9 @@ dropping them. To change it, edit `node_modules/react-native-video/` and run
 `npx patch-package react-native-video`.
 
 Releasing the app is a maintainer step: [`docs/RELEASING.md`](docs/RELEASING.md).
+`npm run archive -- <next-build>` archives iOS, Mac and tvOS in that order with
+one increasing build number. Mac screenshots are captured manually into
+`applestore/captures/mac/`; `npm run shots -- --render` composes the store images.
 
 ## Contributing
 
@@ -241,9 +265,11 @@ of `packages/`: it ships to npm.
 
 ## Known limitations
 
-- **Platforms.** tvOS, iOS and iPadOS; the iPad app also runs on Apple silicon
-  Macs. No Android.
-- **Downloads** are iPhone and iPad only: tvOS gives apps no persistent storage.
+- **Platforms.** tvOS, iOS, iPadOS, and Mac Catalyst on macOS 13.4 or later
+  (Apple Silicon and Intel). No Android. `npm run clear` prepares all three
+  Xcode schemes; `npm run clearmac` prepares just Mac. See
+  [release setup](docs/RELEASING.md#mac-setup-and-local-validation) for signing and screenshots.
+- **Downloads** are available on iPhone, iPad and Mac: tvOS gives apps no persistent storage.
 - **Server.** Jellyfin only.
 - **Network.** HTTP is allowed on every network. Use HTTPS beyond your LAN.
 

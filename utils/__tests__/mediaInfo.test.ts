@@ -2,6 +2,7 @@ import { JellyfinItem, JellyfinMediaStream } from "@/types/jellyfin";
 import {
   buildDetailRows,
   formatBitrate,
+  formatChannelNumber,
   formatCoordinates,
   formatExposure,
   formatFileSize,
@@ -159,6 +160,21 @@ describe("formatIndexLine", () => {
 
   it("is empty for anything carrying no index at all", () => {
     expect(formatIndexLine({ Name: "Some Movie (2020)", Path: "", Type: "Movie" })).toBe("");
+  });
+});
+
+describe("formatChannelNumber", () => {
+  it("labels the tuner's number as a channel", () => {
+    expect(formatChannelNumber({ Type: "TvChannel", ChannelNumber: " 3 " })).toBe("CH 3");
+  });
+
+  it("is empty without a number", () => {
+    expect(formatChannelNumber({ Type: "TvChannel" })).toBe("");
+    expect(formatChannelNumber({ Type: "TvChannel", ChannelNumber: "  " })).toBe("");
+  });
+
+  it("marks nothing but a channel", () => {
+    expect(formatChannelNumber({ Type: "Movie", ChannelNumber: "2" })).toBe("");
   });
 });
 

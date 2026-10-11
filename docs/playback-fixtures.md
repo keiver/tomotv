@@ -1,6 +1,6 @@
 # Playback fixtures
 
-Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-10-04. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
+Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-10-10. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
 
 ### T01
 
@@ -1678,6 +1678,50 @@ Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generate
 | 3 | subtitle | subrip (SubRip subtitle) | encoder Lavc62.28.102 subrip | rus |  |  |
 | 4 | subtitle | subrip (SubRip subtitle) | encoder Lavc62.28.102 subrip | eng |  |  |
 | sidecar | subtitle | subrip | `T104 REMUX H264 multi-audio sidecar.da.srt`, 1,521 bytes, SHA-256 `89145b871b4125505a6c692ec1d8aa71e5ae51f720b5df64690cb4f6933e48d2` | | | |
+
+### T107
+
+| | |
+| --- | --- |
+| File | `T107 REMUX H264 PGS forced SDH.mkv` |
+| Size | 70,659,530 bytes |
+| SHA-256 | `8a0376f78ac7402c0d6efda79972960ed4ff16127fe074940d8edb3b7cd44f51` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 180.021 s |
+| Overall bitrate | 3,140 kb/s |
+| Streams | 4 |
+| Container tags | ENCODER=Lavf62.12.102 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+| Harness expects | `{"subtitles":2,"subtitleRenditions":[{"name":"English - Hearing Impaired - PGSSUB","characteristics":"public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound"},{"name":"English - Forced - PGSSUB","characteristics":null}],"imageSubtitleSets":4}` |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | h264 (H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10), High, level 41, avc1.640029 | 1920x1080, yuv420p, 8-bit, 24 fps, progressive, range tv, H.26[45] User Data Unregistered SEI message, encoder Lavc62.28.102 libx264 |  |  |  |
+| 1 | audio | aac (AAC (Advanced Audio Coding)), LC, mp4a.40.2 | 48,000 Hz, 1ch mono, fltp, encoder Lavc62.28.102 aac | eng |  |  |
+| 2 | subtitle | hdmv_pgs_subtitle (HDMV Presentation Graphic Stream subtitles) |  | eng |  | forced |
+| 3 | subtitle | hdmv_pgs_subtitle (HDMV Presentation Graphic Stream subtitles) |  | eng |  | hearing_impaired |
+
+### T108
+
+| | |
+| --- | --- |
+| File | `T108 DEVTC AVC interlaced.ts` |
+| Size | 23,787,828 bytes |
+| SHA-256 | `e45d7b800ccde01b5eed8c87e24b84ae8a48cab214b0d3c60a09ad521394dd10` |
+| Container | mpegts (MPEG-TS (MPEG-2 Transport Stream)) |
+| Duration | 30.023 s |
+| Start time | 1.457 s |
+| Overall bitrate | 6,339 kb/s |
+| Streams | 2 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate devtc |
+| Harness expects | `{"video":"h264"}` |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | h264 (H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10), High, level 40, tag [27][0][0][0], avc1.640028 | 1920x1080, yuv420p, 8-bit, 25 fps, interlaced, bottom field first, H.26[45] User Data Unregistered SEI message |  |  |  |
+| 1 | audio | aac (AAC (Advanced Audio Coding)), LC, tag [15][0][0][0], mp4a.40.2 | 44,100 Hz, 1ch mono, fltp, 128 kb/s |  |  |  |
 
 ### L01
 

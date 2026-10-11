@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 20 460 240">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF6E8"/><stop offset="1" stop-color="#F0DFC2"/>
+    </linearGradient>
+  </defs>
+  <!-- Her antennae, sprouting from the middle O, ball-tipped like the character sheet. -->
+  <g fill="none" stroke="#C56A2B" stroke-width="9" stroke-linecap="round">
+    <path d="M225 118 C 215 88 196 72 176 60"/>
+    <path d="M255 118 C 265 88 284 72 304 60"/>
+  </g>
+  <circle cx="172" cy="56" r="14" fill="#C56A2B"/>
+  <circle cx="308" cy="56" r="14" fill="#C56A2B"/>
+  <text x="243" y="233" text-anchor="middle" font-family="Futura" font-weight="700" font-size="104" letter-spacing="8" fill="#7A3B12">ELONO</text>
+  <text x="244" y="234" text-anchor="middle" font-family="Futura" font-weight="700" font-size="104" letter-spacing="8" fill="#7A3B12">ELONO</text>
+  <text x="245" y="235" text-anchor="middle" font-family="Futura" font-weight="700" font-size="104" letter-spacing="8" fill="#7A3B12">ELONO</text>
+  <text x="246" y="236" text-anchor="middle" font-family="Futura" font-weight="700" font-size="104" letter-spacing="8" fill="#7A3B12">ELONO</text>
+  <text x="240" y="230" text-anchor="middle" font-family="Futura" font-weight="700" font-size="104" letter-spacing="8" fill="url(#face)">ELONO</text>
+</svg>

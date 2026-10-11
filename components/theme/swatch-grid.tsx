@@ -9,16 +9,17 @@ const IS_TV = Platform.isTV;
 const COLUMNS = 5;
 
 /**
- * The hex box, then fourteen colours: three full rows of five. The built-in themes lead (the app's
- * gold, then blue, green and purple, the best-liked colours in YouGov's 10-country survey), then the
- * rest, then a neutral; no two hues within 20 degrees. Each sits at OKLCH lightness 0.80 (gold is 0.85)
- * at its hue's most in-gamut chroma, clearing 5.6:1 on the lightest card title band (#3C3B39).
+ * The hex box, then fourteen colours: three full rows of five. The built-in themes lead in their own
+ * shades (the app's gold, then blue, green and purple, the best-liked colours in YouGov's 10-country
+ * survey), then the rest, then a neutral; no two hues within 20 degrees. The rest sit at OKLCH
+ * lightness 0.80 at their hue's most in-gamut chroma, clearing 5.6:1 on the lightest card title
+ * band (#3C3B39).
  */
 export const SWATCHES: readonly { name: string; hex: string }[] = [
   { name: "Gold", hex: "#FFC312" },
-  { name: "Blue", hex: "#92C0FF" },
-  { name: "Green", hex: "#07E442" },
-  { name: "Purple", hex: "#C9ACFF" },
+  { name: "Blue", hex: "#4F99FF" },
+  { name: "Green", hex: "#2BD96B" },
+  { name: "Purple", hex: "#A97AFF" },
   { name: "Red", hex: "#FFA09A" },
   { name: "Orange", hex: "#FFA567" },
   { name: "Teal", hex: "#0FDCBA" },

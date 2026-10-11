@@ -26,6 +26,11 @@ export interface ChannelGroup {
   name: string;
   channels: ChannelFavorite[];
 }
+/** The viewer's changes to a playlist group's channels, by channel item id. */
+export interface PlaylistEdit {
+  added: string[];
+  removed: string[];
+}
 /** Which channels the guide and the wall show. A playlist group is named by its tuner `group-title`. */
 export type ChannelFilter = "all" | "favorites" | `category:${LiveTvCategory}` | `group:${string}` | `playlist:${string}`;
 /** How long a manual recording (a channel without guide data) runs before it stops itself. */
@@ -38,6 +43,8 @@ export interface LiveTvPreferences {
   sort: ChannelSort;
   favorites: ChannelFavorite[];
   groups: ChannelGroup[];
+  /** Channels the viewer added to or removed from a playlist group, by group name. */
+  playlistEdits: Record<string, PlaylistEdit>;
   /** XMLTV guides the viewer added, for channels the server has no listings for; asked in order. */
   guideUrls: string[];
   /** Guide URLs switched off, the viewer's own or a playlist's declared ones alike. */
@@ -59,6 +66,7 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   sort: "number",
   favorites: [],
   groups: [],
+  playlistEdits: {},
   guideUrls: [],
   guideSourcesOff: [],
   recordingMinutes: 120,
@@ -84,6 +92,21 @@ function parseGroups(raw: unknown): ChannelGroup[] {
   return raw
     .filter((entry): entry is ChannelGroup => !!entry && typeof entry === "object" && typeof entry.id === "string" && typeof entry.name === "string")
     .map((entry) => ({ id: entry.id, name: entry.name, channels: parseChannelList(entry.channels) }));
+}
+
+function parseIdList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
+}
+
+function parsePlaylistEdits(raw: unknown): Record<string, PlaylistEdit> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const edits: Record<string, PlaylistEdit> = {};
+  for (const [name, entry] of Object.entries(raw as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") continue;
+    const { added, removed } = entry as Record<string, unknown>;
+    edits[name] = { added: parseIdList(added), removed: parseIdList(removed) };
+  }
+  return edits;
 }
 
 /** A filter naming a group that no longer exists, or a category the server has no flag for, shows everything. */
@@ -119,6 +142,7 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     sort: source.sort === "name" ? "name" : "number",
     favorites: parseChannelList(source.favorites),
     groups,
+    playlistEdits: parsePlaylistEdits(source.playlistEdits),
     // A document from before the list names its one URL as guideUrl.
     guideUrls: parseUrlList(Array.isArray(source.guideUrls) ? source.guideUrls : [source.guideUrl]),
     guideSourcesOff: parseUrlList(source.guideSourcesOff),
@@ -160,10 +184,10 @@ function usersOf(doc: Record<string, unknown>): Record<string, unknown> {
 function write(preferences: LiveTvPreferences, userId: string): void {
   try {
     const stored = readDocument();
-    const { favorites, groups, ...shared } = preferences;
+    const { favorites, groups, playlistEdits, ...shared } = preferences;
     const doc = userId
-      ? { ...shared, users: { ...usersOf(stored), [userId]: { favorites, groups } } }
-      : { ...shared, favorites, groups, ...(stored.users === undefined ? {} : { users: stored.users }) };
+      ? { ...shared, users: { ...usersOf(stored), [userId]: { favorites, groups, playlistEdits } } }
+      : { ...shared, favorites, groups, playlistEdits, ...(stored.users === undefined ? {} : { users: stored.users }) };
     Settings.set({ [LIVE_TV_PREFERENCES_KEY]: JSON.stringify(doc) });
   } catch (error) {
     logger.warn("Live TV preferences write failed", error, { service: "LiveTvPreferences" });
@@ -179,7 +203,7 @@ export function getLiveTvPreferences(): LiveTvPreferences {
   const claiming = !!userId && stored.users === undefined;
   const own = usersOf(stored)[userId];
   const lists = !userId || claiming ? stored : own && typeof own === "object" ? (own as Record<string, unknown>) : {};
-  current = parseLiveTvPreferences({ ...stored, favorites: lists.favorites, groups: lists.groups });
+  current = parseLiveTvPreferences({ ...stored, favorites: lists.favorites, groups: lists.groups, playlistEdits: lists.playlistEdits });
   currentUserId = userId;
   if (claiming) write(current, userId);
   return current;
@@ -253,6 +277,30 @@ export function activeCategory(filter: ChannelFilter): LiveTvCategory | null {
 /** The playlist group the filter names, or null. */
 export function activePlaylistGroup(filter: ChannelFilter): string | null {
   return filter.startsWith("playlist:") ? filter.slice("playlist:".length) : null;
+}
+
+/** A playlist group's channel ids as the viewer edited them: the tuner's, less the removed, plus the added. */
+export function playlistGroupIds(tunerIds: readonly string[], edit: PlaylistEdit | undefined): readonly string[] {
+  if (!edit || (edit.added.length === 0 && edit.removed.length === 0)) return tunerIds;
+  const removed = new Set(edit.removed);
+  const ids = tunerIds.filter((id) => !removed.has(id));
+  const kept = new Set(ids);
+  return ids.concat(edit.added.filter((id) => !kept.has(id)));
+}
+
+export function isChannelInPlaylistGroup(tunerIds: readonly string[], edit: PlaylistEdit | undefined, channelId: string): boolean {
+  return playlistGroupIds(tunerIds, edit).includes(channelId);
+}
+
+/** Adds the channel to the playlist group or takes it out, undoing an earlier edit before recording a new one. */
+export function toggleChannelInPlaylistGroup(name: string, tunerIds: readonly string[], channelId: string): void {
+  const { playlistEdits } = getLiveTvPreferences();
+  const edit = playlistEdits[name] ?? { added: [], removed: [] };
+  const inTuner = tunerIds.includes(channelId);
+  const next = isChannelInPlaylistGroup(tunerIds, edit, channelId)
+    ? { added: edit.added.filter((id) => id !== channelId), removed: inTuner ? edit.removed.concat(channelId) : edit.removed }
+    : { added: inTuner ? edit.added : edit.added.concat(channelId), removed: edit.removed.filter((id) => id !== channelId) };
+  updateLiveTvPreferences({ playlistEdits: { ...playlistEdits, [name]: next } });
 }
 
 export function isChannelInGroup(group: ChannelGroup, channel: ChannelIdentity): boolean {

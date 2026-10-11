@@ -44,6 +44,7 @@ import {
 } from "../jellyfinApi";
 import { EMPTY_FILTERS, JellyfinVideoItem } from "@/types/jellyfin";
 import { getConvertedDownloadUrl, serverVideoCodecs, sourceIsHdr } from "@/services/jellyfin/streamUrls";
+import { nextOffset } from "@/services/jellyfin/search";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -386,12 +387,12 @@ describe("jellyfinApi", () => {
 
     it("should return empty array for empty search term", async () => {
       const result = await searchVideos("");
-      expect(result).toEqual({ items: [], total: 0 });
+      expect(result).toEqual({ items: [], next: null });
     });
 
     it("should return empty array for whitespace-only search term", async () => {
       const result = await searchVideos("   ");
-      expect(result).toEqual({ items: [], total: 0 });
+      expect(result).toEqual({ items: [], next: null });
     });
 
     it("should call API with correct pagination parameters", async () => {
@@ -409,14 +410,13 @@ describe("jellyfinApi", () => {
         json: async () => mockResponse,
       });
 
-      const result = await searchVideos("test", { limit: 20, startIndex: 0 });
+      const result = await searchVideos("test", { limit: 20 });
 
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("SearchTerm=test"), expect.any(Object));
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("Limit=20"), expect.any(Object));
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("StartIndex=0"), expect.any(Object));
       expect(result.items).toHaveLength(2);
-      // Total preserves server's TotalRecordCount for proper pagination
-      expect(result.total).toBe(100);
+      expect(result.next).toEqual({ title: 2 });
     });
 
     it("should handle pagination with custom startIndex", async () => {
@@ -434,12 +434,11 @@ describe("jellyfinApi", () => {
         json: async () => mockResponse,
       });
 
-      const result = await searchVideos("test", { limit: 20, startIndex: 20 });
+      const result = await searchVideos("test", { limit: 20, cursor: { title: 20 } });
 
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("StartIndex=20"), expect.any(Object));
       expect(result.items).toHaveLength(2);
-      // Total preserves server's TotalRecordCount for proper pagination
-      expect(result.total).toBe(100);
+      expect(result.next).toEqual({ title: 22 });
     });
 
     it("should use default pagination values when not specified", async () => {
@@ -475,12 +474,11 @@ describe("jellyfinApi", () => {
         json: async () => mockResponse,
       });
 
-      const result = await searchVideos("action", { limit: 3, startIndex: 0 });
+      const result = await searchVideos("action", { limit: 3 });
 
-      // Total preserves server's TotalRecordCount for proper pagination
       expect(result).toEqual({
         items: mockResponse.Items,
-        total: 150,
+        next: { title: 3 },
       });
     });
 
@@ -498,8 +496,8 @@ describe("jellyfinApi", () => {
       const result = await searchVideos("test");
 
       expect(result.items).toHaveLength(1);
-      // Total now reflects actual items returned
-      expect(result.total).toBe(1);
+      // Without a count, a short page is the last one
+      expect(result.next).toBeNull();
     });
 
     it("should trim search term before sending to API", async () => {
@@ -534,7 +532,7 @@ describe("jellyfinApi", () => {
       const result = await searchVideos("nonexistent");
 
       expect(result.items).toEqual([]);
-      expect(result.total).toBe(0);
+      expect(result.next).toBeNull();
     });
 
     it("should handle last page of results correctly", async () => {
@@ -552,11 +550,10 @@ describe("jellyfinApi", () => {
         json: async () => mockResponse,
       });
 
-      const result = await searchVideos("test", { limit: 60, startIndex: 95 });
+      const result = await searchVideos("test", { limit: 60, cursor: { title: 95 } });
 
       expect(result.items).toHaveLength(2);
-      // Total preserves server's TotalRecordCount for proper pagination
-      expect(result.total).toBe(97);
+      expect(result.next).toBeNull();
     });
   });
 
@@ -764,8 +761,8 @@ describe("jellyfinApi", () => {
       expect(calls.title).toHaveLength(1);
       expect(calls.genre).toHaveLength(0);
       expect(calls.artist).toHaveLength(0);
-      // Exact server total preserved on the title-only path
-      expect(result.total).toBe(42);
+      // The title source alone carries the next page
+      expect(result.next).toEqual({ title: 1 });
     });
 
     it("should degrade to title-only search when facet endpoints fail", async () => {
@@ -784,8 +781,90 @@ describe("jellyfinApi", () => {
       const result = await searchVideos("kimmy");
 
       expect(result.items).toHaveLength(1);
-      expect(result.total).toBe(1);
+      expect(result.next).toBeNull();
       expect(itemsCalls).toBe(1);
+    });
+
+    it("starts each source's next page at the offset that source itself reached", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Comedy"],
+        titleResponse: {
+          Items: [
+            { Id: "t1", Name: "Comedy One", Type: "Movie" },
+            { Id: "t2", Name: "Comedy Two", Type: "Movie" },
+          ],
+          TotalRecordCount: 5,
+        },
+        genreResponse: {
+          Items: [
+            { Id: "t1", Name: "Comedy One", Type: "Movie" },
+            { Id: "g1", Name: "Funny", Type: "Movie" },
+            { Id: "g2", Name: "Funnier", Type: "Movie" },
+          ],
+          TotalRecordCount: 10,
+        },
+      });
+
+      const first = await searchVideos("comedy", { limit: 3 });
+      // Four unique cards from five raw items: the offsets come from the raw pages.
+      expect(first.items).toHaveLength(4);
+      expect(first.next).toEqual({ title: 2, genre: 3 });
+
+      await searchVideos("comedy", { limit: 3, cursor: first.next ?? undefined });
+      expect(calls.title[1]).toContain("StartIndex=2");
+      expect(calls.genre[1]).toContain("StartIndex=3");
+    });
+
+    it("stops asking a source once it is exhausted, and reports no next page when all are", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Comedy"],
+        titleResponse: { Items: [{ Id: "t1", Name: "Comedy One", Type: "Movie" }], TotalRecordCount: 1 },
+        genreResponse: { Items: [{ Id: "g1", Name: "Funny", Type: "Movie" }], TotalRecordCount: 4 },
+      });
+
+      const first = await searchVideos("comedy", { limit: 1 });
+      expect(first.next).toEqual({ genre: 1 });
+
+      const second = await searchVideos("comedy", { limit: 1, cursor: first.next ?? undefined });
+      expect(calls.title).toHaveLength(1);
+      expect(calls.genre).toHaveLength(2);
+      expect(second.next).toEqual({ genre: 2 });
+    });
+
+    it("asks a failed facet again from the same place while another source has pages, and drops it once none does", async () => {
+      const failingGenre = (titleTotal: number) =>
+        (global.fetch as jest.Mock).mockImplementation((rawUrl: string) => {
+          const url = decodeURIComponent(rawUrl);
+          const respond = (body: unknown) => Promise.resolve({ ok: true, json: async () => body });
+          if (url.includes("/MusicGenres?") || url.includes("/Artists?")) return respond({ Items: [] });
+          if (url.includes("/Genres?")) return respond({ Items: [{ Id: "genre-Comedy", Name: "Comedy" }] });
+          if (url.includes("&Genres=")) return Promise.reject(new Error("Network request failed"));
+          return respond({ Items: [{ Id: `t${titleTotal}`, Name: "Comedy One", Type: "Movie" }], TotalRecordCount: titleTotal });
+        });
+
+      failingGenre(5);
+      expect((await searchVideos("comedy", { limit: 1 })).next).toEqual({ title: 1, genre: 0 });
+
+      failingGenre(1);
+      expect((await searchVideos("comedy", { limit: 1, cursor: { genre: 0 } })).next).toBeNull();
+    });
+  });
+
+  describe("nextOffset", () => {
+    it("advances by the raw page while the server reports more", () => {
+      expect(nextOffset(0, { items: [1, 2], total: 5 }, 2)).toBe(2);
+      expect(nextOffset(4, { items: [1], total: 5 }, 2)).toBeUndefined();
+    });
+
+    it("falls back to a full page meaning more when the server omits its count", () => {
+      expect(nextOffset(0, { items: [1, 2] }, 2)).toBe(2);
+      expect(nextOffset(2, { items: [1] }, 2)).toBeUndefined();
+    });
+
+    it("treats a source never asked, or an empty page, as exhausted", () => {
+      expect(nextOffset(undefined, { items: [1] }, 1)).toBeUndefined();
+      expect(nextOffset(0, undefined, 1)).toBeUndefined();
+      expect(nextOffset(0, { items: [], total: 9 }, 1)).toBeUndefined();
     });
   });
 

@@ -20,10 +20,10 @@ const EXPLICIT_MARKER = /\bS\d{1,2}[ ._-]?E\d{1,4}\b|\bSeason[ ._-]?\d{1,2}[ ._-
 // the disc (AudioFileProber). Never a season/episode pair, whatever the name says.
 const TRACK_NUMBERED_TYPES = new Set(["Audio", "AudioBook"]);
 
-export type SeasonEpisodeSource = Pick<JellyfinVideoItem, "Name" | "Path" | "IndexNumber" | "ParentIndexNumber"> & Partial<Pick<JellyfinVideoItem, "Type">>;
+export type SeasonEpisodeSource = Pick<JellyfinVideoItem, "Name" | "Path" | "IndexNumber" | "ParentIndexNumber"> & Partial<Pick<JellyfinVideoItem, "Type" | "IndexNumberEnd">>;
 
-/** The season/episode pair behind a tag; season is null for a bare "E05". */
-export type SeasonEpisode = { season: number | null; episode: number };
+/** The season/episode pair behind a tag; season is null for a bare "E05", episodeEnd set for a multi-episode file. */
+export type SeasonEpisode = { season: number | null; episode: number; episodeEnd?: number };
 
 /**
  * Season/episode for an item, or null when it isn't derivable. Server metadata
@@ -41,10 +41,10 @@ export function parseSeasonEpisode(item: SeasonEpisodeSource): SeasonEpisode | n
   if (!untagged) {
     if (item.ParentIndexNumber != null && item.IndexNumber != null) {
       if (isSplitYear(item.ParentIndexNumber, item.IndexNumber, texts)) return null;
-      return { season: item.ParentIndexNumber, episode: item.IndexNumber };
+      return withEpisodeEnd({ season: item.ParentIndexNumber, episode: item.IndexNumber }, item.IndexNumberEnd);
     }
     if (item.IndexNumber != null && item.Type === "Episode") {
-      return { season: null, episode: item.IndexNumber };
+      return withEpisodeEnd({ season: null, episode: item.IndexNumber }, item.IndexNumberEnd);
     }
   }
 
@@ -66,11 +66,18 @@ export function parseSeasonEpisode(item: SeasonEpisodeSource): SeasonEpisode | n
   return null;
 }
 
-/** "S01E05" / "E05" tag for an item, or null when it isn't derivable. */
+/** "S01E05" / "E05" / "S01E01-E02" tag for an item, or null when it isn't derivable. */
 export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
   const pair = parseSeasonEpisode(item);
   if (pair === null) return null;
-  return pair.season === null ? episodeTag(pair.episode) : seasonEpisodeTag(pair.season, pair.episode);
+  const tag = pair.season === null ? episodeTag(pair.episode) : seasonEpisodeTag(pair.season, pair.episode);
+  return pair.episodeEnd === undefined ? tag : `${tag}-${episodeTag(pair.episodeEnd)}`;
+}
+
+/** Episode number as prose: "5", or "1-2" for a multi-episode file. */
+export function formatEpisodeNumber(item: SeasonEpisodeSource): string | null {
+  if (item.IndexNumber == null) return null;
+  return item.IndexNumberEnd != null && item.IndexNumberEnd > item.IndexNumber ? `${item.IndexNumber}-${item.IndexNumberEnd}` : String(item.IndexNumber);
 }
 
 /**
@@ -152,6 +159,11 @@ function fileNameOf(path: string | undefined): string | undefined {
   if (!path) return undefined;
   const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   return cut >= 0 ? path.slice(cut + 1) : path;
+}
+
+/** The range end only when the server's IndexNumberEnd extends past the first episode. */
+function withEpisodeEnd(pair: SeasonEpisode, end: number | undefined): SeasonEpisode {
+  return end != null && end > pair.episode ? { ...pair, episodeEnd: end } : pair;
 }
 
 function seasonEpisodeTag(season: number, episode: number): string {

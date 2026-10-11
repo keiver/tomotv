@@ -1,8 +1,8 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
-import { CardMark } from "@/components/card-mark";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { LiveClip } from "@/components/live-tv/live-clip";
+import { LiveFreshnessBadge } from "@/components/live-tv/live-freshness-badge";
 import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -17,11 +17,12 @@ import { isAudioItem, isBook } from "@/services/jellyfinApi";
 import { LIVE_FRAME_TRANSITION_MS, type LiveFrame } from "@/services/liveFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
+import { withAlpha } from "@/utils/color";
 import { formatClock, formatDayLabel } from "@/utils/guide";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
 
@@ -32,6 +33,10 @@ const IS_TV = Platform.isTV;
 const SCREEN = Dimensions.get("screen");
 const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
 const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
+/** The favorite heart at a channel title's left end: under the title's cap height. */
+const QUIET_MARK_SIZE = Math.round(TITLE_SIZE * 0.8);
+/** A channel's title centres wherever the card is wide: TV, iPad, Mac. */
+const CHANNEL_TITLE_CENTERED = IS_TV || IS_TABLET;
 /** The channel logo over a live frame: the badge's height, twice as wide. */
 const LOGO_MARK_HEIGHT = IS_TV ? 40 : 26;
 const CARD_PADDING = IS_TV ? 16 : 8;
@@ -43,10 +48,10 @@ const BAR_PADDING_V = IS_TV ? 10 : 8;
 const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 
-/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track, and the watched eye. */
+/** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
 export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
-  // A channel with something on air wears the live mark; the title bar names the programme.
-  if (video.Type === "TvChannel") return video.CurrentProgram?.Name?.trim() ? [{ label: t("liveTv.live") }] : null;
+  // A channel's mark is the freshness badge, keyed to its own pictures, never a pill from here.
+  if (video.Type === "TvChannel") return null;
   // A programme from search: live while it airs, when it starts before then, nothing once it ended.
   // Recording, REC takes LIVE's place and a scheduled start wears the camera.
   if (video.Type === "Program") {
@@ -63,28 +68,19 @@ export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Dat
     else if (badge.disc !== null) segments.push({ icon: "disc", label: badge.disc }, { icon: "musical-note", label: badge.label });
     else segments.push({ icon: "musical-note", label: badge.label });
   }
-  // Watched mark, the info panel's eye; music stays out (every full listen marks a track played, which is noise, not state).
-  if (video.UserData?.Played && video.Type !== "Audio") segments.push({ icon: "eye" });
   return segments.length > 0 ? segments : null;
 }
 
-type Mark = ComponentProps<typeof CardMark>;
-
-/** A channel card's marks: the tuner's number as the cards' gold pill when it gives one, the favorite heart after LIVE (REC while recording). */
-export function channelMarks(
-  video: Pick<JellyfinVideoItem, "Type" | "ChannelNumber">,
-  titleIcon?: keyof typeof Ionicons.glyphMap,
-  accent: string = COLORS.ACCENT,
-): { number?: string; trailing: Mark[] } {
-  const trailing: Mark[] = [];
-  if (video.Type !== "TvChannel") return { trailing };
-  if (titleIcon) trailing.push({ icon: titleIcon, color: accent });
-  return { number: video.ChannelNumber?.trim() || undefined, trailing };
+/** Watched, as the title bar marks it; music stays out (every full listen marks a track played, which is noise, not state) and live cards never hold it. */
+export function isWatched(video: Pick<JellyfinVideoItem, "Type" | "UserData">): boolean {
+  return !!video.UserData?.Played && video.Type !== "Audio" && video.Type !== "TvChannel" && video.Type !== "Program";
 }
 
-/** A programme card names its episode after the show, falling back to the channel when the guide gives no episode. */
+/** A programme card names its episode after the show, and never the channel: a show named for its channel gives way to the episode. */
 export function programCardTitle(video: Pick<JellyfinVideoItem, "Name" | "EpisodeTitle" | "ChannelName">): string {
-  return joinTitle(cleanLabel(video.Name), cleanLabel(video.EpisodeTitle) || cleanLabel(video.ChannelName));
+  const show = cleanLabel(video.Name);
+  const episode = cleanLabel(video.EpisodeTitle);
+  return episode && show === cleanLabel(video.ChannelName) ? episode : joinTitle(show, episode);
 }
 
 /** "Lead - Detail", or the lead alone when the detail is missing or repeats it. */
@@ -131,8 +127,6 @@ interface VideoGridItemProps {
   titleIcon?: keyof typeof Ionicons.glyphMap;
   /** Channel cards: leave the airing programme off the title (the guide beside them shows it). */
   hideAiring?: boolean;
-  /** Channel cards: leave the channel number pill off (the guide column). */
-  hideNumber?: boolean;
   /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
   liveFrame?: { uri: string; cacheKey: string };
   /** Channel cards: the channel's preview clip file, looped over the frame while the card holds focus. */
@@ -151,8 +145,6 @@ interface VideoGridItemProps {
   inert?: boolean;
   /** A bundled picture (a require'd module) in place of the item's own: the theme editor's preview. */
   poster?: number;
-  /** The binge's next episode in its folder: its index pill wears the focused fill at rest too. */
-  bingeNext?: boolean;
 }
 
 /**
@@ -187,7 +179,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     numColumns,
     titleIcon,
     hideAiring = false,
-    hideNumber = false,
     liveFrame,
     liveClip,
     clipActive = false,
@@ -197,7 +188,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     inset,
     inert = false,
     poster,
-    bingeNext = false,
   },
   ref,
 ) {
@@ -230,7 +220,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   );
 
   // The server poster, or the keyframe the engine makes for a card the server left blank.
-  const posterSource = useItemPoster(video, POSTER_SIZE);
+  const posterSource = useItemPoster(video, POSTER_SIZE, { deferWhileVideo: true });
 
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
@@ -239,18 +229,17 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const badgeSegments = useMemo(
     () => indexBadgeSegments(video, clockMs || Date.now(), recording),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.CurrentProgram?.Name, video.StartDate, video.EndDate, video.UserData?.Played, clockMs, recording],
+    [video.Name, video.Path, video.IndexNumber, video.ParentIndexNumber, video.Type, video.StartDate, video.EndDate, video.UserData?.Played, clockMs, recording],
   );
   const isChannel = video.Type === "TvChannel";
   const logoPoster = showsChannelLogo(video) && !liveFrame;
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
-  // A channel card names what is on, then the channel: the logo and the badge already say which channel.
+  // A channel card names what is on: the logo and the badge already say which channel.
   const videoName = cleanLabel(video.Name);
-  // A channel's marks ride its badge row; its title stays alone.
-  const titleMarkIcon = isChannel ? undefined : titleIcon;
-  const marks = channelMarks(video, titleIcon, palette.accent);
-  if (hideNumber) marks.number = undefined;
-  const cardTitle = airingName ? joinTitle(cleanLabel(airingName), videoName) : video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown");
+  const watched = isWatched(video);
+  // One mark at a time: the watched eye outranks a passed icon (a watched recording drops the camera).
+  const titleMarkIcon = watched ? "eye" : titleIcon;
+  const cardTitle = cleanLabel(airingName) || (video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown"));
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -287,12 +276,18 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // at 0 (a just-started video whose position hasn't synced yet). The fill is
   // floored at 5% below so "just starting" is always visible; grids that pass
   // no progressPercent are unaffected.
+  // A channel's mark is its favorite heart: smaller and dimmed, a presence beside the name.
   const renderTitleMark = (color: string) =>
     titleMarkIcon ? (
       <View style={styles.titleMark} pointerEvents="none">
-        <Ionicons name={titleMarkIcon} size={TITLE_SIZE} color={color} />
+        <Ionicons name={titleMarkIcon} size={isChannel ? QUIET_MARK_SIZE : TITLE_SIZE} color={isChannel ? withAlpha(color, 0.65) : color} />
       </View>
     ) : null;
+  const titleText = (color: string) => (
+    <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color }, isChannel && styles.infoValueTitleChannel])}>
+      {cardTitle}
+    </MarqueeText>
+  );
   const hasProgress = progressPercent != null;
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
 
@@ -350,7 +345,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               />
               {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
               <CardScrim />
-              {(focused || bingeNext) && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
+              {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
               {liveFrame && posterSource ? (
                 <>
                   <CardCornerScrim corner="right" />
@@ -402,48 +397,42 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%`, backgroundColor: palette.accent }]} pointerEvents="none" />
               <View style={[styles.infoTitleBlend, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(palette.accent)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color: palette.accent }, isChannel && styles.infoValueTitleChannel])}>
-                  {cardTitle}
-                </MarqueeText>
+                {titleText(palette.accent)}
               </View>
             </View>
-          ) : // Focused: opaque gold bar
-          focused ? (
+          ) : // Focused or watched: opaque gold bar (the watched bar is the fill at its end state, under the ink eye)
+          focused || watched ? (
             <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
               <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(palette.ink)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color: palette.ink }, isChannel && styles.infoValueTitleChannel])}>
-                  {cardTitle}
-                </MarqueeText>
+                {titleText(palette.ink)}
               </View>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
               <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(palette.accent)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color: palette.accent }, isChannel && styles.infoValueTitleChannel])}>
-                  {cardTitle}
-                </MarqueeText>
+                {titleText(palette.accent)}
               </View>
             </View>
           )}
 
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
-          {offline || badgeSegments || recording || marks.number || marks.trailing.length > 0 ? (
+          {offline || badgeSegments || (isChannel && (recording || liveFrame || airingName)) ? (
             <View style={styles.indexBadge} pointerEvents="none">
-              {/* Gold at rest too: the number is the channel's, not a state of the card. */}
-              {marks.number ? <CardBadge segments={[{ label: marks.number }]} focused slim /> : null}
               {offline ? (
                 <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} tone="live" />
               ) : isChannel && recording ? (
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
+              ) : isChannel && liveFrame ? (
+                <LiveFreshnessBadge channelId={video.Id} />
+              ) : isChannel ? (
+                // A logo card has no picture to age: LIVE is the guide's claim about the programme in the title.
+                <CardBadge segments={[{ label: t("liveTv.live") }]} focused={focused} tone="live" />
               ) : badgeSegments ? (
-                <CardBadge segments={badgeSegments} focused={focused || bingeNext} tone={video.Type === "TvChannel" || video.Type === "Program" ? "live" : "gold"} />
+                <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "Program" ? "live" : "gold"} />
               ) : null}
-              {marks.trailing.map((mark) => (
-                <CardMark key={mark.icon} {...mark} />
-              ))}
             </View>
           ) : null}
 
@@ -482,7 +471,6 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     // Played drives the watched segment; annotation passes flip it on same-Id items.
     prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
     prevProps.video.CurrentProgram?.Name === nextProps.video.CurrentProgram?.Name &&
-    prevProps.video.ChannelNumber === nextProps.video.ChannelNumber &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&
@@ -501,7 +489,6 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.numColumns === nextProps.numColumns &&
     prevProps.titleIcon === nextProps.titleIcon &&
     prevProps.hideAiring === nextProps.hideAiring &&
-    prevProps.hideNumber === nextProps.hideNumber &&
     prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
     prevProps.liveClip?.uri === nextProps.liveClip?.uri &&
     prevProps.clipActive === nextProps.clipActive &&
@@ -511,8 +498,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.inset?.vertical === nextProps.inset?.vertical &&
     prevProps.inset?.horizontal === nextProps.inset?.horizontal &&
     prevProps.inert === nextProps.inert &&
-    prevProps.poster === nextProps.poster &&
-    prevProps.bingeNext === nextProps.bingeNext
+    prevProps.poster === nextProps.poster
   );
 }
 
@@ -690,6 +676,7 @@ const styles = StyleSheet.create({
   infoValueTitleChannel: {
     fontSize: TITLE_SIZE - 2,
     textTransform: "uppercase",
+    textAlign: CHANNEL_TITLE_CENTERED ? "center" : "left",
   },
   // The accent title on progress cards runs through a difference blend: over the accent fill it
   // cancels to black, over the dark bar it stays the accent, per pixel at the fill edge.

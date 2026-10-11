@@ -38,6 +38,7 @@ import {
   engineInputMissing,
   engineProgress,
   engineStarving,
+  liveStarving,
   liveSubtitleRenditions,
   localRemuxToken,
   READ_BOUND_SHARE,
@@ -88,6 +89,7 @@ import { audioLanguageToStore, getAudioPreferenceSync, preferredAudioStreamIndex
 import { refreshTrackSettings } from "@/services/jellyfin/trackSettings";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 import { t } from "@/services/i18n";
+import { showToast } from "@/services/toast";
 import { errorIdOf, formatErrorRef, IdentifiedError, nativeErrorOf, PLAYBACK_ERROR_IDS, type LaneTag, type PlaybackErrorId } from "@/utils/errorIds";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { gatewayMaxBitRate } from "@/services/adaptiveQuality";
@@ -127,6 +129,8 @@ import {
   DIRECT_STALL_DEADLINE_MS,
   ENGINE_PREFLIGHT_CAP_MS,
   ENGINE_SEGMENT_DEADLINE_MS,
+  LIVE_START_BUFFER_CAP_MS,
+  LIVE_START_BUFFER_SEGMENTS,
   LIVE_START_DEADLINE_MS,
   LIVE_STALL_DEADLINE_MS,
   PLAYER_BUFFER_REPORT_MS,
@@ -382,6 +386,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const copyOnlyRef = useRef(false);
   /** The item already rebuilt one starving copy-only session on the engine; the next goes to the server. */
   const copyRebuiltRef = useRef(false);
+  /** The starving-source toast fired for this live session; one is information, two is nagging. */
+  const liveStarvedToastRef = useRef(false);
   /** The provider this run owns on the non-engine lanes; the engine lane serves its own frames. */
   const frameProviderTokenRef = useRef<string | null>(null);
   /** The provider serving the server lanes' I-frame rendition, apart from the chapter one above. */
@@ -1182,6 +1188,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // On the tier lane the primary is unproducible by design; its starvation is not
             // a reason to abandon the tier for a higher-bitrate server transcode.
             if (engineStarving(throughputRef.current.samples) && !onTierLaneRef.current) handOverToServer(details, sample);
+            // A starving live feed has no lane to flee to: say so once, out loud,
+            // so the stall reads as the source's limit and not the app's fault.
+            if (isLiveRef.current && !liveStarvedToastRef.current && liveStarving(throughputRef.current.samples)) {
+              liveStarvedToastRef.current = true;
+              showToast(t("liveTv.sourceTooSlow"), "info");
+              logger.warn("Live source under-delivering", {
+                service: "useVideoPlayback",
+                cushion: sample.cushion,
+                readSeconds: sample.readSeconds,
+                produceSeconds: sample.produceSeconds,
+                segmentSeconds: sample.segmentSeconds,
+              });
+            }
           });
           // The engine's measured link becomes AVPlayer's ceiling, so it picks among the
           // variants the link carries instead of the ones the loopback makes look free. Applied
@@ -1333,6 +1352,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 segmentSeconds: sample.segmentSeconds,
                 readSeconds: sample.readSeconds,
               });
+              // A read-bound live start buys runway before the player binds: the
+              // spinner holds until two segments stand ahead or the cap passes,
+              // so origin jitter drains a cushion instead of stalling frame one.
+              if (keptFor === "live" && readBound(sample)) {
+                const gateStarted = Date.now();
+                while (Date.now() - gateStarted < LIVE_START_BUFFER_CAP_MS && requestIdRef.current === currentRequestId) {
+                  const cushion = throughputRef.current.samples.at(-1)?.cushion ?? sample.cushion;
+                  if (cushion >= LIVE_START_BUFFER_SEGMENTS) break;
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                }
+                logger.info("Live start buffer gate released", {
+                  service: "useVideoPlayback",
+                  waitedSeconds: (Date.now() - gateStarted) / 1000,
+                  cushion: throughputRef.current.samples.at(-1)?.cushion ?? sample.cushion,
+                });
+              }
             } else if (!sample || belowRealtime(sample)) {
               // A channel, or a session that read nothing, says nothing about the device: no verdict.
               // Nor does one the server-off wait ended, which stops only when the reads stop.
@@ -2898,6 +2933,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
     copyRebuiltRef.current = false;
+    liveStarvedToastRef.current = false;
     liveReopenedRef.current = false;
     liveLaneRef.current = "engine";
     dropThroughputWatch(throughputRef.current);
@@ -3242,6 +3278,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
     copyRebuiltRef.current = false;
+    liveStarvedToastRef.current = false;
     liveReopenedRef.current = false;
     liveLaneRef.current = "engine";
     heldEngineSpentRef.current = false;

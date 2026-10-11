@@ -1,4 +1,8 @@
 import { cachedRequest, clearRequestCache, invalidateByPrefix, invalidateRequest } from "@/services/requestCache";
+import { AppState } from "react-native";
+
+/** The memory warning listener the cache attached when it last started holding entries. */
+const memoryWarning = () => (AppState.addEventListener as jest.Mock).mock.calls.filter(([type]) => type === "memoryWarning").at(-1)?.[1] as () => void;
 
 describe("requestCache", () => {
   beforeEach(() => {
@@ -107,5 +111,46 @@ describe("requestCache", () => {
     await cachedRequest("k", fetcher, 1000);
 
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  describe("on a clock", () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => {
+      clearRequestCache();
+      jest.useRealTimers();
+    });
+
+    it("lets go of a key nobody asks for again once its TTL has passed, and then stops sweeping", async () => {
+      await cachedRequest("search:abandoned", jest.fn().mockResolvedValue("v"), 30_000);
+      expect(jest.getTimerCount()).toBe(1);
+
+      jest.advanceTimersByTime(60_000);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it("keeps sweeping while a live entry remains", async () => {
+      await cachedRequest("short", jest.fn().mockResolvedValue("v"), 30_000);
+      await cachedRequest("long", jest.fn().mockResolvedValue("v"), 300_000);
+
+      jest.advanceTimersByTime(60_000);
+      expect(jest.getTimerCount()).toBe(1);
+    });
+  });
+
+  it("drops settled entries on a memory warning and keeps the reads in flight shared", async () => {
+    const settled = jest.fn().mockResolvedValue("v");
+    await cachedRequest("settled", settled, 1000);
+    let land!: (value: string) => void;
+    const pending = jest.fn(() => new Promise<string>((resolve) => (land = resolve)));
+    const first = cachedRequest("pending", pending, 1000);
+
+    memoryWarning()();
+
+    await cachedRequest("settled", settled, 1000);
+    expect(settled).toHaveBeenCalledTimes(2);
+    const second = cachedRequest("pending", pending, 1000);
+    land("p");
+    await expect(Promise.all([first, second])).resolves.toEqual(["p", "p"]);
+    expect(pending).toHaveBeenCalledTimes(1);
   });
 });

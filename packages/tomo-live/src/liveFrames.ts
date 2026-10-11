@@ -348,7 +348,10 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
 export function setLiveFrameFocus(channelId: string | null): void {
   if (focusCandidate === channelId) return;
   focusCandidate = channelId;
+  const demoted = priority;
   priority = null;
+  // Promotion moves a card's next-grab time; its badge re-reads the due on each notify.
+  if (demoted) notify(demoted);
   if (focusTimer) clearTimeout(focusTimer);
   focusTimer = null;
   showLivePreview(null);
@@ -358,6 +361,7 @@ export function setLiveFrameFocus(channelId: string | null): void {
   focusTimer = setTimeout(() => {
     focusTimer = null;
     priority = channelId;
+    notify(channelId);
     if (!running()) return;
     schedule(0);
     // The card promoted past its dwell warms an engine session on its origin, so a play press binds to it.
@@ -506,6 +510,8 @@ async function grab(channelId: string): Promise<void> {
       item.failure = undefined;
       openFailStreak = 0;
       noteChannelAlive(channelId);
+      // The due moved and the pictures re-dated: the freshness badge re-reads; picture hooks bail on the same burst object.
+      notify(channelId);
     } else if (result?.uris?.length) {
       item.burst = burstOf(channelId, result.uris, now, result.clip);
       item.clipAsked = true;
@@ -580,6 +586,15 @@ export function liveClipFor(channelId: string): LiveFrame | undefined {
 /** The channel's whole valid burst in grab order with when it was taken, for the focus reel. */
 export function liveFrameReel(channelId: string): { frames: LiveFrame[]; at: number } | undefined {
   return validBurst(channelId, Date.now());
+}
+
+/** When the sampler means to read the channel again: the shown burst's refresh, the focused card's short floor, failures' backoff. */
+export function liveFrameDueAt(channelId: string): number | undefined {
+  const item = entries.get(channelId);
+  if (!item || !validBurst(channelId, Date.now())) return undefined;
+  const interval = item.intervalMs ?? LIVE_FRAME_REFRESH_MS;
+  const floor = priority === channelId ? Math.min(LIVE_FRAME_FOCUS_REFRESH_MS, interval) : interval;
+  return Math.max(item.lastAt + floor, backoffUntil(item.failure));
 }
 
 export function subscribeLiveFrame(channelId: string, listener: () => void): () => void {

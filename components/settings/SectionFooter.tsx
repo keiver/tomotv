@@ -9,15 +9,23 @@ interface SectionFooterProps {
   layout?: ComponentProps<typeof Animated.View>["layout"];
   /** "top" heads the card instead: the card's top edge casts into the note. */
   edge?: "top" | "bottom";
+  /** Holds focusables: the shadow rides the footer itself, under its content, since an overlay would take tvOS focus. */
+  focusable?: boolean;
 }
 
 /**
  * The info area at the foot of a section card: full width, square across the top so it reads as
- * the card running out into it, rounded by the card's own clip. Nothing inside is pressable,
- * which is what lets it carry an overlay at all.
+ * the card running out into it, rounded by the card's own clip.
  */
-export function SectionFooter({ children, layout, edge = "bottom" }: SectionFooterProps) {
+export function SectionFooter({ children, layout, edge = "bottom", focusable }: SectionFooterProps) {
   const shadow = edge === "top" ? [styles.shadowClipTop, settingsStyles.noteShadowTop] : [styles.shadowClip, settingsStyles.noteShadow];
+  if (focusable) {
+    return (
+      <Animated.View layout={layout} style={shadow}>
+        {children}
+      </Animated.View>
+    );
+  }
   return (
     // No clip of its own: a second mask on the card's curve lets the card's light rim bleed
     // through the antialiased corner pixels.

@@ -61,6 +61,10 @@ export async function captureShots(config, plan, { root, captureDir, bundleId, s
 
   for (const { deviceKey, shots } of wanted) {
     const profile = DEVICES[deviceKey];
+    if (!profile.simulator) {
+      log(`\n▸ ${deviceKey}: capture manually into applestore/captures/${deviceKey}/`);
+      continue;
+    }
     log(`\n▸ ${deviceKey} — ${profile.simulator}`);
     const device = await sim.ensureBooted(await sim.resolveDevice(profile.simulator));
     await sim.assertInstalled(device.udid, bundleId);

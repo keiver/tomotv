@@ -4,7 +4,7 @@ import { NativeModules, Platform } from "react-native";
 /** The machine the app is on, as the diagnostics story names it. */
 export type DeviceName = "iPhone" | "iPad" | "Mac" | "Apple TV";
 
-type Environment = { isMac?: boolean; model?: string; marketingName?: string | null; cores?: number; memoryBytes?: number };
+type Environment = { isMac?: boolean; isiOSAppOnMac?: boolean; model?: string; marketingName?: string | null; cores?: number; memoryBytes?: number };
 
 /**
  * native/ios/MultiAudioResourceLoader/DeviceEnvironment. React Native cannot tell a Mac: an
@@ -28,6 +28,15 @@ const ENVIRONMENT = readEnvironment();
 export const IS_MAC = ENVIRONMENT.isMac === true;
 
 export const THIS_DEVICE: DeviceName = Platform.isTV ? "Apple TV" : IS_MAC ? "Mac" : Platform.OS === "ios" && Platform.isPad ? "iPad" : "iPhone";
+
+/** The platform this binary targets. On a Mac, Catalyst and the iPad binary are different builds. */
+export function platformLabel(isTV: boolean, isMac: boolean, isiOSAppOnMac: boolean, isPad: boolean): string {
+  if (isTV) return "tvOS";
+  if (isMac) return isiOSAppOnMac ? "iPad on Mac" : "Mac Catalyst";
+  return isPad ? "iPadOS" : "iOS";
+}
+
+export const APP_PLATFORM = platformLabel(Platform.isTV, IS_MAC, ENVIRONMENT.isiOSAppOnMac === true, Platform.OS === "ios" && Platform.isPad);
 
 /** Apple's model identifier ("AppleTV6,2"), null where the native module is absent. */
 export const DEVICE_MODEL: string | null = typeof ENVIRONMENT.model === "string" && ENVIRONMENT.model ? ENVIRONMENT.model : null;

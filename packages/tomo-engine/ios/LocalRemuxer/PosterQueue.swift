@@ -28,9 +28,30 @@ final class PosterQueue {
     private var cancelled = Set<String>()
     private var pending: [Pending] = []
     private var draining = false
+    // Video playback parks the jobs already waiting; the grab mid-run finishes, and a request
+    // made while parked still runs, so the player's own artwork is never held behind the backlog.
+    private var parked: [Pending] = []
+    private var paused = false
 
     init(root: URL = ChapterFramePool.root) {
         self.root = root
+    }
+
+    /// Parks the waiting backlog, or returns it behind anything newer that asked meanwhile.
+    func setPaused(_ value: Bool) {
+        lock.lock()
+        if value && !paused {
+            parked.append(contentsOf: pending)
+            pending.removeAll()
+        } else if !value && paused {
+            pending.insert(contentsOf: parked, at: 0)
+            parked.removeAll()
+        }
+        paused = value
+        let resume = !value && !pending.isEmpty && !draining
+        if resume { draining = true }
+        lock.unlock()
+        if resume { queue.async { [self] in drain() } }
     }
 
     /// Resolution of a request: the poster's file URL (`fresh` when decoded now rather than found),
@@ -107,8 +128,9 @@ final class PosterQueue {
     func cancel(itemId: String) {
         lock.lock()
         cancelled.insert(itemId)
-        let withdrawn = pending.filter { $0.itemId == itemId }
+        let withdrawn = pending.filter { $0.itemId == itemId } + parked.filter { $0.itemId == itemId }
         pending.removeAll { $0.itemId == itemId }
+        parked.removeAll { $0.itemId == itemId }
         lock.unlock()
         for job in withdrawn { job.completion(.cancelled) }
     }

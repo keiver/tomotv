@@ -3,7 +3,7 @@
     "name": "Tomo TV",
     "slug": "tomotv",
     "description": "Stream any video from your Jellyfin server. Automatic transcoding handles incompatible formats so you can just hit play and watch.",
-    "version": "2.2.10",
+    "version": "2.2.11",
     "orientation": "default",
     "icon": "./assets/brand/tomo-tv.png",
     "scheme": "tomotv",
@@ -12,7 +12,7 @@
       "supportsTablet": true,
       "appleTeamId": "64QR53M8C9",
       "bundleIdentifier": "dev.keiver.tomotv",
-      "buildNumber": "10",
+      "buildNumber": "3",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -30,6 +30,7 @@
       }
     },
     "plugins": [
+      "./plugins/withMacCatalyst",
       "expo-router",
       [
         "expo-build-properties",
@@ -75,8 +76,8 @@
           },
           "appStore": {
             "outDir": "./applestore/generated/listing",
-            "header": { "source": "./applestore/listing/artwork.svg", "animate": { "rows": 20 } },
-            "searchResults": { "source": "./applestore/listing/artwork.svg", "animate": { "rows": 20 } },
+            "header": { "source": "./applestore/listing/artwork.svg", "animate": { "rise": 20 } },
+            "searchResults": { "source": "./applestore/listing/artwork.svg", "animate": { "rise": 20 } },
             "universal": { "source": "./applestore/listing/artwork.svg" },
             "eventCard": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } },
             "eventDetails": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } },

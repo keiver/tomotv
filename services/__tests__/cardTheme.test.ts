@@ -1,6 +1,6 @@
 /** Card themes: the built-ins, the derived ink, the contrast warning and reading a stored theme. */
 import { COLORS } from "@/constants/colors";
-import { BUILT_IN_THEMES, cardPalette, DEFAULT_CARD_THEME, derivePalette, isLowContrast, newThemeId, parseCardTheme, themeToSave } from "@/services/cardTheme";
+import { BUILT_IN_THEMES, cardPalette, DEFAULT_CARD_THEME, derivePalette, isLowContrast, NEUTRAL_GLOW, newThemeId, parseCardTheme, themeToSave } from "@/services/cardTheme";
 import { contrastRatio, hexToHsb } from "@/utils/color";
 
 describe("cardTheme", () => {
@@ -36,7 +36,18 @@ describe("cardTheme", () => {
       accentDeep: COLORS.ACCENT_DEEP,
       onAccent: COLORS.ON_ACCENT,
       ink: COLORS.ON_ACCENT_WARM,
+      glow: NEUTRAL_GLOW,
     });
+  });
+
+  it("glows the canvas in a pale near-bright of the accent's hue; the gold keeps the neutral light", () => {
+    expect(cardPalette(COLORS.ACCENT).glow).toBe(NEUTRAL_GLOW);
+    for (const theme of BUILT_IN_THEMES.slice(1)) {
+      const glow = hexToHsb(derivePalette(theme.accent).glow);
+      expect(Math.abs(glow.h - hexToHsb(theme.accent).h)).toBeLessThan(2);
+      expect(glow.s).toBeLessThanOrEqual(0.45);
+      expect(glow.b).toBeCloseTo(0.94, 2);
+    }
   });
 
   it("derives the other tones in gold's own steps: focus lighter, dim and deep darker, hue held", () => {

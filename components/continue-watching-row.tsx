@@ -3,7 +3,7 @@ import { VideoGridItem } from "@/components/video-grid-item";
 import { ArtworkSlotShape, itemSlotShape } from "@/constants/app";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
-import { containerKey, resolveNextUp } from "@/services/nextUp";
+import { byLastPlayed, containerKey, resolveNextUp } from "@/services/nextUp";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useIsFocused, useRouter } from "expo-router";
@@ -16,36 +16,34 @@ const IS_TV = Platform.isTV;
 interface ResumeItem {
   video: JellyfinVideoItem;
   progressPercent: number; // 0–1
+  /** A next-up card's rank: when the item before it was finished. Resume cards rank by their own play. */
+  playedAt?: string;
 }
 
-/** What the row was doing when it left, and what the reload it came back to should focus. */
+/** The card pressed or long-pressed on the way out: its item, its show, its slot. */
 export interface FocusAnchor {
-  /** The card that opened the player. The server lists it first on the way back. */
-  launchedId: string | null;
-  /** The card the info panel was opened from. */
-  panelId: string | null;
-  /** Item ids in the list being painted, in order. */
-  ids: string[];
-  /** False for the paint that still carries the previous next-up tail. */
-  settled: boolean;
+  id: string;
+  container: string | undefined;
+  index: number;
 }
 
 /**
- * A card the row launched leads the list on the way back, so focus follows it. A card the info
- * panel was opened from has not moved unless the panel changed it, and UIKit restores focus to
- * it by itself: only the panel that removed its card needs a claim.
+ * Where focus goes on the way back: the same card, else the same show's card (a finished episode
+ * comes back as its next one), else the card now in its slot (the show is done). A card still in
+ * its slot needs no claim: UIKit restores onto it. The anchor outlives an unsettled paint, whose
+ * tail is the previous resolution.
  */
-export function resolveFocusAnchor(anchor: FocusAnchor): { claimFirst: boolean; keepPanelId: boolean } {
-  if (anchor.launchedId) return { claimFirst: true, keepPanelId: false };
-  if (!anchor.panelId) return { claimFirst: false, keepPanelId: false };
-  // Present in an unsettled list proves nothing: the tail is the previous resolution.
-  if (anchor.ids.includes(anchor.panelId)) return { claimFirst: false, keepPanelId: !anchor.settled };
-  return { claimFirst: true, keepPanelId: false };
+export function resolveFocusAnchor(anchor: FocusAnchor | null, painted: { id: string; container: string | undefined }[], settled: boolean): { claimIndex: number | null; keepAnchor: boolean } {
+  if (!anchor || painted.length === 0) return { claimIndex: null, keepAnchor: !!anchor && !settled };
+  let index = painted.findIndex((card) => card.id === anchor.id);
+  if (index < 0 && anchor.container) index = painted.findIndex((card) => card.container === anchor.container);
+  if (index < 0) index = Math.min(anchor.index, painted.length - 1);
+  return { claimIndex: painted[index].id === anchor.id && index === anchor.index ? null : index, keepAnchor: !settled };
 }
 
 interface ContinueWatchingRowProps {
   /**
-   * Focus handler for the shelf's cards, supplied by the host screen — the same one its own
+   * Focus handler for the shelf's cards, supplied by the host screen: the same one its own
    * cards get. It drives the poster backdrop, and that belongs to the screen, not to this row.
    */
   onItemFocus?: (video: JellyfinVideoItem, index: number) => void;
@@ -59,7 +57,7 @@ interface ContinueWatchingRowProps {
  *
  * The resume list alone can't carry a binge: an item leaves it as soon as the server marks
  * it played, so finishing an episode used to take the whole series off the row. Next-up
- * cards (services/nextUp.ts) fill that gap, appended after the resumable ones.
+ * cards (services/nextUp.ts) fill that gap, ranked with the resumable ones by last play.
  */
 export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   const router = useRouter();
@@ -72,34 +70,35 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
 
   const isScreenFocused = useIsFocused();
 
-  // The card the info panel was opened from, the card the row launched into the player, and the
-  // leading card's pending focus claim.
-  const panelItemIdRef = useRef<string | null>(null);
-  const launchedItemIdRef = useRef<string | null>(null);
-  const [focusFirstCard, setFocusFirstCard] = useState(false);
-  const focusFirstRef = useRef(false);
+  // The painted list, the card the viewer left through, and the pending focus claim's slot.
+  const itemsRef = useRef<ResumeItem[]>([]);
+  const anchorRef = useRef<FocusAnchor | null>(null);
+  const [claimIndex, setClaimIndex] = useState<number | null>(null);
+  const claimRef = useRef(false);
   const claimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const retireClaim = useCallback(() => {
     if (claimTimerRef.current) clearTimeout(claimTimerRef.current);
     claimTimerRef.current = null;
-    if (!focusFirstRef.current) return;
-    focusFirstRef.current = false;
-    setFocusFirstCard(false);
+    if (!claimRef.current) return;
+    claimRef.current = false;
+    setClaimIndex(null);
   }, []);
   useEffect(() => () => retireClaim(), [retireClaim]);
 
   /**
-   * The row re-ranks on the way back: the server lists what played last first, so the card the
-   * viewer left from leads. Fabric's reorder drops UIKit's restoration to the far end of the row,
-   * so the leading card claims focus, re-raised on every layout pass until it lands.
+   * A focused card that re-ranked or was replaced dies under UIKit's restoration, and focus falls
+   * elsewhere in the row. The target card claims focus, re-raised on every layout pass until it lands.
    */
-  const claimFirstCard = useCallback(() => {
-    focusFirstRef.current = true;
-    setFocusFirstCard(true);
-    if (claimTimerRef.current) clearTimeout(claimTimerRef.current);
-    claimTimerRef.current = setTimeout(retireClaim, 1500);
-  }, [retireClaim]);
+  const claimCard = useCallback(
+    (index: number) => {
+      claimRef.current = true;
+      setClaimIndex(index);
+      if (claimTimerRef.current) clearTimeout(claimTimerRef.current);
+      claimTimerRef.current = setTimeout(retireClaim, 1500);
+    },
+    [retireClaim],
+  );
 
   // Retires the claim the moment focus is anywhere in the row.
   const handleItemFocus = useCallback(
@@ -112,26 +111,22 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
 
   const show = useCallback(
     (incoming: ResumeItem[], settled: boolean) => {
+      itemsRef.current = incoming;
       setItems(incoming);
       setHasItems(incoming.length > 0);
-      const { claimFirst, keepPanelId } = resolveFocusAnchor({
-        launchedId: launchedItemIdRef.current,
-        panelId: panelItemIdRef.current,
-        ids: incoming.map((entry) => entry.video.Id),
-        settled,
-      });
-      launchedItemIdRef.current = null;
-      if (!keepPanelId) panelItemIdRef.current = null;
-      if (IS_TV && claimFirst) claimFirstCard();
+      const painted = incoming.map((entry) => ({ id: entry.video.Id, container: containerKey(entry.video) }));
+      const { claimIndex: target, keepAnchor } = resolveFocusAnchor(anchorRef.current, painted, settled);
+      if (!keepAnchor) anchorRef.current = null;
+      if (IS_TV && target !== null) claimCard(target);
     },
-    [claimFirstCard],
+    [claimCard],
   );
 
   // Reload each time the Library tab regains focus (e.g. after returning from the player),
   // and again whenever the resume state is rewritten while this screen stays focused. The
-  // focus-time fetch can race the reporter's session-closing writes — a Resume query the
-  // server answers DURING Sessions/Stopped processing transiently omits the just-played item
-  // — so the write-completion signal (subscribeResumeChange) schedules a refetch that always
+  // focus-time fetch can race the reporter's session-closing writes (a Resume query the
+  // server answers DURING Sessions/Stopped processing transiently omits the just-played item),
+  // so the write-completion signal (subscribeResumeChange) schedules a refetch that always
   // runs after the last write landed. Trailing debounce: a back-out fires Stopped + persist
   // ~100ms apart; only the final signal of the burst should hit the network.
   useFocusEffect(
@@ -151,7 +146,7 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
         // only a genuinely empty resume list collapses it.
         const resumeItems = await fetchResumeItems(20);
         if (resumeItems === null) {
-          logger.debug("CW row fetch null — keeping previous items", { service: "ContinueWatching" });
+          logger.debug("CW row fetch null, keeping previous items", { service: "ContinueWatching" });
         } else {
           logger.debug("CW row fetch", { service: "ContinueWatching", count: resumeItems.length });
         }
@@ -162,18 +157,18 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
           progressPercent: video.RunTimeTicks && video.RunTimeTicks > 0 ? (video.UserData?.PlaybackPositionTicks ?? 0) / video.RunTimeTicks : (video.UserData?.PlayedPercentage ?? 0) / 100,
         }));
 
-        // Paint the resume cards first, keeping the previous next-up tail in place so the row
+        // Paint the resume cards first, keeping the previous next-up cards in place so the row
         // doesn't flash while it re-resolves. A container that just became resumable drops its
-        // stale next-up card immediately — the resume card supersedes it.
+        // stale next-up card immediately: the resume card supersedes it.
         const resumeContainers = new Set(resumeItems.map(containerKey).filter((key): key is string => !!key));
         nextUpRef.current = nextUpRef.current.filter((entry) => !resumeContainers.has(containerKey(entry.video) ?? ""));
-        show([...merged, ...nextUpRef.current], false);
+        show(byLastPlayed([...merged, ...nextUpRef.current]), false);
 
         const nextUp = await resolveNextUp(resumeItems);
         if (superseded()) return;
 
-        nextUpRef.current = nextUp.map<ResumeItem>((video) => ({ video, progressPercent: 0 }));
-        show([...merged, ...nextUpRef.current], true);
+        nextUpRef.current = nextUp.map<ResumeItem>(({ video, playedAt }) => ({ video, progressPercent: 0, playedAt }));
+        show(byLastPlayed([...merged, ...nextUpRef.current]), true);
       };
 
       const scheduleReload = () => {
@@ -202,35 +197,39 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
     }, [show]),
   );
 
-  // Which card the viewer is coming back to, for the reload that lands on the way back.
+  // A press or long-press is the way out, so it marks the card the reload on the way back anchors on.
+  const markAnchor = useCallback((video: JellyfinVideoItem) => {
+    anchorRef.current = { id: video.Id, container: containerKey(video), index: itemsRef.current.findIndex((entry) => entry.video.Id === video.Id) };
+  }, []);
+
   const handlePress = useCallback(
     (video: JellyfinVideoItem) => {
-      launchedItemIdRef.current = video.Id;
+      markAnchor(video);
       openItem(video);
     },
-    [openItem],
+    [markAnchor, openItem],
   );
 
   // fromResume adds the panel's "Remove Progress" action; the row refetches on the
   // resume-change signal the removal fires, so no local removal is needed here.
   const handleLongPress = useCallback(
     (video: JellyfinVideoItem) => {
-      panelItemIdRef.current = video.Id;
+      markAnchor(video);
       router.push({ pathname: "/video-info", params: { videoId: video.Id, name: video.Name, fromResume: "1" } });
     },
-    [router],
+    [markAnchor, router],
   );
 
   const renderItem = useCallback(
     // Mixed shapes on one row height: episode thumbs stay wide, a movie's resume card is its
-    // poster, album art is square — never letterboxed (fitArtwork).
+    // poster, album art is square, never letterboxed (fitArtwork).
     (item: ResumeItem, index: number, cardHeight: number) => (
       <VideoGridItem
         video={item.video}
         onPress={handlePress}
         onLongPress={handleLongPress}
         onItemFocus={handleItemFocus}
-        hasTVPreferredFocus={index === 0 && focusFirstCard && isScreenFocused}
+        hasTVPreferredFocus={index === claimIndex && isScreenFocused}
         index={index}
         cardHeight={cardHeight}
         fitArtwork
@@ -238,12 +237,12 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
         slotOrientation="landscape"
       />
     ),
-    [handlePress, handleLongPress, handleItemFocus, focusFirstCard, isScreenFocused],
+    [handlePress, handleLongPress, handleItemFocus, claimIndex, isScreenFocused],
   );
 
   const keyExtractor = useCallback((item: ResumeItem) => item.video.Id, []);
 
-  // Same mapping the cards render with (square no-art fallback) — see itemSlotShape.
+  // Same mapping the cards render with (square no-art fallback), see itemSlotShape.
   const slotShapeFor = useCallback((item: ResumeItem): ArtworkSlotShape => itemSlotShape(item.video.PrimaryImageAspectRatio), []);
 
   if (!hasItems) {

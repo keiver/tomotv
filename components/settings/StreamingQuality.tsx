@@ -30,7 +30,7 @@ export function StreamingQuality({ availableHeight }: { availableHeight?: number
 
   // Reserve the heading and footer before fitting whole rows into the TV's remaining space.
   // Keep at least one row reachable; the page can still scroll at unusually large text sizes.
-  const visibleRows = IS_TV ? Math.max(1, Math.min(4, Math.floor(((availableHeight ?? 0) - headingHeight - footerHeight - settingsStyles.section.marginBottom) / rowHeight))) : 5;
+  const visibleRows = IS_TV ? Math.max(1, Math.min(4, Math.floor(((availableHeight ?? 0) - headingHeight - footerHeight - settingsStyles.section.marginBottom) / rowHeight))) : 3;
   const listHeight = Math.min(QUALITY_ROWS.length, visibleRows) * rowHeight;
   const [scrollY, setScrollY] = useState(0);
   const lastVisible = lastVisibleRow(scrollY, listHeight, rowHeight);

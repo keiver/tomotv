@@ -42,14 +42,33 @@ export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle }: Guide
 
   if (choices.length <= 1 && !cornerActions) return null;
   return (
-    <View style={styles.band}>
-      {cornerActions ? <View style={[styles.cornerBox, styles.leadingEdge, { width: cornerWidth }]}>{cornerActions}</View> : null}
-      <View style={[styles.cellsHost, !cornerActions && styles.leadingEdge]}>
+    <HudBand cornerWidth={cornerWidth} cornerActions={cornerActions}>
+      {choices.map((choice) => {
+        const selected = choice.filter === filter;
+        return <GuideGroupCell key={choice.filter} ref={selected ? selectedRef : undefined} label={choice.label} selected={selected} onPress={() => select(choice.filter)} />;
+      })}
+    </HudBand>
+  );
+}
+
+interface HudBandProps {
+  cornerWidth?: number;
+  cornerActions?: React.ReactNode;
+  /** The group cells, scrolled sideways; the floor fills past the last one. */
+  children: React.ReactNode;
+  /** No grid lines or cast shadow: the band sits flush in a footer, not over guide rows. */
+  flush?: boolean;
+}
+
+/** The band's surface: a leading corner slot, then group cells on one frosted floor. */
+export function HudBand({ cornerWidth, cornerActions, children, flush }: HudBandProps) {
+  const edge = !flush && styles.leadingEdge;
+  return (
+    <View style={[styles.band, !flush && styles.bandOverRows]}>
+      {cornerActions ? <View style={[styles.cornerBox, edge, { width: cornerWidth }]}>{cornerActions}</View> : null}
+      <View style={[styles.cellsHost, !cornerActions && edge]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.cells} contentContainerStyle={styles.cellsContent}>
-          {choices.map((choice) => {
-            const selected = choice.filter === filter;
-            return <GuideGroupCell key={choice.filter} ref={selected ? selectedRef : undefined} label={choice.label} selected={selected} onPress={() => select(choice.filter)} />;
-          })}
+          {children}
           <GuideGroupPlaceholder />
         </ScrollView>
       </View>
@@ -61,6 +80,9 @@ const styles = StyleSheet.create({
   band: {
     flexDirection: "row",
     alignItems: "center",
+    height: GROUP_CELL_HEIGHT,
+  },
+  bandOverRows: {
     height: HUD_BAR_HEIGHT,
     // The extra point is the band's own grid line, below every cell so no wash covers it.
     borderBottomWidth: 1,

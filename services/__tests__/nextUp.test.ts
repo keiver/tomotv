@@ -7,7 +7,7 @@
  * outlive what the resume list already shows.
  */
 import { clearPlayedCache, markPlayed } from "../playedCache";
-import { clearNextUpDismissals, containerKey, dismissNextUpContainer, resolveNextUp } from "../nextUp";
+import { byLastPlayed, clearNextUpDismissals, containerKey, dismissNextUpContainer, resolveNextUp } from "../nextUp";
 
 jest.mock("../jellyfinApi", () => ({
   fetchRecentlyPlayed: jest.fn(),
@@ -85,7 +85,7 @@ describe("next-up resolution", () => {
     const resolved = await resolveNextUp([]);
 
     expect(fetchRecursiveVideos).toHaveBeenCalledWith("series-1");
-    expect(resolved.map((v) => v.Id)).toEqual(["e3"]);
+    expect(resolved.map(({ video }) => video.Id)).toEqual(["e3"]);
   });
 
   it("works the same for a folder container with no SeriesId", async () => {
@@ -95,7 +95,7 @@ describe("next-up resolution", () => {
     const resolved = await resolveNextUp([]);
 
     expect(fetchRecursiveVideos).toHaveBeenCalledWith("folder-1");
-    expect(resolved.map((v) => v.Id)).toEqual(["v2"]);
+    expect(resolved.map(({ video }) => video.Id)).toEqual(["v2"]);
   });
 
   it("skips siblings that are already played or already resumable", async () => {
@@ -110,7 +110,7 @@ describe("next-up resolution", () => {
 
     const resolved = await resolveNextUp([]);
 
-    expect(resolved.map((v) => v.Id)).toEqual(["e4"]);
+    expect(resolved.map(({ video }) => video.Id)).toEqual(["e4"]);
   });
 
   it("respects a played state set this session but not yet reflected in the cached list", async () => {
@@ -120,7 +120,7 @@ describe("next-up resolution", () => {
 
     const resolved = await resolveNextUp([]);
 
-    expect(resolved.map((v) => v.Id)).toEqual(["e3"]);
+    expect(resolved.map(({ video }) => video.Id)).toEqual(["e3"]);
   });
 
   it("offers nothing once the container is finished", async () => {
@@ -161,7 +161,7 @@ describe("next-up resolution", () => {
 
     const resolved = await resolveNextUp([]);
 
-    expect(resolved.map((v) => v.Id)).toEqual(["b3", "a4"]);
+    expect(resolved.map(({ video }) => video.Id)).toEqual(["b3", "a4"]);
     expect(fetchRecursiveVideos).toHaveBeenCalledTimes(2);
   });
 
@@ -174,7 +174,7 @@ describe("next-up resolution", () => {
 
     const resolved = await resolveNextUp([], 2);
 
-    expect(resolved.map((v) => v.Id)).toEqual(["y1", "y2"]);
+    expect(resolved.map(({ video }) => video.Id)).toEqual(["y1", "y2"]);
     expect(fetchRecursiveVideos).toHaveBeenCalledTimes(2);
   });
 
@@ -187,7 +187,7 @@ describe("next-up resolution", () => {
 
     const resolved = await resolveNextUp([]);
 
-    expect(resolved.map((v) => v.Id)).toEqual(["b2"]);
+    expect(resolved.map(({ video }) => video.Id)).toEqual(["b2"]);
   });
 
   describe("dismissal", () => {
@@ -209,6 +209,36 @@ describe("next-up resolution", () => {
       clearNextUpDismissals();
 
       await expect(resolveNextUp([])).resolves.toHaveLength(1);
+    });
+  });
+
+  describe("row order", () => {
+    const played = (card: ReturnType<typeof item>, date: string) => ({ ...card, UserData: { ...card.UserData, LastPlayedDate: date } });
+
+    it("carries the finished item's play time onto its next-up card", async () => {
+      fetchRecentlyPlayed.mockResolvedValue([played(item("e2", { SeriesId: "series-1", Played: true }), "2026-10-09T03:30:05Z")]);
+      fetchRecursiveVideos.mockResolvedValue([item("e2", { SeriesId: "series-1", Played: true }), item("e3", { SeriesId: "series-1" })]);
+
+      await expect(resolveNextUp([])).resolves.toEqual([{ video: expect.objectContaining({ Id: "e3" }), playedAt: "2026-10-09T03:30:05Z" }]);
+    });
+
+    it("puts the episode after the one just finished ahead of older resume cards", () => {
+      const resume = [
+        { video: played(item("r1", { SeriesId: "other-1", PositionTicks: 5 }), "2026-10-08T20:00:00Z") },
+        { video: played(item("r2", { SeriesId: "other-2", PositionTicks: 5 }), "2026-10-07T20:00:00Z") },
+      ];
+      const nextUp = [
+        { video: item("e3", { SeriesId: "series-1" }), playedAt: "2026-10-09T03:30:05Z" },
+        { video: item("x9", { SeriesId: "series-9" }), playedAt: "2026-10-01T10:00:00Z" },
+      ];
+
+      expect(byLastPlayed([...resume, ...nextUp]).map(({ video }) => video.Id)).toEqual(["e3", "r1", "r2", "x9"]);
+    });
+
+    it("keeps cards with no play date in their order, behind the dated ones", () => {
+      const cards = [{ video: item("a") }, { video: played(item("b"), "2026-10-09T00:00:00Z") }, { video: item("c") }];
+
+      expect(byLastPlayed(cards).map(({ video }) => video.Id)).toEqual(["b", "a", "c"]);
     });
   });
 });

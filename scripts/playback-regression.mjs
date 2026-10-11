@@ -1375,6 +1375,11 @@ async function main() {
   const probe = { listener, url: `http://${host}:${listener.port}/probe` };
   console.log(`Probe:     ${probe.url}`);
 
+  // The run assumes the default Server transcoding level; a device carries its
+  // owner's. dev-prefs sets it and answers the previous value, restored below.
+  const priorTranscoding = await applyServerTranscoding(env, target, probe, "linkOrFile");
+  if (priorTranscoding && priorTranscoding !== "linkOrFile") console.log(`Server transcoding: linkOrFile for the run (device had ${priorTranscoding})`);
+
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-playback-"));
 
   const results = [];
@@ -1389,6 +1394,9 @@ async function main() {
     }
     results.push(r);
     console.log(r.problems.length ? `  ✗ ${r.problems.join("\n    ")}` : `  ✓ mode=${r.actual} pos=${r.position}s validation=${r.validation}`);
+    if (r.problems.some((p) => p.includes("Server transcoding is off"))) {
+      fail(`${item.id}: the app's Server transcoding setting blocks this run and dev-prefs could not set it; set Settings > Streaming > Server transcoding to "When needed" and rerun`);
+    }
   }
 
   const failed = results.filter((r) => r.problems.length);
@@ -1414,8 +1422,32 @@ async function main() {
     console.warn(`fixture inventory not written: ${e.message}`);
   }
 
+  if (priorTranscoding && priorTranscoding !== "linkOrFile") {
+    await applyServerTranscoding(env, target, probe, priorTranscoding).catch(() => {});
+    console.log(`Server transcoding restored: ${priorTranscoding}`);
+  }
   listener.close();
   if (failed.length) process.exit(1);
+}
+
+/**
+ * Sets Settings > Streaming > Server transcoding through the dev-prefs deep link and
+ * answers the level the app had; null on a build without dev routes.
+ */
+async function applyServerTranscoding(env, target, probe, level) {
+  probe.listener.reset();
+  await openDeepLink(env, target, `tomotv://dev-prefs?serverTranscoding=${level}&probe=${encodeURIComponent(probe.url)}`);
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const reply = probe.listener.events("dev-prefs")[0];
+    if (reply) {
+      probe.listener.reset();
+      return reply.previous?.serverTranscoding ?? null;
+    }
+    await probe.listener.next(500);
+  }
+  console.warn("dev-prefs answered nothing (release build?); the run keeps the device's Server transcoding setting");
+  return null;
 }
 
 // Imported by scripts/transcode-bench.mjs for its helpers; only the CLI runs the suite.

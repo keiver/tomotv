@@ -5,12 +5,13 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
 let mockCanvasMounts = 0;
+let mockFocused = true;
 const mockPush = jest.fn();
 const mockGuide = { rows: [] as { programs: unknown[] }[], isLoading: false, isUpdating: false, error: null as string | null, nowMs: 0 };
 jest.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ isConnected: true, isReady: true }) }));
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn() }) }));
 jest.mock("@/components/settings/ServerConnectScreen", () => ({ ServerConnectScreen: () => null }));
-jest.mock("@/hooks/useGuide", () => ({ useGuide: () => mockGuide }));
+jest.mock("@/hooks/useGuide", () => ({ useGuide: () => mockGuide, invalidateGuideReads: jest.fn() }));
 jest.mock("@/hooks/useAuthSession", () => ({ useAuthSession: () => "session" }));
 jest.mock("@/hooks/useChannelFavoritesSync", () => ({ useChannelFavoritesSync: jest.fn() }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: "all" }) }));
@@ -31,8 +32,8 @@ jest.mock("@/components/sf-symbol-icon", () => ({ SfSymbolIcon: () => null }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@/services/externalGuide", () => ({ refreshExternalGuide: jest.fn() }));
-jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
-jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useLocalSearchParams: () => ({}), useRouter: () => ({ push: mockPush }) }));
+jest.mock("@/services/toast", () => ({ showToast: jest.fn(), dismissToast: jest.fn() }));
+jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useIsFocused: () => mockFocused, useLocalSearchParams: () => ({}), useRouter: () => ({ push: mockPush }) }));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
 jest.mock("react-native-safe-area-context", () => {
   const { View } = jest.requireActual("react-native");
@@ -83,7 +84,8 @@ describe("Live TV program info navigation", () => {
 
 const { GuideCanvas } = jest.requireMock("@/components/live-tv/guide-canvas") as { GuideCanvas: React.ComponentType };
 const { refreshExternalGuide } = jest.requireMock("@/services/externalGuide") as { refreshExternalGuide: jest.Mock };
-const { showToast } = jest.requireMock("@/services/toast") as { showToast: jest.Mock };
+const { invalidateGuideReads } = jest.requireMock("@/hooks/useGuide") as { invalidateGuideReads: jest.Mock };
+const { showToast, dismissToast } = jest.requireMock("@/services/toast") as { showToast: jest.Mock; dismissToast: jest.Mock };
 
 async function refreshThenLand(landed: Partial<typeof mockGuide>) {
   Object.assign(mockGuide, { rows: [], isLoading: false, error: null });
@@ -103,13 +105,15 @@ async function refreshThenLand(landed: Partial<typeof mockGuide>) {
 describe("Live TV refresh", () => {
   beforeEach(() => {
     mockCanvasMounts = 0;
+    mockFocused = true;
     jest.clearAllMocks();
   });
 
-  it("remounts the screen, re-downloads the guides and announces the update", async () => {
+  it("remounts the screen, re-downloads the guides, drops the cached reads and announces the update", async () => {
     const { whilePending } = await refreshThenLand({ rows: [{ programs: [{}] }] });
     expect(mockCanvasMounts).toBe(2);
     expect(refreshExternalGuide).toHaveBeenCalledTimes(1);
+    expect(invalidateGuideReads).toHaveBeenCalledTimes(1);
     expect(whilePending).toBe(1);
     expect(showToast.mock.calls).toEqual([[{ id: "guide-refresh", title: "liveTv.guideDownloading", progress: true }], [{ id: "guide-refresh", title: "liveTv.guideUpdated", kind: "success" }]]);
   });
@@ -124,11 +128,59 @@ describe("Live TV refresh", () => {
     expect(showToast).toHaveBeenLastCalledWith({ id: "guide-refresh", title: "liveTv.guideUnavailable", kind: "error" });
   });
 
-  it("stays silent on the first open", async () => {
-    Object.assign(mockGuide, { rows: [{ programs: [{}] }], isLoading: false, error: null });
+  it("stays silent on a first open that fetched no programs", async () => {
+    Object.assign(mockGuide, { rows: [{ programs: [{}] }], isLoading: false, isUpdating: false, error: null });
     await act(async () => {
       TestRenderer.create(<LiveTvRoute />);
     });
     expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("stays silent on a first open whose load fetched programs, and on the loads after it", async () => {
+    Object.assign(mockGuide, { rows: [], isLoading: true, isUpdating: true, error: null });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<LiveTvRoute />);
+    });
+    Object.assign(mockGuide, { rows: [{ programs: [{}] }], isLoading: false, isUpdating: false });
+    await act(async () => renderer.update(<LiveTvRoute />));
+    // A day pick loads under the same flags; it says nothing either.
+    Object.assign(mockGuide, { isLoading: true, isUpdating: true });
+    await act(async () => renderer.update(<LiveTvRoute />));
+    Object.assign(mockGuide, { isLoading: false, isUpdating: false });
+    await act(async () => renderer.update(<LiveTvRoute />));
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when the background tab's first load lands while another screen is focused", async () => {
+    mockFocused = false;
+    Object.assign(mockGuide, { rows: [], isLoading: true, isUpdating: true, error: null });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<LiveTvRoute />);
+    });
+    Object.assign(mockGuide, { rows: [{ programs: [{}] }], isLoading: false, isUpdating: false });
+    await act(async () => renderer.update(<LiveTvRoute />));
+    expect(showToast).not.toHaveBeenCalled();
+    // Focusing the settled guide later announces nothing either.
+    mockFocused = true;
+    await act(async () => renderer.update(<LiveTvRoute />));
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("resolves the refresh's progress toast quietly when the viewer left before it landed", async () => {
+    Object.assign(mockGuide, { rows: [], isLoading: false, error: null });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<LiveTvRoute />);
+    });
+    const press = renderer.root.findByType(GuideCanvas).props.hudRow.props.cornerActions.props.onPress as () => void;
+    mockGuide.isLoading = true;
+    await act(async () => press());
+    mockFocused = false;
+    Object.assign(mockGuide, { rows: [{ programs: [{}] }], isLoading: false });
+    await act(async () => renderer.update(<LiveTvRoute />));
+    expect(showToast.mock.calls).toEqual([[{ id: "guide-refresh", title: "liveTv.guideDownloading", progress: true }]]);
+    expect(dismissToast).toHaveBeenCalledWith("guide-refresh");
   });
 });

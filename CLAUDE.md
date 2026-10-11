@@ -19,7 +19,7 @@ only acceptable form.
 - Open every file my own search returned before theorizing about it.
 - Confirming a defect is real is not confirming a fix is safe: find the invariant the current shape protects first.
 
-**TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS) and iOS. Playback runs through an on-device engine (packages/tomo-engine, the `@keiver/tomo-engine` workspace package: ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
+**TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS), iPhone, iPad and Mac Catalyst on macOS 13.4 or later (Apple Silicon and Intel). Playback runs through an on-device engine (packages/tomo-engine, the `@keiver/tomo-engine` workspace package: ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
 
 ## Communication Format
 
@@ -95,6 +95,7 @@ Add 10 blank lines BEFORE and AFTER response text for visual breathing room in t
 - App Store screenshots: iPhone/iPad portrait only, tvOS landscape. 1320x2868 goes in the hidden 6.9" slot. Caption band: gold #FFC312, ink #2B1F05, Space Grotesk SemiBold.
 - Naming "Tomo TV, a Jellyfin Client" is the branding doc's own example: never propose a rename or logo change.
 - App Review Notes must be filled for any new platform submission; adding a platform is a new-app review.
+- App Store What's New: a few short lines, one user benefit each, in the viewer's words. No internals (engine, codecs, M3U/playlist, focus targets, row counts, timings) and no niche fixes; those stay in CHANGELOG.
 
 ## Engine and Platform Facts
 
@@ -194,14 +195,23 @@ npm run ios                       # Build and run on iOS simulator
 npm test                          # Run all tests once
 npm run test:watch                # Watch mode for tests
 npm run test:coverage             # Generate coverage report
-npm run lint                      # Lint and auto-fix with ESLint
+npm run lint                      # ESLint and Prettier checks
+npm run clear                     # Prepare iOS, Mac, tvOS; open Xcode and start Metro (user runs it)
+npm run clearmac                  # Prepare Mac Catalyst, open Xcode and start Metro (user runs it)
+npm run prebuild:all              # Generate all three projects without Xcode/Metro (user runs it)
+npm run prebuild:mac              # Generate only the Catalyst project (user runs it)
 npm run prebuild                  # Clean native prebuild (user runs it)
 npm run prebuild:tv               # Prebuild with Apple TV support, EXPO_TV=1 (user runs it)
+npm run archive -- <next-build>   # Archive iOS, Mac, tvOS with one increasing build number (user runs it)
 ```
+
+The root workspace has `TomoTV-iOS`, `TomoTV-macOS` and `TomoTV-tvOS`. Use
+**My Mac (Mac Catalyst)** for the Mac scheme. Signing, Metal Toolchain consent
+and manual captures in `applestore/captures/mac/` are documented in `docs/RELEASING.md`.
 
 ## Native Code Development
 
-**CRITICAL: Always edit files in `packages/tomo-engine/ios/`, `native/` and `plugins/`, NOT `ios/` or `android/`.** Prebuild deletes and regenerates `ios/`/`android/`, copies Tomo's native sources from `native/ios/` and links the engine as the TomoEngine pod.
+**CRITICAL: Edit native sources in `packages/*/ios/` and `native/`, and project configuration in `plugins/` and `scripts/`, NOT generated `ios/`, `macos/`, `tvos/` or `android/`.** Prebuild regenerates the platform projects, copies Tomo's native sources from `native/ios/` and links the engine as the TomoEngine pod.
 
 ## Code Quality Standards
 
@@ -228,6 +238,6 @@ A full review reads every changed file and runs `npm run test:engine` before rep
 
 ## Known Issues
 
-1. The on-device engine (packages/tomo-engine/ios/LocalRemuxer) plays H.264/HEVC in any container by stream copy, and everything else the linked FFmpeg decodes by VideoToolbox transcode, any bit depth, interlaced or not, audio-only files included. Subtitles send nothing to the server: text tracks ship as selectable HLS renditions, image tracks (PGS, DVD/VobSub, DVB, XSUB) are decoded on device to timed bitmaps the app draws over the native player. Server-side transcoding remains for codecs the build cannot decode and for files this device measured itself running below realtime on (the engine times segment 0 before the player is bound; `services/engineVerdicts.ts` remembers the file). We build FFmpeg ourselves (`scripts/ffmpeg/build.sh`, published by `.github/workflows/build-ffmpeg.yml`, fetched by `packages/tomo-engine/scripts/fetch-ffmpeg.js`) with every native decoder enabled, 520 of them, versus the 60 MPVKit's prebuilt allowlist left on, so DivX 3, Theora, DV, Cinepak and VVC all decode on device. `npm run probe:codecs` prints what the build actually registers. **Decision tree, allowlists and rationale: `memories/CLAUDE-playback-engine.md`**
+1. The on-device engine (packages/tomo-engine/ios/LocalRemuxer) plays progressive H.264/HEVC in any container by stream copy, and everything else the linked FFmpeg decodes by VideoToolbox transcode, any bit depth, audio-only files included; interlaced sources (interlaced H.264 too, read off the SPS when live TS hides the field order) are deinterlaced on device by bwdif, never copied, since HLS forbids interlaced samples. Subtitles send nothing to the server: text tracks ship as selectable HLS renditions, image tracks (PGS, DVD/VobSub, DVB, XSUB) are decoded on device to timed bitmaps the app draws over the native player. Server-side transcoding remains for codecs the build cannot decode and for files this device measured itself running below realtime on (the engine times segment 0 before the player is bound; `services/engineVerdicts.ts` remembers the file). We build FFmpeg ourselves (`scripts/ffmpeg/build.sh`, published by `.github/workflows/build-ffmpeg.yml`, fetched by `packages/tomo-engine/scripts/fetch-ffmpeg.js`) with every native decoder enabled, 520 of them, versus the 60 MPVKit's prebuilt allowlist left on, so DivX 3, Theora, DV, Cinepak and VVC all decode on device. `npm run probe:codecs` prints what the build actually registers. **Decision tree, allowlists and rationale: `memories/CLAUDE-playback-engine.md`**
 2. HTTP allowed to all networks; HTTPS recommended for public servers (HTTP exposes credentials in plaintext)
 3. Only works with Jellyfin servers (not Plex, Emby, etc.)

@@ -17,13 +17,13 @@ export interface FolderBackdropSource {
  */
 export function useFolderBackdrop(folderId: string | null): FolderBackdropSource | null {
   const session = useAuthSession();
-  // Off in Settings: nothing is fetched, and the ambient glows show.
-  const { folderTint } = useUiPreferences();
+  // Any canvas but artwork: nothing is fetched, and the ambient glows show.
+  const artwork = useUiPreferences().background === "artwork";
   const key = `${session}:${folderId ?? ""}`;
   const [result, setResult] = useState<{ key: string; source: FolderBackdropSource | null }>({ key: "", source: null });
 
   useEffect(() => {
-    if (!folderId || !folderTint) return;
+    if (!folderId || !artwork) return;
     let cancelled = false;
     void (async () => {
       const details = await fetchItemDetails(folderId).catch(() => null);
@@ -44,7 +44,7 @@ export function useFolderBackdrop(folderId: string | null): FolderBackdropSource
     return () => {
       cancelled = true;
     };
-  }, [key, folderId, folderTint]);
+  }, [key, folderId, artwork]);
 
-  return folderTint && result.key === key ? result.source : null;
+  return artwork && result.key === key ? result.source : null;
 }

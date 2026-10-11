@@ -970,6 +970,16 @@
       "comment": "Two English PGS tracks, forced (Index 2, two images) before SDH (Index 3, one every 6s): the SDH rendition leads and carries the accessibility CHARACTERISTICS."
     },
     {
+      "id": "T108",
+      "title": "T108 DEVTC AVC interlaced",
+      "mode": "localRemux",
+      "validate": "devtc",
+      "playSeconds": 14,
+      "progressMin": 8,
+      "expect": { "video": "h264" },
+      "comment": "1080i25 MBAFF H.264 in TS (frame_mbs_only_flag 0, field_order tt). Interlaced H.264 never stream-copies: the baseline's enginePlan pins encode h264 through bwdif."
+    },
+    {
       "id": "L01",
       "title": "Bloomberg TV+ 4K HEVC (partner)",
       "live": true,

@@ -35,6 +35,7 @@ import {
   manifestName,
   publishedRenditionNames,
   requestPosterFrame as requestEnginePosterFrame,
+  setPosterFramesPaused,
   startSession,
   videoCodecTag as engineVideoCodecTag,
   videoDecodeSupport,
@@ -54,6 +55,7 @@ import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downl
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
+import { isPlaybackHeld, onPlaybackHoldChange } from "@/services/playbackHold";
 import { noteDeviceDecode, probeEmit } from "@/services/playbackProbe";
 import { logger } from "@/utils/logger";
 
@@ -77,6 +79,7 @@ export {
   imageSubtitleUrl,
   imagesAt,
   isLocalRemuxAvailable,
+  liveStarving,
   liveSubtitleRenditions,
   localRemuxToken,
   nativeEmits,
@@ -84,6 +87,7 @@ export {
   posterFrameIfCached,
   posterFrameRevision,
   posterFrameWorkInFlight,
+  setPosterFramesPaused,
   readBound,
   reportPlayerBuffer,
   resolveSubtitlePick,
@@ -125,6 +129,15 @@ export type {
 } from "@keiver/tomo-engine";
 
 configureEngine({ log: logger, onProbe: probeEmit, onDeviceDecode: noteDeviceDecode });
+
+// Video playback idles the engine's poster backlog; release resumes it. Audio alone does not:
+// posters do not compete with an audio stream the way they do with video startup.
+const syncPosterQueuePause = () => setPosterFramesPaused(isPlaybackHeld("video"));
+onPlaybackHoldChange(syncPosterQueuePause);
+// The native queue is process-static: a reload during playback leaves it paused with no JS
+// owner, so each runtime syncs it to its own hold state at load. A microtask, so module
+// initialization order never sees the call.
+queueMicrotask(syncPosterQueuePause);
 
 /**
  * Live segment target. AVPlayer starts a live playlist three target durations in (tvOS sim,

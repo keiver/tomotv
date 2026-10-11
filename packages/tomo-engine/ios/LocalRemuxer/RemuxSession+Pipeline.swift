@@ -21,6 +21,41 @@ private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
 private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
 private let SWIFT_AVSEEK_FLAG_BYTE: Int32 = 2
+private let SWIFT_AVSEEK_SIZE: Int32 = 0x10000
+private let SWIFT_AVFMT_FLAG_CUSTOM_IO: Int32 = 0x0080
+private let SWIFT_AVERROR_EIO: Int32 = -5
+
+/// Carries the parallel reader across the AVIO C boundary.
+private final class RangeReaderBox {
+    let reader: ParallelRangeReader
+    /// Custom IO never pumps FFmpeg's interrupt callback, so the read callback
+    /// publishes the pulled bytes itself; it runs on the pipeline thread.
+    weak var session: RemuxSession?
+    init(_ reader: ParallelRangeReader, session: RemuxSession) {
+        self.reader = reader
+        self.session = session
+    }
+}
+
+private func rangeReadPacket(_ opaque: UnsafeMutableRawPointer?, _ buffer: UnsafeMutablePointer<UInt8>?, _ count: Int32) -> Int32 {
+    guard let opaque, let buffer, count > 0 else { return SWIFT_AVERROR_EIO }
+    let box = Unmanaged<RangeReaderBox>.fromOpaque(opaque).takeUnretainedValue()
+    let got = box.reader.read(into: buffer, count: Int(count))
+    box.session?.publishInputBytes()
+    if got > 0 { return Int32(got) }
+    return got == 0 ? SWIFT_AVERROR_EOF : SWIFT_AVERROR_EIO
+}
+
+private func rangeSeek(_ opaque: UnsafeMutableRawPointer?, _ offset: Int64, _ whence: Int32) -> Int64 {
+    guard let opaque else { return Int64(SWIFT_AVERROR_EIO) }
+    let reader = Unmanaged<RangeReaderBox>.fromOpaque(opaque).takeUnretainedValue().reader
+    if whence & SWIFT_AVSEEK_SIZE != 0 { return reader.size }
+    switch whence & 3 {
+    case SEEK_SET: return reader.seek(to: offset)
+    case SEEK_END: return reader.seek(to: reader.size + offset)
+    default: return Int64(SWIFT_AVERROR_EIO) // SEEK_CUR never arrives: avio tracks position itself
+    }
+}
 
 private func averr(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 128)
@@ -1131,6 +1166,55 @@ extension RemuxSession {
         var attempt = 0
         var inputUrl = config.inputUrl
         var inputHeaders = config.httpHeaders
+
+        // A remote VOD source reads through a few ranged connections at once when the
+        // server honours Range (Jellyfin Static answers 206): aggregate bandwidth where
+        // a link caps each connection. Any refusal falls back to the single-connection
+        // path below unchanged.
+        var parallelBox: Unmanaged<RangeReaderBox>? = nil
+        var parallelAvio: UnsafeMutablePointer<AVIOContext>? = nil
+        if !config.isLive, let remote = URL(string: config.inputUrl),
+           remote.scheme == "http" || remote.scheme == "https",
+           !remote.path.hasSuffix(".m3u8"), !remote.path.hasSuffix(".mpd"),
+           let reader = ParallelRangeReader.open(url: remote, headers: config.httpHeaders) {
+            let ctx = avformat_alloc_context()
+            let bufferSize = 1 << 16
+            let buffer = av_malloc(bufferSize)
+            let box = Unmanaged.passRetained(RangeReaderBox(reader, session: self))
+            let avio = buffer.flatMap { raw in
+                avio_alloc_context(raw.assumingMemoryBound(to: UInt8.self), Int32(bufferSize), 0, box.toOpaque(), rangeReadPacket, nil, rangeSeek)
+            }
+            if let ctx, let avio {
+                ctx.pointee.pb = avio
+                ctx.pointee.flags |= SWIFT_AVFMT_FLAG_CUSTOM_IO
+                ctx.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
+                var opening: UnsafeMutablePointer<AVFormatContext>? = ctx
+                openingInput = ctx
+                ret = avformat_open_input(&opening, config.inputUrl, nil, nil)
+                if ret >= 0 {
+                    inputCtx = opening
+                    parallelBox = box
+                    parallelAvio = avio
+                    NSLog("[LocalRemuxer] Input reads over %d ranged connections", ParallelRangeReader.connections)
+                } else {
+                    // A failed open frees the context but never a CUSTOM_IO pb.
+                    openingInput = nil
+                    var freeingIO: UnsafeMutablePointer<AVIOContext>? = avio
+                    av_free(avio.pointee.buffer)
+                    avio_context_free(&freeingIO)
+                    box.release()
+                    reader.close()
+                    NSLog("[LocalRemuxer] Parallel input open failed (%@), using one connection", averr(ret))
+                }
+            } else {
+                if let buffer { av_free(buffer) }
+                avformat_free_context(ctx)
+                box.release()
+                reader.close()
+            }
+        }
+
+        if parallelBox == nil {
         while true {
             inputCtx = avformat_alloc_context()
             guard inputCtx != nil else { return fail("avformat_alloc_context") }
@@ -1163,8 +1247,12 @@ extension RemuxSession {
                 }
             }
             // FAST channels serve segments from extension-less URLs (measured on amagi.tv);
-            // the HLS demuxer refuses those unless told not to be picky.
-            if config.isLive { av_dict_set(&openOpts, "extension_picky", "0", 0) }
+            // the HLS demuxer refuses those unless told not to be picky. A segment whose
+            // open fails gets three retries before it is skipped (the default skips at once).
+            if config.isLive {
+                av_dict_set(&openOpts, "extension_picky", "0", 0)
+                av_dict_set(&openOpts, "seg_max_retry", "3", 0)
+            }
             // An origin refusing its segments answers in milliseconds while the open sits on it (measured:
             // CBC held a session 49s). The check runs beside the open, so a live origin costs no startup.
             if config.isLive && config.probeOrigin && attempt == 0 && inputUrl == config.inputUrl {
@@ -1201,6 +1289,7 @@ extension RemuxSession {
             }
             break
         }
+        }
         guard ret >= 0, let input = inputCtx else {
             return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret))
         }
@@ -1209,6 +1298,16 @@ extension RemuxSession {
             openingInput = nil
             var closing: UnsafeMutablePointer<AVFormatContext>? = input
             avformat_close_input(&closing)
+            // CUSTOM_IO: the pb and its reader are ours to free, after the demuxer is gone.
+            if let avio = parallelAvio {
+                av_free(avio.pointee.buffer)
+                var freeing: UnsafeMutablePointer<AVIOContext>? = avio
+                avio_context_free(&freeing)
+            }
+            if let box = parallelBox {
+                box.takeUnretainedValue().reader.close()
+                box.release()
+            }
         }
 
         let inputFormat = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
@@ -1458,6 +1557,77 @@ extension RemuxSession {
             return .some(transcoder)
         }
 
+        /// Reads to the first keyframe carrying parameter sets, lifts them (and
+        /// missing dimensions) onto the stream, and returns that keyframe for the
+        /// read loop to replay. Skipped packets are scanned for embedded captions.
+        func readToOpeningParameterSets(videoStream: UnsafeMutablePointer<AVStream>) -> UnsafeMutablePointer<AVPacket>? {
+            var packet = av_packet_alloc()
+            defer { av_packet_free(&packet) }
+            guard let pkt = packet else { return nil }
+            let hevc = videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
+            var bareKeyframes = 0
+            var queued: UnsafeMutablePointer<AVPacket>? = nil
+            while av_read_frame(input, pkt) >= 0 {
+                let isKeyframe = pkt.pointee.stream_index == videoIn && pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+                // An open-GOP recovery point is flagged a keyframe yet carries no parameter sets
+                // (only IDRs do), so the session opens on the first keyframe that has them.
+                let sets = isKeyframe ? TierRewrapper.annexBParameterSets(pkt, hevc: hevc) : nil
+                let opensOnKeyframe = sets != nil
+                if isKeyframe, !opensOnKeyframe { bareKeyframes += 1 }
+                if pkt.pointee.stream_index == videoIn, TierRewrapper.annexBHasA53Captions(pkt, hevc: hevc) {
+                    stateLock.lock()
+                    embeddedCaptions = true
+                    stateLock.unlock()
+                }
+                if let sets, let buf = av_mallocz(sets.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
+                    sets.withUnsafeBytes { raw in buf.copyMemory(from: raw.baseAddress!, byteCount: sets.count) }
+                    videoStream.pointee.codecpar.pointee.extradata = buf.assumingMemoryBound(to: UInt8.self)
+                    videoStream.pointee.codecpar.pointee.extradata_size = Int32(sets.count)
+                    NSLog("[LocalRemuxer] Parameter sets lifted from the opening keyframe (%d bytes, %d keyframes without them skipped)", sets.count, bareKeyframes)
+                }
+                // Stream info that opened far from a keyframe holds no dimensions either, and the
+                // muxer refuses a video track without them; the parser reads them off the SPS.
+                if opensOnKeyframe,
+                   videoStream.pointee.codecpar.pointee.width <= 0 || videoStream.pointee.codecpar.pointee.height <= 0,
+                   let parser = av_parser_init(Int32(videoStream.pointee.codecpar.pointee.codec_id.rawValue)),
+                   let codec = avcodec_find_decoder(videoStream.pointee.codecpar.pointee.codec_id),
+                   let codecCtx = avcodec_alloc_context3(codec) {
+                    var parsed: UnsafeMutablePointer<UInt8>? = nil
+                    var parsedSize: Int32 = 0
+                    _ = av_parser_parse2(parser, codecCtx, &parsed, &parsedSize, pkt.pointee.data, pkt.pointee.size, SWIFT_AV_NOPTS_VALUE, SWIFT_AV_NOPTS_VALUE, -1)
+                    if parser.pointee.width > 0, parser.pointee.height > 0 {
+                        videoStream.pointee.codecpar.pointee.width = parser.pointee.width
+                        videoStream.pointee.codecpar.pointee.height = parser.pointee.height
+                        NSLog("[LocalRemuxer] Dimensions read from the opening keyframe: %dx%d", parser.pointee.width, parser.pointee.height)
+                    }
+                    var freeing: UnsafeMutablePointer<AVCodecContext>? = codecCtx
+                    avcodec_free_context(&freeing)
+                    av_parser_close(parser)
+                }
+                if opensOnKeyframe {
+                    queued = av_packet_clone(pkt)
+                    av_packet_unref(pkt)
+                    break
+                }
+                av_packet_unref(pkt)
+            }
+            mark("parameter_sets")
+            return queued
+        }
+
+        // A live TS answers neither field_order nor extradata at the probe, so an
+        // interlaced H.264 copy would reach AVPlayer woven. Read to the opening
+        // keyframe first: its SPS picks the lane, and the keyframe replays below.
+        // The defer frees the clone on every exit that never replayed it.
+        var queuedPacket: UnsafeMutablePointer<AVPacket>? = nil
+        defer { if queuedPacket != nil { av_packet_free(&queuedPacket) } }
+        if config.isLive, hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
+           videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264,
+           videoStream.pointee.codecpar.pointee.extradata_size == 0,
+           videoStream.pointee.codecpar.pointee.field_order == AV_FIELD_UNKNOWN {
+            queuedPacket = readToOpeningParameterSets(videoStream: videoStream)
+        }
+
         // Video AVPlayer cannot decode is re-encoded to H.264 through
         // VideoToolbox; H.264/HEVC (and hardware-gated AV1) keep copying.
         // Built before the muxers, which describe the output track from the
@@ -1577,58 +1747,18 @@ extension RemuxSession {
         // extract_extradata bsf), and movenc reads codecpar once, when the muxer is built.
         // The parameter sets ride a keyframe: read up to the first that carries them, lift them
         // onto the input stream, and replay that keyframe as the loop's first packet.
-        var queuedPacket: UnsafeMutablePointer<AVPacket>? = nil
-        if hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
+        if hasVideo, queuedPacket == nil, let videoStream = input.pointee.streams[Int(videoIn)],
            videoStream.pointee.codecpar.pointee.extradata_size == 0,
            videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264 || videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC,
            builtRenditions.contains(where: { $0.videoTranscoder == nil && $0.inputStreams.contains(videoIn) }) {
-            let hevc = videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
-            var bareKeyframes = 0
-            while av_read_frame(input, pkt) >= 0 {
-                let isKeyframe = pkt.pointee.stream_index == videoIn && pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
-                // An open-GOP recovery point is flagged a keyframe yet carries no parameter sets
-                // (only IDRs do), so the session opens on the first keyframe that has them.
-                let sets = isKeyframe ? TierRewrapper.annexBParameterSets(pkt, hevc: hevc) : nil
-                let opensOnKeyframe = sets != nil
-                if isKeyframe, !opensOnKeyframe { bareKeyframes += 1 }
-                if pkt.pointee.stream_index == videoIn, TierRewrapper.annexBHasA53Captions(pkt, hevc: hevc) {
-                    stateLock.lock()
-                    embeddedCaptions = true
-                    stateLock.unlock()
-                }
-                if let sets, let buf = av_mallocz(sets.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
-                    sets.withUnsafeBytes { raw in buf.copyMemory(from: raw.baseAddress!, byteCount: sets.count) }
-                    videoStream.pointee.codecpar.pointee.extradata = buf.assumingMemoryBound(to: UInt8.self)
-                    videoStream.pointee.codecpar.pointee.extradata_size = Int32(sets.count)
-                    NSLog("[LocalRemuxer] Parameter sets lifted from the opening keyframe (%d bytes, %d keyframes without them skipped)", sets.count, bareKeyframes)
-                }
-                // Stream info that opened far from a keyframe holds no dimensions either, and the
-                // muxer refuses a video track without them; the parser reads them off the SPS.
-                if opensOnKeyframe,
-                   videoStream.pointee.codecpar.pointee.width <= 0 || videoStream.pointee.codecpar.pointee.height <= 0,
-                   let parser = av_parser_init(Int32(videoStream.pointee.codecpar.pointee.codec_id.rawValue)),
-                   let codec = avcodec_find_decoder(videoStream.pointee.codecpar.pointee.codec_id),
-                   let codecCtx = avcodec_alloc_context3(codec) {
-                    var parsed: UnsafeMutablePointer<UInt8>? = nil
-                    var parsedSize: Int32 = 0
-                    _ = av_parser_parse2(parser, codecCtx, &parsed, &parsedSize, pkt.pointee.data, pkt.pointee.size, SWIFT_AV_NOPTS_VALUE, SWIFT_AV_NOPTS_VALUE, -1)
-                    if parser.pointee.width > 0, parser.pointee.height > 0 {
-                        videoStream.pointee.codecpar.pointee.width = parser.pointee.width
-                        videoStream.pointee.codecpar.pointee.height = parser.pointee.height
-                        NSLog("[LocalRemuxer] Dimensions read from the opening keyframe: %dx%d", parser.pointee.width, parser.pointee.height)
-                    }
-                    var freeing: UnsafeMutablePointer<AVCodecContext>? = codecCtx
-                    avcodec_free_context(&freeing)
-                    av_parser_close(parser)
-                }
-                if opensOnKeyframe {
-                    queuedPacket = av_packet_clone(pkt)
-                    av_packet_unref(pkt)
-                    break
-                }
-                av_packet_unref(pkt)
+            queuedPacket = readToOpeningParameterSets(videoStream: videoStream)
+            // The early scan can end on a read error before any SPS arrived, leaving the lane
+            // decided blind. A copy the late lift now proves interlaced must not ship woven:
+            // fail the session, and the recovery reopen decides again with the SPS in hand.
+            if config.isLive, let par = videoStream.pointee.codecpar, par.pointee.codec_id == AV_CODEC_ID_H264,
+               H264ParameterSets.codedInterlaced(par) == true {
+                return failStartup("interlaced H.264 surfaced after a blind lane pick; reopening to transcode")
             }
-            mark("parameter_sets")
         }
 
         stateLock.lock()

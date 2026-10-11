@@ -67,7 +67,9 @@ final class VideoTranscoder {
     private(set) var conversion = "direct"
 
     /// Set when the source is interlaced. Routes frames through the bwdif graph.
-    private let deinterlacing: Bool
+    let deinterlacing: Bool
+    /// Set when only the SPS says interlaced: bwdif then reads each frame's own flags.
+    let frameFlagDeinterlacing: Bool
     /// True when the temporally first field is the top one; sets bwdif's parity.
     private let topFieldFirst: Bool
     /// buffer -> bwdif -> buffersink, built on the first decoded frame because
@@ -106,14 +108,26 @@ final class VideoTranscoder {
     private(set) var encoderTimeBase = AVRational(num: 1, den: 90000)
 
     /// Video this device decodes in hardware at its own size is stream-copied (DeviceDecode);
-    /// the rest is re-encoded here, where the segment clock measures it.
+    /// the rest is re-encoded here, where the segment clock measures it. Interlaced H.264 is
+    /// never copied: HLS forbids interlaced samples (authoring spec 1.14) and AVPlayer weaves them.
     static func needsTranscode(stream: UnsafeMutablePointer<AVStream>) -> Bool {
         switch stream.pointee.codecpar.pointee.codec_id {
-        case AV_CODEC_ID_H264, AV_CODEC_ID_HEVC, AV_CODEC_ID_AV1:
+        case AV_CODEC_ID_H264:
+            if codedInterlaced(params: stream.pointee.codecpar) { return true }
+            return !DeviceDecode.canDecode(stream: stream)
+        case AV_CODEC_ID_HEVC, AV_CODEC_ID_AV1:
             return !DeviceDecode.canDecode(stream: stream)
         default:
             return true
         }
+    }
+
+    /// Interlaced by the demuxer's field order, or by the SPS where live TS leaves it unknown.
+    static func codedInterlaced(params: UnsafeMutablePointer<AVCodecParameters>) -> Bool {
+        let order = params.pointee.field_order
+        if order == AV_FIELD_PROGRESSIVE { return false }
+        if order != AV_FIELD_UNKNOWN { return true }
+        return H264ParameterSets.codedInterlaced(params) == true
     }
 
     /// What VideoToolbox can decode on THIS device, logged once per process.
@@ -191,13 +205,18 @@ final class VideoTranscoder {
 
         // Interlaced sources go through the deinterlace pass below. TT and TB
         // are top-field-first; BB and BT are bottom-first, so their kept rows
-        // are the odd ones.
+        // are the odd ones. H.264 whose field order only the SPS knows is
+        // deinterlaced by each frame's own flags instead.
         let fieldOrder = params.pointee.field_order
-        deinterlacing = !(fieldOrder == AV_FIELD_PROGRESSIVE || fieldOrder == AV_FIELD_UNKNOWN)
+        let flagged = !(fieldOrder == AV_FIELD_PROGRESSIVE || fieldOrder == AV_FIELD_UNKNOWN)
+        frameFlagDeinterlacing = !flagged && fieldOrder == AV_FIELD_UNKNOWN
+            && params.pointee.codec_id == AV_CODEC_ID_H264 && H264ParameterSets.codedInterlaced(params) == true
+        deinterlacing = flagged || frameFlagDeinterlacing
         topFieldFirst = !(fieldOrder == AV_FIELD_BB || fieldOrder == AV_FIELD_BT)
         if deinterlacing {
-            NSLog("[VideoTranscoder] Interlaced source (field_order %d), deinterlacing %@ first",
-                  fieldOrder.rawValue, topFieldFirst ? "top" : "bottom")
+            NSLog("[VideoTranscoder] Interlaced source (field_order %d%@), deinterlacing %@",
+                  fieldOrder.rawValue, frameFlagDeinterlacing ? ", SPS" : "",
+                  frameFlagDeinterlacing ? "by frame flags" : (topFieldFirst ? "top first" : "bottom first"))
         }
 
         // Advisory only. A container that declares nv12 gets nv12 through
@@ -455,7 +474,9 @@ final class VideoTranscoder {
             + ":pixel_aspect=\(sar.num)/\(max(sar.den, 1))"
         // send_frame: one frame out per frame in. The DEFAULT is send_field,
         // which doubles the frame rate and would break the pipeline's timing.
-        let bwdifArgs = "mode=send_frame:parity=\(topFieldFirst ? "tff" : "bff"):deint=all"
+        let bwdifArgs = frameFlagDeinterlacing
+            ? "mode=send_frame:parity=auto:deint=interlaced"
+            : "mode=send_frame:parity=\(topFieldFirst ? "tff" : "bff"):deint=all"
 
         var src: UnsafeMutablePointer<AVFilterContext>?
         var deint: UnsafeMutablePointer<AVFilterContext>?

@@ -11,6 +11,8 @@ import {
   dayStripFirst,
   durationLabel,
   exitsToCard,
+  formatClock,
+  formatClockRange,
   formatDayBox,
   formatDayHeading,
   GUIDE_DAYS,
@@ -22,13 +24,14 @@ import {
   guideWindowStart,
   isActiveTimer,
   isAiring,
-  isRowStart,
   keepRange,
+  leftLeavesRow,
   mergePrograms,
   MINUTE_MS,
   mountSpanFor,
   NO_GUIDE_PREFIX,
   programCategory,
+  restoreFocusNode,
   revealOffset,
   ringWithCenter,
   rowSnap,
@@ -110,7 +113,7 @@ describe("guide geometry", () => {
     expect(revealOffset({ left: 2000, width: 2400 }, 1200)).toBeUndefined();
   });
 
-  it("hands Left to the channel card from a row's first cell in a scrolled grid, and only then", () => {
+  it("hands Left to the channel card from a cell with no cell to its left in a scrolled grid, and only then", () => {
     expect(exitsToCard("left", true, 900)).toBe(true);
     expect(exitsToCard("swipeLeft", true, 900)).toBe(true);
     expect(exitsToCard("left", true, 0)).toBe(false);
@@ -118,14 +121,23 @@ describe("guide geometry", () => {
     expect(exitsToCard("right", true, 900)).toBe(false);
   });
 
-  it("calls a cell its row's start when no cell in the row starts before it", () => {
+  it("sends Left out of a row's first cell", () => {
     const at = (startMin: number, endMin: number, Id: string) => ({ Id, StartDate: new Date(T0 + startMin * MINUTE_MS).toISOString(), EndDate: new Date(T0 + endMin * MINUTE_MS).toISOString() });
     const cells = [at(30, 60, "b"), at(-30, 30, "a"), at(60, 90, "c")];
-    expect(isRowStart(cells, cells[1])).toBe(true);
-    expect(isRowStart(cells, cells[0])).toBe(false);
-    expect(isRowStart(cells, cells[2])).toBe(false);
+    expect(leftLeavesRow(cells, cells[1], T0, WINDOW_END, tv)).toBe(true);
+    expect(leftLeavesRow(cells, cells[0], T0, WINDOW_END, tv)).toBe(false);
+    expect(leftLeavesRow(cells, cells[2], T0, WINDOW_END, tv)).toBe(false);
     const standIn = at(0, 360, `${NO_GUIDE_PREFIX}ch1`);
-    expect(isRowStart([standIn], standIn)).toBe(true);
+    expect(leftLeavesRow([standIn], standIn, T0, WINDOW_END, tv)).toBe(true);
+  });
+
+  it("sends Left out of a cell whose previous cell is not mounted, and keeps it in while that cell is", () => {
+    const at = (startMin: number, endMin: number, Id: string) => ({ Id, StartDate: new Date(T0 + startMin * MINUTE_MS).toISOString(), EndDate: new Date(T0 + endMin * MINUTE_MS).toISOString() });
+    // A half-hour show, then a five-hour movie the view sits deep inside.
+    const cells = [at(0, 30, "show"), at(30, 330, "movie")];
+    expect(leftLeavesRow(cells, cells[1], T0, WINDOW_END, tv, mountSpanFor(2, 1000))).toBe(true);
+    expect(leftLeavesRow(cells, cells[1], T0, WINDOW_END, tv, mountSpanFor(1, 1000))).toBe(false);
+    expect(leftLeavesRow(cells, cells[1], T0, WINDOW_END, tv)).toBe(false);
   });
 
   it("clips a cell that runs past the window end", () => {
@@ -287,6 +299,21 @@ describe("guide geometry", () => {
   });
 });
 
+describe("restoreFocusNode", () => {
+  const cells = new Map([["p1", "cell-p1"]]);
+  const cards = new Map([["c1", "card-c1"]]);
+
+  it("returns the pressed cell while it is mounted", () => {
+    expect(restoreFocusNode({ programId: "p1", channelId: "c1" }, cells, cards)).toBe("cell-p1");
+  });
+
+  it("falls back to the row's card when the cell is gone, and to nothing when both are", () => {
+    expect(restoreFocusNode({ programId: "p2", channelId: "c1" }, cells, cards)).toBe("card-c1");
+    expect(restoreFocusNode({ channelId: "c1" }, cells, cards)).toBe("card-c1");
+    expect(restoreFocusNode({ programId: "p2", channelId: "c2" }, cells, cards)).toBeUndefined();
+  });
+});
+
 describe("mergePrograms", () => {
   const window = (from: number, to: number) => ({ from: T0 + from * MINUTE_MS, to: T0 + to * MINUTE_MS });
   const at = (id: string, startMin: number, endMin: number, name = id) => ({
@@ -359,6 +386,19 @@ describe("trimPrograms", () => {
     const kept = [at("b", 30, 60)];
     expect(trimPrograms(kept, T0 + 600 * MINUTE_MS, T0 + 900 * MINUTE_MS)).toBe(kept);
     expect(trimPrograms([], T0, T0 + 60 * MINUTE_MS)).toEqual([]);
+  });
+});
+
+describe("formatClockRange", () => {
+  const withSeconds = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+
+  it("prints a slot's start and end to the minute", () => {
+    expect(formatClockRange(T0, T0 + 90 * MINUTE_MS)).toEqual({ start: formatClock(T0), end: formatClock(T0 + 90 * MINUTE_MS) });
+  });
+
+  it("prints the seconds of a slot inside one minute, so a short promo never reads as no time at all", () => {
+    const start = T0 + 37 * MINUTE_MS + 1_000;
+    expect(formatClockRange(start, start + 30_000)).toEqual({ start: withSeconds(start), end: withSeconds(start + 30_000) });
   });
 });
 

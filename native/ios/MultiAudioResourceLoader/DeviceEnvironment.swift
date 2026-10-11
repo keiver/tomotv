@@ -10,9 +10,48 @@
 //
 
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 
 @objc(DeviceEnvironment)
 class DeviceEnvironment: NSObject {
+
+#if targetEnvironment(macCatalyst)
+    /// The window's own limits, saved by the first lock so release restores them.
+    private static var savedRestrictions: (minimum: CGSize, maximum: CGSize)?
+#endif
+
+    /// Dev screenshot aid: pins the Catalyst window to width x height AppKit points,
+    /// or restores the window's own limits. A no-op everywhere but the Mac build.
+    @objc
+    func setWindowSizeLock(_ enabled: Bool, width: Double, height: Double) {
+        #if targetEnvironment(macCatalyst)
+        DispatchQueue.main.async {
+            guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+                  let restrictions = scene.sizeRestrictions else { return }
+            if enabled {
+                if DeviceEnvironment.savedRestrictions == nil {
+                    DeviceEnvironment.savedRestrictions = (restrictions.minimumSize, restrictions.maximumSize)
+                }
+                // Scaled-to-iPad Catalyst draws UIKit points at 77%: restrictions take UIKit
+                // points, the geometry request takes AppKit points.
+                let factor = UIDevice.current.userInterfaceIdiom == .mac ? 1.0 : 0.77
+                let uikit = CGSize(width: width / factor, height: height / factor)
+                restrictions.minimumSize = uikit
+                restrictions.maximumSize = uikit
+                if #available(macCatalyst 16.0, *) {
+                    let origin = scene.effectiveGeometry.systemFrame.origin
+                    scene.requestGeometryUpdate(.Mac(systemFrame: CGRect(origin: origin, size: CGSize(width: width, height: height))))
+                }
+            } else if let saved = DeviceEnvironment.savedRestrictions {
+                restrictions.minimumSize = saved.minimum
+                restrictions.maximumSize = saved.maximum
+                DeviceEnvironment.savedRestrictions = nil
+            }
+        }
+        #endif
+    }
 
     @objc
     func constantsToExport() -> [AnyHashable: Any]! {
@@ -21,6 +60,8 @@ class DeviceEnvironment: NSObject {
         return [
             // Both ways the app reaches a desktop: the iOS binary run by macOS, and a Catalyst build.
             "isMac": info.isiOSAppOnMac || info.isMacCatalystApp,
+            // True only for the iPad binary run by macOS; a Catalyst build reads false.
+            "isiOSAppOnMac": info.isiOSAppOnMac,
             "model": model,
             "marketingName": DeviceEnvironment.marketingName(for: model) ?? NSNull(),
             "cores": info.activeProcessorCount,

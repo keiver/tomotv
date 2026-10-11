@@ -2,6 +2,57 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.11]
+
+### Added
+
+- A Mac app through Mac Catalyst, for Apple Silicon and Intel Macs on macOS 13.4 or later, using the iPad interface and the same Jellyfin account, playback engine and offline downloads
+- A channel's info panel lists every group it can join: Favorites, your own groups and the groups its tuner's M3U playlist declares, each ticked while the channel is in it, and a press adds or removes it. On Apple TV they are a bar along the card's foot that starts with New group; on iPhone and iPad a Groups list, four rows before it scrolls, ends in a New group field
+- A playlist group keeps the channels you add to it or remove from it, per user: the guide, the channel wall and channel flipping follow your edits
+- A multi-episode file shows its episode range, S01E01-E02, on its card and info panel, between episodes, and in the Apple TV player's queue
+- Themes tint the ambient background, and Settings > Appearance gains a Background choice: Folder artwork (the default), Theme color or Clear
+- Search draws one grid with Live TV matches first and the library after them; on Apple TV a bar along the bottom reads "Searching your guides…" while the guide search is still out
+- A channel card showing a grabbed live frame wears LIVE for 15 seconds after its picture last changed; the badge then contracts to a red circle whose pie drains toward the next grab, with a breathing dot while that grab is overdue. A card showing only its logo wears a plain LIVE over the programme the guide says is airing
+- An original played from the server is read through three ranged connections at once, in 2 MB chunks, when the server answers range requests; any refusal keeps the single connection
+- On iPhone, iPad and Mac an original of 64 MB or more downloads as up to four ranged parts, three in flight, that the engine joins into one file; a server that ignores range requests, or a converted copy, keeps the single download
+- A live channel whose source sends slower than it plays says so once in a toast, and a live start waiting on its source buffers two segments, for up to 8 seconds, before the picture appears
+- The engine logs the system's memory pressure events with the headroom left
+
+### Changed
+
+- `npm run clear` prepares iOS, Mac and tvOS in that order, with a separate project and scheme for each; `npm run archive` produces both IPAs and the signed Mac installer with one shared build number. Mac store screenshots use manually captured images in `applestore/captures/mac/`
+- A channel's info panel ends at its groups, leaving out the description, cast, streams, details, file and playback sections; the Groups button is gone
+- The info panel shows a wide picture whole in a box when filling the artwork would blow it past 3x its size, such as a programme's title logo
+- On iPhone and iPad the Open Source list fills the screen under its intro and the Streaming Quality list shows three rows at a time
+- The theme picker is a horizontal strip of colour discs
+- The watched mark is the title bar's full gold fill and eye; the binge-next badge retires
+- Guide cells lead with the episode and carry seen time in their lines; programme posters leave the grid
+- The Open Source page names the platform the binary targets
+- Folder download enqueues batch their state writes into one manifest write, with bounded side fetches
+- The engine's poster work idles while a video plays
+- A channel card's title is the programme that is airing, alone, with the favorite heart, smaller and dimmed, at its left edge; the number pill is gone and the channel's info panel names the number, CH 5
+- The guide's time scale stretches so the grid fills a viewport wider than its shortest window
+- The guide's server reads are kept in memory for 30 minutes, so a reopen shows at once; a refresh press reads fresh, and only it shows the "TV guides updated" toast
+- The Settings streaming heading answers every press: "Link in use" while playback or a download holds the connection, "No reading" when a check reads nothing. The automatic check stands down beside either
+- The audio mini player's progress is a thin accent line along the pill's bottom edge
+- The Gold theme is named Tomo
+- The App Store header and search results art is gold cards that rise from the surface and sink back, rendered by `tvos-assets` 1.7.0; the row artwork stays as `applestore/listing/artwork-rows.svg`
+
+### Fixed
+
+- On Apple TV, Left from a guide programme whose neighbour is outside the grid's rendered range reaches the channel card instead of stopping
+- On Apple TV, closing an info panel or the player opened from the guide hands focus back to the programme you pressed, or the channel card you held, instead of the tab bar
+- A programme shorter than a minute shows its start and end with seconds, in the guide, the schedule and its info panel, instead of the same minute twice
+- A focused guide cell's ring no longer draws over the programme's artwork or live frames
+- Continue Watching leads with the episode after the one just finished, and a card that leaves the row hands focus to the card in its slot
+- Search answers fast and holds the grid steady; a library failure keeps the live shelf
+- The pressed photo paints first on recursive and filtered opens, and a loaded photo dismisses the error screen
+- The reader commits the current page first and drops stale renders
+- An interlaced H.264 channel or file plays a clean deinterlaced picture instead of woven, flickering fields: the engine routes it through its deinterlacer, reading the field coding from the stream's own opening keyframe when a live tune hides it
+- A memory warning releases the neighbour channels held warm for flipping and the focused card's warm session; the playing channel is untouched
+- One open XMLTV guide per URL serves every window asked of it, and a reopen never closes a guide while a read is in flight
+- A live HLS segment that fails to open is retried three times before it is skipped
+
 ## [2.2.10]
 
 ### Added
@@ -626,7 +677,7 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- 4K (2160p) transcoding — stream in Ultra HD quality
+- 4K (2160p) transcoding: stream in Ultra HD quality
 - Per-preset H.264 levels for optimal encoding (level 5.1 for 4K)
 
 ### Changed
@@ -637,9 +688,9 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- Quick Connect — sign in with a code from any Jellyfin device
+- Quick Connect: sign in with a code from any Jellyfin device
 - Username & password sign-in
-- Continue watching — resume where you left off
+- Continue watching: resume where you left off
 
 ### Changed
 
@@ -651,10 +702,10 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- Play next queue — videos queue up and auto-continue
+- Play next queue: videos queue up and auto-continue
 - Up next overlay with progress bar
 - Seamless multi-audio track switching during playback
-- Subtitle support — external (.srt) and embedded tracks with native tvOS picker
+- Subtitle support: external (.srt) and embedded tracks with native tvOS picker
 - Native audio player improvements
 - Updated app icons
 
@@ -678,8 +729,8 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- Demo mode — try TomoTV instantly with Jellyfin's official demo server
-- Full playlist support — browse and play videos from your Jellyfin playlists
+- Demo mode: try TomoTV instantly with Jellyfin's official demo server
+- Full playlist support: browse and play videos from your Jellyfin playlists
 - One-tap demo connection in Settings
 - Navigate into playlists with breadcrumb navigation
 

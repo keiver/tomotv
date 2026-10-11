@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>destination</key><string>export</string>
+  <key>teamID</key><string>64QR53M8C9</string>
+  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>Apple Distribution</string>
+  <key>installerSigningCertificate</key><string>3rd Party Mac Developer Installer</string>
+  <key>provisioningProfiles</key><dict>
+    <key>dev.keiver.tomotv</key><string>TomoTV Mac Catalyst App Store</string>
+  </dict>
+  <key>uploadSymbols</key><true/>
+  <key>manageAppVersionAndBuildNumber</key><false/>
+</dict>
+</plist>

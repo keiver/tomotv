@@ -1,4 +1,4 @@
-/** The folder colour: on, a folder's backdrop tints its screen; off in Settings, nothing is fetched or shown, and back on it returns. */
+/** The artwork canvas: a folder's backdrop tints its screen; on any other canvas nothing is fetched or shown, and back on artwork it returns. */
 import { type FolderBackdropSource, useFolderBackdrop } from "@/hooks/useFolderBackdrop";
 import { fetchFolderPreviewItems, fetchItemDetails } from "@/services/jellyfinApi";
 import { updateUiPreferences } from "@/services/uiPreferences";
@@ -29,10 +29,11 @@ describe("useFolderBackdrop", () => {
     jest.clearAllMocks();
     mockDetails.mockResolvedValue({ BackdropImageTags: ["b"] });
     mockPreview.mockResolvedValue([]);
+    updateUiPreferences({ background: "artwork" });
   });
-  afterEach(() => act(() => updateUiPreferences({ folderTint: true })));
+  afterEach(() => act(() => updateUiPreferences({ background: "artwork" })));
 
-  it("tints from the folder's backdrop while the folder colour is on", async () => {
+  it("tints from the folder's backdrop while the artwork canvas is chosen", async () => {
     const ref = React.createRef<Handle>();
     let tree!: TestRenderer.ReactTestRenderer;
     await act(async () => {
@@ -65,8 +66,8 @@ describe("useFolderBackdrop", () => {
     act(() => tree.unmount());
   });
 
-  it("fetches nothing and shows nothing while it is off, and tints again once it is back on", async () => {
-    act(() => updateUiPreferences({ folderTint: false }));
+  it("fetches nothing and shows nothing on another canvas, and tints again once artwork is back", async () => {
+    act(() => updateUiPreferences({ background: "accent" }));
     const ref = React.createRef<Handle>();
     let tree!: TestRenderer.ReactTestRenderer;
     await act(async () => {
@@ -75,11 +76,11 @@ describe("useFolderBackdrop", () => {
     expect(mockDetails).not.toHaveBeenCalled();
     expect(ref.current?.get()).toBeNull();
 
-    await act(async () => updateUiPreferences({ folderTint: true }));
+    await act(async () => updateUiPreferences({ background: "artwork" }));
     expect(mockDetails).toHaveBeenCalledTimes(1);
     expect(ref.current?.get()).toEqual({ uri: "blur://f1/Backdrop" });
 
-    await act(async () => updateUiPreferences({ folderTint: false }));
+    await act(async () => updateUiPreferences({ background: "clear" }));
     expect(ref.current?.get()).toBeNull();
     act(() => tree.unmount());
   });

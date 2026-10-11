@@ -11,20 +11,20 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
-import { useGuide } from "@/hooks/useGuide";
+import { invalidateGuideReads, useGuide } from "@/hooks/useGuide";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import { invalidateLiveTvSearchIndex } from "@/services/jellyfinApi";
-import { showToast } from "@/services/toast";
+import { dismissToast, showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { guideMetrics, guideRefreshOutcome } from "@/utils/guide";
 import { programInfoParams } from "@/utils/programInfo";
-import { Stack, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
+import { Stack, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
+import { ActivityIndicator, findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import { SafeAreaListener, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -44,6 +44,7 @@ export default function LiveTvRoute() {
   const [refreshes, setRefreshes] = useState(0);
   const refreshGuide = useCallback(() => {
     refreshExternalGuide();
+    invalidateGuideReads();
     // Search reads the server's listings again too, so a refreshed guide answers in search at once.
     invalidateLiveTvSearchIndex();
     setRefreshes((count) => count + 1);
@@ -88,17 +89,25 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   const filtered = preferences.filter !== "all";
   const recording = useIsRecording();
   const [stripHandle, setStripHandle] = useState<number | undefined>(undefined);
-  // A refresh's first load announces its outcome; the passive loads (first open, paging, window growth) stay silent.
+  // Only a refresh press announces its outcome: opens serve the cached reads and stay silent,
+  // as do later loads (day picks, paging, window growth).
+  const isFocused = useIsFocused();
   const refreshToastArmed = useRef(refreshed);
   const guideWorking = guide.isLoading || guide.isUpdating;
   const guideFailed = !!guide.error;
   const hasListings = guide.rows.some((row) => row.programs.length > 0);
   useEffect(() => {
-    if (guideWorking || !refreshToastArmed.current) return;
+    if (guideWorking) return;
+    if (!refreshToastArmed.current) return;
     refreshToastArmed.current = false;
+    if (!isFocused) {
+      // A refresh left behind: resolve its progress toast quietly instead of announcing over another screen.
+      dismissToast("guide-refresh");
+      return;
+    }
     const outcome = guideRefreshOutcome(guideFailed, hasListings);
     showToast({ id: "guide-refresh", title: t(outcome.title), kind: outcome.kind });
-  }, [guideWorking, guideFailed, hasListings]);
+  }, [guideWorking, guideFailed, hasListings, isFocused]);
 
   const tune = useCallback(
     (channelId: string, channelName: string) => {
@@ -187,7 +196,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
             label={t("liveTv.guideRefresh")}
             onPress={refreshGuide}
             disabled={guide.isUpdating}
-            icon={<SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={accent} weight="bold" />}
+            icon={guide.isUpdating ? <ActivityIndicator size="small" color={accent} /> : <SfSymbolIcon name="arrow.clockwise" size={HUD_ACTION_ICON} color={accent} weight="bold" />}
           />
         )
       }

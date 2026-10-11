@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0
+
+- `setPosterQueuePaused(paused)` parks the poster queue's waiting backlog while video plays and returns it on release. The grab already running finishes, a request made while parked still runs, and a cancel reaches a parked job at once. `setPosterFramesPaused` wraps it in JS, and `posterFrameWorkInFlight` stops counting parked jobs.
+- `LocalRemuxer.invalidate()` stops the sessions a dying React runtime started, so a Metro reload no longer leaves an orphaned pipeline running.
+- A remote VOD input is read through three ranged connections at once, in 2 MB chunks with a window of four, when the server answers a ranged probe with 206 and a total. A refusal or a failed open falls back to the single connection.
+- `mergeDownloadParts({ parts, outputPath })` joins ranged download parts into one file and removes a half-joined file on failure; `canMergeParts()` says whether the running binary carries it.
+- `liveStarving(samples)`: a live feed whose last three timed segments each arrived slower than they play, each read-bound, with nothing buffered ahead.
+- Interlaced H.264 goes through the deinterlacer instead of the copy. A live TS that hides its field order is read to its opening keyframe, and that keyframe's SPS picks the lane.
+- A live HLS segment whose open fails is retried three times before it is skipped (`seg_max_retry`).
+- The system's memory pressure events are logged with the process's headroom.
+
+## 1.0.2
+
+- Add universal Mac Catalyst slices (Apple Silicon and Intel) to the pinned FFmpeg frameworks, targeting macOS 13.4 or later. VideoToolbox requests Metal-compatible pixel buffers on Catalyst, and Metal shaders target the same OS minimum.
+- Support checksum-verified local artifact installation through `TOMO_FFMPEG_ARTIFACTS_DIR` for validation before publishing a release.
+
 ## 1.0.1
 
 - An I-frame rendition for scrubbing on every VOD session with video: `#EXT-X-I-FRAME-STREAM-INF` beside the copy, ladder or not. Entries are the demuxer's keyframes where it indexes them (Matroska, WebM, MP4/MOV, AVI), else the segment grid. Each is the keyframe in a fragment of its own over a video-only init, read through a `FrameGrabber` of its own. The rendition is always SDR (HLS authoring spec 6.16): the keyframe is copied for an SDR picture inside 1920x1080 that the session copies, and otherwise encoded as H.264 High 4.0 inside 1920x1080, PQ and HLG tone-mapped to BT.709; Dolby Vision profile 5 gets none. The line declares RFC 8216's peak and AVERAGE-BANDWIDTH, each sample lasts until the next fragment's tfdt, and playlists go out gzip-encoded. A frame that cannot be read is answered with the nearest made one, never a miss.
