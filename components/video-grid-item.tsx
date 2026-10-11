@@ -422,7 +422,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           {offline || badgeSegments || (isChannel && (recording || liveFrame || airingName)) ? (
             <View style={styles.indexBadge} pointerEvents="none">
               {offline ? (
-                <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} tone="live" />
+                // A fact pill, not a broadcast mark: red stays for LIVE and REC.
+                <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} />
               ) : isChannel && recording ? (
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
               ) : isChannel && liveFrame ? (
