@@ -58,7 +58,7 @@ import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jell
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatDuration } from "@/utils/formatDuration";
 import { logger } from "@/utils/logger";
-import { buildDetailRows, formatBitrate, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, overviewParagraphs, streamDetailLine } from "@/utils/mediaInfo";
+import { buildDetailRows, formatBitrate, formatChannelNumber, formatFileSize, formatIndexLine, formatPixelSize, joinMeta, overviewParagraphs, streamDetailLine } from "@/utils/mediaInfo";
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { sharePhoto } from "@/services/sharePhoto";
@@ -541,6 +541,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       : photo
         ? formatPixelSize(details.Width, details.Height)
         : joinMeta([
+            formatChannelNumber(details),
             genresLine,
             year,
             // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.

@@ -9,8 +9,6 @@ interface MarqueeTextProps {
   active: boolean;
   style?: TextStyle;
   speed?: number; // px per second, default 60
-  /** A glyph inside the text, before its first character; it flows and scrolls with the title. */
-  icon?: React.ReactNode;
 }
 
 /**
@@ -18,24 +16,23 @@ interface MarqueeTextProps {
  * At rest it is one Text: the measuring pair, the shared value and the animated style mount
  * only for the focused card, so a shelf of resting cards carries none of them.
  */
-export function MarqueeText({ children, active, style, speed = 60, icon }: MarqueeTextProps) {
+export function MarqueeText({ children, active, style, speed = 60 }: MarqueeTextProps) {
   if (!IS_TV || !active) {
     return (
       <Text style={style} numberOfLines={1}>
-        {icon != null ? <>{icon} </> : null}
         {children}
       </Text>
     );
   }
   return (
-    <ScrollingText style={style} speed={speed} icon={icon}>
+    <ScrollingText style={style} speed={speed}>
       {children}
     </ScrollingText>
   );
 }
 
 /** The focused card's title: measures its overflow, then scrolls left, pauses, and scrolls back. */
-function ScrollingText({ children, style, speed, icon }: { children: string; style?: TextStyle; speed: number; icon?: React.ReactNode }) {
+function ScrollingText({ children, style, speed }: { children: string; style?: TextStyle; speed: number }) {
   const [containerWidth, setContainerWidth] = useState(0);
   const [textWidth, setTextWidth] = useState(0);
   const translateX = useSharedValue(0);
@@ -91,7 +88,6 @@ function ScrollingText({ children, style, speed, icon }: { children: string; sty
           text and would otherwise be read twice. */}
       <View style={styles.measure} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         <Text style={innerTextStyle} onLayout={onTextLayout}>
-          {icon != null ? <>{icon} </> : null}
           {children}
         </Text>
       </View>
@@ -99,7 +95,6 @@ function ScrollingText({ children, style, speed, icon }: { children: string; sty
       {/* With Reduce Motion on, never scroll: keep single-line ellipsized text */}
       <Animated.View style={[styles.slider, animatedStyle, scrolls ? { width: textWidth } : undefined]}>
         <Text style={innerTextStyle} numberOfLines={scrolls ? undefined : 1}>
-          {icon != null ? <>{icon} </> : null}
           {children}
         </Text>
       </Animated.View>

@@ -1,4 +1,4 @@
-import { channelNumber, indexBadgeSegments, isWatched, joinTitle, programCardTitle } from "@/components/video-grid-item";
+import { indexBadgeSegments, isWatched, joinTitle, programCardTitle } from "@/components/video-grid-item";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
@@ -64,23 +64,6 @@ describe("isWatched", () => {
     expect(isWatched(item({ Type: "Audio", UserData: { Played: true } }))).toBe(false);
     expect(isWatched(item({ Type: "TvChannel", UserData: { Played: true } }))).toBe(false);
     expect(isWatched(item({ Type: "Program", UserData: { Played: true } }))).toBe(false);
-  });
-});
-
-describe("channelNumber", () => {
-  const channel = (ChannelNumber?: string) => item({ Type: "TvChannel", Name: "Caminandes", ChannelNumber });
-
-  it("labels the tuner's number as a channel", () => {
-    expect(channelNumber(channel(" 3 "))).toBe("CH 3");
-  });
-
-  it("gives no pill without a number", () => {
-    expect(channelNumber(channel())).toBeUndefined();
-    expect(channelNumber(channel("  "))).toBeUndefined();
-  });
-
-  it("marks nothing but a channel", () => {
-    expect(channelNumber(item({ Type: "Movie", ChannelNumber: "2" }))).toBeUndefined();
   });
 });
 

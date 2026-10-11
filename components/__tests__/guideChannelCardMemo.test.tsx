@@ -35,7 +35,6 @@ function Column({ visible }: { visible: ReadonlySet<string> }) {
           index={index}
           cardWidth={300}
           hideAiring
-          hideNumber
           flat
           inset={inset}
           recording={false}

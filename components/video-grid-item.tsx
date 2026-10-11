@@ -33,8 +33,10 @@ const IS_TV = Platform.isTV;
 const SCREEN = Dimensions.get("screen");
 const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
 const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
-/** The favorite heart inside a channel's title: under the title's cap height, a presence, not a pill. */
+/** The favorite heart at a channel title's left end: under the title's cap height. */
 const QUIET_MARK_SIZE = Math.round(TITLE_SIZE * 0.8);
+/** A channel's title centres wherever the card is wide: TV, iPad, Mac. */
+const CHANNEL_TITLE_CENTERED = IS_TV || IS_TABLET;
 /** The channel logo over a live frame: the badge's height, twice as wide. */
 const LOGO_MARK_HEIGHT = IS_TV ? 40 : 26;
 const CARD_PADDING = IS_TV ? 16 : 8;
@@ -72,13 +74,6 @@ export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Dat
 /** Watched, as the title bar marks it; music stays out (every full listen marks a track played, which is noise, not state) and live cards never hold it. */
 export function isWatched(video: Pick<JellyfinVideoItem, "Type" | "UserData">): boolean {
   return !!video.UserData?.Played && video.Type !== "Audio" && video.Type !== "TvChannel" && video.Type !== "Program";
-}
-
-/** A channel card's number pill, "CH 5", when the tuner gives one. */
-export function channelNumber(video: Pick<JellyfinVideoItem, "Type" | "ChannelNumber">): string | undefined {
-  if (video.Type !== "TvChannel") return undefined;
-  const number = video.ChannelNumber?.trim();
-  return number ? `${t("liveTv.ch")} ${number}` : undefined;
 }
 
 /** A programme card names its episode after the show, falling back to the channel when the guide gives no episode. */
@@ -130,8 +125,6 @@ interface VideoGridItemProps {
   titleIcon?: keyof typeof Ionicons.glyphMap;
   /** Channel cards: leave the airing programme off the title (the guide beside them shows it). */
   hideAiring?: boolean;
-  /** Channel cards: leave the channel number pill off (the guide column). */
-  hideNumber?: boolean;
   /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
   liveFrame?: { uri: string; cacheKey: string };
   /** Channel cards: the channel's preview clip file, looped over the frame while the card holds focus. */
@@ -184,7 +177,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     numColumns,
     titleIcon,
     hideAiring = false,
-    hideNumber = false,
     liveFrame,
     liveClip,
     clipActive = false,
@@ -244,9 +236,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const videoName = cleanLabel(video.Name);
   const watched = isWatched(video);
   // One mark at a time: the watched eye outranks a passed icon (a watched recording drops the camera).
-  // A channel's titleIcon is the favorite heart, riding the title beside the name.
   const titleMarkIcon = watched ? "eye" : titleIcon;
-  const numberPill = hideNumber ? undefined : channelNumber(video);
   const cardTitle = cleanLabel(airingName) || (video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown"));
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
@@ -284,15 +274,18 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // at 0 (a just-started video whose position hasn't synced yet). The fill is
   // floored at 5% below so "just starting" is always visible; grids that pass
   // no progressPercent are unaffected.
-  // A favorite channel's heart flows inside the title, before its first character, dimmed under the text.
-  const inlineMark = isChannel && !!titleMarkIcon;
+  // A channel's mark is its favorite heart: smaller and dimmed, a presence beside the name.
   const renderTitleMark = (color: string) =>
-    titleMarkIcon && !inlineMark ? (
+    titleMarkIcon ? (
       <View style={styles.titleMark} pointerEvents="none">
-        <Ionicons name={titleMarkIcon} size={TITLE_SIZE} color={color} />
+        <Ionicons name={titleMarkIcon} size={isChannel ? QUIET_MARK_SIZE : TITLE_SIZE} color={isChannel ? withAlpha(color, 0.65) : color} />
       </View>
     ) : null;
-  const titleInlineIcon = (color: string) => (inlineMark && titleMarkIcon ? <Ionicons name={titleMarkIcon} size={QUIET_MARK_SIZE} color={withAlpha(color, 0.65)} /> : undefined);
+  const titleText = (color: string) => (
+    <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color }, isChannel && styles.infoValueTitleChannel])}>
+      {cardTitle}
+    </MarqueeText>
+  );
   const hasProgress = progressPercent != null;
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
 
@@ -400,49 +393,32 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // over the fill). Decorative to a11y — the card announces name + value.
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%`, backgroundColor: palette.accent }]} pointerEvents="none" />
-              <View style={[styles.infoTitleBlend, titleMarkIcon && !inlineMark && styles.titleLineInset]}>
+              <View style={[styles.infoTitleBlend, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(palette.accent)}
-                <MarqueeText
-                  active={focused}
-                  icon={titleInlineIcon(palette.accent)}
-                  style={StyleSheet.flatten([styles.infoValueTitle, { color: palette.accent }, isChannel && styles.infoValueTitleChannel])}>
-                  {cardTitle}
-                </MarqueeText>
+                {titleText(palette.accent)}
               </View>
             </View>
           ) : // Focused or watched: opaque gold bar (the watched bar is the fill at its end state, under the ink eye)
           focused || watched ? (
             <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
-              <View style={[styles.infoTitleLine, titleMarkIcon && !inlineMark && styles.titleLineInset]}>
+              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(palette.ink)}
-                <MarqueeText
-                  active={focused}
-                  icon={titleInlineIcon(palette.ink)}
-                  style={StyleSheet.flatten([styles.infoValueTitle, { color: palette.ink }, isChannel && styles.infoValueTitleChannel])}>
-                  {cardTitle}
-                </MarqueeText>
+                {titleText(palette.ink)}
               </View>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <View style={[styles.infoTitleLine, titleMarkIcon && !inlineMark && styles.titleLineInset]}>
+              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
                 {renderTitleMark(palette.accent)}
-                <MarqueeText
-                  active={focused}
-                  icon={titleInlineIcon(palette.accent)}
-                  style={StyleSheet.flatten([styles.infoValueTitle, { color: palette.accent }, isChannel && styles.infoValueTitleChannel])}>
-                  {cardTitle}
-                </MarqueeText>
+                {titleText(palette.accent)}
               </View>
             </View>
           )}
 
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
-          {offline || badgeSegments || numberPill || (isChannel && (recording || liveFrame || airingName)) ? (
+          {offline || badgeSegments || (isChannel && (recording || liveFrame || airingName)) ? (
             <View style={styles.indexBadge} pointerEvents="none">
-              {/* Gold at rest too: the number is the channel's, not a state of the card. */}
-              {numberPill ? <CardBadge segments={[{ label: numberPill }]} focused slim /> : null}
               {offline ? (
                 <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} tone="live" />
               ) : isChannel && recording ? (
@@ -493,7 +469,6 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     // Played drives the watched segment; annotation passes flip it on same-Id items.
     prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
     prevProps.video.CurrentProgram?.Name === nextProps.video.CurrentProgram?.Name &&
-    prevProps.video.ChannelNumber === nextProps.video.ChannelNumber &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
     prevProps.onLongPress === nextProps.onLongPress &&
@@ -512,7 +487,6 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.numColumns === nextProps.numColumns &&
     prevProps.titleIcon === nextProps.titleIcon &&
     prevProps.hideAiring === nextProps.hideAiring &&
-    prevProps.hideNumber === nextProps.hideNumber &&
     prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
     prevProps.liveClip?.uri === nextProps.liveClip?.uri &&
     prevProps.clipActive === nextProps.clipActive &&
@@ -700,6 +674,7 @@ const styles = StyleSheet.create({
   infoValueTitleChannel: {
     fontSize: TITLE_SIZE - 2,
     textTransform: "uppercase",
+    textAlign: CHANNEL_TITLE_CENTERED ? "center" : "left",
   },
   // The accent title on progress cards runs through a difference blend: over the accent fill it
   // cancels to black, over the dark bar it stays the accent, per pixel at the fill edge.
