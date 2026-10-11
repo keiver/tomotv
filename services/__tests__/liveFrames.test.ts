@@ -79,7 +79,6 @@ jest.mock("@keiver/tomo-live/src/openFailures", () => ({ noteOpenFailed: jest.fn
 import {
   clearLiveFrames,
   LIVE_FRAME_BURST_COUNT,
-  LIVE_FRAME_CAP_COOLDOWN_MS,
   LIVE_FRAME_COLD_COUNT,
   LIVE_FRAME_COLD_DEADLINE_S,
   LIVE_FRAME_CLIP_S,
@@ -925,22 +924,43 @@ describe("live frames", () => {
     expect(grabs()).toEqual(["m1", "m2", "m1"]);
   });
 
-  it("rests the sampler once opens are refused in a row, then tries again after the cooldown", async () => {
-    mockLiveFrame.mockImplementation(async () => ({ uris: [], cancelled: false, reason: "open" }));
+  it("walks every refused card once, each on its own backoff, and judges origins down by their words", async () => {
+    mockLiveFrame.mockImplementation(async () => ({ uris: [], cancelled: false, reason: "open", failure: "Server returned 403 Forbidden (access denied)" }));
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1", "m2", "m3", "m4"]);
     await advance(0);
     await advance(LIVE_FRAME_SPACING_MS);
     await advance(LIVE_FRAME_SPACING_MS);
-    // Three refusals trip the cap; the fourth card is not walked into it.
-    expect(grabs()).toEqual(["m1", "m2", "m3"]);
     await advance(LIVE_FRAME_SPACING_MS);
-    expect(grabs()).toEqual(["m1", "m2", "m3"]);
+    // Refusals in a row never rest the sampler: every card in view is probed.
+    expect(grabs()).toEqual(["m1", "m2", "m3", "m4"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2", "m3", "m4"]);
+
+    // The retry is each channel's second definitive refusal: down, nothing resting the others.
+    await advance(LIVE_FRAME_RETRY_MS + LIVE_FRAME_SPACING_MS * 10);
+    expect(healthFor("m1")).toBe("down");
+    mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => ({ uris: burst(channelId, Date.now()), pts: 1, cancelled: false }));
+    await advance(LIVE_FRAME_RETRY_MS * 2);
+    for (let i = 0; i < 12; i += 1) await advance(LIVE_FRAME_SPACING_MS);
+    expect(liveFrameFor("m4")).toBeDefined();
+    expect(healthFor("m4")).toBe("up");
+  });
+
+  it("a group pick clears failure backoffs, so the wall it brings probes every card fresh", async () => {
+    mockLiveFrame.mockImplementation(async () => ({ uris: [], cancelled: false, reason: "open" }));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1"]);
 
     mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => ({ uris: burst(channelId, Date.now()), pts: 1, cancelled: false }));
-    await advance(LIVE_FRAME_CAP_COOLDOWN_MS);
-    expect(grabs().length).toBeGreaterThan(3);
-    expect(liveFrameFor("m4")).toBeDefined();
+    pickGroup("favorites");
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1"]);
+    expect(liveFrameFor("m1")).toBeDefined();
+    pickGroup("all");
   });
 
   it("judges channels no tuner carries down at once, without resting the sampler for the rest", async () => {
