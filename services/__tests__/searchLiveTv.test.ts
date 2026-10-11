@@ -366,6 +366,52 @@ describe("searchLiveTv", () => {
     });
   });
 
+  describe("chained terms", () => {
+    const named = (id: string, name: string) => ({ ...channel(id), Name: name });
+    /** Answers the name search by the term it asks. */
+    const serveNames = (byTerm: Record<string, unknown[]>, airingSet: unknown[] = []) =>
+      (fetchWithTimeout as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes("/LiveTv/Programs/")) return { ok: false, status: 404 };
+        return url.includes("/LiveTv/Programs") ? ok(airingSet) : ok(byTerm[new URL(url).searchParams.get("searchTerm") ?? ""] ?? []);
+      });
+
+    it("asks the server for each term and keeps the names carrying them all", async () => {
+      serveNames({
+        pluto: [named("c1", "Pluto TV Animation"), named("c2", "Pluto TV News")],
+        animation: [named("c3", "Comedy Central Animation"), named("c1", "Pluto TV Animation")],
+      });
+      const result = await searchLiveTv("pluto + animation");
+      expect(result.map((item) => item.Id)).toEqual(["c1"]);
+      const asked = urls()
+        .filter((url) => url.includes("/Items?"))
+        .map((url) => new URL(url).searchParams.get("searchTerm"));
+      expect(asked.sort()).toEqual(["animation", "pluto"]);
+    });
+
+    it("finds a programme whose description carries every term, and asks the guide sources for the terms' words", async () => {
+      fetchTunerData.mockResolvedValue({ ...NO_TUNER, tvgNameById: { tbs: "TBS" }, tvgUrls: ["http://host:8000/guide.xml.gz"] });
+      serveNames({}, [airing("p1", "tbs", "Veguitas y sus amigos. Animation for the family.", "Matutino"), airing("p2", "espn", "Animation hour.", "Cortos")]);
+      const result = await searchLiveTv("veguitas + animation");
+      expect(result.map((item) => item.Id)).toEqual(["p1"]);
+      expect(searchExternalPrograms.mock.calls[0][3]).toBe("veguitas animation");
+    });
+
+    it("finds an indexed programme carrying every term", async () => {
+      const startMs = Date.now() + 3_600_000;
+      liveTvSearchIndex.mockReturnValue([
+        { id: "g1", name: "Matutino", channelId: "tbs", startMs, endMs: startMs + 3_600_000, text: "matutino veguitas y sus amigos animation" },
+        { id: "g2", name: "Cortos", channelId: "tbs", startMs, endMs: startMs + 3_600_000, text: "cortos animation hour" },
+      ]);
+      serveNames({});
+      expect((await searchLiveTv("veguitas + animation")).map((item) => item.Id)).toEqual(["g1"]);
+    });
+
+    it("asks an unfinished chain as its one term", async () => {
+      serveNames({ yankees: [named("c1", "Yankees TV")] });
+      expect((await searchLiveTv("yankees +")).map((item) => item.Id)).toEqual(["c1"]);
+    });
+  });
+
   it("answers empty for a blank term without asking the server", async () => {
     await expect(searchLiveTv("  ")).resolves.toEqual([]);
     expect(fetchWithTimeout).not.toHaveBeenCalled();

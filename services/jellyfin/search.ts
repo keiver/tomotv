@@ -113,6 +113,28 @@ function parseYearsFromQuery(query: string): { term: string; years: number[] } {
 }
 
 /**
+ * The terms of a chained query: "veguitas + animation" asks for what carries both. Only a "+"
+ * standing alone chains, so "Canal+" stays one term; an unfinished chain drops its "+".
+ */
+export function chainTerms(query: string): string[] {
+  const seen = new Set<string>();
+  return ` ${query} `
+    .split(/\s\+(?=\s)/)
+    .map((term) => term.trim())
+    .filter((term) => term && !seen.has(foldText(term)) && seen.add(foldText(term)));
+}
+
+/** The card carries the term: its year, and every word in its title, series, album, artist or genre. */
+export function carriesTerm(item: JellyfinVideoItem, chained: string): boolean {
+  const { term, years } = parseYearsFromQuery(chained);
+  if (years.length > 0 && !years.includes(item.ProductionYear ?? NaN)) return false;
+  const text = foldText([item.Name, item.SeriesName, item.Album, item.AlbumArtist, ...(item.Artists ?? []), ...(item.Genres ?? [])].filter(Boolean).join(" "));
+  return foldText(term)
+    .split(/\s+/)
+    .every((word) => text.includes(word));
+}
+
+/**
  * Match words/phrases of a search term against the server's genre and artist names.
  * A word may match a name exactly ("comedy" → Comedy) or as a prefix ("entert" →
  * Entertainment, min 3 chars) so results appear while the name is still being typed;
@@ -314,6 +336,34 @@ export interface SearchCursor {
   title?: number;
   genre?: number;
   artist?: number;
+  /** A chained query: where each term's own search continues, null once it has nothing more. */
+  chain?: (SearchCursor | null)[];
+}
+
+/** Pages a chain reads per term while it has no card to show, before answering empty. */
+const CHAIN_QUIET_PAGES = 5;
+
+/**
+ * A chained search: each term runs its own search, and a card stays when it carries every other
+ * term. A term's page can hold no such card, so pages are read until one does.
+ */
+async function searchChain(terms: string[], limit: number, from?: (SearchCursor | null)[]): Promise<{ items: JellyfinVideoItem[]; next: SearchCursor | null }> {
+  let cursors: (SearchCursor | null | undefined)[] = from ?? terms.map(() => undefined);
+  const items: JellyfinVideoItem[] = [];
+  const seen = new Set<string>();
+  for (let read = 0; read < CHAIN_QUIET_PAGES && items.length === 0 && cursors.some((cursor) => cursor !== null); read++) {
+    const pages = await Promise.all(terms.map((term, i) => (cursors[i] === null ? null : searchVideos(term, { limit, cursor: cursors[i] ?? undefined }))));
+    cursors = pages.map((page) => page?.next ?? null);
+    pages.forEach((page, i) => {
+      for (const item of page?.items ?? []) {
+        if (seen.has(item.Id) || !terms.every((term, j) => j === i || carriesTerm(item, term))) continue;
+        seen.add(item.Id);
+        items.push(item);
+      }
+    });
+  }
+  const chain = cursors.map((cursor) => cursor ?? null);
+  return { items, next: items.length > 0 && chain.some((cursor) => cursor !== null) ? { chain } : null };
 }
 
 /** A source's next offset from the raw page it returned, or undefined once it is exhausted. */
@@ -341,13 +391,16 @@ export async function searchVideos(searchTerm: string, { limit = 60, cursor }: {
     return { items: [], next: null };
   }
 
+  const chained = chainTerms(trimmed);
+  if (chained.length > 1) return searchChain(chained, limit, cursor?.chain);
+
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) {
     throw new Error("Jellyfin server not configured. Update settings before searching.");
   }
 
   // Parse year from search query
-  const { term, years } = parseYearsFromQuery(trimmed);
+  const { term, years } = parseYearsFromQuery(chained[0] ?? trimmed);
 
   logger.debug("Search query parsed", {
     service: "JellyfinAPI",
@@ -508,6 +561,17 @@ async function fetchLiveTvNameMatches(config: JellyfinConfig, searchTerm: string
   return data.Items ?? [];
 }
 
+/** Name matches for a chain: each term asked on its own, kept when the name carries them all. */
+async function fetchChainedNameMatches(config: JellyfinConfig, terms: string[]): Promise<JellyfinVideoItem[]> {
+  const folded = terms.map(foldText);
+  const seen = new Set<string>();
+  return (await Promise.all(terms.map((term) => fetchLiveTvNameMatches(config, term)))).flat().filter((item) => {
+    if (seen.has(item.Id) || !folded.every((term) => foldText(item.Name ?? "").includes(term))) return false;
+    seen.add(item.Id);
+    return true;
+  });
+}
+
 /**
  * Every programme airing now, one per channel, with the description the server's search never
  * reads. One read serves a whole typed query (CACHE.LIVE_AIRING_TTL_MS); a server switch clears it.
@@ -640,21 +704,24 @@ export async function searchLiveTv(searchTerm: string, onUpdate?: (items: Jellyf
       logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: error instanceof Error ? error.message : "unknown" });
       return [];
     });
-  const namesWork = quiet("names", fetchLiveTvNameMatches(config, trimmed));
-  const programWork = [quiet("airing", fetchAiringPrograms(config)), quiet("guide sources", searchGuideSources(config, trimmed))];
+  // The description tiers match every word already, so a chain reaches them as its terms' words.
+  const terms = chainTerms(trimmed);
+  const text = terms.join(" ") || trimmed;
+  const namesWork = quiet("names", terms.length > 1 ? fetchChainedNameMatches(config, terms) : fetchLiveTvNameMatches(config, text));
+  const programWork = [quiet("airing", fetchAiringPrograms(config)), quiet("guide sources", searchGuideSources(config, text))];
 
   const assemble = (names: JellyfinVideoItem[], programTiers: readonly JellyfinVideoItem[][]): JellyfinVideoItem[] => {
     const items = [...names];
     const seen = new Set(items.map((item) => item.Id));
     for (const tier of programTiers) {
       for (const program of tier) {
-        if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && matchesProgramText(program, trimmed)) {
+        if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && matchesProgramText(program, text)) {
           seen.add(program.Id);
           items.push(program);
         }
       }
     }
-    for (const program of indexedMatches(config, trimmed)) {
+    for (const program of indexedMatches(config, text)) {
       if (seen.has(program.Id)) continue;
       seen.add(program.Id);
       items.push(program);

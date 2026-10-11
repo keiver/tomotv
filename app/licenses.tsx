@@ -48,7 +48,7 @@ export default function LicensesScreen() {
     setExpandedName((prev) => (prev === credit.name ? null : credit.name));
   }, []);
 
-  // Internal screenshot aid, dev Mac builds only: a long press on the platform pill
+  // Internal screenshot aid, Mac builds only: a long press on the platform pill
   // pins the window to the capture size (services/screenshotSizeLock).
   const toggleSizeLock = useCallback(() => {
     const enabled = toggleScreenshotSizeLock();
@@ -116,7 +116,7 @@ export default function LicensesScreen() {
         <View style={settingsStyles.contentContainer}>
           <View style={screenStyles.build}>
             {__DEV__ ? <AccountPill label="DEV" onGold={false} tag={{ tint: COLORS.SUCCESS }} /> : null}
-            {__DEV__ && IS_MAC ? (
+            {IS_MAC ? (
               <Pressable onLongPress={toggleSizeLock}>
                 <AccountPill label={APP_PLATFORM} onGold={false} />
               </Pressable>

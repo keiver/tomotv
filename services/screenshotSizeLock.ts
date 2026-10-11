@@ -1,5 +1,5 @@
 /**
- * Dev screenshot aid for the Mac build: pins the window to the App Store capture
+ * Screenshot aid for the Mac build: pins the window to the App Store capture
  * size (applestore/captures/mac). Toggled by a long press on the platform pill in
  * Open Source; the flag lives in the device defaults so a reload keeps the lock.
  */
@@ -38,6 +38,6 @@ export function toggleScreenshotSizeLock(): boolean {
 
 /** Re-pins a stored lock at launch. */
 export function applyScreenshotSizeLockAtLaunch(): void {
-  if (!__DEV__ || !IS_MAC) return;
+  if (!IS_MAC) return;
   if (isScreenshotSizeLocked()) apply(true);
 }

@@ -22,7 +22,7 @@ class DeviceEnvironment: NSObject {
     private static var savedRestrictions: (minimum: CGSize, maximum: CGSize)?
 #endif
 
-    /// Dev screenshot aid: pins the Catalyst window to width x height AppKit points,
+    /// Screenshot aid: pins the Catalyst window to width x height AppKit points,
     /// or restores the window's own limits. A no-op everywhere but the Mac build.
     @objc
     func setWindowSizeLock(_ enabled: Bool, width: Double, height: Double) {
