@@ -33,7 +33,7 @@
           "sampleFormat": "s32",
           "sampleRate": 48000
         },
-        "rendition": "primary",
+        "rendition": "a0",
         "source": {
           "bitRate": 1536000,
           "channels": 6,

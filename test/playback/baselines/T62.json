@@ -21,7 +21,7 @@
     "audio": [
       {
         "action": "copy",
-        "rendition": "primary",
+        "rendition": "a0",
         "source": {
           "bitDepth": 24,
           "channels": 8,

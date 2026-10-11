@@ -21,7 +21,7 @@
     "audio": [
       {
         "action": "copy",
-        "rendition": "primary",
+        "rendition": "a0",
         "source": {
           "bitRate": 1662000,
           "channels": 8,

@@ -31,7 +31,7 @@
           "sampleFormat": "s32",
           "sampleRate": 48000
         },
-        "rendition": "primary",
+        "rendition": "a0",
         "source": {
           "bitDepth": 24,
           "channels": 6,

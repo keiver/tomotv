@@ -31,7 +31,7 @@
           "sampleFormat": "s16",
           "sampleRate": 44100
         },
-        "rendition": "primary",
+        "rendition": "a0",
         "source": {
           "bitRate": 192000,
           "channels": 2,
