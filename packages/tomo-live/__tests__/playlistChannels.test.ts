@@ -72,6 +72,19 @@ describe("table", () => {
     expect(playlistChannelsPage({ offset: 0, limit: 5, group: "Kids" }).map((r) => r.id)).toEqual(["b", "c"]);
   });
 
+  it("lists a stream that repeats under another group in both groups, as one channel", async () => {
+    const a = source("t1", [row("a", { groups: ["News"] }), row("a", { name: "again", groups: ["Local", "News"] })]);
+    const b = source("t2", [row("a", { groups: ["Elsewhere"] })]);
+    await syncPlaylistSources([a, b]);
+    expect(allPlaylistChannelIds()).toEqual(["a"]);
+    expect(playlistChannelById("a")?.name).toBe("Channel a");
+    expect(playlistGroupList()).toEqual([
+      { name: "News", channelIds: ["a"] },
+      { name: "Local", channelIds: ["a"] },
+      { name: "Elsewhere", channelIds: ["a"] },
+    ]);
+  });
+
   it("does not reload a fresh source and prunes removed ones", async () => {
     const a = source("t1", [row("a")]);
     await syncPlaylistSources([a]);

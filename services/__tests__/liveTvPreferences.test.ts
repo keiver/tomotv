@@ -3,6 +3,7 @@ import {
   activeCategory,
   activeChannelList,
   activePlaylistGroup,
+  channelFavorite,
   channelSortParam,
   channelsInList,
   createGroup,
@@ -54,6 +55,16 @@ describe("live TV preferences", () => {
       compactColumn: false,
       skipCommercials: true,
     });
+    // A favorite listed while its channel was pending keeps that mark across a restart; nothing else rides an entry.
+    expect(
+      parseLiveTvPreferences({
+        favorites: [
+          { id: "p", name: "Pending", pending: true, extra: 1 },
+          { name: "Plain", pending: "yes" },
+        ],
+      }).favorites,
+    ).toEqual([{ id: "p", name: "Pending", pending: true }, { name: "Plain" }]);
+    expect(channelFavorite({ Id: "p", Name: "Pending", playlistPending: true })).toEqual({ id: "p", name: "Pending", pending: true });
     // Guide URLs survive only as http(s), once each; a document from before the list carries one as guideUrl.
     expect(parseLiveTvPreferences({ guideUrls: ["https://g/a.xml", "file:///etc/passwd", 7, "https://g/a.xml", "http://g/b.xml"] }).guideUrls).toEqual(["https://g/a.xml", "http://g/b.xml"]);
     expect(parseLiveTvPreferences({ guideUrl: "https://g/guide.xml.gz" }).guideUrls).toEqual(["https://g/guide.xml.gz"]);

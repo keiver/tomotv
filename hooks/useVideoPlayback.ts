@@ -566,6 +566,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const localRemuxTokenRef = useRef<string | null>(null);
   // Live TV: the channel stream the server opened for this play, released on every teardown.
   const isLiveRef = useRef<boolean>(false);
+  const standInRef = useRef<boolean>(false);
   const liveStreamIdRef = useRef<string | null>(null);
   // One fresh open of the channel per play after the stream drops; the second drop is the error.
   const liveReopenedRef = useRef(false);
@@ -663,6 +664,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // gate and verdicts do not apply.
       const live = isLiveSource(details);
       isLiveRef.current = live;
+      standInRef.current = details.playlistPending === true;
       liveStreamIdRef.current = details.LiveStreamId ?? null;
       liveDetailsRef.current = live ? details : null;
       openedLiveStreamId = liveStreamIdRef.current;
@@ -1813,6 +1815,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     positionSecondsRef: currentTimeRef,
     pendingSeekTargetRef,
     isLiveRef,
+    standInRef,
   });
   // Synced post-commit; safe because every reader (stream-rotation effect,
   // unmount cleanup) runs at least one commit after mount, and CREATING_STREAM

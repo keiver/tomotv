@@ -74,15 +74,22 @@ let latest: TunerData | null = null;
 let requestSeq = 0;
 /** Bumped by reset, so a read that outlived a server switch writes nothing back. */
 let generation = 0;
+let settled = false;
 
 /** The most recent successful read, if any: what a screen shows while a refetch fails. */
 export function lastKnownTunerData(): TunerData | null {
   return latest;
 }
 
+/** Whether a read has finished for this sign-in: until then the channel table says nothing about what is pending. */
+export function tunerDataSettled(): boolean {
+  return settled;
+}
+
 /** Forgets every read and the channel table; sign-out and server switches call it so nothing crosses servers. */
 export function resetTunerCache(): void {
   generation += 1;
+  settled = false;
   failedAt.clear();
   lastGood.clear();
   latest = null;
@@ -101,14 +108,16 @@ async function readTuners(config: Awaited<ReturnType<typeof getConfig>>): Promis
   return (json.TunerHosts ?? []).filter((tuner) => tuner.Type?.toLowerCase() === "m3u" && /^https?:\/\//i.test(tuner.Url ?? ""));
 }
 
-function channelRow(row: TunerRow): PlaylistChannel {
+/** The tuner's own User-Agent rides every stream it lists, as the server sends it; an entry's own wins. */
+function channelRow(row: TunerRow, userAgent: string | undefined): PlaylistChannel {
+  const ownAgent = Object.keys(row.headers).some((name) => name.toLowerCase() === "user-agent");
   return {
     id: row.id,
     name: row.name,
     number: row.number,
     logoUrl: row.logo,
     streamUrl: row.url,
-    headers: row.headers,
+    headers: userAgent && !ownAgent ? { ...row.headers, "user-agent": userAgent } : row.headers,
     originKey: playlistOriginKey(row.url),
     groups: row.groups,
     tvgId: row.tvgId,
@@ -127,7 +136,7 @@ async function loadTunerRows(source: PlaylistChannelSource, userAgent: string | 
   try {
     const rows: PlaylistChannel[] = [];
     for (let offset = 0; offset < playlist.entryCount; offset += ROW_PAGE) {
-      for (const row of await tunerPlaylistRows(requestId, { offset, limit: ROW_PAGE })) rows.push(channelRow(row));
+      for (const row of await tunerPlaylistRows(requestId, { offset, limit: ROW_PAGE })) rows.push(channelRow(row, userAgent));
     }
     return { rows, tvgUrls: playlist.tvgUrls.filter((url) => /^https?:\/\//i.test(url)) };
   } finally {
@@ -168,6 +177,15 @@ function deriveTunerData(tunerUrls: string[]): TunerData {
 /** The server's http(s) M3U tuners read in one pass: the channel table, groups and tvg keys together.
  *  `revalidate` reads the tuner list first and drops the cached read when a playlist was added or removed. */
 export async function fetchTunerData(options: { revalidate?: boolean } = {}): Promise<TunerData> {
+  const gen = generation;
+  try {
+    return await readTunerData(options);
+  } finally {
+    if (gen === generation) settled = true;
+  }
+}
+
+async function readTunerData(options: { revalidate?: boolean }): Promise<TunerData> {
   if (!isTunerGroupsAvailable()) return NO_DATA;
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
@@ -188,6 +206,8 @@ export async function fetchTunerData(options: { revalidate?: boolean } = {}): Pr
       key,
       async () => {
         const tuners = await readTuners(config);
+        // A reset during the config read: these tuners are another sign-in's and must not reach the table.
+        if (gen !== generation) return { ...NO_DATA, tunerUrls: tuners.map((tuner) => tuner.Url!) };
         const failures = new Map<string, unknown>();
         const sources: PlaylistChannelSource[] = tuners.map((tuner) => ({
           key: tuner.Url!,
@@ -209,7 +229,11 @@ export async function fetchTunerData(options: { revalidate?: boolean } = {}): Pr
         const data = deriveTunerData(tunerUrls);
         // Every tuner refused and nothing is tabled: a failure, never an empty success that would
         // overwrite lastGood and kill the group filter.
-        if (tuners.length > 0 && failures.size === tuners.length && allPlaylistChannelIds().length === 0) throw failures.values().next().value;
+        // Read off the table's statuses: a load another read started fails into that read's `failures`, not this one's.
+        const statuses = playlistSourceStatuses();
+        if (tuners.length > 0 && tunerUrls.every((url) => statuses[url]?.state === "error") && allPlaylistChannelIds().length === 0) {
+          throw failures.values().next().value ?? new Error("Every tuner playlist failed to load.");
+        }
         // A partial read is retried after the failure window, like a failed one.
         if (data.complete) failedAt.delete(key);
         else failedAt.set(key, Date.now());

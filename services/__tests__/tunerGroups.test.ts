@@ -1,6 +1,7 @@
 /** Tuner groups through the native module: the config read, which tuners qualify, merging, tvg-ids, and failure caching. */
 import type { TunerRow } from "../liveSources";
-import { fetchTunerData, fetchTunerGroups, lastKnownTunerData, resetTunerCache } from "../jellyfin/tunerGroups";
+import { allPlaylistChannelIds, playlistChannelById, syncPlaylistSources } from "@keiver/tomo-live";
+import { fetchTunerData, fetchTunerGroups, lastKnownTunerData, resetTunerCache, tunerDataSettled } from "../jellyfin/tunerGroups";
 import { clearRequestCache } from "../requestCache";
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
@@ -213,12 +214,62 @@ describe("fetchTunerGroups", () => {
     let release: (value: unknown) => void = () => {};
     mockLiveSources.loadTunerPlaylist.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
     const pending = fetchTunerData();
-    await Promise.resolve();
-    await Promise.resolve();
+    while (mockLiveSources.loadTunerPlaylist.mock.calls.length === 0) await Promise.resolve();
     resetTunerCache();
     clearRequestCache();
     release({ groups: [], channels: [], tvgUrls: [], entryCount: 0 });
     await pending;
+    expect(lastKnownTunerData()).toBeNull();
+  });
+
+  it("keeps the last sign-in's tuners out of the table when the reset lands during its config read", async () => {
+    let answer: (value: unknown) => void = () => {};
+    global.fetch = jest.fn(() => new Promise((resolve) => (answer = resolve))) as unknown as typeof fetch;
+    const pending = fetchTunerData();
+    while ((global.fetch as jest.Mock).mock.calls.length === 0) await Promise.resolve();
+    resetTunerCache();
+    clearRequestCache();
+    // The next sign-in's playlist is tabled before the old read's config answers.
+    await syncPlaylistSources([
+      { key: "http://b/list.m3u", url: "http://b/list.m3u", loadRows: async () => ({ rows: [{ ...row("b1"), logoUrl: null, streamUrl: "http://b/1.ts", originKey: "b" }], tvgUrls: [] }) },
+    ]);
+    answer(configResponse([{ Type: "m3u", Url: "http://a/list.m3u" }]));
+    await pending;
+    expect(mockLiveSources.loadTunerPlaylist).not.toHaveBeenCalled();
+    expect(allPlaylistChannelIds()).toEqual(["b1"]);
+  });
+
+  it("puts the tuner's User-Agent on every stream that names none of its own", async () => {
+    global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u", UserAgent: "UA/1" }]));
+    queueTuner({ rows: [row("a"), row("b", { headers: { "User-Agent": "own", referer: "http://r" } })] });
+    await fetchTunerData();
+    expect(playlistChannelById("a")?.headers).toEqual({ "user-agent": "UA/1" });
+    expect(playlistChannelById("b")?.headers).toEqual({ "User-Agent": "own", referer: "http://r" });
+  });
+
+  it("is settled once a read finishes, a failed one included, and not again after a reset", async () => {
+    expect(tunerDataSettled()).toBe(false);
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 });
+    await expect(fetchTunerData()).rejects.toThrow("500");
+    expect(tunerDataSettled()).toBe(true);
+    resetTunerCache();
+    expect(tunerDataSettled()).toBe(false);
+  });
+
+  it("rejects a second read that shares the first one's failing playlist load instead of resolving empty", async () => {
+    global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
+    let refuse: (error: Error) => void = () => {};
+    mockLiveSources.loadTunerPlaylist.mockReturnValueOnce(new Promise((_resolve, reject) => (refuse = reject)));
+    const first = fetchTunerData();
+    while (mockLiveSources.loadTunerPlaylist.mock.calls.length === 0) await Promise.resolve();
+    // An invalidation mid-read starts a second read; the playlist load already running answers for both.
+    clearRequestCache();
+    const second = fetchTunerData();
+    const outcomes = Promise.allSettled([first, second]);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    refuse(new Error("connection refused"));
+    expect((await outcomes).map((outcome) => outcome.status)).toEqual(["rejected", "rejected"]);
+    expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledTimes(1);
     expect(lastKnownTunerData()).toBeNull();
   });
 

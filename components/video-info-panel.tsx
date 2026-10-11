@@ -474,8 +474,10 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveChannelId = (liveProgram ? details?.ChannelId : liveChannel ? details?.Id : undefined) ?? "";
   const liveChannelName = cleanLabel(liveProgram ? details?.ChannelName : liveChannel ? details?.Name : undefined);
   const canManage = useLiveTvManagement(live);
+  // A channel the server has not ingested has no item a timer could name.
+  const pendingChannel = details?.playlistPending === true;
   const recording = useRecordActions(
-    live && canManage && liveChannelId && (!externalProgram || timedProgram)
+    live && canManage && liveChannelId && !pendingChannel && (!externalProgram || timedProgram)
       ? { programId: liveProgram && !externalProgram ? details?.Id : undefined, channelId: liveChannelId, channelName: liveChannelName, program: liveProgram, timerId: params.timerId }
       : null,
   );
@@ -490,7 +492,10 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     if (IS_TV) router.push(destination);
     else router.replace(destination);
   }, [liveChannelId, liveChannelName, router, showGlobalLoader]);
-  const groupChannel = useMemo(() => (liveChannel && details ? { Id: details.Id, Name: details.Name, ChannelNumber: details.ChannelNumber } : null), [liveChannel, details]);
+  const groupChannel = useMemo(
+    () => (liveChannel && details ? { Id: details.Id, Name: details.Name, ChannelNumber: details.ChannelNumber, playlistPending: details.playlistPending } : null),
+    [liveChannel, details],
+  );
   const canDelete = isAdmin && details?.CanDelete === true && !live;
 
   // A container's CTAs follow what it holds. Holding one kind, the button says "Play All";
@@ -648,7 +653,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       }
     : StyleSheet.absoluteFill;
   // The panel opens once the hero, the collage and the live CTAs have all answered, so it paints once.
-  const liveSettled = !live || !liveChannelId || (externalProgram && !timedProgram) || canManage === false || (canManage === true && recording.settled);
+  const liveSettled = !live || !liveChannelId || pendingChannel || (externalProgram && !timedProgram) || canManage === false || (canManage === true && recording.settled);
   const heroSettled = heroSource ? heroAspect != null || heroFailed : previewSettled;
   const ready = !!details && heroSettled && liveSettled;
   useEffect(() => {

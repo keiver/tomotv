@@ -1,5 +1,6 @@
 /** useChannels: the first page on mount, the next on loadMore while the server has more, a new sort starting over, a failed load retried. */
 import { CHANNEL_WALL_PAGE, useChannels } from "@/hooks/useChannels";
+import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
 import { fetchChannels } from "@/services/jellyfinApi";
 import type { ChannelSort } from "@/services/liveTvPreferences";
 import React, { forwardRef, useImperativeHandle } from "react";
@@ -7,8 +8,11 @@ import TestRenderer, { act } from "react-test-renderer";
 
 jest.mock("@/services/jellyfinApi", () => ({ fetchChannels: jest.fn(), fetchChannelsByIds: jest.fn(), fetchListedChannels: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
+jest.mock("@/services/jellyfin/playlistItems", () => ({ pendingChannelsAfter: jest.fn() }));
 
 const mockFetch = fetchChannels as jest.Mock;
+const mockPending = pendingChannelsAfter as jest.Mock;
+const NOTHING_PENDING = { pending: [], hasMore: false, waiting: false };
 type Hook = ReturnType<typeof useChannels>;
 type HookRef = { get: () => Hook };
 
@@ -30,7 +34,42 @@ async function settle() {
 const channels = (from: number, count: number) => Array.from({ length: count }, (_, i) => ({ Id: `c${from + i}`, Name: `Channel ${from + i}`, Type: "TvChannel" }));
 
 describe("useChannels", () => {
-  beforeEach(() => mockFetch.mockReset());
+  beforeEach(() => {
+    mockFetch.mockReset();
+    mockPending.mockReset();
+    mockPending.mockResolvedValue(NOTHING_PENDING);
+  });
+
+  const standIn = (id: string) => ({ Id: id, Name: `Pending ${id}`, Type: "TvChannel", playlistPending: true });
+
+  it("asks for the page after the server's last one itself while the tuner playlists are still loading, and lands their channels", async () => {
+    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: channels(startIndex, Math.max(0, 2 - startIndex)), total: 2 }));
+    mockPending.mockResolvedValueOnce({ pending: [], hasMore: true, waiting: true }).mockResolvedValueOnce({ pending: [standIn("p1")], hasMore: false, waiting: false });
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    await settle();
+    // No loadMore from the grid: two channels never fill a screen, so its end is never reached.
+    expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c0", "c1", "p1"]);
+    expect(ref.current?.get()).toMatchObject({ isLoading: false, isLoadingMore: false, hasMore: false });
+    expect(mockFetch).toHaveBeenLastCalledWith({ startIndex: 2, limit: CHANNEL_WALL_PAGE, sortBy: "SortName" });
+    expect(mockPending.mock.calls[1][1].map((item: { Id: string }) => item.Id)).toEqual(["c0", "c1"]);
+  });
+
+  it("lists a channel once when the server ingests it after its stand-in landed", async () => {
+    mockFetch.mockResolvedValueOnce({ items: channels(0, 1), total: 1 }).mockResolvedValueOnce({ items: [{ Id: "p1", Name: "Ingested", Type: "TvChannel" }, ...channels(7, 1)], total: 4 });
+    mockPending.mockResolvedValueOnce({ pending: [standIn("p1")], hasMore: true, waiting: false });
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    act(() => ref.current?.get().loadMore());
+    await settle();
+    expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c0", "p1", "c7"]);
+  });
 
   it("loads the first page in the sort's server order, then the next on loadMore until the total is reached", async () => {
     const total = CHANNEL_WALL_PAGE + 3;

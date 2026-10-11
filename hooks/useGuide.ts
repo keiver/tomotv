@@ -7,7 +7,7 @@ import { fetchChannels, fetchChannelsByIds, fetchGuideHorizon, fetchGuideProgram
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { activeGuideUrls, fetchExternalProgramWindow } from "@/services/externalGuide";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
-import { pendingPlaylistItemsPage } from "@/services/jellyfin/playlistItems";
+import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import { cachedRequest, invalidateByPrefix } from "@/services/requestCache";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
@@ -86,7 +86,8 @@ export interface GuideState {
   refreshTimers: () => void;
 }
 
-type ChannelPage = { hasMore: boolean; pageLength: number };
+/** `waiting`: the page landed before the tuner playlists did, and the next one is asked for at once. */
+type ChannelPage = { hasMore: boolean; pageLength: number; waiting?: boolean };
 
 /** Lands a page in two steps: channels as soon as they are known, programs when they arrive. */
 type PageLand = { channels: (items: JellyfinItem[]) => void; programs: (items: JellyfinItem[], programs: JellyfinProgram[], window: { from: number; to: number }) => void };
@@ -133,12 +134,14 @@ function loadNextPage(load: GuideLoad): void {
   }
   load.pagePending = false;
   load.busy = "page";
+  let waitingTail = false;
   load
     .fetchPage(load.loaded, load.land)
-    .then(({ hasMore, pageLength }) => {
+    .then(({ hasMore, pageLength, waiting }) => {
       if (load.retired) return;
       load.hasMore = hasMore;
       load.loaded += pageLength;
+      waitingTail = waiting === true;
     })
     .catch((err) => {
       load.pagePending = true;
@@ -146,6 +149,7 @@ function loadNextPage(load: GuideLoad): void {
     })
     .finally(() => {
       load.busy = null;
+      if (waitingTail) loadNextPage(load);
     });
 }
 
@@ -314,16 +318,17 @@ export function useGuide(): GuideState {
       const loaded = startIndex + items.length;
       let hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
       let page = items;
+      let waiting = false;
       if (!hasMore && !category) {
         // The server catalog is done: channels only the tuner playlists carry yet follow, a page at a time.
-        const exclude = new Set([...channelsRef.current, ...items].map((channel) => channel.Id));
-        const pending = pendingPlaylistItemsPage(exclude, GUIDE_CHANNEL_PAGE);
-        page = [...items, ...pending];
-        hasMore = pending.length >= GUIDE_CHANNEL_PAGE;
+        // A first page starts a fresh list: what the previous sort landed is not on it.
+        const tail = await pendingChannelsAfter(items, startIndex === 0 ? [] : channelsRef.current, GUIDE_CHANNEL_PAGE);
+        page = [...items, ...tail.pending];
+        ({ hasMore, waiting } = tail);
       }
       land.channels(page);
       await landPrograms(page);
-      return { hasMore, pageLength: page.length };
+      return { hasMore, pageLength: page.length, waiting };
     },
     [sort, list, category, playlistIds, fetchPrograms],
   );
@@ -394,11 +399,13 @@ export function useGuide(): GuideState {
       };
     }
     (async () => {
+      let waitingTail = false;
       try {
-        const { hasMore, pageLength } = await loadChannelPage(0, load.land);
+        const { hasMore, pageLength, waiting } = await loadChannelPage(0, load.land);
         if (load.retired) return;
         load.hasMore = hasMore;
         load.loaded = pageLength;
+        waitingTail = waiting === true;
         refreshTimers();
         readExternalGuides(load);
         cachedRequest("guide:horizon", fetchGuideHorizon, GUIDE_READ_TTL_MS)
@@ -417,6 +424,7 @@ export function useGuide(): GuideState {
         if (!load.retired) {
           load.loading = false;
           setIsLoading(false);
+          if (waitingTail) loadNextPage(load);
         }
       }
     })();

@@ -74,6 +74,10 @@ describe("planCarry", () => {
     );
     expect(plan).toEqual({ carry: [rotated], keep: [] });
   });
+
+  it("carries an entry listed while its channel was pending once the server has it, though its id never changed", () => {
+    expect(planCarry([{ ...entry("id-1", "One", "1"), pending: true as const }], new Map([["1|One", one]]), true)).toEqual({ carry: [one], keep: [] });
+  });
 });
 
 describe("mirrorOf", () => {
@@ -121,6 +125,21 @@ describe("syncChannelFavorites", () => {
     await favorites.syncChannelFavorites();
     expect(userData.setVideoFavorite).not.toHaveBeenCalled();
     expect(preferences.getLiveTvPreferences().favorites).toEqual([]);
+  });
+
+  it("favorites on the server a channel listed while it was pending, once the server has ingested it", async () => {
+    const first = load();
+    first.liveTv.fetchChannels.mockResolvedValue({ items: [] });
+    await first.favorites.syncChannelFavorites();
+    const { favorites, preferences, liveTv, userData } = load();
+    favorites.toggleFavoriteChannel({ ...one, playlistPending: true });
+    expect(preferences.getLiveTvPreferences().favorites).toEqual([{ id: "id-1", name: "One", number: "1", pending: true }]);
+    liveTv.fetchChannels.mockResolvedValue({ items: [] });
+    liveTv.fetchListedChannels.mockResolvedValue([one]);
+    await favorites.syncChannelFavorites();
+    expect(userData.setVideoFavorite).toHaveBeenCalledWith("id-1", true, expect.objectContaining({ userId: "u" }));
+    // The debt is paid: the entry is the server's own from here, and a later unfavorite elsewhere drops it.
+    expect(preferences.getLiveTvPreferences().favorites).toEqual([{ id: "id-1", name: "One", number: "1" }]);
   });
 
   it("leaves the device list as it is when the server does not answer", async () => {

@@ -77,8 +77,8 @@ enum TunerGroups {
         guard isJellyfinChannel(entry) else { return nil }
         return TunerRow(
             id: JellyfinChannelId.forM3u(tunerHash: tunerHash, streamUrl: entry.line),
-            name: entry.name,
-            number: entry.tvgChno,
+            name: jellyfinName(entry),
+            number: jellyfinNumber(entry),
             logo: entry.tvgLogo,
             url: entry.url,
             headers: entry.headers,
@@ -88,5 +88,75 @@ enum TunerGroups {
             radio: entry.radio,
             drm: entry.drm
         )
+    }
+
+    // MARK: The name and number Jellyfin assigns (M3uParser.cs GetChannelName / GetChannelNumber)
+
+    // Lists match a channel by number and name, so a row must read the same before and after ingest.
+
+    private static let numberPattern = try! NSRegularExpression(pattern: #"^[+-]?(?:[0-9][0-9,]*\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$"#)
+    private static let numberTrim = CharacterSet(charactersIn: " .")
+    private static let nameTrim = CharacterSet(charactersIn: " -")
+
+    /// .NET's `double.TryParse` under the invariant culture, which also reads "NaN" and "Infinity" in any case.
+    private static func isNumber(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if numberPattern.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil { return true }
+        let unsigned = trimmed.first == "+" || trimmed.first == "-" ? String(trimmed.dropFirst()) : trimmed
+        return ["nan", "infinity"].contains(unsigned.lowercased())
+    }
+
+    private static func isBlank(_ text: String?) -> Bool {
+        text?.trimmingCharacters(in: .whitespaces).isEmpty ?? true
+    }
+
+    private static func isChannelNumber(_ text: String?) -> Bool {
+        guard let text, !isBlank(text), text != "-1", text != "0" else { return false }
+        return isNumber(text)
+    }
+
+    private static func attribute(_ entry: M3uEntry, _ key: String) -> String? {
+        entry.attrs[key].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The text after the #EXTINF line's last comma, nil when the line names nothing.
+    private static func title(_ entry: M3uEntry) -> String? {
+        guard entry.name != entry.url else { return nil }
+        return entry.name.split(separator: ",", omittingEmptySubsequences: true).last.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// The title's leading token when it is a number ("84. VOX", "4 Fun Dance"), with where the name starts.
+    private static func leadingNumber(_ title: String?) -> (number: String, rest: Substring)? {
+        guard let title, !isBlank(title), let space = title.firstIndex(of: " "), space > title.startIndex else { return nil }
+        let number = title[..<space].trimmingCharacters(in: numberTrim)
+        return isNumber(number) ? (number, title[title.index(after: space)...]) : nil
+    }
+
+    static func jellyfinName(_ entry: M3uEntry) -> String {
+        let title = title(entry)
+        let named = leadingNumber(title).map { $0.rest.trimmingCharacters(in: nameTrim) } ?? title
+        for candidate in [named, attribute(entry, "tvg-name"), attribute(entry, "tvg-id")] {
+            if let candidate, !isBlank(candidate) { return candidate }
+        }
+        return entry.name
+    }
+
+    static func jellyfinNumber(_ entry: M3uEntry) -> String? {
+        var number = attribute(entry, "tvg-chno").flatMap { isNumber($0) ? $0 : nil }
+        if !isChannelNumber(number) {
+            if let tvgId = attribute(entry, "tvg-id") {
+                if isNumber(tvgId) {
+                    number = tvgId
+                } else if let channelId = attribute(entry, "channel-id"), isNumber(channelId) {
+                    number = channelId
+                }
+            }
+            if isBlank(number), let leading = leadingNumber(title(entry)) { number = leading.number }
+        }
+        if isChannelNumber(number) { return number?.trimmingCharacters(in: .whitespaces) }
+        // The stream URL's file name, extension dropped: an Xtream-style `.../12345.ts` is channel 12345.
+        let file = entry.line[(entry.line.lastIndex(of: "/").map { entry.line.index(after: $0) } ?? entry.line.startIndex)...]
+        let stem = file.lastIndex(of: ".").map { String(file[..<$0]) } ?? String(file)
+        return isChannelNumber(stem) ? stem : nil
     }
 }

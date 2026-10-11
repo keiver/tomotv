@@ -17,6 +17,8 @@ export interface ChannelFavorite {
   id?: string;
   number?: string;
   name: string;
+  /** Listed before the server had the channel: its server favorite is still owed. */
+  pending?: true;
 }
 /** The server's channel flags, each set when any programme in the channel's guide carries it. */
 export const LIVE_TV_CATEGORIES = ["news", "sports", "kids", "movie", "series"] as const;
@@ -84,7 +86,12 @@ function parseChannelList(raw: unknown): ChannelFavorite[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((entry): entry is ChannelFavorite => !!entry && typeof entry === "object" && typeof entry.name === "string")
-    .map((entry) => ({ ...(typeof entry.id === "string" ? { id: entry.id } : {}), ...(typeof entry.number === "string" ? { number: entry.number } : {}), name: entry.name }));
+    .map((entry) => ({
+      ...(typeof entry.id === "string" ? { id: entry.id } : {}),
+      ...(typeof entry.number === "string" ? { number: entry.number } : {}),
+      name: entry.name,
+      ...(entry.pending === true ? { pending: true as const } : {}),
+    }));
 }
 
 function parseGroups(raw: unknown): ChannelGroup[] {
@@ -225,7 +232,7 @@ export function subscribeLiveTvPreferences(listener: () => void): () => void {
 /** A channel as a list names it: its id, its number when the source gives one, and its name. */
 export function channelFavorite(channel: ChannelIdentity): ChannelFavorite {
   const number = channel.ChannelNumber?.trim();
-  return { ...(channel.Id ? { id: channel.Id } : {}), ...(number ? { number } : {}), name: channel.Name };
+  return { ...(channel.Id ? { id: channel.Id } : {}), ...(number ? { number } : {}), name: channel.Name, ...(channel.playlistPending ? { pending: true as const } : {}) };
 }
 
 /** The key a list matches by: number and name, never the id, which repeats across servers. */

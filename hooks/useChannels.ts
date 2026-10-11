@@ -1,5 +1,5 @@
 import { fetchChannels, fetchChannelsByIds, fetchListedChannels } from "@/services/jellyfinApi";
-import { pendingPlaylistItemsPage } from "@/services/jellyfin/playlistItems";
+import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
 import { channelSortParam, type ChannelFavorite, type ChannelSort, type LiveTvCategory } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -35,6 +35,8 @@ export function useChannels(
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // The last page landed before the tuner playlists did: the next one is asked for here, since the grid may never reach its end.
+  const [tailWaiting, setTailWaiting] = useState(false);
   const itemsRef = useRef<JellyfinItem[]>([]);
   // Where the next page starts: ids the server does not know leave fewer items than ids consumed.
   const loadedRef = useRef(0);
@@ -56,22 +58,21 @@ export function useChannels(
           page = await fetchChannelsByIds(slice);
           consumed += slice.length;
         }
-        return { page, hasMore: startIndex + consumed < ids.length, consumed };
+        return { page, hasMore: startIndex + consumed < ids.length, consumed, waiting: false };
       }
       if (list) {
         const page = startIndex === 0 ? await fetchListedChannels(list) : [];
-        return { page, hasMore: false, consumed: page.length };
+        return { page, hasMore: false, consumed: page.length, waiting: false };
       }
       const { items: page, total } = await fetchChannels({ startIndex, limit: CHANNEL_WALL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) });
       const loaded = startIndex + page.length;
       const hasMore = total !== undefined ? loaded < total : page.length >= CHANNEL_WALL_PAGE;
       if (!hasMore && !category) {
         // The server catalog is done: channels only the tuner playlists carry yet follow, a page at a time.
-        const exclude = new Set([...itemsRef.current, ...page].map((item) => item.Id));
-        const pending = pendingPlaylistItemsPage(exclude, CHANNEL_WALL_PAGE);
-        return { page: [...page, ...pending], hasMore: pending.length >= CHANNEL_WALL_PAGE, consumed: page.length + pending.length };
+        const tail = await pendingChannelsAfter(page, itemsRef.current, CHANNEL_WALL_PAGE);
+        return { page: [...page, ...tail.pending], hasMore: tail.hasMore, consumed: page.length + tail.pending.length, waiting: tail.waiting };
       }
-      return { page, hasMore, consumed: page.length };
+      return { page, hasMore, consumed: page.length, waiting: false };
     },
     [sort, category, list, ids],
   );
@@ -90,16 +91,18 @@ export function useChannels(
     setItems([]);
     setIsLoading(true);
     setHasMore(false);
+    setTailWaiting(false);
     setError(null);
     // The ids still loading: the returned isLoading covers it without a state write.
     if (ids === "loading") return;
     loadPage(0)
-      .then(({ page, hasMore: more, consumed }) => {
+      .then(({ page, hasMore: more, consumed, waiting }) => {
         if (cancelled) return;
         itemsRef.current = page;
         loadedRef.current = consumed;
         setItems(page);
         setHasMore(more);
+        setTailWaiting(waiting);
         setError(null);
       })
       .catch((err) => {
@@ -126,13 +129,17 @@ export function useChannels(
     busyRef.current = true;
     setIsLoadingMore(true);
     loadPage(loadedRef.current)
-      .then(({ page, hasMore: more, consumed }) => {
+      .then(({ page, hasMore: more, consumed, waiting }) => {
         if (generationRef.current !== generation) return;
         pageFailuresRef.current = 0;
         loadedRef.current += consumed;
         setHasMore(more);
-        if (page.length === 0) return;
-        itemsRef.current = itemsRef.current.concat(page);
+        setTailWaiting(waiting);
+        // A channel the server ingested since its stand-in landed comes back in a later page.
+        const seen = new Set(itemsRef.current.map((item) => item.Id));
+        const fresh = page.filter((item) => !seen.has(item.Id));
+        if (fresh.length === 0) return;
+        itemsRef.current = itemsRef.current.concat(fresh);
         setItems(itemsRef.current);
       })
       .catch((err) => {
@@ -157,6 +164,10 @@ export function useChannels(
         );
       });
   }, [isLoading, hasMore, loadPage]);
+
+  useEffect(() => {
+    if (tailWaiting) loadMore();
+  }, [tailWaiting, loadMore]);
 
   const retry = useCallback(() => {
     setIsLoading(true);

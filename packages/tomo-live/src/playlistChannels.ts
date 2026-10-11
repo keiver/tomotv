@@ -146,13 +146,16 @@ function rebuild(): void {
   for (const record of records.values()) {
     nextStatuses[record.source.key] = record.status;
     for (const row of record.rows) {
-      if (nextById.has(row.id)) continue;
-      nextById.set(row.id, row);
-      nextOrdered.push(row);
+      const repeat = nextById.has(row.id);
+      if (!repeat) {
+        nextById.set(row.id, row);
+        nextOrdered.push(row);
+      }
+      // A stream listed again under another group joins that group too; the first entry stays the row.
       for (const group of row.groups) {
         const ids = nextGroups.get(group);
-        if (ids) ids.push(row.id);
-        else nextGroups.set(group, [row.id]);
+        if (!ids) nextGroups.set(group, [row.id]);
+        else if (!repeat || !ids.includes(row.id)) ids.push(row.id);
       }
     }
     for (const url of record.tvgUrls) {

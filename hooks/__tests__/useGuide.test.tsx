@@ -32,6 +32,8 @@ function signInElsewhere() {
 }
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
 jest.mock("@/services/jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] })) }));
+jest.mock("@/services/jellyfin/playlistItems", () => ({ pendingChannelsAfter: jest.fn() }));
+const mockPending = jest.requireMock("@/services/jellyfin/playlistItems").pendingChannelsAfter as jest.Mock;
 jest.mock("@/services/externalGuide", () => {
   const fetchExternalPrograms = jest.fn();
   fetchExternalPrograms.mockResolvedValue([]);
@@ -107,8 +109,37 @@ describe("useGuide", () => {
     jest.spyOn(Date, "now").mockReturnValue(CLOCK);
     mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
+    mockPending.mockResolvedValue({ pending: [], hasMore: false, waiting: false });
   });
   afterEach(() => jest.restoreAllMocks());
+
+  /** The playlist's one channel the server lacks, listed after whatever is already on the list. */
+  const pendingAfter = async (serverPage: { Id: string }[], loaded: { Id: string }[]) => {
+    const have = new Set([...loaded, ...serverPage].map((item) => item.Id));
+    return { pending: have.has("p1") ? [] : [{ Id: "p1", Name: "Pending", Type: "TvChannel", playlistPending: true }], hasMore: false, waiting: false };
+  };
+
+  it("lists the pending channels again after a sort change", async () => {
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    mockPending.mockImplementation(pendingAfter);
+    const ref = await mount();
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c1", "p1"]);
+    mockPreferences = { ...mockPreferences, sort: "name" };
+    await act(async () => mounted!.update(<Harness ref={ref} />));
+    await settle();
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c1", "p1"]);
+  });
+
+  it("asks for the page after the server's last one itself while the tuner playlists are still loading", async () => {
+    (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: startIndex === 0 ? [channel(1)] : [], total: 1 }));
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    mockPending.mockResolvedValueOnce({ pending: [], hasMore: true, waiting: true }).mockImplementation(pendingAfter);
+    const ref = await mount();
+    await settle();
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c1", "p1"]);
+    expect((fetchChannels as jest.Mock).mock.calls.at(-1)![0]).toMatchObject({ startIndex: 1 });
+  });
 
   it("held to favorites, fetches the listed channels in one page, asks programs for them alone, and never pages the catalog", async () => {
     mockPreferences = { ...mockPreferences, filter: "favorites", favorites: [{ id: "c2", name: "Channel 2" }, { name: "Channel 9" }] };

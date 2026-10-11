@@ -47,6 +47,7 @@ interface HarnessProps {
   wasPlayedAtStartRef: React.RefObject<boolean | null>;
   positionSecondsRef: React.RefObject<number>;
   pendingSeekTargetRef: React.RefObject<number | null>;
+  standInRef?: React.RefObject<boolean>;
 }
 
 const Harness = forwardRef<HookRef, HarnessProps>((props, ref) => {
@@ -132,6 +133,20 @@ describe("usePlaybackReporter", () => {
         CanSeek: true,
       }),
     );
+  });
+
+  it("reports nothing for a channel the server has no item for", async () => {
+    const { hook } = renderReporter({ ...makeProps(), standInRef: { current: true } });
+
+    act(() => hook().markStarted());
+    act(() => hook().reportPauseChange(true));
+    await tickPoll();
+    act(() => hook().markEnded());
+    await flushWrites();
+
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(mockProgress).not.toHaveBeenCalled();
+    expect(mockStopped).not.toHaveBeenCalled();
   });
 
   it("reportPauseChange is a no-op before the session starts and reports IsPaused after", async () => {

@@ -17,9 +17,9 @@ import { accountTokenKey, API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
-import { playlistChannelById, playlistItem, playlistPlayable } from "./playlistItems";
+import { playlistPlayable, playlistStandIn, playlistStandInsAllowed, standInItem } from "./playlistItems";
 import { didConfigReadFail, getAuthHeader, getConfig, getQualitySettings, throwRequestError } from "./session";
-import { type ChannelOrigin, clearOpenFailure } from "@keiver/tomo-live";
+import { type ChannelOrigin, clearOpenFailure, playlistChannelById } from "@keiver/tomo-live";
 
 export type { ChannelOrigin };
 export { noteOpenFailed, openRecentlyFailed } from "@keiver/tomo-live";
@@ -277,8 +277,10 @@ export async function fetchChannelsByIds(ids: readonly string[]): Promise<Jellyf
   const pages = await Promise.all(chunks.map((chunk) => fetchChannelItems({ ids: chunk.join(",") })));
   const byId = new Map<string, JellyfinItem>();
   for (const item of pages.flat()) if (item.Type === "TvChannel") byId.set(item.Id, item);
+  const standIns = ids.some((id) => !byId.has(id) && playlistChannelById(id)) && (await playlistStandInsAllowed());
   return ids.flatMap((id) => {
-    const item = byId.get(id) ?? playlistItem(id);
+    const row = byId.has(id) || !standIns ? null : playlistChannelById(id);
+    const item = byId.get(id) ?? (row ? standInItem(row) : null);
     return item ? [item] : [];
   });
 }
@@ -355,8 +357,8 @@ async function describeChannel(
     options.info ? null : fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { headers }, API_TIMEOUTS.NORMAL),
   ]);
   // An id the server has not ingested yet plays off the device's own playlist parse of the tuner.
-  if ((itemResponse?.status === 404 || infoResponse?.status === 404) && playlistChannelById(channelId)) {
-    const playable = playlistPlayable(channelId)!;
+  const playable = itemResponse?.status === 404 || infoResponse?.status === 404 ? await playlistPlayable(channelId) : null;
+  if (playable) {
     logger.info("Live channel resolved from the playlist table", { service: "LiveTv", channel: playable.Name });
     return { channel: playable, playable };
   }
@@ -407,7 +409,7 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   const response = await fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { headers }, API_TIMEOUTS.NORMAL);
   if (!response.ok) {
     // An id the server has not ingested yet: its origin is the playlist entry the device parsed.
-    const row = response.status === 404 ? playlistChannelById(channelId) : null;
+    const row = response.status === 404 ? await playlistStandIn(channelId) : null;
     if (row) return { url: row.streamUrl, originKey: row.originKey, ...(Object.keys(row.headers).length > 0 ? { headers: row.headers } : {}) };
     throwRequestError(response, `Failed to fetch channel playback info: ${response.status}`);
   }
