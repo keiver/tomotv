@@ -10,7 +10,7 @@ Install dependencies with `npm install`. `npm run clear` prepares iOS, Mac and t
 
 ## Coding Style & Naming Conventions
 
-The codebase is TypeScript-first with strict ESLint and Prettier configs—use 2-space indentation, semicolons, and single quotes inside TS/TSX. Components and hooks follow `PascalCase` filenames (`VideoShelf.tsx`, `usePlayback.ts`). Utilities and services use `camelCase`. Keep styles beside components, prefer `StyleSheet.create`, and avoid editing generated outputs inside `android/`, `ios/`, `macos/` or `tvos/` unless performing a native patch.
+The codebase is TypeScript-first with strict ESLint and Prettier configs: use 2-space indentation, semicolons, and single quotes inside TS/TSX. Components and hooks follow `PascalCase` filenames (`VideoShelf.tsx`, `usePlayback.ts`). Utilities and services use `camelCase`. Keep styles beside components, prefer `StyleSheet.create`, and avoid editing generated outputs inside `android/`, `ios/`, `macos/` or `tvos/` unless performing a native patch.
 
 ## Testing Guidelines
 
