@@ -37,7 +37,8 @@ export function resolveFocusAnchor(anchor: FocusAnchor | null, painted: { id: st
   if (!anchor || painted.length === 0) return { claimIndex: null, keepAnchor: !!anchor && !settled };
   let index = painted.findIndex((card) => card.id === anchor.id);
   if (index < 0 && anchor.container) index = painted.findIndex((card) => card.container === anchor.container);
-  if (index < 0) index = Math.min(anchor.index, painted.length - 1);
+  // The anchor's own index can be -1 (a press on a card the painted list never held).
+  if (index < 0) index = Math.max(0, Math.min(anchor.index, painted.length - 1));
   return { claimIndex: painted[index].id === anchor.id && index === anchor.index ? null : index, keepAnchor: !settled };
 }
 

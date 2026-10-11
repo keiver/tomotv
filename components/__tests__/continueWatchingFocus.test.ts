@@ -29,6 +29,10 @@ describe("resolveFocusAnchor", () => {
     expect(resolveFocusAnchor({ id: "b", container: "B", index: 1 }, row("a:A", "c:C"), false)).toEqual({ claimIndex: 1, keepAnchor: true });
   });
 
+  it("falls to the first slot when the pressed card was never in the painted list", () => {
+    expect(resolveFocusAnchor({ id: "x", container: undefined, index: -1 }, row("a:A", "b:B"), true)).toEqual({ claimIndex: 0, keepAnchor: false });
+  });
+
   it("claims nothing over an empty paint or without a press", () => {
     expect(resolveFocusAnchor({ id: "b", container: "B", index: 1 }, [], false)).toEqual({ claimIndex: null, keepAnchor: true });
     expect(resolveFocusAnchor({ id: "b", container: "B", index: 1 }, [], true)).toEqual({ claimIndex: null, keepAnchor: false });
