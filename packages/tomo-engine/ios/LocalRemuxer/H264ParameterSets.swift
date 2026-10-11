@@ -101,7 +101,10 @@ enum H264ParameterSets {
             _ = r.bit() // delta_pic_order_always_zero_flag
             _ = r.se() // offset_for_non_ref_pic
             _ = r.se() // offset_for_top_to_bottom_field
-            for _ in 0..<r.ue() { _ = r.se() }
+            // 7.4.2.1.1 caps num_ref_frames_in_pic_order_cnt_cycle at 255; a torn SPS can decode billions.
+            let cycles = r.ue()
+            guard cycles <= 255 else { return nil }
+            for _ in 0..<cycles { _ = r.se() }
         }
         _ = r.ue() // max_num_ref_frames
         _ = r.bit() // gaps_in_frame_num_value_allowed_flag

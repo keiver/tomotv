@@ -133,6 +133,29 @@ final class InterlacedH264GateTests: XCTestCase {
         }
     }
 
+    /// 7.4.2.1.1 caps num_ref_frames_in_pic_order_cnt_cycle at 255; a torn SPS can
+    /// decode a count in the billions and must answer nil instead of walking it.
+    func testTornSpsWithHugePocCycleCountAnswersNil() {
+        var bits = "1" // seq_parameter_set_id = 0
+        bits += "1" // log2_max_frame_num_minus4 = 0
+        bits += "010" // pic_order_cnt_type = 1
+        bits += "0" // delta_pic_order_always_zero_flag
+        bits += "11" // both offsets, se(v) = 0
+        // num_ref_frames_in_pic_order_cnt_cycle, ue(v) = 2^24
+        bits += String(repeating: "0", count: 24) + "1" + String(repeating: "0", count: 23) + "1"
+        var rbsp: [UInt8] = [66, 0, 30] // profile baseline, constraints, level
+        var accumulator: UInt8 = 0
+        for (position, bit) in bits.enumerated() {
+            accumulator = accumulator << 1 | (bit == "1" ? 1 : 0)
+            if position % 8 == 7 {
+                rbsp.append(accumulator)
+                accumulator = 0
+            }
+        }
+        rbsp.append(accumulator << (8 - UInt8(bits.count % 8 == 0 ? 8 : bits.count % 8)))
+        XCTAssertNil(H264ParameterSets.frameMbsOnlyFlag(rbsp: rbsp))
+    }
+
     func testKnownFieldOrderStaysContainerDriven() throws {
         try withVideoStream(try interlaced(container: "ts")) { stream in
             XCTAssertEqual(stream.pointee.codecpar.pointee.field_order, AV_FIELD_TT)
