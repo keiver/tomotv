@@ -8,6 +8,7 @@ import { canMergeParts, mergeDownloadParts } from "@keiver/tomo-engine";
 import { File, DownloadTask, type DownloadPauseState, type DownloadTaskOptions } from "expo-file-system";
 
 import { aggregateProgress, MIN_PART_BYTES, PART_CONCURRENCY, partRangeHeader, partSize, planParts, type DownloadPart } from "./partPlan";
+import { filePath } from "./paths";
 import { logger } from "@/utils/logger";
 
 export interface PartedPauseState {
@@ -165,8 +166,8 @@ export class PartedDownload {
     if (failure) throw failure;
     if (this.cancelled) throw new Error("cancelled");
     if (this.paused || this.done.size < this.plan.length) return null;
-    const parts = this.plan.map((part) => this.partFile(part).uri.replace(/^file:\/\//, ""));
-    await this.deps.merge({ parts, outputPath: this.destination.uri.replace(/^file:\/\//, "") });
+    const parts = this.plan.map((part) => filePath(this.partFile(part).uri));
+    await this.deps.merge({ parts, outputPath: filePath(this.destination.uri) });
     logger.info("Parted download merged", { service: "Downloads", parts: parts.length, bytes: this.totalBytes });
     return new File(this.destination.uri);
   }

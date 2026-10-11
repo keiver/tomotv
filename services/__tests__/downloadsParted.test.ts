@@ -94,6 +94,17 @@ describe("createDownload", () => {
     expect(last).toEqual({ bytesWritten: TOTAL, totalBytes: TOTAL });
   });
 
+  it("hands the native merge decoded paths for a percent-encoded destination", async () => {
+    const d = deps({});
+    const encoded = new File("file:///doc/My%20Shows/media.mkv");
+    const task = (await createDownload("http://s/file", encoded as never, options(), true, d)) as PartedDownload;
+    await task.downloadAsync();
+    expect(d.merge).toHaveBeenCalledWith({
+      parts: ["/doc/My Shows/media.mkv.part0", "/doc/My Shows/media.mkv.part1", "/doc/My Shows/media.mkv.part2"],
+      outputPath: "/doc/My Shows/media.mkv",
+    });
+  });
+
   it("a failing part fails the download", async () => {
     const d = deps({
       createTask: jest
