@@ -52,10 +52,12 @@ interface SearchHeaderProps {
   inputRef: React.RefCallback<TextInput> | React.RefObject<TextInput>;
   nextFocusDown?: number;
   isSearching: boolean;
+  /** What the loading bar is waiting on, named under the field; empty when idle. */
+  status: string;
 }
 
 const SearchHeader = React.memo(
-  function SearchHeader({ initialQuery, onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching }: SearchHeaderProps) {
+  function SearchHeader({ initialQuery, onChangeText, onSubmitEditing, inputRef, nextFocusDown, isSearching, status }: SearchHeaderProps) {
     const insets = useSafeAreaInsets();
 
     // Horizontal padding is the shared contentContainer's job, so the field lands on the column the
@@ -85,6 +87,12 @@ const SearchHeader = React.memo(
             nextFocusDown={nextFocusDown}>
             <SearchLoadingBar active={isSearching} />
           </SunkenTextInput>
+          {/* Always mounted at a fixed height, so the results never shift as the line comes and goes. */}
+          {!Platform.isTV && (
+            <Text style={styles.searchStatus} numberOfLines={1} accessibilityLiveRegion="polite">
+              {status}
+            </Text>
+          )}
         </View>
       </View>
     );
@@ -95,7 +103,8 @@ const SearchHeader = React.memo(
       prevProps.onChangeText === nextProps.onChangeText &&
       prevProps.onSubmitEditing === nextProps.onSubmitEditing &&
       prevProps.nextFocusDown === nextProps.nextFocusDown &&
-      prevProps.isSearching === nextProps.isSearching
+      prevProps.isSearching === nextProps.isSearching &&
+      prevProps.status === nextProps.status
     );
   },
 );
@@ -506,6 +515,7 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
         inputRef={searchInputCallbackRef}
         nextFocusDown={firstResultHandle}
         isSearching={isSearching || isLiveSearching}
+        status={isSearching ? t("search.searching") : isLiveSearching ? t("search.gatheringLive") : ""}
       />
     ),
     [initialQuery, search, handleSubmitEditing, searchInputCallbackRef, firstResultHandle, isSearching, isLiveSearching],
@@ -578,8 +588,16 @@ const styles = StyleSheet.create({
   // rides in a FlatList rather than a ScrollView with contentInsetAdjustmentBehavior.
   searchContainer: {
     paddingTop: Platform.isTV ? 150 : 60, // phone overrides inline with the safe-area inset
-    paddingBottom: Platform.isTV ? 24 : 16,
+    paddingBottom: Platform.isTV ? 24 : 6,
     alignItems: "center",
+  },
+  searchStatus: {
+    height: 18,
+    marginTop: 8,
+    paddingHorizontal: 20,
+    fontSize: 13,
+    lineHeight: 18,
+    color: COLORS.TEXT_SECONDARY,
   },
   searchTitle: {
     fontSize: 28,
