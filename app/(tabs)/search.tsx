@@ -236,6 +236,7 @@ function NativeSearchResults({
   onItemLongPress: (item: JellyfinVideoItem) => void;
   onEndReached: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   // Until the region is measured, flex fills whatever React thinks the box is. That lands on the
   // first layout pass, while the results are still empty.
   const body =
@@ -243,21 +244,24 @@ function NativeSearchResults({
       // No initial focus claim: the search keyboard above owns focus until the viewer arrows down.
       // The region is already inside the tvOS safe area, so the grid adds no edge padding of its
       // own and packs against the full width, matching the Library tab's card size.
-      <SearchResultsGrid
-        items={items}
-        onItemPress={onItemPress}
-        onItemLongPress={onItemLongPress}
-        availableWidth={region?.width}
-        edgePadding={region ? 0 : undefined}
-        onEndReached={onEndReached}
-        ListFooterComponent={
-          isLoadingMore ? (
-            <View style={styles.footerLoading}>
-              <LoadingRow label={t("search.loadingMore")} />
-            </View>
-          ) : null
-        }
-      />
+      // The region stops at the bottom safe area; the grid draws on to the screen edge, under the loading bar.
+      <View style={[styles.gridBleed, { marginBottom: -insets.bottom }]}>
+        <SearchResultsGrid
+          items={items}
+          onItemPress={onItemPress}
+          onItemLongPress={onItemLongPress}
+          availableWidth={region?.width}
+          edgePadding={region ? 0 : undefined}
+          onEndReached={onEndReached}
+          ListFooterComponent={
+            isLoadingMore ? (
+              <View style={styles.footerLoading}>
+                <LoadingRow label={t("search.loadingMore")} />
+              </View>
+            ) : null
+          }
+        />
+      </View>
     ) : (
       <EmptyResults query={query} isSearching={isSearching} />
     );
@@ -563,6 +567,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   emptyContainer: {
+    flex: 1,
+  },
+  gridBleed: {
     flex: 1,
   },
   // No horizontal padding of its own: settingsStyles.contentContainer inside it owns the
