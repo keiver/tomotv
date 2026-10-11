@@ -102,4 +102,25 @@ final class ParallelRangeReaderTests: XCTestCase {
         try startServer(ranges: false)
         XCTAssertNil(ParallelRangeReader.open(url: url(), headers: [:]))
     }
+
+    /// A size that is an exact chunk multiple puts the EOF cursor on a chunk past the last one.
+    func testExactChunkMultipleReadsToTheEndAndSeeksToSize() throws {
+        try startServer(ranges: true, bytes: 2 * ParallelRangeReader.chunkBytes)
+        let reader = try XCTUnwrap(ParallelRangeReader.open(url: url(), headers: [:]))
+        defer { reader.close() }
+        var collected = Data()
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: 65536, alignment: 1)
+        defer { buffer.deallocate() }
+        while true {
+            let got = reader.read(into: buffer, count: 65536)
+            if got <= 0 {
+                XCTAssertEqual(got, 0)
+                break
+            }
+            collected.append(Data(bytes: buffer, count: got))
+        }
+        XCTAssertEqual(collected, payload)
+        XCTAssertEqual(reader.seek(to: reader.size), reader.size)
+        XCTAssertEqual(reader.read(into: buffer, count: 65536), 0)
+    }
 }
