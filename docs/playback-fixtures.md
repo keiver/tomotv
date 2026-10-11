@@ -1,6 +1,6 @@
 # Playback fixtures
 
-Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-10-10. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
+Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-10-11. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
 
 ### T01
 
@@ -1722,6 +1722,69 @@ Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generate
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | video | h264 (H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10), High, level 40, tag [27][0][0][0], avc1.640028 | 1920x1080, yuv420p, 8-bit, 25 fps, interlaced, bottom field first, H.26[45] User Data Unregistered SEI message |  |  |  |
 | 1 | audio | aac (AAC (Advanced Audio Coding)), LC, tag [15][0][0][0], mp4a.40.2 | 44,100 Hz, 1ch mono, fltp, 128 kb/s |  |  |  |
+
+### T110
+
+| | |
+| --- | --- |
+| File | `T01 DIRECT H264 AAC.mp4` |
+| Size | 2,252,313 bytes |
+| SHA-256 | `75de47acc8b9b5c6ef56566eeb5072afc3bde0a4ff4ff40962a4b533c126db46` |
+| Container | mov,mp4,m4a,3gp,3g2,mj2 (QuickTime / MOV) |
+| Duration | 15.047 s |
+| Overall bitrate | 1,198 kb/s |
+| Streams | 2 |
+| Container tags | major_brand=mp42; minor_version=0; compatible_brands=isommp42; creation_time=2013-11-12T06:30:04.000000Z |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+| Harness expects | `{"video":"h264"}` |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | h264 (H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10), High, level 31, tag avc1, avc1.64001f | 1280x720, yuv420p, 8-bit, 24 fps, progressive, 1,002 kb/s | und |  | default |
+| 1 | audio | aac (AAC (Advanced Audio Coding)), LC, tag mp4a, mp4a.40.2 | 44,100 Hz, 2ch stereo, fltp, 192 kb/s | und |  | default |
+
+### T111
+
+| | |
+| --- | --- |
+| File | `T22 DEVTC Xvid MP3.avi` |
+| Size | 36,745,600 bytes |
+| SHA-256 | `4ce94ba68020ee1a571468dd94174fc8d6832719c4534adf75d75298b75977df` |
+| Container | avi (AVI (Audio Video Interleaved)) |
+| Duration | 90.044 s |
+| Overall bitrate | 3,265 kb/s |
+| Streams | 2 |
+| Container tags | artist=Blender Foundation; comment=On a desolate island, suicidal sheep Franck meets his fate in a quirky salesman, who offers him the gift of a lifetime. Little does he know that he can only handle so much lifetime. (CC) Blender Foundation \| www.cosmoslaundromat.org; date=2015; title=Cosmos Laundromat: First Cycle; track=0; software=Lavf62.12.100 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+| Harness expects | `{"video":"h264"}` |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | mpeg4 (MPEG-4 part 2), Simple Profile, level 1, tag xvid, mp4v.20 | 1920x804, yuv420p, 24 fps, progressive, 3,125 kb/s |  |  |  |
+| 1 | audio | mp3 (MP3 (MPEG audio layer 3)), tag U[0][0][0], mp4a.40.34 | 44,100 Hz, 2ch stereo, fltp, 128 kb/s |  |  |  |
+
+### T112
+
+| | |
+| --- | --- |
+| File | `T41 SERVER VP9 10bit gate-reject.webm` |
+| Size | 22,900,632 bytes |
+| SHA-256 | `b68d54db55570143cf9c67afeab2329d96d9b3df81a373bf11eb929f16031e55` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 60.008 s |
+| Overall bitrate | 3,053 kb/s |
+| Streams | 2 |
+| Container tags | title=Cosmos Laundromat: First Cycle; GENRE=; MAJOR_BRAND=isom; MINOR_VERSION=512; COMPATIBLE_BRANDS=isomiso2avc1mp41; track=0; ARTIST=Blender Foundation; ALBUM=; COMMENT=On a desolate island, suicidal sheep Franck meets his fate in a quirky salesman, who offers him the gift of a lifetime. Little does he know that he can only handle so much lifetime. (CC) Blender Foundation \| www.cosmoslaundromat.org; DATE=2015; ENCODER=Lavf62.12.100 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+| Harness expects | `{"video":"hevc"}` |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | vp9 (Google VP9), Profile 2, vp09.02.40.10 | 1920x804, yuv420p10le, 24 fps, progressive, range tv, encoder Lavc62.28.100 libvpx-vp9 |  |  | default |
+| 1 | audio | opus (Opus (Opus Interactive Audio Codec)), opus | 48,000 Hz, 2ch stereo, fltp, encoder Lavc62.28.100 libopus |  |  | default |
 
 ### L01
 
