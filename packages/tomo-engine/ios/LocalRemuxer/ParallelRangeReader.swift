@@ -106,6 +106,11 @@ final class ParallelRangeReader: NSObject {
             return
         }
         let first = chunkIndex(cursor)
+        // An EOF cursor on an exact chunk-multiple file sits one past the last chunk.
+        guard first <= lastChunk else {
+            lock.unlock()
+            return
+        }
         var started: [URLSessionDataTask] = []
         for index in first ... min(first + Int64(window) - 1, lastChunk) {
             guard !complete.contains(index), tasks[index] == nil, tasks.count < Self.connections else { continue }
