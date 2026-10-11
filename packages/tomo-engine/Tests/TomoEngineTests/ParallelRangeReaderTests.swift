@@ -103,6 +103,25 @@ final class ParallelRangeReaderTests: XCTestCase {
         XCTAssertNil(ParallelRangeReader.open(url: url(), headers: [:]))
     }
 
+    /// The window, not the session, bounds what the reader holds: a chunk the cursor
+    /// consumed is freed even when its completion callback trails the last read.
+    func testConsumedChunksAreFreed() throws {
+        try startServer(ranges: true)
+        let reader = try XCTUnwrap(ParallelRangeReader.open(url: url(), headers: [:]))
+        defer { reader.close() }
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: 65536, alignment: 1)
+        defer { buffer.deallocate() }
+        while reader.read(into: buffer, count: 65536) > 0 {}
+        var heldBytes = 0
+        var completeCount = 0
+        for child in Mirror(reflecting: reader).children {
+            if child.label == "bodies", let map = child.value as? [Int64: Data] { heldBytes = map.values.reduce(0) { $0 + $1.count } }
+            if child.label == "complete", let set = child.value as? Set<Int64> { completeCount = set.count }
+        }
+        XCTAssertEqual(heldBytes, 0, "chunk bodies held after reading to EOF")
+        XCTAssertEqual(completeCount, 0)
+    }
+
     /// A size that is an exact chunk multiple puts the EOF cursor on a chunk past the last one.
     func testExactChunkMultipleReadsToTheEndAndSeeksToSize() throws {
         try startServer(ranges: true, bytes: 2 * ParallelRangeReader.chunkBytes)

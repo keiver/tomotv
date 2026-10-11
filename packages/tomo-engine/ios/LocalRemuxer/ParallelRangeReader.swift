@@ -152,7 +152,10 @@ final class ParallelRangeReader: NSObject {
                     buffer.copyMemory(from: raw.baseAddress!.advanced(by: within), byteCount: served)
                 }
                 cursor += Int64(served)
-                if complete.contains(index), within + served == body.count {
+                // The span bounds a chunk's bytes: a body served to its full span is spent,
+                // whether or not its completion callback has landed.
+                let (start, end) = span(of: index)
+                if within + served == body.count, Int64(body.count) == end - start + 1 {
                     bodies[index] = nil
                     complete.remove(index)
                     window = min(window + 1, Self.windowChunks)
@@ -230,6 +233,11 @@ extension ParallelRangeReader: URLSessionDataDelegate {
         taskChunk[task.taskIdentifier] = nil
         tasks[index] = nil
         if closed {
+            lock.unlock()
+            return
+        }
+        // A body read() consumed and freed: this completion has nothing left to mark.
+        if bodies[index] == nil, cursor > span(of: index).end {
             lock.unlock()
             return
         }
