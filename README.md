@@ -23,7 +23,8 @@ Every file plays in the system's `AVPlayer`, so the transport, AirPlay and
 Picture in Picture are Apple's own. A file AVPlayer can open plays straight from
 the server. For everything else, an engine on the device reads the original file,
 does the format work with its own FFmpeg build, and hands AVPlayer an HLS stream
-it serves on loopback.
+it serves on loopback. It reads an original from the server over three ranged
+connections at once when the server answers range requests.
 
 ```
 Jellyfin server
@@ -103,10 +104,11 @@ permission on the server overrides all three.
   controls. Hold a channel for its info panel, to record, favorite or group it. On Apple TV, the remote's channel-skip
   gesture flips channels, and for 30 seconds after a flip the channels on either
   side keep running.
-- **Themes.** Gold, Blue, Green, Purple or a colour of your own, in Settings >
+- **Themes.** Tomo, Green, Blue, Purple or a colour of your own, in Settings >
   Appearance. Saved themes live in your Jellyfin user's display preferences, so
   each device signed in as you lists them, and each device keeps its own pick.
-  Folder color turns off the blurred artwork behind a folder's grid.
+  Background sets what sits behind the screens: Folder artwork (the default),
+  Theme color or Clear.
 - **Info panels** on iPhone, iPad and Mac drag sideways to the next item: an
   episode across seasons, a song on its album, the photo, book or folder beside
   it, the next library or channel.
@@ -115,7 +117,9 @@ permission on the server overrides all three.
 - **Downloads** on iPhone, iPad and Mac: an item or a whole folder, playable with no
   server in reach, with watch positions synced back later. Keep the original, or
   a smaller copy at 1080p, 720p or 480p that the server converts on the way down,
-  in your audio language with the subtitle you would see.
+  in your audio language with the subtitle you would see. An original of 64 MB
+  or more comes down as up to four ranged parts, three at a time, where the
+  server answers range requests.
 - **SyncPlay**, Jellyfin's watch-together. The Apple TV shows a join code; a
   phone signed in to the same server scans it with the camera to join.
 - **Apple TV.** Skip Intro, Skip Credits and Skip Commercial from Jellyfin's

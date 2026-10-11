@@ -3,6 +3,9 @@
 ## 1.1.0
 
 - `isPlaybackHeld(owner?)` answers for one owner, and `onPlaybackHoldChange` fires on every owner joining or leaving, so work can react to the video hold specifically while audio plays on.
+- `liveFrameDueAt(channelId)`: when the sampler means to read a channel again. Listeners hear when a focus promotion or an unchanged verify moves it.
+- A memory warning stops the live preview's warm session and cools the ring's neighbours; the playing session stays.
+- One open guide per URL serves every window: a load takes the union of the open window and the asked one, and a retired guide's token closes when its last in-flight read ends.
 
 ## 1.0.1
 

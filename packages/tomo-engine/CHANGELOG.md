@@ -4,6 +4,12 @@
 
 - `setPosterQueuePaused(paused)` parks the poster queue's waiting backlog while video plays and returns it on release. The grab already running finishes, a request made while parked still runs, and a cancel reaches a parked job at once. `setPosterFramesPaused` wraps it in JS, and `posterFrameWorkInFlight` stops counting parked jobs.
 - `LocalRemuxer.invalidate()` stops the sessions a dying React runtime started, so a Metro reload no longer leaves an orphaned pipeline running.
+- A remote VOD input is read through three ranged connections at once, in 2 MB chunks with a window of four, when the server answers a ranged probe with 206 and a total. A refusal or a failed open falls back to the single connection.
+- `mergeDownloadParts({ parts, outputPath })` joins ranged download parts into one file and removes a half-joined file on failure; `canMergeParts()` says whether the running binary carries it.
+- `liveStarving(samples)`: a live feed whose last three timed segments each arrived slower than they play, each read-bound, with nothing buffered ahead.
+- Interlaced H.264 goes through the deinterlacer instead of the copy. A live TS that hides its field order is read to its opening keyframe, and that keyframe's SPS picks the lane.
+- A live HLS segment whose open fails is retried three times before it is skipped (`seg_max_retry`).
+- The system's memory pressure events are logged with the process's headroom.
 
 ## 1.0.2
 

@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** October 8, 2026
+**Last Updated:** October 10, 2026
 
 ## Quick Reference
 
@@ -109,23 +109,28 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Tomo TV is now available on Mac with Apple Silicon and Intel processors
 ```
 
-### What's New (2.2.11), iOS (273 / 4000)
+### What's New (2.2.11), iOS (421 / 4000)
 
 ```text
 - Add a channel to any group from its info panel
 - Multi-episode files show the full range, like S01E01-E02
 - Live channels that played with flickering lines look right
 - Your theme colours the background; pick artwork or a plain backdrop
+- Search shows Live TV matches first
+- Channel cards show LIVE only while their picture is fresh
+- Original files download in several parts at once
 - Settings lists fit on the screen
 ```
 
-### What's New (2.2.11), tvOS (354 / 4000)
+### What's New (2.2.11), tvOS (451 / 4000)
 
 ```text
 - Add a channel to any group from its info panel
 - Multi-episode files show the full range, like S01E01-E02
 - Live channels that played with flickering lines look right
 - Your theme colours the background; pick artwork or a plain backdrop
+- Search shows Live TV matches first
+- Channel cards show LIVE only while their picture is fresh
 - Swiping left in the Live TV guide always reaches the channels
 - Back from a programme, the guide keeps your place
 ```
@@ -449,23 +454,28 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Tomo TV ist jetzt auf Macs mit Apple Silicon und Intel-Prozessoren verfügbar
 ```
 
-#### What's New (2.2.11), iOS (336 / 4000 chars)
+#### What's New (2.2.11), iOS (501 / 4000 chars)
 
 ```text
 - Füge einen Kanal im Info-Bereich jeder Gruppe hinzu
 - Dateien mit mehreren Folgen zeigen den ganzen Bereich, etwa S01E01-E02
 - Live-Kanäle, die mit flimmernden Streifen liefen, sehen richtig aus
 - Dein Thema färbt den Hintergrund; wähle Artwork oder einen schlichten Hintergrund
+- Die Suche zeigt Live-TV-Treffer zuerst
+- Kanalkarten zeigen LIVE nur, solange ihr Bild frisch ist
+- Originaldateien werden in mehreren Teilen gleichzeitig geladen
 - Listen in den Einstellungen passen auf den Bildschirm
 ```
 
-#### What's New (2.2.11), tvOS (402 / 4000 chars)
+#### What's New (2.2.11), tvOS (502 / 4000 chars)
 
 ```text
 - Füge einen Kanal im Info-Bereich jeder Gruppe hinzu
 - Dateien mit mehreren Folgen zeigen den ganzen Bereich, etwa S01E01-E02
 - Live-Kanäle, die mit flimmernden Streifen liefen, sehen richtig aus
 - Dein Thema färbt den Hintergrund; wähle Artwork oder einen schlichten Hintergrund
+- Die Suche zeigt Live-TV-Treffer zuerst
+- Kanalkarten zeigen LIVE nur, solange ihr Bild frisch ist
 - Nach links gelangst du im Live-TV-Guide immer zu den Kanälen
 - Zurück von einer Sendung behält der Guide deine Position
 ```
@@ -767,23 +777,28 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Tomo TV est maintenant disponible sur les Mac avec processeur Apple Silicon ou Intel
 ```
 
-#### What's New (2.2.11), iOS (367 / 4000 chars)
+#### What's New (2.2.11), iOS (584 / 4000 chars)
 
 ```text
 - Ajoutez une chaîne à n'importe quel groupe depuis son panneau d'informations
 - Les fichiers à plusieurs épisodes affichent toute la plage, comme S01E01-E02
 - Les chaînes en direct qui s'affichaient avec des lignes scintillantes sont nettes
 - Votre thème colore l'arrière-plan ; choisissez l'illustration ou un fond sobre
+- La recherche affiche d'abord les résultats de TV en direct
+- Les cartes des chaînes affichent DIRECT seulement tant que leur image est récente
+- Les fichiers d'origine se téléchargent en plusieurs parties à la fois
 - Les listes des Réglages tiennent à l'écran
 ```
 
-#### What's New (2.2.11), tvOS (446 / 4000 chars)
+#### What's New (2.2.11), tvOS (591 / 4000 chars)
 
 ```text
 - Ajoutez une chaîne à n'importe quel groupe depuis son panneau d'informations
 - Les fichiers à plusieurs épisodes affichent toute la plage, comme S01E01-E02
 - Les chaînes en direct qui s'affichaient avec des lignes scintillantes sont nettes
 - Votre thème colore l'arrière-plan ; choisissez l'illustration ou un fond sobre
+- La recherche affiche d'abord les résultats de TV en direct
+- Les cartes des chaînes affichent DIRECT seulement tant que leur image est récente
 - Vers la gauche, le guide de TV en direct mène toujours aux chaînes
 - De retour d'un programme, le guide garde votre place
 ```
@@ -1085,23 +1100,28 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Tomo TV ya está disponible en Mac con procesadores Apple Silicon e Intel
 ```
 
-#### What's New (2.2.11), iOS (322 / 4000 chars)
+#### What's New (2.2.11), iOS (537 / 4000 chars)
 
 ```text
 - Añade un canal a cualquier grupo desde su panel de información
 - Los archivos con varios episodios muestran el rango completo, como S01E01-E02
 - Los canales en vivo que se veían con líneas parpadeantes se ven bien
 - Tu tema tiñe el fondo; elige la ilustración o un fondo liso
+- La búsqueda muestra primero los resultados de Televisión en vivo
+- Las tarjetas de los canales muestran EN VIVO solo mientras su imagen es reciente
+- Los archivos originales se descargan en varias partes a la vez
 - Las listas de Ajustes caben en la pantalla
 ```
 
-#### What's New (2.2.11), tvOS (411 / 4000 chars)
+#### What's New (2.2.11), tvOS (561 / 4000 chars)
 
 ```text
 - Añade un canal a cualquier grupo desde su panel de información
 - Los archivos con varios episodios muestran el rango completo, como S01E01-E02
 - Los canales en vivo que se veían con líneas parpadeantes se ven bien
 - Tu tema tiñe el fondo; elige la ilustración o un fondo liso
+- La búsqueda muestra primero los resultados de Televisión en vivo
+- Las tarjetas de los canales muestran EN VIVO solo mientras su imagen es reciente
 - Hacia la izquierda, la guía de Televisión en vivo siempre llega a los canales
 - Al volver de un programa, la guía conserva tu lugar
 ```
