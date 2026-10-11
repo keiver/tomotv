@@ -26,13 +26,15 @@ const channel = { Id: "c1", Name: "One", ChannelNumber: "7" };
 const row = (tree: TestRenderer.ReactTestRenderer, title: string) => tree.root.findByProps({ testID: `row:${title}` });
 const checked = (tree: TestRenderer.ReactTestRenderer, title: string) => row(tree, title).props.accessibilityState.checked;
 
-function mount() {
+function mount(visibleRows?: number) {
   let tree: TestRenderer.ReactTestRenderer | undefined;
   act(() => {
-    tree = TestRenderer.create(<ChannelGroupSection channel={channel} />);
+    tree = TestRenderer.create(<ChannelGroupSection channel={channel} visibleRows={visibleRows} />);
   });
   return tree!;
 }
+const capRows = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => (node.type as unknown) === "View" && typeof node.props.onLayout === "function");
+const listCap = (tree: TestRenderer.ReactTestRenderer) => tree.root.findByProps({ nestedScrollEnabled: true }).props.style.maxHeight;
 
 describe("ChannelGroupSection", () => {
   beforeEach(() => {
@@ -79,6 +81,18 @@ describe("ChannelGroupSection", () => {
     expect(isChannelInGroup(group, channel)).toBe(true);
     expect(checked(tree, "Kids")).toBe(true);
     expect(tree.root.findByProps({ testID: "group-name" }).props.value).toBe("");
+  });
+
+  it("caps the list at the bottom edge of its last visible row", () => {
+    act(() => {
+      ["News", "Sports", "Kids"].forEach((name) => createGroup(name));
+    });
+    expect(capRows(mount())).toHaveLength(0);
+    const tree = mount(3);
+    const [capRow] = capRows(tree);
+    expect(capRow.findByProps({ testID: "row:Sports" })).toBeTruthy();
+    act(() => capRow.props.onLayout({ nativeEvent: { layout: { y: 100, height: 50 } } }));
+    expect(listCap(tree)).toBe(150);
   });
 
   it("creates nothing when the name is left empty", () => {

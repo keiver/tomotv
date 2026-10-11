@@ -14,13 +14,14 @@ const VISIBLE_GROUP_ROWS = 4;
 
 interface ChannelGroupSectionProps {
   channel: ChannelIdentity;
+  visibleRows?: number;
 }
 
 /**
- * The channel's favorite and group membership as a sunken list, at most VISIBLE_GROUP_ROWS rows before it scrolls:
+ * The channel's favorite and group membership as a sunken list, at most visibleRows rows before it scrolls:
  * a row press adds or removes it and the tick redraws in place. The last row rolls into a field that names a new group holding the channel.
  */
-export function ChannelGroupSection({ channel }: ChannelGroupSectionProps) {
+export function ChannelGroupSection({ channel, visibleRows = VISIBLE_GROUP_ROWS }: ChannelGroupSectionProps) {
   const choices = useChannelGroupChoices(channel);
   const [name, setName] = useState("");
   const [listCap, setListCap] = useState<number>();
@@ -46,7 +47,7 @@ export function ChannelGroupSection({ channel }: ChannelGroupSectionProps) {
       />
     );
     // The cap is measured at the last visible row's bottom edge, as the Themes list does.
-    return index === VISIBLE_GROUP_ROWS - 1 && choices.length > VISIBLE_GROUP_ROWS ? (
+    return index === visibleRows - 1 && choices.length > visibleRows ? (
       <View key={choice.key} onLayout={({ nativeEvent: { layout } }) => setListCap(layout.y + layout.height)}>
         {row}
       </View>

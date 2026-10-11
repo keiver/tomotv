@@ -884,7 +884,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           <View style={[settingsStyles.sectionHeader, styles.groupsHeader]}>
             <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
           </View>
-          <ChannelGroupSection channel={groupChannel} />
+          <ChannelGroupSection channel={groupChannel} visibleRows={3} />
         </>
       )}
 
