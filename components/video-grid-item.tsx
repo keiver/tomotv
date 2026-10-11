@@ -240,14 +240,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const isChannel = video.Type === "TvChannel";
   const logoPoster = showsChannelLogo(video) && !liveFrame;
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
-  // A channel card names what is on, then the channel: the logo and the badge already say which channel.
+  // A channel card names what is on: the logo and the badge already say which channel.
   const videoName = cleanLabel(video.Name);
   const watched = isWatched(video);
   // One mark at a time: the watched eye outranks a passed icon (a watched recording drops the camera).
   // A channel's titleIcon is the favorite heart, riding the title beside the name.
   const titleMarkIcon = watched ? "eye" : titleIcon;
   const numberPill = hideNumber ? undefined : channelNumber(video);
-  const cardTitle = airingName ? joinTitle(cleanLabel(airingName), videoName) : video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown");
+  const cardTitle = cleanLabel(airingName) || (video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown"));
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
@@ -439,7 +439,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
-          {offline || badgeSegments || recording || numberPill || isChannel ? (
+          {offline || badgeSegments || numberPill || (isChannel && (recording || liveFrame || airingName)) ? (
             <View style={styles.indexBadge} pointerEvents="none">
               {/* Gold at rest too: the number is the channel's, not a state of the card. */}
               {numberPill ? <CardBadge segments={[{ label: numberPill }]} focused slim /> : null}
@@ -447,8 +447,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} tone="live" />
               ) : isChannel && recording ? (
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
-              ) : isChannel ? (
+              ) : isChannel && liveFrame ? (
                 <LiveFreshnessBadge channelId={video.Id} />
+              ) : isChannel ? (
+                // A logo card has no picture to age: LIVE is the guide's claim about the programme in the title.
+                <CardBadge segments={[{ label: t("liveTv.live") }]} focused={focused} tone="live" />
               ) : badgeSegments ? (
                 <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "Program" ? "live" : "gold"} />
               ) : null}
