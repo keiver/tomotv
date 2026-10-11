@@ -643,7 +643,12 @@ extension RemuxSession {
         ret = avformat_write_header(output, &muxOpts)
         av_dict_free(&muxOpts)
         guard ret >= 0 else {
-            fail("write_header: \(averr(ret))")
+            // Named rendition and video size, so a refusal in the field is attributable.
+            let dims = rendition.inputStreams.compactMap { index -> String? in
+                guard let par = input.pointee.streams[Int(index)]?.pointee.codecpar, par.pointee.codec_type == AVMEDIA_TYPE_VIDEO else { return nil }
+                return "\(par.pointee.width)x\(par.pointee.height)"
+            }.first ?? "no video"
+            fail("write_header (\(rendition.prefix.isEmpty ? "primary" : rendition.prefix), video \(dims)): \(averr(ret))")
             return false
         }
 
@@ -1603,6 +1608,15 @@ extension RemuxSession {
                     var freeing: UnsafeMutablePointer<AVCodecContext>? = codecCtx
                     avcodec_free_context(&freeing)
                     av_parser_close(parser)
+                }
+                // The packet parser can answer nothing on a torn join; the lifted SPS itself
+                // names the frame, and a dimensionless video track dies at write_header.
+                if opensOnKeyframe,
+                   videoStream.pointee.codecpar.pointee.width <= 0 || videoStream.pointee.codecpar.pointee.height <= 0,
+                   let dims = H264ParameterSets.dimensions(videoStream.pointee.codecpar) {
+                    videoStream.pointee.codecpar.pointee.width = dims.width
+                    videoStream.pointee.codecpar.pointee.height = dims.height
+                    NSLog("[LocalRemuxer] Dimensions read from the lifted SPS: %dx%d", dims.width, dims.height)
                 }
                 if opensOnKeyframe {
                     queued = av_packet_clone(pkt)

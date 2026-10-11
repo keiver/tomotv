@@ -133,6 +133,50 @@ final class InterlacedH264GateTests: XCTestCase {
         }
     }
 
+    /// The SPS names the frame size through cropping: 360 is not a macroblock multiple
+    /// in either coding, so both fixtures only answer 640x360 with the crop applied.
+    func testSpsNamesTheFrameSize() throws {
+        try withVideoStream(try interlaced(container: "ts")) { stream in
+            let dims = try XCTUnwrap(H264ParameterSets.dimensions(stream.pointee.codecpar))
+            XCTAssertEqual(dims.width, 640)
+            XCTAssertEqual(dims.height, 360)
+        }
+        try withVideoStream(try progressive()) { stream in
+            let dims = try XCTUnwrap(H264ParameterSets.dimensions(stream.pointee.codecpar))
+            XCTAssertEqual(dims.width, 640)
+            XCTAssertEqual(dims.height, 360)
+        }
+    }
+
+    /// The mov muxer refuses a video track without dimensions: the write_header EINVAL
+    /// a live session dies with when neither the probe nor the keyframe parse fills them.
+    func testMuxerRefusesAVideoTrackWithoutDimensions() throws {
+        try withVideoStream(try interlaced(container: "ts")) { stream in
+            func header(width: Int32, height: Int32) -> Int32 {
+                let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("dims-\(width)x\(height).mp4").path
+                defer { try? FileManager.default.removeItem(atPath: tmp) }
+                var output: UnsafeMutablePointer<AVFormatContext>?
+                guard avformat_alloc_output_context2(&output, nil, "mp4", tmp) >= 0, let ctx = output else { return -1 }
+                defer {
+                    if ctx.pointee.pb != nil { avio_closep(&ctx.pointee.pb) }
+                    avformat_free_context(ctx)
+                }
+                guard let out = avformat_new_stream(ctx, nil) else { return -1 }
+                avcodec_parameters_copy(out.pointee.codecpar, stream.pointee.codecpar)
+                out.pointee.codecpar.pointee.codec_tag = 0 // the TS tag (27) is invalid in mp4
+                out.pointee.codecpar.pointee.width = width
+                out.pointee.codecpar.pointee.height = height
+                guard avio_open(&ctx.pointee.pb, tmp, AVIO_FLAG_WRITE) >= 0 else { return -1 }
+                var opts: OpaquePointer?
+                av_dict_set(&opts, "movflags", "empty_moov+default_base_moof", 0)
+                defer { av_dict_free(&opts) }
+                return avformat_write_header(ctx, &opts)
+            }
+            XCTAssertLessThan(header(width: 0, height: 0), 0)
+            XCTAssertGreaterThanOrEqual(header(width: 640, height: 360), 0)
+        }
+    }
+
     /// 7.4.2.1.1 caps num_ref_frames_in_pic_order_cnt_cycle at 255; a torn SPS can
     /// decode a count in the billions and must answer nil instead of walking it.
     func testTornSpsWithHugePocCycleCountAnswersNil() {

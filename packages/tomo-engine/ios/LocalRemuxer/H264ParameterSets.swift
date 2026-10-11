@@ -77,18 +77,56 @@ enum H264ParameterSets {
     /// Walks the SPS (14496-10 7.3.2.1.1) up to frame_mbs_only_flag. Nil on a short or torn SPS.
     static func frameMbsOnlyFlag(rbsp: [UInt8]) -> UInt32? {
         var r = BitReader(rbsp)
+        guard walkToPicSize(&r) != nil else { return nil }
+        _ = r.ue() // pic_width_in_mbs_minus1
+        _ = r.ue() // pic_height_in_map_units_minus1
+        let flag = r.bit()
+        return r.overrun ? nil : flag
+    }
+
+    /// Frame size per 7.4.2.1.1, cropping applied. For a live join whose probe and
+    /// packet parser answered no dimensions; nil when the SPS does not parse.
+    static func dimensions(_ params: UnsafeMutablePointer<AVCodecParameters>) -> (width: Int32, height: Int32)? {
+        guard params.pointee.codec_id == AV_CODEC_ID_H264,
+              let raw = params.pointee.extradata, params.pointee.extradata_size > 0 else { return nil }
+        let data = [UInt8](UnsafeBufferPointer(start: raw, count: Int(params.pointee.extradata_size)))
+        guard let sps = spsPayload(in: data) else { return nil }
+        var r = BitReader(unescaped(sps))
+        guard let context = walkToPicSize(&r) else { return nil }
+        let widthMbs = r.ue()
+        let heightUnits = r.ue()
+        let frameMbsOnly = r.bit()
+        if frameMbsOnly == 0 { _ = r.bit() } // mb_adaptive_frame_field_flag
+        _ = r.bit() // direct_8x8_inference_flag
+        var crop: (left: Int64, right: Int64, top: Int64, bottom: Int64) = (0, 0, 0, 0)
+        if r.bit() == 1 { crop = (Int64(r.ue()), Int64(r.ue()), Int64(r.ue()), Int64(r.ue())) }
+        guard !r.overrun else { return nil }
+        // Crop units by chroma format (equations 7-13..7-16); luma samples for 4:4:4,
+        // separate planes and monochrome.
+        let cropX: Int64 = context.chroma == 1 || context.chroma == 2 ? 2 : 1
+        let cropY: Int64 = (context.chroma == 1 ? 2 : 1) * Int64(2 - frameMbsOnly)
+        let width = (Int64(widthMbs) + 1) * 16 - cropX * (crop.left + crop.right)
+        let height = Int64(2 - frameMbsOnly) * (Int64(heightUnits) + 1) * 16 - cropY * (crop.top + crop.bottom)
+        guard width > 0, height > 0, width <= 16384, height <= 16384 else { return nil }
+        return (Int32(width), Int32(height))
+    }
+
+    /// Walks 7.3.2.1.1 to just before pic_width_in_mbs_minus1. Nil on a torn SPS;
+    /// chroma is the ChromaArrayType (0 when the planes are coded separately).
+    private static func walkToPicSize(_ r: inout BitReader) -> (chroma: UInt32, profile: UInt32)? {
         let profile = r.bits(8)
         _ = r.bits(8) // constraint flags + reserved
         _ = r.bits(8) // level_idc
         _ = r.ue() // seq_parameter_set_id
+        var chroma: UInt32 = 1
         if [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135].contains(profile) {
-            let chroma = r.ue()
-            if chroma == 3 { _ = r.bit() } // separate_colour_plane_flag
+            chroma = r.ue()
+            if chroma == 3, r.bit() == 1 { chroma = 0 } // separate_colour_plane_flag
             _ = r.ue() // bit_depth_luma_minus8
             _ = r.ue() // bit_depth_chroma_minus8
             _ = r.bit() // qpprime_y_zero_transform_bypass_flag
             if r.bit() == 1 {
-                for index in 0..<(chroma == 3 ? 12 : 8) where r.bit() == 1 {
+                for index in 0..<(chroma == 0 || chroma == 3 ? 12 : 8) where r.bit() == 1 {
                     skipScalingList(&r, size: index < 6 ? 16 : 64)
                 }
             }
@@ -108,10 +146,7 @@ enum H264ParameterSets {
         }
         _ = r.ue() // max_num_ref_frames
         _ = r.bit() // gaps_in_frame_num_value_allowed_flag
-        _ = r.ue() // pic_width_in_mbs_minus1
-        _ = r.ue() // pic_height_in_map_units_minus1
-        let flag = r.bit()
-        return r.overrun ? nil : flag
+        return r.overrun ? nil : (chroma, profile)
     }
 
     private static func skipScalingList(_ r: inout BitReader, size: Int) {
