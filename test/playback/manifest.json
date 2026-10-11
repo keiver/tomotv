@@ -1003,11 +1003,12 @@
       "id": "T112",
       "title": "T41 SERVER VP9 10bit gate-reject",
       "serverTranscoding": "never",
-      "mode": "transcode",
+      "mode": "localRemux",
       "validate": "none",
-      "playSeconds": 10,
+      "playSeconds": 20,
       "progressMin": 0,
-      "expect": { "errorId": "PB-NOLANE" }
+      "expect": { "video": "hevc" },
+      "comment": "Same file is a server transcode at linkOrFile; never closes that lane, so the engine takes it (vp9 Profile 2 -> encode hevc). Software VP9 runs below realtime on the simulator, so no progress floor."
     },
     {
       "id": "L01",
