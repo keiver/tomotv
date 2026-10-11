@@ -69,11 +69,15 @@ describe("isWatched", () => {
 
 describe("programCardTitle", () => {
   it("names the episode after the show", () => {
-    expect(programCardTitle(item({ Type: "Program", Name: "Show", EpisodeTitle: "Pilot", ChannelName: "Show" }))).toBe("Show - Pilot");
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", EpisodeTitle: "Pilot", ChannelName: "Channel 4" }))).toBe("Show - Pilot");
   });
 
-  it("falls back to the channel without an episode title", () => {
-    expect(programCardTitle(item({ Type: "Program", Name: "Show", ChannelName: "Channel 4" }))).toBe("Show - Channel 4");
+  it("never names the channel", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", ChannelName: "Channel 4" }))).toBe("Show");
+  });
+
+  it("gives the episode alone when the show is named for its channel", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", EpisodeTitle: "Pilot", ChannelName: "Show" }))).toBe("Pilot");
   });
 
   it("never repeats the show name", () => {

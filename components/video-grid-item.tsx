@@ -76,9 +76,11 @@ export function isWatched(video: Pick<JellyfinVideoItem, "Type" | "UserData">): 
   return !!video.UserData?.Played && video.Type !== "Audio" && video.Type !== "TvChannel" && video.Type !== "Program";
 }
 
-/** A programme card names its episode after the show, falling back to the channel when the guide gives no episode. */
+/** A programme card names its episode after the show, and never the channel: a show named for its channel gives way to the episode. */
 export function programCardTitle(video: Pick<JellyfinVideoItem, "Name" | "EpisodeTitle" | "ChannelName">): string {
-  return joinTitle(cleanLabel(video.Name), cleanLabel(video.EpisodeTitle) || cleanLabel(video.ChannelName));
+  const show = cleanLabel(video.Name);
+  const episode = cleanLabel(video.EpisodeTitle);
+  return episode && show === cleanLabel(video.ChannelName) ? episode : joinTitle(show, episode);
 }
 
 /** "Lead - Detail", or the lead alone when the detail is missing or repeats it. */
