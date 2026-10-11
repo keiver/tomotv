@@ -75,7 +75,9 @@ test("the clear entry point completes nested prebuilds and releases its lock for
     cwd: root,
     env: { ...process.env, PATH: `${root}/bin:${process.env.PATH}` },
     encoding: "utf8",
-    timeout: 5000,
+    // node --test runs the release files in parallel; beside the prebuild fixtures,
+    // 5s killed this spawn at 5.0s while isolated runs take 1.7-3.1s.
+    timeout: 20000,
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "prebuilt\nmetro\n");
