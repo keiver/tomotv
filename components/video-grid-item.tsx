@@ -33,7 +33,7 @@ const IS_TV = Platform.isTV;
 const SCREEN = Dimensions.get("screen");
 const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
 const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
-/** The favorite heart at a channel title's left end: under the title's cap height. */
+/** The favorite heart at a channel title's right end: under the title's cap height. */
 const QUIET_MARK_SIZE = Math.round(TITLE_SIZE * 0.8);
 /** A channel's title centres wherever the card is wide: TV, iPad, Mac. */
 const CHANNEL_TITLE_CENTERED = IS_TV || IS_TABLET;
@@ -279,7 +279,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // A channel's mark is its favorite heart: smaller and dimmed, a presence beside the name.
   const renderTitleMark = (color: string) =>
     titleMarkIcon ? (
-      <View style={styles.titleMark} pointerEvents="none">
+      <View style={[styles.titleMark, isChannel ? styles.titleMarkTrailing : styles.titleMarkLeading]} pointerEvents="none">
         <Ionicons name={titleMarkIcon} size={isChannel ? QUIET_MARK_SIZE : TITLE_SIZE} color={isChannel ? withAlpha(color, 0.65) : color} />
       </View>
     ) : null;
@@ -395,7 +395,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // over the fill). Decorative to a11y — the card announces name + value.
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%`, backgroundColor: palette.accent }]} pointerEvents="none" />
-              <View style={[styles.infoTitleBlend, titleMarkIcon && styles.titleLineInset]}>
+              <View style={[styles.infoTitleBlend, titleMarkIcon && styles.titleLineInset, titleMarkIcon && isChannel && styles.titleLineInsetChannel]}>
                 {renderTitleMark(palette.accent)}
                 {titleText(palette.accent)}
               </View>
@@ -403,14 +403,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : // Focused or watched: opaque gold bar (the watched bar is the fill at its end state, under the ink eye)
           focused || watched ? (
             <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
-              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
+              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset, titleMarkIcon && isChannel && styles.titleLineInsetChannel]}>
                 {renderTitleMark(palette.ink)}
                 {titleText(palette.ink)}
               </View>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset]}>
+              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset, titleMarkIcon && isChannel && styles.titleLineInsetChannel]}>
                 {renderTitleMark(palette.accent)}
                 {titleText(palette.accent)}
               </View>
@@ -658,20 +658,30 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   // Pulled halfway into the bar's side inset, closer to the card edge than the title sits.
-  // Out of flow at the line's left end, so the title keeps the whole line to centre in.
+  // Out of flow at the line's end, so the title keeps the whole line to centre in.
   titleMark: {
     position: "absolute",
-    left: IS_TV ? 4 : -4,
     top: 0,
     bottom: 0,
     justifyContent: "center",
   },
+  titleMarkLeading: {
+    left: IS_TV ? 4 : -4,
+  },
+  // A channel's heart sits at the line's right end.
+  titleMarkTrailing: {
+    right: IS_TV ? 4 : -4,
+  },
   infoTitleLine: {
     width: "100%",
   },
-  // Both sides, so the TV title stays centred while it clears the mark on the left.
+  // Both sides, so the TV title stays centred while it clears the mark.
   titleLineInset: {
     paddingHorizontal: IS_TV ? TITLE_SIZE + 16 : TITLE_SIZE + 2,
+  },
+  // A flush-left channel title starts at the bar's edge: its mark is on the right.
+  titleLineInsetChannel: {
+    paddingLeft: CHANNEL_TITLE_CENTERED ? undefined : 0,
   },
   infoValueTitleChannel: {
     fontSize: TITLE_SIZE - 2,
