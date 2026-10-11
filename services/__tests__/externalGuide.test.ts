@@ -211,7 +211,7 @@ describe("fetchExternalPrograms", () => {
     const later = { from: WINDOW.from + 3 * DAY, to: WINDOW.from + 3 * DAY + SPAN };
     await fetchExternalPrograms([URL], channels, later);
     await fetchExternalPrograms([URL], channels, { from: later.from - SPAN, to: later.from });
-    expect(native.loadGuide).toHaveBeenLastCalledWith(FILE, { from: later.from - SPAN - DAY, to: later.from + DAY }, "external", 0);
+    expect(native.loadGuide).toHaveBeenLastCalledWith(FILE, { from: later.from - SPAN - DAY, to: later.to + DAY }, "external", 0);
     await fetchExternalPrograms([URL], channels, { from: later.from - 2 * SPAN, to: later.from - SPAN });
     expect(native.loadGuide).toHaveBeenCalledTimes(2);
   });
