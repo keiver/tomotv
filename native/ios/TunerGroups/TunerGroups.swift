@@ -22,6 +22,22 @@ struct TunerChannel: Equatable {
     var tvgName: String?
 }
 
+/// Everything the device needs to list and tune a tuner channel without the server's item.
+struct TunerRow: Equatable {
+    var id: String
+    var name: String
+    var number: String?
+    var logo: String?
+    /// The stream URL, pipe headers stripped.
+    var url: String
+    var headers: [String: String]
+    var groups: [String]
+    var tvgId: String?
+    var tvgName: String?
+    var radio: Bool
+    var drm: Bool
+}
+
 enum TunerGroups {
     /// Schemes Jellyfin accepts for a channel (M3uParser.cs IsValidChannelUrl); other lines never become channels.
     private static let schemes: Set<String> = ["http", "https", "rtsp", "rtp", "udp"]
@@ -54,5 +70,23 @@ enum TunerGroups {
             guard isJellyfinChannel(entry), entry.tvgId != nil || entry.tvgName != nil else { return nil }
             return TunerChannel(id: JellyfinChannelId.forM3u(tunerHash: tunerHash, streamUrl: entry.line), tvgId: entry.tvgId, tvgName: entry.tvgName)
         }
+    }
+
+    /// The entry as a full channel row, or nil when Jellyfin would not make a channel of it.
+    static func row(entry: M3uEntry, tunerHash: String) -> TunerRow? {
+        guard isJellyfinChannel(entry) else { return nil }
+        return TunerRow(
+            id: JellyfinChannelId.forM3u(tunerHash: tunerHash, streamUrl: entry.line),
+            name: entry.name,
+            number: entry.tvgChno,
+            logo: entry.tvgLogo,
+            url: entry.url,
+            headers: entry.headers,
+            groups: entry.groups,
+            tvgId: entry.tvgId,
+            tvgName: entry.tvgName,
+            radio: entry.radio,
+            drm: entry.drm
+        )
     }
 }

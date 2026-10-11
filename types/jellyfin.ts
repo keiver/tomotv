@@ -154,6 +154,9 @@ export interface JellyfinVideoItem {
   liveFallbackUrl?: string;
   // The server's HLS transcode of the channel, the rung below the engine.
   liveTranscodeUrl?: string;
+  // A channel built from the device's own tuner playlist parse: the server holds no item for it
+  // yet, so server-side writes (favorite, record) and the server lane are unavailable.
+  playlistPending?: boolean;
   ChannelNumber?: string;
   CurrentProgram?: JellyfinProgram | null;
   // A Live TV programme found by search (Type "Program"): its airing and its channel.

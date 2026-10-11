@@ -57,7 +57,7 @@ export interface LiveTvPreferences {
   /** Phone: playback seeks past a Commercial segment on reaching it. Apple TV shows a pill instead. */
   skipCommercials: boolean;
 }
-export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber"> & { Id?: string };
+export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber" | "playlistPending"> & { Id?: string };
 
 export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   version: 1,

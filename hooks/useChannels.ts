@@ -1,4 +1,5 @@
 import { fetchChannels, fetchChannelsByIds, fetchListedChannels } from "@/services/jellyfinApi";
+import { pendingPlaylistItemsPage } from "@/services/jellyfin/playlistItems";
 import { channelSortParam, type ChannelFavorite, type ChannelSort, type LiveTvCategory } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -63,7 +64,14 @@ export function useChannels(
       }
       const { items: page, total } = await fetchChannels({ startIndex, limit: CHANNEL_WALL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) });
       const loaded = startIndex + page.length;
-      return { page, hasMore: total !== undefined ? loaded < total : page.length >= CHANNEL_WALL_PAGE, consumed: page.length };
+      const hasMore = total !== undefined ? loaded < total : page.length >= CHANNEL_WALL_PAGE;
+      if (!hasMore && !category) {
+        // The server catalog is done: channels only the tuner playlists carry yet follow, a page at a time.
+        const exclude = new Set([...itemsRef.current, ...page].map((item) => item.Id));
+        const pending = pendingPlaylistItemsPage(exclude, CHANNEL_WALL_PAGE);
+        return { page: [...page, ...pending], hasMore: pending.length >= CHANNEL_WALL_PAGE, consumed: page.length + pending.length };
+      }
+      return { page, hasMore, consumed: page.length };
     },
     [sort, category, list, ids],
   );

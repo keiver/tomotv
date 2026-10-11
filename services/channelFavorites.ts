@@ -58,7 +58,8 @@ export function toggleFavoriteChannel(channel: ChannelIdentity): void {
   toggleLocalFavoriteChannel(channel);
   edits += 1;
   const userId = getCachedConfig().userId;
-  if (!channel.Id || !userId) return;
+  // A channel the server has not ingested yet stays a device favorite; the sync carries it over later.
+  if (!channel.Id || !userId || channel.playlistPending) return;
   const id = channel.Id;
   writing += 1;
   setVideoFavorite(id, next)
@@ -81,7 +82,8 @@ export function planCarry(localOnly: readonly ChannelFavorite[], resolved: Reado
   const keep: ChannelFavorite[] = [];
   for (const entry of localOnly) {
     const item = resolved.get(favoriteKey(entry));
-    if (!item) keep.push(entry);
+    // A playlist stand-in has no server item to favorite yet; the entry waits for ingest.
+    if (!item || item.playlistPending) keep.push(entry);
     else if (!seeded || item.Id !== entry.id) carry.push(item);
   }
   return { carry, keep };

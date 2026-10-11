@@ -18,6 +18,7 @@ import { fetchWithTimeout } from "./http";
 import { invalidateItemRemoved } from "./cacheKeys";
 import { notifyItemRemoving } from "./events";
 import { resolveChannel } from "./liveTv";
+import { playlistPlayable } from "./playlistItems";
 import { didConfigReadFail, getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
 /** Whether the signed-in account is a server administrator; gates the panel's Delete action. */
@@ -566,6 +567,12 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
                 fetchWithTimeout(url, { method: "GET", headers }, API_TIMEOUTS.NORMAL),
                 fetchWithTimeout(itemUrl, { method: "GET", headers }, API_TIMEOUTS.NORMAL),
               ]);
+
+              // A channel id the server has not ingested yet plays off the device's own playlist parse.
+              if (response.status === 404 || itemResponse.status === 404) {
+                const pending = playlistPlayable(itemId);
+                if (pending) return pending;
+              }
 
               if (!response.ok) {
                 throwRequestError(response, `Failed to fetch video details: ${response.status} ${response.statusText}`);

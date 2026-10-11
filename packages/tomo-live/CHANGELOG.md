@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0
+
+- Playlist channels: a channel table built from M3U playlists parsed on device (`syncPlaylistSources`, `playlistChannelById`, `playlistChannelsPage`, `playlistGroupList`, per-source statuses). Identity is the app's own; `enginePlaylistRows` is the stock loader over the engine's native store, paged 1000 entries per native call. A failed reload serves the last good rows and backs off.
+- The guide file cache generalizes to playlists: `cachedPlaylistFile`, `playlistFileInfo`, `playlistCacheBytes`, `clearPlaylistFileCache`, the same atomic download, stale-on-failure and sweep rules in a `playlists/` folder.
+
 ## 1.1.0
 
 - `isPlaybackHeld(owner?)` answers for one owner, and `onPlaybackHoldChange` fires on every owner joining or leaving, so work can react to the video hold specifically while audio plays on.

@@ -10,4 +10,5 @@ export * from "./livePreview";
 export * from "./liveRing";
 export * from "./openFailures";
 export * from "./playbackHold";
+export * from "./playlistChannels";
 export * from "./time";

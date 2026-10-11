@@ -14,6 +14,16 @@ RCT_EXTERN_METHOD(loadTunerGroups
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(tunerRows
+                  : (NSDictionary *)config resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(releaseTunerPlaylist
+                  : (nonnull NSString *)requestId resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(cancelLoad
                   : (nonnull NSString *)requestId resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

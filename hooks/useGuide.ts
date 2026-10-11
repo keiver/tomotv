@@ -7,6 +7,7 @@ import { fetchChannels, fetchChannelsByIds, fetchGuideHorizon, fetchGuideProgram
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { activeGuideUrls, fetchExternalProgramWindow } from "@/services/externalGuide";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
+import { pendingPlaylistItemsPage } from "@/services/jellyfin/playlistItems";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
 import { cachedRequest, invalidateByPrefix } from "@/services/requestCache";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
@@ -311,10 +312,18 @@ export function useGuide(): GuideState {
         GUIDE_READ_TTL_MS,
       );
       const loaded = startIndex + items.length;
-      const hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
-      land.channels(items);
-      await landPrograms(items);
-      return { hasMore, pageLength: items.length };
+      let hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
+      let page = items;
+      if (!hasMore && !category) {
+        // The server catalog is done: channels only the tuner playlists carry yet follow, a page at a time.
+        const exclude = new Set([...channelsRef.current, ...items].map((channel) => channel.Id));
+        const pending = pendingPlaylistItemsPage(exclude, GUIDE_CHANNEL_PAGE);
+        page = [...items, ...pending];
+        hasMore = pending.length >= GUIDE_CHANNEL_PAGE;
+      }
+      land.channels(page);
+      await landPrograms(page);
+      return { hasMore, pageLength: page.length };
     },
     [sort, list, category, playlistIds, fetchPrograms],
   );

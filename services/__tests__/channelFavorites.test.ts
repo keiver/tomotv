@@ -53,6 +53,11 @@ describe("planCarry", () => {
     expect(planCarry([entry("x", "Gone", "9")], new Map(), false)).toEqual({ carry: [], keep: [entry("x", "Gone", "9")] });
   });
 
+  it("keeps an entry whose channel is only a playlist stand-in: there is no server item to favorite yet", () => {
+    const pending = { ...channel("id-p", "Pending", "5"), playlistPending: true };
+    expect(planCarry([entry("id-p", "Pending", "5")], new Map([["5|Pending", pending]]), false)).toEqual({ carry: [], keep: [entry("id-p", "Pending", "5")] });
+  });
+
   it("carries every resolved entry on a first visit", () => {
     expect(planCarry([entry("id-1", "One", "1")], new Map([["1|One", one]]), false).carry).toEqual([one]);
   });
@@ -235,5 +240,14 @@ describe("toggleFavoriteChannel", () => {
     expect(userData.setVideoFavorite).toHaveBeenCalledWith("id-1", true);
     await new Promise((resolve) => setImmediate(resolve));
     expect(preferences.isFavoriteChannel(preferences.getLiveTvPreferences(), one)).toBe(false);
+  });
+
+  it("keeps a pending playlist channel a device favorite without asking the server", async () => {
+    const { favorites, preferences, userData } = load();
+    favorites.toggleFavoriteChannel({ ...one, playlistPending: true });
+    expect(preferences.isFavoriteChannel(preferences.getLiveTvPreferences(), one)).toBe(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(userData.setVideoFavorite).not.toHaveBeenCalled();
+    expect(preferences.isFavoriteChannel(preferences.getLiveTvPreferences(), one)).toBe(true);
   });
 });

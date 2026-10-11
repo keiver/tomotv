@@ -1,19 +1,31 @@
 /** Tuner groups through the native module: the config read, which tuners qualify, merging, tvg-ids, and failure caching. */
+import type { TunerRow } from "../liveSources";
 import { fetchTunerData, fetchTunerGroups, lastKnownTunerData, resetTunerCache } from "../jellyfin/tunerGroups";
 import { clearRequestCache } from "../requestCache";
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
+const mockRowsByRequest = new Map<string, TunerRow[]>();
+
 jest.mock("@/services/liveSources", () => ({
   isTunerGroupsAvailable: jest.fn(() => true),
   loadTunerPlaylist: jest.fn(),
+  tunerPlaylistRows: jest.fn(async (requestId: string) => mockRowsByRequest.get(requestId) ?? []),
+  releaseTunerPlaylist: jest.fn(async () => {}),
   cancelTunerGroups: jest.fn(),
 }));
 const mockLiveSources = jest.requireMock("@/services/liveSources") as {
   isTunerGroupsAvailable: jest.Mock;
   loadTunerPlaylist: jest.Mock;
+  tunerPlaylistRows: jest.Mock;
+  releaseTunerPlaylist: jest.Mock;
   cancelTunerGroups: jest.Mock;
 };
+
+// The disk cache serves the URL back: the loader's fetch expectations stay about URLs.
+jest.mock("@/services/guideFileCache", () => ({
+  cachedPlaylistFile: jest.fn(async (url: string) => url),
+}));
 
 jest.mock("../jellyfin/session", () => ({
   getConfig: jest.fn(async () => ({ server: "http://s", apiKey: "k", userId: "u", deviceId: "d" })),
@@ -23,11 +35,38 @@ jest.mock("../jellyfin/session", () => ({
   }),
 }));
 
+/** One playlist entry row, as the native module pages them out. */
+const row = (id: string, over: Partial<TunerRow> = {}): TunerRow => ({
+  id,
+  name: `Channel ${id}`,
+  number: null,
+  logo: null,
+  url: `http://h/${id}.ts`,
+  headers: {},
+  groups: [],
+  tvgId: null,
+  tvgName: null,
+  radio: false,
+  drm: false,
+  ...over,
+});
+
+/** Queues one tuner's answer: its rows (paged out by requestId) and declared guide URLs, or a failure. */
+function queueTuner(result: { rows?: TunerRow[]; tvgUrls?: string[] } | Error): void {
+  mockLiveSources.loadTunerPlaylist.mockImplementationOnce(async (requestId: string) => {
+    if (result instanceof Error) throw result;
+    const rows = result.rows ?? [];
+    mockRowsByRequest.set(requestId, rows);
+    return { groups: [], channels: [], tvgUrls: result.tvgUrls ?? [], entryCount: rows.length };
+  });
+}
+
 describe("fetchTunerGroups", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     clearRequestCache();
     resetTunerCache();
+    mockRowsByRequest.clear();
     jest.useRealTimers();
   });
 
@@ -42,16 +81,8 @@ describe("fetchTunerGroups", () => {
         { Type: "hdhomerun", Url: "http://t/hdhr" },
       ]),
     );
-    mockLiveSources.loadTunerPlaylist
-      .mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a", "b"] }], channels: [{ id: "a", tvgId: "A.us" }], tvgUrls: ["http://g/a.xml", "ftp://nope", "http://g/a.xml"] })
-      .mockResolvedValueOnce({
-        groups: [
-          { name: "News", channelIds: ["b", "c"] },
-          { name: "Kids", channelIds: ["d"] },
-        ],
-        channels: [{ id: "d", tvgId: "D.us@SD" }],
-        tvgUrls: ["https://g/b.xml.gz", "http://g/a.xml"],
-      });
+    queueTuner({ rows: [row("a", { groups: ["News"], tvgId: "A.us" }), row("b", { groups: ["News"] })], tvgUrls: ["http://g/a.xml", "ftp://nope", "http://g/a.xml"] });
+    queueTuner({ rows: [row("b", { groups: ["News"] }), row("c", { groups: ["News"] }), row("d", { groups: ["Kids"], tvgId: "D.us@SD" })], tvgUrls: ["https://g/b.xml.gz", "http://g/a.xml"] });
     await expect(fetchTunerData()).resolves.toEqual({
       groups: [
         { name: "News", channelIds: ["a", "b", "c"] },
@@ -85,7 +116,7 @@ describe("fetchTunerGroups", () => {
         { Type: "m3u", Url: "http://localhost.example.com/d.m3u" },
       ]),
     );
-    mockLiveSources.loadTunerPlaylist.mockResolvedValue({ groups: [], channels: [], tvgUrls: [] });
+    for (let i = 0; i < 4; i++) queueTuner({});
     const data = await fetchTunerData();
     expect(mockLiveSources.loadTunerPlaylist.mock.calls.map(([, url, , fetchUrl]) => [url, fetchUrl])).toEqual([
       ["http://127.0.0.1:9109/a.m3u", "http://192.168.1.5:9109/a.m3u"],
@@ -110,7 +141,8 @@ describe("fetchTunerGroups", () => {
         { Type: "m3u", Url: "http://t/good.m3u" },
       ]),
     );
-    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("403")).mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    queueTuner(new Error("403"));
+    queueTuner({ rows: [row("a", { groups: ["News"] })] });
     await expect(fetchTunerData()).resolves.toMatchObject({ groups: [{ name: "News", channelIds: ["a"] }], complete: false });
   });
 
@@ -121,13 +153,13 @@ describe("fetchTunerGroups", () => {
       { Type: "m3u", Url: "http://t/other.m3u" },
     ]);
     global.fetch = jest.fn().mockResolvedValue(tuners);
-    mockLiveSources.loadTunerPlaylist
-      .mockResolvedValueOnce({ groups: [{ name: "Sports", channelIds: ["s"] }], channels: [{ id: "s", tvgId: "S.uk" }], tvgUrls: ["http://g/busy.xml"] })
-      .mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    queueTuner({ rows: [row("s", { groups: ["Sports"], tvgId: "S.uk" })], tvgUrls: ["http://g/busy.xml"] });
+    queueTuner({ rows: [row("a", { groups: ["News"] })] });
     await fetchTunerData();
     clearRequestCache();
     // The busy tuner refuses while it streams; its group and tvg-ids survive from the last good read.
-    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("refused")).mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a", "b"] }], channels: [], tvgUrls: [] });
+    queueTuner(new Error("refused"));
+    queueTuner({ rows: [row("a", { groups: ["News"] }), row("b", { groups: ["News"] })] });
     const partial = await fetchTunerData();
     expect(partial).toEqual({
       groups: [
@@ -146,9 +178,8 @@ describe("fetchTunerGroups", () => {
     await fetchTunerData();
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledTimes(4);
     jest.setSystemTime(Date.now() + 6 * 60 * 1000);
-    mockLiveSources.loadTunerPlaylist
-      .mockResolvedValueOnce({ groups: [{ name: "Sports", channelIds: ["s"] }], channels: [], tvgUrls: [] })
-      .mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    queueTuner({ rows: [row("s", { groups: ["Sports"] })] });
+    queueTuner({ rows: [row("a", { groups: ["News"] })] });
     await expect(fetchTunerData()).resolves.toMatchObject({ complete: true });
   });
 
@@ -160,19 +191,14 @@ describe("fetchTunerGroups", () => {
         { Type: "m3u", Url: "http://t/other.m3u" },
       ]),
     );
-    mockLiveSources.loadTunerPlaylist.mockResolvedValueOnce({ groups: [{ name: "Sports", channelIds: ["s"] }], channels: [], tvgUrls: [] }).mockResolvedValueOnce({
-      groups: [
-        { name: "Kids", channelIds: ["k"] },
-        { name: "News", channelIds: ["a", "x"] },
-      ],
-      channels: [],
-      tvgUrls: [],
-    });
+    queueTuner({ rows: [row("s", { groups: ["Sports"] })] });
+    queueTuner({ rows: [row("k", { groups: ["Kids"] }), row("a", { groups: ["News"] }), row("x", { groups: ["News"] })] });
     await fetchTunerData();
     clearRequestCache();
     jest.setSystemTime(Date.now() + 6 * 60 * 1000);
     // The other tuner dropped Kids and channel x; the busy one refuses and stands in with its own last playlist.
-    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("refused")).mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    queueTuner(new Error("refused"));
+    queueTuner({ rows: [row("a", { groups: ["News"] })] });
     await expect(fetchTunerData()).resolves.toMatchObject({
       groups: [
         { name: "Sports", channelIds: ["s"] },
@@ -191,25 +217,25 @@ describe("fetchTunerGroups", () => {
     await Promise.resolve();
     resetTunerCache();
     clearRequestCache();
-    release({ groups: [{ name: "Old", channelIds: ["o"] }], channels: [], tvgUrls: [] });
+    release({ groups: [], channels: [], tvgUrls: [], entryCount: 0 });
     await pending;
     expect(lastKnownTunerData()).toBeNull();
   });
 
   it("treats a read where every tuner failed as a failure, serving the last good groups", async () => {
     global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
-    mockLiveSources.loadTunerPlaylist.mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    queueTuner({ rows: [row("a", { groups: ["News"] })] });
     await fetchTunerGroups();
     clearRequestCache();
     // The tuner is busy serving a stream: the playlist read is refused.
-    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("connection refused"));
+    queueTuner(new Error("connection refused"));
     await expect(fetchTunerGroups()).resolves.toEqual([{ name: "News", channelIds: ["a"] }]);
     expect(lastKnownTunerData()?.groups).toEqual([{ name: "News", channelIds: ["a"] }]);
   });
 
   it("rejects an all-tuners-failed read with no last good data instead of resolving empty", async () => {
     global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
-    mockLiveSources.loadTunerPlaylist.mockRejectedValueOnce(new Error("connection refused"));
+    queueTuner(new Error("connection refused"));
     await expect(fetchTunerGroups()).rejects.toThrow("connection refused");
     expect(lastKnownTunerData()).toBeNull();
   });
@@ -229,7 +255,7 @@ describe("fetchTunerGroups", () => {
 
   it("serves the last good read when a refetch fails, until a reset", async () => {
     global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
-    mockLiveSources.loadTunerPlaylist.mockResolvedValueOnce({ groups: [{ name: "News", channelIds: ["a"] }], channels: [], tvgUrls: [] });
+    queueTuner({ rows: [row("a", { groups: ["News"] })] });
     await fetchTunerGroups();
     expect(lastKnownTunerData()?.groups).toEqual([{ name: "News", channelIds: ["a"] }]);
     clearRequestCache();
@@ -244,7 +270,7 @@ describe("fetchTunerGroups", () => {
   it("revalidating re-reads at once when the server gained a playlist, and keeps the cache when it did not", async () => {
     const one = configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]);
     global.fetch = jest.fn().mockResolvedValue(one);
-    mockLiveSources.loadTunerPlaylist.mockResolvedValue({ groups: [], channels: [], tvgUrls: ["http://g/one.xml"] });
+    queueTuner({ tvgUrls: ["http://g/one.xml"] });
     await fetchTunerData();
     // Same tuner list: one config read, no re-stream.
     await fetchTunerData({ revalidate: true });
@@ -256,9 +282,8 @@ describe("fetchTunerGroups", () => {
         { Type: "m3u", Url: "http://t/new.m3u" },
       ]),
     );
-    mockLiveSources.loadTunerPlaylist
-      .mockResolvedValueOnce({ groups: [], channels: [], tvgUrls: ["http://g/one.xml"] })
-      .mockResolvedValueOnce({ groups: [], channels: [], tvgUrls: ["http://g/new.xml"] });
+    queueTuner({ tvgUrls: ["http://g/one.xml"] });
+    queueTuner({ tvgUrls: ["http://g/new.xml"] });
     const data = await fetchTunerData({ revalidate: true });
     expect(data.tunerUrls).toEqual(["http://t/one.m3u", "http://t/new.m3u"]);
     expect(data.tvgUrls).toEqual(["http://g/one.xml", "http://g/new.xml"]);

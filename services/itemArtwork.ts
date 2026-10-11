@@ -4,6 +4,7 @@
  * reads it from here, so the grid, the hero, the Up Next card and Now Playing agree.
  */
 import { STANDALONE_VIDEO_TYPES } from "@/services/jellyfin/constants";
+import { playlistLogoUrl } from "@/services/jellyfin/playlistItems";
 import { getCachedConfig, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { posterFrameGeneration, posterFrameIfCached, posterFrameRevision } from "@/services/localRemux";
 import { getUiPreferences } from "@/services/uiPreferences";
@@ -62,6 +63,11 @@ export interface PosterSource {
  */
 export function posterSource(item: PosterItem, height: number, frame?: string | null, revision: number = posterFrameRevision(item.Id)): PosterSource | undefined {
   if (hasPoster(item)) return serverPoster(item.Id, item.ImageTags?.Primary, height);
+  // A channel the server holds no image for wears its playlist's tvg-logo, fetched only when a tile renders.
+  if (item.Type === "TvChannel") {
+    const logo = playlistLogoUrl(item.Id);
+    if (logo) return { uri: logo, cacheKey: `playlist-logo-${logo}` };
+  }
   // A programme found by search wears its channel's logo.
   if (item.Type === "Program" && item.ChannelId) return serverPoster(item.ChannelId, "channel", height);
   if (!getUiPreferences().devicePosters) return undefined;
