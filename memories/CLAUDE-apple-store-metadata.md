@@ -454,10 +454,10 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Tomo TV ist jetzt auf Macs mit Apple Silicon und Intel-Prozessoren verfügbar
 ```
 
-#### What's New (2.2.11), iOS (501 / 4000 chars)
+#### What's New (2.2.11), iOS (510 / 4000 chars)
 
 ```text
-- Füge einen Kanal im Info-Bereich jeder Gruppe hinzu
+- Füge einen Kanal über seinen Info-Bereich jeder Gruppe hinzu
 - Dateien mit mehreren Folgen zeigen den ganzen Bereich, etwa S01E01-E02
 - Live-Kanäle, die mit flimmernden Streifen liefen, sehen richtig aus
 - Dein Thema färbt den Hintergrund; wähle Artwork oder einen schlichten Hintergrund
@@ -467,10 +467,10 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Listen in den Einstellungen passen auf den Bildschirm
 ```
 
-#### What's New (2.2.11), tvOS (502 / 4000 chars)
+#### What's New (2.2.11), tvOS (511 / 4000 chars)
 
 ```text
-- Füge einen Kanal im Info-Bereich jeder Gruppe hinzu
+- Füge einen Kanal über seinen Info-Bereich jeder Gruppe hinzu
 - Dateien mit mehreren Folgen zeigen den ganzen Bereich, etwa S01E01-E02
 - Live-Kanäle, die mit flimmernden Streifen liefen, sehen richtig aus
 - Dein Thema färbt den Hintergrund; wähle Artwork oder einen schlichten Hintergrund
