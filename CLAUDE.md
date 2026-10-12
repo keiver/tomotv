@@ -146,6 +146,7 @@ Load these files automatically when mentioned:
 
 **Implementation:**
 
+- "features" / "does Tomo support" / "which platforms" -> `FEATURES.md`
 - "API" / "jellyfinApi" / "functions" -> `memories/CLAUDE-api-reference.md`
 - "state" / "manager" / "context" -> `memories/CLAUDE-state-management.md`
 - "audio tracks" / "multi-audio" -> `memories/CLAUDE-multi-audio.md`

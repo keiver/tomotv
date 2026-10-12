@@ -96,6 +96,8 @@ permission on the server overrides all three.
 
 ## Features
 
+The full list, by platform, is in [FEATURES.md](FEATURES.md).
+
 - **Live TV.** A guide by time and channel, a wall of every channel with live
   previews, and Recordings with filters. The guide opens on today or any of the
   13 days after it, and search finds programmes through tomorrow by name,
