@@ -17,6 +17,7 @@ const tag = (s, name) => {
 /** Safe inside a markdown table cell. */
 export const cell = (v) =>
   String(v ?? "")
+    .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
     .replace(/\s*\n\s*/g, " ");
 
