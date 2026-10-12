@@ -140,7 +140,7 @@ function SettingsScreen() {
     if (bps != null) setMeasuredBps(bps);
     setMeasureOutcome(linkRateOutcome(bps, false, 0));
     setMeasuring(false);
-  }, [measuring]);
+  }, [measuring, measuredBps]);
 
   // Sign-out fires from the pushed server list with this screen mounted behind it, so a state
   // read on focus arrives a whole pop too late: the connected card is what the user watches the
