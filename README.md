@@ -93,7 +93,7 @@ permission on the server overrides all three.
   RealVideo, Theora, DV and Cinepak all play on the device; the measured list is in
   [`docs/playback-coverage.md`](docs/playback-coverage.md).
 
-## The packages
+## Core packages
 
 The engine and the live TV services are npm packages developed here, usable by
 any Expo app on Apple TV, iOS or Mac Catalyst. Neither knows Jellyfin: Tomo connects them in
