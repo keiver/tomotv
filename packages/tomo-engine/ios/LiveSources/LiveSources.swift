@@ -265,7 +265,7 @@ class LiveSources: NSObject {
     }
 
     private static func dictionary(_ stats: GuideStats) -> [String: Int] {
-        dictionary(stats.load).merging(["channels": stats.channels, "programmes": stats.programmes, "skipped": stats.skipped, "errors": stats.errors]) { $1 }
+        dictionary(stats.load).merging(["channels": stats.channels, "programmes": stats.programmes, "skipped": stats.skipped, "errors": stats.errors, "foldMs": stats.foldMs]) { $1 }
     }
 
     private static func dictionary(_ stats: PlaylistStats) -> [String: Int] {
