@@ -3,12 +3,13 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { ActivityIndicator, Platform, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 
 // The app's one wait mark: a small accent spinner with its label centred beneath it, read as one element.
-export function LoadingRow({ label, style }: { label: string; style?: StyleProp<ViewStyle> }) {
+// `hideLabel` keeps the label for VoiceOver and draws the spinner alone.
+export function LoadingRow({ label, style, hideLabel }: { label: string; style?: StyleProp<ViewStyle>; hideLabel?: boolean }) {
   const { accent } = useCardPalette();
   return (
     <View style={[styles.group, style]} accessible accessibilityRole="progressbar" accessibilityLabel={label}>
       <ActivityIndicator size="small" color={accent} />
-      <Text style={styles.label}>{label}</Text>
+      {hideLabel ? null : <Text style={styles.label}>{label}</Text>}
     </View>
   );
 }

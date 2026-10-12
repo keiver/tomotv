@@ -591,7 +591,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         {/* Shown only while the band is empty, so it never sits over a focusable (tvOS rule). */}
         {isLoading && rows.length === 0 ? (
           <View style={[StyleSheet.absoluteFill, styles.loadingOverlay]} pointerEvents="none">
-            <LoadingRow label={t("liveTv.loadingGuide")} />
+            <LoadingRow label={t("liveTv.loadingGuide")} hideLabel={!IS_TV} />
           </View>
         ) : null}
       </View>
