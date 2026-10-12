@@ -1,4 +1,4 @@
-const { withDangerousMod, withEntitlementsPlist, withPodfile, withPodfileProperties, withXcodeProject } = require("@expo/config-plugins");
+const { withDangerousMod, withEntitlementsPlist, withInfoPlist, withPodfile, withPodfileProperties, withXcodeProject } = require("@expo/config-plugins");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -93,6 +93,10 @@ end
       // The remux engine serves AVPlayer over 127.0.0.1.
       "com.apple.security.network.server": true,
     });
+    return config;
+  });
+  config = withInfoPlist(config, (config) => {
+    config.modResults.UISupportsTrueScreenSizeOnMac = true;
     return config;
   });
   config = withXcodeProject(config, (config) => {
