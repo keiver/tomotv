@@ -13,7 +13,7 @@ All notable changes to Tomo TV are documented here.
 - Themes tint the ambient background, and Settings > Appearance gains a Background choice: Folder artwork (the default), Theme color or Clear
 - Search draws one grid with Live TV matches first and the library after them; on Apple TV a bar along the bottom reads "Searching your guides…" while the guide search is still out
 - A channel card showing a grabbed live frame wears LIVE for 15 seconds after its picture last changed; the badge then contracts to a red circle whose pie drains toward the next grab, with a breathing dot while that grab is overdue. A card showing only its logo wears a plain LIVE over the programme the guide says is airing
-- An original played from the server is read through three ranged connections at once, in 2 MB chunks, when the server answers range requests; any refusal keeps the single connection
+- An original played from the server is read through three ranged connections at once, in 2 MB chunks, when the server answers range requests; any refusal keeps the single connection, and stopping playback ends a probe or read still waiting on the server
 - On iPhone, iPad and Mac an original of 64 MB or more downloads as up to four ranged parts, three in flight, that the engine joins into one file; a server that ignores range requests, or a converted copy, keeps the single download
 - A live channel whose source sends slower than it plays says so once in a toast, and a live start waiting on its source buffers two segments, for up to 8 seconds, before the picture appears
 - The engine logs the system's memory pressure events with the headroom left

@@ -1178,10 +1178,12 @@ extension RemuxSession {
         // path below unchanged.
         var parallelBox: Unmanaged<RangeReaderBox>? = nil
         var parallelAvio: UnsafeMutablePointer<AVIOContext>? = nil
+        // The interrupt callback's condition: custom IO has no other way to end a blocked probe or read.
+        let readerCancelled: () -> Bool = { [weak self] in self.map { $0.isCancelled || $0.hasFailed } ?? true }
         if !config.isLive, let remote = URL(string: config.inputUrl),
            remote.scheme == "http" || remote.scheme == "https",
            !remote.path.hasSuffix(".m3u8"), !remote.path.hasSuffix(".mpd"),
-           let reader = ParallelRangeReader.open(url: remote, headers: config.httpHeaders) {
+           let reader = ParallelRangeReader.open(url: remote, headers: config.httpHeaders, isCancelled: readerCancelled) {
             let ctx = avformat_alloc_context()
             let bufferSize = 1 << 16
             let buffer = av_malloc(bufferSize)

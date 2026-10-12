@@ -8,13 +8,17 @@ import XCTest
 final class ParallelRangeReaderTests: XCTestCase {
     private static let serverScript = """
     const http = require("http"), fs = require("fs");
-    const file = process.argv[1], ranges = process.argv[2] === "ranges";
+    const file = process.argv[1], mode = process.argv[2], ranges = mode !== "plain";
     const size = fs.statSync(file).size;
     const server = http.createServer((req, res) => {
+      // "hang" accepts the request and never answers it.
+      if (mode === "hang") return;
       const m = ranges && /^bytes=(\\d+)-(\\d+)?$/.exec(req.headers.range || "");
       if (m) {
         const start = Number(m[1]), end = m[2] ? Number(m[2]) : size - 1;
         res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": end - start + 1 });
+        // "stall" answers the one-byte probe and then sends headers with no body.
+        if (mode === "stall" && end > start) return res.flushHeaders();
         fs.createReadStream(file, { start, end }).pipe(res);
       } else {
         res.writeHead(200, { "Content-Length": size });
@@ -29,7 +33,7 @@ final class ParallelRangeReaderTests: XCTestCase {
     private var payload: Data!
     private var port = 0
 
-    private func startServer(ranges: Bool, bytes: Int = 9_000_000) throws {
+    private func startServer(ranges: Bool, bytes: Int = 9_000_000, mode: String? = nil) throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("prr-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
@@ -49,7 +53,7 @@ final class ParallelRangeReaderTests: XCTestCase {
         guard let node else { throw XCTSkip("no node on this host") }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: node)
-        process.arguments = ["-e", Self.serverScript, fileURL.path, ranges ? "ranges" : "plain"]
+        process.arguments = ["-e", Self.serverScript, fileURL.path, mode ?? (ranges ? "ranges" : "plain")]
         let pipe = Pipe()
         process.standardOutput = pipe
         try process.run()
@@ -101,6 +105,29 @@ final class ParallelRangeReaderTests: XCTestCase {
     func testARangeIgnoringServerGetsNoReader() throws {
         try startServer(ranges: false)
         XCTAssertNil(ParallelRangeReader.open(url: url(), headers: [:]))
+    }
+
+    /// A read blocked on a chunk the server never sends ends when its owner cancels.
+    func testACancelEndsABlockedRead() throws {
+        try startServer(ranges: true, mode: "stall")
+        var cancelAt = Date.distantFuture
+        let reader = try XCTUnwrap(ParallelRangeReader.open(url: url(), headers: [:], isCancelled: { Date() >= cancelAt }))
+        defer { reader.close() }
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: 65536, alignment: 1)
+        defer { buffer.deallocate() }
+        let started = Date()
+        cancelAt = started.addingTimeInterval(0.5)
+        XCTAssertEqual(reader.read(into: buffer, count: 65536), -1)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+    }
+
+    /// A probe the server never answers ends when its owner cancels, and opens no reader.
+    func testACancelEndsAnUnansweredProbe() throws {
+        try startServer(ranges: true, mode: "hang")
+        let started = Date()
+        let cancelAt = started.addingTimeInterval(0.5)
+        XCTAssertNil(ParallelRangeReader.open(url: url(), headers: [:], isCancelled: { Date() >= cancelAt }))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
     }
 
     /// The window, not the session, bounds what the reader holds: a chunk the cursor

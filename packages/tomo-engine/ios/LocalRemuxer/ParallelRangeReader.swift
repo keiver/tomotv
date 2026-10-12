@@ -27,6 +27,8 @@ final class ParallelRangeReader: NSObject {
     private let url: URL
     private let headers: [String: String]
     private var session: URLSession!
+    /// The owner's stop: true ends a blocked read at its next wake.
+    var isCancelled: (() -> Bool)?
 
     private let lock = NSLock()
     private let ready = NSCondition()
@@ -65,18 +67,22 @@ final class ParallelRangeReader: NSObject {
 
     /// Opens a reader when the server answers a ranged probe with 206 and a total;
     /// nil sends the caller down the ordinary single-connection path.
-    static func open(url: URL, headers: [String: String]) -> ParallelRangeReader? {
+    static func open(url: URL, headers: [String: String], isCancelled: (() -> Bool)? = nil) -> ParallelRangeReader? {
         var request = URLRequest(url: url, timeoutInterval: 15)
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
         let delegate = ProbeDelegate()
         let probe = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
         probe.dataTask(with: request).resume()
-        _ = delegate.waiter.wait(timeout: .now() + 15)
+        // Waited in slices, so a cancel leaves a probe the server has not answered.
+        let deadline = DispatchTime.now() + 15
+        while delegate.waiter.wait(timeout: .now() + 0.2) == .timedOut, DispatchTime.now() < deadline, isCancelled?() != true {}
         probe.invalidateAndCancel()
-        guard delegate.total > Int64(chunkBytes) else { return nil }
+        guard isCancelled?() != true, delegate.total > Int64(chunkBytes) else { return nil }
         NSLog("[ParallelRangeReader] open %lld bytes, %d connections, %d MB chunks", delegate.total, connections, chunkBytes >> 20)
-        return ParallelRangeReader(url: url, headers: headers, size: delegate.total)
+        let reader = ParallelRangeReader(url: url, headers: headers, size: delegate.total)
+        reader.isCancelled = isCancelled
+        return reader
     }
 
     private init(url: URL, headers: [String: String], size: Int64) {
@@ -136,6 +142,7 @@ final class ParallelRangeReader: NSObject {
         schedule()
         let deadline = Date().addingTimeInterval(Self.readTimeout)
         while true {
+            if isCancelled?() == true { return -1 }
             lock.lock()
             if failed || closed {
                 lock.unlock()
