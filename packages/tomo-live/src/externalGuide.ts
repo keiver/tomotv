@@ -314,6 +314,7 @@ export async function fetchExternalListingWindow(
   urls: readonly string[],
   channels: readonly GuideChannelRequest[],
   windowMs: { from: number; to: number },
+  options: { openOnly?: boolean } = {},
 ): Promise<{ listings: GuideListing[]; failedChannelIds: string[] }> {
   prune(urls);
   if (urls.length === 0 || channels.length === 0) return { listings: [], failedChannelIds: [] };
@@ -328,7 +329,14 @@ export async function fetchExternalListingWindow(
     let guide: OpenGuide | null = null;
     let attempted = remaining.map((channel) => channel.channelId);
     try {
-      guide = await ensureOpen(source, windowMs);
+      if (options.openOnly) {
+        // A guide not open over the window is passed over: this read never waits on a download or a parse.
+        const open = source.open;
+        if (!open || open.from > windowMs.from || open.to < windowMs.to) continue;
+        guide = open;
+      } else {
+        guide = await ensureOpen(source, windowMs);
+      }
       const matches = matchFor(guide, remaining);
       attempted = Array.from(matches.keys());
       for (const channel of remaining) source.asked.set(channel.channelId, channel.name);
@@ -362,11 +370,11 @@ export async function fetchExternalListingWindow(
 }
 
 /**
- * The programme airing at `atMs` on each channel, from the guides at `urls` asked in order:
- * the latest programme already started. Channels nothing airs on are simply absent.
+ * The programme airing at `atMs` on each channel, from the guides at `urls` already open, asked in
+ * order: the latest programme already started. Channels nothing airs on are simply absent.
  */
 export async function fetchExternalAiring(urls: readonly string[], channels: readonly GuideChannelRequest[], atMs: number): Promise<{ listings: GuideListing[]; failedChannelIds: string[] }> {
-  const { listings, failedChannelIds } = await fetchExternalListingWindow(urls, channels, { from: atMs, to: atMs + MINUTE_MS });
+  const { listings, failedChannelIds } = await fetchExternalListingWindow(urls, channels, { from: atMs, to: atMs + MINUTE_MS }, { openOnly: true });
   const airing = new Map<string, GuideListing>();
   for (const listing of listings) {
     if (listing.programme.start > atMs) continue;

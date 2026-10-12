@@ -18,7 +18,7 @@ All notable changes to Tomo TV are documented here.
 - A live channel whose source sends slower than it plays says so once in a toast, and a live start waiting on its source buffers two segments, for up to 8 seconds, before the picture appears
 - The engine logs the system's memory pressure events with the headroom left
 - The channel wall and the guide list a server M3U tuner's channels the server has not ingested yet, from the device's own parse of the playlist, and they tune; only for an account no parental rule can hide a channel from
-- The server's http(s) XMLTV listing providers join the guide sources with no setup on the device, and a channel listed without a current programme shows the one airing now from the guide sources
+- The server's http(s) XMLTV listing providers join the guide sources with no setup on the device, and a channel listed without a current programme shows the one airing now from the guide sources already open. A guide still loading is passed over, so a channel list never waits on it
 - A search chained with a `+` standing alone, "news + sports", returns what either term finds
 
 ### Changed

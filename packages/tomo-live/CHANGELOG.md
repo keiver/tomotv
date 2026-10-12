@@ -4,6 +4,7 @@
 
 - Playlist channels: a channel table built from M3U playlists parsed on device (`syncPlaylistSources`, `playlistChannelById`, `playlistChannelsPage`, `playlistGroupList`, per-source statuses). Identity is the app's own; `enginePlaylistRows` is the stock loader over the engine's native store, paged 1000 entries per native call. A failed reload serves the last good rows and backs off.
 - The guide file cache generalizes to playlists: `cachedPlaylistFile`, `playlistFileInfo`, `playlistCacheBytes`, `clearPlaylistFileCache`, the same atomic download, stale-on-failure and sweep rules in a `playlists/` folder.
+- `fetchExternalAiring(urls, channels, atMs)`: the programme airing at a moment on each channel, read from the guides already open over it. It never opens a guide: one still loading, or whose window has passed, is skipped. `fetchExternalListingWindow` takes `{ openOnly: true }` for the same read over any window.
 
 ## 1.1.0
 

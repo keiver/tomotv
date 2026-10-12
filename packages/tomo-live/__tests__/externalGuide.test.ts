@@ -86,8 +86,21 @@ it("answers airing-now with the latest programme already started, one per channe
     { ...PROGRAMME, start: T0 - H, stop: T0 + H, title: "On Now" },
     { ...PROGRAMME, start: T0 + H, stop: T0 + 2 * H, title: "Next" },
   ]);
+  await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
   const { listings } = await fetchExternalAiring([URL], CHANNELS, T0);
   expect(listings).toEqual([{ channelId: "c1", programme: expect.objectContaining({ title: "On Now" }) }]);
+});
+
+it("answers airing-now from open guides only, never opening one", async () => {
+  const unopened = await fetchExternalAiring([URL], CHANNELS, T0);
+  expect(unopened).toEqual({ listings: [], failedChannelIds: [] });
+  expect(loadGuideMock).not.toHaveBeenCalled();
+
+  // An open guide whose window ended before the asked minute is passed over the same way.
+  await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  const past = await fetchExternalAiring([URL], CHANNELS, T0 + 6 * H + SLACK);
+  expect(past).toEqual({ listings: [], failedChannelIds: [] });
+  expect(loadGuideMock).toHaveBeenCalledTimes(1);
 });
 
 it("keeps the open guide serving covered windows when a wider reopen fails", async () => {

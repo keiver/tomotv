@@ -171,7 +171,7 @@ async function originVariantUrl(masterUrl: string, headers: Record<string, strin
 
 const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports: "isSports", kids: "isKids", movie: "isMovie", series: "isSeries" };
 
-/** Channels listed with no current programme get the one airing now from the device guide sources.
+/** Channels listed with no current programme get the one airing now from the device guides already open.
  *  Bounded by the page the caller fetched; any failure leaves the page as the server sent it. */
 async function fillAiringFromGuides(channels: JellyfinItem[]): Promise<JellyfinItem[]> {
   const bare = channels.filter((channel) => channel.Type === "TvChannel" && !channel.CurrentProgram);
