@@ -9,6 +9,16 @@ export function redactTestOutput(text, environment) {
   return text;
 }
 
+/**
+ * execFile's failure message repeats the whole command line. This is the same failure naming
+ * only the tool, with what it wrote to stderr and each of `hidden` (a link, a URL) removed.
+ */
+export function commandFailure(tool, error, hidden = []) {
+  let detail = String(error?.stderr ?? "").trim();
+  for (const value of hidden) if (value) detail = detail.split(value).join("[REDACTED]");
+  return new Error(`${tool} failed (${error?.code ?? error?.signal ?? "unknown"})${detail ? `: ${detail}` : ""}`);
+}
+
 export function redactedTestWriter(write, environment) {
   const decoder = new StringDecoder("utf8");
   let pending = "";

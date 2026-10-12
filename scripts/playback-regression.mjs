@@ -37,6 +37,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { commandFailure, redactTestOutput } from "./lib/test-environment.mjs";
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -84,7 +85,7 @@ const opt = (name) => {
 };
 
 function fail(msg) {
-  console.error(`\n✗ ${msg}`);
+  console.error(`\n✗ ${redactTestOutput(String(msg), process.env)}`);
   process.exit(1);
 }
 
@@ -427,12 +428,17 @@ export function describeTarget(target) {
 }
 
 /** Opens a deep link. A device has no `openurl`, so the app is relaunched onto it. */
+/** A link can carry a session token, so a failed open is rethrown without the command line. */
 export async function openDeepLink(env, target, url) {
   if (target.kind === "sim") {
-    await simctl(["openurl", target.udid, url]);
+    await simctl(["openurl", target.udid, url]).catch((error) => {
+      throw commandFailure("simctl openurl", error, [url]);
+    });
     return;
   }
-  await devicectl(["device", "process", "launch", "--device", target.name, "--terminate-existing", "--payload-url", url, env.BUNDLE_ID]);
+  await devicectl(["device", "process", "launch", "--device", target.name, "--terminate-existing", "--payload-url", url, env.BUNDLE_ID]).catch((error) => {
+    throw commandFailure("devicectl process launch", error, [url]);
+  });
 }
 
 /** No devicectl equivalent: every device launch above carries --terminate-existing. */
@@ -933,7 +939,11 @@ async function validateSubtitleSync(masterUrl) {
   // Jellyfin's gap-seek (kills the from-zero ffmpeg mid-probe -> transient 5XX
   // on segment 0, server-logged as "A task was canceled"). A delayed retry
   // lands after the seek settles and spawns a fresh from-zero job.
-  const probeSegment = () => exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", probeTarget], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+  // The target can be a server URL carrying the session's key: a failure names ffprobe, not its arguments.
+  const probeSegment = () =>
+    exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", probeTarget], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }).catch((error) => {
+      throw commandFailure("ffprobe", error, [probeTarget]);
+    });
   const { stdout } = await probeSegment().catch(async () => {
     await new Promise((r) => setTimeout(r, 4000));
     return probeSegment();

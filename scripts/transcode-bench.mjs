@@ -21,6 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { loadEnv, pickSimulator, resolveItems, signInApp, simctl } from "./playback-regression.mjs";
+import { redactTestOutput } from "./lib/test-environment.mjs";
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,7 +55,7 @@ const opt = (name) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function fail(msg) {
-  console.error(`\n✗ ${msg}`);
+  console.error(`\n✗ ${redactTestOutput(String(msg), process.env)}`);
   process.exit(1);
 }
 
