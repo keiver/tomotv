@@ -98,7 +98,7 @@ export function LiveFreshnessBadge({ channelId }: { channelId: string }) {
     };
   }, [reel, dueAt, morph, elapsed, dot, reducedMotion]);
 
-  const shape = useAnimatedStyle(() => (pillWidth ? { width: interpolate(morph.value, [0, 1], [pillWidth, HEIGHT]) } : {}));
+  const shape = useAnimatedStyle(() => (pillWidth ? { width: interpolate(morph.value, [0.4, 1], [pillWidth, HEIGHT], "clamp") } : {}));
   const textStyle = useAnimatedStyle(() => ({ opacity: interpolate(morph.value, [0, 0.4], [1, 0], "clamp") }));
   const pieStyle = useAnimatedStyle(() => ({ opacity: interpolate(morph.value, [0.5, 1], [0, 1], "clamp") }));
   const dotStyle = useAnimatedStyle(() => ({ opacity: dot.value }));
