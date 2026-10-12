@@ -13,6 +13,8 @@ jest.mock("@/hooks/useLiveFrame", () => ({
   useLiveClip: () => mockClip,
 }));
 jest.mock("@/hooks/useChannelHealth", () => ({ useChannelHealth: () => "up" }));
+let mockAutoUpdate = true;
+jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ autoUpdate: mockAutoUpdate }) }));
 
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { setFocusedGuideRow } from "@/services/guideChannelFocus";
@@ -27,8 +29,29 @@ describe("GuideChannelCard", () => {
       setFocusedGuideRow(null);
       setPlaybackHold("video", false);
       mockScreenFocused = true;
+      mockAutoUpdate = true;
     }),
   );
+
+  it("holds the frame as a still with no clip and no live mark while auto update is off", () => {
+    const render = () => {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        setFocusedGuideRow("c1");
+        tree = TestRenderer.create(<GuideChannelCard channel={channel} index={0} onPress={() => undefined} playsClipInView />);
+      });
+      const props = tree.root.findByType("VideoGridItem" as never).props;
+      act(() => tree.unmount());
+      return props;
+    };
+    expect(render()).toMatchObject({ liveClip: mockClip, clipActive: true, liveMark: true });
+    mockAutoUpdate = false;
+    const still = render();
+    expect(still.liveFrame).toEqual({ uri: "file:///pool/c1/live-1-11.jpg", cacheKey: "live-c1-1-11" });
+    expect(still.liveClip).toBeUndefined();
+    expect(still.clipActive).toBe(false);
+    expect(still.liveMark).toBe(false);
+  });
 
   it("hands the card its clip and turns it on while its own row holds focus", () => {
     let tree!: TestRenderer.ReactTestRenderer;

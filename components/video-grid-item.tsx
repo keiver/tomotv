@@ -133,6 +133,8 @@ interface VideoGridItemProps {
   liveClip?: LiveFrame;
   /** Channel cards: plays the clip without the card's own focus, as when its guide row holds focus. */
   clipActive?: boolean;
+  /** Channel cards: the frame wears the freshness badge; off, it is a still with no live mark. */
+  liveMark?: boolean;
   /** Channel cards: the health check concluded down; the art dims and the corner badge says Offline. */
   offline?: boolean;
   /** Channel and programme cards: a timer covers it; REC takes LIVE's place, a scheduled programme's time wears the camera. */
@@ -182,6 +184,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     liveFrame,
     liveClip,
     clipActive = false,
+    liveMark = true,
     offline = false,
     recording = false,
     flat = false,
@@ -431,7 +434,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
-          {offline || badgeSegments || (isChannel && (recording || liveFrame || airingName)) ? (
+          {offline || badgeSegments || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
             <View style={styles.indexBadge} pointerEvents="none">
               {offline ? (
                 // A fact pill, not a broadcast mark: red stays for LIVE and REC.
@@ -506,6 +509,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.liveFrame?.cacheKey === nextProps.liveFrame?.cacheKey &&
     prevProps.liveClip?.uri === nextProps.liveClip?.uri &&
     prevProps.clipActive === nextProps.clipActive &&
+    prevProps.liveMark === nextProps.liveMark &&
     prevProps.offline === nextProps.offline &&
     prevProps.recording === nextProps.recording &&
     prevProps.flat === nextProps.flat &&
