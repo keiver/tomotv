@@ -1,10 +1,13 @@
+import { channelFavoriteIcon } from "@/components/card-badge";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { ArtworkSlotShape, itemSlotShape } from "@/constants/app";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { isFolder, subscribeFavoriteChange } from "@/services/jellyfinApi";
+import { isFavoriteChannel } from "@/services/liveTvPreferences";
 import { JellyfinItem } from "@/types/jellyfin";
 import { cardResumeProgress } from "@/utils/resumeProgress";
 import { useFocusEffect } from "expo-router";
@@ -29,6 +32,7 @@ interface ItemShelfProps {
 export function ItemShelf({ title, fetch, refreshOnFavoriteChange = false, onItemFocus }: ItemShelfProps) {
   const openItem = useOpenShelfItem();
   const onItemLongPress = useItemLongPress();
+  const preferences = useLiveTvPreferences();
   const [items, setItems] = useState<JellyfinItem[]>([]);
 
   // Reload on every screen focus, like the Continue shelf. Only the newest load may write,
@@ -78,9 +82,10 @@ export function ItemShelf({ title, fetch, refreshOnFavoriteChange = false, onIte
           fitArtwork
           slotOrientation="landscape"
           progressPercent={cardResumeProgress(item)}
+          titleIcon={channelFavoriteIcon(item, isFavoriteChannel(preferences, item))}
         />
       ),
-    [openItem, onItemLongPress, onItemFocus],
+    [openItem, onItemLongPress, onItemFocus, preferences],
   );
 
   const keyExtractor = useCallback((item: JellyfinItem) => item.Id, []);

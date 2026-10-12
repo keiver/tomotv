@@ -25,9 +25,14 @@ export interface BadgeSegment {
   label?: string | number;
 }
 
-/** Whether a card wears the favorite heart after its title; a channel's comes from the wall, a programme has none. */
+/** Whether a card wears the favorite heart after its title; a channel's is passed to it, a programme has none. */
 export function showsFavoriteHeart(item: { Type?: string; UserData?: { IsFavorite?: boolean } | null }): boolean {
   return !!item.UserData?.IsFavorite && item.Type !== "TvChannel" && item.Type !== "Program";
+}
+
+/** A channel card's heart on a shelf: on the device's favorites list, or favorite by the server's own flag. */
+export function channelFavoriteIcon(item: { Type?: string; UserData?: { IsFavorite?: boolean } | null }, onDeviceList: boolean): "heart" | undefined {
+  return item.Type === "TvChannel" && (onDeviceList || !!item.UserData?.IsFavorite) ? "heart" : undefined;
 }
 
 interface CardBadgeProps {
