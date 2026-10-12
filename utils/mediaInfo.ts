@@ -1,4 +1,4 @@
-import { cleanLabel } from "@/utils/cleanLabel";
+import { cleanLabel, stripTags } from "@/utils/cleanLabel";
 import { decodeHTML } from "entities";
 /**
  * Pure formatters for the Video Info panel. Runtime formatting lives in
@@ -228,17 +228,6 @@ const TARGET_WORDS = 60;
 const WALL_WORDS = 90;
 
 const BLOCK_TAG = /<\s*\/?\s*(?:br|p|div|li|tr|h[1-6])\b[^>]*>/gi;
-const ANY_TAG = /<[^>]*>/g;
-
-/** Tags removed until a pass changes nothing, so no tag survives the strip. */
-function stripTags(text: string): string {
-  let previous: string;
-  do {
-    previous = text;
-    text = text.replace(ANY_TAG, "");
-  } while (text !== previous);
-  return text;
-}
 
 /**
  * Split an overview into paragraphs a reader can scan. Jellyfin stores whatever the scraper

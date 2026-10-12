@@ -1,4 +1,21 @@
-import { cleanLabel } from "@/utils/cleanLabel";
+import { cleanLabel, stripTags } from "@/utils/cleanLabel";
+
+describe("stripTags", () => {
+  // The regex the scanner stands in for: its output is the contract.
+  const byRegex = (text: string) => text.replace(/<[^>]*>/g, "");
+
+  it("returns what the tag regex returns, malformed markup included", () => {
+    for (const text of ["", "plain", "I <3 You", "<b>Bold</b> Title", "a < b <i>c</i>", "<<b>i>x", "a > b < c", "<>", "x<", ">x<y>z<", "<a\nhref='x'>link</a>", "<<<>>>"]) {
+      expect(stripTags(text)).toBe(byRegex(text));
+    }
+  });
+
+  it("keeps a run of unterminated openers whole", () => {
+    const run = "<".repeat(50_000);
+    expect(stripTags(run)).toBe(run);
+    expect(stripTags(`${run}>`)).toBe("");
+  });
+});
 
 describe("cleanLabel", () => {
   it("decodes HTML entities scrapers wrote into titles", () => {
