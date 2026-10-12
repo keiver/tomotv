@@ -230,6 +230,16 @@ const WALL_WORDS = 90;
 const BLOCK_TAG = /<\s*\/?\s*(?:br|p|div|li|tr|h[1-6])\b[^>]*>/gi;
 const ANY_TAG = /<[^>]*>/g;
 
+/** Tags removed until a pass changes nothing, so no tag survives the strip. */
+function stripTags(text: string): string {
+  let previous: string;
+  do {
+    previous = text;
+    text = text.replace(ANY_TAG, "");
+  } while (text !== previous);
+  return text;
+}
+
 /**
  * Split an overview into paragraphs a reader can scan. Jellyfin stores whatever the scraper
  * wrote: soft-wrapped lines, stray markup, HTML entities.
@@ -253,7 +263,7 @@ export function overviewParagraphs(overview: string | null | undefined): string[
   if (typeof overview !== "string" || overview.length === 0) return [];
   const truncated = overview.length > OVERVIEW_MAX_CHARS;
   const capped = truncated ? trimCutFragment(overview.slice(0, OVERVIEW_MAX_CHARS)) : overview;
-  const text = decodeHTML(capped.replace(/\r\n?/g, "\n").replace(BLOCK_TAG, "\n").replace(ANY_TAG, "")).replace(ANY_TAG, "");
+  const text = stripTags(decodeHTML(stripTags(capped.replace(/\r\n?/g, "\n").replace(BLOCK_TAG, "\n"))));
 
   // Decided per break, so it holds on any server: a blank line always ends a paragraph, a
   // newline after a finished sentence ends one too, and a newline landing mid-sentence is a
