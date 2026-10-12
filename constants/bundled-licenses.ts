@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 12646863181062ce
+ * fingerprint: 7afb209644130638
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -488,7 +488,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "shallowequal", version: "1.1.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2017 Alberto Leal <mailforalberto@gmail.com> (github.com/dashed)"] },
   { name: "shebang-command", version: "2.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) Kevin Mårtensson <kevinmartensson@gmail.com> (github.com/kevva)"] },
   { name: "shebang-regex", version: "3.0.0", license: "MIT", body: "L1", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
-  { name: "shell-quote", version: "1.10.0", license: "MIT", body: "L37", copyright: ["Copyright (c) 2013 James Halliday (mail@substack.net)"] },
+  { name: "shell-quote", version: "1.12.0", license: "MIT", body: "L37", copyright: ["Copyright (c) 2013 James Halliday (mail@substack.net)"] },
   { name: "signal-exit", version: "3.0.7", license: "ISC", body: "L4", copyright: ["Copyright (c) 2015, Contributors"] },
   { name: "simple-plist", version: "1.3.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2013 Joe Wollard"] },
   { name: "simple-swizzle", version: "0.2.4", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015 Josh Junon"] },
@@ -496,7 +496,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "slugify", version: "1.6.9", license: "MIT", body: "L3", copyright: ["Copyright (c) Simeon Velichkov <simeonvelichkov@gmail.com>"] },
   { name: "source-map", version: "0.5.7", license: "BSD-3-Clause", body: "L40", copyright: ["Copyright (c) 2009-2011, Mozilla Foundation and contributors"] },
   { name: "source-map", version: "0.6.1", license: "BSD-3-Clause", body: "L40", copyright: ["Copyright (c) 2009-2011, Mozilla Foundation and contributors"] },
-  { name: "source-map-js", version: "1.2.1", license: "BSD-3-Clause", body: "L40", copyright: ["Copyright (c) 2009-2011, Mozilla Foundation and contributors"] },
+  { name: "source-map-js", version: "1.2.2", license: "BSD-3-Clause", body: "L40", copyright: ["Copyright (c) 2009-2011, Mozilla Foundation and contributors"] },
   { name: "source-map-support", version: "0.5.21", license: "MIT", body: "L3", copyright: ["Copyright (c) 2014 Evan Wallace"] },
   { name: "split-on-first", version: "1.1.0", license: "MIT", body: "L1", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
   { name: "stackframe", version: "1.3.4", license: "MIT", body: "L2", copyright: ["Copyright (c) 2017 Eric Wendelin and other contributors"] },
