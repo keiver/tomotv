@@ -1,4 +1,4 @@
-import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
+import { type BadgeSegment, CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { LiveClip } from "@/components/live-tv/live-clip";
@@ -237,8 +237,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // A channel card names what is on: the logo and the badge already say which channel.
   const videoName = cleanLabel(video.Name);
   const watched = isWatched(video);
-  // One mark at a time: the watched eye outranks a passed icon (a watched recording drops the camera).
+  // The watched eye outranks a passed icon (a watched recording drops the camera).
   const titleMarkIcon = watched ? "eye" : titleIcon;
+  const leadingMark = isChannel ? undefined : titleMarkIcon;
+  // The heart trails the title: a channel's from the wall, any other card's from its own favorite flag.
+  const trailingMark = isChannel ? titleMarkIcon : showsFavoriteHeart(video) ? "heart" : undefined;
   const cardTitle = cleanLabel(airingName) || (video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown"));
 
   // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
@@ -276,13 +279,22 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // at 0 (a just-started video whose position hasn't synced yet). The fill is
   // floored at 5% below so "just starting" is always visible; grids that pass
   // no progressPercent are unaffected.
-  // A channel's mark is its favorite heart: smaller and dimmed, a presence beside the name.
-  const renderTitleMark = (color: string) =>
-    titleMarkIcon ? (
-      <View style={[styles.titleMark, isChannel ? styles.titleMarkTrailing : styles.titleMarkLeading]} pointerEvents="none">
-        <Ionicons name={titleMarkIcon} size={isChannel ? QUIET_MARK_SIZE : TITLE_SIZE} color={isChannel ? withAlpha(color, 0.65) : color} />
-      </View>
-    ) : null;
+  // The favorite heart is smaller and dimmed, a presence beside the name.
+  const renderTitleMark = (color: string) => (
+    <>
+      {leadingMark ? (
+        <View style={[styles.titleMark, styles.titleMarkLeading]} pointerEvents="none">
+          <Ionicons name={leadingMark} size={TITLE_SIZE} color={color} />
+        </View>
+      ) : null}
+      {trailingMark ? (
+        <View style={[styles.titleMark, styles.titleMarkTrailing]} pointerEvents="none">
+          <Ionicons name={trailingMark} size={QUIET_MARK_SIZE} color={withAlpha(color, 0.65)} />
+        </View>
+      ) : null}
+    </>
+  );
+  const titleInset = leadingMark || trailingMark ? [styles.titleLineInset, isChannel ? styles.titleLineInsetChannel : !leadingMark && styles.titleLineInsetTrailing] : null;
   const titleText = (color: string) => (
     <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color }, isChannel && styles.infoValueTitleChannel])}>
       {cardTitle}
@@ -395,7 +407,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             // over the fill). Decorative to a11y — the card announces name + value.
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%`, backgroundColor: palette.accent }]} pointerEvents="none" />
-              <View style={[styles.infoTitleBlend, titleMarkIcon && styles.titleLineInset, titleMarkIcon && isChannel && styles.titleLineInsetChannel]}>
+              <View style={[styles.infoTitleBlend, titleInset]}>
                 {renderTitleMark(palette.accent)}
                 {titleText(palette.accent)}
               </View>
@@ -403,14 +415,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : // Focused or watched: opaque gold bar (the watched bar is the fill at its end state, under the ink eye)
           focused || watched ? (
             <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
-              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset, titleMarkIcon && isChannel && styles.titleLineInsetChannel]}>
+              <View style={[styles.infoTitleLine, titleInset]}>
                 {renderTitleMark(palette.ink)}
                 {titleText(palette.ink)}
               </View>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <View style={[styles.infoTitleLine, titleMarkIcon && styles.titleLineInset, titleMarkIcon && isChannel && styles.titleLineInsetChannel]}>
+              <View style={[styles.infoTitleLine, titleInset]}>
                 {renderTitleMark(palette.accent)}
                 {titleText(palette.accent)}
               </View>
@@ -471,6 +483,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.video.Type === nextProps.video.Type &&
     // Played drives the watched segment; annotation passes flip it on same-Id items.
     prevProps.video.UserData?.Played === nextProps.video.UserData?.Played &&
+    prevProps.video.UserData?.IsFavorite === nextProps.video.UserData?.IsFavorite &&
     prevProps.video.CurrentProgram?.Name === nextProps.video.CurrentProgram?.Name &&
     prevProps.index === nextProps.index &&
     prevProps.onPress === nextProps.onPress &&
@@ -573,9 +586,8 @@ const styles = StyleSheet.create({
   posterOffline: {
     opacity: 0.4,
   },
-  // A channel's logo at the title's left end while its frame fills the card: flair, not identification.
-  // The channel's logo over its live frame, in the corner the LIVE badge leaves free: flair, not identification.
-  // No background, so the layer shadow traces the logo's own alpha: a white halo round a dark mark.
+  // The channel's logo over its live frame. No background, so the layer shadow traces the logo's
+  // own alpha: a white halo round a dark mark.
   logoHalo: {
     position: "absolute",
     top: CARD_BADGE_INSET,
@@ -669,9 +681,13 @@ const styles = StyleSheet.create({
   titleMarkLeading: {
     left: IS_TV ? 4 : -4,
   },
-  // A channel's heart sits at the line's right end.
+  // The favorite heart sits at the line's right end.
   titleMarkTrailing: {
     right: IS_TV ? 4 : -4,
+  },
+  // A flush-left title with only the heart starts at the bar's edge.
+  titleLineInsetTrailing: {
+    paddingLeft: IS_TV ? undefined : 0,
   },
   infoTitleLine: {
     width: "100%",

@@ -25,6 +25,11 @@ export interface BadgeSegment {
   label?: string | number;
 }
 
+/** Whether a card wears the favorite heart after its title; a channel's comes from the wall, a programme has none. */
+export function showsFavoriteHeart(item: { Type?: string; UserData?: { IsFavorite?: boolean } | null }): boolean {
+  return !!item.UserData?.IsFavorite && item.Type !== "TvChannel" && item.Type !== "Program";
+}
+
 interface CardBadgeProps {
   /** One or two labelled values in a single pill (disc + track, or a lone count). */
   segments?: BadgeSegment[];
