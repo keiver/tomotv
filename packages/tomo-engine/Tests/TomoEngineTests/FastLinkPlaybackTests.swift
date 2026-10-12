@@ -132,9 +132,11 @@ final class FastLinkPlaybackTests: XCTestCase {
     func testPreparingOriginalSegmentDoesNotStartServerRenditions() throws {
         let master = """
         #EXTM3U
-        #EXT-X-VERSION:7
-        #EXT-X-STREAM-INF:BANDWIDTH=120000,AVERAGE-BANDWIDTH=120000,CODECS="avc1.42C00A,mp4a.40.2",RESOLUTION=128x96
+        #EXT-X-VERSION:10
+        #EXT-X-STREAM-INF:BANDWIDTH=120000,AVERAGE-BANDWIDTH=120000,SCORE=2,CODECS="avc1.42C00A,mp4a.40.2",RESOLUTION=128x96
         media.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=60000,AVERAGE-BANDWIDTH=60000,SCORE=1,CODECS="avc1.42C00A,mp4a.40.2",RESOLUTION=128x96
+        t0.m3u8
 
         """
         try checkPlayback(master: master, timeout: 10) { source, _ in
