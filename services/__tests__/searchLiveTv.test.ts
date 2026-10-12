@@ -9,7 +9,7 @@ jest.mock("../jellyfin/session", () => ({
   getAuthHeader: jest.fn(() => "auth"),
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
-jest.mock("../jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn() }));
+jest.mock("../jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(), guideChannelRequests: jest.requireActual("../jellyfin/tunerGroups").guideChannelRequests }));
 jest.mock("../jellyfin/liveTv", () => ({ ...jest.requireActual("../jellyfin/liveTv"), fetchChannelOrder: jest.fn(async () => []) }));
 const { fetchChannelOrder } = jest.requireMock("../jellyfin/liveTv") as { fetchChannelOrder: jest.Mock };
 jest.mock("@/services/externalGuide", () => ({ activeGuideUrls: jest.requireActual("@/services/externalGuide").activeGuideUrls, searchExternalPrograms: jest.fn() }));

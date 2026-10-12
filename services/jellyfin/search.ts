@@ -14,11 +14,10 @@ import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, FACET_PREFIX_MIN_CHARS } from ".
 import { getAuthHeader, getConfig, JellyfinConfig } from "./session";
 import { requestLibraryItems } from "./items";
 import { fetchLibraryArtists, fetchLibraryGenres } from "./facets";
-import { fetchTunerData, type TunerData } from "./tunerGroups";
+import { fetchTunerData, guideChannelRequests, type TunerData } from "./tunerGroups";
 import { fetchChannelOrder } from "./liveTv";
 import { activeGuideUrls, searchExternalPrograms } from "@/services/externalGuide";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
-import type { GuideChannelRequest } from "@/utils/guideMatch";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
 import { liveTvSearchHorizon, liveTvSearchIndex, liveTvSearchIndexVersion } from "./liveTvSearchIndex";
 
@@ -586,15 +585,8 @@ async function searchGuideSources(config: JellyfinConfig, searchTerm: string): P
   if (urls.length === 0) return [];
   // Every channel also matches by its Jellyfin name, as the guide does: the last tier, after tvg-id and tvg-name.
   const lineup = await cachedRequest(`liveChannelNames:${config.server}:${config.userId}`, () => fetchChannelOrder(), CACHE.LIVE_AIRING_TTL_MS).catch(() => []);
-  const names: Record<string, string> = {};
-  for (const channel of lineup) if (channel.Name) names[channel.Id] = channel.Name;
-  const ids = new Set([...Object.keys(data.tvgById), ...Object.keys(data.tvgNameById), ...Object.keys(names)]);
-  const channels: GuideChannelRequest[] = [...ids].map((channelId) => ({
-    channelId,
-    tvgId: data.tvgById[channelId],
-    tvgName: data.tvgNameById[channelId],
-    name: names[channelId] ?? data.tvgNameById[channelId] ?? "",
-  }));
+  // Built once per (table, lineup) pair, not per keystroke: the 11k-entry walk stays off the query path.
+  const { requests: channels, names } = guideChannelRequests(data, lineup);
   const now = Date.now();
   const programs = await searchExternalPrograms(urls, channels, { from: now, to: liveTvSearchHorizon(now) }, searchTerm, LIVE_TV_RESULT_CAP);
   return programs.map(
