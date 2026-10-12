@@ -14,7 +14,7 @@
  * Control (served by the proxy itself, never forwarded):
  *   GET  /__netsim            current state
  *   POST /__netsim            {"kbps": 1500} or {"profile": [...]} (a profile's clock starts on receipt);
- *                             {"refuse": "regex"} answers matching paths 503, {"refuse": null} clears it
+ *                             {"refuse": "text"} answers every URL containing it 503, {"refuse": null} clears it
  *
  * Log (JSONL, stdout unless --log): one "tick" line per second with the rate applied and the
  * bytes carried each way, and one "req" line per proxied request with status, bytes and timing.
@@ -44,7 +44,7 @@ function emit(record) {
 // ---------- the link ----------
 
 let kbps = Number(opt("--kbps", "0"));
-/** Paths answered 503 without reaching the server (a refused route), set via control. */
+/** URLs containing this text answer 503 without reaching the server (a refused route), set via control. */
 let refuse = null;
 let profile = null;
 let profileStart = 0;
@@ -146,8 +146,8 @@ function control(req, res) {
     try {
       const cmd = JSON.parse(body || "{}");
       if ("refuse" in cmd) {
-        refuse = cmd.refuse ? new RegExp(cmd.refuse) : null;
-        emit({ kind: "refuse", pattern: cmd.refuse || null });
+        refuse = typeof cmd.refuse === "string" && cmd.refuse ? cmd.refuse : null;
+        emit({ kind: "refuse", pattern: refuse });
       }
       if (typeof cmd.rttMs === "number") {
         rttMs = cmd.rttMs;
@@ -166,8 +166,9 @@ function control(req, res) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ kbps, profile }));
     } catch (error) {
-      res.writeHead(400);
-      res.end(String(error));
+      console.error(`netsim control: ${error}`);
+      res.writeHead(400, { "Content-Type": "text/plain" });
+      res.end("bad control command");
     }
   });
 }
@@ -177,7 +178,7 @@ function control(req, res) {
 const server = http.createServer(async (req, res) => {
   if (req.url.startsWith("/__netsim")) return control(req, res);
   served++;
-  if (refuse && refuse.test(req.url)) {
+  if (refuse && req.url.includes(refuse)) {
     emit({ kind: "req", method: req.method, path: req.url.split("?")[0], status: 503, refused: true });
     res.writeHead(503);
     res.end();
