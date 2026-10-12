@@ -44,7 +44,7 @@ import {
 } from "../jellyfinApi";
 import { EMPTY_FILTERS, JellyfinVideoItem } from "@/types/jellyfin";
 import { getConvertedDownloadUrl, serverVideoCodecs, sourceIsHdr } from "@/services/jellyfin/streamUrls";
-import { carriesTerm, chainTerms, nextOffset } from "@/services/jellyfin/search";
+import { chainTerms, joinTermResults, nextOffset } from "@/services/jellyfin/search";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -868,26 +868,27 @@ describe("jellyfinApi", () => {
     });
   });
 
-  describe("carriesTerm", () => {
-    const episode = { Id: "e1", Name: "El gallo", Type: "Episode", Path: "", SeriesName: "Veguitas", Genres: ["Animation", "Family"], ProductionYear: 1994 } as JellyfinVideoItem;
-    const song = { Id: "s1", Name: "Bohemian Rhapsody", Type: "Audio", Path: "", Album: "A Night at the Opera", Artists: ["Queen"], Genres: ["Rock"], ProductionYear: 1975 } as JellyfinVideoItem;
+  describe("joinTermResults", () => {
+    const card = (Id: string) => ({ Id, Name: Id, Type: "Movie", Path: "" }) as JellyfinVideoItem;
+    const ids = (lists: string[][]) => joinTermResults(lists.map((list) => list.map(card))).map((item) => item.Id);
 
-    it("finds every word in the title, series, album, artist or genre, case and accents folded", () => {
-      expect(carriesTerm(episode, "veguitas")).toBe(true);
-      expect(carriesTerm(episode, "ANIM")).toBe(true);
-      expect(carriesTerm(episode, "gallo veguitas")).toBe(true);
-      expect(carriesTerm({ ...episode, Name: "Canción del río" }, "cancion")).toBe(true);
-      expect(carriesTerm(song, "queen rock")).toBe(true);
-      expect(carriesTerm(song, "opera")).toBe(true);
-      expect(carriesTerm(episode, "veguitas rock")).toBe(false);
+    it("takes a card from each term in turn, so a long answer never crowds out a short one", () => {
+      expect(ids([["a1", "a2", "a3", "a4"], ["b1"]])).toEqual(["a1", "b1", "a2", "a3", "a4"]);
+      expect(ids([["a1"], ["b1", "b2"], ["c1"]])).toEqual(["a1", "b1", "c1", "b2"]);
     });
 
-    it("holds a year, decade or range to the card's year", () => {
-      expect(carriesTerm(episode, "1994")).toBe(true);
-      expect(carriesTerm(episode, "90s")).toBe(true);
-      expect(carriesTerm(episode, "veguitas 1994")).toBe(true);
-      expect(carriesTerm(episode, "1995")).toBe(false);
-      expect(carriesTerm({ ...episode, ProductionYear: undefined }, "1994")).toBe(false);
+    it("shows a card several terms found once, where it first comes up", () => {
+      expect(
+        ids([
+          ["a1", "both"],
+          ["both", "b1"],
+        ]),
+      ).toEqual(["a1", "both", "b1"]);
+    });
+
+    it("keeps every card of a term whose partner found nothing", () => {
+      expect(ids([["a1", "a2"], []])).toEqual(["a1", "a2"]);
+      expect(ids([[], []])).toEqual([]);
     });
   });
 
@@ -930,7 +931,7 @@ describe("jellyfinApi", () => {
     };
     const movie = (id: string, name: string, extra: Partial<JellyfinVideoItem> = {}) => ({ Id: id, Name: name, Type: "Movie", Path: "", ...extra });
 
-    it("yields the cards that match both terms, whichever term's search found them", async () => {
+    it("yields every card either term finds, each once", async () => {
       const inSeries = { Id: "e1", Name: "El gallo", Type: "Episode", Path: "", SeriesName: "Veguitas", Genres: ["Animation"] };
       const asked = serveSearches(["Animation"], (key) => {
         const named = movie("v1", "Veguitas en la finca", { Genres: ["Animation"] });
@@ -942,13 +943,13 @@ describe("jellyfinApi", () => {
 
       const result = await searchVideos("veguitas + animation");
 
-      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["v1", "e1"]);
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["v1", "a1", "v2", "e1", "x1"]);
       expect(result.next).toBeNull();
       // Each term is asked on its own: the server never sees the chain.
       expect(asked.sort()).toEqual(["animation@0", "genre:Animation@0", "veguitas@0"]);
     });
 
-    it("gives the same cards in either order of the terms", async () => {
+    it("keeps a term's cards the other term never names", async () => {
       serveSearches([], (key) => ({
         Items: key === "luna" ? [movie("m1", "Luna de miel"), movie("m2", "Luna nueva del mar")] : key === "mar" ? [movie("m2", "Luna nueva del mar"), movie("m3", "Mar adentro")] : [],
       }));
@@ -956,39 +957,26 @@ describe("jellyfinApi", () => {
       const forward = await searchVideos("luna + mar");
       const backward = await searchVideos("mar + luna");
 
-      expect(forward.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["m2"]);
-      expect(backward.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["m2"]);
+      expect(forward.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["m1", "m2", "m3"]);
+      expect(backward.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["m2", "m1", "m3"]);
     });
 
-    it("holds a year term against the other term's cards", async () => {
-      const dawn = movie("y1", "Sol naciente", { ProductionYear: 1994 });
-      serveSearches([], (key) => ({ Items: key === "sol" ? [dawn, movie("y2", "Sol de medianoche", { ProductionYear: 2001 })] : [dawn] }));
+    it("answers with one term's cards when the other finds nothing", async () => {
+      serveSearches([], (key) => ({ Items: key === "zeta" ? [movie("z1", "Zeta uno"), movie("z2", "Zeta dos")] : [] }));
 
-      expect((await searchVideos("sol + 1994")).items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["y1"]);
+      const result = await searchVideos("zeta + omega");
+
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["z1", "z2"]);
     });
 
-    it("reads on past a page that holds no card for the chain", async () => {
-      const asked = serveSearches([], (key, startIndex) => {
-        if (key === "zeta") return { Items: startIndex === 0 ? [movie("z1", "Zeta uno"), movie("z2", "Zeta dos")] : [movie("z3", "Zeta y Omega")], TotalRecordCount: 3 };
-        return { Items: startIndex === 0 ? [movie("o1", "Omega uno"), movie("o2", "Omega dos")] : [movie("o3", "Omega tres")], TotalRecordCount: 3 };
-      });
-
-      const result = await searchVideos("zeta + omega", { limit: 2 });
-
-      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["z3"]);
-      expect(asked.sort()).toEqual(["omega@0", "omega@2", "zeta@0", "zeta@2"]);
-      expect(result.next).toBeNull();
-    });
-
-    it("answers empty after five pages a term with no card to show", async () => {
+    it("asks each term once for a page, with no read-ahead", async () => {
       const card = (key: string, at: number) => movie(`${key}-${at}`, `${key} ${at}`);
       const asked = serveSearches([], (key, startIndex) => ({ Items: [card(key, startIndex), card(key, startIndex + 1)], TotalRecordCount: 1000 }));
 
       const result = await searchVideos("kappa + sigma", { limit: 2 });
 
-      expect(result).toEqual({ items: [], next: null });
-      expect(asked.filter((ask) => ask.startsWith("kappa@"))).toEqual(["kappa@0", "kappa@2", "kappa@4", "kappa@6", "kappa@8"]);
-      expect(asked.filter((ask) => ask.startsWith("sigma@"))).toHaveLength(5);
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["kappa-0", "sigma-0", "kappa-1", "sigma-1"]);
+      expect(asked.sort()).toEqual(["kappa@0", "sigma@0"]);
     });
 
     it("continues each term from its own place, and no further once it is exhausted", async () => {
@@ -998,7 +986,7 @@ describe("jellyfinApi", () => {
       });
 
       const first = await searchVideos("rio + bravo", { limit: 1 });
-      expect(first.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["r0"]);
+      expect(first.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["r0", "b0"]);
       expect(first.next).toEqual({ chain: [{ title: 1 }, null] });
 
       asked.length = 0;

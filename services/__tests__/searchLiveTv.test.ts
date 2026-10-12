@@ -375,35 +375,61 @@ describe("searchLiveTv", () => {
         return url.includes("/LiveTv/Programs") ? ok(airingSet) : ok(byTerm[new URL(url).searchParams.get("searchTerm") ?? ""] ?? []);
       });
 
-    it("asks the server for each term and keeps the names carrying them all", async () => {
+    it("asks the server for each term and joins the names, each once", async () => {
       serveNames({
         pluto: [named("c1", "Pluto TV Animation"), named("c2", "Pluto TV News")],
         animation: [named("c3", "Comedy Central Animation"), named("c1", "Pluto TV Animation")],
       });
       const result = await searchLiveTv("pluto + animation");
-      expect(result.map((item) => item.Id)).toEqual(["c1"]);
+      expect(result.map((item) => item.Id)).toEqual(["c1", "c3", "c2"]);
       const asked = urls()
         .filter((url) => url.includes("/Items?"))
         .map((url) => new URL(url).searchParams.get("searchTerm"));
       expect(asked.sort()).toEqual(["animation", "pluto"]);
     });
 
-    it("finds a programme whose description carries every term, and asks the guide sources for the terms' words", async () => {
-      fetchTunerData.mockResolvedValue({ ...NO_TUNER, tvgNameById: { tbs: "TBS" }, tvgUrls: ["http://host:8000/guide.xml.gz"] });
-      serveNames({}, [airing("p1", "tbs", "Veguitas y sus amigos. Animation for the family.", "Matutino"), airing("p2", "espn", "Animation hour.", "Cortos")]);
-      const result = await searchLiveTv("veguitas + animation");
-      expect(result.map((item) => item.Id)).toEqual(["p1"]);
-      expect(searchExternalPrograms.mock.calls[0][3]).toBe("veguitas animation");
+    it("keeps a term's channel when the other term names nothing", async () => {
+      serveNames({ veguitas: [named("c1", "Veguitas TV")] });
+      expect((await searchLiveTv("veguitas + live")).map((item) => item.Id)).toEqual(["c1"]);
     });
 
-    it("finds an indexed programme carrying every term", async () => {
+    it("gives every term a place under the cap when one term fills it alone", async () => {
+      serveNames({ pluto: Array.from({ length: 40 }, (_, i) => named(`p${i}`, `Pluto ${i}`)), veguitas: [named("v1", "Veguitas TV")] });
+      const result = (await searchLiveTv("pluto + veguitas")).map((item) => item.Id);
+      expect(result).toHaveLength(30);
+      expect(result.slice(0, 2)).toEqual(["p0", "v1"]);
+    });
+
+    it("finds the programmes either term's description names, and asks the guide sources for each term", async () => {
+      fetchTunerData.mockResolvedValue({ ...NO_TUNER, tvgNameById: { tbs: "TBS" }, tvgUrls: ["http://host:8000/guide.xml.gz"] });
+      serveNames({}, [
+        airing("p1", "tbs", "Veguitas y sus amigos. Animation for the family.", "Matutino"),
+        airing("p2", "espn", "Animation hour.", "Cortos"),
+        airing("p3", "fox", "Late news.", "Noticias"),
+      ]);
+      const result = await searchLiveTv("veguitas + animation");
+      expect(result.map((item) => item.Id)).toEqual(["p1", "p2"]);
+      expect(searchExternalPrograms.mock.calls.map((call) => call[3]).sort()).toEqual(["animation", "veguitas"]);
+    });
+
+    it("finds the indexed programmes either term names", async () => {
       const startMs = Date.now() + 3_600_000;
       liveTvSearchIndex.mockReturnValue([
         { id: "g1", name: "Matutino", channelId: "tbs", startMs, endMs: startMs + 3_600_000, text: "matutino veguitas y sus amigos animation" },
         { id: "g2", name: "Cortos", channelId: "tbs", startMs, endMs: startMs + 3_600_000, text: "cortos animation hour" },
+        { id: "g3", name: "Noticias", channelId: "tbs", startMs, endMs: startMs + 3_600_000, text: "noticias late news" },
       ]);
       serveNames({});
-      expect((await searchLiveTv("veguitas + animation")).map((item) => item.Id)).toEqual(["g1"]);
+      expect((await searchLiveTv("veguitas + animation")).map((item) => item.Id)).toEqual(["g1", "g2"]);
+    });
+
+    it("reports a partial only once every term has answered, holding each term's cards", async () => {
+      serveNames({ pluto: [named("c1", "Pluto TV")], veguitas: [named("c2", "Veguitas TV")] });
+      const updates: string[][] = [];
+      const result = await searchLiveTv("pluto + veguitas", (items) => updates.push(items.map(({ Id }) => Id)));
+      expect(updates.length).toBeGreaterThan(0);
+      for (const update of updates) expect(update).toEqual(["c1", "c2"]);
+      expect(result.map((item) => item.Id)).toEqual(["c1", "c2"]);
     });
 
     it("asks an unfinished chain as its one term", async () => {

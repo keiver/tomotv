@@ -113,7 +113,7 @@ function parseYearsFromQuery(query: string): { term: string; years: number[] } {
 }
 
 /**
- * The terms of a chained query: "veguitas + animation" asks for what carries both. Only a "+"
+ * The terms of a chained query: "veguitas + animation" asks for what either finds. Only a "+"
  * standing alone chains, so "Canal+" stays one term; an unfinished chain drops its "+".
  */
 export function chainTerms(query: string): string[] {
@@ -124,14 +124,20 @@ export function chainTerms(query: string): string[] {
     .filter((term) => term && !seen.has(foldText(term)) && seen.add(foldText(term)));
 }
 
-/** The card carries the term: its year, and every word in its title, series, album, artist or genre. */
-export function carriesTerm(item: JellyfinVideoItem, chained: string): boolean {
-  const { term, years } = parseYearsFromQuery(chained);
-  if (years.length > 0 && !years.includes(item.ProductionYear ?? NaN)) return false;
-  const text = foldText([item.Name, item.SeriesName, item.Album, item.AlbumArtist, ...(item.Artists ?? []), ...(item.Genres ?? [])].filter(Boolean).join(" "));
-  return foldText(term)
-    .split(/\s+/)
-    .every((word) => text.includes(word));
+/** Each term's cards joined a card from each in turn, so no term crowds another out; each card once. */
+export function joinTermResults(lists: readonly (readonly JellyfinVideoItem[])[]): JellyfinVideoItem[] {
+  const seen = new Set<string>();
+  const joined: JellyfinVideoItem[] = [];
+  const longest = Math.max(0, ...lists.map((list) => list.length));
+  for (let i = 0; i < longest; i++) {
+    for (const list of lists) {
+      const item = list[i];
+      if (!item || seen.has(item.Id)) continue;
+      seen.add(item.Id);
+      joined.push(item);
+    }
+  }
+  return joined;
 }
 
 /**
@@ -340,30 +346,11 @@ export interface SearchCursor {
   chain?: (SearchCursor | null)[];
 }
 
-/** Pages a chain reads per term while it has no card to show, before answering empty. */
-const CHAIN_QUIET_PAGES = 5;
-
-/**
- * A chained search: each term runs its own search, and a card stays when it carries every other
- * term. A term's page can hold no such card, so pages are read until one does.
- */
+/** A chained search: each term runs its own search and their pages join. */
 async function searchChain(terms: string[], limit: number, from?: (SearchCursor | null)[]): Promise<{ items: JellyfinVideoItem[]; next: SearchCursor | null }> {
-  let cursors: (SearchCursor | null | undefined)[] = from ?? terms.map(() => undefined);
-  const items: JellyfinVideoItem[] = [];
-  const seen = new Set<string>();
-  for (let read = 0; read < CHAIN_QUIET_PAGES && items.length === 0 && cursors.some((cursor) => cursor !== null); read++) {
-    const pages = await Promise.all(terms.map((term, i) => (cursors[i] === null ? null : searchVideos(term, { limit, cursor: cursors[i] ?? undefined }))));
-    cursors = pages.map((page) => page?.next ?? null);
-    pages.forEach((page, i) => {
-      for (const item of page?.items ?? []) {
-        if (seen.has(item.Id) || !terms.every((term, j) => j === i || carriesTerm(item, term))) continue;
-        seen.add(item.Id);
-        items.push(item);
-      }
-    });
-  }
-  const chain = cursors.map((cursor) => cursor ?? null);
-  return { items, next: items.length > 0 && chain.some((cursor) => cursor !== null) ? { chain } : null };
+  const pages = await Promise.all(terms.map((term, i) => (from?.[i] === null ? null : searchVideos(term, { limit, cursor: from?.[i] ?? undefined }))));
+  const chain = pages.map((page) => page?.next ?? null);
+  return { items: joinTermResults(pages.map((page) => page?.items ?? [])), next: chain.some((cursor) => cursor !== null) ? { chain } : null };
 }
 
 /** A source's next offset from the raw page it returned, or undefined once it is exhausted. */
@@ -561,17 +548,6 @@ async function fetchLiveTvNameMatches(config: JellyfinConfig, searchTerm: string
   return data.Items ?? [];
 }
 
-/** Name matches for a chain: each term asked on its own, kept when the name carries them all. */
-async function fetchChainedNameMatches(config: JellyfinConfig, terms: string[]): Promise<JellyfinVideoItem[]> {
-  const folded = terms.map(foldText);
-  const seen = new Set<string>();
-  return (await Promise.all(terms.map((term) => fetchLiveTvNameMatches(config, term)))).flat().filter((item) => {
-    if (seen.has(item.Id) || !folded.every((term) => foldText(item.Name ?? "").includes(term))) return false;
-    seen.add(item.Id);
-    return true;
-  });
-}
-
 /**
  * Every programme airing now, one per channel, with the description the server's search never
  * reads. One read serves a whole typed query (CACHE.LIVE_AIRING_TTL_MS); a server switch clears it.
@@ -694,9 +670,24 @@ export async function warmLiveTvSearch(): Promise<void> {
   }
 }
 
+/** A chained live search: each term runs its own search and their answers join, ordered as one list. */
+async function searchLiveChain(terms: string[], onUpdate?: (items: JellyfinVideoItem[]) => void): Promise<JellyfinVideoItem[]> {
+  const join = (answers: readonly JellyfinVideoItem[][]) => orderLiveTvResults(joinTermResults(answers), Date.now());
+  // A partial reports once every term has answered, so the first paint holds each term's cards.
+  const latest: (JellyfinVideoItem[] | undefined)[] = terms.map(() => undefined);
+  const report = (index: number) => (items: JellyfinVideoItem[]) => {
+    latest[index] = items;
+    if (latest.every((answer) => answer !== undefined)) onUpdate?.(join(latest as JellyfinVideoItem[][]));
+  };
+  return join(await Promise.all(terms.map((term, index) => searchLiveTv(term, onUpdate && report(index)))));
+}
+
 export async function searchLiveTv(searchTerm: string, onUpdate?: (items: JellyfinVideoItem[]) => void): Promise<JellyfinVideoItem[]> {
   const trimmed = searchTerm.trim();
   if (!trimmed) return [];
+  const terms = chainTerms(trimmed);
+  if (terms.length > 1) return searchLiveChain(terms, onUpdate);
+  const text = terms[0] ?? trimmed;
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) return [];
   const quiet = (source: string, work: Promise<JellyfinVideoItem[]>) =>
@@ -704,10 +695,7 @@ export async function searchLiveTv(searchTerm: string, onUpdate?: (items: Jellyf
       logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: error instanceof Error ? error.message : "unknown" });
       return [];
     });
-  // The description tiers match every word already, so a chain reaches them as its terms' words.
-  const terms = chainTerms(trimmed);
-  const text = terms.join(" ") || trimmed;
-  const namesWork = quiet("names", terms.length > 1 ? fetchChainedNameMatches(config, terms) : fetchLiveTvNameMatches(config, text));
+  const namesWork = quiet("names", fetchLiveTvNameMatches(config, text));
   const programWork = [quiet("airing", fetchAiringPrograms(config)), quiet("guide sources", searchGuideSources(config, text))];
 
   const assemble = (names: JellyfinVideoItem[], programTiers: readonly JellyfinVideoItem[][]): JellyfinVideoItem[] => {
