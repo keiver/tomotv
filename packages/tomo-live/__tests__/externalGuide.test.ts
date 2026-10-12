@@ -4,7 +4,7 @@ import { closeGuide, guideChannels, guideProgrammes, loadGuide } from "@keiver/t
 
 jest.mock("@keiver/tomo-engine", () => ({
   closeGuide: jest.fn(async () => {}),
-  engineLog: () => ({ warn: jest.fn() }),
+  engineLog: () => ({ warn: jest.fn(), info: jest.fn() }),
   guideChannels: jest.fn(async () => [{ id: "g1", displayNames: ["News One"], icon: null }]),
   guideProgrammes: jest.fn(async () => []),
   isLiveSourcesAvailable: () => true,
@@ -16,7 +16,7 @@ jest.mock("../src/guideFileCache", () => ({
   clearGuideFileCache: jest.fn(),
 }));
 
-import { fetchExternalListingWindow, resetExternalGuide } from "../src/externalGuide";
+import { fetchExternalAiring, fetchExternalListingWindow, resetExternalGuide } from "../src/externalGuide";
 
 const H = 3_600_000;
 const T0 = 1_700_000_000_000;
@@ -78,6 +78,16 @@ it("closes the outgoing token only after its last in-flight read ends", async ()
   const { listings } = await reading;
   expect(listings).toHaveLength(1);
   expect(closeGuideMock).toHaveBeenCalledWith("T1");
+});
+
+it("answers airing-now with the latest programme already started, one per channel", async () => {
+  guideProgrammesMock.mockImplementation(async () => [
+    { ...PROGRAMME, start: T0 - 2 * H, stop: T0 - H, title: "Earlier" },
+    { ...PROGRAMME, start: T0 - H, stop: T0 + H, title: "On Now" },
+    { ...PROGRAMME, start: T0 + H, stop: T0 + 2 * H, title: "Next" },
+  ]);
+  const { listings } = await fetchExternalAiring([URL], CHANNELS, T0);
+  expect(listings).toEqual([{ channelId: "c1", programme: expect.objectContaining({ title: "On Now" }) }]);
 });
 
 it("keeps the open guide serving covered windows when a wider reopen fails", async () => {

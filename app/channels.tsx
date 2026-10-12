@@ -16,7 +16,7 @@ import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
 import { useHealthGeneration } from "@/hooks/useChannelHealth";
 import { healthFor } from "@/services/channelHealth";
 import { t } from "@/services/i18n";
-import { fetchTimers, searchLiveTv } from "@/services/jellyfinApi";
+import { fetchTimers, searchLiveTv, warmLiveTvSearch } from "@/services/jellyfinApi";
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { requestSearchFocus } from "@/services/searchFocus";
 import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
@@ -99,6 +99,10 @@ export default function ChannelsScreen() {
   const openSettings = useCallback(() => router.push("/channel-settings"), [router]);
   // A held channel or search result opens the info panel.
   const openInfoPanel = useItemLongPress();
+  // Opens the guide sources at mount, so the wall's airing lines and the first search never pay the parse.
+  useEffect(() => {
+    void warmLiveTvSearch();
+  }, []);
   // Reread on every return: the info panel and the player start and stop recordings.
   const isFocused = useIsFocused();
   const [timers, setTimers] = useState<JellyfinTimer[]>([]);

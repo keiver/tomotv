@@ -16,7 +16,7 @@ import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
-import { invalidateLiveTvSearchIndex } from "@/services/jellyfinApi";
+import { invalidateLiveTvSearchIndex, warmLiveTvSearch } from "@/services/jellyfinApi";
 import { dismissToast, showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { guideMetrics, guideRefreshOutcome } from "@/utils/guide";
@@ -81,6 +81,10 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   }, []);
 
   const guide = useGuide();
+  // Opens the guide sources at mount, so airing lines elsewhere and the first search never pay the parse.
+  useEffect(() => {
+    void warmLiveTvSearch();
+  }, []);
   useChannelFavoritesSync();
   // Another sign-in remounts the canvas cold: no scroll, focus or strip carries over from the last server.
   const session = useAuthSession();

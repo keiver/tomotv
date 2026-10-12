@@ -166,6 +166,17 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
   const { token, stats } = await loadGuide(fileUri, target, "external", 0);
   try {
     const channels = await guideChannels(token);
+    // The device-measurement line: parse and pre-fold cost, store footprint, at this guide's scale.
+    engineLog().info("External guide loaded", {
+      service: "ExternalGuide",
+      url: source.url,
+      channels: stats?.channels ?? channels.length,
+      programmes: stats?.programmes ?? null,
+      workMs: stats?.workMs ?? null,
+      foldMs: stats?.foldMs ?? null,
+      inflatedBytes: stats?.inflatedBytes ?? null,
+      footprintAfterBytes: stats?.footprintAfterBytes ?? null,
+    });
     setStatus(source, { state: "ready", channels: stats?.channels ?? channels.length, programmes: stats?.programmes ?? null, loadedAt: Date.now() });
     return { token, from: target.from, to: target.to, index: buildGuideIndex(channels), readers: 0, retired: false };
   } catch (error) {
@@ -282,6 +293,18 @@ export interface GuideListing {
   programme: GuideProgramme;
 }
 
+/** Match results per open guide, keyed by the request array's identity: a table-generation request
+ *  list stays one object across queries, so repeat searches skip re-folding every channel name. */
+const matchCache = new WeakMap<OpenGuide, WeakMap<readonly GuideChannelRequest[], ReturnType<typeof matchChannels>>>();
+
+function matchFor(guide: OpenGuide, requests: readonly GuideChannelRequest[]): ReturnType<typeof matchChannels> {
+  let byRequests = matchCache.get(guide);
+  if (!byRequests) matchCache.set(guide, (byRequests = new WeakMap()));
+  let found = byRequests.get(requests);
+  if (!found) byRequests.set(requests, (found = matchChannels(guide.index, requests)));
+  return found;
+}
+
 /**
  * Programmes for the given channels from the guides at `urls`, asked in order. A guide that fails
  * logs and gives nothing, and the next guide is still asked. A refresh distinguishes a successful
@@ -306,7 +329,7 @@ export async function fetchExternalListingWindow(
     let attempted = remaining.map((channel) => channel.channelId);
     try {
       guide = await ensureOpen(source, windowMs);
-      const matches = matchChannels(guide.index, remaining);
+      const matches = matchFor(guide, remaining);
       attempted = Array.from(matches.keys());
       for (const channel of remaining) source.asked.set(channel.channelId, channel.name);
       for (const [channelId, { via }] of matches) source.matched.set(channelId, { channelId, name: names.get(channelId) ?? "", via });
@@ -339,6 +362,21 @@ export async function fetchExternalListingWindow(
 }
 
 /**
+ * The programme airing at `atMs` on each channel, from the guides at `urls` asked in order:
+ * the latest programme already started. Channels nothing airs on are simply absent.
+ */
+export async function fetchExternalAiring(urls: readonly string[], channels: readonly GuideChannelRequest[], atMs: number): Promise<{ listings: GuideListing[]; failedChannelIds: string[] }> {
+  const { listings, failedChannelIds } = await fetchExternalListingWindow(urls, channels, { from: atMs, to: atMs + MINUTE_MS });
+  const airing = new Map<string, GuideListing>();
+  for (const listing of listings) {
+    if (listing.programme.start > atMs) continue;
+    const held = airing.get(listing.channelId);
+    if (!held || listing.programme.start > held.programme.start) airing.set(listing.channelId, listing);
+  }
+  return { listings: [...airing.values()], failedChannelIds };
+}
+
+/**
  * Programmes in the window whose title, sub-title or description carries every word of `query`,
  * from the guides at `urls` asked in order, for the given channels: a channel an earlier guide
  * pairs is not asked again. Matched natively (searchGuide); a guide that fails logs and gives nothing.
@@ -359,7 +397,7 @@ export async function searchExternalListings(
     let guide: OpenGuide | null = null;
     try {
       guide = await ensureOpen(source, windowMs);
-      const matches = matchChannels(guide.index, remaining);
+      const matches = matchFor(guide, remaining);
       if (matches.size === 0) continue;
       const byGuideId = new Map<string, string[]>();
       for (const [channelId, { guideId }] of matches) byGuideId.set(guideId, [...(byGuideId.get(guideId) ?? []), channelId]);

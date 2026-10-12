@@ -6,7 +6,8 @@
 import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { CACHE } from "@/constants/app";
 import { engineCodecAllowlists } from "@/services/localRemux";
-import { channelListKey, favoriteKey, LIVE_TV_CATEGORIES, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
+import { activeGuideUrls, fetchExternalAiringPrograms } from "@/services/externalGuide";
+import { channelListKey, favoriteKey, getLiveTvPreferences, LIVE_TV_CATEGORIES, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
 import { setPlaybackStage } from "@/services/playbackStage";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
@@ -19,6 +20,7 @@ import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
 import { playlistPlayable, playlistStandIn, playlistStandInsAllowed, standInItem } from "./playlistItems";
 import { didConfigReadFail, getAuthHeader, getConfig, getQualitySettings, throwRequestError } from "./session";
+import { lastKnownTunerData } from "./tunerGroups";
 import { type ChannelOrigin, clearOpenFailure, playlistChannelById } from "@keiver/tomo-live";
 
 export type { ChannelOrigin };
@@ -169,6 +171,25 @@ async function originVariantUrl(masterUrl: string, headers: Record<string, strin
 
 const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports: "isSports", kids: "isKids", movie: "isMovie", series: "isSeries" };
 
+/** Channels listed with no current programme get the one airing now from the device guide sources.
+ *  Bounded by the page the caller fetched; any failure leaves the page as the server sent it. */
+async function fillAiringFromGuides(channels: JellyfinItem[]): Promise<JellyfinItem[]> {
+  const bare = channels.filter((channel) => channel.Type === "TvChannel" && !channel.CurrentProgram);
+  if (bare.length === 0) return channels;
+  try {
+    const data = lastKnownTunerData();
+    const urls = activeGuideUrls(getLiveTvPreferences(), data?.tvgUrls ?? []);
+    if (urls.length === 0) return channels;
+    const requests = bare.map((channel) => ({ channelId: channel.Id, tvgId: data?.tvgById[channel.Id], tvgName: data?.tvgNameById[channel.Id], name: channel.Name ?? "" }));
+    const airing = await fetchExternalAiringPrograms(urls, requests, Date.now());
+    if (airing.length === 0) return channels;
+    const byChannel = new Map(airing.map((program) => [program.ChannelId, program]));
+    return channels.map((channel) => (byChannel.has(channel.Id) ? { ...channel, CurrentProgram: byChannel.get(channel.Id) } : channel));
+  } catch {
+    return channels;
+  }
+}
+
 /** One page of channels in the server's channel order; the whole list when no page is asked for. */
 export async function fetchChannels(
   page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; category?: LiveTvCategory; favorite?: boolean } = {},
@@ -195,7 +216,7 @@ export async function fetchChannels(
   );
   if (!response.ok) throwRequestError(response, `Failed to fetch channels: ${response.status}`);
   const json = await response.json();
-  return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
+  return { items: await fillAiringFromGuides((json.Items ?? []) as JellyfinItem[]), total: json.TotalRecordCount };
 }
 
 /**
@@ -300,7 +321,7 @@ export async function fetchChannelWindow(ids: readonly string[]): Promise<Jellyf
   ]);
   if (!response.ok) throwRequestError(response, `Failed to fetch airing programmes: ${response.status}`);
   const airing = new Map(((await response.json()).Items as JellyfinProgram[] | undefined)?.map((program) => [program.ChannelId, program]) ?? []);
-  return channels.map((channel) => ({ ...channel, CurrentProgram: airing.get(channel.Id) ?? null }));
+  return fillAiringFromGuides(channels.map((channel) => ({ ...channel, CurrentProgram: airing.get(channel.Id) ?? null })));
 }
 
 /**

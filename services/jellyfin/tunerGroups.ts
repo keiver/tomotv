@@ -19,6 +19,7 @@ import {
   type PlaylistRows,
 } from "@keiver/tomo-live";
 import { cachedPlaylistFile } from "@/services/guideFileCache";
+import type { GuideChannelRequest } from "@/utils/guideMatch";
 import { cancelTunerGroups, isTunerGroupsAvailable, loadTunerPlaylist, releaseTunerPlaylist, tunerPlaylistRows, type TunerGroup, type TunerRow } from "@/services/liveSources";
 import { cachedRequest, invalidateRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
@@ -93,19 +94,31 @@ export function resetTunerCache(): void {
   failedAt.clear();
   lastGood.clear();
   latest = null;
+  Object.assign(requestsCache, { data: null, lineup: null, requests: [], names: {} });
   resetPlaylistChannels();
 }
 
-/** The server's M3U tuners the device can stream itself: http(s) ones only. */
-async function readTuners(config: Awaited<ReturnType<typeof getConfig>>): Promise<TunerHost[]> {
+interface ListingProvider {
+  Type?: string;
+  Path?: string;
+}
+
+/** The server's Live TV config as the device reads it: http(s) M3U tuners it can stream itself,
+ *  and the http(s) XMLTV listing providers it can parse itself, no setup on the device. */
+async function readLiveTvConfig(config: Awaited<ReturnType<typeof getConfig>>): Promise<{ tuners: TunerHost[]; guideUrls: string[] }> {
   const response = await fetchWithTimeout(
     `${config.server}/System/Configuration/livetv`,
     { headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
     API_TIMEOUTS.NORMAL,
   );
   if (!response.ok) throwRequestError(response, `Failed to read the Live TV configuration: ${response.status}`);
-  const json = (await response.json()) as { TunerHosts?: TunerHost[] };
-  return (json.TunerHosts ?? []).filter((tuner) => tuner.Type?.toLowerCase() === "m3u" && /^https?:\/\//i.test(tuner.Url ?? ""));
+  const json = (await response.json()) as { TunerHosts?: TunerHost[]; ListingProviders?: ListingProvider[] };
+  return {
+    tuners: (json.TunerHosts ?? []).filter((tuner) => tuner.Type?.toLowerCase() === "m3u" && /^https?:\/\//i.test(tuner.Url ?? "")),
+    guideUrls: (json.ListingProviders ?? [])
+      .filter((provider) => provider.Type?.toLowerCase() === "xmltv" && /^https?:\/\//i.test(provider.Path ?? ""))
+      .map((provider) => reachableTunerUrl(provider.Path!, config.server)),
+  };
 }
 
 /** The tuner's own User-Agent rides every stream it lists, as the server sends it; an entry's own wins. */
@@ -153,8 +166,9 @@ function tableComplete(tunerUrls: readonly string[]): boolean {
   });
 }
 
-/** TunerData as the guide and group surfaces read it, derived from the channel table. */
-function deriveTunerData(tunerUrls: string[]): TunerData {
+/** TunerData as the guide and group surfaces read it, derived from the channel table.
+ *  `serverGuideUrls` are the server's own XMLTV providers, listed after the playlists' declared guides. */
+function deriveTunerData(tunerUrls: string[], serverGuideUrls: string[] = []): TunerData {
   const tvgById: Record<string, string> = {};
   const tvgNameById: Record<string, string> = {};
   for (const id of allPlaylistChannelIds()) {
@@ -167,7 +181,7 @@ function deriveTunerData(tunerUrls: string[]): TunerData {
     groups: playlistGroupList(),
     tvgById,
     tvgNameById,
-    tvgUrls: playlistTvgUrls(),
+    tvgUrls: [...new Set([...playlistTvgUrls(), ...serverGuideUrls])],
     tvgUrlSources: playlistTvgUrlSources(),
     tunerUrls,
     complete: tableComplete(tunerUrls),
@@ -192,8 +206,8 @@ async function readTunerData(options: { revalidate?: boolean }): Promise<TunerDa
   const key = `tunerGroups:${config.server}:${config.userId}`;
   const known = lastGood.get(key);
   if (options.revalidate && known) {
-    const tuners = await readTuners(config).catch(() => null);
-    if (tuners && tuners.map((tuner) => tuner.Url).join("\n") !== known.tunerUrls.join("\n")) {
+    const read = await readLiveTvConfig(config).catch(() => null);
+    if (read && read.tuners.map((tuner) => tuner.Url).join("\n") !== known.tunerUrls.join("\n")) {
       invalidateRequest(key);
       failedAt.delete(key);
     }
@@ -205,7 +219,7 @@ async function readTunerData(options: { revalidate?: boolean }): Promise<TunerDa
     const data = await cachedRequest(
       key,
       async () => {
-        const tuners = await readTuners(config);
+        const { tuners, guideUrls } = await readLiveTvConfig(config);
         // A reset during the config read: these tuners are another sign-in's and must not reach the table.
         if (gen !== generation) return { ...NO_DATA, tunerUrls: tuners.map((tuner) => tuner.Url!) };
         const failures = new Map<string, unknown>();
@@ -225,8 +239,8 @@ async function readTunerData(options: { revalidate?: boolean }): Promise<TunerDa
         // This cache is the freshness gate: a read that got here re-streams every playlist.
         await syncPlaylistSources(sources, { force: true });
         const tunerUrls = tuners.map((tuner) => tuner.Url!);
-        if (gen !== generation) return deriveTunerData(tunerUrls);
-        const data = deriveTunerData(tunerUrls);
+        if (gen !== generation) return deriveTunerData(tunerUrls, guideUrls);
+        const data = deriveTunerData(tunerUrls, guideUrls);
         // Every tuner refused and nothing is tabled: a failure, never an empty success that would
         // overwrite lastGood and kill the group filter.
         // Read off the table's statuses: a load another read started fails into that read's `failures`, not this one's.
@@ -255,6 +269,32 @@ async function readTunerData(options: { revalidate?: boolean }): Promise<TunerDa
     }
     throw error;
   }
+}
+
+/** The last (table, lineup) pair's request list: both inputs are cached objects, so identity holds between queries. */
+const requestsCache = { data: null as object | null, lineup: null as object | null, requests: [] as GuideChannelRequest[], names: {} as Record<string, string> };
+
+/**
+ * The guide-match requests for every channel the table or the lineup knows, with the lineup's names.
+ * Built once per (table, lineup) identity, never per query: search calls this on each keystroke, and
+ * the guide layer's match memo keys on the returned array staying one object.
+ */
+export function guideChannelRequests(
+  data: Pick<TunerData, "tvgById" | "tvgNameById">,
+  lineup: readonly { Id: string; Name?: string | null }[],
+): { requests: GuideChannelRequest[]; names: Record<string, string> } {
+  if (requestsCache.data === data && requestsCache.lineup === lineup) return { requests: requestsCache.requests, names: requestsCache.names };
+  const names: Record<string, string> = {};
+  for (const channel of lineup) if (channel.Name) names[channel.Id] = channel.Name;
+  const ids = new Set([...Object.keys(data.tvgById), ...Object.keys(data.tvgNameById), ...Object.keys(names)]);
+  const requests: GuideChannelRequest[] = [...ids].map((channelId) => ({
+    channelId,
+    tvgId: data.tvgById[channelId],
+    tvgName: data.tvgNameById[channelId],
+    name: names[channelId] ?? data.tvgNameById[channelId] ?? "",
+  }));
+  Object.assign(requestsCache, { data, lineup, requests, names });
+  return { requests, names };
 }
 
 export async function fetchTunerGroups(): Promise<TunerGroup[]> {

@@ -5,7 +5,7 @@
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
 import type { GuideChannelRequest } from "@/utils/guideMatch";
-import { fetchExternalListingWindow, searchExternalListings, type GuideListing } from "@keiver/tomo-live";
+import { fetchExternalAiring, fetchExternalListingWindow, searchExternalListings, type GuideListing } from "@keiver/tomo-live";
 
 export {
   activeGuideUrls,
@@ -50,6 +50,11 @@ export async function fetchExternalProgramWindow(
 ): Promise<{ programs: JellyfinProgram[]; failedChannelIds: string[] }> {
   const { listings, failedChannelIds } = await fetchExternalListingWindow(urls, channels, windowMs);
   return { programs: listings.map(listingProgram), failedChannelIds };
+}
+
+/** The programme airing at `atMs` per channel from the guide sources, in the server's program shape. */
+export async function fetchExternalAiringPrograms(urls: readonly string[], channels: readonly GuideChannelRequest[], atMs: number): Promise<JellyfinProgram[]> {
+  return (await fetchExternalAiring(urls, channels, atMs)).listings.map(listingProgram);
 }
 
 /** The guide sources' programmes in the window matching every word of `query`, in the server's program shape. */

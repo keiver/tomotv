@@ -1,7 +1,7 @@
 /** Tuner groups through the native module: the config read, which tuners qualify, merging, tvg-ids, and failure caching. */
 import type { TunerRow } from "../liveSources";
 import { allPlaylistChannelIds, playlistChannelById, syncPlaylistSources } from "@keiver/tomo-live";
-import { fetchTunerData, fetchTunerGroups, lastKnownTunerData, resetTunerCache, tunerDataSettled } from "../jellyfin/tunerGroups";
+import { fetchTunerData, fetchTunerGroups, guideChannelRequests, lastKnownTunerData, resetTunerCache, tunerDataSettled } from "../jellyfin/tunerGroups";
 import { clearRequestCache } from "../requestCache";
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
@@ -126,6 +126,48 @@ describe("fetchTunerGroups", () => {
       ["http://localhost.example.com/d.m3u", "http://localhost.example.com/d.m3u"],
     ]);
     expect(data.tunerUrls).toEqual(["http://127.0.0.1:9109/a.m3u", "http://localhost/b.m3u", "https://[::1]:8443/c.m3u", "http://localhost.example.com/d.m3u"]);
+  });
+
+  it("lists the server's http(s) XMLTV listing providers as guide URLs, loopback rewritten", async () => {
+    const session = jest.requireMock("../jellyfin/session") as { getConfig: jest.Mock };
+    session.getConfig.mockResolvedValueOnce({ server: "http://192.168.1.5:8096", apiKey: "k", userId: "u", deviceId: "d" });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        TunerHosts: [{ Type: "m3u", Url: "http://t/one.m3u" }],
+        ListingProviders: [
+          { Type: "xmltv", Path: "http://127.0.0.1:8000/guide.xml.gz" },
+          { Type: "xmltv", Path: "/var/lib/local-guide.xml" },
+          { Type: "schedulesdirect", Path: "http://sd/guide" },
+        ],
+      }),
+    });
+    queueTuner({ tvgUrls: ["http://g/a.xml"] });
+    const data = await fetchTunerData();
+    // Playlist-declared guides first, then the server's own providers.
+    expect(data.tvgUrls).toEqual(["http://g/a.xml", "http://192.168.1.5:8000/guide.xml.gz"]);
+  });
+
+  it("builds the guide-match request list once per (table, lineup) pair and forgets it on reset", async () => {
+    const data = { tvgById: { a: "A.us" }, tvgNameById: { b: "B Name" } };
+    const lineup = [
+      { Id: "a", Name: "Alpha" },
+      { Id: "c", Name: "Gamma" },
+    ];
+    const first = guideChannelRequests(data, lineup);
+    expect(first.requests).toEqual([
+      { channelId: "a", tvgId: "A.us", tvgName: undefined, name: "Alpha" },
+      { channelId: "b", tvgId: undefined, tvgName: "B Name", name: "B Name" },
+      { channelId: "c", tvgId: undefined, tvgName: undefined, name: "Gamma" },
+    ]);
+    expect(first.names).toEqual({ a: "Alpha", c: "Gamma" });
+    // Same pair: the same array object back, so downstream identity-keyed memos hold.
+    expect(guideChannelRequests(data, lineup).requests).toBe(first.requests);
+    // A new lineup object rebuilds; a reset forgets the pair entirely.
+    expect(guideChannelRequests(data, [...lineup]).requests).not.toBe(first.requests);
+    const again = guideChannelRequests(data, lineup);
+    resetTunerCache();
+    expect(guideChannelRequests(data, lineup).requests).not.toBe(again.requests);
   });
 
   it("returns no groups without the native module and never reads the config", async () => {
