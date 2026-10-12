@@ -122,6 +122,23 @@ final class ParallelRangeReaderTests: XCTestCase {
         XCTAssertEqual(completeCount, 0)
     }
 
+    /// On a size that is not a chunk multiple the EOF cursor still indexes the last chunk:
+    /// the seek cancels every fetch, so anything held or in flight after it was started at EOF.
+    func testAnEndOfFileCursorStartsNoFetch() throws {
+        try startServer(ranges: true)
+        let reader = try XCTUnwrap(ParallelRangeReader.open(url: url(), headers: [:]))
+        defer { reader.close() }
+        XCTAssertEqual(reader.seek(to: reader.size), reader.size)
+        var heldChunks = -1
+        var inFlight = -1
+        for child in Mirror(reflecting: reader).children {
+            if child.label == "bodies", let map = child.value as? [Int64: Data] { heldChunks = map.count }
+            if child.label == "tasks", let map = child.value as? [Int64: URLSessionDataTask] { inFlight = map.count }
+        }
+        XCTAssertEqual(heldChunks, 0)
+        XCTAssertEqual(inFlight, 0)
+    }
+
     /// A size that is an exact chunk multiple puts the EOF cursor on a chunk past the last one.
     func testExactChunkMultipleReadsToTheEndAndSeeksToSize() throws {
         try startServer(ranges: true, bytes: 2 * ParallelRangeReader.chunkBytes)

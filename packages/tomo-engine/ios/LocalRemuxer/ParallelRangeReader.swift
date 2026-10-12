@@ -105,12 +105,13 @@ final class ParallelRangeReader: NSObject {
             lock.unlock()
             return
         }
-        let first = chunkIndex(cursor)
-        // An EOF cursor on an exact chunk-multiple file sits one past the last chunk.
-        guard first <= lastChunk else {
+        // Nothing lies past an EOF cursor: its chunk index is the last chunk's, or one past it
+        // on an exact chunk-multiple file, and a fetch there would be held with no reader.
+        guard cursor < size else {
             lock.unlock()
             return
         }
+        let first = chunkIndex(cursor)
         var started: [URLSessionDataTask] = []
         for index in first ... min(first + Int64(window) - 1, lastChunk) {
             guard !complete.contains(index), tasks[index] == nil, tasks.count < Self.connections else { continue }
