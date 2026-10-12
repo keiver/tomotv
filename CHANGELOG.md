@@ -6,8 +6,8 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- A Mac app through Mac Catalyst, for Apple Silicon and Intel Macs on macOS 13.4 or later, using the iPad interface and the same Jellyfin account, playback engine and offline downloads
-- A channel's info panel lists every group it can join: Favorites, your own groups and the groups its tuner's M3U playlist declares, each ticked while the channel is in it, and a press adds or removes it. On Apple TV they are a bar along the card's foot that starts with New group; on iPhone and iPad a Groups list, four rows before it scrolls, ends in a New group field
+- A Mac app, its own Mac Catalyst binary, for Apple Silicon and Intel Macs on macOS 13.4 or later, with the same Jellyfin account, playback engine and offline downloads
+- A channel's info panel lists every group it can join: Favorites, your own groups and the groups its tuner's M3U playlist declares, each ticked while the channel is in it, and a press adds or removes it. On Apple TV they are a bar along the card's foot that starts with New group; on iPhone and iPad a Groups list, three rows before it scrolls, ends in a New group field
 - A playlist group keeps the channels you add to it or remove from it, per user: the guide, the channel wall and channel flipping follow your edits
 - A multi-episode file shows its episode range, S01E01-E02, on its card and info panel, between episodes, and in the Apple TV player's queue
 - Themes tint the ambient background, and Settings > Appearance gains a Background choice: Folder artwork (the default), Theme color or Clear
@@ -17,6 +17,9 @@ All notable changes to Tomo TV are documented here.
 - On iPhone, iPad and Mac an original of 64 MB or more downloads as up to four ranged parts, three in flight, that the engine joins into one file; a server that ignores range requests, or a converted copy, keeps the single download
 - A live channel whose source sends slower than it plays says so once in a toast, and a live start waiting on its source buffers two segments, for up to 8 seconds, before the picture appears
 - The engine logs the system's memory pressure events with the headroom left
+- The channel wall and the guide list a server M3U tuner's channels the server has not ingested yet, from the device's own parse of the playlist, and they tune; only for an account no parental rule can hide a channel from
+- The server's http(s) XMLTV listing providers join the guide sources with no setup on the device, and a channel listed without a current programme shows the one airing now from the guide sources
+- A search chained with a `+` standing alone, "news + sports", returns what either term finds
 
 ### Changed
 
@@ -30,7 +33,7 @@ All notable changes to Tomo TV are documented here.
 - The Open Source page names the platform the binary targets
 - Folder download enqueues batch their state writes into one manifest write, with bounded side fetches
 - The engine's poster work idles while a video plays
-- A channel card's title is the programme that is airing, alone, with the favorite heart, smaller and dimmed, at its left edge; the number pill is gone and the channel's info panel names the number, CH 5
+- A channel card's title is the programme that is airing, alone, with the favorite heart, smaller and dimmed, at its right edge; the number pill is gone and the channel's info panel names the number, CH 5
 - The guide's time scale stretches so the grid fills a viewport wider than its shortest window
 - The guide's server reads are kept in memory for 30 minutes, so a reopen shows at once; a refresh press reads fresh, and only it shows the "TV guides updated" toast
 - The Settings streaming heading answers every press: "Link in use" while playback or a download holds the connection, "No reading" when a check reads nothing. The automatic check stands down beside either

@@ -37,8 +37,8 @@ the API credentials above.
 
 ## Mac setup and local validation
 
-The `TomoTV-macOS` scheme is Mac Catalyst with the existing iPad interface, bundle
-ID `dev.keiver.tomotv`, and keychain group. It targets macOS 13.4 or later, with
+The `TomoTV-macOS` scheme builds its own Mac Catalyst binary, with the same bundle
+ID `dev.keiver.tomotv` and keychain group as iOS. It targets macOS 13.4 or later, with
 both Apple Silicon and Intel architectures. `npm run clear` prepares iOS, Mac,
 then tvOS in the root workspace; `npm run clearmac` prepares only Mac. The generated
 Mac project lives in `macos/`, with source-built Expo modules and its own Pods.
