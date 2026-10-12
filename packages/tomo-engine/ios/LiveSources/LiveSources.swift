@@ -23,6 +23,25 @@ class LiveSources: NSObject {
 
     @objc static func requiresMainQueueSetup() -> Bool { false }
 
+    /// Tokens this instance opened, touched only on `queue`. One instance exists per React runtime.
+    private var ownedGuides: Set<String> = []
+    private var ownedPlaylists: Set<String> = []
+
+    /// Runtime teardown (Metro reload, host shutdown): the JS close calls die with the runtime, so its stores close here.
+    @objc func invalidate() {
+        Self.queue.async {
+            let guides = self.ownedGuides.filter { Self.guides[$0] != nil }
+            let playlists = self.ownedPlaylists.filter { Self.playlists[$0] != nil }
+            guides.forEach(Self.closeGuide)
+            playlists.forEach(Self.closePlaylist)
+            self.ownedGuides.removeAll()
+            self.ownedPlaylists.removeAll()
+            if !guides.isEmpty || !playlists.isEmpty {
+                NSLog("[LiveSources] closed %d guide(s) and %d playlist(s) left by runtime teardown", guides.count, playlists.count)
+            }
+        }
+    }
+
     // MARK: Guides
 
     @objc func loadGuide(_ config: NSDictionary, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -48,6 +67,7 @@ class LiveSources: NSObject {
             let token = UUID().uuidString
             let store = GuideStore()
             Self.guides[token] = store
+            self.ownedGuides.insert(token)
             Self.guideLoaders[token] = GuideLoader.load(url: url, window: window, headers: headers, store: store) { result in
                 Self.queue.async {
                     Self.guideLoaders[token] = nil
@@ -142,6 +162,7 @@ class LiveSources: NSObject {
             let token = UUID().uuidString
             let store = PlaylistStore()
             Self.playlists[token] = store
+            self.ownedPlaylists.insert(token)
             Self.playlistLoaders[token] = PlaylistLoader.load(url: url, headers: headers, store: store) { result in
                 Self.queue.async {
                     Self.playlistLoaders[token] = nil
