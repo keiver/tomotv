@@ -172,17 +172,17 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 
 ## Servers, accounts and setup
 
-| Feature                                     | Apple TV | iPhone, iPad | Mac | Notes                                    |
-| ------------------------------------------- | -------- | ------------ | --- | ---------------------------------------- |
-| Several servers, several users on each      | Yes      | Yes          | Yes | Switching needs no password              |
-| Rename or remove a server, forget a sign-in | Yes      | Yes          | Yes |                                          |
-| Scan Network                                | Yes      | Yes          | Yes | Sweeps the local network                 |
-| Quick Connect                               | Yes      | Yes          | Yes |                                          |
-| Username and password                       | Yes      | Yes          | Yes |                                          |
-| A bare IP finds the protocol and port       | Yes      | Yes          | Yes |                                          |
-| HTTP and HTTPS servers                      | Yes      | Yes          | Yes |                                          |
-| Demo server                                 | Yes      | Yes          | Yes | The Jellyfin project's public demo       |
-| A moved server is found again               | Yes      | Yes          | Yes | On the local network, by server identity |
+| Feature                                     | Apple TV | iPhone, iPad | Mac | Notes                                                          |
+| ------------------------------------------- | -------- | ------------ | --- | -------------------------------------------------------------- |
+| Several servers, several users on each      | Yes      | Yes          | Yes | Switching needs no password                                    |
+| Rename or remove a server, forget a sign-in | Yes      | Yes          | Yes |                                                                |
+| Scan Network                                | Yes      | Yes          | Yes | Sweeps the local network                                       |
+| Quick Connect                               | Yes      | Yes          | Yes |                                                                |
+| Username and password                       | Yes      | Yes          | Yes |                                                                |
+| A bare IP finds the protocol and port       | Yes      | Yes          | Yes |                                                                |
+| HTTP and HTTPS servers                      | Yes      | Yes          | Yes | HTTP sends your sign-in unencrypted: use HTTPS beyond your LAN |
+| Demo server                                 | Yes      | Yes          | Yes | The Jellyfin project's public demo                             |
+| A moved server is found again               | Yes      | Yes          | Yes | On the local network, by server identity                       |
 
 ## Appearance and language
 
