@@ -5,6 +5,10 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
 
+# Both jobs only read the checkout.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
