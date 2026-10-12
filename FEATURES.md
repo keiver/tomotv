@@ -148,7 +148,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 
 | Feature                                   | Apple TV | iPhone, iPad | Mac | Notes                                      |
 | ----------------------------------------- | -------- | ------------ | --- | ------------------------------------------ |
-| Music and audiobooks in a gapless queue   | Yes      | Yes          | Yes |                                            |
+| Music and audiobooks in a queue player    | Yes      | Yes          | Yes |                                            |
 | Now Playing controls                      | Yes      | Yes          | Yes | On the Lock Screen on iPhone and iPad      |
 | Mini player while browsing                | No       | Yes          | Yes | Drag it anywhere, hold its artwork to stop |
 | Upcoming tracks in the player panel       | Yes      | No           | No  |                                            |
