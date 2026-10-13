@@ -164,7 +164,7 @@ export function setMetrics(device, shots) {
  * then centred in what is left. A cut-off device reads as a mistake, and on the
  * player shot it cropped the transport controls out of the frame.
  */
-function panelRect(device, top, reserved = 0, captureRatio) {
+function panelRect(device, top, reserved = 0, win) {
   const [W, H] = device.canvas;
   const t = device.tune;
   if (device.bleed) return { shell: null, screen: { x: 0, y: 0, width: W, height: H, radius: 0 } };
@@ -175,10 +175,15 @@ function panelRect(device, top, reserved = 0, captureRatio) {
   };
 
   if (!device.frame) {
-    // A windowed slot takes the capture's own ratio: the free-form window is never cropped.
-    const ratio = (device.windowed && captureRatio) || H / W;
+    if (device.windowed && win) {
+      // The window fills the slot at its own ratio, never cropped; its shadow margin hangs outside.
+      const { width, y } = place(win.height / win.width);
+      const k = width / win.width;
+      return { shell: null, screen: { x: (W - width) / 2 - win.left * k, y: y - win.top * k, width: win.full[0] * k, height: win.full[1] * k, radius: 0 } };
+    }
+    const ratio = H / W;
     const { width, y } = place(ratio);
-    return { shell: null, screen: { x: (W - width) / 2, y, width, height: width * ratio, radius: device.windowed ? 0 : W * PANEL_RADIUS } };
+    return { shell: null, screen: { x: (W - width) / 2, y, width, height: width * ratio, radius: W * PANEL_RADIUS } };
   }
   const [, , vw, vh] = FRAMES[device.frame].viewBox;
   const { width, y } = place(vh / vw);
@@ -186,7 +191,7 @@ function panelRect(device, top, reserved = 0, captureRatio) {
   return { shell: placed, screen: placed.screen };
 }
 
-function layout(device, shot, shared, captureRatio) {
+function layout(device, shot, shared, win) {
   const [W, H] = device.canvas;
   const t = device.tune;
   const margin = W * t.margin;
@@ -198,7 +203,7 @@ function layout(device, shot, shared, captureRatio) {
   // Shorter blocks centre inside the shared height rather than moving the panel.
   const headY = m.headTop + Math.max(0, m.headHeight - measured) / 2;
 
-  const { shell, screen } = panelRect(device, m.panelTop, m.barHeight, captureRatio);
+  const { shell, screen } = panelRect(device, m.panelTop, m.barHeight, win);
 
   return {
     W,
@@ -354,10 +359,18 @@ function overlay(L) {
 </svg>`);
 }
 
+/** The opaque window inside a window capture, apart from the shadow margin around it. */
+async function windowBox(capturePath) {
+  const { width, height, hasAlpha } = await sharp(capturePath).metadata();
+  if (!hasAlpha) return { left: 0, top: 0, width, height, full: [width, height] };
+  const alpha = await raw(sharp(capturePath).extractChannel("alpha").threshold(250));
+  const { info } = await sharp(alpha.data, { raw: alpha.info }).trim({ background: "#000", threshold: 0 }).toBuffer({ resolveWithObject: true });
+  return { left: -info.trimOffsetLeft, top: -info.trimOffsetTop, width: info.width, height: info.height, full: [width, height] };
+}
+
 /** Alpha is rejected by App Store Connect, so the result is flattened to 3 channels. */
 export async function compose(device, shot, capturePath, outPath, shared, background) {
-  const meta = device.windowed ? await sharp(capturePath).metadata() : null;
-  const L = layout(device, shot, shared, meta ? meta.height / meta.width : undefined);
+  const L = layout(device, shot, shared, device.windowed ? await windowBox(capturePath) : undefined);
   const key = JSON.stringify([device.frame, L.W, L.H, L.screen, L.shell?.transform, background]);
 
   const [bg, shell, panel] = await Promise.all([memo(`base ${key}`, () => base(L, background)), memo(`frame ${key}`, () => frame(device, L)), screen(capturePath, L.screen, L.W, L.H)]);
