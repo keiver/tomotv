@@ -5,14 +5,18 @@
 jest.mock("expo-file-system", () => require("./fakeFileSystem"));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("@/services/downloads/localSource", () => ({ localLyrics: jest.fn(async () => null) }));
-jest.mock("@/services/jellyfin/lyrics", () => ({ fetchLyrics: jest.fn(async () => null) }));
+// The server answers through fetchLyrics unless a test says it could not be asked.
+jest.mock("@/services/jellyfin/lyrics", () => {
+  const fetchLyrics = jest.fn(async (_itemId: string) => null);
+  return { fetchLyrics, askLyrics: jest.fn(async (itemId: string) => ({ lyrics: await fetchLyrics(itemId), answered: true })) };
+});
 jest.mock("@/services/jellyfin/session", () => ({ getConfig: jest.fn(async () => ({ server: "http://server-a" })) }));
 jest.mock("@/services/lyrics/listener", () => ({ listen: jest.fn(async () => null), listenable: jest.fn(() => true), listenerAvailable: jest.fn(async () => true) }));
 jest.mock("@/services/lyrics/lrclib", () => ({ findOnLrclib: jest.fn(async () => ({ status: "none" })) }));
 jest.mock("@/services/lyrics/upload", () => ({ canManageLyrics: jest.fn(async () => true), uploadLyrics: jest.fn(async () => true) }));
 
 import { localLyrics } from "@/services/downloads/localSource";
-import { fetchLyrics, type ItemLyrics } from "@/services/jellyfin/lyrics";
+import { askLyrics, fetchLyrics, type ItemLyrics } from "@/services/jellyfin/lyrics";
 import { getConfig } from "@/services/jellyfin/session";
 import { listen, listenable, listenerAvailable } from "@/services/lyrics/listener";
 import { findOnLrclib } from "@/services/lyrics/lrclib";
@@ -97,6 +101,46 @@ describe("source order", () => {
 
     expect(await resolve()).toEqual([null]);
     expect(findOnLrclib).not.toHaveBeenCalled();
+  });
+});
+
+describe("a server that could not be asked", () => {
+  const UNASKED = { lyrics: null, answered: false };
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("is asked again, and its lyrics shown when it answers", async () => {
+    jest.useFakeTimers();
+    (askLyrics as jest.Mock).mockResolvedValueOnce(UNASKED).mockResolvedValueOnce({ lyrics: SERVER, answered: true });
+
+    const pending = resolve();
+    await jest.advanceTimersByTimeAsync(1000);
+
+    expect(await pending).toEqual([SERVER]);
+    expect(askLyrics).toHaveBeenCalledTimes(2);
+    expect(findOnLrclib).not.toHaveBeenCalled();
+  });
+
+  it("is not a miss to remember, and nothing is saved over it", async () => {
+    jest.useFakeTimers();
+    (askLyrics as jest.Mock).mockResolvedValueOnce(UNASKED).mockResolvedValueOnce(UNASKED).mockResolvedValueOnce(UNASKED);
+
+    const missed = resolve();
+    await jest.advanceTimersByTimeAsync(4000);
+
+    expect(await missed).toEqual([null]);
+    expect(askLyrics).toHaveBeenCalledTimes(3);
+    expect(await readLyricsEntry(KEY)).toBeNull();
+
+    (askLyrics as jest.Mock).mockResolvedValueOnce(UNASKED).mockResolvedValueOnce(UNASKED).mockResolvedValueOnce(UNASKED);
+    (findOnLrclib as jest.Mock).mockResolvedValue(found(LRCLIB));
+    const later = resolve();
+    await jest.advanceTimersByTimeAsync(4000);
+
+    expect(await later).toEqual([LRCLIB]);
+    expect(uploadLyrics).not.toHaveBeenCalled();
   });
 });
 

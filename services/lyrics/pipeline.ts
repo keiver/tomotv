@@ -5,7 +5,7 @@
  */
 import { localLyrics } from "@/services/downloads/localSource";
 import { t } from "@/services/i18n";
-import { fetchLyrics, type ItemLyrics } from "@/services/jellyfin/lyrics";
+import { askLyrics, fetchLyrics, type ItemLyrics, type LyricsAnswer } from "@/services/jellyfin/lyrics";
 import { getConfig } from "@/services/jellyfin/session";
 import { getUiPreferences } from "@/services/uiPreferences";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -44,6 +44,19 @@ export async function networkLyrics(item: JellyfinVideoItem): Promise<ItemLyrics
   return answer.status === "found" && answer.match.sameCut ? answer.match.lyrics : null;
 }
 
+/** A server that could not be asked is asked again after each of these waits. */
+const SERVER_RETRY_MS = [1000, 3000];
+
+async function serverLyrics(itemId: string): Promise<LyricsAnswer> {
+  let answer = await askLyrics(itemId);
+  for (const delay of SERVER_RETRY_MS) {
+    if (answer.answered) break;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    answer = await askLyrics(itemId);
+  }
+  return answer;
+}
+
 async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<void> {
   const preferences = getUiPreferences();
   const cached = await readLyricsEntry(key);
@@ -52,10 +65,14 @@ async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<
   let unconfirmed: ItemLyrics | null = null;
   let listened = false;
   let uploaded = cached?.uploaded ?? false;
-  let definite = true;
 
   // The download's and the server's own lyrics always win; a remembered word fill of the same text is reused.
-  const owned = (await localLyrics(item.Id)) ?? (await fetchLyrics(item.Id));
+  const local = await localLyrics(item.Id);
+  const server = local ? null : await serverLyrics(item.Id);
+  const owned = local ?? server?.lyrics ?? null;
+  // A server that never answered may hold lyrics of its own: nothing is remembered or saved over it.
+  const serverAnswered = server?.answered ?? true;
+  let definite = serverAnswered;
   if (owned) {
     const remembered = cached?.lyrics && textOf(cached.lyrics) === textOf(owned) ? cached : null;
     current = remembered?.lyrics ?? owned;
@@ -93,7 +110,7 @@ async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<
   }
   if (!current) emit(null);
 
-  if (current?.source === "lrclib" && !uploaded && preferences.saveLyrics && (await canManageLyrics())) {
+  if (current?.source === "lrclib" && !uploaded && serverAnswered && preferences.saveLyrics && (await canManageLyrics())) {
     uploaded = await uploadLyrics(item.Id, current);
   }
   // A miss is only remembered when every source actually answered.

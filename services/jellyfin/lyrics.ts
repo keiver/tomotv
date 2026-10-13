@@ -1,7 +1,7 @@
 /**
  * Song lyrics (server 10.9+): the lines the server parsed from a sidecar .lrc/.elrc/.txt or an
- * embedded tag. Word cues exist on 10.11+. A song without lyrics answers 404, so every failure
- * path is null and the player simply shows none.
+ * embedded tag. Word cues exist on 10.11+. A song without lyrics answers 404; a request that
+ * fails is a different answer, since the song may well have some.
  */
 import { logger } from "@/utils/logger";
 import { fetchWithTimeout } from "./http";
@@ -79,11 +79,17 @@ export function parseLyrics(dto: unknown): ItemLyrics | null {
   return { synced, lines: kept };
 }
 
-export async function fetchLyrics(itemId: string): Promise<ItemLyrics | null> {
+/** `answered` is false when the server could not be asked, which says nothing about the song. */
+export interface LyricsAnswer {
+  lyrics: ItemLyrics | null;
+  answered: boolean;
+}
+
+export async function askLyrics(itemId: string): Promise<LyricsAnswer> {
   const config = await getConfig();
 
   if (!config.server || !config.apiKey) {
-    return null;
+    return { lyrics: null, answered: true };
   }
 
   try {
@@ -100,13 +106,17 @@ export async function fetchLyrics(itemId: string): Promise<ItemLyrics | null> {
     );
 
     if (!response.ok) {
-      return null;
+      return { lyrics: null, answered: true };
     }
 
     const lyrics = parseLyrics(await response.json());
-    return lyrics ? { ...lyrics, source: "server" } : null;
+    return { lyrics: lyrics ? { ...lyrics, source: "server" } : null, answered: true };
   } catch (error) {
-    logger.debug("Lyrics fetch failed; the player shows none", { service: "JellyfinAPI", itemId, error: String(error) });
-    return null;
+    logger.debug("Lyrics fetch failed", { service: "JellyfinAPI", itemId, error: String(error) });
+    return { lyrics: null, answered: false };
   }
+}
+
+export async function fetchLyrics(itemId: string): Promise<ItemLyrics | null> {
+  return (await askLyrics(itemId)).lyrics;
 }

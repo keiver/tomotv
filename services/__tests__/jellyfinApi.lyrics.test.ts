@@ -3,6 +3,7 @@
  * validation, and the everything-degrades-to-null contract (a song without lyrics is a 404).
  */
 import { fetchLyrics, parseLyrics, refreshConfig, JELLYFIN_TIME } from "../jellyfinApi";
+import { askLyrics } from "../jellyfin/lyrics";
 
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
@@ -123,5 +124,13 @@ describe("fetchLyrics", () => {
     (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("offline"));
 
     expect(await fetchLyrics("song-1")).toBeNull();
+  });
+
+  it("tells a song with no lyrics from a server that could not be asked", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 404 });
+    expect(await askLyrics("song-1")).toEqual({ lyrics: null, answered: true });
+
+    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("offline"));
+    expect(await askLyrics("song-1")).toEqual({ lyrics: null, answered: false });
   });
 });

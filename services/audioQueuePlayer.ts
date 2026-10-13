@@ -120,9 +120,12 @@ export async function getState(): Promise<AudioPlayerState> {
   return AudioQueuePlayer.getState();
 }
 
-/** The lyrics of one track, or null for none. Native drops them unless that track is current. */
+/**
+ * The lyrics of one track, or null for none. Native drops them unless that track is current.
+ * None crosses the bridge as an empty object, which native reads as no lines.
+ */
 export async function setLyrics(trackId: string, lyrics: ItemLyrics | null): Promise<void> {
-  await AudioQueuePlayer.setLyrics(trackId, lyrics);
+  await AudioQueuePlayer.setLyrics(trackId, lyrics ?? {});
 }
 
 export async function setLyricsEnabled(enabled: boolean): Promise<void> {
