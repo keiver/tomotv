@@ -1,7 +1,6 @@
-# Tomo TV
+# Tomo TV, a Jellyfin Client
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-tvOS%20%7C%20iOS%20%7C%20iPadOS%20%7C%20macOS-lightgrey.svg)
 [![Tests](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml/badge.svg)](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml)
 [![Download on the App Store](https://img.shields.io/badge/App_Store-Download-black?logo=apple&logoColor=white)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 [![@keiver/tomo-engine](https://img.shields.io/npm/v/@keiver/tomo-engine?label=%40keiver%2Ftomo-engine)](https://www.npmjs.com/package/@keiver/tomo-engine)
@@ -12,9 +11,6 @@ original quality in Apple's own player, with an on-device FFmpeg engine doing th
 format work the server would otherwise transcode: MKV and AVI, Dolby Vision,
 Dolby Atmos, PGS subtitles and Live TV. Built with React Native (react-native-tvos)
 and Expo.
-
-It runs on tvOS, iOS and iPadOS 16.4 or later, and on macOS 13.4 or later (Apple
-Silicon and Intel). What it supports on each is in [FEATURES.md](FEATURES.md).
 
 <p align="center">
   <img src="applestore/captures/tv/01-library.png" width="100%" alt="Tomo TV Home on Apple TV: a Libraries row of Live TV, Music, Home Videos and Photos and Films, above a Continue row of episode and movie cards with yellow progress bars"/>
@@ -92,6 +88,9 @@ permission on the server overrides all three.
   enabled, published by CI and fetched when `@keiver/tomo-engine` installs. DivX 3,
   RealVideo, Theora, DV and Cinepak all play on the device; the measured list is in
   [`docs/playback-coverage.md`](docs/playback-coverage.md).
+
+It runs on tvOS, iOS and iPadOS 16.4 or later, and on macOS 13.4 or later (Apple
+Silicon and Intel). What it supports on each is in [FEATURES.md](FEATURES.md).
 
 ## Core packages
 
