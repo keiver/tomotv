@@ -19,6 +19,18 @@ only acceptable form.
 - Open every file my own search returned before theorizing about it.
 - Confirming a defect is real is not confirming a fix is safe: find the invariant the current shape protects first.
 
+## MAIN RULE: THE CODE PROVES THE FIX, NEVER A TEST
+
+A fix is complete when I have read every file on its path in full, understand it,
+and can say from the code what I changed, why, and why that removes the bug.
+Tests are Keiver's tool for checking my work. They are never my proof, and a
+device run is his verdict, never a step I wait on.
+
+- "Is it fixed?" gets yes or no, then the code path with file:line. Never "run it and see", "not confirmed in the app" or "the tests pass".
+- Read the whole relevant code before the first edit: every caller, every writer and reader of the state I touch. A grep hit and the lines around it is not reading.
+- Name what I have not read. An unread file on the path means the fix is not done: keep reading, do not hand it over.
+- Write the tests and run the ones the change touches. A green run is reported as a green run, never as the reason the fix works.
+
 **TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS), iPhone, iPad and Mac Catalyst on macOS 13.4 or later (Apple Silicon and Intel). Playback runs through an on-device engine (packages/tomo-engine, the `@keiver/tomo-engine` workspace package: ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
 
 ## Communication Format
