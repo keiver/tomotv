@@ -7,7 +7,7 @@
  * reload serves the last good table. Identity is the app's: ids must be stable across reloads,
  * since favorites, health and frame caches key on them.
  */
-import { closePlaylist, engineLog, loadPlaylist, playlistEntries, type PlaylistEntry } from "@keiver/tomo-engine";
+import { closePlaylist, engineLog, loadPlaylist, playlistEntries, type PlaylistCatchup, type PlaylistEntry, type PlaylistHeader } from "@keiver/tomo-engine";
 import { cachedPlaylistFile } from "./guideFileCache";
 
 /** Entries per native call when paging a playlist store out to JS: bounds each call's JSI
@@ -37,6 +37,10 @@ export interface PlaylistChannel {
   tvgName: string | null;
   radio: boolean;
   drm: boolean;
+  /** The archive the channel declares: its own catchup attributes over the playlist header's. Absent when neither names one. */
+  catchup?: PlaylistCatchup;
+  /** tvg-shift, the hours the channel's guide times are off by: its own over the header's. Absent when neither names one. */
+  tvgShift?: number;
 }
 
 export interface PlaylistRows {
@@ -94,9 +98,17 @@ export function playlistOriginKey(url: string): string {
   return match ? match[1].toLowerCase() : url;
 }
 
-/** One parsed entry as a channel row; null when the app's `channelId` rejects the entry. */
-export function playlistChannelFromEntry(entry: PlaylistEntry, id: string | null): PlaylistChannel | null {
+/** An entry's catchup attributes, each one falling back to the header's; null when neither declares any. */
+function channelCatchup(entry: PlaylistCatchup | null, header: PlaylistCatchup | null | undefined): PlaylistCatchup | null {
+  if (!entry && !header) return null;
+  return { type: entry?.type ?? header?.type ?? null, source: entry?.source ?? header?.source ?? null, days: entry?.days ?? header?.days ?? null };
+}
+
+/** One parsed entry as a channel row; null when the app's `channelId` rejects the entry. `header` is its playlist's own line. */
+export function playlistChannelFromEntry(entry: PlaylistEntry, id: string | null, header?: Pick<PlaylistHeader, "catchup" | "tvgShift">): PlaylistChannel | null {
   if (!id) return null;
+  const catchup = channelCatchup(entry.catchup, header?.catchup);
+  const tvgShift = entry.tvgShift ?? header?.tvgShift ?? null;
   return {
     id,
     name: entry.name,
@@ -110,6 +122,8 @@ export function playlistChannelFromEntry(entry: PlaylistEntry, id: string | null
     tvgName: entry.tvgName,
     radio: entry.radio,
     drm: entry.drm,
+    ...(catchup ? { catchup } : {}),
+    ...(tvgShift !== null ? { tvgShift } : {}),
   };
 }
 
@@ -126,7 +140,7 @@ export async function enginePlaylistRows(source: PlaylistChannelSource, channelI
       const entries = await playlistEntries(token, { offset, limit: ENTRY_PAGE });
       if (entries.length === 0) break;
       for (let i = 0; i < entries.length; i++) {
-        const row = playlistChannelFromEntry(entries[i], channelId(entries[i], offset + i));
+        const row = playlistChannelFromEntry(entries[i], channelId(entries[i], offset + i), header);
         if (row) rows.push(row);
       }
     }

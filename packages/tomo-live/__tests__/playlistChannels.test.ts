@@ -169,4 +169,42 @@ describe("playlistOriginKey / playlistChannelFromEntry", () => {
     expect(playlistOriginKey("http://User@Host.example:8080/x.ts")).toBe("host.example");
     expect(playlistChannelFromEntry({ name: "n" } as never, null)).toBeNull();
   });
+
+  const entry = (over: Record<string, unknown> = {}) =>
+    ({
+      name: "One",
+      url: "http://h/1.ts",
+      tvgChno: null,
+      tvgLogo: null,
+      headers: {},
+      groups: [],
+      tvgId: null,
+      tvgName: null,
+      radio: false,
+      drm: false,
+      tvgShift: null,
+      catchup: null,
+      ...over,
+    }) as never;
+
+  it("leaves the archive and the guide shift off a channel that declares neither", () => {
+    const row = playlistChannelFromEntry(entry(), "one", { catchup: null, tvgShift: null });
+    expect(row && "catchup" in row).toBe(false);
+    expect(row && "tvgShift" in row).toBe(false);
+  });
+
+  it("carries a channel's own catch-up and shift", () => {
+    const row = playlistChannelFromEntry(entry({ catchup: { type: "xc", source: null, days: 3 }, tvgShift: -2 }), "one");
+    expect(row?.catchup).toEqual({ type: "xc", source: null, days: 3 });
+    expect(row?.tvgShift).toBe(-2);
+  });
+
+  it("fills what the channel leaves out from the playlist header", () => {
+    const header = { catchup: { type: "append", source: "?utc={utc}&lutc={lutc}", days: 7 }, tvgShift: 1 };
+    expect(playlistChannelFromEntry(entry(), "one", header)).toMatchObject({ catchup: header.catchup, tvgShift: 1 });
+    expect(playlistChannelFromEntry(entry({ catchup: { type: null, source: null, days: 2 }, tvgShift: 0 }), "one", header)).toMatchObject({
+      catchup: { type: "append", source: "?utc={utc}&lutc={lutc}", days: 2 },
+      tvgShift: 0,
+    });
+  });
 });
