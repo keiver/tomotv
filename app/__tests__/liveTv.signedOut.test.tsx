@@ -6,7 +6,7 @@ import TestRenderer, { act } from "react-test-renderer";
 const mockAuth = { isConnected: false, isReady: true };
 jest.mock("@/contexts/AuthContext", () => ({ useAuth: () => mockAuth }));
 jest.mock("@/components/settings/ServerConnectScreen", () => ({ ServerConnectScreen: () => null }));
-jest.mock("@/hooks/useGuide", () => ({ useGuide: jest.fn() }));
+jest.mock("@/hooks/useGuide", () => ({ useGuide: jest.fn(), invalidateGuideReads: jest.fn() }));
 jest.mock("@/components/live-tv/guide-canvas", () => ({ GuideCanvas: () => null }));
 jest.mock("@/components/live-tv/guide-hud", () => ({ GuideHud: () => null }));
 jest.mock("@/components/live-tv/guide-corner-actions", () => ({ GuideCornerActions: () => null, HudAction: () => null, HUD_ACTION_ICON: 20 }));

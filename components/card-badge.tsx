@@ -15,7 +15,7 @@ export const BADGE_GLASS_TINT = "rgba(8, 8, 10, 0.6)";
 
 /** Inset every card's corner overlays sit at, shared so the pill and the chips line up. */
 export const CARD_BADGE_INSET = IS_TV ? 16 : 10;
-/** The LIVE pill's height; a slim pill and a bare mark beside it take the same, so the row reads as one size. */
+/** The LIVE pill's height, shared with the freshness badge that takes its place. */
 export const SLIM_BADGE_HEIGHT = IS_TV ? 26 : 18;
 
 export interface BadgeSegment {
@@ -23,6 +23,16 @@ export interface BadgeSegment {
   icon?: keyof typeof Ionicons.glyphMap;
   /** Omitted while the value is still resolving, the icon alone holds the slot. */
   label?: string | number;
+}
+
+/** Whether a card wears the favorite heart after its title; a channel's is passed to it, a programme has none. */
+export function showsFavoriteHeart(item: { Type?: string; UserData?: { IsFavorite?: boolean } | null }): boolean {
+  return !!item.UserData?.IsFavorite && item.Type !== "TvChannel" && item.Type !== "Program";
+}
+
+/** A channel card's heart on a shelf: on the device's favorites list, or favorite by the server's own flag. */
+export function channelFavoriteIcon(item: { Type?: string; UserData?: { IsFavorite?: boolean } | null }, onDeviceList: boolean): "heart" | undefined {
+  return item.Type === "TvChannel" && (onDeviceList || !!item.UserData?.IsFavorite) ? "heart" : undefined;
 }
 
 interface CardBadgeProps {
@@ -36,18 +46,16 @@ interface CardBadgeProps {
   tone?: "gold" | "live";
   /** Phone only: a shorter pill with smaller text, for two pills sharing one card corner. */
   compact?: boolean;
-  /** The LIVE pill's size, for a pill sharing its row (a channel's number). LIVE is always slim. */
-  slim?: boolean;
 }
 
 /**
  * Glass card pill: what a folder holds, which disc and track a song is, which episode. The card
  * that renders it owns its position.
  */
-export function CardBadge({ segments, loading, focused, tone = "gold", compact = false, slim = false }: CardBadgeProps) {
+export function CardBadge({ segments, loading, focused, tone = "gold", compact = false }: CardBadgeProps) {
   const live = tone === "live";
   const small = compact && !IS_TV;
-  const thin = live || slim;
+  const thin = live;
   const palette = useCardPalette();
   const ink = live || focused ? COLORS.TEXT_PRIMARY : palette.accent;
   const height = thin ? SLIM_BADGE_HEIGHT : small ? COMPACT_BADGE_HEIGHT : BADGE_HEIGHT;

@@ -40,6 +40,12 @@ const descentOf = (stack) => {
 };
 
 export const DEVICES = {
+  mac: {
+    canvas: [2880, 1800],
+    // Window captures carry their own edge and shadow, so the panel draws neither.
+    windowed: true,
+    tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.86, clearance: 0.04 },
+  },
   iphone: {
     simulator: "iPhone 18 Pro Max",
     canvas: [1320, 2868],
@@ -96,16 +102,16 @@ const PANEL_STROKE = 0.0013;
  * app's tab bar sits under the headline and cut rows under the band. The foot is a canvas fraction.
  */
 const CORNER_STOPS = [
-  [0, 0.97],
-  [0.4, 0.92],
-  [0.6, 0.62],
-  [0.82, 0.2],
+  [0, 0.9],
+  [0.4, 0.82],
+  [0.6, 0.5],
+  [0.82, 0.14],
   [1, 0],
 ];
 const BOTTOM_STOPS = [
   [0, 0],
-  [0.55, 0.45],
-  [1, 0.92],
+  [0.55, 0.36],
+  [1, 0.84],
 ];
 const FOOT_WASH = 0.22;
 
@@ -158,7 +164,7 @@ export function setMetrics(device, shots) {
  * then centred in what is left. A cut-off device reads as a mistake, and on the
  * player shot it cropped the transport controls out of the frame.
  */
-function panelRect(device, top, reserved = 0) {
+function panelRect(device, top, reserved = 0, captureRatio) {
   const [W, H] = device.canvas;
   const t = device.tune;
   if (device.bleed) return { shell: null, screen: { x: 0, y: 0, width: W, height: H, radius: 0 } };
@@ -169,8 +175,10 @@ function panelRect(device, top, reserved = 0) {
   };
 
   if (!device.frame) {
-    const { width, y } = place(H / W);
-    return { shell: null, screen: { x: (W - width) / 2, y, width, height: width * (H / W), radius: W * PANEL_RADIUS } };
+    // A windowed slot takes the capture's own ratio: the free-form window is never cropped.
+    const ratio = (device.windowed && captureRatio) || H / W;
+    const { width, y } = place(ratio);
+    return { shell: null, screen: { x: (W - width) / 2, y, width, height: width * ratio, radius: device.windowed ? 0 : W * PANEL_RADIUS } };
   }
   const [, , vw, vh] = FRAMES[device.frame].viewBox;
   const { width, y } = place(vh / vw);
@@ -178,7 +186,7 @@ function panelRect(device, top, reserved = 0) {
   return { shell: placed, screen: placed.screen };
 }
 
-function layout(device, shot, shared) {
+function layout(device, shot, shared, captureRatio) {
   const [W, H] = device.canvas;
   const t = device.tune;
   const margin = W * t.margin;
@@ -190,7 +198,7 @@ function layout(device, shot, shared) {
   // Shorter blocks centre inside the shared height rather than moving the panel.
   const headY = m.headTop + Math.max(0, m.headHeight - measured) / 2;
 
-  const { shell, screen } = panelRect(device, m.panelTop, m.barHeight);
+  const { shell, screen } = panelRect(device, m.panelTop, m.barHeight, captureRatio);
 
   return {
     W,
@@ -207,6 +215,7 @@ function layout(device, shot, shared) {
     accent: shot.accent ?? head.length - 1,
     captionSize: m.headSize,
     bleed: Boolean(device.bleed),
+    windowed: Boolean(device.windowed),
     shell,
     screen,
   };
@@ -249,8 +258,8 @@ async function base(L, background) {
   <rect x="${round(s.x + dx)}" y="${round(s.y + dy)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius ?? 0)}" fill="${INK.shadow}" opacity="${opacity}" filter="url(#${id})"/>`;
 
   const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}">
-  ${shadow(L.W * 0.012, L.H * 0.026, L.W * 0.03, round(INK.shadowOpacity * 0.72), "cast")}
-  ${shadow(L.W * 0.002, L.H * 0.005, L.W * 0.005, round(INK.shadowOpacity * 0.85), "contact")}
+  ${L.windowed ? "" : shadow(L.W * 0.012, L.H * 0.026, L.W * 0.03, round(INK.shadowOpacity * 0.72), "cast")}
+  ${L.windowed ? "" : shadow(L.W * 0.002, L.H * 0.005, L.W * 0.005, round(INK.shadowOpacity * 0.85), "contact")}
 </svg>`);
   const master = await rasterise(background);
   const art = await raw(sharp(master.data, { raw: master.info }).resize(L.W, L.H, { fit: "cover", position: "centre", kernel: "lanczos3" }).flatten({ background: COLORS.BACKGROUND_DEEP }));
@@ -288,11 +297,12 @@ async function screen(capture, s, W, H) {
 /** Panel hairline or device shell. */
 function frame(device, L) {
   const s = L.screen;
-  const body = device.bleed
-    ? ""
-    : device.frame
-      ? `<g transform="${L.shell.transform}">${frameBody(device.frame)}</g>`
-      : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="${round(L.W * PANEL_STROKE)}"/>`;
+  const body =
+    device.bleed || device.windowed
+      ? ""
+      : device.frame
+        ? `<g transform="${L.shell.transform}">${frameBody(device.frame)}</g>`
+        : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="${round(L.W * PANEL_STROKE)}"/>`;
   return raw(sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}" fill="none">${body}</svg>`)));
 }
 
@@ -346,7 +356,8 @@ function overlay(L) {
 
 /** Alpha is rejected by App Store Connect, so the result is flattened to 3 channels. */
 export async function compose(device, shot, capturePath, outPath, shared, background) {
-  const L = layout(device, shot, shared);
+  const meta = device.windowed ? await sharp(capturePath).metadata() : null;
+  const L = layout(device, shot, shared, meta ? meta.height / meta.width : undefined);
   const key = JSON.stringify([device.frame, L.W, L.H, L.screen, L.shell?.transform, background]);
 
   const [bg, shell, panel] = await Promise.all([memo(`base ${key}`, () => base(L, background)), memo(`frame ${key}`, () => frame(device, L)), screen(capturePath, L.screen, L.W, L.H)]);

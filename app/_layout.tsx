@@ -27,6 +27,7 @@ import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
+import { applyScreenshotSizeLockAtLaunch } from "@/services/screenshotSizeLock";
 import { videoDecodeSupport } from "@/services/localRemux";
 import { logger } from "@/utils/logger";
 import { t } from "@/services/i18n";
@@ -108,6 +109,8 @@ export default function RootLayout() {
     warmBitrateMemory();
     // Same for what this device decodes: the answer opens VideoToolbox sessions once.
     void videoDecodeSupport();
+    // Dev Mac builds: a stored screenshot size lock survives the reload.
+    applyScreenshotSizeLockAtLaunch();
   }, []);
 
   // Redraws the header titles below and the hosts outside the navigator in a picked language.

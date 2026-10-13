@@ -6,6 +6,7 @@ import {
   engineInputMissing,
   engineProgress,
   engineStarving,
+  liveStarving,
   imagesAt,
   isLocalRemuxAvailable,
   localRemuxToken,
@@ -38,6 +39,7 @@ import { updateUiPreferences } from "@/services/uiPreferences";
 const mockStartRemux = jest.fn();
 const mockStopRemux = jest.fn();
 const mockEngineProgress = jest.fn();
+const mockSetPosterQueuePaused = jest.fn();
 /** DeviceDecode.summary() as an Apple TV 4K answers it: HEVC to Main 10, no AV1 silicon. */
 const mockDecodeSupport = jest.fn();
 /** Native event name -> handler, captured from the NativeEventEmitter mock. */
@@ -54,6 +56,7 @@ jest.mock("react-native", () => ({
       startRemux: (...args: unknown[]) => mockStartRemux(...args),
       stopRemux: (...args: unknown[]) => mockStopRemux(...args),
       engineProgress: (...args: unknown[]) => mockEngineProgress(...args),
+      setPosterQueuePaused: (...args: unknown[]) => mockSetPosterQueuePaused(...args),
       videoDecodeSupport: () => mockDecodeSupport(),
       // What the running binary declares it can emit, as constantsToExport reports it. A getter
       // because the factory runs before the list is initialised.
@@ -2359,6 +2362,21 @@ describe("engine throughput: the session's own clock", () => {
       ]),
     ).toBe(true);
   });
+
+  const starvedLive = (over: Partial<ThroughputSample> = {}) => sample({ produceSeconds: 8, readSeconds: 7, cushion: 1, ...over });
+
+  it("liveStarving: three read-bound slow segments with nothing ahead, splices included", () => {
+    expect(liveStarving([starvedLive({ generation: 0, segment: 1 }), starvedLive({ generation: 1, segment: 2 }), starvedLive({ generation: 2, segment: 3, cushion: 0 })])).toBe(true);
+  });
+
+  it("liveStarving: not on two segments, a cushion, a produce-bound stall, or a throttled producer", () => {
+    expect(liveStarving([starvedLive({ segment: 1 }), starvedLive({ segment: 2 })])).toBe(false);
+    expect(liveStarving([starvedLive({ segment: 1 }), starvedLive({ segment: 2 }), starvedLive({ segment: 3, cushion: 3 })])).toBe(false);
+    // The device, not the feed: the read was fast and the encode slow.
+    expect(liveStarving([starvedLive({ segment: 1 }), starvedLive({ segment: 2 }), starvedLive({ segment: 3, readSeconds: 1 })])).toBe(false);
+    expect(liveStarving([starvedLive({ segment: 1 }), starvedLive({ segment: 2, throttled: true }), starvedLive({ segment: 3 })])).toBe(false);
+    expect(liveStarving([])).toBe(false);
+  });
 });
 
 /**
@@ -2525,5 +2543,35 @@ describe("tierStopRequests", () => {
       { url: "https://jf.example:8920/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=p1&ApiKey=k", method: "DELETE" },
       { url: "https://jf.example:8920/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=p2&ApiKey=k", method: "DELETE" },
     ]);
+  });
+});
+
+describe("poster queue playback pause", () => {
+  it("pauses the native backlog when video takes the hold and resumes on release, ignoring audio", () => {
+    const { setPlaybackHold } = require("@/services/playbackHold") as { setPlaybackHold: (owner: string, active: boolean) => void };
+    mockSetPosterQueuePaused.mockClear();
+
+    setPlaybackHold("audio", true);
+    expect(mockSetPosterQueuePaused).toHaveBeenLastCalledWith(false);
+
+    setPlaybackHold("video", true);
+    expect(mockSetPosterQueuePaused).toHaveBeenLastCalledWith(true);
+
+    setPlaybackHold("audio", false);
+    expect(mockSetPosterQueuePaused).toHaveBeenLastCalledWith(true);
+
+    setPlaybackHold("video", false);
+    expect(mockSetPosterQueuePaused).toHaveBeenLastCalledWith(false);
+  });
+
+  it("a fresh runtime syncs the queue to its own hold state at load", async () => {
+    // The native queue is process-static: a reload during playback leaves it paused, and the
+    // new runtime holds nothing, so loading the module must send false.
+    mockSetPosterQueuePaused.mockClear();
+    jest.isolateModules(() => {
+      require("../localRemux");
+    });
+    await Promise.resolve();
+    expect(mockSetPosterQueuePaused).toHaveBeenCalledWith(false);
   });
 });

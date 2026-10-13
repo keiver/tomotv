@@ -109,7 +109,17 @@ function fetchFramework(lock, name, installed) {
 
   console.log(`[fetch-ffmpeg] Downloading ${name}.xcframework...`);
   const zipPath = path.join(destDir, `${name}.xcframework.zip`);
-  download(`https://github.com/${lock.repository}/releases/download/${lock.tag}/${name}.xcframework.zip`, zipPath);
+  if (process.env.TOMO_FFMPEG_ARTIFACTS_DIR) {
+    // Local validation before a release is published uses the SAME lock/pins.
+    // This changes only where bytes come from, never the integrity check.
+    // npm executes a workspace's postinstall inside that package, while the
+    // caller supplied this directory relative to npm's original working directory.
+    const local = path.resolve(process.env.INIT_CWD || process.cwd(), process.env.TOMO_FFMPEG_ARTIFACTS_DIR, `${name}.xcframework.zip`);
+    if (!fs.existsSync(local)) throw new IntegrityError(`Missing local artifact: ${local}`);
+    fs.copyFileSync(local, zipPath);
+  } else {
+    download(`https://github.com/${lock.repository}/releases/download/${lock.tag}/${name}.xcframework.zip`, zipPath);
+  }
 
   const actual = sha256(zipPath);
   if (actual !== expected) {

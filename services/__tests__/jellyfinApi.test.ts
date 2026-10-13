@@ -44,6 +44,7 @@ import {
 } from "../jellyfinApi";
 import { EMPTY_FILTERS, JellyfinVideoItem } from "@/types/jellyfin";
 import { getConvertedDownloadUrl, serverVideoCodecs, sourceIsHdr } from "@/services/jellyfin/streamUrls";
+import { chainTerms, joinTermResults, nextOffset } from "@/services/jellyfin/search";
 
 // Mock expo-secure-store
 jest.mock("expo-secure-store", () => ({
@@ -386,12 +387,12 @@ describe("jellyfinApi", () => {
 
     it("should return empty array for empty search term", async () => {
       const result = await searchVideos("");
-      expect(result).toEqual({ items: [], total: 0 });
+      expect(result).toEqual({ items: [], next: null });
     });
 
     it("should return empty array for whitespace-only search term", async () => {
       const result = await searchVideos("   ");
-      expect(result).toEqual({ items: [], total: 0 });
+      expect(result).toEqual({ items: [], next: null });
     });
 
     it("should call API with correct pagination parameters", async () => {
@@ -409,14 +410,13 @@ describe("jellyfinApi", () => {
         json: async () => mockResponse,
       });
 
-      const result = await searchVideos("test", { limit: 20, startIndex: 0 });
+      const result = await searchVideos("test", { limit: 20 });
 
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("SearchTerm=test"), expect.any(Object));
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("Limit=20"), expect.any(Object));
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("StartIndex=0"), expect.any(Object));
       expect(result.items).toHaveLength(2);
-      // Total preserves server's TotalRecordCount for proper pagination
-      expect(result.total).toBe(100);
+      expect(result.next).toEqual({ title: 2 });
     });
 
     it("should handle pagination with custom startIndex", async () => {
@@ -434,12 +434,11 @@ describe("jellyfinApi", () => {
         json: async () => mockResponse,
       });
 
-      const result = await searchVideos("test", { limit: 20, startIndex: 20 });
+      const result = await searchVideos("test", { limit: 20, cursor: { title: 20 } });
 
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("StartIndex=20"), expect.any(Object));
       expect(result.items).toHaveLength(2);
-      // Total preserves server's TotalRecordCount for proper pagination
-      expect(result.total).toBe(100);
+      expect(result.next).toEqual({ title: 22 });
     });
 
     it("should use default pagination values when not specified", async () => {
@@ -475,12 +474,11 @@ describe("jellyfinApi", () => {
         json: async () => mockResponse,
       });
 
-      const result = await searchVideos("action", { limit: 3, startIndex: 0 });
+      const result = await searchVideos("action", { limit: 3 });
 
-      // Total preserves server's TotalRecordCount for proper pagination
       expect(result).toEqual({
         items: mockResponse.Items,
-        total: 150,
+        next: { title: 3 },
       });
     });
 
@@ -498,8 +496,8 @@ describe("jellyfinApi", () => {
       const result = await searchVideos("test");
 
       expect(result.items).toHaveLength(1);
-      // Total now reflects actual items returned
-      expect(result.total).toBe(1);
+      // Without a count, a short page is the last one
+      expect(result.next).toBeNull();
     });
 
     it("should trim search term before sending to API", async () => {
@@ -534,7 +532,7 @@ describe("jellyfinApi", () => {
       const result = await searchVideos("nonexistent");
 
       expect(result.items).toEqual([]);
-      expect(result.total).toBe(0);
+      expect(result.next).toBeNull();
     });
 
     it("should handle last page of results correctly", async () => {
@@ -552,11 +550,10 @@ describe("jellyfinApi", () => {
         json: async () => mockResponse,
       });
 
-      const result = await searchVideos("test", { limit: 60, startIndex: 95 });
+      const result = await searchVideos("test", { limit: 60, cursor: { title: 95 } });
 
       expect(result.items).toHaveLength(2);
-      // Total preserves server's TotalRecordCount for proper pagination
-      expect(result.total).toBe(97);
+      expect(result.next).toBeNull();
     });
   });
 
@@ -764,8 +761,8 @@ describe("jellyfinApi", () => {
       expect(calls.title).toHaveLength(1);
       expect(calls.genre).toHaveLength(0);
       expect(calls.artist).toHaveLength(0);
-      // Exact server total preserved on the title-only path
-      expect(result.total).toBe(42);
+      // The title source alone carries the next page
+      expect(result.next).toEqual({ title: 1 });
     });
 
     it("should degrade to title-only search when facet endpoints fail", async () => {
@@ -784,8 +781,246 @@ describe("jellyfinApi", () => {
       const result = await searchVideos("kimmy");
 
       expect(result.items).toHaveLength(1);
-      expect(result.total).toBe(1);
+      expect(result.next).toBeNull();
       expect(itemsCalls).toBe(1);
+    });
+
+    it("starts each source's next page at the offset that source itself reached", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Comedy"],
+        titleResponse: {
+          Items: [
+            { Id: "t1", Name: "Comedy One", Type: "Movie" },
+            { Id: "t2", Name: "Comedy Two", Type: "Movie" },
+          ],
+          TotalRecordCount: 5,
+        },
+        genreResponse: {
+          Items: [
+            { Id: "t1", Name: "Comedy One", Type: "Movie" },
+            { Id: "g1", Name: "Funny", Type: "Movie" },
+            { Id: "g2", Name: "Funnier", Type: "Movie" },
+          ],
+          TotalRecordCount: 10,
+        },
+      });
+
+      const first = await searchVideos("comedy", { limit: 3 });
+      // Four unique cards from five raw items: the offsets come from the raw pages.
+      expect(first.items).toHaveLength(4);
+      expect(first.next).toEqual({ title: 2, genre: 3 });
+
+      await searchVideos("comedy", { limit: 3, cursor: first.next ?? undefined });
+      expect(calls.title[1]).toContain("StartIndex=2");
+      expect(calls.genre[1]).toContain("StartIndex=3");
+    });
+
+    it("stops asking a source once it is exhausted, and reports no next page when all are", async () => {
+      const calls = mockSearchFetch({
+        genres: ["Comedy"],
+        titleResponse: { Items: [{ Id: "t1", Name: "Comedy One", Type: "Movie" }], TotalRecordCount: 1 },
+        genreResponse: { Items: [{ Id: "g1", Name: "Funny", Type: "Movie" }], TotalRecordCount: 4 },
+      });
+
+      const first = await searchVideos("comedy", { limit: 1 });
+      expect(first.next).toEqual({ genre: 1 });
+
+      const second = await searchVideos("comedy", { limit: 1, cursor: first.next ?? undefined });
+      expect(calls.title).toHaveLength(1);
+      expect(calls.genre).toHaveLength(2);
+      expect(second.next).toEqual({ genre: 2 });
+    });
+
+    it("asks a failed facet again from the same place while another source has pages, and drops it once none does", async () => {
+      const failingGenre = (titleTotal: number) =>
+        (global.fetch as jest.Mock).mockImplementation((rawUrl: string) => {
+          const url = decodeURIComponent(rawUrl);
+          const respond = (body: unknown) => Promise.resolve({ ok: true, json: async () => body });
+          if (url.includes("/MusicGenres?") || url.includes("/Artists?")) return respond({ Items: [] });
+          if (url.includes("/Genres?")) return respond({ Items: [{ Id: "genre-Comedy", Name: "Comedy" }] });
+          if (url.includes("&Genres=")) return Promise.reject(new Error("Network request failed"));
+          return respond({ Items: [{ Id: `t${titleTotal}`, Name: "Comedy One", Type: "Movie" }], TotalRecordCount: titleTotal });
+        });
+
+      failingGenre(5);
+      expect((await searchVideos("comedy", { limit: 1 })).next).toEqual({ title: 1, genre: 0 });
+
+      failingGenre(1);
+      expect((await searchVideos("comedy", { limit: 1, cursor: { genre: 0 } })).next).toBeNull();
+    });
+  });
+
+  describe("chainTerms", () => {
+    it("splits on a plus standing alone, and leaves a plus inside a name", () => {
+      expect(chainTerms("veguitas + animation")).toEqual(["veguitas", "animation"]);
+      expect(chainTerms("  star wars  +  90s + comedy ")).toEqual(["star wars", "90s", "comedy"]);
+      expect(chainTerms("Canal+")).toEqual(["Canal+"]);
+      expect(chainTerms("veguitas+animation")).toEqual(["veguitas+animation"]);
+      expect(chainTerms("c++ + java")).toEqual(["c++", "java"]);
+    });
+
+    it("drops an unfinished chain's plus, empty terms and a repeated term", () => {
+      expect(chainTerms("veguitas +")).toEqual(["veguitas"]);
+      expect(chainTerms("+ veguitas")).toEqual(["veguitas"]);
+      expect(chainTerms("veguitas + + animation")).toEqual(["veguitas", "animation"]);
+      expect(chainTerms("Veguitas + veguitas")).toEqual(["Veguitas"]);
+      expect(chainTerms("+")).toEqual([]);
+    });
+  });
+
+  describe("joinTermResults", () => {
+    const card = (Id: string) => ({ Id, Name: Id, Type: "Movie", Path: "" }) as JellyfinVideoItem;
+    const ids = (lists: string[][]) => joinTermResults(lists.map((list) => list.map(card))).map((item) => item.Id);
+
+    it("takes a card from each term in turn, so a long answer never crowds out a short one", () => {
+      expect(ids([["a1", "a2", "a3", "a4"], ["b1"]])).toEqual(["a1", "b1", "a2", "a3", "a4"]);
+      expect(ids([["a1"], ["b1", "b2"], ["c1"]])).toEqual(["a1", "b1", "c1", "b2"]);
+    });
+
+    it("shows a card several terms found once, where it first comes up", () => {
+      expect(
+        ids([
+          ["a1", "both"],
+          ["both", "b1"],
+        ]),
+      ).toEqual(["a1", "both", "b1"]);
+    });
+
+    it("keeps every card of a term whose partner found nothing", () => {
+      expect(ids([["a1", "a2"], []])).toEqual(["a1", "a2"]);
+      expect(ids([[], []])).toEqual([]);
+    });
+  });
+
+  describe("searchVideos chained terms", () => {
+    const mockSecureStore = require("expo-secure-store");
+    type Page = { Items: any[]; TotalRecordCount?: number };
+
+    beforeEach(async () => {
+      global.fetch = jest.fn();
+      mockSecureStore.getItemAsync.mockImplementation((key: string) => {
+        const mockConfig: Record<string, string> = {
+          jellyfin_server_url: "http://192.168.1.100:8096",
+          jellyfin_api_key: "test-api-key",
+          jellyfin_user_id: "test-user-id",
+          jellyfin_device_id: "test-device-id",
+        };
+        return Promise.resolve(mockConfig[key] || null);
+      });
+      await refreshConfig();
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    // Answers each /Items search by what it asks: `genre:<Name>` for a Genres request, else its SearchTerm.
+    const serveSearches = (genres: string[], answer: (asked: string, startIndex: number) => Page) => {
+      const asked: string[] = [];
+      (global.fetch as jest.Mock).mockImplementation((rawUrl: string) => {
+        const url = decodeURIComponent(rawUrl);
+        const respond = (body: unknown) => Promise.resolve({ ok: true, json: async () => body });
+        if (url.includes("/MusicGenres?") || url.includes("/Artists?")) return respond({ Items: [] });
+        if (url.includes("/Genres?")) return respond({ Items: genres.map((name) => ({ Id: `genre-${name}`, Name: name })) });
+        const params = new URL(rawUrl).searchParams;
+        const key = params.get("Genres") ? `genre:${params.get("Genres")}` : (params.get("SearchTerm") ?? "");
+        asked.push(`${key}@${params.get("StartIndex")}`);
+        return respond(answer(key, Number(params.get("StartIndex"))));
+      });
+      return asked;
+    };
+    const movie = (id: string, name: string, extra: Partial<JellyfinVideoItem> = {}) => ({ Id: id, Name: name, Type: "Movie", Path: "", ...extra });
+
+    it("yields every card either term finds, each once", async () => {
+      const inSeries = { Id: "e1", Name: "El gallo", Type: "Episode", Path: "", SeriesName: "Veguitas", Genres: ["Animation"] };
+      const asked = serveSearches(["Animation"], (key) => {
+        const named = movie("v1", "Veguitas en la finca", { Genres: ["Animation"] });
+        if (key === "veguitas") return { Items: [named, movie("v2", "Veguitas: el documental", { Genres: ["Documentary"] })], TotalRecordCount: 2 };
+        if (key === "animation") return { Items: [movie("a1", "Animation Reel")], TotalRecordCount: 1 };
+        if (key === "genre:Animation") return { Items: [named, inSeries, movie("x1", "Otro corto", { Genres: ["Animation"] })], TotalRecordCount: 3 };
+        return { Items: [] };
+      });
+
+      const result = await searchVideos("veguitas + animation");
+
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["v1", "a1", "v2", "e1", "x1"]);
+      expect(result.next).toBeNull();
+      // Each term is asked on its own: the server never sees the chain.
+      expect(asked.sort()).toEqual(["animation@0", "genre:Animation@0", "veguitas@0"]);
+    });
+
+    it("keeps a term's cards the other term never names", async () => {
+      serveSearches([], (key) => ({
+        Items: key === "luna" ? [movie("m1", "Luna de miel"), movie("m2", "Luna nueva del mar")] : key === "mar" ? [movie("m2", "Luna nueva del mar"), movie("m3", "Mar adentro")] : [],
+      }));
+
+      const forward = await searchVideos("luna + mar");
+      const backward = await searchVideos("mar + luna");
+
+      expect(forward.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["m1", "m2", "m3"]);
+      expect(backward.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["m2", "m1", "m3"]);
+    });
+
+    it("answers with one term's cards when the other finds nothing", async () => {
+      serveSearches([], (key) => ({ Items: key === "zeta" ? [movie("z1", "Zeta uno"), movie("z2", "Zeta dos")] : [] }));
+
+      const result = await searchVideos("zeta + omega");
+
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["z1", "z2"]);
+    });
+
+    it("asks each term once for a page, with no read-ahead", async () => {
+      const card = (key: string, at: number) => movie(`${key}-${at}`, `${key} ${at}`);
+      const asked = serveSearches([], (key, startIndex) => ({ Items: [card(key, startIndex), card(key, startIndex + 1)], TotalRecordCount: 1000 }));
+
+      const result = await searchVideos("kappa + sigma", { limit: 2 });
+
+      expect(result.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["kappa-0", "sigma-0", "kappa-1", "sigma-1"]);
+      expect(asked.sort()).toEqual(["kappa@0", "sigma@0"]);
+    });
+
+    it("continues each term from its own place, and no further once it is exhausted", async () => {
+      const asked = serveSearches([], (key, startIndex) => {
+        if (key === "rio") return { Items: [movie(`r${startIndex}`, `Rio bravo ${startIndex}`)], TotalRecordCount: 3 };
+        return { Items: [movie("b0", "Bravo solo")], TotalRecordCount: 1 };
+      });
+
+      const first = await searchVideos("rio + bravo", { limit: 1 });
+      expect(first.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["r0", "b0"]);
+      expect(first.next).toEqual({ chain: [{ title: 1 }, null] });
+
+      asked.length = 0;
+      const second = await searchVideos("rio + bravo", { limit: 1, cursor: first.next ?? undefined });
+      expect(asked).toEqual(["rio@1"]);
+      expect(second.items.map((item: JellyfinVideoItem) => item.Id)).toEqual(["r1"]);
+      expect(second.next).toEqual({ chain: [{ title: 2 }, null] });
+    });
+
+    it("searches an unfinished chain as its one term", async () => {
+      const asked = serveSearches([], () => ({ Items: [movie("d1", "Delta")], TotalRecordCount: 1 }));
+
+      const result = await searchVideos("delta +");
+
+      expect(asked).toEqual(["delta@0"]);
+      expect(result.items).toHaveLength(1);
+    });
+  });
+
+  describe("nextOffset", () => {
+    it("advances by the raw page while the server reports more", () => {
+      expect(nextOffset(0, { items: [1, 2], total: 5 }, 2)).toBe(2);
+      expect(nextOffset(4, { items: [1], total: 5 }, 2)).toBeUndefined();
+    });
+
+    it("falls back to a full page meaning more when the server omits its count", () => {
+      expect(nextOffset(0, { items: [1, 2] }, 2)).toBe(2);
+      expect(nextOffset(2, { items: [1] }, 2)).toBeUndefined();
+    });
+
+    it("treats a source never asked, or an empty page, as exhausted", () => {
+      expect(nextOffset(undefined, { items: [1] }, 1)).toBeUndefined();
+      expect(nextOffset(0, undefined, 1)).toBeUndefined();
+      expect(nextOffset(0, { items: [], total: 9 }, 1)).toBeUndefined();
     });
   });
 

@@ -21,8 +21,15 @@ Run the app and connect to a Jellyfin server from the in-app Settings screen —
 
 ```bash
 npm install
-npm start
+npm run clear
 ```
+
+This prepares iOS, Mac and tvOS in order, opens the root `TomoTV.xcworkspace`,
+and starts Metro. Build in Xcode with `TomoTV-iOS`, `TomoTV-macOS` or
+`TomoTV-tvOS`; Mac uses **My Mac (Mac Catalyst)**. `npm run clearmac` prepares
+only Mac, and `npm start` restarts Metro for existing projects. See
+[Getting started](../README.md#getting-started) and
+[Mac setup](../docs/RELEASING.md#mac-setup-and-local-validation).
 
 Then connect to your Jellyfin server from the in-app **Settings** screen — exactly the
 same flow production users follow:

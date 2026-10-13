@@ -18,22 +18,15 @@ export function pinOffset(scrollX: Node, left: number, width: number, contentWid
 
 /**
  * A cell's stretch on screen, for a 1pt body centred on the cell's left edge: from the visible edge (or the
- * cell's start) to its end, at most a screen wide, a point at the far end once the cell has scrolled past.
+ * cell's start) to its right line, at most a screen wide. A cell scrolled past keeps a point inside that line,
+ * clear of the next cell's ring and of its own clip, so Left still reaches it.
  */
 export function visibleSpan(scrollX: Node, left: number, width: number, viewportWidth: number): { translateX: Animated.AnimatedInterpolation<number>; scaleX: Animated.AnimatedInterpolation<number> } {
+  const inner = Math.max(1, width - 1);
   const pinned = floorAtZero(Animated.subtract(scrollX, new Animated.Value(left)));
-  // min(pinned, width - 1), then min(width - start, viewportWidth): each min(a, b) = a - max(0, a - b).
-  const start = Animated.subtract(pinned, floorAtZero(Animated.subtract(pinned, new Animated.Value(width - 1))));
-  const shown = Animated.subtract(new Animated.Value(width), start);
+  // min(pinned, inner - 1), then min(inner - start, viewportWidth): each min(a, b) = a - max(0, a - b).
+  const start = Animated.subtract(pinned, floorAtZero(Animated.subtract(pinned, new Animated.Value(inner - 1))));
+  const shown = Animated.subtract(new Animated.Value(inner), start);
   const span = Animated.subtract(shown, floorAtZero(Animated.subtract(shown, new Animated.Value(viewportWidth))));
   return { translateX: Animated.add(start, Animated.multiply(span, 0.5)), scaleX: span };
-}
-
-/**
- * How far a box anchored to a cell's right edge slides left to stay on the grid's visible right
- * edge: min(0, scrollX + viewportWidth - (left + width)).
- */
-export function pinRightOffset(scrollX: Node, left: number, width: number, viewportWidth: number): Animated.AnimatedInterpolation<number> {
-  const overhang = floorAtZero(Animated.subtract(new Animated.Value(left + width - viewportWidth), scrollX));
-  return Animated.subtract(new Animated.Value(0), overhang);
 }

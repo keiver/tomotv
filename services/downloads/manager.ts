@@ -10,7 +10,9 @@
  * restarts. Every entry is therefore re-checked against the file on disk at launch.
  */
 
-import { DownloadTask, File, Paths, type DownloadPauseState } from "expo-file-system";
+import { File, Paths } from "expo-file-system";
+
+import { createDownload, isPartedState, restoreDownload, type AnyDownload, type AnyPauseState } from "./partedDownload";
 import { API_TIMEOUTS } from "@/services/jellyfin/constants";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
@@ -55,11 +57,12 @@ export interface DownloadProgress {
 type Listener = (state: DownloadsUIState) => void;
 type ProgressListener = (progress: DownloadProgress) => void;
 type ThroughputListener = (bytesPerSecond: number) => void;
+type SideKind = "art" | "subs";
 
 class DownloadManager {
-  private tasks = new Map<string, DownloadTask>();
+  private tasks = new Map<string, AnyDownload>();
   /** Process-lifetime only; see the note on DownloadEntry for why it never reaches disk. */
-  private resumeStates = new Map<string, DownloadPauseState>();
+  private resumeStates = new Map<string, AnyPauseState>();
   private listeners = new Set<Listener>();
   private progressListeners = new Map<string, Set<ProgressListener>>();
   private progressTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -72,6 +75,10 @@ class DownloadManager {
   private hydrated = false;
   private hydrating: Promise<void> | null = null;
   private healOnRelease: (() => void) | null = null;
+  /** Poster and subtitle fetches, each kind MAX_ACTIVE at a time so a whole folder does not fetch at
+   *  once; apart, so a subtitle never waits behind a keyframe decode. */
+  private sideQueues: Record<SideKind, { itemId: string; run: () => Promise<void> }[]> = { art: [], subs: [] };
+  private sideRunning: Record<SideKind, number> = { art: 0, subs: 0 };
 
   isSupported(): boolean {
     return downloadsSupported();
@@ -105,8 +112,8 @@ class DownloadManager {
           // so the screen offers a re-download instead of the row failing at play time.
           if (!file.exists) patchEntry(entry.itemId, { state: "failed", error: "No longer on this device" });
           else {
-            void this.cacheSubtitles(entry.item);
-            if (!entry.artworkUri) void this.cacheArtwork(entry.item);
+            this.queueSide("subs", entry.itemId, () => this.cacheSubtitles(entry.item));
+            if (!entry.artworkUri) this.queueSide("art", entry.itemId, () => this.cacheArtwork(entry.item));
           }
           continue;
         }
@@ -223,8 +230,8 @@ class DownloadManager {
       item: stored,
     });
     this.notify();
-    void this.cacheArtwork(item);
-    void this.cacheSubtitles(stored);
+    this.queueSide("art", item.Id, () => this.cacheArtwork(item));
+    this.queueSide("subs", item.Id, () => this.cacheSubtitles(stored));
     this.pump();
   }
 
@@ -239,7 +246,7 @@ class DownloadManager {
     this.syncRateSampler();
     const saved = task.savable();
     // A pause before any byte landed carries no resume data; the next start opens a fresh request.
-    if (saved.resumeData) this.resumeStates.set(itemId, saved);
+    if (isPartedState(saved) ? saved.states.some((part) => part.done || part.savable) : Boolean(saved.resumeData)) this.resumeStates.set(itemId, saved);
     this.clearProgressTimer(itemId);
     patchEntry(itemId, { state: "paused" });
     this.notify();
@@ -263,6 +270,7 @@ class DownloadManager {
       this.syncRateSampler();
     }
     this.resumeStates.delete(itemId);
+    for (const kind of ["art", "subs"] as const) this.sideQueues[kind] = this.sideQueues[kind].filter((task) => task.itemId !== itemId);
     cancelRepackage(itemId);
     this.clearProgressTimer(itemId);
     removeEntry(itemId);
@@ -326,7 +334,7 @@ class DownloadManager {
     }
 
     const saved = this.resumeStates.get(entry.itemId);
-    let task: DownloadTask;
+    let task: AnyDownload;
     try {
       const options = {
         headers: await authHeaders(),
@@ -336,12 +344,19 @@ class DownloadManager {
           this.emitProgressSoon(entry.itemId);
         },
       };
-      task = saved ? DownloadTask.fromSavable(saved, options) : File.createDownloadTask(await downloadUrl(entry), resolveItemFile(entry.itemId, entry.fileUri), options);
+      // A conversion streams with Accept-Ranges: none; only a Static original runs parted.
+      task = saved ? restoreDownload(saved, options) : await createDownload(await downloadUrl(entry), resolveItemFile(entry.itemId, entry.fileUri), options, !entry.converted);
     } catch (error) {
       this.fail(entry.itemId, error);
       return;
     }
 
+    // A remove that landed during the awaits above already dropped the entry; registering
+    // this task now would orphan a transfer nothing tracks or cancels.
+    if (!manifestEntry(entry.itemId)) {
+      task.cancel();
+      return;
+    }
     this.tasks.set(entry.itemId, task);
     this.syncRateSampler();
     // Consumed: the blob is single-use, and a failed resume has to start a fresh request.
@@ -480,7 +495,9 @@ class DownloadManager {
     try {
       const file = hasPoster(item) ? await File.downloadFileAsync(getPosterUrl(item.Id, 600), artworkFile(item.Id), { idempotent: true }) : await this.copyPosterFrame(item);
       if (!file) return;
-      patchEntry(item.Id, { artworkUri: file.uri });
+      // Not a state transition: a lost artwork URI is refetched at the next hydrate, so it
+      // rides the interval write instead of forcing one per poster in a folder enqueue.
+      patchEntry(item.Id, { artworkUri: file.uri }, false);
       this.notify();
     } catch (error) {
       logger.warn("Could not cache download artwork", error, { service: "Downloads", itemId: item.Id });
@@ -518,6 +535,23 @@ class DownloadManager {
       } catch (error) {
         logger.warn("Could not cache a download subtitle track", error, { service: "Downloads", itemId: item.Id, index });
       }
+    }
+  }
+
+  private queueSide(kind: SideKind, itemId: string, run: () => Promise<void>): void {
+    this.sideQueues[kind].push({ itemId, run });
+    this.drainSide(kind);
+  }
+
+  private drainSide(kind: SideKind): void {
+    while (this.sideRunning[kind] < MAX_ACTIVE) {
+      const task = this.sideQueues[kind].shift();
+      if (!task) return;
+      this.sideRunning[kind] += 1;
+      void task.run().finally(() => {
+        this.sideRunning[kind] -= 1;
+        this.drainSide(kind);
+      });
     }
   }
 

@@ -45,9 +45,19 @@ export function posterFrameIfCached(itemId: string): string | null | undefined {
   return settled === null && posterFrameRetryable(itemId) ? undefined : settled;
 }
 
-/** A keyframe decode of ours is open: it shares the cores and the link the engine is timed on. */
+/** The ids parked natively while playback holds; null while the queue runs. A parked job
+ *  competes with nothing, so it is not busy work. */
+let pausedBacklog: Set<string> | null = null;
+/** The grab mid-run at pause time still finishes; the first settle while paused is it. */
+let posterFramePauseRunner = false;
+
+/** A keyframe decode of ours is open: it shares the cores and the link the engine is timed on.
+ *  Paused, the parked backlog does not count; the grab still finishing and fresh asks do. */
 export function posterFrameWorkInFlight(): boolean {
-  return posterFramesInFlight.size > 0;
+  if (!pausedBacklog) return posterFramesInFlight.size > 0;
+  if (posterFramePauseRunner) return true;
+  for (const id of posterFramesInFlight.keys()) if (!pausedBacklog.has(id)) return true;
+  return false;
 }
 
 /** Which set of answers is current. Mixed into the image cache key so a switch redraws. */
@@ -61,6 +71,8 @@ export function posterFrameRevision(itemId: string): number {
 
 export function clearPosterFrameCache(): void {
   posterFrameGen += 1;
+  if (pausedBacklog) pausedBacklog = new Set();
+  posterFramePauseRunner = false;
   // A job of the generation being left writes nothing back, but is still open against a source
   // the app has left.
   for (const itemId of posterFramesInFlight.keys()) if (engineModule()?.cancelPosterFrame) void engineModule().cancelPosterFrame(itemId);
@@ -92,7 +104,13 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
   if (!isLocalRemuxAvailable()) return null;
   posterFrameWaiters.set(request.id, (posterFrameWaiters.get(request.id) ?? 0) + 1);
   const pending = posterFramesInFlight.get(request.id);
-  if (pending) return pending;
+  if (pending) {
+    // Parked behind the playback pause while a surface needs it now (the player's own artwork
+    // joining its grid card's job): the engine drops the parked job, and the shared job's
+    // cancelled re-ask runs it fresh past the pause.
+    if (pausedBacklog?.delete(request.id) && engineModule()?.cancelPosterFrame) void engineModule().cancelPosterFrame(request.id);
+    return pending;
+  }
   const generation = posterFrameGen;
   const job = (async (): Promise<string | null> => {
     try {
@@ -102,6 +120,10 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
         result = await engineModule().posterFrame({ itemId: request.id, inputUrl, seconds: request.seconds });
         // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
       } while (result?.cancelled && generation === posterFrameGen && (posterFrameWaiters.get(request.id) ?? 0) > 0);
+      // Only an outcome the serial drain produced (a fresh decode, or a decode that ran and
+      // failed) proves the grab running at pause time is done. A withdrawn parked job answers
+      // cancelled, and a pool hit answers on the caller's thread: neither decoded anything.
+      if (!result?.cancelled && (result?.fresh || result?.uri == null)) posterFramePauseRunner = false;
       if (result?.cancelled) return null;
       const uri = result?.uri ?? null;
       if (generation === posterFrameGen) {
@@ -126,6 +148,18 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
   })();
   posterFramesInFlight.set(request.id, job);
   return job;
+}
+
+/** Idles the native backlog while video plays; the grab already running finishes. Guarded on
+ *  the method: a Metro reload can carry JS newer than the installed binary. */
+export function setPosterFramesPaused(paused: boolean): void {
+  if (!isLocalRemuxAvailable() || !engineModule()?.setPosterQueuePaused) return;
+  void engineModule().setPosterQueuePaused(paused);
+  // Owner churn repeats the same state (audio joining a video hold): re-snapshotting here
+  // would misfile the fresh asks already in flight as parked.
+  if (paused === (pausedBacklog !== null)) return;
+  pausedBacklog = paused ? new Set(posterFramesInFlight.keys()) : null;
+  posterFramePauseRunner = paused && posterFramesInFlight.size > 0;
 }
 
 /** A card leaving the screen. The engine drops the job once no card waits on it. */

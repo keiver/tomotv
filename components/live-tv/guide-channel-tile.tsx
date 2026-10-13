@@ -1,7 +1,6 @@
 import { CARD_FOCUS, DESIGN, slotCardPadding } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
-import { serverPoster } from "@/services/itemArtwork";
-import { hasPoster } from "@/services/jellyfinApi";
+import { posterSource } from "@/services/itemArtwork";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import type { GuideMetrics } from "@/utils/guide";
@@ -27,11 +26,12 @@ interface GuideChannelTileProps {
 export function GuideChannelTile({ channel, metrics, onPress }: GuideChannelTileProps) {
   const press = useCallback(() => onPress(channel), [onPress, channel]);
   const width = metrics.compactColumnWidth - PADDING;
+  const source = posterSource(channel, metrics.rowHeight * 2);
   return (
     <Pressable onPress={press} accessibilityRole="button" accessibilityLabel={cleanLabel(channel.Name)} style={[styles.card, { width }]}>
-      {hasPoster(channel) ? (
+      {source ? (
         <View style={styles.logoHalo} pointerEvents="none">
-          <Image source={serverPoster(channel.Id, channel.ImageTags?.Primary, metrics.rowHeight * 2)} style={styles.logo} contentFit="contain" transition={150} />
+          <Image source={source} style={styles.logo} contentFit="contain" transition={150} />
         </View>
       ) : (
         <Ionicons name="tv-outline" size={28} color="rgba(255, 255, 255, 0.45)" />

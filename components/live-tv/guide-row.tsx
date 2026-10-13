@@ -46,7 +46,7 @@ interface GuideRowProps {
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onCellFocus?: (program: JellyfinProgram, channel: JellyfinItem) => void;
-  onCellHandle?: (programId: string, handle: number | undefined) => void;
+  onCellHandle?: (programId: string, handle: number | undefined, node: View | null) => void;
 }
 
 /** A window-wide stand-in cell; select tunes the channel, and it has no program panel. */

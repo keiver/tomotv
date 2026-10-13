@@ -50,7 +50,7 @@ describe("GuideCell on TV", () => {
     const focusable = tree.root.find((node) => node.props.isTVSelectable === true && typeof node.type !== "string");
     expect(focusable.props.children).toBeUndefined();
     expect(focusable.props.nextFocusUp).toBe(7);
-    expect(focusable.props.accessibilityLabel).toBe("Evening News, Episode 9");
+    expect(focusable.props.accessibilityLabel).toBe("Episode 9, Evening News");
     // Animated nodes sit in the style: compared field by field, never printed whole.
     const style = StyleSheet.flatten(focusable.props.style) as { position?: string; top?: number; bottom?: number; left?: number; width?: number; transform?: unknown[] };
     expect([style.position, style.top, style.bottom, style.left, style.width]).toEqual(["absolute", 0, 0, -0.5, 1]);
@@ -59,10 +59,11 @@ describe("GuideCell on TV", () => {
     const clip = hostById(tree, "guide-cell-label-clip");
     const last = clip.children.at(-1) as TestRenderer.ReactTestInstance;
     expect(last.props.testID).toBe("guide-cell-focusable");
+    const flatText = (node: TestRenderer.ReactTestInstance): string => node.children.map((child) => (typeof child === "string" ? child : flatText(child))).join("");
     const shown = hostById(tree, "guide-cell-label")
       .findAllByType(Text)
-      .map((node) => node.props.children);
-    expect(shown).toEqual(expect.arrayContaining(["Evening News"]));
+      .map((node) => flatText(node));
+    expect(shown).toContain("Episode 9  ·  Evening News");
   });
 
   it("keeps the label itself out of focus and presses on the body", () => {
@@ -71,5 +72,36 @@ describe("GuideCell on TV", () => {
     expect(tree.root.findAll((node) => typeof node.type === "string" && node.props.focusable === true)).toHaveLength(1);
     act(() => tree.root.find((node) => node.props.isTVSelectable === true && typeof node.type !== "string").props.onPress());
     expect(onPress).toHaveBeenCalledWith(program);
+  });
+
+  it("hands the focusable's node to onHandle, so the canvas can refocus it after a covering screen", () => {
+    const onHandle = jest.fn();
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(
+        <GuideCell
+          program={program}
+          left={100}
+          width={400}
+          height={90}
+          startMs={T0}
+          endMs={T0 + 60 * MINUTE_MS}
+          past={false}
+          airing
+          recording={null}
+          scrollX={new Animated.Value(0)}
+          viewportWidth={1600}
+          onPress={jest.fn()}
+          onLongPress={jest.fn()}
+          onHandle={onHandle}
+        />,
+        { createNodeMock: () => ({}) },
+      );
+    });
+    // Compared by identity: a failing matcher would print the whole host instance.
+    const calls = () => onHandle.mock.calls.map(([id, , handed]) => [id, handed != null]);
+    expect(calls()).toEqual([["p1", true]]);
+    act(() => tree.unmount());
+    expect(calls().at(-1)).toEqual(["p1", false]);
   });
 });

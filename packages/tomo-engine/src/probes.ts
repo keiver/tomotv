@@ -229,6 +229,15 @@ export function repackageDownload(request: { itemId: string; inputPath: string; 
   return engineModule().repackageDownload(request) as Promise<RepackageResult>;
 }
 
+export function canMergeParts(): boolean {
+  return typeof engineModule()?.mergeDownloadParts === "function";
+}
+
+/** Joins a parallel download's ranged part files into one, in order; parts are removed as consumed. */
+export function mergeDownloadParts(request: { parts: string[]; outputPath: string }): Promise<void> {
+  return engineModule().mergeDownloadParts(request) as Promise<void>;
+}
+
 export function cancelRepackage(itemId: string): void {
   if (typeof engineModule()?.cancelRepackage !== "function") return;
   void engineModule().cancelRepackage(itemId);

@@ -13,22 +13,24 @@ interface PosterCollageProps {
   /** The folder's first videos: the first takes the top row, the rest share the bottom. */
   items: JellyfinVideoItem[];
   height: number;
+  /** A library card's collage waits for a playing video to let go before asking for keyframes. */
+  deferWhileVideo?: boolean;
 }
 
 /**
  * A folder's first videos as a collage inside its card: the first one across the top half,
  * the others side by side across the bottom. One video fills the card alone.
  */
-export function PosterCollage({ items, height }: PosterCollageProps) {
+export function PosterCollage({ items, height, deferWhileVideo }: PosterCollageProps) {
   const [hero, ...rest] = items;
   if (!hero) return null;
   return (
     <View style={styles.collage} pointerEvents="none">
-      <Cell item={hero} height={height} />
+      <Cell item={hero} height={height} deferWhileVideo={deferWhileVideo} />
       {rest.length > 0 ? (
         <View style={styles.row}>
           {rest.map((item) => (
-            <Cell key={item.Id} item={item} height={height} />
+            <Cell key={item.Id} item={item} height={height} deferWhileVideo={deferWhileVideo} />
           ))}
         </View>
       ) : null}
@@ -36,8 +38,8 @@ export function PosterCollage({ items, height }: PosterCollageProps) {
   );
 }
 
-function Cell({ item, height }: { item: JellyfinVideoItem; height: number }) {
-  const source = useItemPoster(item, height);
+function Cell({ item, height, deferWhileVideo }: { item: JellyfinVideoItem; height: number; deferWhileVideo?: boolean }) {
+  const source = useItemPoster(item, height, { deferWhileVideo });
   return (
     <View style={styles.cell} testID="poster-collage-cell">
       {source ? <Image source={source} style={styles.art} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={item.Id} /> : null}

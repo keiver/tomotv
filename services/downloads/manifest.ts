@@ -11,6 +11,7 @@
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import type { ConversionRung } from "./convert";
 import { logger } from "@/utils/logger";
+import { writeAsStringAsync } from "expo-file-system/legacy";
 import { downloadsSupported, ensureDownloadsRoot, manifestFile, resolveItemFile } from "./paths";
 
 export type DownloadState = "queued" | "downloading" | "repackaging" | "paused" | "ready" | "failed";
@@ -89,6 +90,22 @@ let loading: Promise<Manifest> | null = null;
 // Serialized so two whole-file writes can never interleave.
 let writeChain: Promise<void> | null = null;
 let pendingWrite: ReturnType<typeof setTimeout> | null = null;
+let batchDepth = 0;
+let batchDirty = false;
+
+/**
+ * Coalesces the burst writes inside `run` (a folder enqueue's puts) into one at the end;
+ * state transitions still land at once.
+ */
+export async function withManifestBatch<T>(run: () => Promise<T>): Promise<T> {
+  batchDepth += 1;
+  try {
+    return await run();
+  } finally {
+    batchDepth -= 1;
+    if (batchDepth === 0 && batchDirty) writeNow();
+  }
+}
 
 /** Reads the manifest once per launch. A missing or unparseable file starts empty. */
 export function loadManifest(): Promise<Manifest> {
@@ -135,7 +152,7 @@ export function readyFileUri(itemId: string): string | null {
 
 export function putEntry(entry: DownloadEntry): void {
   entries[entry.itemId] = entry;
-  scheduleWrite();
+  scheduleWrite("burst");
 }
 
 /**
@@ -147,13 +164,13 @@ export function patchEntry(itemId: string, patch: Partial<DownloadEntry>, soon =
   if (!current) return undefined;
   const next = { ...current, ...patch };
   entries[itemId] = next;
-  scheduleWrite(soon);
+  scheduleWrite(soon ? "transition" : "interval");
   return next;
 }
 
 export function removeEntry(itemId: string): void {
   delete entries[itemId];
-  scheduleWrite();
+  scheduleWrite("transition");
 }
 
 /** Drops the in-memory manifest without touching disk. Remove All, and the tests. */
@@ -162,10 +179,17 @@ export function resetManifestCache(): void {
   loading = null;
   if (pendingWrite) clearTimeout(pendingWrite);
   pendingWrite = null;
+  batchDirty = false;
 }
 
-function scheduleWrite(immediate = true): void {
-  if (immediate) {
+/** A burst is a batched enqueue's put; a transition (pause, ready, failed, removal) is worth
+ *  landing at once even inside a batch; byte counts ride the interval. */
+function scheduleWrite(urgency: "burst" | "transition" | "interval" = "transition"): void {
+  if (batchDepth > 0 && urgency !== "transition") {
+    batchDirty = true;
+    return;
+  }
+  if (urgency !== "interval") {
     if (pendingWrite) {
       clearTimeout(pendingWrite);
       pendingWrite = null;
@@ -181,11 +205,13 @@ function scheduleWrite(immediate = true): void {
 }
 
 function writeNow(): void {
+  batchDirty = false;
   const snapshot = JSON.stringify(entries);
   const run = (writeChain ?? Promise.resolve())
     .then(async () => {
       await ensureDownloadsRoot();
-      manifestFile().write(snapshot);
+      // Legacy module: its write is async and atomic, where File.write blocks the JS thread.
+      await writeAsStringAsync(manifestFile().uri, snapshot);
     })
     .catch((error) => {
       logger.warn("Downloads manifest write failed", error, { service: "Downloads" });
@@ -198,8 +224,8 @@ function writeNow(): void {
 
 /** Waits for the manifest to hit disk, running any interval write that is still pending. */
 export async function flushManifest(): Promise<void> {
-  if (pendingWrite) {
-    clearTimeout(pendingWrite);
+  if (pendingWrite || batchDirty) {
+    if (pendingWrite) clearTimeout(pendingWrite);
     pendingWrite = null;
     writeNow();
   }

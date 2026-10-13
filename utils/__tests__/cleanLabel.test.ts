@@ -1,4 +1,31 @@
-import { cleanLabel } from "@/utils/cleanLabel";
+import { cleanLabel, stripTags } from "@/utils/cleanLabel";
+
+describe("stripTags", () => {
+  it("drops each span from a '<' to the next '>', malformed markup included", () => {
+    // Each pair is what the tag regex this scanner stands in for returned.
+    const cases: [string, string][] = [
+      ["", ""],
+      ["plain", "plain"],
+      ["I <3 You", "I <3 You"],
+      ["<b>Bold</b> Title", "Bold Title"],
+      ["a < b <i>c</i>", "a c"],
+      ["<<b>i>x", "i>x"],
+      ["a > b < c", "a > b < c"],
+      ["<>", ""],
+      ["x<", "x<"],
+      [">x<y>z<", ">xz<"],
+      ["<a\nhref='x'>link</a>", "link"],
+      ["<<<>>>", ">>"],
+    ];
+    for (const [text, expected] of cases) expect(stripTags(text)).toBe(expected);
+  });
+
+  it("keeps a run of unterminated openers whole", () => {
+    const run = "<".repeat(50_000);
+    expect(stripTags(run)).toBe(run);
+    expect(stripTags(`${run}>`)).toBe("");
+  });
+});
 
 describe("cleanLabel", () => {
   it("decodes HTML entities scrapers wrote into titles", () => {

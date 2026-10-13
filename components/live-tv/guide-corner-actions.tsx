@@ -6,7 +6,7 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import React, { useState } from "react";
 import type { NativeStackHeaderItemButton } from "expo-router";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 /** The symbol names the phone's native bar items accept; the TV cells draw the same names. */
@@ -27,30 +27,43 @@ interface HudActionProps {
   icon: React.ReactNode;
   label: string;
   onPress: () => void;
-  /** Stays focusable so TV focus is never ejected; presses drop and the icon dims. */
+  /** Stays focusable so TV focus is never ejected; presses drop. */
   disabled?: boolean;
   forwardedRef?: (node: View | null) => void;
+  /** Draws the label beside the icon, as a group cell draws its name. */
+  titled?: boolean;
+  /** Rounds the bottom-left corner to the card's it sits in; the focus ring follows. */
+  bottomLeftRadius?: number;
+  /** TV: the node Up lands on when nothing sits straight above the cell. */
+  nextFocusUp?: number;
 }
 
 /** One frosted-black cell of the band's corner, square-cornered and band-tall; focus draws the cells' accent ring. */
-export function HudAction({ icon, label, onPress, disabled, forwardedRef }: HudActionProps) {
+export function HudAction({ icon, label, onPress, disabled, forwardedRef, titled, bottomLeftRadius, nextFocusUp }: HudActionProps) {
   const [focused, setFocused] = useState(false);
   const { accent } = useCardPalette();
+  const rounded = bottomLeftRadius !== undefined && { borderBottomLeftRadius: bottomLeftRadius };
   return (
-    <View style={styles.tile}>
+    <View style={[styles.tile, rounded, rounded && styles.tileClip]}>
       <Pressable
         ref={forwardedRef}
         onPress={disabled ? undefined : onPress}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         isTVSelectable
+        nextFocusUp={nextFocusUp}
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ disabled: disabled === true }}
         tvParallaxProperties={{ enabled: false }}
-        style={styles.hit}>
-        {focused ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
-        <View style={disabled ? styles.iconDisabled : null}>{icon}</View>
+        style={[styles.hit, titled && styles.hitTitled]}>
+        {focused ? <View style={[styles.focusRing, rounded, { borderColor: accent }]} pointerEvents="none" /> : null}
+        {icon}
+        {titled ? (
+          <Text style={styles.title} numberOfLines={1}>
+            {label}
+          </Text>
+        ) : null}
       </Pressable>
     </View>
   );
@@ -64,7 +77,7 @@ interface GuideCornerActionsProps {
   onSchedule: () => void;
   /** Reloads the server's listings and re-downloads the external guides. */
   onRefreshGuide: () => void;
-  /** True while the guide is already working: the refresh cell drops presses and dims. */
+  /** True while the guide is already working: the refresh cell drops presses and spins. */
   refreshing?: boolean;
   /** A recording is in progress: the Schedule glyph wears its badge, turns red and breathes. */
   recording?: boolean;
@@ -93,7 +106,12 @@ export function GuideCornerActions({ filtered, onChannels, onRecordings, onSched
           </RecordingPulse>
         }
       />
-      <HudAction label={t("liveTv.guideRefresh")} onPress={onRefreshGuide} disabled={refreshing} icon={<SfSymbolIcon name="arrow.clockwise" size={ICON} color={accent} weight={WEIGHT} />} />
+      <HudAction
+        label={t("liveTv.guideRefresh")}
+        onPress={onRefreshGuide}
+        disabled={refreshing}
+        icon={refreshing ? <ActivityIndicator size="small" color={accent} /> : <SfSymbolIcon name="arrow.clockwise" size={ICON} color={accent} weight={WEIGHT} />}
+      />
     </View>
   );
 }
@@ -114,8 +132,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconDisabled: {
-    opacity: 0.35,
+  // A group cell's padding and gap, so the titled action reads as one more cell.
+  hitTitled: {
+    flexDirection: "row",
+    gap: IS_TV ? 10 : 6,
+    paddingHorizontal: IS_TV ? 26 : 14,
+  },
+  tileClip: {
+    overflow: "hidden",
+  },
+  title: {
+    color: COLORS.TEXT_PRIMARY,
+    fontSize: IS_TV ? 24 : 14,
+    fontWeight: "600",
   },
   // The program cells' focus mark.
   focusRing: {

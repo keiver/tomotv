@@ -7,7 +7,9 @@ import { fetchChannels, fetchChannelsByIds, fetchGuideHorizon, fetchGuideProgram
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { activeGuideUrls, fetchExternalProgramWindow } from "@/services/externalGuide";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
+import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
 import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
+import { cachedRequest, invalidateByPrefix } from "@/services/requestCache";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import {
   activeRecordTimer,
@@ -33,6 +35,13 @@ import { AppState } from "react-native";
 export const GUIDE_CHANNEL_PAGE = 40;
 /** One list for every row still waiting on its programs: a fresh one per rebuild re-renders the row. */
 const NO_PROGRAMS: JellyfinProgram[] = [];
+/** Server guide reads live this long in memory, so a reopen shows at once; a refresh invalidates them. */
+const GUIDE_READ_TTL_MS = 30 * MINUTE_MS;
+
+/** Drops every cached guide read: the next load fetches fresh (the HUD's refresh press). */
+export function invalidateGuideReads(): void {
+  invalidateByPrefix("guide:");
+}
 
 /** The external guide choices a program load read: the viewer's guides and the ones turned off. */
 function guideSourcesKey(preferences: Pick<LiveTvPreferences, "guideUrls" | "guideSourcesOff">): string {
@@ -66,7 +75,7 @@ export interface GuideState {
   /** Channels a timer covers right now; their cards wear REC. */
   recordingChannelIds: Set<string>;
   isLoading: boolean;
-  /** True while programs are being fetched; the HUD shows its thin bar for it. */
+  /** True while programs are being fetched; the refresh cell drops presses and spins. */
   isUpdating: boolean;
   error: string | null;
   retry: () => void;
@@ -77,7 +86,8 @@ export interface GuideState {
   refreshTimers: () => void;
 }
 
-type ChannelPage = { hasMore: boolean; pageLength: number };
+/** `waiting`: the page landed before the tuner playlists did, and the next one is asked for at once. */
+type ChannelPage = { hasMore: boolean; pageLength: number; waiting?: boolean };
 
 /** Lands a page in two steps: channels as soon as they are known, programs when they arrive. */
 type PageLand = { channels: (items: JellyfinItem[]) => void; programs: (items: JellyfinItem[], programs: JellyfinProgram[], window: { from: number; to: number }) => void };
@@ -124,12 +134,14 @@ function loadNextPage(load: GuideLoad): void {
   }
   load.pagePending = false;
   load.busy = "page";
+  let waitingTail = false;
   load
     .fetchPage(load.loaded, load.land)
-    .then(({ hasMore, pageLength }) => {
+    .then(({ hasMore, pageLength, waiting }) => {
       if (load.retired) return;
       load.hasMore = hasMore;
       load.loaded += pageLength;
+      waitingTail = waiting === true;
     })
     .catch((err) => {
       load.pagePending = true;
@@ -137,6 +149,7 @@ function loadNextPage(load: GuideLoad): void {
     })
     .finally(() => {
       load.busy = null;
+      if (waitingTail) loadNextPage(load);
     });
 }
 
@@ -230,7 +243,8 @@ export function useGuide(): GuideState {
     const preferences = getLiveTvPreferences();
     setPendingPrograms((count) => count + 1);
     try {
-      const programs = await fetchGuidePrograms({ channelIds: list.map((channel) => channel.Id), startMs, endMs });
+      const channelIds = list.map((channel) => channel.Id);
+      const programs = await cachedRequest(`guide:programs:${startMs}:${endMs}:${channelIds.join(",")}`, () => fetchGuidePrograms({ channelIds, startMs, endMs }), GUIDE_READ_TTL_MS);
       if (guideSourcesKey(getLiveTvPreferences()) !== guideSourcesKey(preferences)) return null;
       const covered = new Set(programs.map((program) => program.ChannelId));
       const bare = list.filter((channel) => !covered.has(channel.Id));
@@ -282,7 +296,7 @@ export function useGuide(): GuideState {
         let items: JellyfinItem[] = [];
         while (items.length === 0 && startIndex + consumed < playlistIds.length) {
           const slice = playlistIds.slice(startIndex + consumed, startIndex + consumed + GUIDE_CHANNEL_PAGE);
-          items = await fetchChannelsByIds(slice);
+          items = await cachedRequest(`guide:channels:ids:${slice.join(",")}`, () => fetchChannelsByIds(slice), GUIDE_READ_TTL_MS);
           consumed += slice.length;
         }
         land.channels(items);
@@ -291,17 +305,30 @@ export function useGuide(): GuideState {
       }
       // A list is fetched by its entries in one page: a catalog can hold thousands of channels.
       if (list) {
-        const items = await fetchListedChannels(list);
+        const items = await cachedRequest(`guide:channels:list:${JSON.stringify(list)}`, () => fetchListedChannels(list), GUIDE_READ_TTL_MS);
         land.channels(items);
         await landPrograms(items);
         return { hasMore: false, pageLength: items.length };
       }
-      const { items, total } = await fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) });
+      const { items, total } = await cachedRequest(
+        `guide:channels:page:${channelSortParam(sort)}:${category ?? "all"}:${startIndex}`,
+        () => fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) }),
+        GUIDE_READ_TTL_MS,
+      );
       const loaded = startIndex + items.length;
-      const hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
-      land.channels(items);
-      await landPrograms(items);
-      return { hasMore, pageLength: items.length };
+      let hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
+      let page = items;
+      let waiting = false;
+      if (!hasMore && !category) {
+        // The server catalog is done: channels only the tuner playlists carry yet follow, a page at a time.
+        // A first page starts a fresh list: what the previous sort landed is not on it.
+        const tail = await pendingChannelsAfter(items, startIndex === 0 ? [] : channelsRef.current, GUIDE_CHANNEL_PAGE);
+        page = [...items, ...tail.pending];
+        ({ hasMore, waiting } = tail);
+      }
+      land.channels(page);
+      await landPrograms(page);
+      return { hasMore, pageLength: page.length, waiting };
     },
     [sort, list, category, playlistIds, fetchPrograms],
   );
@@ -372,14 +399,16 @@ export function useGuide(): GuideState {
       };
     }
     (async () => {
+      let waitingTail = false;
       try {
-        const { hasMore, pageLength } = await loadChannelPage(0, load.land);
+        const { hasMore, pageLength, waiting } = await loadChannelPage(0, load.land);
         if (load.retired) return;
         load.hasMore = hasMore;
         load.loaded = pageLength;
+        waitingTail = waiting === true;
         refreshTimers();
         readExternalGuides(load);
-        fetchGuideHorizon()
+        cachedRequest("guide:horizon", fetchGuideHorizon, GUIDE_READ_TTL_MS)
           .then((end) => {
             if (!load.retired) setGuideEndMs(end);
           })
@@ -395,6 +424,7 @@ export function useGuide(): GuideState {
         if (!load.retired) {
           load.loading = false;
           setIsLoading(false);
+          if (waitingTail) loadNextPage(load);
         }
       }
     })();

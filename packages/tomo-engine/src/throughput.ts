@@ -39,6 +39,18 @@ export function engineStarving(samples: ThroughputSample[]): boolean {
   return timed.length >= 2 && latest.cushion <= 1 && timed.slice(-2).every(belowRealtime);
 }
 
+/**
+ * A live feed is under-delivering: the last three timed segments each arrived slower
+ * than they play, each stalled on the read, with nothing buffered ahead. Generations
+ * are NOT filtered: an origin this starved rolls one on every dropped connection.
+ */
+export function liveStarving(samples: ThroughputSample[]): boolean {
+  const latest = samples.at(-1);
+  if (!latest || latest.cushion > 1) return false;
+  const timed = samples.filter((sample) => !sample.throttled && sample.produceSeconds != null);
+  return timed.length >= 3 && timed.slice(-3).every((sample) => belowRealtime(sample) && readBound(sample));
+}
+
 /** FFmpeg's wording for an HTTP 404 on the input (av_strerror of AVERROR_HTTP_NOT_FOUND). */
 export function engineInputMissing(message: string): boolean {
   return /Server returned 404/.test(message);

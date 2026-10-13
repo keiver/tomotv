@@ -5,11 +5,12 @@
  * fields under them.
  *
  * Usage:
- *   npm run meta:upload                     every locale, both platforms
+ *   npm run meta:upload                     every locale, all three platforms
  *   npm run meta:upload -- --dry-run        print the plan, write nothing
  *   npm run meta:upload -- --locale de-DE,fr-FR   one language or a few
  *   npm run meta:upload -- --platform IOS   one platform
  *   npm run meta:upload -- --check          check the document offline, then stop
+ *   npm run meta:upload -- --check-online   also check editable versions and first-release rules
  *
  * The copy comes from the paste blocks in memories/CLAUDE-apple-store-metadata.md,
  * which that file declares canonical. What's New is taken for the version in
@@ -30,6 +31,7 @@ import { fileURLToPath } from "node:url";
 
 import { ascEnv, client } from "./appstore/asc.mjs";
 import { DOC, INFO_FIELDS, PLATFORM_LABELS, VERSION_FIELDS, measure, overLimit, readMetadata, whatsNewVersions } from "./appstore/metadata.mjs";
+import { editableVersion, isFirstVersion, platformVersions, selectedPlatforms } from "./appstore/platforms.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BUNDLE_ID = "dev.keiver.tomotv";
@@ -42,6 +44,7 @@ const opt = (n) => {
 };
 const DRY = flag("--dry-run");
 const CHECK = flag("--check");
+const CHECK_ONLINE = flag("--check-online");
 
 function fail(msg) {
   console.error(`\n✗ ${msg}`);
@@ -57,7 +60,25 @@ async function main() {
   const version = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8")).expo.version;
   const meta = readMetadata(ROOT, version);
   const locales = opt("--locale") ? opt("--locale").split(",") : Object.keys(meta);
-  const platforms = opt("--platform") ? [opt("--platform")] : ["IOS", "TV_OS"];
+  const platforms = selectedPlatforms(opt("--platform"));
+  const versions = {};
+  const firstVersions = new Set();
+  let api, app;
+  if (!CHECK || CHECK_ONLINE) {
+    api = client(ascEnv(ROOT));
+    const apps = await api.get(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`);
+    app = apps.data[0];
+    if (!app) fail(`No app with bundle id ${BUNDLE_ID} on this account`);
+    for (const platform of platforms) {
+      const history = await platformVersions(api, app.id, platform);
+      if (isFirstVersion(history, version)) firstVersions.add(platform);
+      const found = editableVersion(history, platform, version);
+      if (!found && (platform === "MAC_OS" || !CHECK_ONLINE)) {
+        fail(`No editable ${platform} version for ${version}. Add the platform/version in App Store Connect first.`);
+      }
+      versions[platform] = found;
+    }
+  }
 
   // Everything is measured before anything is written: a listing half over the
   // limit is worse than one that never started.
@@ -68,6 +89,7 @@ async function main() {
     if (!copy) fail(`No "${locale}" section in ${DOC}. Have: ${Object.keys(meta).join(", ")}`);
     for (const field of [...INFO_FIELDS, ...VERSION_FIELDS]) {
       for (const platform of field === "whatsNew" ? platforms : [null]) {
+        if (field === "whatsNew" && firstVersions.has(platform)) continue;
         const text = wanted(copy, field, platform);
         if (!text) {
           if (field === "whatsNew") missingNotes.push({ locale, platform });
@@ -102,27 +124,12 @@ async function main() {
     );
   }
   if (problems.length) fail(`${DOC}\n  ${problems.join("\n  ")}`);
-  if (CHECK) {
+  if (CHECK || CHECK_ONLINE) {
     console.log(`Listing text for ${version} is complete: ${locales.join(", ")}`);
     return;
   }
 
-  const api = client(ascEnv(ROOT));
-  const apps = await api.get(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`);
-  const app = apps.data[0];
-  if (!app) fail(`No app with bundle id ${BUNDLE_ID} on this account`);
   console.log(`App Store Connect: ${BUNDLE_ID}, version ${version}${DRY ? " (dry run)" : ""}`);
-
-  const versions = {};
-  for (const platform of platforms) {
-    const res = await api.get(`/v1/apps/${app.id}/appStoreVersions?filter[platform]=${platform}&filter[appStoreState]=PREPARE_FOR_SUBMISSION&limit=1`);
-    const found = res.data[0];
-    if (!found) fail(`No editable ${platform} version. Open the draft first: npm run shots:upload -- --create-version`);
-    if (found.attributes.versionString !== version) {
-      fail(`${platform} draft is ${found.attributes.versionString}, app.json says ${version}`);
-    }
-    versions[platform] = found;
-  }
 
   // Two app infos exist while a change is pending: the live one and the editable
   // one. The name and subtitle only land on the editable one.
@@ -130,12 +137,27 @@ async function main() {
   const info = infos.data.find((i) => i.attributes.appStoreState !== "READY_FOR_SALE");
   if (!info) fail("No editable app info. Its name and subtitle cannot be changed while the listing is live with no draft.");
 
+  // A new Mac platform has no previous English URLs to inherit. Reuse the
+  // existing iOS listing on this same app record, never an invented address.
+  const iosHistory = await platformVersions(api, app.id, "IOS");
+  let sharedUrls = {};
+  for (const iosVersion of iosHistory) {
+    const localizations = await api.get(`/v1/appStoreVersions/${iosVersion.id}/appStoreVersionLocalizations`);
+    const english = localizations.data.find((l) => l.attributes.locale === "en-US")?.attributes;
+    if (english?.supportUrl) {
+      sharedUrls = english;
+      break;
+    }
+  }
+
   for (const platform of platforms) {
     const versionId = versions[platform].id;
     const existing = await api.get(`/v1/appStoreVersions/${versionId}/appStoreVersionLocalizations`);
     // A new language inherits the URLs the English listing already carries,
     // rather than a value from a document that can disagree with the listing.
-    const english = existing.data.find((l) => l.attributes.locale === "en-US")?.attributes ?? {};
+    const currentEnglish = existing.data.find((l) => l.attributes.locale === "en-US")?.attributes ?? {};
+    const english = { supportUrl: currentEnglish.supportUrl || sharedUrls.supportUrl, marketingUrl: currentEnglish.marketingUrl || sharedUrls.marketingUrl };
+    if (!english.supportUrl) fail(`${platform}: set the English support URL in App Store Connect before uploading metadata.`);
 
     for (const locale of locales) {
       const copy = meta[locale];
@@ -157,6 +179,7 @@ async function main() {
 
       const attributes = {};
       for (const field of VERSION_FIELDS) {
+        if (field === "whatsNew" && firstVersions.has(platform)) continue;
         const text = wanted(copy, field, platform);
         if (text !== (current?.attributes?.[field] ?? null)) attributes[field] = text;
       }

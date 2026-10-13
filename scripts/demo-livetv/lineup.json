@@ -5,7 +5,7 @@
     {
       "number": 1,
       "id": "bunny",
-      "name": "Big Buck Bunny",
+      "name": "Bunny",
       "colour": "#B36B00",
       "port": 9101,
       "sources": ["Films/Big Buck Bunny/Big Buck Bunny.mp4"],
@@ -14,16 +14,6 @@
     },
     {
       "number": 2,
-      "id": "sintel",
-      "name": "Sintel",
-      "colour": "#6A3FA0",
-      "port": 9102,
-      "sources": ["Films/Sintel/Sintel.mkv"],
-      "category": "Movie",
-      "slots": [60, 30, 30, 120, 60]
-    },
-    {
-      "number": 3,
       "id": "caminandes",
       "name": "Caminandes",
       "colour": "#2E7D4F",
@@ -33,7 +23,7 @@
       "slots": [30, 30, 60, 30, 30, 90, 30]
     },
     {
-      "number": 4,
+      "number": 3,
       "id": "veguitas",
       "name": "Veguitas",
       "colour": "#1B5E9E",
@@ -50,9 +40,79 @@
       "slots": [60, 60, 30, 90, 60, 30, 30]
     },
     {
+      "number": 4,
+      "id": "elono",
+      "name": "Elono",
+      "colour": "#3E7C5B",
+      "port": 9112,
+      "sources": ["Live TV/Elono.mp4"],
+      "category": "Series",
+      "slots": [15, 30, 15, 30, 15]
+    },
+    {
       "number": 5,
+      "id": "dweebs",
+      "name": "Dweebs",
+      "colour": "#C2552B",
+      "port": 9107,
+      "sources": ["Live TV/The Daily Dweebs.mp4"],
+      "category": "Kids",
+      "slots": [30, 30, 60, 30]
+    },
+    {
+      "number": 6,
+      "id": "spring",
+      "name": "Spring",
+      "colour": "#2F7F86",
+      "port": 9108,
+      "sources": ["Live TV/Spring.mp4"],
+      "category": "Movie",
+      "slots": [30, 60, 30, 30, 90]
+    },
+    {
+      "number": 7,
+      "id": "cosmos",
+      "name": "Cosmos",
+      "colour": "#2B3A67",
+      "port": 9110,
+      "sources": ["Live TV/Cosmos Laundromat.mp4"],
+      "category": "Movie",
+      "slots": [60, 30, 30, 60]
+    },
+    {
+      "number": 8,
+      "id": "utopia",
+      "name": "Utopia",
+      "colour": "#8C3B2E",
+      "port": 9106,
+      "sources": ["Live TV/Elono Colors.mp4"],
+      "category": "Movie",
+      "slots": []
+    },
+    {
+      "number": 9,
+      "id": "elephants",
+      "name": "Elephants",
+      "colour": "#5C6B73",
+      "port": 9111,
+      "sources": ["Films/Elephants Dream/Elephants Dream.mov"],
+      "category": "Movie",
+      "slots": [30, 90, 30, 60]
+    },
+    {
+      "number": 10,
+      "id": "sintel",
+      "name": "Sintel",
+      "colour": "#6A3FA0",
+      "port": 9102,
+      "sources": ["Films/Sintel/Sintel.mkv"],
+      "category": "Movie",
+      "slots": [60, 30, 30, 120, 60]
+    },
+    {
+      "number": 11,
       "id": "classics",
-      "name": "Classic Movies",
+      "name": "Classics",
       "colour": "#4A2B5C",
       "port": 9105,
       "sources": [
@@ -66,56 +126,6 @@
       ],
       "category": "Movie",
       "slots": [30]
-    },
-    {
-      "number": 6,
-      "id": "utopia",
-      "name": "Utopia",
-      "colour": "#8C3B2E",
-      "port": 9106,
-      "sources": ["Films/Utopia (1951)/Utopia (1951).mp4"],
-      "category": "Movie",
-      "slots": [60, 30, 90, 30, 60, 30]
-    },
-    {
-      "number": 7,
-      "id": "dweebs",
-      "name": "The Daily Dweebs",
-      "colour": "#C2552B",
-      "port": 9107,
-      "sources": ["Live TV/The Daily Dweebs.mp4"],
-      "category": "Kids",
-      "slots": [30, 30, 60, 30]
-    },
-    {
-      "number": 8,
-      "id": "spring",
-      "name": "Spring",
-      "colour": "#2F7F86",
-      "port": 9108,
-      "sources": ["Live TV/Spring.mp4"],
-      "category": "Movie",
-      "slots": [30, 60, 30, 30, 90]
-    },
-    {
-      "number": 9,
-      "id": "cosmos",
-      "name": "Cosmos Laundromat",
-      "colour": "#2B3A67",
-      "port": 9110,
-      "sources": ["Live TV/Cosmos Laundromat.mp4"],
-      "category": "Movie",
-      "slots": [60, 30, 30, 60]
-    },
-    {
-      "number": 10,
-      "id": "elephants",
-      "name": "Elephants Dream",
-      "colour": "#5C6B73",
-      "port": 9111,
-      "sources": ["Films/Elephants Dream/Elephants Dream.mov"],
-      "category": "Movie",
-      "slots": [30, 90, 30, 60]
     }
   ]
 }

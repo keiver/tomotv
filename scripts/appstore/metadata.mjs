@@ -6,6 +6,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { PLATFORM_LABELS } from "./platforms.mjs";
 
 export const DOC = path.join("memories", "CLAUDE-apple-store-metadata.md");
 
@@ -20,7 +21,7 @@ export const VERSION_FIELDS = ["description", "keywords", "promotionalText", "wh
 export const INFO_FIELDS = ["name", "subtitle"];
 
 /** How the document names each platform in a What's New heading. */
-export const PLATFORM_LABELS = { IOS: "iOS", TV_OS: "tvOS" };
+export { PLATFORM_LABELS } from "./platforms.mjs";
 
 const FIELDS = {
   "App Name": "name",
@@ -50,8 +51,8 @@ function blocks(lines) {
 
 /** "What's New (2.2.6), iOS" -> the version it belongs to and the platform. */
 function whatsNew(label) {
-  const m = label.match(/^What's New \(([^)]+)\),\s*(iOS|tvOS)$/);
-  return m ? { version: m[1], platform: m[2] === "iOS" ? "IOS" : "TV_OS" } : null;
+  const m = label.match(/^What's New \(([^)]+)\),\s*(iOS|tvOS|macOS)$/);
+  return m ? { version: m[1], platform: Object.keys(PLATFORM_LABELS).find((key) => PLATFORM_LABELS[key] === m[2]) } : null;
 }
 
 function collect(lines, version) {
@@ -152,8 +153,8 @@ function put(lines, locale, prefix, header, text, fallback) {
 }
 
 /**
- * Write tvOS before iOS: each insert goes above the notes already there, so iOS
- * last leaves the pair in the order the document keeps.
+ * Write platforms in reverse display order: each insert goes above the notes
+ * already there, so iOS last leaves the document in display order.
  */
 export function writeWhatsNew(lines, locale, version, platform, text) {
   const label = PLATFORM_LABELS[platform];

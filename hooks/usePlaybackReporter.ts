@@ -65,6 +65,8 @@ interface UsePlaybackReporterConfig {
   pendingSeekTargetRef: React.RefObject<number | null>;
   /** Live TV: reports never write a resume position. */
   isLiveRef?: React.RefObject<boolean>;
+  /** The item is the device's own stand-in for a channel the server lacks: there is nothing to report against. */
+  standInRef?: React.RefObject<boolean>;
 }
 
 interface UsePlaybackReporterResult {
@@ -125,6 +127,7 @@ export function usePlaybackReporter({
   positionSecondsRef,
   pendingSeekTargetRef,
   isLiveRef,
+  standInRef,
 }: UsePlaybackReporterConfig): UsePlaybackReporterResult {
   const lastReportedPositionRef = useRef(0);
   const lastSampledPositionRef = useRef(0);
@@ -341,7 +344,7 @@ export function usePlaybackReporter({
     (positionTicks = 0) => {
       // Idempotent per session: the resume-seek path and the auto-play path can both
       // fire on the same load — only the first registers the session
-      if (sessionRef.current) return;
+      if (sessionRef.current || standInRef?.current === true) return;
       const session: ReporterSession = {
         itemId: videoIdRef.current,
         mediaSourceId: mediaSourceIdRef.current ?? videoIdRef.current,
@@ -363,7 +366,7 @@ export function usePlaybackReporter({
         await reportPlaybackStart({ ...buildBody(session, 0, false), PositionTicks: session.live ? 0 : Math.round(positionTicks) });
       });
     },
-    [buildBody, enqueueWrite, mediaSourceIdRef, playSessionIdRef, wasPlayedAtStartRef, isLiveRef],
+    [buildBody, enqueueWrite, mediaSourceIdRef, playSessionIdRef, wasPlayedAtStartRef, isLiveRef, standInRef],
   );
 
   const reportPauseChange = useCallback(

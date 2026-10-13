@@ -2,7 +2,7 @@ import { ListRow } from "@/components/settings/ListRow";
 import { t } from "@/services/i18n";
 import type { JellyfinTimer } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { formatClock, formatDayLabel } from "@/utils/guide";
+import { formatClockRange, formatDayLabel } from "@/utils/guide";
 import React from "react";
 
 /** The info panel a schedule row opens: the program's, else the channel's, pinned to the timer when it is one. */
@@ -26,7 +26,8 @@ interface TimerRowProps {
 function TimerRowComponent({ timer, nowMs, series = false, onPress, isLast = false }: TimerRowProps) {
   const startMs = Date.parse(timer.StartDate);
   const endMs = Date.parse(timer.EndDate);
-  const when = `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", formatClock(startMs)).replace("{end}", formatClock(endMs))}`;
+  const slot = formatClockRange(startMs, endMs);
+  const when = `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", slot.start).replace("{end}", slot.end)}`;
   const subtitle = [when, cleanLabel(timer.EpisodeTitle), cleanLabel(timer.ChannelName)].filter(Boolean).join("  ·  ");
   // A timer with no program and no channel has no panel to open: it takes focus to be readable, nothing more.
   const opens = timerPanelTarget(timer, series) !== null;

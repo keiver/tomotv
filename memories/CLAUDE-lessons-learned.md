@@ -1537,7 +1537,9 @@ Derive next-up from the most recently FINISHED item per container:
 resume list already represents, then pick the first unplayed sibling after
 the anchor from `fetchRecursiveVideos` — the same call and ordering the binge
 queue builds from, so the card is by construction what the queue would play
-next. `services/nextUp.ts`, appended after the resume cards.
+next. `services/nextUp.ts`, ranked with the resume cards by last play (a
+next-up card by its anchor's), so the episode after the one just finished
+leads the row.
 
 Rejected `/Shows/NextUp`: it only knows real Series, and homevideos episodes
 arrive as `Type: "Video"` with only a ParentId. One mechanism had to cover

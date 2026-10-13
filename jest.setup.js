@@ -124,6 +124,7 @@ jest.mock("expo-router", () => ({
   })),
   useLocalSearchParams: jest.fn(() => ({})),
   useFocusEffect: jest.fn(),
+  useIsFocused: jest.fn(() => true),
   useScrollToTop: jest.fn(),
   router: {
     push: jest.fn(),

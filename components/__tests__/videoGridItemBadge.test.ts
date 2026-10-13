@@ -1,5 +1,4 @@
-import { channelMarks, indexBadgeSegments, joinTitle, programCardTitle } from "@/components/video-grid-item";
-import { COLORS } from "@/constants/colors";
+import { indexBadgeSegments, isWatched, joinTitle, programCardTitle } from "@/components/video-grid-item";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
@@ -8,23 +7,18 @@ jest.mock("expo-image", () => ({ Image: () => null }));
 const item = (overrides: Partial<JellyfinVideoItem>): JellyfinVideoItem => ({ Id: "v1", Name: "Item", Type: "Movie", ...overrides }) as JellyfinVideoItem;
 
 describe("indexBadgeSegments", () => {
-  it("marks a played movie with the eye alone", () => {
-    expect(indexBadgeSegments(item({ UserData: { Played: true } }))).toEqual([{ icon: "eye" }]);
+  it("holds no watched mark: a played movie wears no badge", () => {
+    expect(indexBadgeSegments(item({ UserData: { Played: true } }))).toBeNull();
     expect(indexBadgeSegments(item({}))).toBeNull();
   });
 
-  it("keeps the index tag first on a played episode", () => {
+  it("keeps the index tag alone on a played episode", () => {
     const episode = item({ Type: "Episode", ParentIndexNumber: 1, IndexNumber: 5, UserData: { Played: true } });
-    expect(indexBadgeSegments(episode)).toEqual([{ label: "S01E05" }, { icon: "eye" }]);
+    expect(indexBadgeSegments(episode)).toEqual([{ label: "S01E05" }]);
   });
 
   it("leaves an unplayed episode's tag unchanged", () => {
     expect(indexBadgeSegments(item({ Type: "Episode", ParentIndexNumber: 1, IndexNumber: 5 }))).toEqual([{ label: "S01E05" }]);
-  });
-
-  it("marks an audiobook the server holds finished", () => {
-    expect(indexBadgeSegments(item({ Type: "AudioBook", UserData: { Played: true } }))).toEqual([{ icon: "eye" }]);
-    expect(indexBadgeSegments(item({ Type: "AudioBook", UserData: { Played: false } }))).toBeNull();
   });
 
   it("never marks music tracks or live cards", () => {
@@ -32,6 +26,12 @@ describe("indexBadgeSegments", () => {
     expect(indexBadgeSegments(track)).toEqual([{ icon: "musical-note", label: 5 }]);
     const channel = item({ Type: "TvChannel", UserData: { Played: true } });
     expect(indexBadgeSegments(channel)).toBeNull();
+  });
+
+  it("gives a channel no pill: its mark is the freshness badge", () => {
+    const channel = item({ Type: "TvChannel", CurrentProgram: { Name: "On Air" } as JellyfinVideoItem["CurrentProgram"] });
+    expect(indexBadgeSegments(channel)).toBeNull();
+    expect(indexBadgeSegments(item({ Type: "TvChannel" }))).toBeNull();
   });
 
   it("marks a searched programme live only while it airs", () => {
@@ -51,30 +51,33 @@ describe("indexBadgeSegments", () => {
   });
 });
 
-describe("channelMarks", () => {
-  const channel = (ChannelNumber?: string) => item({ Type: "TvChannel", Name: "Caminandes", ChannelNumber });
-
-  it("gives the tuner's number to the gold pill and the favorite heart to the marks", () => {
-    expect(channelMarks(channel(" 3 "), "heart")).toEqual({ number: "3", trailing: [{ icon: "heart", color: COLORS.ACCENT }] });
+describe("isWatched", () => {
+  it("holds for played movies, episodes and finished audiobooks", () => {
+    expect(isWatched(item({ UserData: { Played: true } }))).toBe(true);
+    expect(isWatched(item({ Type: "Episode", UserData: { Played: true } }))).toBe(true);
+    expect(isWatched(item({ Type: "AudioBook", UserData: { Played: true } }))).toBe(true);
+    expect(isWatched(item({ Type: "AudioBook", UserData: { Played: false } }))).toBe(false);
+    expect(isWatched(item({}))).toBe(false);
   });
 
-  it("shows only what the channel has: no number and no favorite means no marks", () => {
-    expect(channelMarks(channel())).toEqual({ number: undefined, trailing: [] });
-    expect(channelMarks(channel("  "), "heart")).toEqual({ number: undefined, trailing: [{ icon: "heart", color: COLORS.ACCENT }] });
-  });
-
-  it("marks nothing but a channel", () => {
-    expect(channelMarks(item({ Type: "Movie", ChannelNumber: "2" }), "heart")).toEqual({ trailing: [] });
+  it("never holds for music tracks or live cards", () => {
+    expect(isWatched(item({ Type: "Audio", UserData: { Played: true } }))).toBe(false);
+    expect(isWatched(item({ Type: "TvChannel", UserData: { Played: true } }))).toBe(false);
+    expect(isWatched(item({ Type: "Program", UserData: { Played: true } }))).toBe(false);
   });
 });
 
 describe("programCardTitle", () => {
   it("names the episode after the show", () => {
-    expect(programCardTitle(item({ Type: "Program", Name: "Show", EpisodeTitle: "Pilot", ChannelName: "Show" }))).toBe("Show - Pilot");
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", EpisodeTitle: "Pilot", ChannelName: "Channel 4" }))).toBe("Show - Pilot");
   });
 
-  it("falls back to the channel without an episode title", () => {
-    expect(programCardTitle(item({ Type: "Program", Name: "Show", ChannelName: "Channel 4" }))).toBe("Show - Channel 4");
+  it("never names the channel", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", ChannelName: "Channel 4" }))).toBe("Show");
+  });
+
+  it("gives the episode alone when the show is named for its channel", () => {
+    expect(programCardTitle(item({ Type: "Program", Name: "Show", EpisodeTitle: "Pilot", ChannelName: "Show" }))).toBe("Pilot");
   });
 
   it("never repeats the show name", () => {

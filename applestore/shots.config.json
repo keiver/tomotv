@@ -11,14 +11,15 @@
   "devices": {
     "iphone": {},
     "ipad": {},
-    "tv": {}
+    "tv": {},
+    "mac": {}
   },
   "shots": [
     {
       "id": "01-library",
       "title": "YOUR JELLYFIN\nLIBRARY",
       "spec": "live tv · movies · shows · music",
-      "devices": ["iphone", "ipad", "tv"],
+      "devices": ["iphone", "ipad", "tv", "mac"],
       "capture": {
         "path": "/"
       },
@@ -41,7 +42,7 @@
       "id": "02-player",
       "title": "THE PLAYER\nYOU KNOW",
       "spec": "pip · airplay · subtitles",
-      "devices": ["iphone", "ipad", "tv"],
+      "devices": ["iphone", "ipad", "tv", "mac"],
       "capture": {
         "path": "/player",
         "params": {
@@ -86,7 +87,7 @@
       "id": "03-info",
       "title": "PICK UP WHERE\nYOU STOPPED",
       "spec": "on every device",
-      "devices": ["iphone", "ipad", "tv"],
+      "devices": ["iphone", "ipad", "tv", "mac"],
       "capture": {
         "path": "/video-info",
         "params": {
@@ -113,7 +114,7 @@
       "id": "04-livetv",
       "title": "LIVE TV FROM\nYOUR TUNER",
       "spec": "live previews · groups · xmltv guides",
-      "devices": ["iphone", "ipad", "tv"],
+      "devices": ["iphone", "ipad", "tv", "mac"],
       "capture": {
         "path": "/live-tv"
       },
@@ -136,7 +137,7 @@
       "id": "05-downloads",
       "title": "DOWNLOAD IT\nWATCH OFFLINE",
       "spec": "an item or a whole folder",
-      "devices": ["iphone", "ipad"],
+      "devices": ["iphone", "ipad", "mac"],
       "capture": {
         "path": "/downloads"
       },
@@ -159,7 +160,7 @@
       "id": "06-quality",
       "title": "OPENS AT THE\nRIGHT QUALITY",
       "spec": "minimum buffering",
-      "devices": ["iphone", "ipad", "tv"],
+      "devices": ["iphone", "ipad", "tv", "mac"],
       "capture": {
         "path": "/settings"
       },
@@ -182,7 +183,7 @@
       "id": "07-connect",
       "title": "FINDS YOUR\nSERVER",
       "spec": "nothing to type",
-      "devices": ["iphone", "ipad", "tv"],
+      "devices": ["iphone", "ipad", "tv", "mac"],
       "capture": {
         "path": "/connect/servers"
       },
@@ -205,7 +206,7 @@
       "id": "08-search",
       "title": "SEARCH YOUR\nWHOLE SERVER",
       "spec": "title, genre, artist, year",
-      "devices": ["iphone", "ipad", "tv"],
+      "devices": ["iphone", "ipad", "tv", "mac"],
       "capture": {
         "path": "/search",
         "params": {
@@ -231,7 +232,7 @@
       "id": "09-filters",
       "title": "NARROW IT\nDOWN",
       "spec": "genre · year · favorites",
-      "devices": ["iphone", "ipad", "tv"],
+      "devices": ["iphone", "ipad", "tv", "mac"],
       "capture": {
         "path": "/filters",
         "params": {

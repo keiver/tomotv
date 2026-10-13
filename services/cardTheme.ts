@@ -28,9 +28,14 @@ export interface CardPalette {
   onAccent: string;
   /** The warm brown on an accent fill (white on a dark accent), where pure black vibrates. */
   ink: string;
+  /** The ambient canvas light: the accent as a pale veil. */
+  glow: string;
 }
 
-/** The brand gold's family exactly as constants/colors.ts has always drawn it. */
+/** The baked canvas's own barely-cool white (scripts/generate-ambient-background.py WHITE). */
+export const NEUTRAL_GLOW = "#DEE4F0";
+
+/** The brand gold's family exactly as constants/colors.ts has always drawn it; its canvas stays the neutral light. */
 const GOLD_PALETTE: CardPalette = {
   accent: COLORS.ACCENT,
   accentFocused: COLORS.ACCENT_FOCUSED,
@@ -39,6 +44,7 @@ const GOLD_PALETTE: CardPalette = {
   accentDeep: COLORS.ACCENT_DEEP,
   onAccent: COLORS.ON_ACCENT,
   ink: COLORS.ON_ACCENT_WARM,
+  glow: NEUTRAL_GLOW,
 };
 
 /**
@@ -56,14 +62,16 @@ export function derivePalette(accent: string): CardPalette {
     accentDeep: hsbToHex({ h, s: Math.min(1, s * 1.076), b: b * 0.89 }),
     onAccent: bestInk(accent, [COLORS.ON_ACCENT, COLORS.TEXT_PRIMARY]),
     ink: bestInk(accent, [COLORS.ON_ACCENT_WARM, COLORS.TEXT_PRIMARY]),
+    // Pale and near-bright like the neutral light, so the canvas whispers the hue instead of glowing it.
+    glow: hsbToHex({ h, s: Math.min(0.45, s * 0.45), b: 0.94 }),
   };
 }
 
 export const BUILT_IN_THEMES: readonly CardTheme[] = [
   { id: "gold", name: "", accent: COLORS.ACCENT },
-  { id: "blue", name: "", accent: "#92C0FF" },
-  { id: "green", name: "", accent: "#07E442" },
-  { id: "purple", name: "", accent: "#C9ACFF" },
+  { id: "blue", name: "", accent: "#4F99FF" },
+  { id: "green", name: "", accent: "#2BD96B" },
+  { id: "purple", name: "", accent: "#A97AFF" },
 ];
 
 export const DEFAULT_CARD_THEME: CardTheme = BUILT_IN_THEMES[0];

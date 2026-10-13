@@ -154,6 +154,9 @@ export interface JellyfinVideoItem {
   liveFallbackUrl?: string;
   // The server's HLS transcode of the channel, the rung below the engine.
   liveTranscodeUrl?: string;
+  // A channel built from the device's own tuner playlist parse: the server holds no item for it
+  // yet, so server-side writes (favorite, record) and the server lane are unavailable.
+  playlistPending?: boolean;
   ChannelNumber?: string;
   CurrentProgram?: JellyfinProgram | null;
   // A Live TV programme found by search (Type "Program"): its airing and its channel.
@@ -184,6 +187,7 @@ export interface JellyfinVideoItem {
   ParentId?: string; // Containing folder — sibling queue source for non-episode items
   SeasonName?: string;
   IndexNumber?: number;
+  IndexNumberEnd?: number; // Multi-episode files ("S01E01-E02"): the last episode the file holds
   ParentIndexNumber?: number;
   Artists?: string[]; // Audio items: performing artists (default DTO field, not Fields-gated)
   Album?: string; // Audio and Photo items: album name (a Photo's album is its folder)

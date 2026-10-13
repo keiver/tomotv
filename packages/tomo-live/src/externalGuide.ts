@@ -46,6 +46,9 @@ interface OpenGuide {
   from: number;
   to: number;
   index: GuideIndex;
+  /** Reads in flight on this token; a retired guide closes when the last one ends. */
+  readers: number;
+  retired: boolean;
 }
 
 interface Source {
@@ -104,9 +107,26 @@ function sourceFor(url: string): Source {
   return source;
 }
 
+/** Marks the guide done with; the token closes at once, or when its last in-flight read ends. */
+function retire(guide: OpenGuide): void {
+  guide.retired = true;
+  if (guide.readers === 0) closeGuide(guide.token).catch(() => {});
+}
+
 function close(source: Source): void {
-  if (source.open) closeGuide(source.open.token).catch(() => {});
+  if (source.open) retire(source.open);
   source.open = null;
+}
+
+/** Holds the token open across `read`, so a reopen landing meanwhile cannot close it mid-read. */
+async function readGuide<T>(guide: OpenGuide, read: () => Promise<T>): Promise<T> {
+  guide.readers++;
+  try {
+    return await read();
+  } finally {
+    guide.readers--;
+    if (guide.retired && guide.readers === 0) closeGuide(guide.token).catch(() => {});
+  }
 }
 
 /** Every guide's status by URL; a guide nothing has asked yet is absent. */
@@ -146,8 +166,19 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
   const { token, stats } = await loadGuide(fileUri, target, "external", 0);
   try {
     const channels = await guideChannels(token);
+    // The device-measurement line: parse and pre-fold cost, store footprint, at this guide's scale.
+    engineLog().info("External guide loaded", {
+      service: "ExternalGuide",
+      url: source.url,
+      channels: stats?.channels ?? channels.length,
+      programmes: stats?.programmes ?? null,
+      workMs: stats?.workMs ?? null,
+      foldMs: stats?.foldMs ?? null,
+      inflatedBytes: stats?.inflatedBytes ?? null,
+      footprintAfterBytes: stats?.footprintAfterBytes ?? null,
+    });
     setStatus(source, { state: "ready", channels: stats?.channels ?? channels.length, programmes: stats?.programmes ?? null, loadedAt: Date.now() });
-    return { token, from: target.from, to: target.to, index: buildGuideIndex(channels) };
+    return { token, from: target.from, to: target.to, index: buildGuideIndex(channels), readers: 0, retired: false };
   } catch (error) {
     closeGuide(token).catch(() => {});
     throw error;
@@ -167,11 +198,14 @@ async function ensureOpen(source: Source, windowMs: { from: number; to: number }
     pending = source.opening !== pending ? source.opening : null;
   }
   if (source.failedAt !== null && Date.now() - source.failedAt < FAILURE_TTL_MS) throw new Error("Guide open skipped after a recent failure.");
-  // A window before the open guide's start is the view going back: the load reaches a slack further back too.
-  const target = { from: startsBefore(source.open) ? windowMs.from - WINDOW_SLACK_MS : windowMs.from, to: windowMs.to + WINDOW_SLACK_MS };
+  // The load takes the union of the open window and the asked one (plus slack past the end, and
+  // further back when the view rewinds), so callers with different windows settle on one guide.
+  // The awaited pending opens above repopulate source.open: the control-flow narrowing to null is stale.
+  const open = source.open as OpenGuide | null;
+  const from = startsBefore(open) ? windowMs.from - WINDOW_SLACK_MS : windowMs.from;
+  const target = { from: Math.min(open?.from ?? from, from), to: Math.max(open?.to ?? 0, windowMs.to + WINDOW_SLACK_MS) };
   const epoch = source.epoch;
   const opening = (async () => {
-    close(source);
     try {
       const guide = await openFromUrl(source, target);
       // A reset, removal or refresh while this loaded retired it: its guide goes with it.
@@ -179,8 +213,11 @@ async function ensureOpen(source: Source, windowMs: { from: number; to: number }
         closeGuide(guide.token).catch(() => {});
         throw new StaleOpenError("Guide open was retired while it loaded.");
       }
+      // The outgoing guide serves its readers to the end; the token closes when the last one is done.
+      const previous = source.open;
       source.open = guide;
       source.failedAt = null;
+      if (previous) retire(previous);
       return guide;
     } catch (error) {
       if (error instanceof StaleOpenError) throw error;
@@ -256,6 +293,18 @@ export interface GuideListing {
   programme: GuideProgramme;
 }
 
+/** Match results per open guide, keyed by the request array's identity: a table-generation request
+ *  list stays one object across queries, so repeat searches skip re-folding every channel name. */
+const matchCache = new WeakMap<OpenGuide, WeakMap<readonly GuideChannelRequest[], ReturnType<typeof matchChannels>>>();
+
+function matchFor(guide: OpenGuide, requests: readonly GuideChannelRequest[]): ReturnType<typeof matchChannels> {
+  let byRequests = matchCache.get(guide);
+  if (!byRequests) matchCache.set(guide, (byRequests = new WeakMap()));
+  let found = byRequests.get(requests);
+  if (!found) byRequests.set(requests, (found = matchChannels(guide.index, requests)));
+  return found;
+}
+
 /**
  * Programmes for the given channels from the guides at `urls`, asked in order. A guide that fails
  * logs and gives nothing, and the next guide is still asked. A refresh distinguishes a successful
@@ -265,6 +314,7 @@ export async function fetchExternalListingWindow(
   urls: readonly string[],
   channels: readonly GuideChannelRequest[],
   windowMs: { from: number; to: number },
+  options: { openOnly?: boolean } = {},
 ): Promise<{ listings: GuideListing[]; failedChannelIds: string[] }> {
   prune(urls);
   if (urls.length === 0 || channels.length === 0) return { listings: [], failedChannelIds: [] };
@@ -279,8 +329,15 @@ export async function fetchExternalListingWindow(
     let guide: OpenGuide | null = null;
     let attempted = remaining.map((channel) => channel.channelId);
     try {
-      guide = await ensureOpen(source, windowMs);
-      const matches = matchChannels(guide.index, remaining);
+      if (options.openOnly) {
+        // A guide not open over the window is passed over: this read never waits on a download or a parse.
+        const open = source.open;
+        if (!open || open.from > windowMs.from || open.to < windowMs.to) continue;
+        guide = open;
+      } else {
+        guide = await ensureOpen(source, windowMs);
+      }
+      const matches = matchFor(guide, remaining);
       attempted = Array.from(matches.keys());
       for (const channel of remaining) source.asked.set(channel.channelId, channel.name);
       for (const [channelId, { via }] of matches) source.matched.set(channelId, { channelId, name: names.get(channelId) ?? "", via });
@@ -289,7 +346,8 @@ export async function fetchExternalListingWindow(
       if (matches.size === 0) continue;
       const byGuideId = new Map<string, string[]>();
       for (const [channelId, { guideId }] of matches) byGuideId.set(guideId, [...(byGuideId.get(guideId) ?? []), channelId]);
-      const programmes = await guideProgrammes(guide.token, Array.from(byGuideId.keys()), windowMs);
+      const open = guide;
+      const programmes = await readGuide(open, () => guideProgrammes(open.token, Array.from(byGuideId.keys()), windowMs));
       const covered = new Set<string>();
       for (const programme of programmes) {
         for (const channelId of byGuideId.get(programme.channel) ?? []) {
@@ -301,14 +359,29 @@ export async function fetchExternalListingWindow(
       remaining = remaining.filter((channel) => !covered.has(channel.channelId));
     } catch (error) {
       for (const channelId of attempted) failed.add(channelId);
-      // A read of an open guide failed (the native store closed it): the next fetch reopens it.
-      if (guide && source.open === guide) source.open = null;
+      // A read of an open guide failed (the native store lost it): the next fetch reopens it.
+      if (guide && source.open === guide) close(source);
       engineLog().warn("External guide load failed", error, { service: "ExternalGuide", url });
     }
   }
   // A later guide with listings answers for a failed source. An empty fallback cannot tell us
   // whether the failed source removed its programmes, so retain those channels until a good read.
   return { listings: result, failedChannelIds: remaining.filter((channel) => failed.has(channel.channelId)).map((channel) => channel.channelId) };
+}
+
+/**
+ * The programme airing at `atMs` on each channel, from the guides at `urls` already open, asked in
+ * order: the latest programme already started. Channels nothing airs on are simply absent.
+ */
+export async function fetchExternalAiring(urls: readonly string[], channels: readonly GuideChannelRequest[], atMs: number): Promise<{ listings: GuideListing[]; failedChannelIds: string[] }> {
+  const { listings, failedChannelIds } = await fetchExternalListingWindow(urls, channels, { from: atMs, to: atMs + MINUTE_MS }, { openOnly: true });
+  const airing = new Map<string, GuideListing>();
+  for (const listing of listings) {
+    if (listing.programme.start > atMs) continue;
+    const held = airing.get(listing.channelId);
+    if (!held || listing.programme.start > held.programme.start) airing.set(listing.channelId, listing);
+  }
+  return { listings: [...airing.values()], failedChannelIds };
 }
 
 /**
@@ -332,16 +405,17 @@ export async function searchExternalListings(
     let guide: OpenGuide | null = null;
     try {
       guide = await ensureOpen(source, windowMs);
-      const matches = matchChannels(guide.index, remaining);
+      const matches = matchFor(guide, remaining);
       if (matches.size === 0) continue;
       const byGuideId = new Map<string, string[]>();
       for (const [channelId, { guideId }] of matches) byGuideId.set(guideId, [...(byGuideId.get(guideId) ?? []), channelId]);
-      for (const programme of await searchGuide(guide.token, Array.from(byGuideId.keys()), windowMs, query, limit)) {
+      const open = guide;
+      for (const programme of await readGuide(open, () => searchGuide(open.token, Array.from(byGuideId.keys()), windowMs, query, limit))) {
         for (const channelId of byGuideId.get(programme.channel) ?? []) result.push({ channelId, programme });
       }
       remaining = remaining.filter((channel) => !matches.has(channel.channelId));
     } catch (error) {
-      if (guide && source.open === guide) source.open = null;
+      if (guide && source.open === guide) close(source);
       engineLog().warn("External guide search failed", error, { service: "ExternalGuide", url });
     }
   }

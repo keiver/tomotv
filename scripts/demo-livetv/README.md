@@ -49,6 +49,8 @@ scp -i ~/.ssh/tomotv_deploy "Spring.mp4" "$DEMO_SSH:/opt/tomotv/media/Live TV/Sp
 
 Add a channel: append to `lineup.json` (unique `id`, `number`, `port` 91NN but never 9109, the guide's, codec-uniform sources, `category` Movie / Series / Kids / Sports / News for Jellyfin's genre rows) and draw `logos/<id>.svg`, rerun.
 
+A negative slot is a guide gap: the stream keeps playing, the guide lists nothing for those minutes. Empty `slots` silence a channel's guide entirely (Utopia). Elono's source is `Live TV/Elono.mp4`, an 83 s reel of 2-12 s clips from twelve episodes' full-story renders, re-encoded to the rig format and concatenated.
+
 ## Check on the box
 
 ```

@@ -42,6 +42,9 @@ app-example
 # generated native folders
 /ios
 /tvos
+/macos
+/.prebuild-mac-backup
+/.native-build.lock
 /android
 /TomoTV.xcworkspace
 

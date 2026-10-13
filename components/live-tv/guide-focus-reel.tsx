@@ -36,7 +36,7 @@ interface GuideFocusReelProps {
   viewportWidth?: number;
   /** The row holds focus (its cell or its channel card): full strength and the one-shot drift. */
   active: boolean;
-  /** A programme cell's variant: smaller tiles, under the cell's own lines. */
+  /** A programme cell's variant: a flat strip under the cell's own lines, no stair. */
   compact?: boolean;
 }
 
@@ -81,7 +81,7 @@ function Tile({
 /**
  * The channel's last burst unrolled on its row as an overlapping stair, dressed as the cell's one
  * programme: resting faded as texture, brightening while the row holds focus. History, not "now":
- * the cell's corner box says so, with the sample's clock time in it.
+ * the stand-in's seen line says so, with the sample's clock time in it.
  */
 export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, viewportWidth = 0, active, compact = false }: GuideFocusReelProps) {
   const subscribe = useCallback((listener: () => void) => subscribeLiveFrame(channelId, listener), [channelId]);
@@ -92,7 +92,7 @@ export function GuideFocusReel({ channelId, left, width, cellHeight, scrollX, vi
   const pinStyle = useMemo(() => ({ transform: [{ translateX: pinOffset(scrollX, left, width, reelWidth) }] }), [scrollX, left, width, reelWidth]);
   if (!reel || reel.frames.length === 0) return null;
   // Phone rows are short: 4pt off the strip keeps it clear of the cell's last text line.
-  const tileHeight = Math.round(cellHeight * (compact ? 0.42 : IS_TV ? 0.55 : 0.5)) - (IS_TV ? 0 : 4);
+  const tileHeight = Math.round(cellHeight * (IS_TV ? 0.55 : 0.5)) - (IS_TV ? 0 : 4);
   const tileWidth = Math.round(tileHeight * (16 / 9));
   const room = Math.max(0, (viewportWidth > 0 ? Math.min(width, viewportWidth) : width) - PAD_LEFT);
   const tiles = reelTiles(reel.frames.length, tileWidth, tileHeight, !compact);

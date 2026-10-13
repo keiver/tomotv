@@ -16,6 +16,8 @@ interface GuideGroupCellProps {
   label: string;
   selected: boolean;
   onPress: () => void;
+  /** Rounds the bottom-right corner to the card's it ends in; the focus ring follows. */
+  bottomRightRadius?: number;
 }
 
 /**
@@ -23,11 +25,12 @@ interface GuideGroupCellProps {
  * so the row reads as one surface split by the grid's lines. The picked group wears a green wash and a checkmark;
  * focus draws the program cells' accent ring.
  */
-export const GuideGroupCell = forwardRef<View, GuideGroupCellProps>(function GuideGroupCell({ label, selected, onPress }, ref) {
+export const GuideGroupCell = forwardRef<View, GuideGroupCellProps>(function GuideGroupCell({ label, selected, onPress, bottomRightRadius }, ref) {
   const [focused, setFocused] = useState(false);
   const { accent } = useCardPalette();
+  const rounded = bottomRightRadius !== undefined && { borderBottomRightRadius: bottomRightRadius };
   return (
-    <View style={[styles.tile, selected && styles.tileSelected]}>
+    <View style={[styles.tile, selected && styles.tileSelected, rounded, rounded && styles.tileClip]}>
       <Pressable
         ref={ref}
         onPress={onPress}
@@ -39,7 +42,7 @@ export const GuideGroupCell = forwardRef<View, GuideGroupCellProps>(function Gui
         accessibilityLabel={label}
         tvParallaxProperties={{ enabled: false }}
         style={styles.hit}>
-        {focused ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
+        {focused ? <View style={[styles.focusRing, rounded, { borderColor: accent }]} pointerEvents="none" /> : null}
         {/* Kept in the native tree: flattened, the optional checkmark renumbers the focusable's children. */}
         <View style={styles.content} collapsable={false}>
           <Text style={styles.label} numberOfLines={1}>
@@ -61,6 +64,9 @@ const styles = StyleSheet.create({
   },
   tileSelected: {
     backgroundColor: WASH_SELECTED,
+  },
+  tileClip: {
+    overflow: "hidden",
   },
   hit: {
     flex: 1,

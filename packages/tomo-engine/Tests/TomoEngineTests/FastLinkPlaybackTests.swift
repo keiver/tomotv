@@ -139,11 +139,18 @@ final class FastLinkPlaybackTests: XCTestCase {
         t0.m3u8
 
         """
+        let lock = NSLock()
+        var held = false
         try checkPlayback(master: master, timeout: 10) { source, _ in
+            lock.lock()
+            let first = !held
+            held = true
+            lock.unlock()
+            guard first else { return source.segmentResponse(0) }
             source.stateLock.lock()
             source.renditions.first?.completed.remove(0)
             source.stateLock.unlock()
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
                 source.stateLock.lock()
                 source.renditions.first?.completed.insert(0)
                 source.stateLock.unlock()
@@ -182,7 +189,12 @@ final class FastLinkPlaybackTests: XCTestCase {
         let initializer = try XCTUnwrap(source.initSegmentURL())
         let lock = NSLock()
         var fallbackRequests: [String] = []
+        var requests: [String] = []
+        let started = Date()
         let server = LocalHTTPServer { path in
+            lock.lock()
+            requests.append(String(format: "%.3f %@", Date().timeIntervalSince(started), path))
+            lock.unlock()
             switch path {
             case "/master.m3u8":
                 return .data(Data(master.utf8), contentType: "application/vnd.apple.mpegurl")
@@ -213,10 +225,15 @@ final class FastLinkPlaybackTests: XCTestCase {
         XCTAssertGreaterThan(player.currentTime().seconds, 0.5, "AVPlayer did not advance: \(String(describing: item.error))")
         lock.lock()
         let requested = fallbackRequests
+        let timeline = requests
         lock.unlock()
         XCTAssertTrue(requested.isEmpty, "fast link requested fallback: \(requested)")
         for event in item.accessLog()?.events ?? [] {
             NSLog("[FastLinkPlayback] playlist=%@ observed=%.0f indicated=%.0f", event.uri ?? "", event.observedBitrate, event.indicatedBitrate)
+        }
+        NSLog("[FastLinkPlayback] requests %@", timeline.joined(separator: ", "))
+        for event in item.errorLog()?.events ?? [] {
+            NSLog("[FastLinkPlayback] error %ld %@ at %@", event.errorStatusCode, event.errorComment ?? "", event.uri ?? "")
         }
     }
 }

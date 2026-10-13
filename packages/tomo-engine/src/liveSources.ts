@@ -21,6 +21,11 @@ export interface LoadStats {
 export interface GuideLoadStats {
   channels: number;
   programmes: number;
+  /** Parse work, search-text pre-fold and store footprint, when the module reports them. */
+  workMs?: number;
+  foldMs?: number;
+  inflatedBytes?: number;
+  footprintAfterBytes?: number;
 }
 
 export interface GuideProgramme {
@@ -50,13 +55,24 @@ export interface GuideChannel {
 export async function loadGuide(url: string, windowMs: { from: number; to: number }, pool: "external", maxOpen?: number): Promise<{ token: string; stats: GuideLoadStats | null }> {
   const result = (await liveSourcesModule().loadGuide({ url, from: windowMs.from, to: windowMs.to, pool, ...(maxOpen !== undefined ? { maxOpen } : {}) })) as {
     token?: unknown;
-    stats?: { channels?: unknown; programmes?: unknown };
+    stats?: { channels?: unknown; programmes?: unknown; workMs?: unknown; foldMs?: unknown; inflatedBytes?: unknown; footprintAfterBytes?: unknown };
   } | null;
   if (typeof result?.token !== "string") throw new Error("The live source module returned no guide.");
   const stats = result.stats;
+  const extra = (value: unknown) => (typeof value === "number" ? value : undefined);
   return {
     token: result.token,
-    stats: typeof stats?.channels === "number" && typeof stats?.programmes === "number" ? { channels: stats.channels, programmes: stats.programmes } : null,
+    stats:
+      typeof stats?.channels === "number" && typeof stats?.programmes === "number"
+        ? {
+            channels: stats.channels,
+            programmes: stats.programmes,
+            workMs: extra(stats.workMs),
+            foldMs: extra(stats.foldMs),
+            inflatedBytes: extra(stats.inflatedBytes),
+            footprintAfterBytes: extra(stats.footprintAfterBytes),
+          }
+        : null,
   };
 }
 
@@ -111,7 +127,7 @@ export interface PlaylistGroup {
 export interface PlaylistEntry {
   name: string;
   url: string;
-  /** The raw #EXTINF line. */
+  /** The raw URL line, `|headers` suffix included. */
   line: string;
   hasExtInf: boolean;
   tvgId: string | null;

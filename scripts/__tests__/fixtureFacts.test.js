@@ -134,5 +134,7 @@ describe("fixture facts", () => {
       ["Container tags", "comment=a | b"],
     ]);
     expect(evaluate(`cell("a | b\\n c")`)).toBe("a \\| b c");
+    // A backslash is escaped first, so one before a pipe cannot cancel the pipe's own escape.
+    expect(evaluate(`cell("a\\\\b|c")`)).toBe("a\\\\b\\|c");
   });
 });

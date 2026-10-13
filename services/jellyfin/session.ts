@@ -17,6 +17,7 @@ import { clearFavoriteIdsCache } from "@/services/favoritesCache";
 import { clearPlayedCache } from "@/services/playedCache";
 import { clearRequestCache } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
+import { uuid } from "expo-modules-core";
 import * as SecureStore from "expo-secure-store";
 import { accountTokenKey, API_TIMEOUTS, CLIENT_NAME, CLIENT_VERSION, DEFAULT_QUALITY, DEVICE_NAME, OLD_STORAGE_KEYS, QUALITY_PRESETS, QualityMode, QualityPreset, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
@@ -280,13 +281,9 @@ export async function refreshConfig(): Promise<void> {
   await getConfig(true);
 }
 
-/** Generate a UUID-like random ID (not cryptographically secure; correlation only). */
+/** A version 4 UUID from the platform's generator (Expo's native `uuidv4`). */
 function generateUuid(): string {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  return uuid.v4();
 }
 
 /**

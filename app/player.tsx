@@ -38,6 +38,7 @@ import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { formatErrorRef } from "@/utils/errorIds";
+import { formatEpisodeNumber } from "@/utils/seasonEpisode";
 import { APP_BUILD_LABEL } from "@/constants/app";
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
@@ -427,7 +428,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       return {
         id: item.Id,
         title: cleanLabel(item.Name),
-        subtitle: [cleanLabel(item.SeriesName), item.Type === "Episode" && item.IndexNumber != null ? t("player.episodeNum").replace("{num}", String(item.IndexNumber)) : null]
+        subtitle: [cleanLabel(item.SeriesName), item.Type === "Episode" && item.IndexNumber != null ? t("player.episodeNum").replace("{num}", formatEpisodeNumber(item) ?? "") : null]
           .filter(Boolean)
           .join(" · "),
         ...(imageUri ? { imageUri } : {}),
@@ -525,7 +526,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     const timer = setTimeout(() => setWindowAttempt((n) => n + 1), Math.max(0, airingEndMs - Date.now()) + AIRING_END_SLACK_MS);
     return () => clearTimeout(timer);
   }, [airingEndMs]);
-  const recordKey = liveChannel ? (currentProgramId ?? `channel:${videoId}`) : undefined;
+  // A channel the server has not ingested has no item a timer could name.
+  const recordKey = liveChannel && !liveChannel.playlistPending ? (currentProgramId ?? `channel:${videoId}`) : undefined;
   // Keyed by target: a channel flip must not show the previous target's timer.
   const [timerResult, setTimerResult] = useState<{ key: string; timer: JellyfinTimer | null } | null>(null);
   const recordTimer = recordKey && timerResult?.key === recordKey ? timerResult.timer : undefined;

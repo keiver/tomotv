@@ -1,4 +1,4 @@
-import { formatIndexBadge, formatSeasonEpisode, orderSortNameTies, parseSeasonEpisode } from "../seasonEpisode";
+import { formatEpisodeNumber, formatIndexBadge, formatSeasonEpisode, orderSortNameTies, parseSeasonEpisode } from "../seasonEpisode";
 
 describe("formatSeasonEpisode", () => {
   it("prefers server metadata over the name", () => {
@@ -27,6 +27,29 @@ describe("formatSeasonEpisode", () => {
 
   it("zero-pads season and episode", () => {
     expect(formatSeasonEpisode({ Name: "n", Path: "", ParentIndexNumber: 3, IndexNumber: 7 })).toBe("S03E07");
+  });
+
+  describe("a multi-episode file", () => {
+    const double = { Name: "Pilot", Path: "/tv/Show/Show S01E01-E02.mkv", ParentIndexNumber: 1, IndexNumber: 1, IndexNumberEnd: 2, Type: "Episode" as const };
+
+    it("tags the episode range the server reports", () => {
+      expect(formatSeasonEpisode(double)).toBe("S01E01-E02");
+      expect(formatIndexBadge(double)).toEqual({ kind: "seasonEpisode", label: "S01E01-E02" });
+    });
+
+    it("tags the range without a season", () => {
+      expect(formatSeasonEpisode({ ...double, ParentIndexNumber: undefined })).toBe("E01-E02");
+    });
+
+    it("ignores an end that does not extend past the first episode", () => {
+      expect(formatSeasonEpisode({ ...double, IndexNumberEnd: 1 })).toBe("S01E01");
+    });
+
+    it("spells the range for the player subtitle", () => {
+      expect(formatEpisodeNumber(double)).toBe("1-2");
+      expect(formatEpisodeNumber({ ...double, IndexNumberEnd: undefined })).toBe("1");
+      expect(formatEpisodeNumber({ ...double, IndexNumber: undefined })).toBeNull();
+    });
   });
 
   it("accepts season 0 (specials)", () => {

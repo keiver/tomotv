@@ -115,16 +115,16 @@ describe("Streaming quality", () => {
     expect(row(tree, "Auto").props.subtitle).toBe("Adjusts to your connection");
   });
 
-  it("shows five rows at a time, keeping all presets scrollable and the footer outside the list", async () => {
+  it("shows three rows at a time, keeping all presets scrollable and the footer outside the list", async () => {
     const tree = await mount();
     const list = tree.root.findAllByType(ScrollView).find((node) => node.props.onContentSizeChange)!;
-    expect(StyleSheet.flatten(list.props.style).height).toBe(QUALITY_ROW_HEIGHT * 5);
+    expect(StyleSheet.flatten(list.props.style).height).toBe(QUALITY_ROW_HEIGHT * 3);
     expect(list.findAll((node) => typeof node.type === "string" && String(node.props.testID ?? "").startsWith("row:"))).toHaveLength(6);
     expect(list.findAllByType(SectionFooter)).toHaveLength(0);
 
-    // Larger text changes row height without changing the five-row cap.
+    // Larger text changes row height without changing the three-row cap.
     act(() => list.props.onContentSizeChange(400, 6 * 90));
-    expect(StyleSheet.flatten(list.props.style).height).toBe(5 * 90);
+    expect(StyleSheet.flatten(list.props.style).height).toBe(3 * 90);
   });
 
   it("saves a press at once and moves the tick", async () => {

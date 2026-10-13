@@ -1,6 +1,7 @@
 import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
+import { IS_MAC } from "@/utils/hostEnvironment";
 import { BlurView } from "expo-blur";
 import React from "react";
 import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
@@ -15,6 +16,8 @@ const FIT_MAX_WIDTH = { center: 640, bottom: 600 } as const;
 /** iPad's centred card stops short of the screen's edges; a longer panel scrolls inside it. */
 const FIT_MAX_HEIGHT = { center: 900, bottom: Infinity } as const;
 const FIT_MARGIN = 8;
+/** A Mac window is short and its title-bar tabs sit on the content's top edge: the card keeps a window-proportional gap. */
+const MAC_WINDOW_SHARE = 0.85;
 
 export function padSheetWidth(windowWidth: number): number {
   return Math.min(Math.round(windowWidth * PAD_SHEET_RATIO), PAD_SHEET_MAX_WIDTH);
@@ -24,8 +27,9 @@ export function padFitWidth(windowWidth: number, insetsX: number, fit: "center" 
   return Math.min(windowWidth - FIT_MARGIN * 2 - insetsX, FIT_MAX_WIDTH[fit]);
 }
 
-export function padFitMaxHeight(windowHeight: number, insetTop: number, insetBottom: number, fit: "center" | "bottom"): number {
-  return Math.min(windowHeight - insetTop - Math.max(insetBottom, FIT_MARGIN) - FIT_MARGIN * 2, FIT_MAX_HEIGHT[fit]);
+export function padFitMaxHeight(windowHeight: number, insetTop: number, insetBottom: number, fit: "center" | "bottom", isMac: boolean = IS_MAC): number {
+  const inWindow = windowHeight - insetTop - Math.max(insetBottom, FIT_MARGIN) - FIT_MARGIN * 2;
+  return Math.min(isMac && fit === "center" ? Math.round(windowHeight * MAC_WINDOW_SHARE) : inWindow, inWindow, FIT_MAX_HEIGHT[fit]);
 }
 
 interface PadSheetProps {

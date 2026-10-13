@@ -37,6 +37,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { commandFailure, redactTestOutput } from "./lib/test-environment.mjs";
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -84,7 +85,7 @@ const opt = (name) => {
 };
 
 function fail(msg) {
-  console.error(`\n✗ ${msg}`);
+  console.error(`\n✗ ${redactTestOutput(String(msg), process.env)}`);
   process.exit(1);
 }
 
@@ -427,12 +428,17 @@ export function describeTarget(target) {
 }
 
 /** Opens a deep link. A device has no `openurl`, so the app is relaunched onto it. */
+/** A link can carry a session token, so a failed open is rethrown without the command line. */
 export async function openDeepLink(env, target, url) {
   if (target.kind === "sim") {
-    await simctl(["openurl", target.udid, url]);
+    await simctl(["openurl", target.udid, url]).catch((error) => {
+      throw commandFailure("simctl openurl", error, [url]);
+    });
     return;
   }
-  await devicectl(["device", "process", "launch", "--device", target.name, "--terminate-existing", "--payload-url", url, env.BUNDLE_ID]);
+  await devicectl(["device", "process", "launch", "--device", target.name, "--terminate-existing", "--payload-url", url, env.BUNDLE_ID]).catch((error) => {
+    throw commandFailure("devicectl process launch", error, [url]);
+  });
 }
 
 /** No devicectl equivalent: every device launch above carries --terminate-existing. */
@@ -933,7 +939,11 @@ async function validateSubtitleSync(masterUrl) {
   // Jellyfin's gap-seek (kills the from-zero ffmpeg mid-probe -> transient 5XX
   // on segment 0, server-logged as "A task was canceled"). A delayed retry
   // lands after the seek settles and spawns a fresh from-zero job.
-  const probeSegment = () => exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", probeTarget], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+  // The target can be a server URL carrying the session's key: a failure names ffprobe, not its arguments.
+  const probeSegment = () =>
+    exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-i", probeTarget], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }).catch((error) => {
+      throw commandFailure("ffprobe", error, [probeTarget]);
+    });
   const { stdout } = await probeSegment().catch(async () => {
     await new Promise((r) => setTimeout(r, 4000));
     return probeSegment();
@@ -1068,6 +1078,14 @@ async function runItem(env, target, item, resolved, updateBaselines, probe) {
 
   const modeEvent = events.find((e) => e.event === "mode");
   result.actual = modeEvent?.mode ?? "(no mode event)";
+  // Level-pinned items that expect the lane to be refused judge the app's error code alone.
+  if (item.expect?.errorId) {
+    const code = events.find((e) => e.event === "errorCode")?.code;
+    result.actual = code ?? result.actual;
+    result.validation = code === item.expect.errorId ? "ok" : "FAIL";
+    if (code !== item.expect.errorId) result.problems.push(`expected error ${item.expect.errorId}, app answered ${code ?? "no errorCode event"}`);
+    return finish(env, target, result);
+  }
   if (!modeEvent) {
     // Errors without a mode event are the common case and they name the cause:
     // a 404 here means the app is signed in to a DIFFERENT server than
@@ -1375,13 +1393,21 @@ async function main() {
   const probe = { listener, url: `http://${host}:${listener.port}/probe` };
   console.log(`Probe:     ${probe.url}`);
 
+  // The run assumes the default Server transcoding level; a device carries its
+  // owner's. dev-prefs sets it and answers the previous value, restored below.
+  const priorTranscoding = await applyServerTranscoding(env, target, probe, "linkOrFile");
+  if (priorTranscoding && priorTranscoding !== "linkOrFile") console.log(`Server transcoding: linkOrFile for the run (device had ${priorTranscoding})`);
+
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-playback-"));
 
   const results = [];
   for (const item of items) {
     console.log(`\n▶ ${item.id} ${item.title} (expect ${item.mode}, play ${item.playSeconds}s)`);
     const itemWork = fs.mkdtempSync(path.join(work, `${item.id}-`));
+    // An item that pins its own Server transcoding level runs under it; the run's level returns after.
+    if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, item.serverTranscoding);
     const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, probe);
+    if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, "linkOrFile");
     const received = listener.events(ids.get(item.title).id);
     if (received.length) {
       r.probePath = path.join(itemWork, PROBE_FILENAME);
@@ -1389,6 +1415,9 @@ async function main() {
     }
     results.push(r);
     console.log(r.problems.length ? `  ✗ ${r.problems.join("\n    ")}` : `  ✓ mode=${r.actual} pos=${r.position}s validation=${r.validation}`);
+    if (r.problems.some((p) => p.includes("Server transcoding is off"))) {
+      fail(`${item.id}: the app's Server transcoding setting blocks this run and dev-prefs could not set it; set Settings > Streaming > Server transcoding to "When needed" and rerun`);
+    }
   }
 
   const failed = results.filter((r) => r.problems.length);
@@ -1414,8 +1443,32 @@ async function main() {
     console.warn(`fixture inventory not written: ${e.message}`);
   }
 
+  if (priorTranscoding && priorTranscoding !== "linkOrFile") {
+    await applyServerTranscoding(env, target, probe, priorTranscoding).catch(() => {});
+    console.log(`Server transcoding restored: ${priorTranscoding}`);
+  }
   listener.close();
   if (failed.length) process.exit(1);
+}
+
+/**
+ * Sets Settings > Streaming > Server transcoding through the dev-prefs deep link and
+ * answers the level the app had; null on a build without dev routes.
+ */
+async function applyServerTranscoding(env, target, probe, level) {
+  probe.listener.reset();
+  await openDeepLink(env, target, `tomotv://dev-prefs?serverTranscoding=${level}&probe=${encodeURIComponent(probe.url)}`);
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const reply = probe.listener.events("dev-prefs")[0];
+    if (reply) {
+      probe.listener.reset();
+      return reply.previous?.serverTranscoding ?? null;
+    }
+    await probe.listener.next(500);
+  }
+  console.warn("dev-prefs answered nothing (release build?); the run keeps the device's Server transcoding setting");
+  return null;
 }
 
 // Imported by scripts/transcode-bench.mjs for its helpers; only the CLI runs the suite.

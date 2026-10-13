@@ -1,6 +1,7 @@
 import { conversionTracks } from "@/services/downloads/conversionTracks";
 import { downloadRungs, estimatedConvertedBytes, type ConversionRung } from "@/services/downloads/convert";
 import { downloadManager } from "@/services/downloads/manager";
+import { withManifestBatch } from "@/services/downloads/manifest";
 import { DISK_HEADROOM_BYTES, downloadsSupported, sizeOf } from "@/services/downloads/paths";
 import { blockedSizesNote, showSizeSheet, sizeChoice } from "@/services/downloads/sizeSheet";
 import { fetchPlaylistDownloadables, fetchRecursiveDownloadables, isPhoto } from "@/services/jellyfinApi";
@@ -119,8 +120,9 @@ export function useFolderDownload() {
         // opens the set rather than leaving it collapsed among the rest.
         router.push({ pathname: "/downloads", params: { highlight: folder.Id } });
 
-        // Queued in order; the manager runs two at a time and holds the rest.
-        void (async () => {
+        // Queued in order; the manager runs two at a time and holds the rest. One manifest
+        // write for the whole set: per-item writes serialize the growing file N times over.
+        void withManifestBatch(async () => {
           for (const item of pending) {
             try {
               // Tagged with the container, so the Downloads screen shows one row for the
@@ -131,7 +133,7 @@ export function useFolderDownload() {
               logger.warn("Could not queue a folder item", error, { service: "Downloads", itemId: item.Id });
             }
           }
-        })();
+        });
       };
 
       const body = t(pending.length === 1 ? "downloads.chooseSizeItem" : "downloads.chooseSizeItems")

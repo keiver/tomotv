@@ -14,11 +14,10 @@ import { API_TIMEOUTS, INCLUDED_LOCATION_TYPES, FACET_PREFIX_MIN_CHARS } from ".
 import { getAuthHeader, getConfig, JellyfinConfig } from "./session";
 import { requestLibraryItems } from "./items";
 import { fetchLibraryArtists, fetchLibraryGenres } from "./facets";
-import { fetchTunerData, type TunerData } from "./tunerGroups";
+import { fetchTunerData, guideChannelRequests, type TunerData } from "./tunerGroups";
 import { fetchChannelOrder } from "./liveTv";
 import { activeGuideUrls, searchExternalPrograms } from "@/services/externalGuide";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
-import type { GuideChannelRequest } from "@/utils/guideMatch";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
 import { liveTvSearchHorizon, liveTvSearchIndex, liveTvSearchIndexVersion } from "./liveTvSearchIndex";
 
@@ -113,6 +112,34 @@ function parseYearsFromQuery(query: string): { term: string; years: number[] } {
 }
 
 /**
+ * The terms of a chained query: "veguitas + animation" asks for what either finds. Only a "+"
+ * standing alone chains, so "Canal+" stays one term; an unfinished chain drops its "+".
+ */
+export function chainTerms(query: string): string[] {
+  const seen = new Set<string>();
+  return ` ${query} `
+    .split(/\s\+(?=\s)/)
+    .map((term) => term.trim())
+    .filter((term) => term && !seen.has(foldText(term)) && seen.add(foldText(term)));
+}
+
+/** Each term's cards joined a card from each in turn, so no term crowds another out; each card once. */
+export function joinTermResults(lists: readonly (readonly JellyfinVideoItem[])[]): JellyfinVideoItem[] {
+  const seen = new Set<string>();
+  const joined: JellyfinVideoItem[] = [];
+  const longest = Math.max(0, ...lists.map((list) => list.length));
+  for (let i = 0; i < longest; i++) {
+    for (const list of lists) {
+      const item = list[i];
+      if (!item || seen.has(item.Id)) continue;
+      seen.add(item.Id);
+      joined.push(item);
+    }
+  }
+  return joined;
+}
+
+/**
  * Match words/phrases of a search term against the server's genre and artist names.
  * A word may match a name exactly ("comedy" → Comedy) or as a prefix ("entert" →
  * Entertainment, min 3 chars) so results appear while the name is still being typed;
@@ -199,16 +226,17 @@ function parseFacetsFromQuery(term: string, genreNames: string[], artists: Jelly
 
 /**
  * Build the genre/artist search requests for a term by matching its words against the
- * server's genre and artist names. Returns [] when nothing matches. A facet-list fetch
- * failure degrades to title-only search rather than failing the whole search.
+ * server's genre and artist names, each from its own offset; a source with no offset is not
+ * asked. Returns nothing when nothing matches. A facet-list fetch failure degrades to
+ * title-only search rather than failing the whole search.
  */
 async function buildFacetSearchRequests(
   config: JellyfinConfig,
   term: string,
   years: number[],
-  { startIndex, limit }: { startIndex: number; limit: number },
-): Promise<Promise<{ items: JellyfinVideoItem[]; total?: number }>[]> {
-  if (!term) return [];
+  { offsets, limit }: { offsets: Omit<SearchCursor, "title">; limit: number },
+): Promise<Partial<Record<FacetSource, Promise<{ items: JellyfinVideoItem[]; total?: number }>>>> {
+  if (!term || (offsets.genre === undefined && offsets.artist === undefined)) return {};
 
   const [genreNames, artists] = await Promise.all([
     fetchLibraryGenres().catch((error) => {
@@ -222,7 +250,7 @@ async function buildFacetSearchRequests(
   ]);
 
   const { term: leftover, genres, artistIds } = parseFacetsFromQuery(term, genreNames, artists);
-  if (genres.length === 0 && artistIds.length === 0) return [];
+  if (genres.length === 0 && artistIds.length === 0) return {};
 
   logger.debug("Search facets matched", {
     service: "JellyfinAPI",
@@ -232,20 +260,19 @@ async function buildFacetSearchRequests(
   });
 
   const shared = {
-    startIndex,
     limit,
     searchTerm: leftover || undefined,
     years: years.length > 0 ? years : undefined,
     timeoutMs: 15000,
   };
 
-  const requests: Promise<{ items: JellyfinVideoItem[]; total?: number }>[] = [];
-  if (genres.length > 0) {
-    requests.push(requestLibraryItems(config, { ...shared, genres, includeAllTypes: true, includeSeries: true }));
+  const requests: Partial<Record<FacetSource, Promise<{ items: JellyfinVideoItem[]; total?: number }>>> = {};
+  if (genres.length > 0 && offsets.genre !== undefined) {
+    requests.genre = requestLibraryItems(config, { ...shared, startIndex: offsets.genre, genres, includeAllTypes: true, includeSeries: true });
   }
-  if (artistIds.length > 0) {
+  if (artistIds.length > 0 && offsets.artist !== undefined) {
     // Matched genres also constrain the artist query ("queen rock" → Queen's rock items)
-    requests.push(requestLibraryItems(config, { ...shared, artistIds, genres: genres.length > 0 ? genres : undefined }));
+    requests.artist = requestLibraryItems(config, { ...shared, startIndex: offsets.artist, artistIds, genres: genres.length > 0 ? genres : undefined });
   }
   return requests;
 }
@@ -306,6 +333,33 @@ async function fetchSeriesEpisodes(config: JellyfinConfig, seriesId: string, ser
   }
 }
 
+type FacetSource = "genre" | "artist";
+const FACET_SOURCES: FacetSource[] = ["genre", "artist"];
+
+/** Where the next page of a search starts in each source; a source left out has nothing more. */
+export interface SearchCursor {
+  title?: number;
+  genre?: number;
+  artist?: number;
+  /** A chained query: where each term's own search continues, null once it has nothing more. */
+  chain?: (SearchCursor | null)[];
+}
+
+/** A chained search: each term runs its own search and their pages join. */
+async function searchChain(terms: string[], limit: number, from?: (SearchCursor | null)[]): Promise<{ items: JellyfinVideoItem[]; next: SearchCursor | null }> {
+  const pages = await Promise.all(terms.map((term, i) => (from?.[i] === null ? null : searchVideos(term, { limit, cursor: from?.[i] ?? undefined }))));
+  const chain = pages.map((page) => page?.next ?? null);
+  return { items: joinTermResults(pages.map((page) => page?.items ?? [])), next: chain.some((cursor) => cursor !== null) ? { chain } : null };
+}
+
+/** A source's next offset from the raw page it returned, or undefined once it is exhausted. */
+export function nextOffset(offset: number | undefined, page: { items: unknown[]; total?: number } | undefined, limit: number): number | undefined {
+  if (offset === undefined || !page) return undefined;
+  const reached = offset + page.items.length;
+  const more = page.total !== undefined ? reached < page.total : page.items.length === limit;
+  return more && page.items.length > 0 ? reached : undefined;
+}
+
 /**
  * Remote search for videos using Jellyfin's SearchTerm filter
  * Supports searching by:
@@ -317,11 +371,14 @@ async function fetchSeriesEpisodes(config: JellyfinConfig, seriesId: string, ser
  * Genre/artist matches union with title matches: a word naming a genre or artist adds
  * those results in parallel without narrowing the title search.
  */
-export async function searchVideos(searchTerm: string, { limit = 60, startIndex = 0 }: { limit?: number; startIndex?: number } = {}): Promise<{ items: JellyfinVideoItem[]; total?: number }> {
+export async function searchVideos(searchTerm: string, { limit = 60, cursor }: { limit?: number; cursor?: SearchCursor } = {}): Promise<{ items: JellyfinVideoItem[]; next: SearchCursor | null }> {
   const trimmed = searchTerm.trim();
   if (!trimmed) {
-    return { items: [], total: 0 };
+    return { items: [], next: null };
   }
+
+  const chained = chainTerms(trimmed);
+  if (chained.length > 1) return searchChain(chained, limit, cursor?.chain);
 
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) {
@@ -329,7 +386,7 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
   }
 
   // Parse year from search query
-  const { term, years } = parseYearsFromQuery(trimmed);
+  const { term, years } = parseYearsFromQuery(chained[0] ?? trimmed);
 
   logger.debug("Search query parsed", {
     service: "JellyfinAPI",
@@ -339,7 +396,8 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
     yearCount: years.length,
   });
 
-  const cacheKey = `search:${config.userId}:${term}:${years.join(",")}:${startIndex}:${limit}`;
+  const offsets: SearchCursor = cursor ?? { title: 0, genre: 0, artist: 0 };
+  const cacheKey = `search:${config.userId}:${term}:${years.join(",")}:${offsets.title ?? "-"},${offsets.genre ?? "-"},${offsets.artist ?? "-"}:${limit}`;
   return cachedRequest(
     cacheKey,
     () =>
@@ -347,32 +405,34 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
         async () => {
           // Title search: playable items + Series (to expand into episodes). Fired before
           // the facet-list fetch so a cold facet cache never delays it.
-          const titleRequest = requestLibraryItems(config, {
-            startIndex,
-            limit,
-            searchTerm: term || undefined,
-            years: years.length > 0 ? years : undefined,
-            includeAllTypes: true,
-            includeSeries: true, // Also search for Series to expand
-            timeoutMs: 15000,
-          });
+          const titleRequest =
+            offsets.title === undefined
+              ? Promise.resolve(undefined)
+              : requestLibraryItems(config, {
+                  startIndex: offsets.title,
+                  limit,
+                  searchTerm: term || undefined,
+                  years: years.length > 0 ? years : undefined,
+                  includeAllTypes: true,
+                  includeSeries: true, // Also search for Series to expand
+                  timeoutMs: 15000,
+                });
 
-          const facetRequests = await buildFacetSearchRequests(config, term, years, { startIndex, limit });
+          const facetRequests = await buildFacetSearchRequests(config, term, years, { offsets, limit });
           const titleResult = await titleRequest;
 
           // Union semantics: a failed genre/artist request drops its results, never the search
-          const facetResults: { items: JellyfinVideoItem[]; total?: number }[] = [];
-          for (const settled of await Promise.allSettled(facetRequests)) {
-            if (settled.status === "fulfilled") {
-              facetResults.push(settled.value);
-            } else {
-              logger.warn("Facet search request failed", settled.reason, { service: "JellyfinAPI" });
-            }
-          }
+          const facetPages: Partial<Record<FacetSource, { items: JellyfinVideoItem[]; total?: number }>> = {};
+          const asked = FACET_SOURCES.filter((source) => facetRequests[source]);
+          (await Promise.allSettled(asked.map((source) => facetRequests[source]))).forEach((settled, index) => {
+            if (settled.status === "fulfilled" && settled.value) facetPages[asked[index]] = settled.value;
+            else if (settled.status === "rejected") logger.warn("Facet search request failed", settled.reason, { service: "JellyfinAPI" });
+          });
+          const facetResults = FACET_SOURCES.flatMap((source) => facetPages[source] ?? []);
 
           // Separate playable items from Series; the same Series can arrive from both the
           // title and genre queries, so key by Id to expand each only once
-          const results = [titleResult, ...facetResults];
+          const results = [...(titleResult ? [titleResult] : []), ...facetResults];
           const playableItems: JellyfinVideoItem[] = [];
           const seriesById = new Map<string, JellyfinVideoItem>();
 
@@ -412,12 +472,20 @@ export async function searchVideos(searchTerm: string, { limit = 60, startIndex 
             return true;
           });
 
-          // Preserve server totals for proper pagination. Title-only keeps the exact server
-          // count; with facet queries the sum overcounts duplicates, which pagination
-          // tolerates the same way it does series expansion.
+          // The next page asks each source from what it returned itself: expanded episodes and
+          // the other sources' hits never move a server offset.
+          const next: SearchCursor = {
+            title: nextOffset(offsets.title, titleResult, limit),
+            genre: nextOffset(offsets.genre, facetPages.genre, limit),
+            artist: nextOffset(offsets.artist, facetPages.artist, limit),
+          };
+          const continues = Object.values(next).some((offset) => offset !== undefined);
+          // A facet whose request failed is asked again from the same place, riding a page another
+          // source still fills, so a facet that keeps failing never drives a page of its own.
+          if (continues) for (const source of asked) if (!facetPages[source]) next[source] = offsets[source];
           return {
             items: uniqueItems,
-            total: facetResults.length === 0 ? (titleResult.total ?? uniqueItems.length) : results.reduce((sum, r) => sum + (r.total ?? r.items.length), 0),
+            next: continues ? next : null,
           };
         },
         { maxAttempts: 3 },
@@ -517,15 +585,8 @@ async function searchGuideSources(config: JellyfinConfig, searchTerm: string): P
   if (urls.length === 0) return [];
   // Every channel also matches by its Jellyfin name, as the guide does: the last tier, after tvg-id and tvg-name.
   const lineup = await cachedRequest(`liveChannelNames:${config.server}:${config.userId}`, () => fetchChannelOrder(), CACHE.LIVE_AIRING_TTL_MS).catch(() => []);
-  const names: Record<string, string> = {};
-  for (const channel of lineup) if (channel.Name) names[channel.Id] = channel.Name;
-  const ids = new Set([...Object.keys(data.tvgById), ...Object.keys(data.tvgNameById), ...Object.keys(names)]);
-  const channels: GuideChannelRequest[] = [...ids].map((channelId) => ({
-    channelId,
-    tvgId: data.tvgById[channelId],
-    tvgName: data.tvgNameById[channelId],
-    name: names[channelId] ?? data.tvgNameById[channelId] ?? "",
-  }));
+  // Built once per (table, lineup) pair, not per keystroke: the 11k-entry walk stays off the query path.
+  const { requests: channels, names } = guideChannelRequests(data, lineup);
   const now = Date.now();
   const programs = await searchExternalPrograms(urls, channels, { from: now, to: liveTvSearchHorizon(now) }, searchTerm, LIVE_TV_RESULT_CAP);
   return programs.map(
@@ -585,36 +646,103 @@ function fetchProgramDetails(config: JellyfinConfig, programId: string): Promise
  * here. Never waits on the index: subscribeLiveTvSearchIndex says when it lands. A failed source keeps
  * the others.
  */
-export async function searchLiveTv(searchTerm: string): Promise<JellyfinVideoItem[]> {
+/**
+ * Opens the guide sources for the search window before the first query. The open downloads and
+ * ingests the whole XMLTV natively, seconds no search should wait on; one warm per screen is
+ * enough since the open guide is reused while its window covers.
+ */
+export async function warmLiveTvSearch(): Promise<void> {
+  try {
+    const config = await getConfig();
+    if (!config.server || !config.apiKey || !config.userId) return;
+    // The airing read rides along: its TTL cache then serves the first query off the query path.
+    await Promise.allSettled([searchGuideSources(config, "guide warmup probe"), fetchAiringPrograms(config)]);
+  } catch {
+    // A failed warm costs nothing: the first search opens the guide itself.
+  }
+}
+
+/** A chained live search: each term runs its own search and their answers join, ordered as one list. */
+async function searchLiveChain(terms: string[], onUpdate?: (items: JellyfinVideoItem[]) => void): Promise<JellyfinVideoItem[]> {
+  const join = (answers: readonly JellyfinVideoItem[][]) => orderLiveTvResults(joinTermResults(answers), Date.now());
+  // A partial reports once every term has answered, so the first paint holds each term's cards.
+  const latest: (JellyfinVideoItem[] | undefined)[] = terms.map(() => undefined);
+  const report = (index: number) => (items: JellyfinVideoItem[]) => {
+    latest[index] = items;
+    if (latest.every((answer) => answer !== undefined)) onUpdate?.(join(latest as JellyfinVideoItem[][]));
+  };
+  return join(await Promise.all(terms.map((term, index) => searchLiveTv(term, onUpdate && report(index)))));
+}
+
+export async function searchLiveTv(searchTerm: string, onUpdate?: (items: JellyfinVideoItem[]) => void): Promise<JellyfinVideoItem[]> {
   const trimmed = searchTerm.trim();
   if (!trimmed) return [];
+  const terms = chainTerms(trimmed);
+  if (terms.length > 1) return searchLiveChain(terms, onUpdate);
+  const text = terms[0] ?? trimmed;
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) return [];
-  const [names, airing, guideSources] = await Promise.allSettled([fetchLiveTvNameMatches(config, trimmed), fetchAiringPrograms(config), searchGuideSources(config, trimmed)]);
-  const warn = (source: string, settled: PromiseRejectedResult) =>
-    logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: settled.reason instanceof Error ? settled.reason.message : "unknown" });
-  if (names.status === "rejected") warn("names", names);
-  if (airing.status === "rejected") warn("airing", airing);
-  if (guideSources.status === "rejected") warn("guide sources", guideSources);
-  const items = names.status === "fulfilled" ? [...names.value] : [];
-  const seen = new Set(items.map((item) => item.Id));
-  for (const settled of [airing, guideSources]) {
-    if (settled.status !== "fulfilled") continue;
-    for (const program of settled.value) {
-      if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && matchesProgramText(program, trimmed)) {
-        seen.add(program.Id);
-        items.push(program);
+  const quiet = (source: string, work: Promise<JellyfinVideoItem[]>) =>
+    work.catch((error): JellyfinVideoItem[] => {
+      logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: error instanceof Error ? error.message : "unknown" });
+      return [];
+    });
+  const namesWork = quiet("names", fetchLiveTvNameMatches(config, text));
+  const programWork = [quiet("airing", fetchAiringPrograms(config)), quiet("guide sources", searchGuideSources(config, text))];
+
+  const assemble = (names: JellyfinVideoItem[], programTiers: readonly JellyfinVideoItem[][]): JellyfinVideoItem[] => {
+    const items = [...names];
+    const seen = new Set(items.map((item) => item.Id));
+    for (const tier of programTiers) {
+      for (const program of tier) {
+        if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && matchesProgramText(program, text)) {
+          seen.add(program.Id);
+          items.push(program);
+        }
       }
     }
+    for (const program of indexedMatches(config, text)) {
+      if (seen.has(program.Id)) continue;
+      seen.add(program.Id);
+      items.push(program);
+    }
+    return orderLiveTvResults(items, Date.now());
+  };
+  // Channel name and artwork for the cards shown; the fills land in already-sized cards, so they
+  // never gate a paint and never move layout.
+  const hydrate = (shown: JellyfinVideoItem[]): Promise<JellyfinVideoItem[]> =>
+    Promise.all(
+      shown.map(async (item) => (item.Type === "Program" && !item.ChannelName && !item.Id.startsWith(EXTERNAL_GUIDE_PREFIX) ? ((await fetchProgramDetails(config, item.Id)) ?? item) : item)),
+    );
+
+  // The name tier answers at library speed through `onUpdate`; each slower tier lands merged in
+  // order, bare cards first, details behind. The resolved value is always the complete set.
+  let finished = false;
+  if (onUpdate) {
+    let emitSeq = 0;
+    const partial: { names?: JellyfinVideoItem[]; programs: JellyfinVideoItem[][] } = { programs: [] };
+    const emit = () => {
+      if (!partial.names) return;
+      const mine = ++emitSeq;
+      const bare = assemble(partial.names, partial.programs);
+      if (!finished) onUpdate(bare);
+      void hydrate(bare).then((full) => {
+        if (!finished && mine === emitSeq) onUpdate(full);
+      });
+    };
+    void namesWork.then((names) => {
+      partial.names = names;
+      emit();
+    });
+    for (const tier of programWork) {
+      void tier.then((programs) => {
+        partial.programs.push(programs);
+        emit();
+      });
+    }
   }
-  for (const program of indexedMatches(config, trimmed)) {
-    if (seen.has(program.Id)) continue;
-    seen.add(program.Id);
-    items.push(program);
-  }
-  const shown = orderLiveTvResults(items, Date.now());
-  // Only the cards shown are completed, with their channel and artwork; a read that fails keeps the bare card.
-  return Promise.all(
-    shown.map(async (item) => (item.Type === "Program" && !item.ChannelName && !item.Id.startsWith(EXTERNAL_GUIDE_PREFIX) ? ((await fetchProgramDetails(config, item.Id)) ?? item) : item)),
-  );
+
+  const [names, ...programTiers] = await Promise.all([namesWork, ...programWork]);
+  finished = true;
+  return hydrate(assemble(names, programTiers));
 }

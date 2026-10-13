@@ -72,7 +72,7 @@ describe("cachedGuideFile", () => {
     const second = await cachedGuideFile("http://g/other.xml");
     expect(second).not.toBe(first);
     // The two-day-old copy is gone; the fresh one stays.
-    expect([...fakeFs.keys()].filter((key) => key.includes("guide-"))).toEqual([second.replace("file://", "file://")]);
+    expect([...fakeFs.keys()].filter((key) => key.includes("guide-"))).toEqual([second]);
   });
 
   it("spares the stale copy of a guide still in use", async () => {

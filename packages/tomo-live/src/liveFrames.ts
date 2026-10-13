@@ -33,13 +33,6 @@ export const LIVE_FRAME_DEADLINE_S = 12;
 export const LIVE_FRAME_COLD_COUNT = 4;
 export const LIVE_FRAME_COLD_SPAN_S = 9;
 export const LIVE_FRAME_COLD_DEADLINE_S = 9;
-/**
- * Opens refused this many times in a row read as a provider's concurrent-stream cap, not dead
- * channels: the sampler rests instead of walking every card through a refusal. Playback is
- * never in the contest; grabs already stand down while it holds the link.
- */
-export const LIVE_FRAME_CAP_TRIP = 3;
-export const LIVE_FRAME_CAP_COOLDOWN_MS = 180_000;
 /** A failed channel waits this long, doubling per failure, up to the cap. */
 export const LIVE_FRAME_RETRY_MS = 120_000;
 export const LIVE_FRAME_RETRY_CAP_MS = 600_000;
@@ -113,22 +106,10 @@ let ticker: ReturnType<typeof setInterval> | null = null;
 let wired = false;
 /** Bumped by every clear, so a grab that outlived one writes nothing back. */
 let generation = 0;
-/** Consecutive refused opens; any open that succeeds resets it. */
-let openFailStreak = 0;
-/** The sampler rests until this passes once the streak trips. */
-let capRestUntil = 0;
 /** The row holding focus, and the channel it promoted once the dwell passed. */
 let focusCandidate: string | null = null;
 let focusTimer: ReturnType<typeof setTimeout> | null = null;
 let priority: string | null = null;
-
-function noteOpenFailure(): void {
-  openFailStreak += 1;
-  if (openFailStreak >= LIVE_FRAME_CAP_TRIP && Date.now() >= capRestUntil) {
-    capRestUntil = Date.now() + LIVE_FRAME_CAP_COOLDOWN_MS;
-    engineLog().info("Live frame opens refused in a row, sampler resting", { service: "LiveFrames", streak: openFailStreak, restMs: LIVE_FRAME_CAP_COOLDOWN_MS });
-  }
-}
 
 /**
  * A frame the running grab just wrote. A card with no valid picture paints it at once; one that
@@ -174,8 +155,13 @@ function wire(): void {
     stop();
     cancelGrabs();
   });
-  // A group pick replaces the rows: the grabs reading the old group stop and free the link at once.
-  liveChannels().subscribeListChange(() => cancelGrabs());
+  // A group pick replaces the rows: the grabs reading the old group stop and free the link at
+  // once, and every channel's failure backoff clears, so the new wall probes each card fresh.
+  liveChannels().subscribeListChange(() => {
+    cancelGrabs();
+    for (const item of entries.values()) item.failure = undefined;
+    schedule(0);
+  });
 }
 
 /** Read live: a release bundle evaluates this module while launch is still "inactive", before any listener is wired. */
@@ -348,7 +334,10 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
 export function setLiveFrameFocus(channelId: string | null): void {
   if (focusCandidate === channelId) return;
   focusCandidate = channelId;
+  const demoted = priority;
   priority = null;
+  // Promotion moves a card's next-grab time; its badge re-reads the due on each notify.
+  if (demoted) notify(demoted);
   if (focusTimer) clearTimeout(focusTimer);
   focusTimer = null;
   showLivePreview(null);
@@ -358,6 +347,7 @@ export function setLiveFrameFocus(channelId: string | null): void {
   focusTimer = setTimeout(() => {
     focusTimer = null;
     priority = channelId;
+    notify(channelId);
     if (!running()) return;
     schedule(0);
     // The card promoted past its dwell warms an engine session on its origin, so a play press binds to it.
@@ -385,10 +375,6 @@ async function pump(): Promise<void> {
   await seeding;
   if (!running() || grabbing.size >= MAX_INFLIGHT) return;
   const now = Date.now();
-  if (now < capRestUntil) {
-    schedule(capRestUntil - now);
-    return;
-  }
   const due = nextDue(now);
   if (!due || due.waitMs > 0) {
     if (due) schedule(due.waitMs);
@@ -462,11 +448,11 @@ async function grab(channelId: string): Promise<void> {
     }
     if (!input) {
       recordFailure(item, now);
-      // A channel no tuner carries is not the provider's cap; its old pictures go with it.
+      // A channel no tuner carries loses its old pictures with its tuner.
       if (item.gone) {
         if (item.burst) dropBurst(channelId, item);
         noteChannelGone(channelId);
-      } else noteOpenFailure();
+      }
       return;
     }
     const result = await liveFrame({
@@ -504,31 +490,26 @@ async function grab(channelId: string): Promise<void> {
       item.clipAsked = true;
       item.intervalMs = Math.min((item.intervalMs ?? LIVE_FRAME_REFRESH_MS) * 2, LIVE_FRAME_REFRESH_CAP_MS);
       item.failure = undefined;
-      openFailStreak = 0;
       noteChannelAlive(channelId);
+      // The due moved and the pictures re-dated: the freshness badge re-reads; picture hooks bail on the same burst object.
+      notify(channelId);
     } else if (result?.uris?.length) {
       item.burst = burstOf(channelId, result.uris, now, result.clip);
       item.clipAsked = true;
       item.pts = result.pts ?? undefined;
       item.intervalMs = LIVE_FRAME_REFRESH_MS;
       item.failure = undefined;
-      openFailStreak = 0;
       noteChannelAlive(channelId);
       notify(channelId);
       startTicker();
     } else {
       recordFailure(item, now);
-      // "open" is a refusal at the source, the cap's signature; "frame" opened fine.
-      if (result?.reason === "open") {
-        noteOpenFailure();
-        // The origin's own words judge the channel, and never while the cap is suspected.
-        if (item.lane === "origin" && Date.now() >= capRestUntil) noteChannelOpenFailure(channelId, result.failure ?? undefined);
-      } else openFailStreak = 0;
+      // "open" is a refusal at the source; its own words judge the channel. "frame" opened fine.
+      if (result?.reason === "open" && item.lane === "origin") noteChannelOpenFailure(channelId, result.failure ?? undefined);
     }
   } catch (error) {
     if (gen !== generation) return;
     recordFailure(item, now);
-    noteOpenFailure();
     engineLog().debug("Live frame failed", { service: "LiveFrames", channelId, error: String(error) });
   } finally {
     input?.close?.();
@@ -582,6 +563,15 @@ export function liveFrameReel(channelId: string): { frames: LiveFrame[]; at: num
   return validBurst(channelId, Date.now());
 }
 
+/** When the sampler means to read the channel again: the shown burst's refresh, the focused card's short floor, failures' backoff. */
+export function liveFrameDueAt(channelId: string): number | undefined {
+  const item = entries.get(channelId);
+  if (!item || !validBurst(channelId, Date.now())) return undefined;
+  const interval = item.intervalMs ?? LIVE_FRAME_REFRESH_MS;
+  const floor = priority === channelId ? Math.min(LIVE_FRAME_FOCUS_REFRESH_MS, interval) : interval;
+  return Math.max(item.lastAt + floor, backoffUntil(item.failure));
+}
+
 export function subscribeLiveFrame(channelId: string, listener: () => void): () => void {
   let set = listeners.get(channelId);
   if (!set) {
@@ -600,8 +590,6 @@ export function clearLiveFrames(): void {
   generation += 1;
   const cleared = [...entries.keys()];
   entries.clear();
-  openFailStreak = 0;
-  capRestUntil = 0;
   stopTicker();
   clearChannelHealth();
   for (const channelId of cleared) notify(channelId);

@@ -18,6 +18,7 @@ import { fetchWithTimeout } from "./http";
 import { invalidateItemRemoved } from "./cacheKeys";
 import { notifyItemRemoving } from "./events";
 import { resolveChannel } from "./liveTv";
+import { playlistPlayable } from "./playlistItems";
 import { didConfigReadFail, getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
 /** Whether the signed-in account is a server administrator; gates the panel's Delete action. */
@@ -567,6 +568,12 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
                 fetchWithTimeout(itemUrl, { method: "GET", headers }, API_TIMEOUTS.NORMAL),
               ]);
 
+              // A channel id the server has not ingested yet plays off the device's own playlist parse.
+              if (response.status === 404 || itemResponse.status === 404) {
+                const pending = await playlistPlayable(itemId);
+                if (pending) return pending;
+              }
+
               if (!response.ok) {
                 throwRequestError(response, `Failed to fetch video details: ${response.status} ${response.statusText}`);
               }
@@ -666,8 +673,9 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
   const config = await getConfig();
   const authHeaders = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
 
-  return cachedRequest(
-    `details:${config.userId}:${itemId}:info`,
+  const cacheKey = `details:${config.userId}:${itemId}:info`;
+  const details = await cachedRequest<JellyfinItem | null>(
+    cacheKey,
     () =>
       retryWithBackoff(
         async () => {
@@ -682,6 +690,9 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
           // version's habit of sending it anyway.
           const url = `${config.server}/Items/${itemId}?userId=${config.userId}&Fields=Path,Overview,Genres,Taglines,People,Studios,Chapters,ParentId,CanDelete&EnableUserData=true`;
           const response = await fetchWithTimeout(url, { method: "GET", headers: authHeaders }, API_TIMEOUTS.NORMAL);
+          // A channel the server has not ingested yet shows as the device's own playlist parse of it.
+          const pending = response.status === 404 ? await playlistPlayable(itemId) : null;
+          if (pending) return pending;
           if (!response.ok) {
             throwRequestError(response, `Failed to fetch item details: ${response.status} ${response.statusText}`);
           }
@@ -707,6 +718,9 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinItem | n
       ),
     CACHE.DEFAULT_TTL_MS,
   );
+  // A stand-in is asked again each time: the server's own item replaces it the moment it exists.
+  if (details?.playlistPending) invalidateRequest(cacheKey);
+  return details;
 }
 
 /**

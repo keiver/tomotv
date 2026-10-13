@@ -68,6 +68,11 @@ RCT_EXTERN_METHOD(cancelPosterFrame
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(setPosterQueuePaused
+                  : (BOOL)paused resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(liveFrame
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
@@ -118,6 +123,11 @@ RCT_EXTERN_METHOD(clearFramePool
                   : (RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(repackageDownload
+                  : (NSDictionary *)config resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(mergeDownloadParts
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)

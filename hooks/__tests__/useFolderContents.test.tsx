@@ -22,7 +22,11 @@ import {
   subscribeItemRemoving,
   subscribePlayedChange,
   subscribeResumeChange,
+  subscribeRecordingsChange,
+  subscribeAuthChange,
 } from "@/services/jellyfinApi";
+import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
+import { useIsFocused } from "expo-router";
 
 jest.mock("@/hooks/useAppStateRefresh", () => ({ useAppStateRefresh: jest.fn() }));
 jest.mock("@/services/connectionRecovery", () => ({ attemptConnectionRecovery: jest.fn() }));
@@ -876,6 +880,86 @@ describe("useFolderContents", () => {
 
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b"]);
       expect(ref.current!.get().hasMoreResults).toBe(false);
+    });
+  });
+
+  describe("a screen out of sight", () => {
+    const focused = useIsFocused as jest.Mock;
+    const latestCall = (mock: jest.Mock) => mock.mock.calls[mock.mock.calls.length - 1][0] as () => void;
+
+    async function mountHidden() {
+      focused.mockReturnValue(false);
+      const ref = React.createRef<HookRef>();
+      let tree!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        tree = TestRenderer.create(<Harness ref={ref} folderId="folder-1" />);
+      });
+      mockFolder.mockClear();
+      return async () => {
+        focused.mockReturnValue(true);
+        await act(async () => tree.update(<Harness ref={ref} folderId="folder-1" />));
+      };
+    }
+
+    beforeEach(() => mockFolder.mockResolvedValue({ items: items("a"), total: 1 }));
+    afterEach(() => focused.mockReturnValue(true));
+
+    it("waits out a foreground return until it is shown, then reads once", async () => {
+      const show = await mountHidden();
+      await act(async () => latestCall(useAppStateRefresh as jest.Mock)());
+      expect(mockFolder).not.toHaveBeenCalled();
+
+      await show();
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits out a recording change the same way", async () => {
+      const show = await mountHidden();
+      await act(async () => latestCall(subscribeRecordingsChange as jest.Mock)());
+      expect(mockFolder).not.toHaveBeenCalled();
+
+      await show();
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it("a foreground the playback hold swallowed is owed on focus", async () => {
+      const show = await mountHidden();
+      const onSkipped = (useAppStateRefresh as jest.Mock).mock.calls.at(-1)?.[2] as () => void;
+      await act(async () => onSkipped());
+      expect(mockFolder).not.toHaveBeenCalled();
+
+      await show();
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it("a focused screen pays the owed read when playback lets go", async () => {
+      const { setPlaybackHold } = require("@/services/playbackHold") as { setPlaybackHold: (owner: string, active: boolean) => void };
+      focused.mockReturnValue(true);
+      const ref = React.createRef<HookRef>();
+      let tree!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        tree = TestRenderer.create(<Harness ref={ref} folderId="folder-1" />);
+      });
+      mockFolder.mockClear();
+
+      try {
+        setPlaybackHold("video", true);
+        const onSkipped = (useAppStateRefresh as jest.Mock).mock.calls.at(-1)?.[2] as () => void;
+        await act(async () => onSkipped());
+        expect(mockFolder).not.toHaveBeenCalled();
+
+        await act(async () => setPlaybackHold("video", false));
+        expect(mockFolder).toHaveBeenCalledTimes(1);
+      } finally {
+        setPlaybackHold("video", false);
+        tree.unmount();
+      }
+    });
+
+    it("still reads at once on a sign-in or sign-out", async () => {
+      await mountHidden();
+      await act(async () => latestCall(subscribeAuthChange as jest.Mock)());
+      expect(mockFolder).toHaveBeenCalledTimes(1);
     });
   });
 });

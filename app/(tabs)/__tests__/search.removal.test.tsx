@@ -17,7 +17,13 @@ jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({}) })
 jest.mock("@/hooks/use-color-scheme", () => ({ useColorScheme: () => "dark" }));
 jest.mock("@/hooks/useItemLongPress", () => ({ useItemLongPress: () => jest.fn() }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
-jest.mock("@/services/jellyfinApi", () => ({ searchVideos: jest.fn(), searchLiveTv: jest.fn(async () => []), connectToDemoServer: jest.fn(), subscribeLiveTvSearchIndex: () => () => {} }));
+jest.mock("@/services/jellyfinApi", () => ({
+  searchVideos: jest.fn(),
+  searchLiveTv: jest.fn(async () => []),
+  warmLiveTvSearch: jest.fn(async () => {}),
+  connectToDemoServer: jest.fn(),
+  subscribeLiveTvSearchIndex: () => () => {},
+}));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key, locale: () => "en", subscribeLocale: () => () => {} }));
 jest.mock("@/utils/logger", () => ({ logger: { debug: jest.fn(), error: jest.fn() } }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
@@ -31,8 +37,6 @@ jest.mock("@/components/settings/styles", () => ({ IS_PAD: false, settingsStyles
 jest.mock("@/components/sunken-text-input", () => ({
   SunkenTextInput: require("react").forwardRef((props: object, ref: unknown) => require("react").createElement("SearchInput", { ...props, ref })),
 }));
-jest.mock("@/components/live-tv/live-tv-search-shelf", () => ({ LiveTvSearchShelf: () => null }));
-jest.mock("@/components/media-shelf", () => ({ ShelfHeading: () => null }));
 jest.mock("@/components/search-results-grid", () => ({
   SearchResultsGrid: require("react").forwardRef((props: object, ref: unknown) => require("react").createElement("ResultsGrid", { ...props, ref })),
 }));
@@ -56,10 +60,11 @@ afterEach(() => {
 
 it.each([false, true])("removes a deleted result and retires older requests (native search: %s)", async (native) => {
   mockNative = native;
-  let finishOld!: (page: { items: JellyfinVideoItem[]; total: number }) => void;
-  let finishFresh!: (page: { items: JellyfinVideoItem[]; total: number }) => void;
+  type Page = { items: JellyfinVideoItem[]; next: { title: number } | null };
+  let finishOld!: (page: Page) => void;
+  let finishFresh!: (page: Page) => void;
   mockSearch
-    .mockResolvedValueOnce({ items: [item("deleted"), item("kept")], total: 3 })
+    .mockResolvedValueOnce({ items: [item("deleted"), item("kept")], next: { title: 2 } })
     .mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -72,7 +77,7 @@ it.each([false, true])("removes a deleted result and retires older requests (nat
           finishFresh = resolve;
         }),
     )
-    .mockResolvedValueOnce({ items: [item("next")], total: 2 });
+    .mockResolvedValueOnce({ items: [item("next")], next: null });
 
   await act(async () => {
     tree = TestRenderer.create(<SearchScreen />);
@@ -101,21 +106,20 @@ it.each([false, true])("removes a deleted result and retires older requests (nat
       jest.advanceTimersByTime(300);
     });
   expect(mockSearch).toHaveBeenCalledTimes(3);
-  expect(mockSearch).toHaveBeenLastCalledWith("film", native ? { limit: 60 } : { limit: 60, startIndex: 0 });
+  expect(mockSearch).toHaveBeenLastCalledWith("film", { limit: 60 });
 
   await act(async () => {
-    finishFresh({ items: [item("kept")], total: 2 });
+    finishFresh({ items: [item("kept")], next: { title: 1 } });
   });
   await act(async () => {
-    finishOld({ items: [item("deleted")], total: 3 });
+    finishOld({ items: [item("deleted")], next: { title: 2 } });
   });
   expect(ids()).toEqual(["kept"]);
 
-  if (!native) {
-    await act(async () => {
-      results().props.onEndReached();
-    });
-    expect(mockSearch).toHaveBeenLastCalledWith("film", { limit: 60, startIndex: 1 });
-    expect(ids()).toEqual(["kept", "next"]);
-  }
+  // Both screens page now: the next page starts where the server's own page ended.
+  await act(async () => {
+    results().props.onEndReached();
+  });
+  expect(mockSearch).toHaveBeenLastCalledWith("film", { limit: 60, cursor: { title: 1 } });
+  expect(ids()).toEqual(["kept", "next"]);
 });

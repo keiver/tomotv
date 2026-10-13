@@ -7,6 +7,7 @@
 import { usePosterFrame } from "@/hooks/usePosterFrame";
 import { subscribeAuthChange } from "@/services/jellyfinApi";
 import { cancelPosterFrame, posterFrameIfCached, requestPosterFrame } from "@/services/localRemux";
+import { setPlaybackHold } from "@/services/playbackHold";
 import { updateUiPreferences } from "@/services/uiPreferences";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import React, { forwardRef, useImperativeHandle } from "react";
@@ -165,5 +166,74 @@ describe("usePosterFrame", () => {
       settleB("file:///pool/b/poster.jpg");
     });
     expect(latest()).toBe("file:///pool/b/poster.jpg");
+  });
+
+  describe("a library card while video plays", () => {
+    const Card = forwardRef<Handle, { item: JellyfinVideoItem }>(({ item }, ref) => {
+      const uri = usePosterFrame(item, { deferWhileVideo: true });
+      useImperativeHandle(ref, () => ({ get: () => uri }), [uri]);
+      return null;
+    });
+    Card.displayName = "Card";
+
+    const mounted: TestRenderer.ReactTestRenderer[] = [];
+
+    async function mountCard(item: JellyfinVideoItem) {
+      const ref = React.createRef<Handle>();
+      await act(async () => {
+        mounted.push(TestRenderer.create(<Card ref={ref} item={item} />));
+      });
+      return () => ref.current!.get();
+    }
+
+    afterEach(() => {
+      act(() => mounted.splice(0).forEach((renderer) => renderer.unmount()));
+      setPlaybackHold("video", false);
+      setPlaybackHold("audio", false);
+    });
+
+    it("asks nothing while video holds the link, and asks once it lets go", async () => {
+      setPlaybackHold("video", true);
+      const latest = await mountCard(movie("a"));
+      expect(mockRequest).not.toHaveBeenCalled();
+
+      await act(async () => setPlaybackHold("video", false));
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+      expect(latest()).toBe("file:///pool/a/poster.jpg");
+    });
+
+    it("withdraws its waiting request when video takes the link", async () => {
+      mockRequest.mockImplementation(() => new Promise(() => {}));
+      await mountCard(movie("a"));
+      await act(async () => setPlaybackHold("video", true));
+      expect(cancelPosterFrame).toHaveBeenCalledWith("a");
+    });
+
+    it("keeps asking while only music plays", async () => {
+      setPlaybackHold("audio", true);
+      await mountCard(movie("a"));
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it("still shows a settled frame, and confirms it as any card does", async () => {
+      mockCached.mockReturnValue("file:///pool/a/poster.jpg");
+      setPlaybackHold("video", true);
+      const latest = await mountCard(movie("a"));
+      expect(latest()).toBe("file:///pool/a/poster.jpg");
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves a settled card alone when video takes the link", async () => {
+      mockCached.mockReturnValue("file:///pool/a/poster.jpg");
+      await mountCard(movie("a"));
+      await act(async () => setPlaybackHold("video", true));
+      expect(cancelPosterFrame).not.toHaveBeenCalled();
+    });
+
+    it("leaves a surface that does not defer asking", async () => {
+      setPlaybackHold("video", true);
+      await mount(movie("a"));
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+    });
   });
 });

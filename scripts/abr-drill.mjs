@@ -18,7 +18,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { devicectl, jf, loadEnv, openDeepLink, pickTarget, simctl } from "./playback-regression.mjs";
 import { SCENARIOS, copyBitrates, profileRates, score } from "./lib/abr-score.mjs";
-import { redactedTestWriter } from "./lib/test-environment.mjs";
+import { redactedTestWriter, redactTestOutput } from "./lib/test-environment.mjs";
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -463,7 +463,7 @@ async function main() {
 // Only when run as the command; importing this file re-scores saved runs without starting one.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
-    console.error(error.stack || error.message);
+    console.error(redactTestOutput(error.stack || error.message, process.env));
     process.exit(1);
   });
 }

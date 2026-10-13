@@ -100,6 +100,22 @@ final class GuideLoaderTests: XCTestCase {
         XCTAssertEqual(Fixture.programmes(store).map(\.title), ["One", "Two"])
     }
 
+    func testLoadPreFoldsSearchTextAndSearchesEqually() throws {
+        StubProtocol.reset(["/g.xml": .init(chunks: [document])])
+        let loaded = GuideStore()
+        let stats = try load("http://stub/g.xml", store: loaded).get()
+        XCTAssertGreaterThanOrEqual(stats.foldMs, 0)
+        // A store folded lazily on first search finds the same programmes as the pre-folded one.
+        let lazy = GuideStore()
+        _ = try GuideLoader.parse(data: Data(document), window: nil, store: lazy)
+        let window = GuideWindow(from: 0, to: .max)
+        XCTAssertEqual(
+            loaded.search(channelIds: ["a.us"], window: window, query: "two", limit: 10).map(\.title),
+            lazy.search(channelIds: ["a.us"], window: window, query: "two", limit: 10).map(\.title)
+        )
+        XCTAssertEqual(loaded.search(channelIds: ["a.us"], window: window, query: "two", limit: 10).map(\.title), ["Two"])
+    }
+
     func testSendsHeaders() throws {
         StubProtocol.reset(["/g.xml": .init(chunks: [document])])
         _ = try load("http://stub/g.xml", headers: ["User-Agent": "TomoTest/1", "X-Token": "t"]).get()

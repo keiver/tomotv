@@ -100,7 +100,6 @@ export function GuideChannelColumn({
             index={index}
             cardWidth={metrics.channelColumnWidth}
             hideAiring
-            hideNumber
             flat
             inset={metrics.cardInset}
             titleIcon={favoriteMark(preferences, item)}
@@ -213,7 +212,6 @@ function ChannelMorph({
           index={index}
           cardWidth={metrics.channelColumnWidth}
           hideAiring
-          hideNumber
           flat
           inset={metrics.cardInset}
           titleIcon={titleIcon}

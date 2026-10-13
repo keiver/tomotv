@@ -60,21 +60,19 @@ describe("Search Screen Pagination", () => {
     it("should call searchVideos with correct initial parameters", async () => {
       mockSearchVideos.mockResolvedValueOnce({
         items: [{ Id: "1", Name: "Video 1", ImageTags: { Primary: "abc" } } as any, { Id: "2", Name: "Video 2", ImageTags: { Primary: "def" } } as any],
-        total: 100,
+        next: { title: 2 },
       });
 
       const searchTerm = "action";
       const result = await jellyfinApi.searchVideos(searchTerm, {
         limit: 60,
-        startIndex: 0,
       });
 
       expect(mockSearchVideos).toHaveBeenCalledWith("action", {
         limit: 60,
-        startIndex: 0,
       });
       expect(result.items).toHaveLength(2);
-      expect(result.total).toBe(100);
+      expect(result.next).toEqual({ title: 2 });
     });
 
     it("should call searchVideos with correct pagination parameters for second page", async () => {
@@ -84,38 +82,37 @@ describe("Search Screen Pagination", () => {
           Name: `Video ${i + 61}`,
           ImageTags: { Primary: "abc" },
         })) as any[],
-        total: 150,
+        next: { title: 120 },
       });
 
       const result = await jellyfinApi.searchVideos("test", {
         limit: 60,
-        startIndex: 60,
+        cursor: { title: 60 },
       });
 
       expect(mockSearchVideos).toHaveBeenCalledWith("test", {
         limit: 60,
-        startIndex: 60,
+        cursor: { title: 60 },
       });
       expect(result.items).toHaveLength(60);
-      expect(result.total).toBe(150);
+      expect(result.next).toEqual({ title: 120 });
     });
 
-    it("should return correct structure with items and total", async () => {
+    it("should return correct structure with items and next", async () => {
       const mockResponse = {
         items: [{ Id: "1", Name: "Video 1" } as any, { Id: "2", Name: "Video 2" } as any, { Id: "3", Name: "Video 3" } as any],
-        total: 150,
+        next: { title: 3 },
       };
 
       mockSearchVideos.mockResolvedValueOnce(mockResponse);
 
       const result = await jellyfinApi.searchVideos("action", {
         limit: 3,
-        startIndex: 0,
       });
 
       expect(result).toEqual({
         items: mockResponse.items,
-        total: 150,
+        next: { title: 3 },
       });
       expect(result.items).toHaveLength(3);
     });
@@ -275,7 +272,7 @@ describe("Search Screen Pagination", () => {
       let finalResults = existingResults;
 
       try {
-        await jellyfinApi.searchVideos("test", { limit: 60, startIndex: 60 });
+        await jellyfinApi.searchVideos("test", { limit: 60, cursor: { title: 60 } });
       } catch (_err) {
         // On pagination error (append=true), don't clear existing results
         if (!append) {
@@ -294,7 +291,7 @@ describe("Search Screen Pagination", () => {
       let finalResults = [{ Id: "1", Name: "Video 1" }];
 
       try {
-        await jellyfinApi.searchVideos("test", { limit: 60, startIndex: 0 });
+        await jellyfinApi.searchVideos("test", { limit: 60 });
       } catch (_err) {
         // On initial search error (append=false), clear results
         if (!append) {
@@ -314,7 +311,7 @@ describe("Search Screen Pagination", () => {
           startIndex: 0,
           response: {
             items: Array.from({ length: 60 }, (_, i) => createMockVideo(`${i + 1}`, `Video ${i + 1}`)),
-            total: 150,
+            next: { title: 60 },
           },
         },
         {
@@ -322,7 +319,7 @@ describe("Search Screen Pagination", () => {
           startIndex: 60,
           response: {
             items: Array.from({ length: 60 }, (_, i) => createMockVideo(`${i + 61}`, `Video ${i + 61}`)),
-            total: 150,
+            next: { title: 120 },
           },
         },
         {
@@ -330,7 +327,7 @@ describe("Search Screen Pagination", () => {
           startIndex: 120,
           response: {
             items: Array.from({ length: 30 }, (_, i) => createMockVideo(`${i + 121}`, `Video ${i + 121}`)),
-            total: 150,
+            next: null,
           },
         },
       ];
@@ -342,12 +339,12 @@ describe("Search Screen Pagination", () => {
 
         const result = await jellyfinApi.searchVideos("test", {
           limit: 60,
-          startIndex: scenario.startIndex,
+          cursor: { title: scenario.startIndex },
         });
 
         allResults = [...allResults, ...result.items];
 
-        const hasMore = result.total !== undefined && allResults.length < result.total;
+        const hasMore = result.next !== null;
 
         if (scenario.startIndex === 0) {
           expect(allResults).toHaveLength(60);
@@ -434,19 +431,19 @@ describe("Search Screen Pagination", () => {
 
   describe("Search Term Handling", () => {
     it("should handle empty search term", async () => {
-      mockSearchVideos.mockResolvedValueOnce({ items: [], total: 0 });
+      mockSearchVideos.mockResolvedValueOnce({ items: [], next: null });
 
       const result = await jellyfinApi.searchVideos("");
 
-      expect(result).toEqual({ items: [], total: 0 });
+      expect(result).toEqual({ items: [], next: null });
     });
 
     it("should handle whitespace-only search term", async () => {
-      mockSearchVideos.mockResolvedValueOnce({ items: [], total: 0 });
+      mockSearchVideos.mockResolvedValueOnce({ items: [], next: null });
 
       const result = await jellyfinApi.searchVideos("   ");
 
-      expect(result).toEqual({ items: [], total: 0 });
+      expect(result).toEqual({ items: [], next: null });
     });
 
     it("should trim search term before searching", () => {

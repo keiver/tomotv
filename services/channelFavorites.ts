@@ -58,7 +58,8 @@ export function toggleFavoriteChannel(channel: ChannelIdentity): void {
   toggleLocalFavoriteChannel(channel);
   edits += 1;
   const userId = getCachedConfig().userId;
-  if (!channel.Id || !userId) return;
+  // A channel the server has not ingested yet stays a device favorite; the sync carries it over later.
+  if (!channel.Id || !userId || channel.playlistPending) return;
   const id = channel.Id;
   writing += 1;
   setVideoFavorite(id, next)
@@ -74,15 +75,17 @@ export function toggleFavoriteChannel(channel: ChannelIdentity): void {
 
 /**
  * Device entries the server lacks: one no channel here answers is another server's and stays; a first visit carries the rest.
- * After that, one whose id still names its channel was unfavorited elsewhere; a new id (M3U ids hash the stream URL) carries.
+ * After that, one whose id still names its channel was unfavorited elsewhere; a new id (M3U ids hash the stream URL) carries,
+ * and so does one listed while the channel was pending, whose id the server keeps.
  */
 export function planCarry(localOnly: readonly ChannelFavorite[], resolved: ReadonlyMap<string, JellyfinItem>, seeded: boolean): { carry: JellyfinItem[]; keep: ChannelFavorite[] } {
   const carry: JellyfinItem[] = [];
   const keep: ChannelFavorite[] = [];
   for (const entry of localOnly) {
     const item = resolved.get(favoriteKey(entry));
-    if (!item) keep.push(entry);
-    else if (!seeded || item.Id !== entry.id) carry.push(item);
+    // A playlist stand-in has no server item to favorite yet; the entry waits for ingest.
+    if (!item || item.playlistPending) keep.push(entry);
+    else if (!seeded || item.Id !== entry.id || entry.pending) carry.push(item);
   }
   return { carry, keep };
 }
@@ -103,7 +106,7 @@ export function mirrorOf(local: readonly ChannelFavorite[], server: readonly Jel
 }
 
 function sameList(a: readonly ChannelFavorite[], b: readonly ChannelFavorite[]): boolean {
-  return a.length === b.length && a.every((entry, index) => favoriteKey(entry) === favoriteKey(b[index]) && entry.id === b[index].id);
+  return a.length === b.length && a.every((entry, index) => favoriteKey(entry) === favoriteKey(b[index]) && entry.id === b[index].id && entry.pending === b[index].pending);
 }
 
 /** The server and user an account's sync is keyed by. */

@@ -1,4 +1,4 @@
-/** A guide row re-renders a cell only when that cell's own state moves, and shows posters only inside the art span it is handed. */
+/** A guide row re-renders a cell only when that cell's own state moves, and wears reels only inside the span it is handed. */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { Animated } from "react-native";
@@ -6,7 +6,9 @@ import { Animated } from "react-native";
 let mockCellRenders = 0;
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `poster:${id}`, getCachedConfig: () => ({ server: "http://jf" }) }));
-jest.mock("@/services/liveFrames", () => ({ liveFrameReel: () => undefined, subscribeLiveFrame: () => () => undefined }));
+// One object: useSyncExternalStore re-renders forever on a fresh snapshot each read.
+const mockRowReel = { at: 1, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
+jest.mock("@/services/liveFrames", () => ({ liveFrameReel: () => mockRowReel, subscribeLiveFrame: () => () => undefined }));
 jest.mock("expo-image", () => ({ Image: (props: object) => require("react").createElement("Image", props) }));
 // Called once per cell render.
 jest.mock("@/hooks/useGuideChannelFocus", () => ({
@@ -21,7 +23,6 @@ import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jelly
 import { guideMetrics, MINUTE_MS, type CanvasSpan } from "@/utils/guide";
 
 const CELLS = 8;
-// An hour each: a half-hour cell is text alone, with no room for its poster.
 const SLOT = 60 * MINUTE_MS;
 const T0 = Date.UTC(2026, 8, 12, 4, 0, 0);
 const metrics = guideMetrics(true);
@@ -34,7 +35,6 @@ const programs = Array.from({ length: CELLS }, (_, i): JellyfinProgram => ({
   Name: `Show ${i}`,
   StartDate: new Date(T0 + i * SLOT).toISOString(),
   EndDate: new Date(T0 + (i + 1) * SLOT).toISOString(),
-  ImageTags: { Primary: "tag" },
 }));
 const noTimers = new Map<string, JellyfinTimer>();
 const press = () => undefined;
@@ -71,7 +71,7 @@ function mount(inputs: RowInputs) {
   mockCellRenders = 0;
   return tree;
 }
-const artCount = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => node.props.testID === "guide-cell-art" && typeof node.type === "string").length;
+const reelCount = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => node.props.testID === "guide-focus-reel" && typeof node.type === "string").length;
 
 describe("GuideRow", () => {
   it("a minute inside the same programme re-renders no cell", () => {
@@ -92,9 +92,9 @@ describe("GuideRow", () => {
     expect(mockCellRenders).toBe(0);
   });
 
-  it("shows posters for the cells inside its art span, none without one", () => {
-    expect(artCount(mount({ nowMs: T0 }))).toBe(0);
-    // Two slots wide: the cells starting at 0, 1 and 2 slots touch it.
-    expect(artCount(mount({ nowMs: T0, artSpan: { fromPx: 0, toPx: 2 * slotPx } }))).toBe(3);
+  it("wears reels only inside the span it is handed", () => {
+    expect(reelCount(mount({ nowMs: T0 }))).toBe(0);
+    // The span touches three cells, but only the airing one wears a reel.
+    expect(reelCount(mount({ nowMs: T0, artSpan: { fromPx: 0, toPx: 2 * slotPx } }))).toBe(1);
   });
 });

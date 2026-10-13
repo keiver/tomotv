@@ -25,7 +25,7 @@ const TRANSPORT = 44;
 /** Where the bar parks above the safe area: clear of the native tab bar, which it can still
     be dragged over. */
 const PARK_CLEARANCE = 58;
-const PLAYHEAD = 2;
+const PROGRESS_LINE = 2;
 
 /** Routes that own the whole screen and carry their own transport. */
 const PLAYBACK_ROUTES = ["/player", "/audio-player"];
@@ -107,10 +107,8 @@ export function AudioMiniPlayer() {
       bounds={{ top: insets.top + 8, bottom: insets.bottom + PARK_CLEARANCE }}
       collapsedIcon={<LevelBars size={22} playing={state.playing} />}
       backdrop={
-        // The pill's own accent fill, the Resume button's idea in glass: it runs from the left cap
-        // to the playhead and the material still refracts through it.
-        <View style={[styles.progressFill, themed.progressFill, { width: `${percent}%` }]} testID="audio-progress">
-          <View style={[styles.playhead, themed.playhead]} />
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, themed.progressFill, { width: `${percent}%` }]} testID="audio-progress" />
         </View>
       }>
       <View style={styles.identity}>
@@ -156,21 +154,17 @@ export function AudioMiniPlayer() {
 }
 
 const styles = StyleSheet.create({
-  // Never narrower than the left cap: a fill inside the curve is invisible, and a track that
-  // just started still owes the user its position.
-  progressFill: {
+  // Spans only the pill's flat bottom edge: a line inside either cap's curve is clipped away.
+  progressTrack: {
     position: "absolute",
-    top: 0,
     bottom: 0,
-    left: 0,
-    minWidth: BAR_HEIGHT / 2,
+    left: BAR_HEIGHT / 2,
+    right: BAR_HEIGHT / 2,
+    height: PROGRESS_LINE,
   },
-  playhead: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    right: 0,
-    width: PLAYHEAD,
+  progressFill: {
+    height: PROGRESS_LINE,
+    borderRadius: PROGRESS_LINE / 2,
   },
   identity: {
     flex: 1,
@@ -212,14 +206,10 @@ const styles = StyleSheet.create({
   },
 });
 
-// The accent at the alphas the glass keeps refracting through: faint at the start of the track,
-// denser at the playhead, a solid line on the playhead itself.
+// The accent fades in from nothing at the start of the track to its densest at the playhead.
 const useThemedStyles = themedStyles((palette) => ({
   progressFill: {
-    experimental_backgroundImage: `linear-gradient(90deg, ${withAlpha(palette.accent, 0.1)} 0%, ${withAlpha(palette.accent, 0.32)} 100%)`,
-  },
-  playhead: {
-    backgroundColor: palette.accent,
+    experimental_backgroundImage: `linear-gradient(90deg, ${withAlpha(palette.accent, 0)} 0%, ${withAlpha(palette.accent, 0.85)} 100%)`,
   },
 }));
 

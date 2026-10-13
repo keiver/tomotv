@@ -71,15 +71,34 @@ function pickNextAfter(items: JellyfinVideoItem[], anchorId: string): JellyfinVi
   return null;
 }
 
+/** A next-up card, with the play that finished the item before it: the time the card ranks by. */
+export interface NextUpPick {
+  video: JellyfinVideoItem;
+  playedAt: string | undefined;
+}
+
 /**
- * Resolve the next-up cards to append after the resume cards.
+ * The row as one list, newest play first: a resume card ranks by its own last play, a next-up
+ * card by its anchor's, so the item after the one just finished leads the row. Stable, and a card
+ * with no date keeps its place behind the dated ones.
+ */
+export function byLastPlayed<T extends { video: JellyfinVideoItem; playedAt?: string }>(cards: readonly T[]): T[] {
+  const time = (card: T) => {
+    const parsed = Date.parse(card.playedAt ?? card.video.UserData?.LastPlayedDate ?? "");
+    return Number.isNaN(parsed) ? -Infinity : parsed;
+  };
+  return [...cards].sort((a, b) => time(b) - time(a));
+}
+
+/**
+ * Resolve the next-up cards that join the resume cards on the row.
  *
  * @param resumeItems - What the row is already showing. A container with a resumable item
  *   is already represented, so it never gets a second card.
  * @param maxContainers - Cap on containers resolved, and therefore on extra requests. Each
  *   one is a cached fetchRecursiveVideos, normally already warm from building the binge queue.
  */
-export async function resolveNextUp(resumeItems: JellyfinVideoItem[], maxContainers = 4): Promise<JellyfinVideoItem[]> {
+export async function resolveNextUp(resumeItems: JellyfinVideoItem[], maxContainers = 4): Promise<NextUpPick[]> {
   const recentlyPlayed = await fetchRecentlyPlayed();
   if (!recentlyPlayed || recentlyPlayed.length === 0) return [];
 
@@ -108,7 +127,8 @@ export async function resolveNextUp(resumeItems: JellyfinVideoItem[], maxContain
       try {
         // Same call, same cache entry, same ordering as the queue this press will build.
         const siblings = await fetchRecursiveVideos(containerId);
-        return pickNextAfter(siblings, anchor.Id);
+        const next = pickNextAfter(siblings, anchor.Id);
+        return next ? { video: next, playedAt: anchor.UserData?.LastPlayedDate } : null;
       } catch (error) {
         // One unreachable container must never sink the row.
         logger.warn("Next-up resolution failed for container", error, { service: "NextUp", containerId });
@@ -117,13 +137,13 @@ export async function resolveNextUp(resumeItems: JellyfinVideoItem[], maxContain
     }),
   );
 
-  const resolved = picks.filter((item): item is JellyfinVideoItem => item !== null);
+  const resolved = picks.filter((pick): pick is NextUpPick => pick !== null);
 
   logger.debug("Next-up resolved", {
     service: "NextUp",
     anchors: anchors.length,
     resolved: resolved.length,
-    items: resolved.map((item) => ({ id: item.Id.slice(0, 8), name: item.Name?.slice(0, 24) })),
+    items: resolved.map(({ video }) => ({ id: video.Id.slice(0, 8), name: video.Name?.slice(0, 24) })),
   });
 
   return resolved;

@@ -2,12 +2,15 @@ import { COLORS } from "@/constants/colors";
 import { currentPalette } from "@/hooks/useCardPalette";
 import { getLiveTvAvailability, subscribeLiveTvAvailability } from "@/services/liveTvAvailability";
 import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
+import { useNavigation } from "expo-router";
+import { StackActions } from "expo-router/react-navigation";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import { t } from "@/services/i18n";
 import { useLocale } from "@/hooks/useLocale";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
+import { shouldUnwindToTabs } from "@/utils/tabUnwind";
 
 // SDK 56: Icon/Label moved under NativeTabs.Trigger.
 const { Icon, Label, Badge } = NativeTabs.Trigger;
@@ -103,8 +106,15 @@ export default function TabLayout() {
   // Labels follow a picked language as a title prop change; the triggers themselves stay static.
   useLocale();
 
+  // The root stack's navigation: a tab press, the selected tab's included, closes what covers the tabs.
+  const rootNavigation = useNavigation();
+  const unwindToTabs = useCallback(() => {
+    const root = rootNavigation.getState();
+    if (root && shouldUnwindToTabs(root.routes)) rootNavigation.dispatch({ ...StackActions.popTo("(tabs)", undefined, { merge: true }), target: root.key });
+  }, [rootNavigation]);
+
   return (
-    <NativeTabs key={showLiveTvTab ? "tabs-livetv" : "tabs"} {...TAB_BAR_BACKGROUND} tintColor={tabTint} disableTransparentOnScrollEdge>
+    <NativeTabs key={showLiveTvTab ? "tabs-livetv" : "tabs"} {...TAB_BAR_BACKGROUND} tintColor={tabTint} disableTransparentOnScrollEdge screenListeners={{ tabPress: unwindToTabs }}>
       <NativeTabs.Trigger name="(library)" disablePopToTop={DISABLE_TAB_RESELECT_EFFECTS} disableScrollToTop={DISABLE_TAB_RESELECT_EFFECTS}>
         <Icon sf="house.fill" />
         <Label>{t("tab.home")}</Label>

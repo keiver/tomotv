@@ -6,7 +6,8 @@
 import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { CACHE } from "@/constants/app";
 import { engineCodecAllowlists } from "@/services/localRemux";
-import { channelListKey, favoriteKey, LIVE_TV_CATEGORIES, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
+import { activeGuideUrls, fetchExternalAiringPrograms } from "@/services/externalGuide";
+import { channelListKey, favoriteKey, getLiveTvPreferences, LIVE_TV_CATEGORIES, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
 import { setPlaybackStage } from "@/services/playbackStage";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
@@ -17,8 +18,10 @@ import { accountTokenKey, API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
+import { playlistPlayable, playlistStandIn, playlistStandInsAllowed, standInItem } from "./playlistItems";
 import { didConfigReadFail, getAuthHeader, getConfig, getQualitySettings, throwRequestError } from "./session";
-import { type ChannelOrigin, clearOpenFailure } from "@keiver/tomo-live";
+import { lastKnownTunerData } from "./tunerGroups";
+import { type ChannelOrigin, clearOpenFailure, playlistChannelById } from "@keiver/tomo-live";
 
 export type { ChannelOrigin };
 export { noteOpenFailed, openRecentlyFailed } from "@keiver/tomo-live";
@@ -168,6 +171,25 @@ async function originVariantUrl(masterUrl: string, headers: Record<string, strin
 
 const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports: "isSports", kids: "isKids", movie: "isMovie", series: "isSeries" };
 
+/** Channels listed with no current programme get the one airing now from the device guides already open.
+ *  Bounded by the page the caller fetched; any failure leaves the page as the server sent it. */
+async function fillAiringFromGuides(channels: JellyfinItem[]): Promise<JellyfinItem[]> {
+  const bare = channels.filter((channel) => channel.Type === "TvChannel" && !channel.CurrentProgram);
+  if (bare.length === 0) return channels;
+  try {
+    const data = lastKnownTunerData();
+    const urls = activeGuideUrls(getLiveTvPreferences(), data?.tvgUrls ?? []);
+    if (urls.length === 0) return channels;
+    const requests = bare.map((channel) => ({ channelId: channel.Id, tvgId: data?.tvgById[channel.Id], tvgName: data?.tvgNameById[channel.Id], name: channel.Name ?? "" }));
+    const airing = await fetchExternalAiringPrograms(urls, requests, Date.now());
+    if (airing.length === 0) return channels;
+    const byChannel = new Map(airing.map((program) => [program.ChannelId, program]));
+    return channels.map((channel) => (byChannel.has(channel.Id) ? { ...channel, CurrentProgram: byChannel.get(channel.Id) } : channel));
+  } catch {
+    return channels;
+  }
+}
+
 /** One page of channels in the server's channel order; the whole list when no page is asked for. */
 export async function fetchChannels(
   page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; category?: LiveTvCategory; favorite?: boolean } = {},
@@ -194,7 +216,7 @@ export async function fetchChannels(
   );
   if (!response.ok) throwRequestError(response, `Failed to fetch channels: ${response.status}`);
   const json = await response.json();
-  return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
+  return { items: await fillAiringFromGuides((json.Items ?? []) as JellyfinItem[]), total: json.TotalRecordCount };
 }
 
 /**
@@ -267,7 +289,8 @@ async function fetchChannelItems(params: Record<string, string>): Promise<Jellyf
   return (json.Items ?? []) as JellyfinItem[];
 }
 
-/** The channels with these ids, in the ids' order; ids the server does not know are dropped. */
+/** The channels with these ids, in the ids' order. An id the server does not know yet stands in
+ *  as the device's own playlist parse of it; one no playlist carries either is dropped. */
 export async function fetchChannelsByIds(ids: readonly string[]): Promise<JellyfinItem[]> {
   const chunks: string[][] = [];
   for (let start = 0; start < ids.length; start += IDS_PER_REQUEST) chunks.push(ids.slice(start, start + IDS_PER_REQUEST));
@@ -275,8 +298,10 @@ export async function fetchChannelsByIds(ids: readonly string[]): Promise<Jellyf
   const pages = await Promise.all(chunks.map((chunk) => fetchChannelItems({ ids: chunk.join(",") })));
   const byId = new Map<string, JellyfinItem>();
   for (const item of pages.flat()) if (item.Type === "TvChannel") byId.set(item.Id, item);
+  const standIns = ids.some((id) => !byId.has(id) && playlistChannelById(id)) && (await playlistStandInsAllowed());
   return ids.flatMap((id) => {
-    const item = byId.get(id);
+    const row = byId.has(id) || !standIns ? null : playlistChannelById(id);
+    const item = byId.get(id) ?? (row ? standInItem(row) : null);
     return item ? [item] : [];
   });
 }
@@ -296,7 +321,7 @@ export async function fetchChannelWindow(ids: readonly string[]): Promise<Jellyf
   ]);
   if (!response.ok) throwRequestError(response, `Failed to fetch airing programmes: ${response.status}`);
   const airing = new Map(((await response.json()).Items as JellyfinProgram[] | undefined)?.map((program) => [program.ChannelId, program]) ?? []);
-  return channels.map((channel) => ({ ...channel, CurrentProgram: airing.get(channel.Id) ?? null }));
+  return fillAiringFromGuides(channels.map((channel) => ({ ...channel, CurrentProgram: airing.get(channel.Id) ?? null })));
 }
 
 /**
@@ -352,6 +377,12 @@ async function describeChannel(
     item ? null : fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL),
     options.info ? null : fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { headers }, API_TIMEOUTS.NORMAL),
   ]);
+  // An id the server has not ingested yet plays off the device's own playlist parse of the tuner.
+  const playable = itemResponse?.status === 404 || infoResponse?.status === 404 ? await playlistPlayable(channelId) : null;
+  if (playable) {
+    logger.info("Live channel resolved from the playlist table", { service: "LiveTv", channel: playable.Name });
+    return { channel: playable, playable };
+  }
   if (itemResponse && !itemResponse.ok) throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
   if (infoResponse && !infoResponse.ok) throwRequestError(infoResponse, `Failed to fetch channel playback info: ${infoResponse.status}`);
   const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
@@ -397,7 +428,12 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
   const response = await fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { headers }, API_TIMEOUTS.NORMAL);
-  if (!response.ok) throwRequestError(response, `Failed to fetch channel playback info: ${response.status}`);
+  if (!response.ok) {
+    // An id the server has not ingested yet: its origin is the playlist entry the device parsed.
+    const row = response.status === 404 ? await playlistStandIn(channelId) : null;
+    if (row) return { url: row.streamUrl, originKey: row.originKey, ...(Object.keys(row.headers).length > 0 ? { headers: row.headers } : {}) };
+    throwRequestError(response, `Failed to fetch channel playback info: ${response.status}`);
+  }
   const info = await response.json();
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   // Jellyfin's placeholder when no tuner lists the channel (LiveTvMediaSourceProvider.cs): the item's own id, no path.

@@ -1,11 +1,11 @@
-# tvOS & iOS App Icons, Top Shelf, Splash Assets
+# tvOS, iOS & Mac App Icons, Top Shelf, Splash Assets
 
 ## Quick Reference
 
 **Category:** Deployment
-**Keywords:** tvOS, iOS, icons, top shelf, Apple TV, brand assets, imagestack, appiconset, tvos-assets, validation
+**Keywords:** tvOS, iOS, Mac Catalyst, icons, top shelf, Apple TV, brand assets, imagestack, appiconset, tvos-assets, validation
 
-All app icons, Top Shelf images, and splash assets are generated **at prebuild time** by the `tvos-assets/plugin` Expo config plugin (from the local `tvos-assets` lib, v1.3.0+). Nothing is committed under `ios/` or a root `Images.xcassets/` anymore.
+iOS/tvOS app icons, Top Shelf images, and splash assets are generated **at prebuild time** by `tvos-assets/plugin`. The Mac Catalyst plugin derives the Mac icons from the generated iOS icon. The asset catalogs in `ios/`, `macos/` and `tvos/` are generated outputs.
 
 ## Related Documentation
 
@@ -49,6 +49,11 @@ At `npm run prebuild:ios` (no `EXPO_TV`) it generates:
 
 - `AppIcon.appiconset/` — 1024x1024 light (opaque, icon on background), dark (transparent, Apple adds the gradient), tinted (grayscale) — replacing Expo's single-size icon
 - Same splash logo/colorset
+
+At `npm run prebuild:mac`, `plugins/withMacCatalyst.js` adds Mac icons to the
+iOS app icon set: 16, 32, 128, 256 and 512 points at 1x and 2x, ten PNGs in all.
+The finished catalog lives in `macos/TomoTV/Images.xcassets/`. `prebuild:all`
+keeps each platform's catalog in its own generated directory.
 
 To change the icon: replace files in `assets/brand/`, run prebuild. No manual asset editing.
 

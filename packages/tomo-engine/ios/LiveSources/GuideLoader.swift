@@ -13,6 +13,8 @@ struct GuideStats: Equatable {
     var programmes = 0
     var skipped = 0
     var errors = 0
+    /// Time spent pre-folding the store's search text after the load.
+    var foldMs = 0
 }
 
 typealias GuideLoadError = SourceLoadError
@@ -28,7 +30,14 @@ final class GuideLoader {
     ) -> GuideLoader {
         let guide = GuideLoader(window: window, store: store)
         guide.loader = SourceLoader.load(url: url, headers: headers, sink: guide.parser, configuration: configuration) { result in
-            completion(result.map(guide.stats))
+            // Pre-fold here on the loader's queue: a search then never folds while holding the module queue.
+            completion(result.map { load in
+                let started = Date()
+                store.buildSearchText()
+                var stats = guide.stats(load)
+                stats.foldMs = Int(Date().timeIntervalSince(started) * 1000)
+                return stats
+            })
         }
         return guide
     }

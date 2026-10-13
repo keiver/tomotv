@@ -48,11 +48,16 @@ jest.mock("react-native/Libraries/Components/TV/useTVEventHandler", () => ({
   },
 }));
 const mockRouter = { back: jest.fn(), push: jest.fn() };
-jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ folderId: "f1", photoId: "p1" }), useRouter: () => mockRouter }));
+let mockParams: Record<string, string> = { folderId: "f1", photoId: "p1" };
+jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useRouter: () => mockRouter }));
 
 import PhotoViewerScreen from "@/app/photo-viewer";
 import { Image } from "expo-image";
-import { fetchFolderPhotos } from "@/services/jellyfinApi";
+import { fetchFolderPhotos, fetchItemDetails, fetchRecursivePhotos } from "@/services/jellyfinApi";
+
+beforeEach(() => {
+  mockParams = { folderId: "f1", photoId: "p1" };
+});
 
 function counter(tree: TestRenderer.ReactTestRenderer): string {
   return tree.root
@@ -132,5 +137,120 @@ test("a GIF asks without WebP, so it keeps the request it had", async () => {
   });
   const gif = tree.root.findAllByType(Image).find((node) => node.props.source.uri === "http://server/p2");
   expect(gif?.props.source.headers).toBeUndefined();
+  tree.unmount();
+});
+
+test("a recursive open paints the pressed photo while the sweep still runs, then reseats it in the set", async () => {
+  mockParams = { folderId: "f1", photoId: "p2", recursive: "true" };
+  let resolveSet!: (items: unknown) => void;
+  (fetchRecursivePhotos as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (resolveSet = resolve)));
+  (fetchItemDetails as jest.Mock).mockResolvedValueOnce(mockPhotos[1]);
+
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(counter(tree)).toContain("Two");
+  expect(tree.root.findAllByType(ActivityIndicator).length).toBeGreaterThan(0);
+
+  await act(async () => {
+    resolveSet([mockPhotos[0], mockPhotos[1], { Id: "p3", Name: "Three", Type: "Photo", Path: "/photos/three.png" }]);
+  });
+  expect(counter(tree)).toContain("Two");
+  expect(counter(tree)).toMatch(/2\| \/ \|3/);
+  tree.unmount();
+});
+
+test("a set that lands first mounts at the pressed index, and the late single result is ignored", async () => {
+  mockParams = { folderId: "f1", photoId: "p2", recursive: "true" };
+  let resolveSingle!: (item: unknown) => void;
+  (fetchItemDetails as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (resolveSingle = resolve)));
+
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(counter(tree)).toMatch(/2\| \/ \|2/);
+
+  await act(async () => {
+    resolveSingle(mockPhotos[1]);
+  });
+  expect(counter(tree)).toMatch(/2\| \/ \|2/);
+  tree.unmount();
+});
+
+test("a set that fails before the pressed photo lands still shows the photo, not the error screen", async () => {
+  mockParams = { folderId: "f1", photoId: "p2", recursive: "true" };
+  let failSet!: (reason: Error) => void;
+  let resolveSingle!: (item: unknown) => void;
+  (fetchRecursivePhotos as jest.Mock).mockReturnValueOnce(new Promise((_resolve, reject) => (failSet = reject)));
+  (fetchItemDetails as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (resolveSingle = resolve)));
+
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => {
+    failSet(new Error("server down"));
+  });
+  expect(counter(tree)).toContain("Unable to Load Photos");
+
+  await act(async () => {
+    resolveSingle(mockPhotos[1]);
+  });
+  expect(counter(tree)).not.toContain("Unable to Load Photos");
+  expect(counter(tree)).toContain("Two");
+  tree.unmount();
+});
+
+test("a plain open with no cached folder paints the pressed photo first, then the sweep widens it", async () => {
+  mockParams = { folderId: "f1", photoId: "p2" };
+  let resolveSet!: (items: unknown) => void;
+  (fetchFolderPhotos as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (resolveSet = resolve)));
+  (fetchItemDetails as jest.Mock).mockResolvedValueOnce(mockPhotos[1]);
+
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(counter(tree)).toContain("Two");
+
+  await act(async () => {
+    resolveSet(mockPhotos);
+  });
+  expect(counter(tree)).toContain("Two");
+  expect(counter(tree)).toMatch(/2\| \/ \|2/);
+  tree.unmount();
+});
+
+test("a set without the pressed photo leaves it shown alone", async () => {
+  mockParams = { folderId: "f1", photoId: "px", recursive: "true" };
+  let resolveSet!: (items: unknown) => void;
+  (fetchRecursivePhotos as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (resolveSet = resolve)));
+  (fetchItemDetails as jest.Mock).mockResolvedValueOnce({ Id: "px", Name: "Stray", Type: "Photo", Path: "/photos/stray.png" });
+
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(counter(tree)).toContain("Stray");
+
+  await act(async () => {
+    resolveSet(mockPhotos);
+  });
+  expect(counter(tree)).toContain("Stray");
+  expect(counter(tree)).not.toMatch(/\| \/ \|/);
   tree.unmount();
 });

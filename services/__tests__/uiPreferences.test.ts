@@ -6,15 +6,30 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 
 describe("uiPreferences", () => {
   it("starts with device generated posters on, server transcoding as the server allows, the gold cards and the folder colour on", () => {
-    expect(DEFAULT_UI_PREFERENCES).toEqual({ version: 1, devicePosters: true, serverTranscoding: "linkOrFile", cardTheme: { id: "gold", name: "", accent: "#FFC312" }, folderTint: true });
+    expect(DEFAULT_UI_PREFERENCES).toEqual({
+      version: 1,
+      devicePosters: true,
+      serverTranscoding: "linkOrFile",
+      cardTheme: { id: "gold", name: "", accent: "#FFC312" },
+      background: "artwork",
+    });
     expect(getUiPreferences().devicePosters).toBe(true);
     expect(getUiPreferences().serverTranscoding).toBe("linkOrFile");
   });
 
-  it("reads the chosen theme and the folder colour, falling back on a malformed one", () => {
+  it("reads the canvas mode, and maps earlier documents: clear's first name and the folder-colour switch", () => {
+    expect(parseUiPreferences(JSON.stringify({ background: "clear" }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "clear" });
+    expect(parseUiPreferences(JSON.stringify({ background: "accent" }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "accent" });
+    expect(parseUiPreferences(JSON.stringify({ background: "disco" }))).toEqual(DEFAULT_UI_PREFERENCES);
+    expect(parseUiPreferences(JSON.stringify({ background: "tomo" }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "clear" });
+    expect(parseUiPreferences(JSON.stringify({ folderTint: false }))).toEqual({ ...DEFAULT_UI_PREFERENCES, background: "clear" });
+    expect(parseUiPreferences(JSON.stringify({ folderTint: true }))).toEqual(DEFAULT_UI_PREFERENCES);
+  });
+
+  it("reads the chosen theme, falling back on a malformed one", () => {
     const ember = { id: "t1", name: "Ember", accent: "#ff7043" };
-    expect(parseUiPreferences(JSON.stringify({ cardTheme: ember, folderTint: false }))).toEqual({ ...DEFAULT_UI_PREFERENCES, cardTheme: { ...ember, accent: "#FF7043" }, folderTint: false });
-    expect(parseUiPreferences(JSON.stringify({ cardTheme: { id: "t1", name: "x", accent: "orange" }, folderTint: "no" }))).toEqual(DEFAULT_UI_PREFERENCES);
+    expect(parseUiPreferences(JSON.stringify({ cardTheme: ember }))).toEqual({ ...DEFAULT_UI_PREFERENCES, cardTheme: { ...ember, accent: "#FF7043" } });
+    expect(parseUiPreferences(JSON.stringify({ cardTheme: { id: "t1", name: "x", accent: "orange" } }))).toEqual(DEFAULT_UI_PREFERENCES);
   });
 
   it("reads a stored document field by field, defaulting what is missing or malformed", () => {

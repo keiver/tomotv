@@ -117,12 +117,15 @@ def programmes(channel, durations, epoch, start, end, pattern):
     """Guide entries on the half-hour grid: (start, stop, sources).
 
     `pattern` is the channel's repeating run of slot lengths in seconds, anchored on the epoch, so
-    channels with different patterns line up only now and then, like a real grid. A slot names what
-    plays at its midpoint; a film longer than its slot merges its consecutive slots, short content
-    keeps one entry per slot listing the episodes that start inside it."""
+    channels with different patterns line up only now and then, like a real grid. A negative slot
+    is silence: the stream keeps playing, the guide shows nothing. A slot names what plays at its
+    midpoint; a film longer than its slot merges its consecutive slots, short content keeps one
+    entry per slot listing the episodes that start inside it."""
     entries = [(source, durations[source]) for source in channel["sources"]]
     cycle = sum(d for _, d in entries)
-    unit = sum(pattern)
+    unit = sum(abs(s) for s in pattern)
+    if unit == 0 or not any(s > 0 for s in pattern):
+        return []
 
     def playing_at(t):
         off = (t - epoch) % cycle
@@ -149,9 +152,12 @@ def programmes(channel, durations, epoch, start, end, pattern):
     t = epoch + math.floor((start - epoch) / unit) * unit
     while t < end:
         for slot in pattern:
+            if slot < 0:
+                t += -slot
+                continue
             source = playing_at(t + slot / 2)
             long_form = durations[source] >= slot
-            if long_form and out and out[-1][2] == [source] and out[-1][1] - out[-1][0] < durations[source]:
+            if long_form and out and out[-1][1] == t and out[-1][2] == [source] and out[-1][1] - out[-1][0] < durations[source]:
                 out[-1] = (out[-1][0], t + slot, out[-1][2])
             else:
                 out.append((t, t + slot, [source] if long_form else (starting_in(t, t + slot) or [source])))

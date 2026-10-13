@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
 # Clears caches, prebuilds, opens the workspace in Xcode, and starts Metro.
-# Usage: npm run clear [-- --npm] [-- --tv|--ios]
+# Usage: npm run clear [-- --npm] [-- --tv|--ios|--mac]
 #   --npm   also nuke node_modules + package-lock.json and reinstall
-#   --tv    prebuild tvOS only (default: dual)
-#   --ios   prebuild iOS only (default: dual)
+#   --tv    prebuild tvOS only (default: all)
+#   --ios   prebuild iOS only (default: all)
+#   --mac   prebuild Mac Catalyst only (default: all)
 set -eu
 cd "$(dirname "$0")/.."
+source scripts/native-build-lock.sh
 
 NUKE_NPM=0
-PLATFORM="dual"
+PLATFORM="all"
 for arg in "$@"; do
   case "$arg" in
     --npm) NUKE_NPM=1 ;;
     --tv) PLATFORM="tv" ;;
     --ios) PLATFORM="ios" ;;
-    *) echo "Unknown arg: $arg (supported: --npm, --tv, --ios)" && exit 1 ;;
+    --mac) PLATFORM="mac" ;;
+    *) echo "Unknown arg: $arg (supported: --npm, --tv, --ios, --mac)" && exit 1 ;;
   esac
 done
+bash scripts/check-xcode-tools.sh
 
 rm -rf .expo .metro-cache
 
@@ -26,13 +30,17 @@ if [ "$NUKE_NPM" = "1" ]; then
 fi
 
 case "$PLATFORM" in
-  dual) yes | npm run prebuild:dual ;;
-  tv) yes | EXPO_TV=1 npx expo prebuild --clean ;;
-  ios) yes | npx expo prebuild --clean ;;
+  all) yes | bash scripts/prebuild-all.sh ;;
+  mac) bash scripts/prebuild-mac.sh ;;
+  tv) yes | EXPO_TV=1 EXPO_MACCATALYST=0 npx expo prebuild --clean ;;
+  ios) yes | EXPO_TV=0 EXPO_MACCATALYST=0 npx expo prebuild --clean ;;
 esac
+# Metro stays running; only native preparation needs exclusive project access.
+native_build_unlock
 
 case "$PLATFORM" in
-  dual) WORKSPACE="$PWD/TomoTV.xcworkspace" ;;
+  all) WORKSPACE="$PWD/TomoTV.xcworkspace" ;;
+  mac) WORKSPACE="$PWD/macos/TomoTV.xcworkspace" ;;
   *) WORKSPACE="$PWD/ios/TomoTV.xcworkspace" ;;
 esac
 

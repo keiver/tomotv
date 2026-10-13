@@ -4,6 +4,7 @@
  * reads it from here, so the grid, the hero, the Up Next card and Now Playing agree.
  */
 import { STANDALONE_VIDEO_TYPES } from "@/services/jellyfin/constants";
+import { playlistLogoUrl } from "@/services/jellyfin/playlistItems";
 import { getCachedConfig, getPosterUrl, hasPoster } from "@/services/jellyfinApi";
 import { posterFrameGeneration, posterFrameIfCached, posterFrameRevision } from "@/services/localRemux";
 import { getUiPreferences } from "@/services/uiPreferences";
@@ -62,6 +63,11 @@ export interface PosterSource {
  */
 export function posterSource(item: PosterItem, height: number, frame?: string | null, revision: number = posterFrameRevision(item.Id)): PosterSource | undefined {
   if (hasPoster(item)) return serverPoster(item.Id, item.ImageTags?.Primary, height);
+  // A channel the server holds no image for wears its playlist's tvg-logo, fetched only when a tile renders.
+  if (item.Type === "TvChannel") {
+    const logo = playlistLogoUrl(item.Id);
+    if (logo) return { uri: logo, cacheKey: `playlist-logo-${logo}` };
+  }
   // A programme found by search wears its channel's logo.
   if (item.Type === "Program" && item.ChannelId) return serverPoster(item.ChannelId, "channel", height);
   if (!getUiPreferences().devicePosters) return undefined;
@@ -103,9 +109,9 @@ export function heroArtFrame(width: number, area: number, imageWidth: number, im
   return { width, height };
 }
 
-/** The hero shows the picture whole in a centred box instead: a logo, or a landscape picture under a third of the hero's width. */
-export function heroArtBoxed(width: number, imageWidth: number, imageHeight: number, logo: boolean): boolean {
-  return logo || (imageWidth * HERO_MAX_UPSCALE < width && imageWidth >= imageHeight);
+/** The hero shows the picture whole in a centred box instead: a logo, or a landscape picture its hero frame would blow past 3x. */
+export function heroArtBoxed(width: number, area: number, imageWidth: number, imageHeight: number, logo: boolean): boolean {
+  return logo || (imageWidth >= imageHeight && heroArtFrame(width, area, imageWidth, imageHeight).width > imageWidth * HERO_MAX_UPSCALE);
 }
 
 /** A boxed picture contained in its box, never past 3x its own size. */

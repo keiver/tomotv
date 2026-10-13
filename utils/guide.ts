@@ -117,15 +117,30 @@ export function revealOffset(cell: CellGeometry, scrollX: number): number | unde
   return cell.left < scrollX ? cell.left : undefined;
 }
 
-/** A Left press or swipe on a row's first cell in a scrolled grid: the scroll view refuses that focus move out, so the canvas makes it. */
-export function exitsToCard(eventType: string, atRowStart: boolean, scrollX: number): boolean {
-  return atRowStart && scrollX > 0 && (eventType === "left" || eventType === "swipeLeft");
+/** A Left press or swipe on a cell with no cell to its left in a scrolled grid: the scroll view refuses that focus move out, so the canvas makes it. */
+export function exitsToCard(eventType: string, leavesRow: boolean, scrollX: number): boolean {
+  return leavesRow && scrollX > 0 && (eventType === "left" || eventType === "swipeLeft");
 }
 
-/** True when no cell in the row starts before this one: Left from it has no cell to land on. */
-export function isRowStart(cells: Pick<JellyfinProgram, "StartDate" | "EndDate">[], program: Pick<JellyfinProgram, "StartDate" | "EndDate">): boolean {
+/** True when Left from this cell has no cell to land on: none in the row starts before it, or the one just before is not mounted. */
+export function leftLeavesRow(
+  cells: Pick<JellyfinProgram, "StartDate" | "EndDate">[],
+  program: Pick<JellyfinProgram, "StartDate" | "EndDate">,
+  windowStartMs: number,
+  windowEndMs: number,
+  metrics: GuideMetrics,
+  mountSpan?: CanvasSpan,
+): boolean {
   const { startMs } = programTimes(program);
-  return cells.every((cell) => programTimes(cell).startMs >= startMs);
+  let previous: { startMs: number; endMs: number } | undefined;
+  for (const cell of cells) {
+    const times = programTimes(cell);
+    if (times.startMs < startMs && (!previous || times.startMs > previous.startMs)) previous = times;
+  }
+  if (!previous) return true;
+  if (!mountSpan) return false;
+  const geometry = cellGeometry(previous.startMs, previous.endMs, windowStartMs, windowEndMs, metrics);
+  return !geometry || !cellInSpan(geometry, mountSpan);
 }
 
 /** True when any part of the cell lies inside the span. */
@@ -230,6 +245,15 @@ export function isAiring(program: Pick<JellyfinProgram, "StartDate" | "EndDate">
 
 export function formatClock(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** A slot's two clock times; one inside a single minute shows its seconds, so it never reads as no time at all. */
+export function formatClockRange(startMs: number, endMs: number): { start: string; end: string } {
+  const start = formatClock(startMs);
+  const end = formatClock(endMs);
+  if (start !== end) return { start, end };
+  const withSeconds = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  return { start: withSeconds(startMs), end: withSeconds(endMs) };
 }
 
 /** "Today", "Tomorrow", else the weekday: the guide never spans further than a viewer scrolls. */
@@ -348,6 +372,11 @@ export function adjacentChannelId<T extends { Id: string }>(channels: T[], curre
   if (index < 0) return null;
   const next = (index + direction + channels.length) % channels.length;
   return channels[next].Id;
+}
+
+/** The node a press opened a screen from: its cell while mounted, else its row's channel card. */
+export function restoreFocusNode<N>(source: { programId?: string; channelId: string }, cellNodes: ReadonlyMap<string, N>, cardNodes: ReadonlyMap<string, N>): N | undefined {
+  return (source.programId !== undefined ? cellNodes.get(source.programId) : undefined) ?? cardNodes.get(source.channelId);
 }
 
 /** The ring with the playing channel in it: one tuned from outside the shown list is appended, so a flip from it lands in the list. */

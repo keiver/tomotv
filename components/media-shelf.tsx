@@ -16,7 +16,7 @@ interface MediaShelfProps<T> {
   /** A red dot after the heading: something on the shelf is live. */
   dot?: boolean;
   data: readonly T[];
-  /** The item's snapped card shape — decides its height in the row (see slotRowHeights). */
+  /** The item's snapped card shape, which decides its height in the row (see slotRowHeights). */
   slotShapeFor: (item: T) => ArtworkSlotShape;
   /** cardHeight is the item's own shape height; the card derives its width from it. */
   renderItem: (item: T, index: number, cardHeight: number) => ReactElement;

@@ -77,7 +77,8 @@ def main(directory, db, ip):
     task = next(t["Id"] for t in jf("/ScheduledTasks") if t["Key"] == "RefreshGuide")
     jf("/ScheduledTasks/Running/" + task, "POST")
     print("guide refresh started")
-    wanted = len(lineup["channels"])
+    # A channel whose slot pattern holds gaps (negative slots) may legitimately have nothing airing.
+    wanted = sum(1 for ch in lineup["channels"] if ch.get("slots", [30]) and all(s > 0 for s in ch.get("slots", [30])))
     for _ in range(36):
         time.sleep(5)
         channels = jf("/LiveTv/Channels?Limit=50")["TotalRecordCount"]

@@ -5,7 +5,7 @@
  * ninety PNGs into a browser again.
  *
  * Usage:
- *   npm run shots:upload                        every locale, both platforms
+ *   npm run shots:upload                        every locale, all three platforms
  *   npm run shots:upload -- --locale de         one language
  *   npm run shots:upload -- --platform TV_OS    one platform
  *   npm run shots:upload -- --dry-run           say what would happen, upload nothing
@@ -23,22 +23,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ascEnv, client, md5 } from "./appstore/asc.mjs";
+import { DISPLAY_TYPES, editableVersion, platformVersions, selectedPlatforms } from "./appstore/platforms.mjs";
+import { generatedShots, validateCaptures } from "./appstore/captures.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG = path.join(ROOT, "applestore", "shots.config.json");
 const BUNDLE_ID = "dev.keiver.tomotv";
-
-/**
- * Which ASC slot each generated size belongs in. The sizes come from
- * shots.config.json's device profiles, and Apple's enum is the one thing here
- * that cannot be derived: correct it in this table and nowhere else.
- * memories/CLAUDE-apple-store-metadata.md records why 1320x2868 is the 6.9" slot.
- */
-const DISPLAY_TYPES = {
-  iphone: { platform: "IOS", type: "APP_IPHONE_67", size: "1320x2868" },
-  ipad: { platform: "IOS", type: "APP_IPAD_PRO_3GEN_129", size: "2064x2752" },
-  tv: { platform: "TV_OS", type: "APP_APPLE_TV", size: "3840x2160" },
-};
 
 /** ASC locale codes for the languages the listing is written in. */
 const STORE_LOCALES = { en: "en-US", de: "de-DE", fr: "fr-FR", es: "es-ES" };
@@ -55,16 +45,6 @@ const CREATE_VERSION = flag("--create-version");
 function fail(msg) {
   console.error(`\n✗ ${msg}`);
   process.exit(1);
-}
-
-function shotsFor(locale, deviceKey) {
-  const dir = path.join(ROOT, "applestore", "generated", locale, deviceKey);
-  if (!fs.existsSync(dir)) return null;
-  return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith(".png"))
-    .sort()
-    .map((f) => path.join(dir, f));
 }
 
 /** Reserve, upload every part Apple asks for, then commit with the checksum. */
@@ -111,7 +91,14 @@ async function main() {
   if (!fs.existsSync(CONFIG)) fail(`Missing ${CONFIG}`);
   const config = JSON.parse(fs.readFileSync(CONFIG, "utf8"));
   const locales = opt("--locale") ? [opt("--locale")] : Object.keys(config.locales ?? {});
-  const platforms = opt("--platform") ? [opt("--platform")] : ["IOS", "TV_OS"];
+  const platforms = selectedPlatforms(opt("--platform"));
+
+  await validateCaptures(
+    ROOT,
+    config,
+    Object.keys(DISPLAY_TYPES).filter((key) => platforms.includes(DISPLAY_TYPES[key].platform)),
+    locales,
+  );
 
   // Every locale is checked before anything is uploaded: a half-uploaded listing
   // is worse than one that never started.
@@ -120,7 +107,7 @@ async function main() {
     if (!STORE_LOCALES[locale]) fail(`No App Store locale for "${locale}". Add it to STORE_LOCALES.`);
     for (const [deviceKey, slot] of Object.entries(DISPLAY_TYPES)) {
       if (!platforms.includes(slot.platform)) continue;
-      const files = shotsFor(locale, deviceKey);
+      const files = await generatedShots(ROOT, config, locale, deviceKey);
       if (!files || files.length === 0) {
         fail(`No screenshots at applestore/generated/${locale}/${deviceKey}. Run npm run shots first.`);
       }
@@ -145,8 +132,8 @@ async function main() {
   const appVersion = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8")).expo.version;
   const versions = {};
   for (const platform of platforms) {
-    const res = await api.get(`/v1/apps/${app.id}/appStoreVersions?filter[platform]=${platform}&filter[appStoreState]=PREPARE_FOR_SUBMISSION&limit=1`);
-    let version = res.data[0];
+    const res = { data: await platformVersions(api, app.id, platform) };
+    let version = editableVersion(res.data, platform, appVersion);
     if (!version) {
       // Deliberately not automatic: creating a version is a change to the
       // listing, and an upload that quietly opens one is how a half-filled

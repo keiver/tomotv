@@ -8,10 +8,42 @@
  * persisted to disk.
  */
 
-type CacheEntry = { value: unknown; timestamp: number };
+import { AppState } from "react-native";
+
+type CacheEntry = { value: unknown; timestamp: number; expiresAt: number };
 
 const entries = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<unknown>>();
+
+/** How often expired entries are let go: a key nobody reads again is otherwise held for the session. */
+const SWEEP_INTERVAL_MS = 60_000;
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+let memoryWarning: { remove: () => void } | null = null;
+
+function stopSweeping(): void {
+  if (sweepTimer) clearInterval(sweepTimer);
+  sweepTimer = null;
+  memoryWarning?.remove();
+  memoryWarning = null;
+}
+
+function sweep(): void {
+  const now = Date.now();
+  for (const [key, entry] of entries) if (now >= entry.expiresAt) entries.delete(key);
+  if (entries.size === 0) stopSweeping();
+}
+
+/** Runs while entries exist, and stops with the last one. */
+function keepSweeping(): void {
+  if (sweepTimer) return;
+  sweepTimer = setInterval(sweep, SWEEP_INTERVAL_MS);
+  (sweepTimer as unknown as { unref?: () => void }).unref?.();
+  // Settled values are only a shortcut; reads in flight stay shared so callers still collapse.
+  memoryWarning = AppState.addEventListener("memoryWarning", () => {
+    entries.clear();
+    stopSweeping();
+  });
+}
 
 /**
  * Return a cached value when fresh, share an in-flight request for the same key, or run `fetcher`.
@@ -42,7 +74,11 @@ export async function cachedRequest<T>(key: string, fetcher: () => Promise<T>, t
       // Only cache if this request is still the current in-flight one. An invalidate/clear during the
       // fetch drops it from inFlight; we must not then re-write the value it just invalidated (which
       // would re-introduce stale data across an auth change or a post-mutation refetch).
-      if (inFlight.get(key) === promise) entries.set(key, { value, timestamp: Date.now() });
+      if (inFlight.get(key) === promise) {
+        const timestamp = Date.now();
+        entries.set(key, { value, timestamp, expiresAt: timestamp + ttlMs });
+        keepSweeping();
+      }
       return value;
     } finally {
       if (inFlight.get(key) === promise) inFlight.delete(key);
@@ -73,4 +109,5 @@ export function invalidateByPrefix(prefix: string): void {
 export function clearRequestCache(): void {
   entries.clear();
   inFlight.clear();
+  stopSweeping();
 }

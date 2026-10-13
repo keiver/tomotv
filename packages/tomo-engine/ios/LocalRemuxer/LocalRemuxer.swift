@@ -62,6 +62,8 @@ class LocalRemuxer: RCTEventEmitter {
 
     private static var server: LocalHTTPServer?
 
+    private static let memoryPressure = MemoryPressureMonitor.start()
+
     /// The most recent session's plan, held so a listener that subscribes after
     /// the pipeline thread has already decided still receives it. The plan is
     /// produced within milliseconds of startRemux resolving, so a JS subscriber
@@ -70,6 +72,11 @@ class LocalRemuxer: RCTEventEmitter {
     private static var hasListeners = false
 
     @objc override static func requiresMainQueueSetup() -> Bool { false }
+
+    override init() {
+        super.init()
+        _ = Self.memoryPressure
+    }
 
     /// What this build can emit. JS runs ahead of native on every Metro reload, and subscribing
     /// to an event the running binary does not declare is a hard error in RCTEventEmitter.
@@ -91,6 +98,30 @@ class LocalRemuxer: RCTEventEmitter {
         Self.lock.lock()
         Self.hasListeners = false
         Self.lock.unlock()
+    }
+
+    /// Tokens whose session this module instance started. One instance exists per
+    /// React runtime, so these are the sessions a Metro reload orphans.
+    private var ownedTokens: Set<String> = []
+
+    /// Runtime teardown (Metro reload, host shutdown). The JS stop calls race the
+    /// dying runtime and can be dropped, so the sessions this runtime started are
+    /// stopped here. Scoped to this instance: a newer runtime's sessions live on.
+    override func invalidate() {
+        super.invalidate()
+        Self.lock.lock()
+        var orphans: [RemuxSession] = []
+        for token in ownedTokens {
+            guard let session = Self.sessions.removeValue(forKey: token) else { continue }
+            Self.sessionOrder.removeAll { $0 == token }
+            orphans.append(session)
+        }
+        ownedTokens.removeAll()
+        Self.lock.unlock()
+        for orphan in orphans {
+            NSLog("[LocalRemuxer] stopping session %@ left by runtime teardown", orphan.token)
+            orphan.stop()
+        }
     }
 
     /// Called on the pipeline thread. Emitting with no listeners registered
@@ -368,6 +399,7 @@ class LocalRemuxer: RCTEventEmitter {
             session.start()
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)
+            ownedTokens.insert(session.token)
 
             NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%@)", port, isLive ? "live" : "\(session.segmentCount) segments")
             resolve("http://127.0.0.1:\(port)/\(session.token)/master.m3u8")
@@ -577,6 +609,16 @@ class LocalRemuxer: RCTEventEmitter {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         Self.posters.cancel(itemId: itemId as String)
+        resolve(nil)
+    }
+
+    /// Paused while video plays: the backlog waits, the grab already running finishes.
+    @objc func setPosterQueuePaused(
+        _ paused: Bool,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.posters.setPaused(paused)
         resolve(nil)
     }
 
@@ -793,6 +835,28 @@ class LocalRemuxer: RCTEventEmitter {
 
     /// Cancellation flags for repackages in flight, keyed by item id.
     private static var repackCancels: Set<String> = []
+
+    /// Joins a parallel download's ranged part files into the one file the
+    /// repackager then reads; parts are removed as they are consumed.
+    @objc func mergeDownloadParts(
+        _ config: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let parts = config["parts"] as? [String], !parts.isEmpty,
+              let outputPath = config["outputPath"] as? String else {
+            reject("invalid_config", "mergeDownloadParts needs parts and outputPath", nil)
+            return
+        }
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                try DownloadRepackager.mergeParts(parts.map { URL(fileURLWithPath: $0) }, into: URL(fileURLWithPath: outputPath))
+                resolve(nil)
+            } catch {
+                reject("merge_failed", error.localizedDescription, error)
+            }
+        }
+    }
 
     /// Rewraps a finished download into MP4 so it direct-plays. Resolves either way:
     /// `repackaged: false` carries the reason and leaves the source file alone, which

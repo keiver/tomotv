@@ -47,6 +47,7 @@ import { fresh, hash, hashFile, loadManifest, saveManifest, toolchain } from "./
 import { planImport, adopt, assign } from "./appstore/import.mjs";
 import { captureShots } from "./appstore/capture.mjs";
 import { ensurePlaceholders } from "./appstore/placeholder.mjs";
+import { validateCaptures } from "./appstore/captures.mjs";
 import { STAMP_TIME, TEMPLATE_DIR, captureTemplate, findClusters, stampStatusBar, templateHash } from "./appstore/statusbar.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -360,6 +361,7 @@ const TILE_RADIUS = {
   iphone: (w, h) => [w * 0.128, h * 0.057],
   ipad: () => [20, 20],
   tv: () => [20, 20],
+  mac: () => [20, 20],
 };
 
 /** One montage per platform, so the set can be judged as a row the way the store shows it. */
@@ -487,6 +489,13 @@ async function main() {
 
   const config = loadConfig();
 
+  if (flag("--check-captures")) {
+    const devices = Object.keys(config.devices).filter((key) => config.shots.some((shot) => shot.devices.includes(key)));
+    await validateCaptures(ROOT, config, devices, opt("--locale") ? [config.locale] : Object.keys(config.locales));
+    console.log("Every configured slot has a real capture.");
+    return;
+  }
+
   if (flag("--list")) {
     for (const { deviceKey, shots } of plan(config)) {
       if (!shots.length) continue;
@@ -509,7 +518,7 @@ async function main() {
     console.log(`\n▸ status bar templates at ${STAMP_TIME.toString().slice(0, 21)}`);
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tomotv-statusbar-"));
     for (const { deviceKey, shots } of plan(config)) {
-      if (deviceKey === "tv" || !shots.length) continue;
+      if (!["iphone", "ipad"].includes(deviceKey) || !shots.length) continue;
       await captureTemplate(deviceKey, DEVICES[deviceKey], scratch);
       console.log(`   ✓ ${deviceKey} → ${path.relative(ROOT, TEMPLATE_DIR)}/${deviceKey}.png`);
     }

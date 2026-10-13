@@ -1,8 +1,9 @@
 import { useAuthSession } from "@/hooks/useAuthSession";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { fetchTunerGroups, lastKnownTunerData, type TunerGroup } from "@/services/jellyfinApi";
-import { activePlaylistGroup, updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
+import { activePlaylistGroup, playlistGroupIds, updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
 import { logger } from "@/utils/logger";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const NO_IDS: readonly string[] = [];
 
@@ -43,7 +44,10 @@ export function usePlaylistChannelIds(filter: ChannelFilter): readonly string[] 
   useEffect(() => {
     if (dead) updateLiveTvPreferences({ filter: "all" });
   }, [dead]);
+  const edit = useLiveTvPreferences().playlistEdits[name ?? ""];
+  const tunerIds = groups?.find((group) => group.name === name)?.channelIds ?? NO_IDS;
+  const ids = useMemo(() => playlistGroupIds(tunerIds, edit), [tunerIds, edit]);
   if (!name) return null;
   if (!groups) return "loading";
-  return groups.find((group) => group.name === name)?.channelIds ?? NO_IDS;
+  return ids;
 }

@@ -45,6 +45,12 @@ jest.mock("@/services/libraryManager", () => ({
   },
 }));
 
+// No active guide sources by default: the airing fill stays inert unless a test arms it.
+jest.mock("@/services/externalGuide", () => ({
+  activeGuideUrls: jest.fn(() => []),
+  fetchExternalAiringPrograms: jest.fn(async () => []),
+}));
+
 const SERVER = "http://192.168.1.100:8096";
 
 describe("live TV client", () => {
@@ -87,6 +93,27 @@ describe("live TV client", () => {
     expect(url).toContain("addCurrentProgram=true");
     expect(url).toContain("userId=test-user-id");
     expect(url).not.toContain("startIndex=");
+  });
+
+  it("fills a channel's missing current programme from the device guide sources", async () => {
+    const external = jest.requireMock("@/services/externalGuide") as { activeGuideUrls: jest.Mock; fetchExternalAiringPrograms: jest.Mock };
+    external.activeGuideUrls.mockReturnValueOnce(["http://g/guide.xml"]);
+    external.fetchExternalAiringPrograms.mockResolvedValueOnce([{ Id: "ext:c2:1", Name: "On Now", ChannelId: "c2" }]);
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        Items: [
+          { Id: "c1", Name: "One", Type: "TvChannel", CurrentProgram: { Name: "News" } },
+          { Id: "c2", Name: "Two", Type: "TvChannel", CurrentProgram: null },
+        ],
+        TotalRecordCount: 2,
+      }),
+    });
+    const { items } = await fetchChannels();
+    expect(items[0].CurrentProgram).toEqual({ Name: "News" });
+    expect(items[1].CurrentProgram).toEqual({ Id: "ext:c2:1", Name: "On Now", ChannelId: "c2" });
+    // Only the bare channel is asked of the guides.
+    expect(external.fetchExternalAiringPrograms.mock.calls[0][1]).toEqual([{ channelId: "c2", tvgId: undefined, tvgName: undefined, name: "Two" }]);
   });
 
   it("asks for one page of channels when a page is named", async () => {

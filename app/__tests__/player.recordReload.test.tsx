@@ -106,6 +106,16 @@ describe("transport bar record after a failed re-read", () => {
   });
   const press = async () => act(async () => lastHandlers().onTransportBarButtonSelected({ id: "record" }));
 
+  it("offers no Record on a channel the server has not ingested, and a press writes no timer", async () => {
+    jest.mocked(fetchChannelWindow).mockResolvedValue([{ Id: "ch1", Name: "News", playlistPending: true }] as never);
+    await act(async () => {
+      renderer = TestRenderer.create(<VideoPlayerScreen />);
+    });
+    expect(recordButton()).toBeUndefined();
+    await press();
+    expect(createTimer).not.toHaveBeenCalled();
+  });
+
   it("keeps Stop when the timer was created but the re-read failed, and never cancels a timer without an id", async () => {
     await act(async () => {
       renderer = TestRenderer.create(<VideoPlayerScreen />);

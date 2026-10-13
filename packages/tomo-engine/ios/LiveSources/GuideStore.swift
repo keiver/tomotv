@@ -72,6 +72,16 @@ final class GuideStore {
         }
     }
 
+    /// Folds every channel's search text now, so no later search pays the fold while readers wait.
+    func buildSearchText() {
+        lock.lock()
+        defer { lock.unlock() }
+        sortIfNeeded()
+        for id in byChannel.keys where searchText[id] == nil {
+            searchText[id] = (byChannel[id] ?? []).map(GuideSearch.text)
+        }
+    }
+
     /// The channel's folded search text in start order, folded once per guide load. Callers hold the lock.
     private func foldedText(_ id: String) -> [String] {
         sortIfNeeded()

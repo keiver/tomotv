@@ -1,4 +1,4 @@
-import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
+import { CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
 import { PosterCollage } from "@/components/poster-collage";
@@ -11,6 +11,7 @@ import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
 import { t } from "@/services/i18n";
 import { cleanLabel } from "@/utils/cleanLabel";
+import { withAlpha } from "@/utils/color";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,6 +25,7 @@ const IS_TV = Platform.isTV;
 const SCREEN = Dimensions.get("screen");
 const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
 const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
+const QUIET_MARK_SIZE = Math.round(TITLE_SIZE * 0.8);
 const CARD_PADDING = IS_TV ? 16 : 8;
 const POSTER_SIZE = IS_TV ? 300 : 200;
 
@@ -118,6 +120,14 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
   const folderName = cleanLabel(folder.Name);
+  const favorite = showsFavoriteHeart(folder);
+  // The same heart a channel card wears after its title: smaller and dimmed.
+  const renderFavoriteMark = (color: string) =>
+    favorite ? (
+      <View style={styles.titleMark} pointerEvents="none">
+        <Ionicons name="heart" size={QUIET_MARK_SIZE} color={withAlpha(color, 0.65)} />
+      </View>
+    ) : null;
 
   // The Live TV view counts channels, and its empty face is a set, not a folder.
   const isLiveTv = folder.CollectionType === "livetv";
@@ -193,7 +203,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </>
           ) : preview.length > 0 ? (
             <>
-              <PosterCollage items={preview} height={POSTER_SIZE} />
+              <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo />
               <CardScrim />
               {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
             </>
@@ -220,15 +230,21 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               Focused: opaque gold bar; resting: glass over the scrimmed art. */}
           {focused ? (
             <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
-              <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.ink }])}>
-                {folderName}
-              </MarqueeText>
+              <View style={[styles.titleLine, favorite && styles.titleLineInset]}>
+                {renderFavoriteMark(palette.ink)}
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.ink }])}>
+                  {folderName}
+                </MarqueeText>
+              </View>
             </View>
           ) : (
             <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.accent }])}>
-                {folderName}
-              </MarqueeText>
+              <View style={[styles.titleLine, favorite && styles.titleLineInset]}>
+                {renderFavoriteMark(palette.accent)}
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.accent }])}>
+                  {folderName}
+                </MarqueeText>
+              </View>
             </View>
           )}
 
@@ -251,6 +267,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.Name === next.folder.Name &&
     prev.folder.ChildCount === next.folder.ChildCount &&
     prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
+    prev.folder.UserData?.IsFavorite === next.folder.UserData?.IsFavorite &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
     prev.folder.SeriesId === next.folder.SeriesId &&
     prev.folder.SeriesPrimaryImageTag === next.folder.SeriesPrimaryImageTag &&
@@ -368,6 +385,21 @@ const styles = StyleSheet.create({
   // of the poster, not a flat strip. Gold stays legible on the bottom scrim's wash.
   infoOverlayGlass: {
     backgroundColor: "rgba(28, 28, 30, 0.6)",
+  },
+  titleLine: {
+    width: "100%",
+  },
+  // Both sides on TV, so the centred title clears the heart; the right side alone elsewhere.
+  titleLineInset: {
+    paddingRight: IS_TV ? TITLE_SIZE + 16 : TITLE_SIZE + 2,
+    paddingLeft: IS_TV ? TITLE_SIZE + 16 : 0,
+  },
+  titleMark: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: IS_TV ? 4 : -4,
+    justifyContent: "center",
   },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // library names always ellipsize, and a ragged tail reads better from a fixed left edge.

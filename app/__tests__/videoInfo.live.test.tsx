@@ -92,6 +92,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchSeriesTimers: jest.fn(),
   fetchLiveTvManagement: jest.fn(),
 }));
+jest.mock("@/hooks/useTunerGroups", () => ({ useTunerGroups: () => [] }));
 
 const now = Date.now();
 const airing = {
@@ -218,7 +219,7 @@ describe("Video info: live items", () => {
     (fetchTimers as jest.Mock).mockResolvedValue([]);
     const tree = await mount(channel, { videoId: "c1", ...{ guideProgram } });
     expect(fetchItemDetails).toHaveBeenCalledWith("c1");
-    expect(buttons(tree)).toEqual(["Watch", "Record", "Groups"]);
+    expect(buttons(tree)).toEqual(["Watch", "Record"]);
   });
 
   it("offers only Watch when the account may not manage recordings, and never Delete or Show in Folder", async () => {
@@ -294,17 +295,28 @@ describe("Video info: live items", () => {
     expect(buttons(tree)).toEqual(["Watch", "Record", "Record Series"]);
   });
 
-  it("records a manual timer on a channel and opens its Groups with the channel", async () => {
+  it("records a manual timer on a channel", async () => {
     (fetchTimers as jest.Mock).mockResolvedValue([]);
     (fetchTimerDefaults as jest.Mock).mockResolvedValue({ PrePaddingSeconds: 0 });
     const tree = await mount(channel);
-    expect(buttons(tree)).toEqual(["Watch", "Record", "Groups"]);
+    expect(buttons(tree)).toEqual(["Watch", "Record"]);
     await press(tree, "Record");
     expect(fetchTimerDefaults).toHaveBeenCalledWith();
     expect(createTimer).toHaveBeenCalledWith(expect.objectContaining({ ChannelId: "c1", Name: "One", PrePaddingSeconds: 0 }));
+  });
 
-    await press(tree, "Groups");
-    expect(mockPush).toHaveBeenCalledWith({ pathname: "/channel-groups", params: { channelId: "c1", channelName: "One", channelNumber: "7" } });
+  it("lists a channel's groups inline under the CTAs on touch, and no stream sections", async () => {
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    const tree = await mount({
+      ...channel,
+      MediaStreams: [
+        { Type: "Video", Index: 0 },
+        { Type: "Audio", Index: 1 },
+      ],
+    });
+    expect(tree.root.findAllByProps({ accessibilityRole: "checkbox", accessibilityLabel: "Favorites" }).length).toBeGreaterThan(0);
+    const headings = tree.root.findAll((node) => typeof node.type === "string" && (node.props.children === "Video" || node.props.children === "Audio"));
+    expect(headings).toHaveLength(0);
   });
 
   it("draws the channel logo even when the load before details fails", async () => {

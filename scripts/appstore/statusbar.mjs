@@ -209,6 +209,7 @@ export const templateHash = (deviceKey) => {
  * when the bar is somewhere the device never draws it or its backdrop cannot be rebuilt.
  */
 export async function stampStatusBar(src, deviceKey) {
+  if (deviceKey === "mac") return { input: src, status: "not applicable" };
   const t = await loadTemplate(deviceKey);
   if (!t) return { input: src, status: "no template" };
 
