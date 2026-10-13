@@ -89,9 +89,6 @@ permission on the server overrides all three.
   RealVideo, Theora, DV and Cinepak all play on the device; the measured list is in
   [`docs/playback-coverage.md`](docs/playback-coverage.md).
 
-It runs on tvOS, iOS and iPadOS 16.4 or later, and on macOS 13.4 or later (Apple
-Silicon and Intel). What it supports on each is in [FEATURES.md](FEATURES.md).
-
 ## Core packages
 
 The engine and the live TV services are npm packages developed here, usable by
@@ -109,6 +106,9 @@ pre-commit hook, Test PR fails a package change without a new version, and a
 merge to `main` publishes it (`.github/workflows/publish-packages.yml`).
 
 ## Getting started
+
+Tomo TV runs on tvOS, iOS and iPadOS 16.4 or later, and on macOS 13.4 or later (Apple
+Silicon and Intel). What it supports on each is in [FEATURES.md](FEATURES.md).
 
 You need a Jellyfin server (10.10 or later for Skip Intro), Node.js 18 or later,
 and Xcode 26 or later. CocoaPods is installed through Homebrew if missing.
