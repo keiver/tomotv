@@ -59,6 +59,7 @@
       "./plugins/withMultiAudioResourceLoader",
       "./plugins/withMacKeyCommands",
       "./plugins/withAudioQueuePlayer",
+      "./plugins/withLyricsListener",
       "./plugins/withBookRenderer",
       "./plugins/withTunerGroups",
       "@keiver/tomo-engine",

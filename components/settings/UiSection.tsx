@@ -19,6 +19,7 @@ export function UiSection() {
   const { devicePosters, cardTheme } = useUiPreferences();
   const choice = useLanguageChoice();
   const toggleDevicePosters = useCallback(() => updateUiPreferences({ devicePosters: !devicePosters }), [devicePosters]);
+  const openLyrics = useCallback(() => router.push("/lyrics-settings"), [router]);
   const openLanguage = useCallback(() => router.push("/language"), [router]);
   const openAppearance = useCallback(() => router.push("/appearance"), [router]);
   // tvOS moves focus out of a scroller only at the matching end, so the end rows pin it.
@@ -86,10 +87,18 @@ export function UiSection() {
             subtitle={t("settings.devicePostersHint")}
             trailingIcon={devicePosters ? tick : undefined}
             onPress={toggleDevicePosters}
+            onFocus={IS_TV ? enter : undefined}
+            onBlur={IS_TV ? leave : undefined}
+            accessibilityState={{ checked: devicePosters }}
+          />
+          <ListRow
+            icon="musical-notes-outline"
+            title={t("detail.lyrics")}
+            trailingIcon="chevron-forward"
+            onPress={openLyrics}
             onFocus={IS_TV ? pinListToBottom : undefined}
             onBlur={IS_TV ? leave : undefined}
             isLast
-            accessibilityState={{ checked: devicePosters }}
           />
         </ScrollView>
       </View>

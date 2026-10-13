@@ -26,12 +26,16 @@ import {
 } from "@/services/jellyfinApi";
 import * as audioQueuePlayer from "@/services/audioQueuePlayer";
 import { playbackArtworkUri, playsFromDisk } from "@/services/downloads/localSource";
+import { t } from "@/services/i18n";
+import { resolveLyrics } from "@/services/lyrics/pipeline";
+import { getUiPreferences, subscribeUiPreferences, updateUiPreferences } from "@/services/uiPreferences";
 import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit, probeFirstPlaying, probeProgress, setPlaybackProbeEnabled, sourceSummary } from "@/services/playbackProbe";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
 import { formatIndexLine, joinMeta } from "@/utils/mediaInfo";
+import { Platform } from "react-native";
 
 // Same resume policy as usePlaybackReporter: under 2s isn't worth resuming,
 // past 95% the track counts as finished.
@@ -93,6 +97,8 @@ class AudioPlayerManager {
   private lastReportedPosition = 0;
   private pendingStartPosition = 0;
   private unsubscribeNative: (() => void) | null = null;
+  private unsubscribePreferences: (() => void) | null = null;
+  private lyricsEnabled = false;
   private listeners = new Set<Listener>();
 
   // Serialized server-write chain (same rationale as usePlaybackReporter):
@@ -158,7 +164,10 @@ class AudioPlayerManager {
       onQueueEnded: (event) => this.handleQueueEnded(event),
       onDismiss: () => this.handleDismiss(),
       onError: (event) => this.handleTrackError(event),
+      onLyricsEnabledChanged: (event) => updateUiPreferences({ showLyrics: event.enabled }),
     });
+    this.lyricsEnabled = getUiPreferences().showLyrics;
+    this.unsubscribePreferences = subscribeUiPreferences(() => this.applyLyricsPreference());
 
     logger.info("Audio queue starting", { service: "AudioPlayer", count: items.length, startIndex });
     if (items[startIndex]) this.recordTrack(items[startIndex]);
@@ -169,6 +178,8 @@ class AudioPlayerManager {
         startIndex,
         startPositionSeconds: this.pendingStartPosition,
         loop: this.loop,
+        lyricsEnabled: this.lyricsEnabled,
+        lyricsLabel: t("detail.lyrics"),
       });
     } catch (error) {
       logger.error("Audio queue failed to start", error, { service: "AudioPlayer" });
@@ -288,7 +299,32 @@ class AudioPlayerManager {
     // it reports nothing.
     if (this.failedIndex === event.index) this.failedIndex = null;
     else this.openSession(item, this.position);
+    void this.loadLyrics(item);
     this.notify();
+  }
+
+  /** The current track's lyrics, each answer as it improves; one for a track the queue has left is dropped.
+   *  Apple TV takes them even while off: its player's toggle shows only for a song that has some. */
+  private async loadLyrics(item: JellyfinVideoItem): Promise<void> {
+    const wanted = () => this.lyricsEnabled || Platform.isTV;
+    if (!wanted()) return;
+    const current = () => this.active && this.items[this.currentIndex]?.Id === item.Id;
+    await resolveLyrics(item, (lyrics) => {
+      if (!current() || !wanted()) return;
+      void audioQueuePlayer.setLyrics(item.Id, lyrics).catch((error) => logger.warn("Could not hand lyrics to the audio player", error, { service: "AudioPlayer" }));
+    });
+    // The next song's are worked out while this one plays, so they are ready when it starts.
+    const next = this.items[this.currentIndex + 1];
+    if (next && current()) void resolveLyrics(next, () => {});
+  }
+
+  private applyLyricsPreference(): void {
+    const enabled = getUiPreferences().showLyrics;
+    if (enabled === this.lyricsEnabled) return;
+    this.lyricsEnabled = enabled;
+    void audioQueuePlayer.setLyricsEnabled(enabled).catch(() => {});
+    const item = this.items[this.currentIndex];
+    if (enabled && item) void this.loadLyrics(item);
   }
 
   /**
@@ -492,6 +528,8 @@ class AudioPlayerManager {
   private teardownLocalState(): void {
     this.unsubscribeNative?.();
     this.unsubscribeNative = null;
+    this.unsubscribePreferences?.();
+    this.unsubscribePreferences = null;
     this.active = false;
     setPlaybackHold("audio", false);
     this.uiVisible = false;

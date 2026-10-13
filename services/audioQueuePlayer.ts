@@ -8,6 +8,7 @@
  * and all Jellyfin reporting stay in JS (services/audioPlayerManager.ts).
  */
 
+import type { ItemLyrics } from "@/services/jellyfin/lyrics";
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 
 const { AudioQueuePlayer } = NativeModules;
@@ -33,6 +34,9 @@ export interface AudioQueueConfig {
   startIndex: number;
   startPositionSeconds: number;
   loop: boolean;
+  lyricsEnabled: boolean;
+  /** The player's own word for lyrics, in the app's language. */
+  lyricsLabel: string;
 }
 
 export interface AudioTrackChangedEvent {
@@ -58,6 +62,10 @@ export interface AudioQueueEndedEvent {
 export interface AudioErrorEvent {
   index: number;
   message: string;
+}
+
+export interface AudioLyricsEnabledEvent {
+  enabled: boolean;
 }
 
 export interface AudioPlayerState {
@@ -112,12 +120,23 @@ export async function getState(): Promise<AudioPlayerState> {
   return AudioQueuePlayer.getState();
 }
 
+/** The lyrics of one track, or null for none. Native drops them unless that track is current. */
+export async function setLyrics(trackId: string, lyrics: ItemLyrics | null): Promise<void> {
+  await AudioQueuePlayer.setLyrics(trackId, lyrics);
+}
+
+export async function setLyricsEnabled(enabled: boolean): Promise<void> {
+  await AudioQueuePlayer.setLyricsEnabled(enabled);
+}
+
 export interface AudioQueueEventHandlers {
   onTrackChanged: (event: AudioTrackChangedEvent) => void;
   onProgress: (event: AudioProgressEvent) => void;
   onQueueEnded: (event: AudioQueueEndedEvent) => void;
   onDismiss: () => void;
   onError: (event: AudioErrorEvent) => void;
+  /** The Apple TV player's own Lyrics toggle. */
+  onLyricsEnabledChanged: (event: AudioLyricsEnabledEvent) => void;
 }
 
 /**
@@ -136,6 +155,7 @@ export function subscribeToEvents(handlers: AudioQueueEventHandlers): () => void
     emitter.addListener("onQueueEnded", handlers.onQueueEnded),
     emitter.addListener("onDismiss", handlers.onDismiss),
     emitter.addListener("onError", handlers.onError),
+    emitter.addListener("onLyricsEnabledChanged", handlers.onLyricsEnabledChanged),
   ];
   return () => subscriptions.forEach((subscription) => subscription.remove());
 }

@@ -63,6 +63,41 @@ final class AudioArtworkOverlayView: UIView {
     private let glyph = UIImageView()
     private let spinner = UIActivityIndicatorView(style: .large)
 
+    /// The view the card is centred in when the player shares the screen; the window otherwise.
+    weak var layoutHost: UIView? { didSet { setNeedsLayout() } }
+    /// The wash alone, for a screen that shows the artwork somewhere else.
+    var isCardHidden = false { didSet { card.isHidden = isCardHidden } }
+
+    #if os(tvOS)
+    /// Apple Music's Apple TV layout: the card on the left with the song under it, the lines on the right.
+    private let lyricsList = LyricsListView()
+    private let titleLabel = UILabel()
+    private let artistLabel = UILabel()
+    private var showsLyrics = false
+
+    func setTrack(title: String, artist: String) {
+        titleLabel.text = title
+        artistLabel.text = artist
+    }
+
+    func setLyrics(_ lyrics: Lyrics?) {
+        lyricsList.setLyrics(lyrics)
+        guard showsLyrics != (lyrics != nil) else { return }
+        showsLyrics = lyrics != nil
+        setNeedsLayout()
+        UIView.animate(withDuration: 0.3) { self.layoutIfNeeded() }
+    }
+
+    /// The next song's lyrics are on their way: the lines go, the layout stays.
+    func holdLyricsLayout() {
+        lyricsList.setLyrics(nil)
+    }
+
+    func updateLyrics(time: Double) {
+        lyricsList.update(time: time)
+    }
+    #endif
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
@@ -96,6 +131,18 @@ final class AudioArtworkOverlayView: UIView {
         spinner.color = UIColor(white: 1, alpha: 0.5)
         spinner.hidesWhenStopped = true
         poster.addSubview(spinner)
+
+        #if os(tvOS)
+        titleLabel.font = .systemFont(ofSize: 29, weight: .semibold)
+        titleLabel.textColor = .white
+        titleLabel.textAlignment = .center
+        artistLabel.font = .systemFont(ofSize: 25)
+        artistLabel.textColor = UIColor(white: 1, alpha: 0.6)
+        artistLabel.textAlignment = .center
+        addSubview(titleLabel)
+        addSubview(artistLabel)
+        addSubview(lyricsList)
+        #endif
 
         show(.loading)
     }
@@ -156,7 +203,10 @@ final class AudioArtworkOverlayView: UIView {
         super.layoutSubviews()
         // presentUI adds this view before the controller is presented, so the first passes have
         // no window. Hold the geometry rather than measure against nothing.
-        guard let reference = layoutReference(), let window else { return }
+        guard let windowReference = layoutReference(), let window else { return }
+        // In this view's coordinates from here on.
+        let washFrame = convert(windowReference, from: window)
+        let reference = layoutHost.map { convert($0.bounds, from: $0) } ?? washFrame
 
         // Two caps: the short side holds the size steady across a rotation, the height keeps the
         // card off the transport bar where the short side IS the height.
@@ -173,11 +223,26 @@ final class AudioArtworkOverlayView: UIView {
         if cardSize.width > widthLimit {
             cardSize = CGSize(width: widthLimit, height: widthLimit / ratio)
         }
-        let centre = convert(CGPoint(x: reference.midX, y: reference.midY), from: window)
+        var centre = CGPoint(x: reference.midX, y: reference.midY)
         let radius = Self.cornerRadius
 
+        #if os(tvOS)
+        titleLabel.isHidden = !showsLyrics
+        artistLabel.isHidden = !showsLyrics
+        lyricsList.isHidden = !showsLyrics
+        if showsLyrics {
+            centre.x = reference.minX + reference.width * 0.25
+            // Raised, so the song's name clears the transport bar's own title below it.
+            centre.y = reference.minY + reference.height * 0.43
+            let labelWidth = reference.width * 0.4
+            titleLabel.frame = CGRect(x: centre.x - labelWidth / 2, y: centre.y + cardSize.height / 2 + 22, width: labelWidth, height: 36)
+            artistLabel.frame = CGRect(x: centre.x - labelWidth / 2, y: titleLabel.frame.maxY + 4, width: labelWidth, height: 32)
+            let left = reference.minX + reference.width * 0.44
+            lyricsList.frame = CGRect(x: left, y: reference.minY + reference.height * 0.1, width: reference.maxX - 90 - left, height: reference.height * 0.8)
+        }
+        #endif
+
         // The wash covers the window, which this view does not.
-        let washFrame = convert(reference, from: window)
         wash.frame = washFrame
         washBlur.frame = washFrame
         washDim.frame = washFrame

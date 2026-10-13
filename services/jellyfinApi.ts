@@ -85,6 +85,8 @@ export type { TunerGroup } from "./jellyfin/tunerGroups";
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
+export { fetchLyrics, parseLyrics } from "./jellyfin/lyrics";
+export type { ItemLyrics, LyricCue, LyricLine } from "./jellyfin/lyrics";
 export { fetchNextEpisodeAutoPlay } from "./jellyfin/nextEpisodeAutoPlay";
 export {
   createSyncPlayGroup,

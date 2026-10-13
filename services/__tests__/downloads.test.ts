@@ -52,9 +52,11 @@ jest.mock("@/services/jellyfin/subtitles", () => ({
   getRemoteSubtitleUrl: jest.fn((itemId: string, index: number) => `https://jf/Videos/${itemId}/${itemId}/Subtitles/${index}/Stream.vtt`),
   getTextSubtitleStreams: jest.fn(() => textSubtitles),
 }));
+jest.mock("@/services/lyrics/pipeline", () => ({ networkLyrics: jest.fn(async () => null) }));
 
 import { downloadManager, resetDownloadPolicyCache } from "@/services/downloads/manager";
-import { localArtworkUri, localSubtitleUri, playbackArtworkUri } from "@/services/downloads/localSource";
+import { localArtworkUri, localLyrics, localSubtitleUri, playbackArtworkUri } from "@/services/downloads/localSource";
+import { networkLyrics } from "@/services/lyrics/pipeline";
 import { getConvertedDownloadUrl } from "@/services/jellyfin/streamUrls";
 import { flushManifest, loadManifest, manifestEntry, patchEntry, readyFileUri, resetManifestCache, withManifestBatch } from "@/services/downloads/manifest";
 import { downloadsExcludedFromBackup, manifestFile } from "@/services/downloads/paths";
@@ -95,6 +97,7 @@ beforeEach(async () => {
   (hasPoster as jest.Mock).mockReturnValue(true);
   (wantsPosterFrame as jest.Mock).mockReturnValue(false);
   (requestPosterFrame as jest.Mock).mockResolvedValue(null);
+  (networkLyrics as jest.Mock).mockResolvedValue(null);
   File.createDownloadTask.mockImplementation((_url: string, destination: File, options: never) => {
     const task = new FakeTask(destination, options);
     tasks.push(task);
@@ -558,6 +561,27 @@ describe("downloads across a container change", () => {
     await settle();
 
     expect(localSubtitleUri("a", 3)).toBe("file:///doc/downloads/a/sub.3.vtt");
+  });
+
+  it("saves a song's lyrics with the download, and reads them back once it is ready", async () => {
+    const lyrics = { synced: true, lines: [{ text: "line", start: 1, cues: [] }] };
+    (networkLyrics as jest.Mock).mockResolvedValue(lyrics);
+    await add(ITEM("a"));
+    await settle();
+    expect(await localLyrics("a")).toBeNull();
+
+    tasks[0].complete(100);
+    await settle();
+
+    expect(networkLyrics).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }));
+    expect(await localLyrics("a")).toEqual(lyrics);
+  });
+
+  it("keeps no lyrics file for a song the server has none for", async () => {
+    await readyDownload();
+
+    expect(new File("file:///doc/downloads/a/lyrics.json").exists).toBe(false);
+    expect(await localLyrics("a")).toBeNull();
   });
 
   it("resolves the poster against the current container and drops it when absent", async () => {

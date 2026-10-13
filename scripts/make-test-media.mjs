@@ -1031,6 +1031,78 @@ async function buildSyntheticAudio() {
   return built;
 }
 
+const JELLYFIN_ELRC = "https://raw.githubusercontent.com/jellyfin/jellyfin/master/tests/Jellyfin.Providers.Tests/Test%20Data/Lyrics/Fleetwood%20Mac%20-%20Rumors.elrc";
+const LRCLIB_ENTRY = "https://lrclib.net/api/get/37021207";
+
+/**
+ * Songs that exist for their lyrics sidecar: word-level, line-synced and plain. The audio is
+ * T73's tone, as long as the lyrics run. The sidecars are fetched when this runs, Jellyfin's own
+ * parser fixture and one LRCLIB entry, so no lyric text lives in this repo.
+ */
+const fetched = (url) => fetch(url, { signal: AbortSignal.timeout(60000) });
+const LYRIC_ITEMS = [
+  { id: "T113", title: "T113 DIRECT audio lyrics word-level", seconds: 240, sidecar: "elrc", text: async () => (await fetched(JELLYFIN_ELRC)).text() },
+  { id: "T114", title: "T114 DIRECT audio lyrics line-synced", seconds: 100, sidecar: "lrc", text: async () => (await (await fetched(LRCLIB_ENTRY)).json()).syncedLyrics },
+  { id: "T115", title: "T115 DIRECT audio lyrics unsynced", seconds: 100, sidecar: "txt", text: async () => (await (await fetched(LRCLIB_ENTRY)).json()).plainLyrics },
+  // No sidecar: the song lyrics are uploaded to through the server's API.
+  { id: "T117", title: "T117 DIRECT audio lyrics upload target", seconds: 60, sidecar: null },
+];
+
+/** A song with words and no lyrics anywhere: the system voice reading numbered lines. */
+const SPOKEN = { id: "T116", title: "T116 DIRECT audio spoken no lyrics", lines: 24 };
+
+async function buildSpoken() {
+  if (!wanted(SPOKEN.id)) return [];
+  fs.mkdirSync(AUDIO_DIR, { recursive: true });
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const out = path.join(AUDIO_DIR, `${SPOKEN.title}.flac`);
+  if (exists(out) && !FORCE) {
+    log(`  = ${SPOKEN.title}`);
+    return [{ ...SPOKEN, out }];
+  }
+  log(`  + ${SPOKEN.title}`);
+  const script = Array.from({ length: SPOKEN.lines }, (_, i) => `This is fixture line number ${i + 1}, sung by nobody at all.`).join(" [[slnc 900]] ");
+  const voiced = path.join(CACHE_DIR, "spoken.aiff");
+  try {
+    await exec("say", ["-o", voiced, script]);
+  } catch (e) {
+    failures.push(`${SPOKEN.id} say: ${e.message}`);
+    return [];
+  }
+  if (!(await ff(["-y", "-i", voiced, "-ac", "2", "-ar", String(RATE), "-c:a", "flac", out], SPOKEN.title))) return [];
+  return [{ ...SPOKEN, out }];
+}
+
+async function buildLyrics() {
+  const built = [];
+  fs.mkdirSync(AUDIO_DIR, { recursive: true });
+  for (const item of LYRIC_ITEMS) {
+    if (!wanted(item.id)) continue;
+    const out = path.join(AUDIO_DIR, `${item.title}.flac`);
+    const sidecar = item.sidecar ? path.join(AUDIO_DIR, `${item.title}.${item.sidecar}`) : null;
+    if (exists(out) && (!sidecar || exists(sidecar)) && !FORCE) {
+      log(`  = ${item.title}`);
+      built.push({ ...item, out });
+      continue;
+    }
+    log(`  + ${item.title}`);
+    const text = sidecar ? await item.text().catch(() => null) : null;
+    if (sidecar && (typeof text !== "string" || text.trim() === "")) {
+      console.warn(`  ✗ ${item.id} lyrics could not be fetched`);
+      failures.push(`${item.id} lyrics fetch`);
+      continue;
+    }
+    const tones = TONES.stereo;
+    const inputs = [];
+    for (const t of tones) inputs.push("-f", "lavfi", "-i", `sine=frequency=${t.hz}:duration=${item.seconds}:sample_rate=${RATE}`);
+    const argv = ["-y", ...inputs, "-filter_complex", `${tones.map((_, i) => `[${i}:a]`).join("")}${joinFilter("stereo")},volume=0.2[a]`, "-map", "[a]", "-c:a", "flac", "-sample_fmt", "s32", out];
+    if (!(await ff(argv, item.title))) continue;
+    if (sidecar) fs.writeFileSync(sidecar, text);
+    built.push({ ...item, out });
+  }
+  return built;
+}
+
 /** A silent video bed to carry an elementary audio stream into the video library. */
 async function videoBed(title, seconds) {
   const bed = path.join(CACHE_DIR, `bed-${seconds}.mkv`);
@@ -1374,9 +1446,15 @@ async function main() {
   log("\nForced + SDH PGS item");
   await buildForcedSdh();
 
+  log("\nSpoken item");
+  const spoken = await buildSpoken();
+
   let downloaded = [];
   let atmos = [];
+  let lyrics = [];
   if (!flag("--no-download")) {
+    log("\nLyric items (Jellyfin test data, LRCLIB)");
+    lyrics = await buildLyrics();
     log("\nReal encoder output (samples.ffmpeg.org)");
     downloaded = await buildDownloads(sources);
     log("\nReal Atmos (Apple HLS example)");
@@ -1417,7 +1495,7 @@ async function main() {
     }
   }
 
-  const total = video.length + audio.length + coverage.length + coverageAudio.length + bench.length + slipstream.length + downloaded.length + atmos.length;
+  const total = video.length + audio.length + coverage.length + coverageAudio.length + bench.length + slipstream.length + downloaded.length + atmos.length + lyrics.length + spoken.length;
   log(`\n${total} items ready`);
   log(`  ${VIDEO_DIR}`);
   log(`  ${SURROUND_DIR}`);

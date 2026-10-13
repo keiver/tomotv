@@ -1011,6 +1011,51 @@
       "comment": "Same file is a server transcode at linkOrFile; never closes that lane, so the engine takes it (vp9 Profile 2 -> encode hevc). Software VP9 runs below realtime on the simulator, so no progress floor."
     },
     {
+      "id": "T113",
+      "title": "T113 DIRECT audio lyrics word-level",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "T73's audio with an .elrc sidecar: word-timed lyrics."
+    },
+    {
+      "id": "T114",
+      "title": "T114 DIRECT audio lyrics line-synced",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "T73's audio with an .lrc sidecar: line-timed lyrics."
+    },
+    {
+      "id": "T115",
+      "title": "T115 DIRECT audio lyrics unsynced",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "T73's audio with a .txt sidecar: plain lyrics."
+    },
+    {
+      "id": "T116",
+      "title": "T116 DIRECT audio spoken no lyrics",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "The system voice reading numbered lines, with no lyrics anywhere: the device writes them by listening."
+    },
+    {
+      "id": "T117",
+      "title": "T117 DIRECT audio lyrics upload target",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "T73's audio with no sidecar: its lyrics were uploaded through the server's API."
+    },
+    {
       "id": "L01",
       "title": "Bloomberg TV+ 4K HEVC (partner)",
       "live": true,

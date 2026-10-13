@@ -12,7 +12,7 @@ before anything else is worth reading.
 | Root                           | Holds                                                                       |
 | ------------------------------ | --------------------------------------------------------------------------- |
 | `~/Movies/development-videos`  | every video fixture (T01-T45, T60-T102) and the bench ladder (B01-B09, B12) |
-| `~/Music/Development Audio`    | stereo audio-only (T50-T55)                                                 |
+| `~/Music/Development Audio`    | stereo audio-only (T50-T55) and the lyric songs (T113-T117)                 |
 | `~/Music/Development Surround` | surround audio-only (T56, T70-T73)                                          |
 
 75 file items resolve out of these, and five Live TV channels (L01-L05) out of the

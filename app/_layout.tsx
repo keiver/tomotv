@@ -558,6 +558,22 @@ export default function RootLayout() {
                         }
                       />
                       <Stack.Screen
+                        name="lyrics-settings"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("detail.lyrics"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("settings.title"),
+                                animation: "fade",
+                              }
+                        }
+                      />
+                      <Stack.Screen
                         name="theme-editor"
                         options={
                           Platform.isTV

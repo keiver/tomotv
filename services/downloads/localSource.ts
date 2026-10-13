@@ -12,7 +12,8 @@
 import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { manifestEntries, manifestEntry, readyFileUri } from "./manifest";
-import { artworkFile, subtitleFile } from "./paths";
+import type { ItemLyrics } from "@/services/jellyfin/lyrics";
+import { artworkFile, lyricsFile, subtitleFile } from "./paths";
 
 /** The downloaded media file, or null when the item is not on disk and complete. */
 export function localMediaUri(itemId: string): string | null {
@@ -92,6 +93,19 @@ export function localSubtitleUri(itemId: string, streamIndex: number): string | 
   if (manifestEntry(itemId)?.state !== "ready") return null;
   const file = subtitleFile(itemId, streamIndex);
   return file.exists ? file.uri : null;
+}
+
+/** The lyrics saved with a downloaded song, or null when it has none on disk. */
+export async function localLyrics(itemId: string): Promise<ItemLyrics | null> {
+  if (manifestEntry(itemId)?.state !== "ready") return null;
+  const file = lyricsFile(itemId);
+  if (!file.exists) return null;
+  try {
+    const parsed = JSON.parse(await file.text()) as ItemLyrics;
+    return Array.isArray(parsed?.lines) && parsed.lines.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -145,7 +145,22 @@ class AudioQueuePlayer: RCTEventEmitter {
     }()
     #if os(tvOS)
     private weak var upNextPanel: UpNextPanelViewController?
+    private var lyricsOverlay: LyricsOverlayViewController?
+    private weak var previousTrackTap: UITapGestureRecognizer?
+    #else
+    private weak var container: AudioPlayerContainerViewController?
     #endif
+
+    /// The current track's lyrics as JS last sent them. Drawn only while the viewer wants them.
+    private var currentLyrics: Lyrics?
+    private var lyricsEnabled = true
+    private var lyricsLabel = "Lyrics"
+    private var lyricsObserverToken: Any?
+    private var shownLyrics: Lyrics? { lyricsEnabled ? currentLyrics : nil }
+    /// The track whose lyrics JS has yet to answer for while the last song's layout is held.
+    private var lyricsPendingTrack: String?
+    /// How long a held layout waits for that answer.
+    private static let lyricsPendingSeconds = 8.0
 
     // Override required: the react-native-tvos fork's RCTEventEmitter exposes
     // this class method (compiler-verified — plain RN core does not).
@@ -154,7 +169,7 @@ class AudioQueuePlayer: RCTEventEmitter {
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
     override func supportedEvents() -> [String]! {
-        ["onTrackChanged", "onProgress", "onQueueEnded", "onDismiss", "onError"]
+        ["onTrackChanged", "onProgress", "onQueueEnded", "onDismiss", "onError", "onLyricsEnabledChanged"]
     }
 
     override func invalidate() {
@@ -169,6 +184,7 @@ class AudioQueuePlayer: RCTEventEmitter {
     ///   startIndex: Int
     ///   startPositionSeconds: Double — resume offset within the start track
     ///   loop: Bool — wrap at queue end (shuffle-infinite mode)
+    ///   lyricsEnabled: Bool, lyricsLabel: String: the viewer's preference and the word for it
     @objc func loadQueue(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -197,6 +213,8 @@ class AudioQueuePlayer: RCTEventEmitter {
         let startIndex = min(max(config["startIndex"] as? Int ?? 0, 0), parsed.count - 1)
         let startPosition = config["startPositionSeconds"] as? Double ?? 0
         let loopFlag = config["loop"] as? Bool ?? false
+        let lyricsFlag = config["lyricsEnabled"] as? Bool ?? true
+        let lyricsWord = config["lyricsLabel"] as? String ?? "Lyrics"
 
         DispatchQueue.main.async {
             // Startup breakdown: the first queue of a process costs 4.85s and every
@@ -211,6 +229,8 @@ class AudioQueuePlayer: RCTEventEmitter {
             self.tracks = parsed
             self.currentIndex = startIndex
             self.loop = loopFlag
+            self.lyricsEnabled = lyricsFlag
+            self.lyricsLabel = lyricsWord
             self.active = true
             self.hasEmittedFirstTrack = false
             self.queueEndedEmitted = false
@@ -288,18 +308,55 @@ class AudioQueuePlayer: RCTEventEmitter {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         DispatchQueue.main.async {
-            guard let player = self.player else {
-                resolve(nil)
-                return
+            self.seek(to: seconds) { resolve(nil) }
+        }
+    }
+
+    private func seek(to seconds: Double, completion: (() -> Void)? = nil) {
+        guard let player else {
+            completion?()
+            return
+        }
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)) { _ in
+            DispatchQueue.main.async {
+                self.lastObservedPosition = seconds
+                self.nowPlaying.updatePlayback(elapsed: seconds, rate: player.rate)
+                self.emitProgress()
+                self.updateLyricsTime()
+                completion?()
             }
-            player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)) { _ in
-                DispatchQueue.main.async {
-                    self.lastObservedPosition = seconds
-                    self.nowPlaying.updatePlayback(elapsed: seconds, rate: player.rate)
-                    self.emitProgress()
-                    resolve(nil)
-                }
+        }
+    }
+
+    /// One track's lyrics, or nil for none. Dropped unless that track is the one playing.
+    @objc func setLyrics(
+        _ trackId: String,
+        lyrics: NSDictionary?,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let parsed = (lyrics as? [String: Any]).flatMap(Lyrics.init(dictionary:))
+        DispatchQueue.main.async {
+            if self.active, self.currentIndex < self.tracks.count, self.tracks[self.currentIndex].id == trackId {
+                self.lyricsPendingTrack = nil
+                self.currentLyrics = parsed
+                self.applyLyrics()
             }
+            resolve(nil)
+        }
+    }
+
+    @objc func setLyricsEnabled(
+        _ enabled: Bool,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.main.async {
+            if self.lyricsEnabled != enabled {
+                self.lyricsEnabled = enabled
+                self.applyLyrics()
+            }
+            resolve(nil)
         }
     }
 
@@ -435,6 +492,7 @@ class AudioQueuePlayer: RCTEventEmitter {
                     self.lastObservedPosition = 0
                     self.nowPlaying.updatePlayback(elapsed: 0, rate: player.rate)
                     self.emitProgress()
+                    self.updateLyricsTime()
                 }
             }
         } else {
@@ -478,6 +536,7 @@ class AudioQueuePlayer: RCTEventEmitter {
                 return
             }
             self.emitProgress()
+            self.updateLyricsTime()
         }
 
         NotificationCenter.default.addObserver(
@@ -517,6 +576,10 @@ class AudioQueuePlayer: RCTEventEmitter {
         if let token = timeObserverToken {
             player?.removeTimeObserver(token)
             timeObserverToken = nil
+        }
+        if let token = lyricsObserverToken {
+            player?.removeTimeObserver(token)
+            lyricsObserverToken = nil
         }
         NotificationCenter.default.removeObserver(self)
     }
@@ -578,8 +641,10 @@ class AudioQueuePlayer: RCTEventEmitter {
         )
         // Back to loading until this track's own bytes land, the way Now Playing
         // drops the previous artwork above.
-        artworkOverlay?.show(artworkContent(for: entry.index))
+        showArtwork(artworkContent(for: entry.index))
         publishCachedArtwork(for: entry.index)
+        showTrack(track)
+        awaitLyrics(for: track)
 
         // Swift's ternary can't unify String and NSNull; build the mixed-type
         // value explicitly (JS receives string | null).
@@ -709,6 +774,7 @@ class AudioQueuePlayer: RCTEventEmitter {
                     self.lastObservedPosition = seconds
                     self.nowPlaying.updatePlayback(elapsed: seconds, rate: self.player?.rate ?? 0)
                     self.emitProgress()
+                    self.updateLyricsTime()
                 }
             }
         }
@@ -755,13 +821,13 @@ class AudioQueuePlayer: RCTEventEmitter {
         #if !os(tvOS)
         // iPhone's stand-in for the tvOS shouldDismiss sample: the last moment the player still
         // holds the state the user chose. tvOS keeps its delegate sample, taken earlier still.
-        vc.onWillDismiss = { [weak self] in
+        let willDismiss: () -> Void = { [weak self] in
             guard let self, !self.programmaticDismiss else { return }
             let status = self.player?.timeControlStatus
             self.resumeAfterDismissal = status == .playing || status == .waitingToPlayAtSpecifiedRate
         }
         #endif
-        vc.onDismissed = { [weak self] in
+        let dismissed: () -> Void = { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.playerVC = nil
@@ -790,6 +856,8 @@ class AudioQueuePlayer: RCTEventEmitter {
         let leftTap = UITapGestureRecognizer(target: self, action: #selector(handleLeftArrowPress))
         leftTap.allowedPressTypes = [NSNumber(value: UIPress.PressType.leftArrow.rawValue)]
         vc.view.addGestureRecognizer(leftTap)
+        previousTrackTap = leftTap
+        vc.onDismissed = dismissed
 
         // Native info-panel "Up Next" tab (swipe down): the remaining queue as
         // focusable artwork cards; selecting one jumps playback there. Only
@@ -832,7 +900,23 @@ class AudioQueuePlayer: RCTEventEmitter {
         programmaticDismiss = false
         dismissEventEmitted = false
         playerVC = vc
+        #if os(tvOS)
         top.present(vc, animated: true)
+        #else
+        // The player is embedded so a song's lyrics can sit beside it; without lyrics it fills
+        // the screen and AVKit's own Close dismisses the whole presentation.
+        let screen = AudioPlayerContainerViewController(playerViewController: vc, artworkOverlay: artworkOverlay)
+        screen.modalPresentationStyle = .fullScreen
+        screen.onWillDismiss = willDismiss
+        screen.onDismissed = dismissed
+        screen.onSeek = { [weak self] seconds in self?.seek(to: seconds) }
+        screen.loadViewIfNeeded()
+        screen.setArtwork(artworkContent(for: currentIndex))
+        container = screen
+        top.present(screen, animated: true)
+        #endif
+        if currentIndex < tracks.count { showTrack(tracks[currentIndex]) }
+        applyLyrics()
     }
 
     @objc private func handleLeftArrowPress() {
@@ -892,7 +976,9 @@ class AudioQueuePlayer: RCTEventEmitter {
         enqueued.removeAll()
         #if os(tvOS)
         upNextPanel = nil
+        lyricsOverlay = nil
         #endif
+        currentLyrics = nil
         tracks = []
         currentIndex = 0
         lastObservedPosition = 0
@@ -973,7 +1059,7 @@ class AudioQueuePlayer: RCTEventEmitter {
             guard let self else { return }
             guard let data else {
                 // A poster that never arrives has to stop the poster's spinner.
-                if index == self.currentIndex { self.artworkOverlay?.show(.empty) }
+                if index == self.currentIndex { self.showArtwork(.empty) }
                 return
             }
             item?.externalMetadata.append(self.artworkMetadata(data))
@@ -986,8 +1072,113 @@ class AudioQueuePlayer: RCTEventEmitter {
     private func publishCachedArtwork(for index: Int) {
         guard active, index == currentIndex, let image = cachedArtworkImage(for: index) else { return }
         nowPlaying.setArtwork(image, elapsed: lastObservedPosition, rate: player?.rate ?? 0)
-        artworkOverlay?.show(.artwork(image))
+        showArtwork(.artwork(image))
     }
+
+    private func showArtwork(_ content: AudioArtworkOverlayView.Content) {
+        artworkOverlay?.show(content)
+        #if !os(tvOS)
+        container?.setArtwork(content)
+        #endif
+    }
+
+    private func showTrack(_ track: QueueTrack) {
+        #if os(tvOS)
+        artworkOverlay?.setTrack(title: track.title, artist: track.artist)
+        #else
+        container?.setTrack(title: track.title, artist: track.artist)
+        #endif
+    }
+
+    // MARK: - Lyrics
+
+    /// Puts the lyrics to show, or none, on every surface, and times them off the player.
+    private func applyLyrics() {
+        if let token = lyricsObserverToken {
+            player?.removeTimeObserver(token)
+            lyricsObserverToken = nil
+        }
+        let shown = shownLyrics
+        if let player, let times = shown?.boundaryTimes, !times.isEmpty {
+            let values = times.map { NSValue(time: CMTime(seconds: $0, preferredTimescale: 600)) }
+            lyricsObserverToken = player.addBoundaryTimeObserver(forTimes: values, queue: .main) { [weak self] in
+                self?.updateLyricsTime()
+            }
+        }
+        let held = shown == nil && lyricsPendingTrack != nil
+        #if os(tvOS)
+        if held { artworkOverlay?.holdLyricsLayout() } else { artworkOverlay?.setLyrics(shown) }
+        configureLyricsControls()
+        #else
+        if held { container?.holdLyricsLayout() } else { container?.setLyrics(shown) }
+        #endif
+        updateLyricsTime()
+    }
+
+    /// A new track starts with the last one's lyrics layout still up and its lines gone, so
+    /// an album with lyrics does not fold and unfold between songs. JS answers for every track.
+    private func awaitLyrics(for track: QueueTrack) {
+        let wasShowing = shownLyrics != nil
+        currentLyrics = nil
+        lyricsPendingTrack = wasShowing ? track.id : nil
+        applyLyrics()
+        guard wasShowing else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.lyricsPendingSeconds) { [weak self] in
+            guard let self, self.lyricsPendingTrack == track.id else { return }
+            self.lyricsPendingTrack = nil
+            self.applyLyrics()
+        }
+    }
+
+    /// A boundary fires a hair before the clock reads its time, so the read leans forward.
+    private static let lyricsLead = 0.05
+
+    private func updateLyricsTime() {
+        guard shownLyrics != nil, let seconds = player?.currentTime().seconds, seconds.isFinite else { return }
+        let time = seconds + Self.lyricsLead
+        #if os(tvOS)
+        artworkOverlay?.updateLyrics(time: time)
+        lyricsOverlay?.update(time: time)
+        #else
+        container?.updateLyrics(time: time)
+        #endif
+    }
+
+    #if os(tvOS)
+    /// The transport bar's Lyrics toggle, offered only for a song that has lyrics, and the
+    /// swipe-up list of lines while they are on.
+    private func configureLyricsControls() {
+        guard let vc = playerVC else { return }
+        if currentLyrics != nil {
+            let image = UIImage(systemName: lyricsEnabled ? "quote.bubble.fill" : "quote.bubble")
+            vc.transportBarCustomMenuItems = [UIAction(title: lyricsLabel, image: image) { [weak self] _ in self?.toggleLyrics() }]
+        } else {
+            vc.transportBarCustomMenuItems = []
+        }
+        guard let shown = shownLyrics else {
+            vc.customOverlayViewController = nil
+            return
+        }
+        let overlay = lyricsOverlay ?? makeLyricsOverlay()
+        overlay.setLyrics(shown)
+        if vc.customOverlayViewController !== overlay { vc.customOverlayViewController = overlay }
+    }
+
+    private func makeLyricsOverlay() -> LyricsOverlayViewController {
+        let overlay = LyricsOverlayViewController()
+        overlay.onSelect = { [weak self] seconds in self?.seek(to: seconds) }
+        // A left press in the list must not also skip to the previous track.
+        overlay.onVisibilityChange = { [weak self] visible in self?.previousTrackTap?.isEnabled = !visible }
+        lyricsOverlay = overlay
+        return overlay
+    }
+
+    private func toggleLyrics() {
+        lyricsEnabled.toggle()
+        applyLyrics()
+        sendEvent(withName: "onLyricsEnabledChanged", body: ["enabled": lyricsEnabled])
+    }
+    #endif
 
     /// Cached bytes are artwork, a poster URL with none yet is a download in flight,
     /// and no URL at all is a track that has no poster to wait for.
@@ -1022,6 +1213,34 @@ extension AudioQueuePlayer: AVPlayerViewControllerDelegate {
     func playerViewControllerWillBeginDismissalTransition(_ playerViewController: AVPlayerViewController) {
         resumeIfPausedByAVKit()
         emitUserDismissIfNeeded()
+    }
+    #else
+    /// The player's Fullscreen button, offered beside the lyrics: AVKit lifts the player out of
+    /// the lyrics screen, and the artwork has to follow it.
+    func playerViewController(
+        _ playerViewController: AVPlayerViewController,
+        willBeginFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        container?.setPlayerFullscreen(true)
+        coordinator.animate(alongsideTransition: nil) { [weak self] context in
+            if context.isCancelled { self?.container?.setPlayerFullscreen(false) }
+        }
+    }
+
+    /// AVKit pauses on the way out of its own fullscreen, back to the player beside the lyrics.
+    /// The player still reads as playing here and as paused by the transition's completion.
+    func playerViewController(
+        _ playerViewController: AVPlayerViewController,
+        willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        let status = player?.timeControlStatus
+        let wasPlaying = status == .playing || status == .waitingToPlayAtSpecifiedRate
+        coordinator.animate(alongsideTransition: nil) { [weak self] context in
+            guard !context.isCancelled, let self else { return }
+            self.container?.setPlayerFullscreen(false)
+            guard wasPlaying, self.active, let player = self.player, player.currentItem != nil else { return }
+            player.play()
+        }
     }
     #endif
 }
