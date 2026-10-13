@@ -154,7 +154,10 @@
   },
   "overrides": {
     "react-dom": "19.2.3",
-    "react-native": "$react-native"
+    "react-native": "$react-native",
+    "xcode": {
+      "uuid": "^11.1.1"
+    }
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
