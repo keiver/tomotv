@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
-import { Platform } from "react-native";
+import { NativeModules, Platform } from "react-native";
 import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, OnPlaybackStateChangedData, OnBandwidthUpdateData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
 import {
   fetchVideoDetails,
@@ -110,7 +110,7 @@ import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
 import { segmentSkipTarget } from "./videoPlayback/segmentSkip";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
-import { classifyObservedChoice, keepsCurrentPick, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
+import { classifyObservedChoice, keepsCurrentPick, pinsCaptionsOn, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
 import {
   createPreflightGate,
@@ -181,6 +181,9 @@ const deviceBusy = () => downloadManager.getState().entries.some((entry) => entr
 
 /** Every item starts here; the remembered choice is applied once its tracks exist. */
 const SUBTITLES_UNSET: SubtitlePreference = { kind: "system" };
+
+/** AVKit's subtitles On/Off row follows the app's caption display type, never a track selected in code. Synchronous. */
+const showCaptionsAlways = () => (NativeModules.DeviceEnvironment as { showCaptionsAlways?: () => void } | undefined)?.showCaptionsAlways?.();
 
 export interface VideoPlaybackConfig {
   videoId: string;
@@ -1705,6 +1708,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // A new stream remounts the player, which starts paused; a live reload keeps the one player.
         if (!isLiveRef.current) playerPlayingRef.current = false;
         streamGenerationRef.current += 1;
+        // Before the player exists: AVKit reads the display type as it opens, and a track the player
+        // picks itself is re-selected below without AVKit hearing of it. Off picked on this item holds.
+        if (viewerSubtitleStreamRef.current !== null && getSubtitlePreferenceSync().kind === "language") showCaptionsAlways();
         streamUrlRef.current = url;
         setStreamUrl(url);
         setStreamTransport(preparedTransport);
@@ -3046,6 +3052,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       return;
     }
     if (plan.kind === "autoDefault") autoAppliedDefaultRef.current = plan.tag;
+    // Settings that landed after the player opened: written before the select the props below trigger.
+    // Read without the audio, the preference is the account's standing one.
+    if (pinsCaptionsOn(plan, getSubtitlePreferenceSync())) showCaptionsAlways();
     // A language with several renditions is selected by position: the lib's language match takes the first.
     // The player's own pick in that language is held, since a twin of it can be missing from AVKit's Language list.
     const current = resolveSubtitlePick(subtitleRenditionsRef.current, reportedTextTracksRef.current, lastSubtitleRequestRef.current).rendition;

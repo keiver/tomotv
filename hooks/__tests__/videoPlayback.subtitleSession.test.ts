@@ -1,7 +1,27 @@
 /**
  * When an item's subtitle choice is applied, and what counts as the viewer making one.
  */
-import { classifyObservedChoice, keepsCurrentPick, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "../videoPlayback/subtitleSession";
+import { classifyObservedChoice, keepsCurrentPick, pinsCaptionsOn, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "../videoPlayback/subtitleSession";
+
+// Mac log: a stored "eng" drew its track while AVKit's menu stayed on Off, its display type still Automatic.
+describe("pinsCaptionsOn", () => {
+  const english = { kind: "apply", preference: { kind: "language", tag: "eng" } } as const;
+  const standing = { kind: "language", tag: "eng" } as const;
+
+  it("pins for the account's standing language", () => {
+    expect(pinsCaptionsOn(english, standing)).toBe(true);
+  });
+
+  it("leaves the file's own default and subtitles off alone", () => {
+    expect(pinsCaptionsOn({ kind: "autoDefault", preference: { kind: "language", tag: "eng" }, tag: "eng" }, { kind: "system" })).toBe(false);
+    expect(pinsCaptionsOn({ kind: "apply", preference: { kind: "off" } }, { kind: "off" })).toBe(false);
+  });
+
+  // Always-on shows a full track under same-language audio, which Smart never does.
+  it("does not pin a language Smart chose for this item's audio", () => {
+    expect(pinsCaptionsOn(english, { kind: "system" })).toBe(false);
+  });
+});
 
 // Device log: AVPlayer picked English SDH at load, then a stored "eng" moved it to the plain track AVKit's Language list lacks.
 describe("keepsCurrentPick", () => {

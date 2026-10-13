@@ -76,6 +76,14 @@ export function keepsCurrentPick(plan: Exclude<ApplyPlan, { kind: "leave" }>, cu
 }
 
 /**
+ * AVKit's On/Off row follows the caption display type, not a track selected in code, so the account's
+ * standing language pins it on. One Smart chose for this item's audio does not: always-on outlives the item.
+ */
+export function pinsCaptionsOn(plan: Exclude<ApplyPlan, { kind: "leave" }>, standing: SubtitlePreference): boolean {
+  return plan.kind === "apply" && plan.preference.kind === "language" && standing.kind === "language";
+}
+
+/**
  * A report echoing back the default this session applied FOR the viewer is the player
  * agreeing with us, not somebody choosing. Once the value moves off it the viewer has taken
  * over, and everything after is theirs to keep, including switching back to that track.

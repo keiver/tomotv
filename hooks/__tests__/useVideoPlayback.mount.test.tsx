@@ -45,7 +45,7 @@ import {
   subscribeEngineTier,
 } from "@/services/localRemux";
 import { getQualitySettings } from "@/services/jellyfin/session";
-import { Platform } from "react-native";
+import { NativeModules, Platform } from "react-native";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { probeEmit } from "@/services/playbackProbe";
 import { recordTimeoutVerdict, recordVerdict, rememberedVerdict } from "@/services/engineVerdicts";
@@ -2270,6 +2270,83 @@ describe("useVideoPlayback (mounted)", () => {
         expect(ref.current!.get().selectedTextTrack).toEqual(expected);
         await act(async () => renderer.unmount());
       } finally {
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation(() => ({ kind: "system" }));
+        (selectedTextTrackFor as jest.Mock).mockImplementation(() => ({ type: "system" }));
+        jest.useRealTimers();
+      }
+    });
+
+    // Probed: a track the player picked itself is re-selected without AVKit hearing of it, so the
+    // menu only reads On when always-on is already set as the player opens.
+    it.each([
+      ["Always", 1],
+      ["Smart", 0],
+      ["None", 0],
+    ])("pins captions on before the player opens for a standing %s setting", async (subtitleMode, calls) => {
+      const showCaptionsAlways = jest.fn();
+      const modules = NativeModules as Record<string, unknown>;
+      const original = modules.DeviceEnvironment;
+      modules.DeviceEnvironment = { showCaptionsAlways };
+      try {
+        const settings = { audioLanguage: null, playDefaultAudio: true, subtitleMode, subtitleLanguage: "eng" };
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation((audio?: string | null) => jest.requireActual("@/services/subtitlePreference").subtitlePreferenceFrom(settings, audio));
+        mockDetails.mockResolvedValue(videoItem());
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER" });
+        expect(showCaptionsAlways).toHaveBeenCalledTimes(calls);
+        await act(async () => renderer.unmount());
+      } finally {
+        modules.DeviceEnvironment = original;
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation(() => ({ kind: "system" }));
+      }
+    });
+
+    // Mac log: a stored "eng" drew its track while AVKit's menu stayed on Off. Always-on is written first, for a standing language only.
+    it.each([
+      ["Always", 1],
+      ["Smart", 0],
+    ])("pins captions on before applying a %s language", async (subtitleMode, calls) => {
+      jest.useFakeTimers();
+      const showCaptionsAlways = jest.fn();
+      const modules = NativeModules as Record<string, unknown>;
+      const original = modules.DeviceEnvironment;
+      modules.DeviceEnvironment = { showCaptionsAlways };
+      try {
+        (selectedTextTrackFor as jest.Mock).mockImplementation(jest.requireActual("@/services/subtitlePreference").selectedTextTrackFor);
+        mockPlaysFromDisk.mockReturnValue(true);
+        mockCanRemux.mockResolvedValue(true);
+        (getTextSubtitleStreams as jest.Mock).mockReturnValue([{ Type: "Subtitle", Index: 2, Codec: "mov_text", IsExternal: false }]);
+        mockDetails.mockResolvedValue(
+          videoItem({
+            MediaStreams: [
+              { Type: "Video", Index: 0, Codec: "h264" },
+              { Type: "Audio", Index: 1, Codec: "aac", Language: "jpn" },
+              { Type: "Subtitle", Index: 2, Codec: "mov_text", Language: "eng" },
+            ],
+          }),
+        );
+        const { ref, renderer } = await mount({ videoId: "video-1" });
+        const settings = { audioLanguage: null, playDefaultAudio: true, subtitleMode, subtitleLanguage: "eng" };
+        (getSubtitlePreferenceSync as jest.Mock).mockImplementation((audio?: string | null) => jest.requireActual("@/services/subtitlePreference").subtitlePreferenceFrom(settings, audio));
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onLoad({ duration: 120 } as never);
+          jest.advanceTimersByTime(101);
+        });
+        await act(async () => {
+          ref.current!.get().play();
+        });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 41.75, playableDuration: 60, seekableDuration: 120 } as never);
+          ref.current!.get().videoCallbacks.onProgress({ currentTime: 42, playableDuration: 60, seekableDuration: 120 } as never);
+          jest.advanceTimersByTime(501);
+        });
+        await act(async () => ref.current!.get().videoCallbacks.onAudioTracks({ audioTracks: [{ index: 0, language: "ja", selected: true }] } as never));
+        await act(async () => ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, language: "en", selected: false }] } as never));
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "language", value: "en" });
+        expect(showCaptionsAlways).toHaveBeenCalledTimes(calls);
+        await act(async () => renderer.unmount());
+      } finally {
+        modules.DeviceEnvironment = original;
         (getSubtitlePreferenceSync as jest.Mock).mockImplementation(() => ({ kind: "system" }));
         (selectedTextTrackFor as jest.Mock).mockImplementation(() => ({ type: "system" }));
         jest.useRealTimers();

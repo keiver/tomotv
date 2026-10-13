@@ -11,6 +11,8 @@
 
 RCT_EXTERN_METHOD(setWindowSizeLock:(BOOL)enabled width:(double)width height:(double)height)
 
+RCT_EXTERN__BLOCKING_SYNCHRONOUS_METHOD(showCaptionsAlways)
+
 + (BOOL)requiresMainQueueSetup
 {
   return NO;
