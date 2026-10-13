@@ -19,7 +19,7 @@ export default function LyricsSettingsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { showLyrics, findLyrics, listenForLyrics, saveLyrics } = useUiPreferences();
-  // Rows for what this device or this account cannot do are left out.
+  // A device that cannot listen shows the row off and inert; saving is left out for an account that may not.
   const [canListen, setCanListen] = useState(false);
   const [canSave, setCanSave] = useState(false);
   useEffect(() => {
@@ -61,20 +61,19 @@ export default function LyricsSettingsScreen() {
               subtitle={t("lyrics.findHint")}
               trailingIcon={findLyrics ? tick : undefined}
               onPress={toggleFind}
-              isLast={!canListen && !canSave}
               accessibilityState={{ checked: findLyrics }}
             />
-            {canListen && (
-              <ListRow
-                icon="ear-outline"
-                title={t("lyrics.listen")}
-                subtitle={t("lyrics.listenHint")}
-                trailingIcon={listenForLyrics ? tick : undefined}
-                onPress={toggleListen}
-                isLast={!canSave}
-                accessibilityState={{ checked: listenForLyrics }}
-              />
-            )}
+            <ListRow
+              icon="ear-outline"
+              title={t("lyrics.listen")}
+              subtitle={t("lyrics.listenHint")}
+              trailingIcon={canListen && listenForLyrics ? tick : undefined}
+              onPress={toggleListen}
+              disabled={!canListen}
+              isLast={!canSave}
+              accessibilityState={{ checked: canListen && listenForLyrics, disabled: !canListen }}
+            />
+
             {canSave && (
               <ListRow icon="cloud-upload-outline" title={t("lyrics.save")} trailingIcon={saveLyrics ? tick : undefined} onPress={toggleSave} isLast accessibilityState={{ checked: saveLyrics }} />
             )}
