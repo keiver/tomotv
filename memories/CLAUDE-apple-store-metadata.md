@@ -99,6 +99,27 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
+### What's New (2.2.12), macOS (155 / 4000)
+
+```text
+- The subtitles menu shows On while your saved subtitle language is playing
+- Subtitles in your saved language no longer go missing when you resume a video
+```
+
+### What's New (2.2.12), iOS (155 / 4000)
+
+```text
+- The subtitles menu shows On while your saved subtitle language is playing
+- Subtitles in your saved language no longer go missing when you resume a video
+```
+
+### What's New (2.2.12), tvOS (155 / 4000)
+
+```text
+- The subtitles menu shows On while your saved subtitle language is playing
+- Subtitles in your saved language no longer go missing when you resume a video
+```
+
 ### What's New (2.2.11), macOS (73 / 4000)
 
 ```text
@@ -439,6 +460,27 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.12), macOS (199 / 4000)
+
+```text
+- Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
+- Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+```
+
+#### What's New (2.2.12), iOS (199 / 4000 chars)
+
+```text
+- Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
+- Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+```
+
+#### What's New (2.2.12), tvOS (199 / 4000 chars)
+
+```text
+- Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
+- Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+```
+
 #### What's New (2.2.11), macOS (78 / 4000)
 
 ```text
@@ -757,6 +799,27 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.12), macOS (202 / 4000)
+
+```text
+- Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
+- Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+```
+
+#### What's New (2.2.12), iOS (202 / 4000 chars)
+
+```text
+- Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
+- Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+```
+
+#### What's New (2.2.12), tvOS (202 / 4000 chars)
+
+```text
+- Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
+- Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+```
+
 #### What's New (2.2.11), macOS (86 / 4000)
 
 ```text
@@ -1073,6 +1136,27 @@ Sin analítica, sin rastreo, sin anuncios, sin cuenta con nosotros. Tus credenci
 Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reproduce lo que ofrecen tu servidor Jellyfin y las fuentes que añades. Tú eres responsable de tener derecho a usarlos.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.12), macOS (166 / 4000)
+
+```text
+- El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
+- Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+```
+
+#### What's New (2.2.12), iOS (166 / 4000 chars)
+
+```text
+- El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
+- Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+```
+
+#### What's New (2.2.12), tvOS (166 / 4000 chars)
+
+```text
+- El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
+- Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
 ```
 
 #### What's New (2.2.11), macOS (74 / 4000)

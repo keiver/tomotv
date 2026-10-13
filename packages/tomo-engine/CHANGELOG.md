@@ -10,6 +10,7 @@
 - Interlaced H.264 goes through the deinterlacer instead of the copy. A live TS that hides its field order is read to its opening keyframe, and that keyframe's SPS picks the lane.
 - A live HLS segment whose open fails is retried three times before it is skipped (`seg_max_retry`).
 - The system's memory pressure events are logged with the process's headroom.
+- A WebVTT segment of an engine text track whose window starts before the running read, with no seek or waiting media request headed back to it, is answered with a cue-less body after 0.5 seconds. AVPlayer asks for a segment two behind the playhead when the rendition changes, which after a resume is such a window, and the request used to wait 25 seconds and return 503.
 
 ## 1.0.2
 
