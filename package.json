@@ -58,6 +58,7 @@
     "shots": "node scripts/appstore-shots.mjs",
     "shots:upload": "node scripts/appstore-upload-shots.mjs",
     "shots:sims": "node scripts/capture-sims.mjs",
+    "capture-tv": "node scripts/capture-tv.mjs",
     "meta:upload": "node scripts/appstore-upload-meta.mjs",
     "test:shots": "node scripts/appstore-shots.mjs --self-check",
     "test:release": "node --test scripts/release-tests/*.test.mjs",
