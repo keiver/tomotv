@@ -415,6 +415,60 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertNil(session.subtitleSegment(streamIndex: 2, segment: 0))
     }
 
+    /// A session resumed at 12s whose player has moved on, with nothing read before the resume point.
+    private func resumedSession() throws -> RemuxSession {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [engineSub(2)]))
+        session.textSubtitles[2] = try decodedTrack()
+        session.subtitleDecodersBuilt = true
+        session.sessionAnchorSeconds = 0
+        session.readSpanFrom = 12
+        session.readSpanUpTo = 30
+        session.lastRequestedSegment = 4
+        return session
+    }
+
+    /// AVPlayer asks two segments behind the playhead when the rendition changes (probed), which
+    /// after a resume is a window the read never passed. Mac log: the request hung and playback stalled.
+    func testWindowBehindAResumedReadIsAnsweredWithoutCues() throws {
+        let session = try resumedSession()
+        defer { session.stop() }
+        let asked = Date()
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 3, "the player gives a subtitle segment 6s")
+        XCTAssertTrue(body.hasPrefix("WEBVTT\n"))
+        XCTAssertFalse(body.contains(" --> "))
+    }
+
+    /// A seek back asks for the picture and the cues together: the cues wait for the read the picture starts.
+    func testWindowBehindTheReadWaitsForAMediaRequestReachingBack() throws {
+        let session = try resumedSession()
+        defer { session.stop() }
+        session.activeWaiters[0] = 1
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
+            session.stateLock.lock()
+            session.archiveReadSpanLocked()
+            session.readSpanFrom = 0
+            session.readSpanUpTo = 6
+            session.activeWaiters[0] = nil
+            session.stateLock.unlock()
+        }
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertTrue(body.contains(" --> "), "a window the read came back for lost its cues:\n\(body)")
+    }
+
+    func testWindowAheadOfAReadThatHasNotStartedIsNeverAnsweredEmpty() throws {
+        let session = try resumedSession()
+        defer { session.stop() }
+        session.readSpanFrom = nil
+        session.readSpanUpTo = 0
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
+            session.stateLock.lock()
+            session.cancelled = true
+            session.stateLock.unlock()
+        }
+        XCTAssertNil(session.subtitleSegment(streamIndex: 2, segment: 0))
+    }
+
     func testCoverageRequiresTheWholeWindowAndCanJoinAdjacentReadSpans() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 30))
         defer { session.stop() }

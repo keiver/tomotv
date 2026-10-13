@@ -830,6 +830,15 @@ extension RemuxSession {
         return covered ? reached : nil
     }
 
+    /// Nothing will bring the read to this window: no span reaches its start, the running read began
+    /// past it, and no seek or waiting media request is headed back there. Caller holds stateLock.
+    func subtitleWindowUnreachableLocked(segment: Int, from start: Double) -> Bool {
+        guard !sourceReleased, let anchor = sessionAnchorSeconds, let readFrom = readSpanFrom, readFrom > start + anchor else { return false }
+        if readCoverageEndLocked(from: start + anchor) != nil { return false }
+        if let seek = pendingSeekSegment, seek <= segment { return false }
+        return lastRequestedSegment > segment && !activeWaiters.keys.contains { $0 <= segment }
+    }
+
     func textSubtitleWindow(streamIndex: Int, from start: Double, to end: Double) -> (decoder: TextSubtitleDecoder?, anchor: Double, read: Double, covered: Bool) {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -857,6 +866,16 @@ extension RemuxSession {
             }
         } else if !window.covered, window.decoder == nil {
             _ = awaitTextDecoder(streamIndex: streamIndex)
+        } else if !window.covered, !waitUntil(deadline: Self.unreachableSubtitleGraceSeconds, { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.failed || self.cancelled || !self.subtitleWindowUnreachableLocked(segment: segment, from: start)
+        }) {
+            // AVPlayer asks two segments behind the playhead when the rendition changes (probed),
+            // and after a seek it asks for every segment again, so these cues are not lost.
+            NSLog("[LocalRemuxer] subtitle segment %d of stream %d is behind the read, answered without cues", segment, streamIndex)
+            return emptySubtitleBody()
         }
         var server: [ServerCue]?
         _ = waitUntil(deadline: hasServer ? Self.engineTextWaitSeconds : Self.subtitleSegmentWaitSeconds) { [weak self] in

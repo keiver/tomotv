@@ -104,6 +104,8 @@ final class RemuxSession {
     /// A WebVTT segment's wait for the read loop. Matches the video segment's,
     /// and giving up early loses those cues: a VOD segment is fetched once.
     static let subtitleSegmentWaitSeconds = 25.0
+    /// How long a window behind the read stays unanswered: a seek back sends its media request beside this one.
+    static let unreachableSubtitleGraceSeconds = 0.5
     /// Produce-ahead depth when the config carries none.
     static let defaultAheadWindow = 5
     /// How far ahead of the producer a request may land and still be waited for; past it, a seek.
