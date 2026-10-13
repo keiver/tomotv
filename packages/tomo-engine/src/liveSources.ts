@@ -40,6 +40,12 @@ export interface GuideProgramme {
   categories: string[];
   rating: string | null;
   icon: string | null;
+  /** Every `episode-num` of the programme with its `system` (xmltv_ns, onscreen); absent on a record cached before the engine sent them. */
+  episodeNumbers?: { system: string | null; value: string }[];
+  /** The programme carries a `new` element. */
+  isNew?: boolean;
+  /** The programme carries a `previously-shown` element. */
+  previouslyShown?: boolean;
 }
 
 export interface GuideChannel {

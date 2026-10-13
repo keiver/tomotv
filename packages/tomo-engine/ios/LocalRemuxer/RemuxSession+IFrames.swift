@@ -47,7 +47,7 @@ extension RemuxSession {
         let encodes = iframeTranscodes
         let size = iframeSize
         stateLock.unlock()
-        guard !config.isLive, let encodes, config.durationSeconds > 0, let entries = iframeTimeline() else { return "" }
+        guard !config.isLive, let encodes, durationSeconds > 0, let entries = iframeTimeline() else { return "" }
         let codecs = encodes ? [FrameGrabber.iframeEncodedCodecs] : originalVideoCodecs()
         guard !codecs.isEmpty else { return "" }
         let rates = iframeBandwidth(entries: entries, encodes: encodes, copyPeak: copyPeak)
@@ -58,8 +58,8 @@ extension RemuxSession {
     }
 
     private func iframeBandwidth(entries: IFrameEntries, encodes: Bool, copyPeak: Int) -> IFrameBandwidth {
-        let durations = entries.durations(totalSeconds: config.durationSeconds)
-        let target = Double(entries.targetDuration(durationSeconds: config.durationSeconds, floor: sessionTargetDuration()))
+        let durations = entries.durations(totalSeconds: durationSeconds)
+        let target = Double(entries.targetDuration(durationSeconds: durationSeconds, floor: sessionTargetDuration()))
         if !encodes, let sizes = entries.sizes, sizes.allSatisfy({ $0 > 0 }),
            let measured = IFrameBandwidth.measured(bytes: sizes.map { $0 + IFrameBandwidth.fragmentOverhead }, durations: durations, targetDuration: target) {
             NSLog("[IFrames] master: copied, BANDWIDTH %d and AVERAGE-BANDWIDTH %d from %d index sizes", measured.peak, measured.average, sizes.count)
@@ -105,7 +105,7 @@ extension RemuxSession {
             self.stateLock.unlock()
             let made = store.madeSizes().filter { picks.contains($0.key) }
             guard let encodes, !self.config.itemId.isEmpty,
-                  let mean = IFrameBandwidth.sampledAverage(made, durations: store.entries.durations(totalSeconds: self.config.durationSeconds))
+                  let mean = IFrameBandwidth.sampledAverage(made, durations: store.entries.durations(totalSeconds: self.durationSeconds))
             else { return }
             UserDefaults.standard.set(mean, forKey: self.iframeMeanKey(encodes: encodes))
             NSLog("[IFrames] sampled mean %ld b/s from %ld of %ld entries in %.0f ms", mean, made.count, picks.count, Date().timeIntervalSince(started) * 1000)
@@ -117,7 +117,7 @@ extension RemuxSession {
         stateLock.lock()
         let index = keyframeIndex
         stateLock.unlock()
-        if let index, let entries = IFrameEntries.indexed(index, anchorSeconds: anchorSeconds, durationSeconds: config.durationSeconds) {
+        if let index, let entries = IFrameEntries.indexed(index, anchorSeconds: anchorSeconds, durationSeconds: durationSeconds) {
             return entries
         }
         return IFrameEntries.grid(starts: (0..<segmentCount).map(segmentStartSeconds), anchorSeconds: anchorSeconds)
@@ -165,8 +165,8 @@ extension RemuxSession {
         let grabber = iframeGrabberLocked()
         stateLock.unlock()
         guard let track = grabber.iframeInit(transcode: transcode) else { return nil }
-        let samples = entries.sampleDurations(totalSeconds: config.durationSeconds)
-        let extinfs = entries.durations(totalSeconds: config.durationSeconds)
+        let samples = entries.sampleDurations(totalSeconds: durationSeconds)
+        let extinfs = entries.durations(totalSeconds: durationSeconds)
         let store = IFrameStore(entries: entries, timescale: Double(track.timescale.den) / Double(max(1, track.timescale.num)),
                                 sampleDurations: samples) { [weak grabber] k in
             // An encoded entry is re-encoded at lower rates while over the declared peak across its own EXTINF.
@@ -184,7 +184,7 @@ extension RemuxSession {
 
     func iframePlaylistResponse() -> LocalHTTPResponse {
         guard let entries = iframeTimeline() else { return .notFound }
-        let playlist = entries.playlist(durationSeconds: config.durationSeconds, targetDuration: sessionTargetDuration())
+        let playlist = entries.playlist(durationSeconds: durationSeconds, targetDuration: sessionTargetDuration())
         return .data(Data(playlist.utf8), contentType: "application/vnd.apple.mpegurl")
     }
 

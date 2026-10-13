@@ -32,7 +32,7 @@ extension RemuxSession {
         }
         if !adoptedDurations.isEmpty { return adoptedDurations[min(max(n, 0), adoptedDurations.count - 1)] }
         let count = segmentCount
-        return n == count - 1 ? max(0.001, config.durationSeconds - Double(n) * Self.segmentDuration) : Self.segmentDuration
+        return n == count - 1 ? max(0.001, durationSeconds - Double(n) * Self.segmentDuration) : Self.segmentDuration
     }
 
     /// Segment index containing second `s` (clamped into the grid).

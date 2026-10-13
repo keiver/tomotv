@@ -180,21 +180,30 @@ extension RemuxSession {
 
     func masterPlaylist() -> String {
         awaitGrid()
-        // Live: the tracks and the captions come off the open input, not from Jellyfin's probe.
-        if config.isLive {
+        // Live and self-described: the tracks and the captions come off the open input, not from a probe.
+        if config.isLive || config.describesInput {
             _ = waitUntil(deadline: 40) { [weak self] in
                 guard let self else { return true }
                 self.stateLock.lock()
                 defer { self.stateLock.unlock() }
-                return self.liveStreamsResolved || self.failed || self.cancelled
+                return self.inputStreamsResolved || self.failed || self.cancelled
             }
             stateLock.lock()
-            let unresolved = !liveStreamsResolved && !failed && !cancelled
+            let unresolved = !inputStreamsResolved && !failed && !cancelled
             stateLock.unlock()
-            // A master guessed from Jellyfin's probe can name tracks the pipeline never builds.
+            // A master guessed ahead of the input can name tracks the pipeline never builds.
             if unresolved {
-                fail("live input did not resolve within 40s")
+                fail(config.isLive ? "live input did not resolve within 40s" : "input did not resolve within 40s")
                 return "#EXTM3U\n"
+            }
+        }
+        // A self-described file has no configured CODECS to fall back on: the primary's init names the video.
+        if config.describesInput, !config.isLive {
+            _ = waitUntil(deadline: 40) { [weak self] in
+                guard let self else { return true }
+                self.stateLock.lock()
+                defer { self.stateLock.unlock() }
+                return self.primaryInitWritten || self.failed || self.cancelled
             }
         }
         let offered = tierOffered
@@ -243,10 +252,17 @@ extension RemuxSession {
         // the tier variant is video-only and switching variants must never
         // touch the audio, so audio always rides the group, never the variant.
         stateLock.lock()
-        let tracks = liveAudioTracks ?? config.audioTracks
-        let subtitles = liveSubtitles ?? config.subtitles
+        let tracks = inputAudioTracks ?? config.audioTracks
+        let subtitles = inputSubtitles ?? config.subtitles
         let audioChannels = resolvedAudioChannels
+        let described = inputDescription
         stateLock.unlock()
+        let videoRange = described?.videoRange ?? config.videoRange
+        let supplementalCodecs = described?.supplementalCodecs ?? config.supplementalCodecs
+        let width = described?.width ?? config.width
+        let height = described?.height ?? config.height
+        let frameRate = described?.frameRate ?? config.frameRate
+        let declaredBandwidth = described?.bandwidth ?? config.bandwidth
         // Same predicate as the pipeline's splitAudio, or the master names a rendition never built.
         let useAudioGroup = tracks.count > 1 || !config.tiers.isEmpty || tracks.contains(where: { $0.usesServerAudio })
         let audioNames = Self.renditionNames(tracks.map { (name: $0.name, index: $0.index) })
@@ -340,7 +356,7 @@ extension RemuxSession {
         }
 
         let audioBandwidth = originalAudioBandwidth(tracks)
-        let bandwidth = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth + audioBandwidth : (config.bandwidth > 0 ? config.bandwidth : 20_000_000)
+        let bandwidth = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth + audioBandwidth : (declaredBandwidth > 0 ? declaredBandwidth : 20_000_000)
         let peaks = originalPeakBandwidths(tracks, splitAudio: useAudioGroup, fallback: bandwidth)
         let videoCodecs = originalVideoCodecs()
         let audioCodecs = originalAudioCodecs(tracks)
@@ -351,8 +367,8 @@ extension RemuxSession {
         // Unquoted enumerated value per RFC 8216 §4.3.4.2. RFC 8216 §4.3.4.2
         // scopes VIDEO-RANGE to variants that carry video, so an audio-only
         // session sends an empty string and the attribute is left off.
-        if !config.videoRange.isEmpty {
-            primary += ",VIDEO-RANGE=\(config.videoRange)"
+        if !videoRange.isEmpty {
+            primary += ",VIDEO-RANGE=\(videoRange)"
         }
         if !primaryCodecs.isEmpty {
             // Authoring spec req 5.10 says the subtitle kind SHOULD appear here
@@ -364,18 +380,18 @@ extension RemuxSession {
             primary += ",CODECS=\"\(primaryCodecs)\""
             // Only alongside CODECS: SUPPLEMENTAL-CODECS names the same
             // rendition's optional decode, so it cannot stand on its own.
-            if !config.supplementalCodecs.isEmpty {
-                primary += ",SUPPLEMENTAL-CODECS=\"\(config.supplementalCodecs)\""
+            if !supplementalCodecs.isEmpty {
+                primary += ",SUPPLEMENTAL-CODECS=\"\(supplementalCodecs)\""
             }
         }
         // Required whenever the rendition has video (req 9.2 and 9.15).
-        if config.width > 0 && config.height > 0 {
-            primary += ",RESOLUTION=\(config.width)x\(config.height)"
+        if width > 0 && height > 0 {
+            primary += ",RESOLUTION=\(width)x\(height)"
         }
-        if config.frameRate > 0 {
+        if frameRate > 0 {
             // Trailing zeros trimmed so 24.0 reads as 24 and 23.976 survives,
             // which is how Jellyfin writes it too.
-            primary += String(format: ",FRAME-RATE=%g", config.frameRate)
+            primary += String(format: ",FRAME-RATE=%g", frameRate)
         }
         if useAudioGroup {
             primary += ",AUDIO=\"audio\""
@@ -471,7 +487,7 @@ extension RemuxSession {
             let bandwidth = useServerAudioGroup || audioBandwidth == 0 ? rungBandwidth : max(1, rungBandwidth - Self.serverAudioBandwidth) + audioBandwidth
             var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth),SCORE=\(index + 1)"
             // Rungs are SDR by build; declare their real resolution and codecs.
-            if !config.videoRange.isEmpty {
+            if !videoRange.isEmpty {
                 line += ",VIDEO-RANGE=SDR"
             }
             if !rung.codecs.isEmpty {
@@ -483,8 +499,8 @@ extension RemuxSession {
             if rung.width > 0 && rung.height > 0 {
                 line += ",RESOLUTION=\(rung.width)x\(rung.height)"
             }
-            if config.frameRate > 0 {
-                line += String(format: ",FRAME-RATE=%g", config.frameRate)
+            if frameRate > 0 {
+                line += String(format: ",FRAME-RATE=%g", frameRate)
             }
             if !tracks.isEmpty { line += ",AUDIO=\"\(group)\"" }
             if !config.subtitles.isEmpty {
@@ -530,6 +546,13 @@ extension RemuxSession {
               startRung == nil ? "the copy" : "rung \(startRung ?? 0)", copyFirst && startRung != nil ? " with the copy listed" : "", linkBps / 1_000_000, listed.count)
         reportTier(listed: !rungs.isEmpty)
         return out
+    }
+
+    /// The subtitle tracks the session serves: the ones read off the input, else the configured ones.
+    func sessionSubtitles() -> [RemuxSubtitle] {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return inputSubtitles ?? config.subtitles
     }
 
     /// EXT-X-START line for resume sessions, or empty. Media playlists only:
@@ -740,10 +763,7 @@ extension RemuxSession {
     /// AVFoundation takes four at load then one just ahead of each video segment,
     /// which is where the demux already is. Everything else stays one segment.
     func subtitlePlaylist(streamIndex: Int) -> String? {
-        stateLock.lock()
-        let subtitles = liveSubtitles ?? config.subtitles
-        stateLock.unlock()
-        guard let sub = subtitles.first(where: { $0.index == streamIndex }) else { return nil }
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }) else { return nil }
         // Measured: selecting a rendition leaves the item's tracks unchanged, and its playlist is
         // refreshed while selected and never after. The request is the selection.
         noteSubtitleRequest(sub.index)
@@ -771,11 +791,11 @@ extension RemuxSession {
             return out
         }
 
-        let dur = max(1, Int(ceil(config.durationSeconds)))
+        let dur = max(1, Int(ceil(durationSeconds)))
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(dur)\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
-        out += String(format: "#EXTINF:%.3f,\n", config.durationSeconds)
+        out += String(format: "#EXTINF:%.3f,\n", durationSeconds)
         out += sub.isImage || !sub.localVtt.isEmpty ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
         out += "#EXT-X-ENDLIST\n"
         return out
@@ -854,7 +874,7 @@ extension RemuxSession {
 
     func subtitleSegment(streamIndex: Int, segment: Int) -> String? {
         guard segment >= 0, segment < segmentCount else { return nil }
-        guard let sub = config.subtitles.first(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
 
         let start = segmentStartSeconds(segment)
         let end = start + segmentDurationSeconds(segment)
@@ -968,7 +988,7 @@ extension RemuxSession {
            Self.prefersServerImageSubtitles(localAvailable: decoder != nil, localCoversWindow: localCovers,
                                             localCoversStart: localReadUpTo != nil, localReadUpTo: localReadUpTo ?? 0, serverComplete: server.isComplete,
                                             serverReadUpTo: serverReadUpTo, windowStart: start) {
-            return server.manifestJSON(demuxedUpTo: server.isComplete ? config.durationSeconds : serverReadUpTo)
+            return server.manifestJSON(demuxedUpTo: server.isComplete ? durationSeconds : serverReadUpTo)
         }
         return decoder?.manifestJSON(demuxedUpTo: readUpTo)
     }

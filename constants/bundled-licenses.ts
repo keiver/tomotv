@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 05fa87d663ac5b9c
+ * fingerprint: 3fe9c96c3a33d2ef
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -537,7 +537,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "use-latest-callback", version: "0.2.6", license: "MIT", body: "L1", copyright: ["Copyright (c) 2023 Satyajit Sahoo"] },
   { name: "use-sidecar", version: "1.1.3", license: "MIT", body: "L1", copyright: ["Copyright (c) 2017 Anton Korzunov"] },
   { name: "utils-merge", version: "1.0.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2013-2017 Jared Hanson"] },
-  { name: "uuid", version: "11.1.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2010-2016 Robert Kieffer and other contributors"] },
+  { name: "uuid", version: "11.1.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2010-2020 Robert Kieffer and other contributors"] },
   { name: "validate-npm-package-name", version: "5.0.1", license: "ISC", body: "L17", copyright: ["Copyright (c) 2015, npm, Inc"] },
   { name: "vary", version: "1.1.2", license: "MIT", body: "L8", copyright: ["Copyright (c) 2014-2017 Douglas Christopher Wilson"] },
   { name: "vaul", version: "1.1.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2023 Emil Kowalski"] },

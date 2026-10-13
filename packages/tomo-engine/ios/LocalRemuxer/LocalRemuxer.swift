@@ -252,9 +252,14 @@ class LocalRemuxer: RCTEventEmitter {
     ///   liveSegmentSeconds: Double? : live segment target (default 6)
     ///   httpHeaders: [String: String]? : headers the input origin requires (a live manifest's User-Agent)
     ///   probeOrigin: Bool?         : live input is an origin's HLS playlist; a refusal fails the session
-    ///   liveOriginKey: String?     : the provider whose connection budget a live input spends (its host when absent)
+    ///   liveOriginKey: String?     : the provider whose connection budget the input spends: a live input's host when
+    ///                                absent, and a file takes a lease only when this is given
+    ///   inputConnections: Int?     : connections a file's input reads over (the reader's default when absent); under a
+    ///                                provider key it opens as many as the budget spares, never fewer than one
     ///   fallbackInputUrl: String?  : the channel through the server, opened once when the input itself will not open
     ///   livePriority: String?      : "playback" (default), "ring" or "preview"; a higher one takes a full budget's slot from a lower
+    ///   describesInput: Bool?      : the open input names its own range, size, rate and bit rate, and the audio tracks,
+    ///                                subtitles and durationSeconds the config leaves empty; the master waits for it
     ///
     /// Everything after durationSeconds comes from Jellyfin's metadata rather
     /// than from the file, because the master playlist is written before FFmpeg
@@ -266,9 +271,15 @@ class LocalRemuxer: RCTEventEmitter {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let isLive = (config["isLive"] as? Bool) ?? false
-        guard let inputUrl = config["inputUrl"] as? String,
-              let duration = config["durationSeconds"] as? Double, duration > 0 || isLive else {
-            reject("invalid_config", "startRemux needs inputUrl and a positive durationSeconds, or isLive", nil)
+        let describesInput = (config["describesInput"] as? Bool) ?? false
+        let duration = (config["durationSeconds"] as? Double) ?? 0
+        guard let inputUrl = config["inputUrl"] as? String, duration > 0 || isLive || describesInput else {
+            reject("invalid_config", "startRemux needs inputUrl and a positive durationSeconds, isLive or describesInput", nil)
+            return
+        }
+        // A ladder's grid and audio group are adopted before the input opens, so they cannot wait on what it describes.
+        guard !describesInput || ((config["tiers"] as? [[String: Any]] ?? []).isEmpty && (config["serverVideoOnly"] as? Bool) != true) else {
+            reject("invalid_config", "describesInput takes no tiers and no serverVideoOnly", nil)
             return
         }
         Self.cancelMeasuring()
@@ -378,6 +389,7 @@ class LocalRemuxer: RCTEventEmitter {
                 httpHeaders: (config["httpHeaders"] as? [String: String]) ?? [:],
                 probeOrigin: (config["probeOrigin"] as? Bool) ?? false,
                 liveOriginKey: config["liveOriginKey"] as? String,
+                inputConnections: (config["inputConnections"] as? Int) ?? 0,
                 fallbackInputUrl: config["fallbackInputUrl"] as? String,
                 livePriority: LiveConnectionBroker.Priority(name: (config["livePriority"] as? String) ?? "playback"),
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
@@ -387,7 +399,8 @@ class LocalRemuxer: RCTEventEmitter {
                 stopRequests: (config["stopRequests"] as? [[String: Any]] ?? []).compactMap { raw in
                     guard let url = raw["url"] as? String, !url.isEmpty else { return nil }
                     return StopRequest(url: url, method: (raw["method"] as? String) ?? "GET")
-                }
+                },
+                describesInput: describesInput
             ))
             session.onPlan = { [weak self] plan in self?.publish(plan: plan) }
             session.onThroughput = { [weak self] sample in self?.publish(throughput: sample) }
@@ -401,7 +414,7 @@ class LocalRemuxer: RCTEventEmitter {
             Self.sessionOrder.append(session.token)
             ownedTokens.insert(session.token)
 
-            NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%@)", port, isLive ? "live" : "\(session.segmentCount) segments")
+            NSLog("[LocalRemuxer] Session started on 127.0.0.1:%d (%@)", port, isLive ? "live" : duration > 0 ? "\(session.segmentCount) segments" : "length off the input")
             resolve("http://127.0.0.1:\(port)/\(session.token)/master.m3u8")
         } catch {
             reject("start_failed", "Failed to start remux session: \(error.localizedDescription)", error)
@@ -514,7 +527,7 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(session?.progress())
     }
 
-    /// A live session's subtitle tracks as its master publishes them, once the input has resolved.
+    /// A live or self-described session's subtitle tracks as its master publishes them, once the input has resolved.
     @objc func liveSubtitles(
         _ token: NSString,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -526,7 +539,8 @@ class LocalRemuxer: RCTEventEmitter {
         guard let session else { return resolve(nil) }
         DispatchQueue.global(qos: .userInitiated).async {
             resolve(session.publishedSubtitles(waitSeconds: 40).map {
-                ["index": $0.index, "name": $0.name, "language": $0.language, "isDefault": $0.isDefault, "isForced": $0.isForced, "isImage": $0.isImage]
+                ["index": $0.index, "name": $0.name, "language": $0.language, "isDefault": $0.isDefault, "isForced": $0.isForced, "isImage": $0.isImage,
+                 "isEngineText": $0.isEngineText, "isHearingImpaired": $0.isHearingImpaired]
             })
         }
     }
@@ -580,8 +594,9 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// A keyframe as the poster for an item without artwork. Config: itemId, inputUrl, and
-    /// seconds into the file. Resolves `{uri}` with a file URL, or a null uri with `cancelled`
+    /// A keyframe as the poster for an item without artwork. Config: itemId, inputUrl, seconds into the file,
+    /// and optionally httpHeaders and originKey, the provider whose budget the read spends (it waits for none:
+    /// a full budget answers `open`). Resolves `{uri}` with a file URL, or a null uri with `cancelled`
     /// set when the card withdrew before its turn, else `reason`: `open` or `frame`.
     @objc func posterFrame(
         _ config: NSDictionary,
@@ -594,7 +609,8 @@ class LocalRemuxer: RCTEventEmitter {
             return
         }
         let seconds = max(0, (config["seconds"] as? Double) ?? 10)
-        Self.posters.request(itemId: itemId, inputUrl: inputUrl, milliseconds: Int64(seconds * 1000)) { outcome in
+        Self.posters.request(itemId: itemId, inputUrl: inputUrl, milliseconds: Int64(seconds * 1000),
+                             headers: (config["httpHeaders"] as? [String: String]) ?? [:], originKey: config["originKey"] as? String) { outcome in
             switch outcome {
             case .poster(let url, let fresh): resolve(["uri": url.absoluteString, "cancelled": false, "fresh": fresh])
             case .none(let opened): resolve(["uri": NSNull(), "cancelled": false, "reason": opened ? "frame" : "open"])
@@ -815,6 +831,29 @@ class LocalRemuxer: RCTEventEmitter {
         Self.lock.unlock()
         session?.setLivePriority(LiveConnectionBroker.Priority(name: priority as String))
         resolve(session != nil)
+    }
+
+    /// How many connections a provider allows this device at once, for the reads that name it as their
+    /// origin key; 0 forgets the limit, leaving the provider's own refusals to teach it.
+    @objc func setOriginBudget(
+        _ key: NSString,
+        budget: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        LiveConnectionBroker.shared.setBudget(budget.intValue, for: key as String)
+        resolve(nil)
+    }
+
+    /// The limit in force for a provider, set or learned from its refusals, and the connections held on it now:
+    /// `{budget, active}`, budget null while nothing has set or shown one.
+    @objc func originBudget(
+        _ key: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        let budget: Any = LiveConnectionBroker.shared.budget(for: key as String).map { $0 as Any } ?? NSNull()
+        resolve(["budget": budget, "active": LiveConnectionBroker.shared.activeCount(for: key as String)])
     }
 
     /// AVPlayer's buffer past the playhead. Resolves the variant-cap floor the copy needs (0 = none).

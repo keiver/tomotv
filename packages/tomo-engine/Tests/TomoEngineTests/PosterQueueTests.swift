@@ -175,6 +175,36 @@ final class PosterQueueTests: XCTestCase {
         guard case .none? = settle(queue, "song-a", audio) else { return XCTFail("expected no poster") }
     }
 
+    /// A poster on a provider's budget reads only on a spare connection, and never waits for one.
+    func testAPosterOnAFullOriginReportsAnUnopenedSource() throws {
+        let clip = try clip()
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = PosterQueue(root: root)
+        let key = "poster-origin-\(UUID().uuidString)"
+        LiveConnectionBroker.shared.setBudget(1, for: key)
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        let held = try XCTUnwrap(LiveConnectionBroker.shared.tryAcquire(key: key, priority: .playback, onRevoke: {}))
+
+        func settle(_ itemId: String) -> PosterQueue.Outcome? {
+            let done = XCTestExpectation(description: "poster \(itemId)")
+            var outcome: PosterQueue.Outcome?
+            queue.request(itemId: itemId, inputUrl: clip.absoluteString, milliseconds: 2000, originKey: key) {
+                outcome = $0
+                done.fulfill()
+            }
+            wait(for: [done], timeout: 15)
+            return outcome
+        }
+        guard case .none(let opened)? = settle("film-a") else { return XCTFail("a full origin must give no poster") }
+        XCTAssertFalse(opened)
+        XCTAssertEqual(LiveConnectionBroker.shared.activeCount(for: key), 1)
+
+        held.release()
+        guard case .poster? = settle("film-a") else { return XCTFail("a spare connection must give the poster") }
+        XCTAssertEqual(LiveConnectionBroker.shared.activeCount(for: key), 0)
+    }
+
     func testRefusesAnIdThatIsNotAPlainToken() {
         let queue = PosterQueue(root: FileManager.default.temporaryDirectory)
         var outcome: PosterQueue.Outcome?

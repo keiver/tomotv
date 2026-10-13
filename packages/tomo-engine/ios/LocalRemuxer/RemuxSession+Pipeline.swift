@@ -663,11 +663,11 @@ extension RemuxSession {
             do {
                 let initialization = rendition.takePending()
                 try initialization.write(to: dir.appendingPathComponent(rendition.initName))
-                if let codec = VideoCodecDeclaration.fromInit(initialization) {
-                    stateLock.lock()
-                    resolvedVideoCodecs = codec
-                    stateLock.unlock()
-                }
+                let codec = VideoCodecDeclaration.fromInit(initialization)
+                stateLock.lock()
+                if let codec { resolvedVideoCodecs = codec }
+                if rendition.prefix.isEmpty { primaryInitWritten = true }
+                stateLock.unlock()
             } catch {
                 fail("write \(rendition.initName): \(error.localizedDescription)")
                 return false
@@ -718,19 +718,77 @@ extension RemuxSession {
         onThroughput?(sample)
     }
 
-    /// The subtitle tracks the master publishes: a live session's once its input has resolved.
+    /// The subtitle tracks the master publishes: a live or self-described session's once its input has resolved.
     func publishedSubtitles(waitSeconds: Double) -> [RemuxSubtitle] {
-        if config.isLive {
+        if config.isLive || config.describesInput {
             _ = waitUntil(deadline: waitSeconds) { [weak self] in
                 guard let self else { return true }
                 self.stateLock.lock()
                 defer { self.stateLock.unlock() }
-                return self.liveStreamsResolved || self.failed || self.cancelled
+                return self.inputStreamsResolved || self.failed || self.cancelled
             }
         }
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return liveSubtitles ?? config.subtitles
+        return sessionSubtitles()
+    }
+
+    /// The variant attributes of a self-described session, read where the muxers were built: the
+    /// picture that leaves (an encode's size), the source's range unless an 8-bit encode flattens it.
+    func describeInput(_ input: UnsafeMutablePointer<AVFormatContext>, videoIn: Int32, transcoder: VideoTranscoder?, output: Rendition?) -> InputDescription {
+        var description = InputDescription()
+        description.bandwidth = input.pointee.bit_rate > 0 ? Int(clamping: input.pointee.bit_rate) : 0
+        guard videoIn >= 0, let stream = input.pointee.streams[Int(videoIn)], let source = stream.pointee.codecpar else { return description }
+        let written = output.flatMap { rendition in rendition.streamMap[videoIn].flatMap { rendition.ctx?.pointee.streams[Int($0)]?.pointee.codecpar } } ?? source
+        description.width = Int(written.pointee.width)
+        description.height = Int(written.pointee.height)
+        let rate = av_guess_frame_rate(input, stream, nil)
+        if rate.num > 0, rate.den > 0 { description.frameRate = Double(rate.num) / Double(rate.den) }
+        let record = DolbyVisionConverter.configuration(source)
+        let keepsRange = transcoder == nil || written.pointee.codec_id == AV_CODEC_ID_HEVC
+        description.videoRange = keepsRange ? Self.videoRange(transfer: source.pointee.color_trc, dolbyVision: record) : "SDR"
+        if transcoder == nil { description.supplementalCodecs = Self.dolbyVisionSupplementalCodecs(record) }
+        return description
+    }
+
+    /// HLS VIDEO-RANGE from the stream's transfer; Dolby Vision is PQ unless its base layer is HLG.
+    static func videoRange(transfer: AVColorTransferCharacteristic, dolbyVision: AVDOVIDecoderConfigurationRecord?) -> String {
+        if transfer == AVCOL_TRC_ARIB_STD_B67 { return "HLG" }
+        if transfer == AVCOL_TRC_SMPTE2084 { return "PQ" }
+        guard let dolbyVision, dolbyVision.rpu_present_flag == 1 else { return "SDR" }
+        return dolbyVision.dv_bl_signal_compatibility_id == 4 ? "HLG" : "PQ"
+    }
+
+    /// SUPPLEMENTAL-CODECS for a copied Dolby Vision source, "" otherwise: the rule of src/tags.ts.
+    static func dolbyVisionSupplementalCodecs(_ record: AVDOVIDecoderConfigurationRecord?) -> String {
+        guard let record, record.rpu_present_flag == 1 else { return "" }
+        let level = String(format: "%02d", record.dv_level > 0 ? Int(record.dv_level) : 6)
+        // A converted profile 7 leaves as 8.1 whatever compatibility id it carried.
+        if record.dv_profile == 7 { return "dvh1.08.\(level)/db1p" }
+        guard record.dv_profile == 8, record.el_present_flag == 0 else { return "" }
+        switch record.dv_bl_signal_compatibility_id {
+        case 1: return "dvh1.08.\(level)/db1p"
+        case 4: return "dvh1.08.\(level)/db4h"
+        default: return ""
+        }
+    }
+
+    /// HLS authoring spec 9.17: renditions sharing a LANGUAGE go from most general to most specific,
+    /// so a language's full track leads, then SDH, then forced. Each language keeps the positions it held.
+    static func generalFirst(_ subtitles: [RemuxSubtitle]) -> [RemuxSubtitle] {
+        let language = { (track: RemuxSubtitle) in (track.language.isEmpty ? "und" : track.language).lowercased() }
+        let rank = { (track: RemuxSubtitle) in track.isForced ? 2 : track.isHearingImpaired ? 1 : 0 }
+        var byLanguage: [String: [RemuxSubtitle]] = [:]
+        for track in subtitles { byLanguage[language(track), default: []].append(track) }
+        // Stable: tracks of one rank keep their file order.
+        for key in byLanguage.keys {
+            byLanguage[key] = byLanguage[key]!.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
+        }
+        var taken: [String: Int] = [:]
+        return subtitles.map { track in
+            let key = language(track)
+            let position = taken[key, default: 0]
+            taken[key] = position + 1
+            return byLanguage[key]![position]
+        }
     }
 
     /// What the pipeline has pulled so far: alive, bytes, seconds blocked on the input, wall seconds.
@@ -1146,14 +1204,28 @@ extension RemuxSession {
         EngineLog.configure()
         // A live input holds one of its provider's connections for the session; it goes back once the input closes.
         var lease: LiveConnectionBroker.Lease?
+        // A file's ranged connections past its first, one lease each; they go back with the input.
+        var rangedLeases: [LiveConnectionBroker.Lease] = []
         let originKey = config.liveOriginKey ?? URL(string: config.inputUrl)?.host ?? "-"
-        if config.isLive {
+        // A file read over ranged connections: remote, and not a playlist the demuxer reads itself.
+        let rangedInput: URL? = config.isLive ? nil : URL(string: config.inputUrl).flatMap { remote in
+            (remote.scheme == "http" || remote.scheme == "https") && !remote.path.hasSuffix(".m3u8") && !remote.path.hasSuffix(".mpd") ? remote : nil
+        }
+        var inputConnections = rangedInput == nil ? 1 : config.inputConnections > 0 ? config.inputConnections : ParallelRangeReader.defaultConnections
+        if config.isLive || config.liveOriginKey != nil {
             let key = originKey
-            let yielded: () -> Void = { [weak self] in self?.fail("live input yielded its connection to a higher-priority read") }
+            let subject = config.isLive ? "live input" : "input"
+            let yielded: () -> Void = { [weak self] in self?.fail("\(subject) yielded its connection to a higher-priority read") }
             guard let held = LiveConnectionBroker.shared.acquire(key: key, priority: config.livePriority, timeout: 10, onRevoke: yielded) else {
-                return fail("no connection left on the live origin")
+                return fail(config.isLive ? "no connection left on the live origin" : "no connection left on the origin")
             }
             lease = held
+            // Every further connection is one the provider counts: taken only where its budget has room, never from another read.
+            while rangedLeases.count < inputConnections - 1,
+                  let further = LiveConnectionBroker.shared.tryAcquire(key: key, priority: config.livePriority, onRevoke: yielded) {
+                rangedLeases.append(further)
+            }
+            inputConnections = 1 + rangedLeases.count
             stateLock.lock()
             inputLease = held
             stateLock.unlock()
@@ -1164,6 +1236,7 @@ extension RemuxSession {
             inputLease = nil
             inputIsFallback = false
             stateLock.unlock()
+            rangedLeases.forEach { $0.release() }
             lease?.release()
         }
         var inputCtx: UnsafeMutablePointer<AVFormatContext>?
@@ -1180,10 +1253,11 @@ extension RemuxSession {
         var parallelAvio: UnsafeMutablePointer<AVIOContext>? = nil
         // The interrupt callback's condition: custom IO has no other way to end a blocked probe or read.
         let readerCancelled: () -> Bool = { [weak self] in self.map { $0.isCancelled || $0.hasFailed } ?? true }
-        if !config.isLive, let remote = URL(string: config.inputUrl),
-           remote.scheme == "http" || remote.scheme == "https",
-           !remote.path.hasSuffix(".m3u8"), !remote.path.hasSuffix(".mpd"),
-           let reader = ParallelRangeReader.open(url: remote, headers: config.httpHeaders, isCancelled: readerCancelled) {
+        // One connection reads through the reader too: read by FFmpeg's own HTTP, a one-connection origin
+        // served two bodies at once (measured); the reader holds no more requests than its count.
+        func openRanged(connections: Int) {
+            guard let remote = rangedInput,
+                  let reader = ParallelRangeReader.open(url: remote, headers: config.httpHeaders, connections: connections, isCancelled: readerCancelled) else { return }
             let ctx = avformat_alloc_context()
             let bufferSize = 1 << 16
             let buffer = av_malloc(bufferSize)
@@ -1202,7 +1276,7 @@ extension RemuxSession {
                     inputCtx = opening
                     parallelBox = box
                     parallelAvio = avio
-                    NSLog("[LocalRemuxer] Input reads over %d ranged connections", ParallelRangeReader.connections)
+                    NSLog("[LocalRemuxer] Input reads over %d ranged connections", reader.connections)
                 } else {
                     // A failed open frees the context but never a CUSTOM_IO pb.
                     openingInput = nil
@@ -1220,8 +1294,12 @@ extension RemuxSession {
                 reader.close()
             }
         }
+        openRanged(connections: inputConnections)
 
         if parallelBox == nil {
+        // One connection reads the input from here: the leases its ranged ones would have held go back.
+        rangedLeases.forEach { $0.release() }
+        rangedLeases = []
         while true {
             inputCtx = avformat_alloc_context()
             guard inputCtx != nil else { return fail("avformat_alloc_context") }
@@ -1275,13 +1353,17 @@ extension RemuxSession {
             av_dict_free(&openOpts)
             // A failed open freed the context itself.
             if ret < 0 { openingInput = nil }
-            if ret >= 0 || !config.isLive || isCancelled { break }
+            // Only a read on a provider's budget retries its open: a live input, or a file that names its provider.
+            if ret >= 0 || lease == nil || isCancelled { break }
             // A refusal by the origin while this device holds other connections to it shows its limit: the reads below
             // this one yield. Just after a yield it is the origin still counting the closed one. Either way, retry.
             if Self.refusalErrors.contains(ret), attempt < 4, inputUrl == config.inputUrl, let held = lease,
                LiveConnectionBroker.shared.noteRefusal(of: held) || LiveConnectionBroker.shared.recentlyYielded(key: originKey, within: 15) {
                 Thread.sleep(forTimeInterval: 0.5 * pow(2, Double(attempt)))
                 attempt += 1
+                // A file goes back to the reader on the one connection its lease covers.
+                openRanged(connections: 1)
+                if parallelBox != nil { break }
                 continue
             }
             if let fallback = config.fallbackInputUrl, !fallback.isEmpty, inputUrl != fallback {
@@ -1325,6 +1407,12 @@ extension RemuxSession {
         ret = probeStreamInfo(input)
         guard ret >= 0 else { return failStartup("find_stream_info: \(averr(ret))", retryable: !Self.isPermanentInputError(ret)) }
         mark("find_stream_info")
+        // The grid is cut from the length, so a file left to describe itself names it before anything reads the grid.
+        if config.describesInput, !config.isLive, config.durationSeconds <= 0, containerDurationSeconds <= 0 {
+            let seconds = input.pointee.duration == SWIFT_AV_NOPTS_VALUE ? 0 : Double(input.pointee.duration) / Double(SWIFT_AV_TIME_BASE)
+            guard seconds > 0 else { return failStartup("the input reports no duration") }
+            containerDurationSeconds = seconds
+        }
 
         // Audio-only sources run this same pipeline with no video track at all,
         // so a music file AVPlayer cannot open (Vorbis in Ogg, APE, TTA) is
@@ -1392,13 +1480,14 @@ extension RemuxSession {
             if best >= 0 { audioIndices = [best] }
         }
         guard hasVideo || !audioIndices.isEmpty else { return failStartup("no video or audio stream") }
-        var imageSubtitleTracks = config.subtitles.filter { $0.isImage }
+        var subtitleTracks = config.subtitles
+        let candidates: [Int32] = carriedProgram.map { program in
+            (0..<Int(program.pointee.nb_stream_indexes)).map { Int32(program.pointee.stream_index[$0]) }
+        } ?? Array(0..<streamCount)
         // Live: carry every audio stream the demuxer sees. The server's probe of a channel can
-        // list fewer tracks than the stream carries (measured: one of two AAC tracks).
-        if config.isLive, hasVideo {
-            let candidates: [Int32] = carriedProgram.map { program in
-                (0..<Int(program.pointee.nb_stream_indexes)).map { Int32(program.pointee.stream_index[$0]) }
-            } ?? Array(0..<streamCount)
+        // list fewer tracks than the stream carries (measured: one of two AAC tracks). A file left
+        // to describe itself with no track list carries them the same way.
+        if hasVideo, config.isLive || (config.describesInput && config.audioTracks.isEmpty) {
             audioIndices = audioIndices.filter { candidates.contains($0) }
             for i in candidates where !audioIndices.contains(i) {
                 guard let par = input.pointee.streams[Int(i)]?.pointee.codecpar, par.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { continue }
@@ -1422,32 +1511,45 @@ extension RemuxSession {
                 let name = !title.isEmpty ? title : !language.isEmpty ? language : "Audio \(position + 1)"
                 return RemuxAudioTrack(index: Int(index), name: name, language: language, serverAudioUrl: "")
             }
-            // Image subtitle tracks (DVB, teletext) come off the stream too: a channel read from its
-            // origin has no server probe to list them.
+            stateLock.lock()
+            inputAudioTracks = tracks
+            stateLock.unlock()
+        }
+        // Image subtitle tracks (DVB, teletext) come off the stream too: a channel read from its
+        // origin has no server probe to list them. A file left to describe itself lists its text tracks as well.
+        let discoversFileSubtitles = config.describesInput && !config.isLive && config.subtitles.isEmpty
+        if hasVideo, config.isLive || discoversFileSubtitles {
             var found: [RemuxSubtitle] = candidates.compactMap { index in
                 guard let stream = input.pointee.streams[Int(index)], let par = stream.pointee.codecpar,
-                      par.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE, ImageSubtitleDecoder.handles(par.pointee.codec_id) else { return nil }
-                if let known = imageSubtitleTracks.first(where: { $0.index == Int(index) }) { return known }
+                      par.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE else { return nil }
+                let isImage = ImageSubtitleDecoder.handles(par.pointee.codec_id)
+                guard isImage || (discoversFileSubtitles && avcodec_find_decoder(par.pointee.codec_id) != nil) else { return nil }
+                if let known = config.subtitles.first(where: { $0.isImage && $0.index == Int(index) }) { return known }
                 let language = av_dict_get(stream.pointee.metadata, "language", nil, 0).map { String(cString: $0.pointee.value) } ?? ""
                 let title = av_dict_get(stream.pointee.metadata, "title", nil, 0).map { String(cString: $0.pointee.value) } ?? ""
-                return RemuxSubtitle(index: Int(index), name: !title.isEmpty ? title : language, language: language, vttUrl: "", localVtt: "",
-                                     isDefault: stream.pointee.disposition & AV_DISPOSITION_DEFAULT != 0, isForced: stream.pointee.disposition & AV_DISPOSITION_FORCED != 0,
-                                     isImage: true, isEngineText: false)
+                var track = RemuxSubtitle(index: Int(index), name: !title.isEmpty ? title : language, language: language, vttUrl: "", localVtt: "",
+                                          isDefault: stream.pointee.disposition & AV_DISPOSITION_DEFAULT != 0, isForced: stream.pointee.disposition & AV_DISPOSITION_FORCED != 0,
+                                          isImage: isImage, isEngineText: !isImage)
+                track.isHearingImpaired = discoversFileSubtitles && stream.pointee.disposition & AV_DISPOSITION_HEARING_IMPAIRED != 0
+                return track
             }
             // Names are the picker's only handle on a track, so each is unique.
             let names = found.map { $0.name }
             for position in found.indices where names[position].isEmpty || names.filter({ $0 == names[position] }).count > 1 {
                 let track = found[position]
                 let name = track.name.isEmpty ? "Subtitles \(position + 1)" : "\(track.name) (\(position + 1))"
-                found[position] = RemuxSubtitle(index: track.index, name: name, language: track.language, vttUrl: "", localVtt: "",
-                                                isDefault: track.isDefault, isForced: track.isForced, isImage: true, isEngineText: false)
+                var renamed = RemuxSubtitle(index: track.index, name: name, language: track.language, vttUrl: "", localVtt: "",
+                                            isDefault: track.isDefault, isForced: track.isForced, isImage: track.isImage, isEngineText: track.isEngineText)
+                renamed.isHearingImpaired = track.isHearingImpaired
+                found[position] = renamed
             }
-            imageSubtitleTracks = found
+            if discoversFileSubtitles { found = Self.generalFirst(found) }
+            subtitleTracks = found
             stateLock.lock()
-            liveAudioTracks = tracks
-            liveSubtitles = found
+            inputSubtitles = found
             stateLock.unlock()
         }
+        let imageSubtitleTracks = subtitleTracks.filter { $0.isImage }
         // With no video there is no variant for alternates to hang off, so an
         // audio-only session carries one track. Multi-track audio-only files
         // are a theoretical shape, not one a music library produces.
@@ -1473,6 +1575,8 @@ extension RemuxSession {
         let fallbackHeight = Int(videoParams?.pointee.height ?? 0)
         // Input stream to the subtitle's Index: the decoders are keyed by Index, which the routes ask by.
         var subtitleIdentity: [Int32: Int32] = [:]
+        // Tracks the file listed that no decoder opens: left out of the master, where a configured one fails the session.
+        var undecodableSubtitles: Set<Int> = []
         for sub in imageSubtitleTracks {
             let index = Int32(sub.index)
             let found = sub.isExternal ? (stream: Int32?.none, refusal: "") : sourceStream(input, index: sub.index, source: sub.source, type: AVMEDIA_TYPE_SUBTITLE)
@@ -1508,6 +1612,10 @@ extension RemuxSession {
                     startServerImageSubtitles(only: sub.index)
                     continue
                 }
+                if discoversFileSubtitles {
+                    undecodableSubtitles.insert(sub.index)
+                    continue
+                }
                 return failStartup("image subtitle \(sub.index) has no decoder")
             }
             stateLock.lock()
@@ -1519,7 +1627,7 @@ extension RemuxSession {
         }
 
         // Same terms as the image ones: decode cost, nothing off the network.
-        for sub in config.subtitles where sub.isEngineText {
+        for sub in subtitleTracks where sub.isEngineText {
             let index = Int32(sub.index)
             let found = sourceStream(input, index: sub.index, source: sub.source, type: AVMEDIA_TYPE_SUBTITLE)
             if let stream = found.stream { subtitleIdentity[stream] = index }
@@ -1536,6 +1644,10 @@ extension RemuxSession {
             }
             guard let decoder = TextSubtitleDecoder(stream: stream) else {
                 if !sub.serverVttUrl.isEmpty { continue }
+                if discoversFileSubtitles {
+                    undecodableSubtitles.insert(sub.index)
+                    continue
+                }
                 return failStartup("text subtitle \(sub.index) has no decoder")
             }
             stateLock.lock()
@@ -1544,6 +1656,7 @@ extension RemuxSession {
         }
         stateLock.lock()
         subtitleDecodersBuilt = true
+        if !undecodableSubtitles.isEmpty { inputSubtitles = inputSubtitles?.filter { !undecodableSubtitles.contains($0.index) } }
         stateLock.unlock()
         if !textSubtitles.isEmpty {
             NSLog("[LocalRemuxer] decoding %d text subtitle track(s) on device", textSubtitles.count)
@@ -1690,7 +1803,9 @@ extension RemuxSession {
         if !config.isLive, hasVideo {
             let keyframes = KeyframeIndex.read(input: input, streamIndex: videoIn)
             let par = input.pointee.streams[Int(videoIn)]?.pointee.codecpar
-            let encodes = par.flatMap { Self.iframeEncodes(par: $0, playbackTranscodes: primaryVideoTranscoder != nil) }
+            // The rendition's grabber is one more read of the input: named only while the provider's budget has room for it.
+            let spare = config.liveOriginKey.map { LiveConnectionBroker.shared.hasSpare(for: $0) } ?? true
+            let encodes = spare ? par.flatMap { Self.iframeEncodes(par: $0, playbackTranscodes: primaryVideoTranscoder != nil) } : nil
             let box = FrameGrabber.iframeMaxSize
             let size = par.map { encodes == true
                 ? VideoTranscoder.fittedSize(width: $0.pointee.width, height: $0.pointee.height, maxWidth: box.width, maxHeight: box.height)
@@ -1784,10 +1899,14 @@ extension RemuxSession {
         for rendition in builtRenditions {
             guard buildMuxer(for: rendition, input: input) else { return }
         }
+        let description = config.describesInput
+            ? describeInput(input, videoIn: videoIn, transcoder: primaryVideoTranscoder, output: builtRenditions.first { $0.streamMap[videoIn] != nil })
+            : nil
         stateLock.lock()
+        if let description { inputDescription = description }
         sourceReady = true
         sourceState = .ready
-        liveStreamsResolved = true
+        inputStreamsResolved = true
         stateLock.unlock()
         segmentClock = Date()
 
@@ -1874,11 +1993,11 @@ extension RemuxSession {
                 if rendition.awaitingDeferredInit {
                     do {
                         try data.write(to: dir.appendingPathComponent(rendition.initName))
-                        if let codec = VideoCodecDeclaration.fromInit(data) {
-                            stateLock.lock()
-                            resolvedVideoCodecs = codec
-                            stateLock.unlock()
-                        }
+                        let codec = VideoCodecDeclaration.fromInit(data)
+                        stateLock.lock()
+                        if let codec { resolvedVideoCodecs = codec }
+                        if rendition.prefix.isEmpty { primaryInitWritten = true }
+                        stateLock.unlock()
                     } catch {
                         return fail("write \(rendition.initName): \(error.localizedDescription)")
                     }
@@ -2293,7 +2412,7 @@ extension RemuxSession {
 
                 // Close whatever subtitle is still on screen at EOF, so the last
                 // cue of the file has a real end rather than an open one.
-                for decoder in imageSubtitles.values { decoder.finish(at: config.durationSeconds) }
+                for decoder in imageSubtitles.values { decoder.finish(at: durationSeconds) }
                 for decoder in textSubtitles.values { decoder.finish() }
 
                 finishSegment(currentSegment)

@@ -105,9 +105,15 @@ final class FrameGrabber {
     /// The live read's first keyframe packet: the clip starts on it.
     private var keyPacket: UnsafeMutablePointer<AVPacket>?
 
+    /// The provider whose connection budget this grabber's open context spends; nil reads outside any budget.
+    private let originKey: String?
+    /// Held from the open to the close. A grabber takes a connection from nothing: it opens only on a spare one.
+    private var originLease: LiveConnectionBroker.Lease?
+
     init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch,
-         httpHeaders: [String: String] = [:], live: Bool = false) {
+         httpHeaders: [String: String] = [:], live: Bool = false, originKey: String? = nil) {
         self.inputUrl = inputUrl
+        self.originKey = originKey
         self.httpHeaders = httpHeaders
         self.live = live
         self.directory = directory
@@ -436,6 +442,15 @@ final class FrameGrabber {
         queue.async { [self] in close() }
     }
 
+    /// stop(), returning once the contexts are closed: for an owner whose next read needs the connection back.
+    /// Never called on `queue`.
+    func stopAndClose() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+        queue.sync { close() }
+    }
+
     // MARK: - FFmpeg
 
     func readPacket(_ input: UnsafeMutablePointer<AVFormatContext>, _ packet: UnsafeMutablePointer<AVPacket>) -> Int32 {
@@ -447,6 +462,21 @@ final class FrameGrabber {
     func open() -> Bool {
         if input != nil { return true }
         if openFailed { return false }
+        // A full budget is not a failed source: the next request asks for a connection again.
+        if let originKey, originLease == nil {
+            guard let lease = LiveConnectionBroker.shared.tryAcquire(key: originKey, priority: .sweep, onRevoke: { [weak self] in self?.stop() }) else {
+                openFailure = "no connection spare on the origin"
+                return false
+            }
+            originLease = lease
+        }
+        // A source that did not open holds no connection.
+        defer {
+            if input == nil {
+                originLease?.release()
+                originLease = nil
+            }
+        }
         openFailed = true
 
         EngineLog.configure()
@@ -565,6 +595,8 @@ final class FrameGrabber {
         decoder = nil
         input = nil
         sws = nil
+        originLease?.release()
+        originLease = nil
     }
 
     /// A decoded frame scaled for the JPEG, with what the poster search reads off it.

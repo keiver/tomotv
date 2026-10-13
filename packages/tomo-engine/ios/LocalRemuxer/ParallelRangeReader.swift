@@ -16,7 +16,10 @@ import Foundation
 /// session's bytes, so the window stays small.
 final class ParallelRangeReader: NSObject {
     static let chunkBytes = 2 << 20
-    static let connections = 3
+    /// Connections a reader opens when its owner names no count.
+    static let defaultConnections = 3
+    /// Every connection holds a chunk of `chunkBytes` in memory, which is what this bounds.
+    static let maxConnections = 16
     /// Chunks held or in flight ahead of the cursor; bounds memory and seek waste.
     static let windowChunks = 4
     /// A chunk whose fetch fails retries this many times before the reader fails.
@@ -24,6 +27,10 @@ final class ParallelRangeReader: NSObject {
     private static let readTimeout: TimeInterval = 20
 
     let size: Int64
+    /// Ranged requests in flight at once, at most.
+    let connections: Int
+    /// The window's ceiling: wide enough that every connection has a chunk to fetch.
+    private var windowLimit: Int { max(Self.windowChunks, connections) }
     private let url: URL
     private let headers: [String: String]
     private var session: URLSession!
@@ -67,7 +74,8 @@ final class ParallelRangeReader: NSObject {
 
     /// Opens a reader when the server answers a ranged probe with 206 and a total;
     /// nil sends the caller down the ordinary single-connection path.
-    static func open(url: URL, headers: [String: String], isCancelled: (() -> Bool)? = nil) -> ParallelRangeReader? {
+    static func open(url: URL, headers: [String: String], connections: Int = defaultConnections, isCancelled: (() -> Bool)? = nil) -> ParallelRangeReader? {
+        let connections = min(max(1, connections), maxConnections)
         var request = URLRequest(url: url, timeoutInterval: 15)
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
@@ -80,18 +88,19 @@ final class ParallelRangeReader: NSObject {
         probe.invalidateAndCancel()
         guard isCancelled?() != true, delegate.total > Int64(chunkBytes) else { return nil }
         NSLog("[ParallelRangeReader] open %lld bytes, %d connections, %d MB chunks", delegate.total, connections, chunkBytes >> 20)
-        let reader = ParallelRangeReader(url: url, headers: headers, size: delegate.total)
+        let reader = ParallelRangeReader(url: url, headers: headers, size: delegate.total, connections: connections)
         reader.isCancelled = isCancelled
         return reader
     }
 
-    private init(url: URL, headers: [String: String], size: Int64) {
+    private init(url: URL, headers: [String: String], size: Int64, connections: Int) {
         self.url = url
         self.headers = headers
         self.size = size
+        self.connections = connections
         super.init()
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpMaximumConnectionsPerHost = Self.connections
+        configuration.httpMaximumConnectionsPerHost = connections
         configuration.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         schedule()
@@ -120,7 +129,7 @@ final class ParallelRangeReader: NSObject {
         let first = chunkIndex(cursor)
         var started: [URLSessionDataTask] = []
         for index in first ... min(first + Int64(window) - 1, lastChunk) {
-            guard !complete.contains(index), tasks[index] == nil, tasks.count < Self.connections else { continue }
+            guard !complete.contains(index), tasks[index] == nil, tasks.count < connections else { continue }
             let (start, end) = span(of: index)
             var request = URLRequest(url: url)
             for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
@@ -166,7 +175,7 @@ final class ParallelRangeReader: NSObject {
                 if within + served == body.count, Int64(body.count) == end - start + 1 {
                     bodies[index] = nil
                     complete.remove(index)
-                    window = min(window + 1, Self.windowChunks)
+                    window = min(window + 1, windowLimit)
                 }
                 lock.unlock()
                 schedule()
@@ -191,7 +200,7 @@ final class ParallelRangeReader: NSObject {
         cursor = clamped
         window = 1
         let keepFrom = chunkIndex(clamped)
-        let keepTo = keepFrom + Int64(Self.windowChunks) - 1
+        let keepTo = keepFrom + Int64(windowLimit) - 1
         var cancelling: [URLSessionDataTask] = []
         for (index, task) in tasks where index < keepFrom || index > keepTo {
             cancelling.append(task)

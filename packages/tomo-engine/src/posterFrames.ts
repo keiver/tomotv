@@ -89,6 +89,10 @@ export interface PosterFrameRequest {
   /** Resolved inside the job, so callers sharing one job pay for one lookup. */
   inputUrl: () => string;
   seconds: number;
+  /** Headers the origin requires. */
+  httpHeaders?: Record<string, string>;
+  /** The provider whose connection budget the read spends; with none spare the poster fails as unopened and is retried. */
+  originKey?: string;
 }
 
 /**
@@ -117,7 +121,13 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
       const inputUrl = request.inputUrl();
       let result: { uri?: string | null; cancelled?: boolean; fresh?: boolean; reason?: PosterFrameFailureReason } | undefined;
       do {
-        result = await engineModule().posterFrame({ itemId: request.id, inputUrl, seconds: request.seconds });
+        result = await engineModule().posterFrame({
+          itemId: request.id,
+          inputUrl,
+          seconds: request.seconds,
+          ...(request.httpHeaders ? { httpHeaders: request.httpHeaders } : {}),
+          ...(request.originKey ? { originKey: request.originKey } : {}),
+        });
         // A cancel from a card that left lands on the job a card arriving since has joined: ask again for it.
       } while (result?.cancelled && generation === posterFrameGen && (posterFrameWaiters.get(request.id) ?? 0) > 0);
       // Only an outcome the serial drain produced (a fresh decode, or a decode that ran and

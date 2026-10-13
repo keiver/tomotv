@@ -204,7 +204,8 @@ extension RemuxSession {
     func frameGrabberLocked() -> FrameGrabber {
         if let frameGrabber { return frameGrabber }
         let pooled = ChapterFramePool.directory(for: config.itemId)
-        let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root, epoch: poolEpoch)
+        let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root, epoch: poolEpoch,
+                                   httpHeaders: config.httpHeaders, originKey: config.liveOriginKey)
         grabber.byteMap = byteMap
         frameGrabber = grabber
         return grabber
@@ -214,7 +215,8 @@ extension RemuxSession {
     /// pictures while an I-frame request copies one keyframe. Caller holds stateLock.
     func iframeGrabberLocked() -> FrameGrabber {
         if let iframeGrabber { return iframeGrabber }
-        let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: dir, pool: nil, epoch: poolEpoch)
+        let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: dir, pool: nil, epoch: poolEpoch, httpHeaders: config.httpHeaders,
+                                   originKey: config.liveOriginKey)
         grabber.byteMap = byteMap
         iframeGrabber = grabber
         return grabber

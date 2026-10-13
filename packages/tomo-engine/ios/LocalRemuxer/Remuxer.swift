@@ -274,12 +274,21 @@ final class RemuxSession {
     var liveTargetDuration: Int?
     /// Longest keyframe interval seen on the source, which bounds a keyframe-aligned cut's overshoot.
     var maxKeyframeGapSeconds: Double = 0
-    /// Live: every audio stream the demuxer found, in rendition order; nil until the input is open.
-    var liveAudioTracks: [RemuxAudioTrack]? = nil
-    /// Live: every image subtitle track the demuxer found; nil until the input is open.
-    var liveSubtitles: [RemuxSubtitle]? = nil
-    /// Live: the input is open and its streams read; the master playlist waits for this.
-    var liveStreamsResolved = false
+    /// Every audio stream the demuxer found, in rendition order, for a session that reads its tracks
+    /// off the input (live, `describesInput`); nil until the input is open.
+    var inputAudioTracks: [RemuxAudioTrack]? = nil
+    /// Every subtitle track the demuxer found, same sessions: image tracks, and text ones off a file.
+    var inputSubtitles: [RemuxSubtitle]? = nil
+    /// The input is open and its streams read; such a session's master playlist waits for this.
+    var inputStreamsResolved = false
+    /// A `describesInput` session's variant attributes, once its muxers are built (under stateLock).
+    var inputDescription: InputDescription?
+    /// A `describesInput` session's length off the container: written once on the pipeline thread
+    /// before the source is ready, like the adopted grid.
+    var containerDurationSeconds: Double = 0
+    var durationSeconds: Double { config.durationSeconds > 0 ? config.durationSeconds : containerDurationSeconds }
+    /// The primary rendition's init is on disk, so its video CODECS is resolved (under stateLock).
+    var primaryInitWritten = false
     /// Copied video whose opening packets carry CEA-608/708 in their SEI; the master declares them.
     var embeddedCaptions = false
     /// Live: the read head on the output timeline, for image cue manifests and their window.
@@ -398,7 +407,7 @@ final class RemuxSession {
     var segmentCount: Int {
         if config.isLive { return Int.max }
         if !adoptedStarts.isEmpty { return adoptedStarts.count }
-        return max(1, Int(config.durationSeconds / Self.segmentDuration))
+        return max(1, Int(durationSeconds / Self.segmentDuration))
     }
 
 

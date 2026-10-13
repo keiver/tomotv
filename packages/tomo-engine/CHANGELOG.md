@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0
+
+- `describesInput` on a session config: the engine reads the variant off the open input (VIDEO-RANGE from the transfer and the Dolby Vision record, RESOLUTION, FRAME-RATE, SUPPLEMENTAL-CODECS, the container's bit rate) and whichever of `audioTracks`, `subtitles` and `durationSeconds` the config leaves empty. Every audio stream becomes a rendition with the file's default-flagged one first; text and image subtitle tracks are listed, a language's full track before its SDH and forced ones, and a track no decoder opens is left out. The master waits for the input and for the primary init, so CODECS is the tag read off the init. It takes no `tiers` and no `serverVideoOnly`. `describedSessionConfig({ inputUrl, itemId, httpHeaders?, startOffsetSeconds?, originKey?, inputConnections? })` builds that config.
+- `inputSubtitleRenditions(token)` returns the subtitle tracks a live or self-described session read off its input, with `isEngineText` and `isHearingImpaired`. `liveSubtitleRenditions` is the same function.
+- `setOriginConnectionBudget(originKey, connections)` sets how many connections a provider allows this device, for every read that names it; 0 forgets the limit. `originConnections(originKey)` reads the limit in force, set or learned, and the connections open on it.
+- A file session that names its provider (`liveOriginKey`) takes a lease per connection. `inputConnections` is how many its input may read over (3 when absent, 16 at most); under a provider key it opens as many as the budget spares and never fewer than one. A refusal by the provider while this device holds other reads on it teaches the limit, the lower reads yield, and the input opens on the one connection.
+- A single connection reads through the ranged reader too. Read through FFmpeg's own HTTP, a one-connection test origin served two bodies at once; through the reader it serves one.
+- A session's chapter frames and I-frame rendition each take a lease on its provider's budget and open only on a spare connection. With none spare when the session plans its video, the master names no I-frame rendition. Both now send the session's `httpHeaders`.
+- `posterFrame` takes `httpHeaders` and `originKey`: on a provider's budget a poster reads only on a spare connection, never waits for one, and closes before the next poster runs. `requestPosterFrame` passes both.
+- `GuideProgramme` types `episodeNumbers`, `isNew` and `previouslyShown`, which the bridge already sent.
+
 ## 1.1.0
 
 - `setPosterQueuePaused(paused)` parks the poster queue's waiting backlog while video plays and returns it on release. The grab already running finishes, a request made while parked still runs, and a cancel reaches a parked job at once. `setPosterFramesPaused` wraps it in JS, and `posterFrameWorkInFlight` stops counting parked jobs.

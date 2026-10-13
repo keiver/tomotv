@@ -18,6 +18,9 @@ final class PosterQueue {
         let itemId: String
         let inputUrl: String
         let milliseconds: Int64
+        let headers: [String: String]
+        /// The provider whose connection budget the read spends; nil reads outside any budget.
+        let originKey: String?
         let epoch: Int
         let completion: (Outcome) -> Void
     }
@@ -65,7 +68,8 @@ final class PosterQueue {
 
     /// The poster for `itemId`: from the pool when it is there, else decoded in turn, the most
     /// recent request first. A hit and a cancel answer on the caller's thread, a decode on the queue's.
-    func request(itemId: String, inputUrl: String, milliseconds: Int64, completion: @escaping (Outcome) -> Void) {
+    func request(itemId: String, inputUrl: String, milliseconds: Int64, headers: [String: String] = [:], originKey: String? = nil,
+                 completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: itemId, in: root) else {
             completion(.none(opened: true))
             return
@@ -80,7 +84,7 @@ final class PosterQueue {
         // A fresh request outlives any cancel that came before it.
         cancelled.remove(itemId)
         // The pool the caller asked into; a purge before the job's turn leaves it nothing to answer for.
-        pending.append(Pending(itemId: itemId, inputUrl: inputUrl, milliseconds: milliseconds,
+        pending.append(Pending(itemId: itemId, inputUrl: inputUrl, milliseconds: milliseconds, headers: headers, originKey: originKey,
                                epoch: ChapterFramePool.epoch, completion: completion))
         let start = !draining
         if start { draining = true }
@@ -110,12 +114,15 @@ final class PosterQueue {
             job.completion(.none(opened: true))
             return
         }
-        let grabber = FrameGrabber(inputUrl: job.inputUrl, directory: directory, pool: root, epoch: job.epoch)
+        // On a provider's budget the grabber opens only on a spare connection; with none it reports an unopened source.
+        let grabber = FrameGrabber(inputUrl: job.inputUrl, directory: directory, pool: root, epoch: job.epoch, httpHeaders: job.headers,
+                                   originKey: job.originKey)
         // A run of keyframes from the 10% mark; the grabber takes the most representative, so a
         // dark or blank opening loses to real footage further in.
         let result = grabber.frame(atMilliseconds: job.milliseconds, named: Self.fileName, nearestFromStart: true,
                                    enhanced: true, batch: 10)
-        grabber.stop()
+        // Closed before the next job runs: on a provider's budget that job needs this one's connection.
+        grabber.stopAndClose()
         if let result {
             job.completion(.poster(result, fresh: true))
         } else {

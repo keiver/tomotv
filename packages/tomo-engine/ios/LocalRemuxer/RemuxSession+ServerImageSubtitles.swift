@@ -147,10 +147,10 @@ extension RemuxSession {
             NSLog("[LocalRemuxer] server subtitle stream %d broke off mid-read", track.index)
             return isCancelled || hasFailed
         }
-        decoder.finish(at: config.durationSeconds)
+        decoder.finish(at: durationSeconds)
         stateLock.lock()
         serverImageSubtitles[Int32(track.index)] = decoder
-        serverImageReadUpTo[Int32(track.index)] = config.durationSeconds
+        serverImageReadUpTo[Int32(track.index)] = durationSeconds
         stateLock.unlock()
         NSLog("[LocalRemuxer] server subtitle stream %d read to its end", track.index)
         return true
