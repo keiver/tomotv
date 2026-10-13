@@ -14,7 +14,7 @@ import { generatedLyrics, withLineTiming, withWordTiming } from "./align";
 import { listen, listenable, listenerAvailable } from "./listener";
 import { findOnLrclib } from "./lrclib";
 import { lyricsKey, readLyricsEntry, writeLyricsEntry } from "./store";
-import { canManageLyrics, uploadLyrics } from "./upload";
+import { canManageLyrics, savable, uploadLyrics } from "./upload";
 
 type Update = (lyrics: ItemLyrics | null) => void;
 
@@ -110,7 +110,7 @@ async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<
   }
   if (!current) emit(null);
 
-  if (current?.source === "lrclib" && !uploaded && serverAnswered && preferences.saveLyrics && (await canManageLyrics())) {
+  if (current && savable(current) && !uploaded && serverAnswered && preferences.saveLyrics && (await canManageLyrics())) {
     uploaded = await uploadLyrics(item.Id, current);
   }
   // A miss is only remembered when every source actually answered.

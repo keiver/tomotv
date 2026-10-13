@@ -53,9 +53,12 @@ export function lyricsFile(lyrics: ItemLyrics): { fileName: string; body: string
   return { fileName: worded ? "lyrics.elrc" : "lyrics.lrc", body };
 }
 
-/** True once the server has taken the file. Generated lyrics are never sent: the server cannot mark them as such. */
+/** Lyrics this app found or wrote. The server's own are never sent back to it. */
+export const savable = (lyrics: ItemLyrics | null): boolean => lyrics?.source === "lrclib" || lyrics?.source === "generated";
+
+/** True once the server has taken the file. The server keeps no source, so generated lyrics read back as its own. */
 export async function uploadLyrics(itemId: string, lyrics: ItemLyrics): Promise<boolean> {
-  if (lyrics.source !== "lrclib") return false;
+  if (!savable(lyrics)) return false;
   const config = await getConfig();
   if (!config.server || !config.apiKey) return false;
   const { fileName, body } = lyricsFile(lyrics);

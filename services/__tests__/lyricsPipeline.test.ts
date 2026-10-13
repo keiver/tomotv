@@ -13,7 +13,11 @@ jest.mock("@/services/jellyfin/lyrics", () => {
 jest.mock("@/services/jellyfin/session", () => ({ getConfig: jest.fn(async () => ({ server: "http://server-a" })) }));
 jest.mock("@/services/lyrics/listener", () => ({ listen: jest.fn(async () => null), listenable: jest.fn(() => true), listenerAvailable: jest.fn(async () => true) }));
 jest.mock("@/services/lyrics/lrclib", () => ({ findOnLrclib: jest.fn(async () => ({ status: "none" })) }));
-jest.mock("@/services/lyrics/upload", () => ({ canManageLyrics: jest.fn(async () => true), uploadLyrics: jest.fn(async () => true) }));
+jest.mock("@/services/lyrics/upload", () => ({
+  canManageLyrics: jest.fn(async () => true),
+  uploadLyrics: jest.fn(async () => true),
+  savable: (lyrics: { source?: string } | null) => lyrics?.source === "lrclib" || lyrics?.source === "generated",
+}));
 
 import { localLyrics } from "@/services/downloads/localSource";
 import { askLyrics, fetchLyrics, type ItemLyrics } from "@/services/jellyfin/lyrics";
@@ -193,7 +197,7 @@ describe("listening", () => {
     expect(await resolve()).toEqual([null]);
   });
 
-  it("writes lyrics from the hearing for a song with none, captioned and never uploaded", async () => {
+  it("writes lyrics from the hearing for a song with none, captioned", async () => {
     (listen as jest.Mock).mockResolvedValue(SPOKEN);
 
     const updates = await resolve();
@@ -201,7 +205,6 @@ describe("listening", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]).toMatchObject({ source: "generated", caption: "Generated on this device", synced: true });
     expect(listen).toHaveBeenCalledWith(SONG, null);
-    expect(uploadLyrics).not.toHaveBeenCalled();
   });
 
   it("does not listen when it is off, the device cannot, or the song is not one to listen to", async () => {
@@ -303,6 +306,17 @@ describe("saving to the server", () => {
 
     expect(uploadLyrics).toHaveBeenCalledTimes(1);
     expect((uploadLyrics as jest.Mock).mock.calls[0][1].lines[0].cues).toHaveLength(3);
+  });
+
+  it("uploads generated lyrics once, and keeps their caption when the server hands them back", async () => {
+    (listen as jest.Mock).mockResolvedValue(SPOKEN);
+    const [generated] = await resolve();
+    expect(uploadLyrics).toHaveBeenCalledTimes(1);
+    expect((uploadLyrics as jest.Mock).mock.calls[0][1]).toBe(generated);
+
+    (fetchLyrics as jest.Mock).mockResolvedValue({ synced: true, source: "server", lines: generated?.lines ?? [] });
+    expect(await resolve()).toEqual([generated]);
+    expect(uploadLyrics).toHaveBeenCalledTimes(1);
   });
 
   it("uploads nothing when saving is off or the account may not", async () => {

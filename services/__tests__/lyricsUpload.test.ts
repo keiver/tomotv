@@ -1,6 +1,6 @@
 /**
  * Saving lyrics to the Jellyfin server: the file each kind of lyrics becomes, the account
- * permission, and what is never sent.
+ * permission, and which sources are sent.
  */
 import { canManageLyrics, lyricsFile, uploadLyrics } from "@/services/lyrics/upload";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
@@ -98,9 +98,16 @@ describe("uploadLyrics", () => {
     expect(init).toMatchObject({ method: "POST", headers: { "Content-Type": "text/plain", Authorization: "auth-header" }, body: "[01:01.50] <01:01.50> one <01:02.25> two\n[01:10.00] three" });
   });
 
-  it("never sends generated lyrics or the server's own", async () => {
-    expect(await uploadLyrics("song-1", { ...WORDED, source: "generated" })).toBe(false);
+  it("sends generated lyrics like found ones", async () => {
+    mockFetch.mockResolvedValue({ ok: true });
+
+    expect(await uploadLyrics("song-1", { ...WORDED, source: "generated" })).toBe(true);
+    expect(mockFetch.mock.calls[0][0]).toBe("http://server/Audio/song-1/Lyrics?fileName=lyrics.elrc");
+  });
+
+  it("never sends the server's own lyrics or ones of no known source", async () => {
     expect(await uploadLyrics("song-1", { ...WORDED, source: "server" })).toBe(false);
+    expect(await uploadLyrics("song-1", { ...WORDED, source: undefined })).toBe(false);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
