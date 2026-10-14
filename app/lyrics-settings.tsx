@@ -4,7 +4,7 @@ import { IS_PAD, settingsStyles } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { t } from "@/services/i18n";
-import { listenerAvailable } from "@/services/lyrics/listener";
+import { listenerAvailable, listenHintKey } from "@/services/lyrics/listener";
 import { canManageLyrics } from "@/services/lyrics/upload";
 import { updateUiPreferences } from "@/services/uiPreferences";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -66,7 +66,7 @@ export default function LyricsSettingsScreen() {
             <ListRow
               icon="ear-outline"
               title={t("lyrics.listen")}
-              subtitle={t("lyrics.listenHint")}
+              subtitle={t(listenHintKey(canListen, IS_TV))}
               trailingIcon={canListen && listenForLyrics ? tick : undefined}
               onPress={toggleListen}
               disabled={!canListen}

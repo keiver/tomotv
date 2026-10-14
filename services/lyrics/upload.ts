@@ -8,6 +8,7 @@ import { API_TIMEOUTS } from "@/services/jellyfin/constants";
 import type { ItemLyrics } from "@/services/jellyfin/lyrics";
 import { getAuthHeader, getConfig } from "@/services/jellyfin/session";
 import { logger } from "@/utils/logger";
+import { SOURCE_LINE_SECONDS, sourceLine } from "./sourceLine";
 
 /** Accounts, by server and user, the server refused a lyrics upload while the app runs. */
 const refused = new Set<string>();
@@ -29,25 +30,26 @@ function stamp(seconds: number): string {
 
 /**
  * The file the server parses back into the same lines: word tags inside a line make it .elrc,
- * line stamps alone .lrc, and untimed text .txt.
+ * line stamps alone .lrc, and untimed text .txt. The source line comes first, an empty line ending it at 3 s.
  */
 export function lyricsFile(lyrics: ItemLyrics): { fileName: string; body: string } {
-  if (!lyrics.synced) return { fileName: "lyrics.txt", body: lyrics.lines.map((line) => line.text).join("\n") };
+  const source = sourceLine(lyrics.source);
+  if (!lyrics.synced) return { fileName: "lyrics.txt", body: [...(source ? [source] : []), ...lyrics.lines.map((line) => line.text)].join("\n") };
   const worded = lyrics.lines.some((line) => line.cues.length > 0);
-  const body = lyrics.lines
-    .map((line) => {
-      const start = `[${stamp(line.start ?? 0)}]`;
-      if (!worded || line.cues.length === 0) return `${start} ${line.text}`;
-      return `${start} ${line.cues.map((cue) => `<${stamp(cue.start)}> ${line.text.slice(cue.position, cue.endPosition)}`).join(" ")}`;
-    })
-    .join("\n");
-  return { fileName: worded ? "lyrics.elrc" : "lyrics.lrc", body };
+  const firstStart = Math.min(...lyrics.lines.map((line) => line.start ?? 0));
+  const head = source ? [`[${stamp(0)}] ${source}`, ...(firstStart > SOURCE_LINE_SECONDS ? [`[${stamp(SOURCE_LINE_SECONDS)}]`] : [])] : [];
+  const lines = lyrics.lines.map((line) => {
+    const start = `[${stamp(line.start ?? 0)}]`;
+    if (!worded || line.cues.length === 0) return `${start} ${line.text}`;
+    return `${start} ${line.cues.map((cue) => `<${stamp(cue.start)}> ${line.text.slice(cue.position, cue.endPosition)}`).join(" ")}`;
+  });
+  return { fileName: worded ? "lyrics.elrc" : "lyrics.lrc", body: [...head, ...lines].join("\n") };
 }
 
 /** Lyrics this app found or wrote. The server's own are never sent back to it. */
 export const savable = (lyrics: ItemLyrics | null): boolean => lyrics?.source === "lrclib" || lyrics?.source === "generated";
 
-/** True once the server has taken the file. The server keeps no source, so generated lyrics read back as its own. */
+/** True once the server has taken the file. The server keeps no source field, so the source line carries it. */
 export async function uploadLyrics(itemId: string, lyrics: ItemLyrics): Promise<boolean> {
   if (!savable(lyrics)) return false;
   const config = await getConfig();

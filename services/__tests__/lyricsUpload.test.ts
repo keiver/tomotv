@@ -14,6 +14,7 @@ jest.mock("@/services/jellyfin/session", () => ({
   getConfig: jest.fn(),
   getAuthHeader: jest.fn(() => "auth-header"),
 }));
+jest.mock("@/utils/hostEnvironment", () => ({ THIS_DEVICE: "iPad" }));
 
 const mockFetch = fetchWithTimeout as jest.Mock;
 const account = (userId: string) => (getConfig as jest.Mock).mockResolvedValue({ server: "http://server", apiKey: "key", userId, deviceId: "device" });
@@ -35,8 +36,18 @@ const WORDED: ItemLyrics = {
 };
 
 describe("lyricsFile", () => {
-  it("writes word tags inside each line as .elrc", () => {
-    expect(lyricsFile(WORDED)).toEqual({ fileName: "lyrics.elrc", body: "[01:01.50] <01:01.50> one <01:02.25> two\n[01:10.00] three" });
+  it("writes word tags inside each line as .elrc, under the source line from 0:00 to 3 s", () => {
+    expect(lyricsFile(WORDED)).toEqual({ fileName: "lyrics.elrc", body: "[00:00.00] Lyrics: lrclib.net\n[00:03.00]\n[01:01.50] <01:01.50> one <01:02.25> two\n[01:10.00] three" });
+  });
+
+  it("names the device that wrote the lyrics, and ends the line at the first lyric when the singing starts before 3 s", () => {
+    const early: ItemLyrics = { synced: true, source: "generated", lines: [{ text: "one", start: 1.5, cues: [] }] };
+    expect(lyricsFile(early).body).toBe("[00:00.00] Lyrics: written by Tomo TV on iPad\n[00:01.50] one");
+  });
+
+  it("puts the source line first in untimed text", () => {
+    const plain: ItemLyrics = { synced: false, source: "lrclib", lines: [{ text: "one", start: null, cues: [] }] };
+    expect(lyricsFile(plain).body).toBe("Lyrics: lrclib.net\none");
   });
 
   it("writes line stamps alone as .lrc", () => {
@@ -105,7 +116,11 @@ describe("uploadLyrics", () => {
     expect(await uploadLyrics("song-1", WORDED)).toBe(true);
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toBe("http://server/Audio/song-1/Lyrics?fileName=lyrics.elrc");
-    expect(init).toMatchObject({ method: "POST", headers: { "Content-Type": "text/plain", Authorization: "auth-header" }, body: "[01:01.50] <01:01.50> one <01:02.25> two\n[01:10.00] three" });
+    expect(init).toMatchObject({
+      method: "POST",
+      headers: { "Content-Type": "text/plain", Authorization: "auth-header" },
+      body: "[00:00.00] Lyrics: lrclib.net\n[00:03.00]\n[01:01.50] <01:01.50> one <01:02.25> two\n[01:10.00] three",
+    });
   });
 
   it("sends generated lyrics like found ones", async () => {

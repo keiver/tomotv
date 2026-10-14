@@ -250,6 +250,36 @@ describe("what is remembered", () => {
     expect(later[1]?.lines[0].cues).toHaveLength(3);
   });
 
+  it("listens later for a song with no lyrics that an earlier play could not listen to", async () => {
+    (listenable as jest.Mock).mockReturnValue(false);
+    expect(await resolve()).toEqual([null]);
+
+    (listenable as jest.Mock).mockReturnValue(true);
+    (listen as jest.Mock).mockResolvedValue(SPOKEN);
+    const later = await resolve();
+
+    expect(findOnLrclib).toHaveBeenCalledTimes(1);
+    expect(later[0]?.source).toBe("generated");
+  });
+
+  it("drops a version 1 answer, which could say listened for a song the device never heard", async () => {
+    writeLyricsEntry(KEY, { lyrics: null, listened: true, uploaded: false });
+    const [uri, node] = [...fakeFs].find(([path]) => path.includes("/lyrics/")) ?? [];
+    if (!uri || !node) throw new Error("no saved answer");
+    fakeFs.set(uri, { ...node, content: JSON.stringify({ ...JSON.parse(node.content), version: 1 }) });
+    (listen as jest.Mock).mockResolvedValue(SPOKEN);
+
+    expect((await resolve())[0]?.source).toBe("generated");
+  });
+
+  it("does not listen again to a song with no lyrics it already listened to", async () => {
+    (listen as jest.Mock).mockResolvedValue(null);
+    await resolve();
+    await resolve();
+
+    expect(listen).toHaveBeenCalledTimes(1);
+  });
+
   it("remembers a miss, and not one from an unreachable LRCLIB", async () => {
     await resolve();
     await resolve();
@@ -317,6 +347,17 @@ describe("saving to the server", () => {
     (fetchLyrics as jest.Mock).mockResolvedValue({ synced: true, source: "server", lines: generated?.lines ?? [] });
     expect(await resolve()).toEqual([generated]);
     expect(uploadLyrics).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps its own copy and caption when the server hands the upload back under its source line", async () => {
+    (listen as jest.Mock).mockResolvedValue(SPOKEN);
+    const [generated] = await resolve();
+
+    const sourceLine = { text: "Lyrics: written by Tomo TV", start: 0, cues: [] };
+    const blank = { text: "", start: 3, cues: [] };
+    (fetchLyrics as jest.Mock).mockResolvedValue({ synced: true, source: "server", lines: [sourceLine, blank, ...(generated?.lines ?? [])] });
+    expect(await resolve()).toEqual([generated]);
+    expect(listen).toHaveBeenCalledTimes(1);
   });
 
   it("uploads nothing when saving is off or the account may not", async () => {

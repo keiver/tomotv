@@ -32,14 +32,21 @@ export function listenerAvailable(): Promise<boolean> {
   return available;
 }
 
-function container(item: JellyfinVideoItem): string {
-  return (item.MediaSources?.[0]?.Container ?? item.Container ?? "").split(",")[0].toLowerCase();
+/** The listen setting's hint: an Apple TV that cannot listen still shows what its other devices write and save. */
+export function listenHintKey(canListen: boolean, isTV: boolean): "lyrics.listenHint" | "lyrics.listenElsewhere" {
+  return !canListen && isTV ? "lyrics.listenElsewhere" : "lyrics.listenHint";
+}
+
+/** The first readable name: an item without MediaSources lists every MP4 name ("mov,mp4,m4a,..."). */
+function container(item: JellyfinVideoItem): string | undefined {
+  const names = (item.MediaSources?.[0]?.Container ?? item.Container ?? "").toLowerCase().split(",");
+  return names.find((name) => READABLE.includes(name));
 }
 
 /** Whether this song is one the device would listen to at all. */
 export function listenable(item: JellyfinVideoItem): boolean {
   const seconds = (item.RunTimeTicks ?? 0) / 10_000_000;
-  return seconds > 0 && seconds <= MAX_SECONDS && sizeOf(item) <= MAX_BYTES && READABLE.includes(container(item));
+  return seconds > 0 && seconds <= MAX_SECONDS && sizeOf(item) <= MAX_BYTES && container(item) !== undefined;
 }
 
 /**

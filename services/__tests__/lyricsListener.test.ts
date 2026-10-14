@@ -15,7 +15,7 @@ jest.mock("@/services/jellyfin/streamUrls", () => ({ getRemoteVideoStreamUrl: je
 
 import { NativeModules } from "react-native";
 import { localMediaUri } from "@/services/downloads/localSource";
-import { listen, listenable } from "@/services/lyrics/listener";
+import { listen, listenable, listenHintKey } from "@/services/lyrics/listener";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { fakeFs, File } from "./fakeFileSystem";
 
@@ -31,6 +31,14 @@ beforeEach(() => {
   transcribe.mockResolvedValue({ locale: "es_MX", words: [[1, 1.4, "hola"]] });
 });
 
+describe("listenHintKey", () => {
+  it("points an Apple TV that cannot listen to the lyrics its iPhone, iPad or Mac write", () => {
+    expect(listenHintKey(false, true)).toBe("lyrics.listenElsewhere");
+    expect(listenHintKey(true, true)).toBe("lyrics.listenHint");
+    expect(listenHintKey(false, false)).toBe("lyrics.listenHint");
+  });
+});
+
 describe("listenable", () => {
   it("takes songs Core Audio can open, up to ten minutes and eighty megabytes", () => {
     expect(listenable(song("flac"))).toBe(true);
@@ -39,6 +47,12 @@ describe("listenable", () => {
     expect(listenable(song("flac", 601))).toBe(false);
     expect(listenable(song("flac", 0))).toBe(false);
     expect(listenable(song("flac", 200, 81 * 1024 * 1024))).toBe(false);
+  });
+
+  it("takes an m4a from a queue item without MediaSources, whose container lists every MP4 name", () => {
+    const queued = { Id: "song-1", Name: "Night Drive", Type: "Audio", RunTimeTicks: 200 * TICKS, Container: "mov,mp4,m4a,3gp,3g2,mj2" } as JellyfinVideoItem;
+    expect(listenable(queued)).toBe(true);
+    expect(listenable({ ...queued, Container: "matroska,webm" })).toBe(false);
   });
 });
 
@@ -50,6 +64,14 @@ describe("listen", () => {
     expect(File.downloadFileAsync).toHaveBeenCalledWith("http://server/Videos/song-1/stream", expect.objectContaining({ uri: "file:///cache/listen-song-1.flac" }), { idempotent: true });
     expect(transcribe).toHaveBeenCalledWith({ fileUri: "file:///cache/listen-song-1.flac", lyrics: "la letra", languages: ["es", "en"] });
     expect(fakeFs.has("file:///cache/listen-song-1.flac")).toBe(false);
+  });
+
+  it("names the fetched copy after the first container name Core Audio opens", async () => {
+    const queued = { Id: "song-1", Name: "Night Drive", Type: "Audio", RunTimeTicks: 200 * TICKS, Container: "mov,mp4,m4a,3gp,3g2,mj2" } as JellyfinVideoItem;
+
+    await listen(queued, null);
+
+    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ fileUri: "file:///cache/listen-song-1.mp4" }));
   });
 
   it("listens to a downloaded song where it is", async () => {

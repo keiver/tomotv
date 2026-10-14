@@ -13,6 +13,7 @@ import { logger } from "@/utils/logger";
 import { generatedLyrics, withLineTiming, withWordTiming } from "./align";
 import { listen, listenable, listenerAvailable } from "./listener";
 import { findOnLrclib } from "./lrclib";
+import { withoutSourceLine } from "./sourceLine";
 import { lyricsKey, readLyricsEntry, writeLyricsEntry } from "./store";
 import { canManageLyrics, savable, uploadLyrics } from "./upload";
 
@@ -64,6 +65,7 @@ async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<
   /** Words from another cut of the song: shown only if the device hears them fit. */
   let unconfirmed: ItemLyrics | null = null;
   let listened = false;
+  let tried = false;
   let uploaded = cached?.uploaded ?? false;
 
   // The download's and the server's own lyrics always win; a remembered word fill of the same text is reused.
@@ -74,12 +76,12 @@ async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<
   const serverAnswered = server?.answered ?? true;
   let definite = serverAnswered;
   if (owned) {
-    const remembered = cached?.lyrics && textOf(cached.lyrics) === textOf(owned) ? cached : null;
+    const remembered = cached?.lyrics && textOf(cached.lyrics) === textOf(withoutSourceLine(owned)) ? cached : null;
     current = remembered?.lyrics ?? owned;
     listened = remembered?.listened ?? false;
   } else if (cached) {
     current = cached.lyrics;
-    listened = cached.listened || cached.lyrics === null;
+    listened = cached.listened;
   } else if (preferences.findLyrics) {
     const answer = await findOnLrclib(item);
     if (answer.status === "unreachable") definite = false;
@@ -91,6 +93,7 @@ async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<
   if (current) emit(current);
 
   if (!listened && preferences.listenForLyrics && listenable(item) && (await listenerAvailable())) {
+    tried = true;
     const heard = await listen(item, textOf(current ?? unconfirmed) || null);
     if (heard) {
       listened = true;
@@ -113,8 +116,8 @@ async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<
   if (current && savable(current) && !uploaded && serverAnswered && preferences.saveLyrics && (await canManageLyrics())) {
     uploaded = await uploadLyrics(item.Id, current);
   }
-  // A miss is only remembered when every source actually answered.
-  if (current || definite) writeLyricsEntry(key, { lyrics: current, listened, uploaded });
+  // A miss is only remembered when every source actually answered; one the device tried to hear is not listened to again.
+  if (current || definite) writeLyricsEntry(key, { lyrics: current, listened: listened || (current === null && tried), uploaded });
 }
 
 /**
