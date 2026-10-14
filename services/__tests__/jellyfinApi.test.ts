@@ -3184,6 +3184,46 @@ describe("jellyfinApi", () => {
 
       await expect(fetchVideoDetails("broken-item")).rejects.toThrow(/500/);
     });
+
+    const playbackInfo = { ok: true, json: async () => ({ MediaSources: [{ Id: "ms", MediaStreams: [] }] }) };
+
+    it("reads an episode's series rating and genres when the episode has none", async () => {
+      global.fetch = jest.fn(async (url: string) => {
+        if (url.includes("/PlaybackInfo")) return playbackInfo;
+        if (url.includes("/Items/series-1?")) return { ok: true, json: async () => ({ Id: "series-1", Type: "Series", OfficialRating: "TV-MA", Genres: ["Drama", "Mystery"] }) };
+        return { ok: true, json: async () => ({ Id: "unrated-episode", Type: "Episode", SeriesId: "series-1", Genres: [] }) };
+      }) as unknown as typeof fetch;
+
+      const details = await fetchVideoDetails("unrated-episode");
+
+      expect(details?.seriesOfficialRating).toBe("TV-MA");
+      expect(details?.seriesGenres).toEqual(["Drama", "Mystery"]);
+    });
+
+    it("skips the series read for an episode with its own rating and genres", async () => {
+      global.fetch = jest.fn(async (url: string) => {
+        if (url.includes("/PlaybackInfo")) return playbackInfo;
+        return { ok: true, json: async () => ({ Id: "rated-episode", Type: "Episode", SeriesId: "series-1", OfficialRating: "TV-14", Genres: ["Comedy"] }) };
+      }) as unknown as typeof fetch;
+
+      const details = await fetchVideoDetails("rated-episode");
+
+      expect(details?.seriesOfficialRating).toBeUndefined();
+      expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).some((url) => url.includes("/Items/series-1"))).toBe(false);
+    });
+
+    it("plays the episode when the series read fails", async () => {
+      global.fetch = jest.fn(async (url: string) => {
+        if (url.includes("/PlaybackInfo")) return playbackInfo;
+        if (url.includes("/Items/series-2?")) return { ok: false, status: 500, statusText: "Internal Server Error" };
+        return { ok: true, json: async () => ({ Id: "orphan-episode", Type: "Episode", SeriesId: "series-2" }) };
+      }) as unknown as typeof fetch;
+
+      const details = await fetchVideoDetails("orphan-episode");
+
+      expect(details?.Id).toBe("orphan-episode");
+      expect(details?.seriesOfficialRating).toBeUndefined();
+    });
   });
 
   // The info panel's fetch. Jellyfin 10.11.11 answers PlaybackInfo with a 500 for

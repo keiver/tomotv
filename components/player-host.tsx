@@ -14,7 +14,7 @@ import { fetchNextEpisodeAutoPlay, getChapterImageUrl, JELLYFIN_TIME } from "@/s
 import { playQueueManager } from "@/services/playQueueManager";
 import { isJoined as syncPlayIsJoined } from "@/services/syncPlayManager";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { playerTitleLines } from "@/utils/seasonEpisode";
+import { playerInfoTags, playerTitleLines } from "@/utils/seasonEpisode";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -130,7 +130,7 @@ type PipState = "none" | "active" | "detached";
 /** What <Video> plays from. Held whole across a live flip, since any change re-applies it natively. */
 interface PlayerSource {
   uri: string;
-  metadata?: { title: string; imageUri?: string; logo?: boolean };
+  metadata?: { title: string; imageUri?: string; logo?: boolean; contentRating?: string; genre?: string };
   startPosition?: number;
 }
 
@@ -392,6 +392,7 @@ export function PlayerHost() {
     return {
       title: cleanLabel(lines ? lines.title : videoDetails.Name),
       ...(lines ? { subtitle: cleanLabel(lines.subtitle) } : {}),
+      ...(Platform.isTV ? playerInfoTags(videoDetails) : {}),
       ...(artwork ? { imageUri: artwork.uri } : {}),
       // A channel's image is its logo: the patch bakes it onto the info panel's tile.
       ...(session?.isLive ? { logo: true } : {}),

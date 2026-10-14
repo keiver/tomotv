@@ -84,6 +84,17 @@ export function playerTitleLines(item: SeasonEpisodeSource & Pick<JellyfinVideoI
   return null;
 }
 
+/** The rating and genre AVKit's tvOS Info tab shows: a channel's airing programme's, an episode's series' when it has none. */
+export function playerInfoTags(item: Pick<JellyfinVideoItem, "Type" | "OfficialRating" | "Genres" | "CurrentProgram" | "seriesOfficialRating" | "seriesGenres">): {
+  contentRating?: string;
+  genre?: string;
+} {
+  const source = item.Type === "TvChannel" ? item.CurrentProgram : item;
+  const contentRating = source?.OfficialRating?.trim() || item.seriesOfficialRating?.trim();
+  const genre = source?.Genres?.[0]?.trim() || item.seriesGenres?.[0]?.trim();
+  return { ...(contentRating ? { contentRating } : {}), ...(genre ? { genre } : {}) };
+}
+
 /** Episode number as prose: "5", or "1-2" for a multi-episode file. */
 export function formatEpisodeNumber(item: SeasonEpisodeSource): string | null {
   if (item.IndexNumber == null) return null;

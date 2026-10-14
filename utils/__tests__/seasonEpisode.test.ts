@@ -1,4 +1,27 @@
-import { formatEpisodeNumber, formatIndexBadge, formatSeasonEpisode, orderSortNameTies, parseSeasonEpisode, playerTitleLines } from "../seasonEpisode";
+import { formatEpisodeNumber, formatIndexBadge, formatSeasonEpisode, orderSortNameTies, parseSeasonEpisode, playerInfoTags, playerTitleLines } from "../seasonEpisode";
+
+describe("playerInfoTags", () => {
+  it("gives a movie's rating and first genre", () => {
+    expect(playerInfoTags({ Type: "Movie", OfficialRating: "PG-13", Genres: ["Drama", "Comedy"] })).toEqual({ contentRating: "PG-13", genre: "Drama" });
+  });
+
+  it("gives a channel's airing programme rating and genre, not the channel's own", () => {
+    expect(playerInfoTags({ Type: "TvChannel", Genres: [], CurrentProgram: { Name: "News at Six", OfficialRating: "TV-G", Genres: ["News"] } })).toEqual({ contentRating: "TV-G", genre: "News" });
+  });
+
+  it("gives an episode its series' rating and genre only where it has none of its own", () => {
+    expect(playerInfoTags({ Type: "Episode", Genres: [], seriesOfficialRating: "TV-MA", seriesGenres: ["Drama"] })).toEqual({ contentRating: "TV-MA", genre: "Drama" });
+    expect(playerInfoTags({ Type: "Episode", OfficialRating: "TV-14", Genres: ["Comedy"], seriesOfficialRating: "TV-MA", seriesGenres: ["Drama"] })).toEqual({
+      contentRating: "TV-14",
+      genre: "Comedy",
+    });
+  });
+
+  it("leaves out a missing or blank rating and genre", () => {
+    expect(playerInfoTags({ Type: "Episode", OfficialRating: " ", Genres: [] })).toEqual({});
+    expect(playerInfoTags({ Type: "TvChannel", CurrentProgram: null })).toEqual({});
+  });
+});
 
 describe("playerTitleLines", () => {
   it("puts the series in the title and the season, episode and episode name in the line over it", () => {

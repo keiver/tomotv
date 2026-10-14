@@ -110,31 +110,38 @@ index 93a8a9f..4210a2c 100644
              return
          }
 diff --git a/node_modules/react-native-video/ios/Video/DataStructures/CustomMetadata.swift b/node_modules/react-native-video/ios/Video/DataStructures/CustomMetadata.swift
-index 8a38abf..a48e9de 100644
+index 8a38abf..2a8c3a1 100644
 --- a/node_modules/react-native-video/ios/Video/DataStructures/CustomMetadata.swift
 +++ b/node_modules/react-native-video/ios/Video/DataStructures/CustomMetadata.swift
-@@ -4,6 +4,8 @@ public struct CustomMetadata {
+@@ -4,6 +4,11 @@ public struct CustomMetadata {
      let artist: String?
      let description: String?
      let imageUri: String?
 +    // TomoTV patch: the image is a station logo, baked onto a tile for the tvOS info panel.
 +    let logo: Bool
++    // TomoTV patch: shown in AVKit's tvOS Info tab (AVPlayerItem.h, externalMetadata).
++    let contentRating: String?
++    let genre: String?
  
      let json: NSDictionary?
  
-@@ -15,6 +17,7 @@ public struct CustomMetadata {
+@@ -15,6 +20,9 @@ public struct CustomMetadata {
              artist = nil
              description = nil
              imageUri = nil
 +            logo = false
++            contentRating = nil
++            genre = nil
              return
          }
  
-@@ -24,5 +27,6 @@ public struct CustomMetadata {
+@@ -24,5 +32,8 @@ public struct CustomMetadata {
          artist = json["artist"] as? String ?? ""
          description = json["description"] as? String ?? ""
          imageUri = json["imageUri"] as? String ?? ""
 +        logo = json["logo"] as? Bool ?? false
++        contentRating = json["contentRating"] as? String
++        genre = json["genre"] as? String
      }
  }
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTChannelInterstitialViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTChannelInterstitialViewController.swift
@@ -1296,7 +1303,7 @@ index 7927c37..04d4e01 100644
          if let newPlayer = players.allObjects.first(where: {
              $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..1ceb43b 100644
+index 5f2f5f6..682d4af 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -1761,8 +1768,18 @@ index 5f2f5f6..1ceb43b 100644
          var mapping: [AVMetadataIdentifier: Any] = [:]
  
          if let title = _source?.customMetadata?.title {
-@@ -747,7 +1165,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -745,9 +1163,27 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+             mapping[.commonIdentifierDescription] = description
+         }
  
++        if let contentRating = _source?.customMetadata?.contentRating {
++            mapping[.iTunesMetadataContentRating] = contentRating
++        }
++
++        if let genre = _source?.customMetadata?.genre {
++            mapping[.quickTimeMetadataGenre] = genre
++        }
++
          if let imageUri = _source?.customMetadata?.imageUri,
             let imageData = await RCTVideoUtils.createImageMetadataItem(imageUri: imageUri) {
 -            mapping[.commonIdentifierArtwork] = imageData
@@ -1780,7 +1797,7 @@ index 5f2f5f6..1ceb43b 100644
          }
  
          if #available(iOS 12.2, *), !mapping.isEmpty {
-@@ -756,7 +1184,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -756,7 +1192,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          #if os(tvOS)
              if let chapters = _chapters {
@@ -1792,7 +1809,7 @@ index 5f2f5f6..1ceb43b 100644
              }
          #endif
  
-@@ -834,6 +1266,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1274,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -1808,7 +1825,7 @@ index 5f2f5f6..1ceb43b 100644
          #endif
      }
  
-@@ -1080,6 +1521,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1080,6 +1529,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      func setChapters(_ chapters: [Chapter]?) {
          _chapters = chapters
@@ -1823,7 +1840,7 @@ index 5f2f5f6..1ceb43b 100644
      }
  
      @objc
-@@ -1112,6 +1561,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1569,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self._playerViewController?.removeFromParent()
                      }
  
@@ -1834,7 +1851,7 @@ index 5f2f5f6..1ceb43b 100644
                      viewController.present(playerViewController, animated: true, completion: { [weak self] in
                          guard let self else { return }
                          // In fullscreen we must display controls
-@@ -1130,6 +1583,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1591,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -1845,7 +1862,7 @@ index 5f2f5f6..1ceb43b 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1650,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1658,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -1867,7 +1884,7 @@ index 5f2f5f6..1ceb43b 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1672,23 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1680,23 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -1891,7 +1908,7 @@ index 5f2f5f6..1ceb43b 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1871,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1879,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -1962,7 +1979,7 @@ index 5f2f5f6..1ceb43b 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1942,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1950,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -1974,7 +1991,7 @@ index 5f2f5f6..1ceb43b 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1431,6 +1962,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1970,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      // MARK: - Lifecycle
  
      override func removeFromSuperview() {
@@ -1995,7 +2012,7 @@ index 5f2f5f6..1ceb43b 100644
          self._player?.replaceCurrentItem(with: nil)
          if let player = _player {
              player.pause()
-@@ -1455,6 +2000,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +2008,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -2013,7 +2030,7 @@ index 5f2f5f6..1ceb43b 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1566,7 +2122,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1566,7 +2130,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              }
  
              if onVideoLoad != nil, self._videoLoadStarted {
@@ -2029,7 +2046,7 @@ index 5f2f5f6..1ceb43b 100644
  
                  if duration.isNaN || duration == 0 {
                      // This is a safety check for live video.
-@@ -1616,10 +2179,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1616,10 +2187,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              self._videoLoadStarted = false
              self._playerObserver.attachPlayerEventListeners()
              self.applyModifiers()
@@ -2048,7 +2065,7 @@ index 5f2f5f6..1ceb43b 100644
          if let player = _player {
              NowPlayingInfoCenterManager.shared.removePlayer(player: player)
          }
-@@ -1637,6 +2208,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1637,6 +2216,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      "domain": (_playerItem.error as NSError?)?.domain ?? "",
                  ],
                  "target": reactTag as Any,
@@ -2057,7 +2074,7 @@ index 5f2f5f6..1ceb43b 100644
              ]
          )
      }
-@@ -1742,6 +2315,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2323,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -2097,7 +2114,7 @@ index 5f2f5f6..1ceb43b 100644
      @objc
      func handleDidFailToFinishPlaying(notification: NSNotification!) {
          guard onVideoError != nil else { return }
-@@ -2062,7 +2668,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -2062,7 +2676,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      DebugLog("An error occurred: \(error.localizedDescription)")
  
                      if let self {
@@ -2371,18 +2388,20 @@ index 789d915..cd32524 100644
          />
          {_renderPoster()}
 diff --git a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-index 3dcbe01..2056839 100644
+index 3dcbe01..50f4b9e 100644
 --- a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 +++ b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-@@ -24,6 +24,7 @@ type VideoMetadata = Readonly<{
+@@ -24,6 +24,9 @@ type VideoMetadata = Readonly<{
    subtitle?: string;
    description?: string;
    imageUri?: string;
 +  logo?: boolean; // TomoTV patch
++  contentRating?: string; // TomoTV patch
++  genre?: string; // TomoTV patch
  }>;
  
  export type AdsConfig = Readonly<{
-@@ -333,6 +334,33 @@ type ControlsStyles = Readonly<{
+@@ -333,6 +336,33 @@ type ControlsStyles = Readonly<{
  
  export type OnControlsVisibilityChange = Readonly<{
    isVisible: boolean;
@@ -2416,7 +2435,7 @@ index 3dcbe01..2056839 100644
  }>;
  
  export interface VideoNativeProps extends ViewProps {
-@@ -379,6 +407,21 @@ export interface VideoNativeProps extends ViewProps {
+@@ -379,6 +409,21 @@ export interface VideoNativeProps extends ViewProps {
    bufferingStrategy?: BufferingStrategyType; // Android
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS
@@ -2457,19 +2476,22 @@ index 027fd5b..9d88303 100644
    onError?: (e: OnVideoErrorData) => void; //Android, iOS
    onExternalPlaybackChange?: (e: OnExternalPlaybackChangeData) => void; //iOS
 diff --git a/node_modules/react-native-video/src/types/video.ts b/node_modules/react-native-video/src/types/video.ts
-index 0482944..3725add 100644
+index 0482944..f2e8228 100644
 --- a/node_modules/react-native-video/src/types/video.ts
 +++ b/node_modules/react-native-video/src/types/video.ts
-@@ -63,6 +63,8 @@ export type VideoMetadata = Readonly<{
+@@ -63,6 +63,11 @@ export type VideoMetadata = Readonly<{
    description?: string;
    artist?: string;
    imageUri?: string;
 +  /** TomoTV patch: the image is a station logo, drawn on a tile for the tvOS info panel. */
 +  logo?: boolean;
++  /** TomoTV patch: shown in AVKit's tvOS Info tab. */
++  contentRating?: string;
++  genre?: string;
  }>;
  
  export type DebugConfig = Readonly<{
-@@ -385,4 +387,48 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+@@ -385,4 +390,48 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
    allowsExternalPlayback?: boolean; // iOS
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS
