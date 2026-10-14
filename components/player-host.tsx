@@ -14,6 +14,7 @@ import { fetchNextEpisodeAutoPlay, getChapterImageUrl, JELLYFIN_TIME } from "@/s
 import { playQueueManager } from "@/services/playQueueManager";
 import { isJoined as syncPlayIsJoined } from "@/services/syncPlayManager";
 import { cleanLabel } from "@/utils/cleanLabel";
+import { episodeTitleLines } from "@/utils/seasonEpisode";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -172,8 +173,8 @@ export function PlayerHost() {
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
 
   // Playback finished, and the route owns the screen from here: the phone's Up Next card,
-  // or the pop that ends the session. Nothing in the state machine says so — onEnd reports
-  // to the server and calls the route, leaving state.type PLAYING — so without this the
+  // or the pop that ends the session. Nothing in the state machine says so (onEnd reports
+  // to the server and calls the route, leaving state.type PLAYING), so without this the
   // stage stays up, opaque, above the navigator and wearing the closing curtain, and the
   // card the route just mounted is announced behind a black screen. Set only from the
   // presented (phone) callbacks: tvOS draws its Up Next INSIDE AVKit and needs the host on
@@ -192,7 +193,7 @@ export function PlayerHost() {
 
   // Closing curtain: opaque black over the inline video. A user ✕/swipe dismissal only
   // reaches native code AFTER the slide-down finished (viewDidDisappear), and the lib
-  // re-embeds the same player inline on the next runloop tick — faster than any JS
+  // re-embeds the same player inline on the next runloop tick, faster than any JS
   // reaction to the dismiss event, so a reactive cover would leak frames of chromeless
   // video. Instead the curtain goes up invisibly BEHIND the presentation as soon as it's
   // confirmed on screen (DidPresent), so the re-embed lands under it and every close pops
@@ -310,7 +311,7 @@ export function PlayerHost() {
    * Unmounting <Video> while AVKit's player is presented strands it: RCTVideo's
    * removeFromSuperview nils the player and pulls the controller's view out of the presentation
    * container. So a teardown mid-present waits for DidPresent, and one over a live presentation
-   * asks for the dismissal and waits for DidDismiss — asking is not the same as it having
+   * asks for the dismissal and waits for DidDismiss: asking is not the same as it having
    * happened, and the animation outlives this call. Both waits give up on a timeout rather than
    * hold a session nothing can end; the patch's teardown dismiss is what makes giving up safe.
    */
@@ -385,8 +386,12 @@ export function PlayerHost() {
   const artwork = useItemPoster(videoDetails, 600);
   const sourceMetadata = useMemo(() => {
     if (!videoDetails) return undefined;
+    // Apple TV's title view: the series large, "S04E19 · Episode name" above it. iPhone keeps the
+    // episode name as the title, the only line its lock screen shows.
+    const episode = Platform.isTV ? episodeTitleLines(videoDetails) : null;
     return {
-      title: cleanLabel(videoDetails.Name),
+      title: cleanLabel(episode ? episode.title : videoDetails.Name),
+      ...(episode ? { subtitle: cleanLabel(episode.subtitle) } : {}),
       ...(artwork ? { imageUri: artwork.uri } : {}),
       // A channel's image is its logo: the patch bakes it onto the info panel's tile.
       ...(session?.isLive ? { logo: true } : {}),
@@ -520,7 +525,7 @@ export function PlayerHost() {
   const playing = state.type === "PLAYING";
   const chapters = useMemo(() => (Platform.isTV ? playerChapters(videoDetails, chapterFrameBaseUrl, playing) : undefined), [videoDetails, chapterFrameBaseUrl, playing]);
 
-  // Phone playback (video AND audio) lives inside AVKit's PRESENTED player — Apple's default
+  // Phone playback (video AND audio) lives inside AVKit's PRESENTED player, Apple's default
   // full-screen state: every native control works and the stock ✕ is visible from the start
   // (no expand arrow). Presented on onLoad (the native setter no-ops before the AVPlayer
   // exists), skipped if a dismissal already started. onError/onEnd dismiss BEFORE their
@@ -1013,7 +1018,7 @@ export function PlayerHost() {
             handlersRef.current?.onRequestBack();
           }}
           // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
-          // onEnd/onError dismissals — the DID handler closes only for the first two. Will is
+          // onEnd/onError dismissals; the DID handler closes only for the first two. Will is
           // observed and never acted on; it fires for transitions that get cancelled.
           onFullscreenPlayerWillDismiss={handlePresentationWillDismiss}
           onFullscreenPlayerDidDismiss={handlePresentationDidDismiss}
