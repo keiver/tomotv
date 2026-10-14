@@ -76,11 +76,19 @@ export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
 
 /**
  * The Apple TV player's title view: an episode's series with "S04E19 · Episode name" over it, a
- * movie or home video with its year over it. Null when there is no second line to show.
+ * movie or home video with its year over it, a song with "Artist · Album". Null when there is no second line to show.
  */
-export function playerTitleLines(item: SeasonEpisodeSource & Pick<JellyfinVideoItem, "SeriesName" | "ProductionYear">): { title: string; subtitle: string } | null {
+export function playerTitleLines(
+  item: SeasonEpisodeSource & Pick<JellyfinVideoItem, "SeriesName" | "ProductionYear" | "Artists" | "AlbumArtist" | "Album">,
+): { title: string; subtitle: string } | null {
   if (item.Type === "Episode" && item.SeriesName) return { title: item.SeriesName, subtitle: [formatSeasonEpisode(item), item.Name].filter(Boolean).join(" · ") };
   if ((item.Type === "Movie" || item.Type === "Video") && item.ProductionYear) return { title: item.Name, subtitle: String(item.ProductionYear) };
+  if (item.Type === "Audio") {
+    const artist = item.Artists?.length ? item.Artists.join(", ") : (item.AlbumArtist ?? "");
+    const album = item.Album && item.Album.toLowerCase() !== artist.toLowerCase() ? item.Album : "";
+    const subtitle = [artist, album].filter(Boolean).join(" · ");
+    return subtitle ? { title: item.Name, subtitle } : null;
+  }
   return null;
 }
 

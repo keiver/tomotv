@@ -35,6 +35,7 @@ import { probeEmit, probeFirstPlaying, probeProgress, setPlaybackProbeEnabled, s
 import { setPlaybackHold } from "@/services/playbackHold";
 import { logger } from "@/utils/logger";
 import { formatIndexLine, joinMeta } from "@/utils/mediaInfo";
+import { playerTitleLines } from "@/utils/seasonEpisode";
 import { Platform } from "react-native";
 
 // Same resume policy as usePlaybackReporter: under 2s isn't worth resuming,
@@ -519,6 +520,7 @@ class AudioPlayerManager {
       album: item.Album ?? "",
       // The player's description line, which the panel's context line also carries.
       description: joinMeta([item.Album, formatIndexLine(item)]),
+      subtitle: Platform.isTV ? (playerTitleLines(item)?.subtitle ?? "") : "",
       // The image the lock screen and the Up Next panel draw.
       artworkUrl: playbackArtworkUri(item, 600) ?? "",
       durationSeconds: item.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0,

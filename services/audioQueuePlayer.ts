@@ -25,6 +25,8 @@ export interface AudioQueueTrack {
    * Control Center), where "Disc 2 · Track 5" would be a lie.
    */
   description: string;
+  /** Apple TV's line over the title: "Artist · Album". Empty elsewhere. */
+  subtitle: string;
   artworkUrl: string;
   durationSeconds: number;
 }

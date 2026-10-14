@@ -135,6 +135,21 @@ describe("audioPlayerManager", () => {
       expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ description: "Album X" }), expect.anything(), expect.anything()] }));
     });
 
+    it("gives Apple TV the artist and album over the title, and the phone no line", async () => {
+      const song = { ...ITEMS[0], Artists: ["Band"] };
+      await audioPlayerManager.startQueue([song], "a", {});
+      expect(mockLoadQueue).toHaveBeenLastCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ subtitle: "" })] }));
+
+      const original = Object.getOwnPropertyDescriptor(Platform, "isTV");
+      Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
+      try {
+        await audioPlayerManager.startQueue([song], "b", {});
+        expect(mockLoadQueue).toHaveBeenLastCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ subtitle: "Band · Album X" })] }));
+      } finally {
+        if (original) Object.defineProperty(Platform, "isTV", original);
+      }
+    });
+
     it("re-presents instead of restarting when the same source and track are already playing", async () => {
       await startAndOpenFirstTrack();
       mockLoadQueue.mockClear();

@@ -46,6 +46,18 @@ describe("playerTitleLines", () => {
     expect(playerTitleLines({ Type: "Episode", Name: "Pilot", Path: "", IndexNumber: 1 })).toBeNull();
     expect(playerTitleLines({ Type: "TvChannel", Name: "News", Path: "", ProductionYear: 2020 })).toBeNull();
   });
+
+  it("puts a song's artist and album over its name", () => {
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", Artists: ["Band", "Singer"], Album: "Roads" })).toEqual({ title: "Night Drive", subtitle: "Band, Singer · Roads" });
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", AlbumArtist: "Band", Album: "Roads" })?.subtitle).toBe("Band · Roads");
+  });
+
+  it("shows a song's album once when it has the artist's name, and either one alone", () => {
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", Artists: ["Band"], Album: "band" })?.subtitle).toBe("Band");
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", Album: "Roads" })?.subtitle).toBe("Roads");
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", Artists: ["Band"] })?.subtitle).toBe("Band");
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "" })).toBeNull();
+  });
 });
 
 describe("formatSeasonEpisode", () => {

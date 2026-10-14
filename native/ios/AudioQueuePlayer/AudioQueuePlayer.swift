@@ -36,6 +36,8 @@ private struct QueueTrack {
     /// AVKit's on-screen description line. Kept apart from `album`, which also feeds the
     /// Now Playing album field, "Disc 2 · Track 5" is not an album name.
     let description: String
+    /// The line AVKit's tvOS title view shows over the title.
+    let subtitle: String
     let artworkUrl: URL?
     let duration: Double
 }
@@ -200,6 +202,7 @@ class AudioQueuePlayer: RCTEventEmitter {
                 artist: raw["artist"] as? String ?? "",
                 album: raw["album"] as? String ?? "",
                 description: raw["description"] as? String ?? "",
+                subtitle: raw["subtitle"] as? String ?? "",
                 artworkUrl: artworkUrl,
                 duration: raw["durationSeconds"] as? Double ?? 0
             )
@@ -454,6 +457,9 @@ class AudioQueuePlayer: RCTEventEmitter {
         }
         if !track.description.isEmpty {
             metadata.append(stringMetadata(.commonIdentifierDescription, track.description))
+        }
+        if !track.subtitle.isEmpty {
+            metadata.append(stringMetadata(.iTunesMetadataTrackSubTitle, track.subtitle))
         }
         item.externalMetadata = metadata
         loadArtwork(for: index, into: item)
