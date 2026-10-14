@@ -185,6 +185,28 @@ final class GuideLoaderTests: XCTestCase {
         XCTAssertEqual(try result?.get().programmes, 2)
     }
 
+    func testStopsALoadWhenMemoryRunsLowAndStopsTheDownload() {
+        let reading = SourceLoader.availableBytes
+        SourceLoader.availableBytes = { 100 << 20 }
+        addTeardownBlock { SourceLoader.availableBytes = reading }
+        StubProtocol.reset(["/big.xml": .init(chunks: [document + [UInt8](repeating: 0x20, count: 1 << 20)], hold: true)])
+        guard case let .failure(error) = load("http://stub/big.xml"), case let GuideLoadError.memory(available) = error else {
+            return XCTFail("expected a memory failure")
+        }
+        XCTAssertEqual(available, 100 << 20)
+        XCTAssertEqual(StubProtocol.stops, 1)
+    }
+
+    func testLoadsNormallyWithMemoryToSpareOrNoLimitReported() throws {
+        let reading = SourceLoader.availableBytes
+        addTeardownBlock { SourceLoader.availableBytes = reading }
+        for available in [Int?.some(SourceLoader.memoryFloorBytes + 1), nil] {
+            SourceLoader.availableBytes = { available }
+            StubProtocol.reset(["/g.xml": .init(chunks: [document])])
+            XCTAssertEqual(try load("http://stub/g.xml").get().programmes, 2)
+        }
+    }
+
     func testReportsFootprint() throws {
         StubProtocol.reset(["/g.xml": .init(chunks: [document])])
         let stats = try load("http://stub/g.xml").get()

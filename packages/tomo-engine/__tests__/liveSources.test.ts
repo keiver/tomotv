@@ -35,6 +35,15 @@ describe("loadGuide", () => {
     expect(mockLiveSources!.loadGuide).toHaveBeenLastCalledWith(expect.objectContaining({ maxOpen: 0 }));
   });
 
+  it("passes on app memory before the load, at its peak and after it", async () => {
+    mockLiveSources!.loadGuide.mockResolvedValue({
+      token: "g1",
+      stats: { channels: 3, programmes: 40, footprintBeforeBytes: 100, peakFootprintBytes: 300, footprintAfterBytes: 250 },
+    });
+    const { stats } = await loadGuide("u", WINDOW, "external");
+    expect(stats).toMatchObject({ footprintBeforeBytes: 100, peakFootprintBytes: 300, footprintAfterBytes: 250 });
+  });
+
   it("drops malformed stats and throws without a token", async () => {
     mockLiveSources!.loadGuide.mockResolvedValue({ token: "g1", stats: { channels: "3" } });
     await expect(loadGuide("u", WINDOW, "external")).resolves.toEqual({ token: "g1", stats: null });

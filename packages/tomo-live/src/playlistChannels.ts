@@ -76,7 +76,7 @@ interface SourceRecord {
   tvgUrls: string[];
   loadedAt: number | null;
   failedAt: number | null;
-  /** A newer file landed after this record's load began: the next sync reloads it. */
+  /** A newer file finished downloading after this record's load began: the next sync reloads it. */
   stale: boolean;
   loading: Promise<void> | null;
   status: PlaylistSourceStatus;
@@ -197,7 +197,7 @@ function setStatus(record: SourceRecord, patch: Partial<PlaylistSourceStatus>): 
 }
 
 function loadSource(record: SourceRecord): Promise<void> {
-  // A load in flight may be reading the file a newer one replaced meanwhile: it is followed by one more.
+  // A load already running may be reading the old file while a newer one arrived: load once more after it.
   if (record.loading) return record.loading.then(() => (record.stale && records.get(record.source.key) === record ? loadSource(record) : undefined));
   const gen = generation;
   const loading = (async () => {
@@ -230,7 +230,7 @@ function loadSource(record: SourceRecord): Promise<void> {
   return loading;
 }
 
-// A download owed during playback has landed: rows read before it, or by a load that began before it, reload at the next sync.
+// A download that playback held back has finished: rows read before it, or by a load that began before it, reload at the next sync.
 onPlaylistFileRefreshed((url) => {
   for (const record of records.values()) {
     if ((record.source.fetchUrl ?? record.source.url) === url) record.stale = true;

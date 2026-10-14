@@ -11,7 +11,7 @@ jest.mock("@keiver/tomo-engine", () => ({
   loadGuide: jest.fn(),
   searchGuide: jest.fn(async () => []),
 }));
-/** When the guide file on disk landed, as guideFileInfo reports it. */
+/** When the guide file on disk was saved, as guideFileInfo reports it. */
 let mockSavedAt = 1;
 jest.mock("../src/guideFileCache", () => ({
   cachedGuideFile: jest.fn(async () => "file:///guide.xml"),
@@ -24,6 +24,14 @@ jest.mock("../src/guideFileCache", () => ({
 import { fetchExternalAiring, fetchExternalListingWindow, guideSourceStatuses, resetExternalGuide, subscribeGuideRefreshed } from "../src/externalGuide";
 import { cachedGuideFile, onGuideFileRefreshed, PlaybackHoldError } from "../src/guideFileCache";
 import { setPlaybackHold } from "../src/playbackHold";
+import { AppState } from "react-native";
+
+/** The tvOS memory warnings the module listens for; kept here because clearAllMocks drops recorded calls. */
+const memoryWarnings: (() => void)[] = [];
+jest.spyOn(AppState, "addEventListener").mockImplementation(((type: string, listener: () => void) => {
+  if (type === "memoryWarning") memoryWarnings.push(listener);
+  return { remove: jest.fn() };
+}) as never);
 
 /** The module's refreshed listener, taken before any clearAllMocks drops the registration call. */
 const guideRefreshed = (onGuideFileRefreshed as jest.Mock).mock.calls[0][0] as (url: string) => void;
@@ -88,7 +96,7 @@ it("keeps a guide while its file is the one on disk, and reopens it once a newer
   expect(closeGuideMock).toHaveBeenCalledWith("T1");
 });
 
-it("reopens a guide whose open was parsing the older file when the newer one landed", async () => {
+it("reopens a guide that was still reading the old file when the new file arrived", async () => {
   let parsed: ((value: { token: string; stats: null }) => void) | undefined;
   loadGuideMock.mockImplementationOnce(() => new Promise((resolve) => (parsed = resolve)));
   const reading = fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
@@ -101,7 +109,7 @@ it("reopens a guide whose open was parsing the older file when the newer one lan
   expect(loadGuideMock).toHaveBeenCalledTimes(2);
 });
 
-it("opens a guide a read asked for during playback once its file lands, and tells the screens to read again", async () => {
+it("opens a guide asked for during playback once its file downloads, and tells screens to read again", async () => {
   const reread = jest.fn();
   const stop = subscribeGuideRefreshed(reread);
   (cachedGuideFile as jest.Mock).mockRejectedValueOnce(new PlaybackHoldError());
@@ -116,7 +124,7 @@ it("opens a guide a read asked for during playback once its file lands, and tell
   stop();
 });
 
-it("republishes a ready guide's status when a newer file lands, without opening it", async () => {
+it("updates a ready guide's status when a newer file downloads, without opening it", async () => {
   await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
   const before = guideSourceStatuses()[URL];
   guideRefreshed(URL);
@@ -125,7 +133,7 @@ it("republishes a ready guide's status when a newer file lands, without opening 
   expect(loadGuideMock).toHaveBeenCalledTimes(1);
 });
 
-it("reads paused only while playback holds the link, and waiting once it lets go, for a guide whose file is owed", async () => {
+it("shows paused during playback and waiting after it, for a guide whose file has not downloaded yet", async () => {
   setPlaybackHold("video", true);
   (cachedGuideFile as jest.Mock).mockRejectedValueOnce(new PlaybackHoldError());
   await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
@@ -135,12 +143,34 @@ it("reads paused only while playback holds the link, and waiting once it lets go
   setPlaybackHold("audio", true);
   expect(guideSourceStatuses()[URL].state).toBe("paused");
   setPlaybackHold("audio", false);
-  // An open that lands clears the debt: later holds leave a ready guide alone.
+  // Once the guide opens, later playback leaves its ready status alone.
   await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
   expect(guideSourceStatuses()[URL].state).toBe("ready");
   setPlaybackHold("video", true);
   expect(guideSourceStatuses()[URL].state).toBe("ready");
   setPlaybackHold("video", false);
+});
+
+it("closes every open guide on a memory warning, and opens it again at the next read", async () => {
+  await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  expect(memoryWarnings).toHaveLength(1);
+  memoryWarnings.forEach((warn) => warn());
+  expect(closeGuideMock).toHaveBeenCalledWith("T1");
+  await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  expect(loadGuideMock).toHaveBeenCalledTimes(2);
+});
+
+it("keeps a guide open through a memory warning until the read in progress ends", async () => {
+  let finishRead: (() => void) | undefined;
+  guideProgrammesMock.mockImplementationOnce(() => new Promise((resolve) => (finishRead = () => resolve([PROGRAMME]))));
+  const reading = fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  while (!finishRead) await new Promise((resolve) => setTimeout(resolve, 0));
+  memoryWarnings.forEach((warn) => warn());
+  expect(closeGuideMock).not.toHaveBeenCalled();
+  finishRead();
+  const { listings } = await reading;
+  expect(listings).toHaveLength(1);
+  expect(closeGuideMock).toHaveBeenCalledWith("T1");
 });
 
 it("closes the outgoing token only after its last in-flight read ends", async () => {

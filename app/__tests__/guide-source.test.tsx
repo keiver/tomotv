@@ -27,7 +27,7 @@ jest.mock("@/services/externalGuide", () => ({
   preloadGuide: jest.fn(),
 }));
 jest.mock("@/services/guideFileCache", () => ({ guideFileInfo: () => null }));
-/** Screens told a tuner playlist owed during playback has landed. */
+/** Listeners told when a tuner playlist that playback held back has downloaded. */
 const mockTunerRefreshed = new Set<() => void>();
 jest.mock("@/services/jellyfin/tunerGroups", () => ({
   lastKnownTunerData: () => mockTunerData,
@@ -90,7 +90,7 @@ describe("Guide URL copy on iOS", () => {
 });
 
 describe("Guide source declarations", () => {
-  it("reads which playlists declare the guide again once a tuner playlist owed during playback lands", async () => {
+  it("reads which playlists declare the guide again after a tuner playlist held back by playback downloads", async () => {
     const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
     fetchTunerData.mockClear();
     let tree: TestRenderer.ReactTestRenderer | undefined;

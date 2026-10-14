@@ -11,6 +11,7 @@ import { cachedGuideFile, clearGuideFileCache, guideFileInfo, onGuideFileRefresh
 import { buildGuideIndex, matchChannels, type GuideChannelRequest, type GuideIndex, type MatchVia } from "./guideMatch";
 import { isPlaybackHeld, onPlaybackHoldChange } from "./playbackHold";
 import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS } from "./time";
+import { AppState } from "react-native";
 
 /** One load covers this far past the requested end, so window extensions rarely reload. */
 const WINDOW_SLACK_MS = 24 * 60 * 60 * 1000;
@@ -48,7 +49,7 @@ interface OpenGuide {
   from: number;
   to: number;
   index: GuideIndex;
-  /** When the file it was parsed from landed: a newer file on disk reopens the guide. */
+  /** When the file it was parsed from was saved: a newer file on disk reopens the guide. */
   savedAt: number;
   /** Reads in flight on this token; a retired guide closes when the last one ends. */
   readers: number;
@@ -64,8 +65,8 @@ interface Source {
   force: boolean;
   /** Bumped by a refresh, so an open that started before it lands closed instead of kept. */
   epoch: number;
-  /** Its file is owed after playback: the status reads paused while the hold lasts, waiting after. */
-  owed: boolean;
+  /** A read found no copy during playback, so its file downloads after: the status reads paused while playback lasts, waiting after. */
+  downloadAfterPlayback: boolean;
   /** Channel name by id. */
   asked: Map<string, string>;
   matched: Map<string, GuideMatch>;
@@ -104,7 +105,7 @@ function sourceFor(url: string): Source {
       failedAt: null,
       force: false,
       epoch: 0,
-      owed: false,
+      downloadAfterPlayback: false,
       asked: new Map(),
       matched: new Map(),
       status: { url, state: "waiting", progress: null, channels: null, programmes: null, loadedAt: null, asked: 0, matched: [], unmatched: [] },
@@ -159,7 +160,7 @@ export function activeGuideUrls(preferences: { guideUrls: readonly string[]; gui
   return [...new Set([...preferences.guideUrls, ...declared])].filter((url) => !off.has(url));
 }
 
-/** When the guide file at `url` on disk landed; 0 while none is held. */
+/** When the guide file at `url` was saved to disk; 0 while there is none. */
 function fileSavedAt(url: string): number {
   return guideFileInfo(url)?.savedAt ?? 0;
 }
@@ -174,13 +175,14 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
     { force, keep: activeUrls },
   );
   setStatus(source, { state: "reading", progress: null });
-  // Read before the parse: a file landing meanwhile can cost one extra reopen, never a stale guide.
+  // Read before the parse: a new file arriving meanwhile can cost one extra reopen, never a stale guide.
   const savedAt = fileSavedAt(source.url);
   // 0: this service closes its own guides, so the native store never evicts one still asked.
   const { token, stats } = await loadGuide(fileUri, target, "external", 0);
   try {
     const channels = await guideChannels(token);
-    // The device-measurement line: parse and pre-fold cost, store footprint, at this guide's scale.
+    // The device-measurement line: parse and pre-fold cost, and app memory before, at the peak and after,
+    // so this guide's own share is the difference.
     engineLog().info("External guide loaded", {
       service: "ExternalGuide",
       url: source.url,
@@ -189,6 +191,8 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
       workMs: stats?.workMs ?? null,
       foldMs: stats?.foldMs ?? null,
       inflatedBytes: stats?.inflatedBytes ?? null,
+      footprintBeforeBytes: stats?.footprintBeforeBytes ?? null,
+      peakFootprintBytes: stats?.peakFootprintBytes ?? null,
       footprintAfterBytes: stats?.footprintAfterBytes ?? null,
     });
     setStatus(source, { state: "ready", channels: stats?.channels ?? channels.length, programmes: stats?.programmes ?? null, loadedAt: Date.now() });
@@ -199,7 +203,22 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
   }
 }
 
+let memoryWired = false;
+
+/** Under memory pressure every open guide is released (a guide being read closes when the read ends); the next read opens it again. */
+function wireMemoryWarning(): void {
+  if (memoryWired) return;
+  memoryWired = true;
+  AppState.addEventListener("memoryWarning", () => {
+    const open = [...sources.values()].filter((source) => source.open);
+    if (open.length === 0) return;
+    for (const source of open) close(source);
+    engineLog().info("Guides released under memory pressure", { service: "ExternalGuide", count: open.length });
+  });
+}
+
 async function ensureOpen(source: Source, windowMs: { from: number; to: number }): Promise<OpenGuide> {
+  wireMemoryWarning();
   const covers = (guide: OpenGuide | null): guide is OpenGuide => !!guide && guide.from <= windowMs.from && guide.to >= windowMs.to && guide.savedAt === fileSavedAt(source.url);
   const startsBefore = (guide: OpenGuide | null) => guide !== null && windowMs.from < guide.from;
   if (covers(source.open)) return source.open;
@@ -231,14 +250,14 @@ async function ensureOpen(source: Source, windowMs: { from: number; to: number }
       const previous = source.open;
       source.open = guide;
       source.failedAt = null;
-      source.owed = false;
+      source.downloadAfterPlayback = false;
       if (previous) retire(previous);
       return guide;
     } catch (error) {
       if (error instanceof StaleOpenError) throw error;
       // No copy while playback holds the link: not a failure, the file arrives after playback.
       const held = error instanceof PlaybackHoldError;
-      if (held) source.owed = true;
+      if (held) source.downloadAfterPlayback = true;
       else source.failedAt = Date.now();
       if (sources.get(source.url) === source) setStatus(source, { state: held ? "paused" : "error", progress: null });
       throw error;
@@ -277,7 +296,7 @@ export async function preloadGuide(url: string): Promise<void> {
 
 const refreshedListeners = new Set<() => void>();
 
-/** Runs when a guide file owed during playback has landed: the next read opens it, so a screen showing listings reads again. */
+/** Runs when a guide file that playback held back has finished downloading: a screen showing listings reads them again. */
 export function subscribeGuideRefreshed(listener: () => void): () => void {
   refreshedListeners.add(listener);
   return () => {
@@ -285,14 +304,14 @@ export function subscribeGuideRefreshed(listener: () => void): () => void {
   };
 }
 
-// The open guide on the older file is replaced at the next read (`savedAt`). A source a read asked for
+// A guide open on the older file is replaced at the next read (`savedAt`). A guide a read asked for
 // during playback opens now, so its screens show what it holds; any other republishes its status, so
-// a screen reading the file's time sees the new one.
+// a screen showing the file's time sees the new one.
 onGuideFileRefreshed((url) => {
   const source = sources.get(url);
   if (!source) return;
-  if (source.owed) {
-    source.owed = false;
+  if (source.downloadAfterPlayback) {
+    source.downloadAfterPlayback = false;
     void preloadGuide(url);
   } else {
     setStatus(source, {});
@@ -300,11 +319,11 @@ onGuideFileRefreshed((url) => {
   for (const listener of [...refreshedListeners]) listener();
 });
 
-// An owed source reads paused while playback holds the link; after, its file loads when the guide opens.
+// A guide waiting for its file reads paused while playback lasts, and waiting after it.
 onPlaybackHoldChange(() => {
   const state: GuideSourceState = isPlaybackHeld() ? "paused" : "waiting";
   for (const source of sources.values()) {
-    if (source.owed && !source.opening && source.status.state !== state) setStatus(source, { state, progress: null });
+    if (source.downloadAfterPlayback && !source.opening && source.status.state !== state) setStatus(source, { state, progress: null });
   }
 });
 

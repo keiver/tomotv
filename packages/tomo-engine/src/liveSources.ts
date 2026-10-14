@@ -25,6 +25,9 @@ export interface GuideLoadStats {
   workMs?: number;
   foldMs?: number;
   inflatedBytes?: number;
+  /** App memory when the load began, its highest sample while parsing, and at the end. */
+  footprintBeforeBytes?: number;
+  peakFootprintBytes?: number;
   footprintAfterBytes?: number;
 }
 
@@ -61,7 +64,16 @@ export interface GuideChannel {
 export async function loadGuide(url: string, windowMs: { from: number; to: number }, pool: "external", maxOpen?: number): Promise<{ token: string; stats: GuideLoadStats | null }> {
   const result = (await liveSourcesModule().loadGuide({ url, from: windowMs.from, to: windowMs.to, pool, ...(maxOpen !== undefined ? { maxOpen } : {}) })) as {
     token?: unknown;
-    stats?: { channels?: unknown; programmes?: unknown; workMs?: unknown; foldMs?: unknown; inflatedBytes?: unknown; footprintAfterBytes?: unknown };
+    stats?: {
+      channels?: unknown;
+      programmes?: unknown;
+      workMs?: unknown;
+      foldMs?: unknown;
+      inflatedBytes?: unknown;
+      footprintBeforeBytes?: unknown;
+      peakFootprintBytes?: unknown;
+      footprintAfterBytes?: unknown;
+    };
   } | null;
   if (typeof result?.token !== "string") throw new Error("The live source module returned no guide.");
   const stats = result.stats;
@@ -76,6 +88,8 @@ export async function loadGuide(url: string, windowMs: { from: number; to: numbe
             workMs: extra(stats.workMs),
             foldMs: extra(stats.foldMs),
             inflatedBytes: extra(stats.inflatedBytes),
+            footprintBeforeBytes: extra(stats.footprintBeforeBytes),
+            peakFootprintBytes: extra(stats.peakFootprintBytes),
             footprintAfterBytes: extra(stats.footprintAfterBytes),
           }
         : null,

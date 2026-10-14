@@ -16,4 +16,14 @@ enum MemoryFootprint {
         }
         return status == KERN_SUCCESS ? Int(info.phys_footprint) : 0
     }
+
+    /// Bytes left before the system kills the app for memory; nil where no limit is reported (macOS, or 0 from the system).
+    static func availableBytes() -> Int? {
+        #if os(iOS) || os(tvOS)
+        let bytes = os_proc_available_memory()
+        return bytes > 0 ? Int(bytes) : nil
+        #else
+        return nil
+        #endif
+    }
 }

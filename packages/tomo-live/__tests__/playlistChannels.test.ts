@@ -120,7 +120,7 @@ describe("table", () => {
     expect(flaky.loadRows).toHaveBeenCalledTimes(2);
   });
 
-  it("reloads a fresh source on the next sync once a file owed during playback lands", async () => {
+  it("reloads a playlist at the next sync after a newer file for it downloads", async () => {
     const a = source("http://h/a.m3u", [row("a")]);
     await syncPlaylistSources([a]);
     playlistRefreshed("http://h/other.m3u");
@@ -133,17 +133,17 @@ describe("table", () => {
     expect(a.loadRows).toHaveBeenCalledTimes(2);
   });
 
-  it("reloads a source whose load was reading the older file when the newer one landed", async () => {
+  it("reloads a playlist that was still reading the old file when the new file arrived", async () => {
     let release: (() => void) | undefined;
     const slow: PlaylistChannelSource = {
       key: "http://h/b.m3u",
       url: "http://h/b.m3u",
       loadRows: jest.fn(() => new Promise<{ rows: PlaylistChannel[]; tvgUrls: string[] }>((resolve) => (release = () => resolve({ rows: [row("b")], tvgUrls: [] })))),
     };
-    const landing = syncPlaylistSources([slow]);
+    const firstLoad = syncPlaylistSources([slow]);
     playlistRefreshed("http://h/b.m3u");
     release!();
-    await landing;
+    await firstLoad;
     const again = syncPlaylistSources([slow]);
     release!();
     await again;

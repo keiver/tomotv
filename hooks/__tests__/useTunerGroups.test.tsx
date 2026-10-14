@@ -20,7 +20,7 @@ jest.mock("@/services/liveTvPreferences", () => ({
   updateLiveTvPreferences: jest.fn(),
   playlistGroupIds: (ids: readonly string[]) => ids,
 }));
-/** Screens told a tuner playlist owed during playback has landed. */
+/** Listeners told when a tuner playlist that playback held back has downloaded. */
 const mockTunerRefreshed = new Set<() => void>();
 jest.mock("@/services/jellyfin/tunerGroups", () => ({
   subscribeTunerDataRefreshed: (listener: () => void) => {
@@ -71,7 +71,7 @@ describe("usePlaylistChannelIds", () => {
     expect(updateLiveTvPreferences).not.toHaveBeenCalled();
   });
 
-  it("reads the groups again when a tuner playlist owed during playback lands", async () => {
+  it("reads the groups again after a tuner playlist held back by playback downloads", async () => {
     mockFetch.mockResolvedValue([]);
     const ref = React.createRef<HookRef>();
     await act(async () => {

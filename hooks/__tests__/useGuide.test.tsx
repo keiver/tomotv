@@ -31,7 +31,7 @@ function signInElsewhere() {
   mockAuthListeners.forEach((cb) => cb());
 }
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
-/** Screens told a file owed during playback has landed: tuner playlists and guide files. */
+/** Listeners told when a file that playback held back has downloaded: tuner playlists and guide files. */
 const mockTunerRefreshed = new Set<() => void>();
 const mockGuideRefreshed = new Set<() => void>();
 jest.mock("@/services/jellyfin/tunerGroups", () => ({
@@ -428,7 +428,7 @@ describe("useGuide", () => {
     expect(fetchChannels).toHaveBeenCalledTimes(calls);
   });
 
-  it("reads the external listings again when a guide file owed during playback lands", async () => {
+  it("reads the external listings again after a guide file held back by playback downloads", async () => {
     const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
     const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
     const url = "http://g/auto.xml.gz";
@@ -449,7 +449,7 @@ describe("useGuide", () => {
     expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual(["epg-new:c2"]);
   });
 
-  it("loads the list again when a tuner playlist owed during playback lands", async () => {
+  it("reloads the list after a tuner playlist held back by playback downloads", async () => {
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     await mount();

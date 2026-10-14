@@ -12,7 +12,7 @@ const HOUR = 60 * 60 * 1000;
 
 type Behavior = { held?: boolean; error?: Error; resumeData?: string; lostPauses?: number };
 
-/** A download task the test drives: it lands at once unless `held`; a pause yields `resumeData`.
+/** A download task the test drives: it finishes at once unless `held`; a pause yields `resumeData`.
  *  `lostPauses` drops that many pauses, as native does with one sent before its task exists. */
 class Task {
   state = "idle";
@@ -276,7 +276,7 @@ describe("cachedGuideFile", () => {
       expect(createTask).toHaveBeenCalledTimes(1);
     });
 
-    it("starts the owed download only once the link stays free for the settle window", async () => {
+    it("starts the held-back download only after playback has stayed stopped for 2 seconds", async () => {
       setPlaybackHold("video", true);
       await expect(cachedGuideFile(URL)).rejects.toBeInstanceOf(PlaybackHoldError);
       setPlaybackHold("video", false);
@@ -288,7 +288,7 @@ describe("cachedGuideFile", () => {
       expect(createTask).toHaveBeenCalledTimes(1);
     });
 
-    it("hands a waiting caller PlaybackHoldError when playback starts, and finishes the download after", async () => {
+    it("gives a caller still waiting PlaybackHoldError when playback starts, and finishes the download after", async () => {
       const refreshed = jest.fn();
       const stop = onGuideFileRefreshed(refreshed);
       downloadsWith({ held: true, resumeData: "partial" });
@@ -307,7 +307,7 @@ describe("cachedGuideFile", () => {
       stop();
     });
 
-    it("hands a waiting caller the copy on disk when playback starts", async () => {
+    it("gives a caller still waiting the copy on disk when playback starts", async () => {
       const uri = await cachedGuideFile(URL);
       jest.setSystemTime(Date.now() + 2 * HOUR);
       downloadsWith({ held: true, resumeData: "partial" });
@@ -321,7 +321,7 @@ describe("cachedGuideFile", () => {
       await flush();
     });
 
-    it("stops a handed-off caller's progress, so the resumed download reports to nobody it left", async () => {
+    it("stops sending progress to a caller that already got its answer when playback started", async () => {
       await cachedGuideFile(URL);
       jest.setSystemTime(Date.now() + 2 * HOUR);
       downloadsWith({ held: true, resumeData: "partial" });

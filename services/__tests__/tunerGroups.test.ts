@@ -113,7 +113,7 @@ describe("fetchTunerGroups", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("reads the tuners again once a playlist download owed during playback lands", async () => {
+  it("reads the tuners again after a playlist held back by playback downloads", async () => {
     global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
     queueTuner({ rows: [row("a")] });
     await fetchTunerData();
@@ -135,7 +135,7 @@ describe("fetchTunerGroups", () => {
     // Partial reads back off for 5 minutes: the next one answers from memory without the server.
     await fetchTunerData();
     expect(global.fetch).toHaveBeenCalledTimes(1);
-    // The landed file is read before screens hear of it: their reload reads the table without waiting.
+    // The downloaded file is read before screens are told: their reload reads the table without waiting.
     const tableWhenHeard: string[][] = [];
     heard.mockImplementation(() => tableWhenHeard.push(allPlaylistChannelIds()));
     queueTuner({ rows: [row("a")] });

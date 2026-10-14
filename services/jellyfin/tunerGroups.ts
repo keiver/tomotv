@@ -142,7 +142,7 @@ function channelRow(row: TunerRow, userAgent: string | undefined): PlaylistChann
 
 const refreshedListeners = new Set<() => void>();
 
-/** Runs once a tuner playlist owed during playback has landed and the channel table holds it: a screen showing groups or channels reads again. */
+/** Runs once a tuner playlist that playback held back has downloaded and the channel table holds it: a screen showing groups or channels reads again. */
 export function subscribeTunerDataRefreshed(listener: () => void): () => void {
   refreshedListeners.add(listener);
   return () => {
@@ -150,8 +150,8 @@ export function subscribeTunerDataRefreshed(listener: () => void): () => void {
   };
 }
 
-// A read during playback with no copy is partial and backed off (failedAt): the landed file is read at
-// once, and screens hear of it only after, since their reload reads the table without waiting for one.
+// A read during playback with no copy is partial and backed off (failedAt): the downloaded file is read
+// at once, and screens are told only after, since their reload reads the table without waiting for it.
 onPlaylistFileRefreshed(() => {
   invalidateByPrefix("tunerGroups:");
   failedAt.clear();

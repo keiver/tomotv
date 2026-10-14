@@ -48,8 +48,8 @@ export class PlaybackHoldError extends Error {
 interface Download {
   promise: Promise<string>;
   listeners: Set<(progress: GuideDownloadProgress) => void>;
-  /** Marks the download as owed to a caller served without it: its landing fires the refreshed listeners. */
-  owe: () => void;
+  /** A caller got the old copy or no file: when this download finishes, the refreshed listeners run. */
+  notifyWhenDone: () => void;
 }
 
 function ageMs(file: File): number {
@@ -140,16 +140,16 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
     return file.uri;
   };
 
-  /** Starts the one download for `url`; an owed one tells the refreshed listeners when it lands. */
-  const startDownload = (url: string, dir: Directory, file: File, options: { headers?: Record<string, string>; owed: boolean }): Download => {
+  /** Starts the one download for `url`; with `notify`, the refreshed listeners run when it finishes. */
+  const startDownload = (url: string, dir: Directory, file: File, options: { headers?: Record<string, string>; notify: boolean }): Download => {
     const listeners = new Set<(progress: GuideDownloadProgress) => void>();
-    const owing = { owed: options.owed };
+    const done = { notify: options.notify };
     const download = (async () => {
       try {
         const uri = await fetchToCache(url, dir, file, options.headers, (progress) => {
           for (const listener of listeners) listener(progress);
         });
-        if (owing.owed) for (const listener of [...refreshedListeners]) listener(url);
+        if (done.notify) for (const listener of [...refreshedListeners]) listener(url);
         return uri;
       } catch (error) {
         failedAt.set(url, Date.now());
@@ -162,12 +162,12 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
         inFlight.delete(url);
       }
     })();
-    const entry: Download = { promise: download, listeners, owe: () => (owing.owed = true) };
+    const entry: Download = { promise: download, listeners, notifyWhenDone: () => (done.notify = true) };
     inFlight.set(url, entry);
     return entry;
   };
 
-  /** A caller's share of a download: its result, or, the moment playback takes the link, the copy on
+  /** What one caller waiting on a download gets: its result, or, the moment playback starts, the copy on
    *  disk (PlaybackHoldError without one) while the download finishes after playback. */
   const handOff = (entry: Download, file: File, onProgress?: (progress: GuideDownloadProgress) => void): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -178,7 +178,7 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
       };
       const stopHold = onPlaybackHoldTaken(() => {
         done();
-        entry.owe();
+        entry.notifyWhenDone();
         if (file.exists) resolve(file.uri);
         else reject(new PlaybackHoldError());
       });
@@ -207,11 +207,11 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
       // PlaybackHoldError, and the download either needs finishes after playback.
       if (isPlaybackHeld()) {
         const stale = !file.exists || ageMs(file) >= FRESH_TTL_MS;
-        const owed = options?.force || (stale && !backedOff);
-        if (pending) pending.owe();
-        else if (owed) startDownload(url, dir, file, { headers: options?.headers, owed: true }).promise.catch(() => {});
+        const needed = options?.force || (stale && !backedOff);
+        if (pending) pending.notifyWhenDone();
+        else if (needed) startDownload(url, dir, file, { headers: options?.headers, notify: true }).promise.catch(() => {});
         if (file.exists) return file.uri;
-        if (!pending && !owed) throw new Error(`${label} download skipped after a recent failure.`);
+        if (!pending && !needed) throw new Error(`${label} download skipped after a recent failure.`);
         throw new PlaybackHoldError();
       }
       if (pending) return handOff(pending, file, onProgress);
@@ -223,7 +223,7 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
           throw new Error(`${label} download skipped after a recent failure.`);
         }
       }
-      return handOff(startDownload(url, dir, file, { headers: options?.headers, owed: false }), file, onProgress);
+      return handOff(startDownload(url, dir, file, { headers: options?.headers, notify: false }), file, onProgress);
     },
     onRefreshed(listener) {
       refreshedListeners.add(listener);
@@ -276,7 +276,7 @@ const playlists = makeFileCache("playlists", "playlist-", "Playlist");
  */
 export const cachedGuideFile = guides.cachedFile;
 
-/** Runs with a guide URL whose download, owed while playback held the link, has landed. */
+/** Runs with a guide URL once a download that playback held back has finished. */
 export const onGuideFileRefreshed = guides.onRefreshed;
 
 /** The cached copy of `url`: its size and when it landed, or null while none is held. */
@@ -291,7 +291,7 @@ export const clearGuideFileCache = guides.clear;
 /** The playlist at `url` as a local file URI, under the guide cache's rules. */
 export const cachedPlaylistFile = playlists.cachedFile;
 
-/** Runs with a playlist URL whose download, owed while playback held the link, has landed. */
+/** Runs with a playlist URL once a download that playback held back has finished. */
 export const onPlaylistFileRefreshed = playlists.onRefreshed;
 
 /** The cached copy of a playlist `url`: its size and when it landed, or null while none is held. */
