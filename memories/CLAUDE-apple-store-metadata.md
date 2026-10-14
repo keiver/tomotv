@@ -123,13 +123,13 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Large TV guides load only the channels you have
 ```
 
-### What's New (2.2.12), tvOS (674 / 4000)
+### What's New (2.2.12), tvOS (701 / 4000)
 
 ```text
 - Lyrics follow the song in the music player; pick a line to jump to it
 - Missing lyrics are found on lrclib.net and saved to your server when it allows
 - On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
-- The player shows a show's name with its season and episode, and a movie's year
+- The player shows a show's name with its season and episode, a movie's year, and a song's artist and album
 - The player's info shows the rating and genre
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
@@ -501,13 +501,13 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Große Guides laden nur die Kanäle, die du hast
 ```
 
-#### What's New (2.2.12), tvOS (810 / 4000 chars)
+#### What's New (2.2.12), tvOS (843 / 4000 chars)
 
 ```text
 - Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
 - Fehlende Liedtexte werden auf lrclib.net gesucht und auf deinem Server gespeichert, wenn er es erlaubt
 - Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
-- Der Player zeigt den Namen einer Serie mit Staffel und Folge und das Jahr eines Films
+- Der Player zeigt den Namen einer Serie mit Staffel und Folge, das Jahr eines Films und Interpret und Album eines Songs
 - Die Infos im Player zeigen Altersfreigabe und Genre
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
@@ -857,13 +857,13 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Les grands guides ne chargent que vos chaînes
 ```
 
-#### What's New (2.2.12), tvOS (853 / 4000 chars)
+#### What's New (2.2.12), tvOS (889 / 4000 chars)
 
 ```text
 - Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
 - Les paroles manquantes sont cherchées sur lrclib.net et enregistrées sur votre serveur s'il l'autorise
 - Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
-- Le lecteur affiche le nom d'une série avec sa saison et son épisode, et l'année d'un film
+- Le lecteur affiche le nom d'une série avec sa saison et son épisode, l'année d'un film, et l'artiste et l'album d'une chanson
 - Les infos du lecteur affichent la classification et le genre
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
@@ -1213,13 +1213,13 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Las guías grandes cargan solo tus canales
 ```
 
-#### What's New (2.2.12), tvOS (783 / 4000 chars)
+#### What's New (2.2.12), tvOS (821 / 4000 chars)
 
 ```text
 - La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
 - Las letras que faltan se buscan en lrclib.net y se guardan en tu servidor cuando lo permite
 - En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
-- El reproductor muestra el nombre de una serie con su temporada y episodio, y el año de una película
+- El reproductor muestra el nombre de una serie con su temporada y episodio, el año de una película, y el artista y el álbum de una canción
 - La información del reproductor muestra la clasificación y el género
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
