@@ -922,6 +922,10 @@ class AudioQueuePlayer: RCTEventEmitter {
     }
 
     @objc private func handleLeftArrowPress() {
+        #if os(tvOS)
+        // AVKit's transport-bar buttons are UIButtons: a left press there only moves focus.
+        if let vc = playerVC, UIFocusSystem.focusSystem(for: vc)?.focusedItem is UIButton { return }
+        #endif
         skipBackward()
     }
 
