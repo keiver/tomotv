@@ -6,13 +6,15 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- The music player shows a song's lyrics on Apple TV, iPhone, iPad and Mac: synced lines follow playback, word by word where the lyrics carry word timing, and picking a line plays from it. Lyrics come from the Jellyfin server first (10.9 or later)
+- The music player shows a song's lyrics on Apple TV, iPhone, iPad and Mac: synced lines follow playback, word by word where the lyrics carry word timing, and picking a line plays from it. The lines take the screen in place of the artwork, under the player's own controls. Lyrics come from the Jellyfin server first (10.9 or later)
 - A song the server has no lyrics for is looked up on lrclib.net
 - Where the system's speech transcriber is available (iOS, tvOS and macOS 26 or later), the device listens to the song: found lyrics gain word timing, a constant offset is corrected, plain text is timed line by line, and a song with no lyrics anywhere gets ones written from what was heard, captioned "Generated on this device". Songs over 10 minutes or 80 MB, and Ogg, Opus and WMA files, are not listened to
-- Lyrics found on lrclib.net or generated on the device are saved to the server as a lyric file, once per song, when the account may manage lyrics
-- Settings gains a Lyrics screen: Show lyrics, Find missing lyrics, Listen for lyrics and Save lyrics to my server, all on by default. Listen for lyrics shows off and cannot be pressed on a device that cannot listen; Save lyrics to my server is listed only for an account the server lets manage lyrics
+- Lyrics found on lrclib.net or generated on the device are saved to the server as a lyric file, once per song. Jellyfin does not report whether an account may manage lyrics, so the app tries, and an account the server refuses is not asked again while the app runs
+- Settings gains a Lyrics screen: Show lyrics, Find missing lyrics, Listen for lyrics and Save lyrics to my server, all on by default. Listen for lyrics shows off and cannot be pressed on a device that cannot listen; Save lyrics to my server leaves the list once the server has refused a save from the account
 - A downloaded song keeps the lyrics the server or lrclib.net has, for offline playback
 - On Apple TV, the player's Info tab shows the content rating and genre. An episode with none of its own shows its series', and a live channel shows those of the programme airing when it opens, from the server's guide or an XMLTV guide already loaded on the device
+- On Apple TV, the player's title shows an episode's series with its season, episode and name above it (S04E19 · Episode name), and a movie or home video with its year above its name
+- A Pluto TV channel from a tuner playlist plays on a session the device starts with Pluto, falling back to Pluto's older start and then the playlist's own link
 
 ### Changed
 
@@ -25,6 +27,8 @@ All notable changes to Tomo TV are documented here.
 - Resuming an item whose default subtitle track is not the saved language's full track draws that track's subtitles: a subtitle segment behind the resumed read is answered without cues after 0.5 seconds, where the request hung for 25 seconds and the track drew nothing
 - A Matroska file read over a server that is slow to answer a seek no longer stops playing after jumping back, and its chapter and scrubbing pictures come from the right time: the engine seeks again
 - A guide or playlist load stops with an error when less than 256 MB is left before the system's memory limit, and a memory warning closes the open guides, which open again at the next read. The system had closed the Apple TV app for exceeding its memory limit with an XMLTV guide of 4,613 channels and 210,401 programmes open
+- A live channel whose source opens with no streams in it counts toward Offline, as a refused open does, and a failed read of the server's copy of a channel no longer counts against the channel's own source
+- A song seeks to the exact time asked, so lyrics stay with the audio after a scrub; a variable bit rate MP3 used to land on an estimate
 
 ## [2.2.11]
 

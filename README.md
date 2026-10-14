@@ -167,6 +167,7 @@ services/
   syncPlayManager.ts    SyncPlay groups and command scheduling
   downloads/            offline store
   books/                book formats and reading position
+  lyrics/               lrclib.net lookup, timing lyrics to what the device heard, saving them to the server
   i18n/                 strings: en, de, fr, es
 packages/
   tomo-engine/          @keiver/tomo-engine
@@ -180,7 +181,8 @@ packages/
 native/ios/
   TunerGroups/          a Jellyfin tuner's groups and channel ids, over the engine's playlist loader
   MultiAudioResourceLoader/   HLS manifests, audio track switching
-  AudioQueuePlayer/     music queue, Now Playing, tvOS Up Next panel
+  AudioQueuePlayer/     music queue, lyrics, Now Playing, tvOS Up Next panel
+  LyricsListener/       the system speech transcriber, listening to a song for its words and their times
   BookRenderer/         PDF, comic, EPUB and MOBI pages
   TopShelf/             tvOS Top Shelf extension
   Package.swift         SwiftPM package for the book tests
