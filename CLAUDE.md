@@ -40,6 +40,7 @@ Add 10 blank lines BEFORE and AFTER response text for visual breathing room in t
 - Short. Lead with the answer. Done work is one plain sentence: no lists, hashes, test counts or self-corrections unless asked.
 - A review reply is the verdict: "Nothing found" or the defects, one line each with file:line.
 - No em dashes anywhere: chat, commits, comments, docs, store copy. Grep every file I touched for U+2014.
+- Plain words, no jargon, in chat, test names, comments, commits and docs. Never coin terms or pretty-sounding phrasing ("owed", "landing", "a load the newer file outdated"). A test name says plainly what the test checks. Use a technical term only when no plain word fits.
 - A question gets an answer in prose and the turn ends. Edits wait for a go. A "why" gets the measured finding and a proposal, then a stop.
 - Never relitigate a settled claim: verify once, answer yes/no. If I was wrong, say "I was wrong", never "what I meant was".
 - Never restate a mechanism the user already understood; build what they asked to hold.
