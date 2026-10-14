@@ -99,7 +99,7 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.12), macOS (421 / 4000)
+### What's New (2.2.12), macOS (546 / 4000)
 
 ```text
 - Lyrics follow the song in the music player; pick a line to jump to it
@@ -107,9 +107,11 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
+- TV guide downloads pause while you watch or listen, and finish afterward
+- Large TV guides load only the channels you have
 ```
 
-### What's New (2.2.12), iOS (421 / 4000)
+### What's New (2.2.12), iOS (546 / 4000)
 
 ```text
 - Lyrics follow the song in the music player; pick a line to jump to it
@@ -117,9 +119,11 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
+- TV guide downloads pause while you watch or listen, and finish afterward
+- Large TV guides load only the channels you have
 ```
 
-### What's New (2.2.12), tvOS (421 / 4000)
+### What's New (2.2.12), tvOS (546 / 4000)
 
 ```text
 - Lyrics follow the song in the music player; pick a line to jump to it
@@ -127,6 +131,8 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
+- TV guide downloads pause while you watch or listen, and finish afterward
+- Large TV guides load only the channels you have
 ```
 
 ### What's New (2.2.11), macOS (73 / 4000)
@@ -469,7 +475,7 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.12), macOS (533 / 4000)
+#### What's New (2.2.12), macOS (668 / 4000)
 
 ```text
 - Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
@@ -477,9 +483,11 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+- Guide-Downloads pausieren, während du schaust oder hörst, und laufen danach zu Ende
+- Große Guides laden nur die Kanäle, die du hast
 ```
 
-#### What's New (2.2.12), iOS (533 / 4000 chars)
+#### What's New (2.2.12), iOS (668 / 4000 chars)
 
 ```text
 - Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
@@ -487,9 +495,11 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+- Guide-Downloads pausieren, während du schaust oder hörst, und laufen danach zu Ende
+- Große Guides laden nur die Kanäle, die du hast
 ```
 
-#### What's New (2.2.12), tvOS (533 / 4000 chars)
+#### What's New (2.2.12), tvOS (668 / 4000 chars)
 
 ```text
 - Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
@@ -497,6 +507,8 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+- Guide-Downloads pausieren, während du schaust oder hörst, und laufen danach zu Ende
+- Große Guides laden nur die Kanäle, die du hast
 ```
 
 #### What's New (2.2.11), macOS (78 / 4000)
@@ -817,7 +829,7 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.12), macOS (535 / 4000)
+#### What's New (2.2.12), macOS (698 / 4000)
 
 ```text
 - Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
@@ -825,9 +837,11 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+- Les téléchargements des guides se mettent en pause pendant que vous regardez ou écoutez, et se terminent ensuite
+- Les grands guides ne chargent que vos chaînes
 ```
 
-#### What's New (2.2.12), iOS (535 / 4000 chars)
+#### What's New (2.2.12), iOS (698 / 4000 chars)
 
 ```text
 - Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
@@ -835,9 +849,11 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+- Les téléchargements des guides se mettent en pause pendant que vous regardez ou écoutez, et se terminent ensuite
+- Les grands guides ne chargent que vos chaînes
 ```
 
-#### What's New (2.2.12), tvOS (535 / 4000 chars)
+#### What's New (2.2.12), tvOS (698 / 4000 chars)
 
 ```text
 - Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
@@ -845,6 +861,8 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+- Les téléchargements des guides se mettent en pause pendant que vous regardez ou écoutez, et se terminent ensuite
+- Les grands guides ne chargent que vos chaînes
 ```
 
 #### What's New (2.2.11), macOS (86 / 4000)
@@ -1165,7 +1183,7 @@ Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reprod
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.12), macOS (484 / 4000)
+#### What's New (2.2.12), macOS (611 / 4000)
 
 ```text
 - La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
@@ -1173,9 +1191,11 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+- Las descargas de las guías se pausan mientras ves o escuchas, y terminan después
+- Las guías grandes cargan solo tus canales
 ```
 
-#### What's New (2.2.12), iOS (484 / 4000 chars)
+#### What's New (2.2.12), iOS (611 / 4000 chars)
 
 ```text
 - La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
@@ -1183,9 +1203,11 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+- Las descargas de las guías se pausan mientras ves o escuchas, y terminan después
+- Las guías grandes cargan solo tus canales
 ```
 
-#### What's New (2.2.12), tvOS (484 / 4000 chars)
+#### What's New (2.2.12), tvOS (611 / 4000 chars)
 
 ```text
 - La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
@@ -1193,6 +1215,8 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+- Las descargas de las guías se pausan mientras ves o escuchas, y terminan después
+- Las guías grandes cargan solo tus canales
 ```
 
 #### What's New (2.2.11), macOS (74 / 4000)

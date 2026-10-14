@@ -13,11 +13,17 @@ All notable changes to Tomo TV are documented here.
 - Settings gains a Lyrics screen: Show lyrics, Find missing lyrics, Listen for lyrics and Save lyrics to my server, all on by default. Listen for lyrics shows off and cannot be pressed on a device that cannot listen; Save lyrics to my server is listed only for an account the server lets manage lyrics
 - A downloaded song keeps the lyrics the server or lrclib.net has, for offline playback
 
+### Changed
+
+- While a video or song plays, XMLTV guide and M3U playlist downloads pause and resume from their bytes after it, and no screen waits on them: a read gets the copy on disk, and a guide with none reads "Paused during playback" in Guide sources. When a held-back download finishes, the guide, channel lists and channel groups read again
+- An XMLTV guide keeps only the programmes of the server's and its tuner playlists' channels; the others are skipped while the file is read. A channel asked for that is not on the list opens the guide again with it added
+
 ### Fixed
 
 - The player's subtitles menu reads On while the subtitle language saved on the account draws: the app sets its caption display type to always-on before the player opens. It read Off on a device where On had never been picked in that menu
 - Resuming an item whose default subtitle track is not the saved language's full track draws that track's subtitles: a subtitle segment behind the resumed read is answered without cues after 0.5 seconds, where the request hung for 25 seconds and the track drew nothing
 - A Matroska file read over a server that is slow to answer a seek no longer stops playing after jumping back, and its chapter and scrubbing pictures come from the right time: the engine seeks again
+- A guide or playlist load stops with an error when less than 256 MB is left before the system's memory limit, and a memory warning closes the open guides, which open again at the next read. The system had closed the Apple TV app for exceeding its memory limit with an XMLTV guide of 4,613 channels and 210,401 programmes open
 
 ## [2.2.11]
 

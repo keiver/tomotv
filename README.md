@@ -95,10 +95,10 @@ The engine and the live TV services are npm packages developed here, usable by
 any Expo app on Apple TV, iOS or Mac Catalyst. Neither knows Jellyfin: Tomo connects them in
 `services/localRemux.ts` and `services/liveChannels.ts`.
 
-| Package                                       | Holds                                                                                                     |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| [`@keiver/tomo-engine`](packages/tomo-engine) | The engine, native XMLTV and M3U parsing, frame grabs, probes, and the pinned FFmpeg build                |
-| [`@keiver/tomo-live`](packages/tomo-live)     | Warm neighbour channels, focus previews, live frames and clips, channel health, guide sources, `LiveClip` |
+| Package                                       | Holds                                                                                                                                                                               |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@keiver/tomo-engine`](packages/tomo-engine) | The engine, native XMLTV and M3U parsing, frame grabs, probes, the pinned FFmpeg build, and the player's startup checks, error IDs, track language rules and image subtitle overlay |
+| [`@keiver/tomo-live`](packages/tomo-live)     | Warm neighbour channels, focus previews, live frames and clips, channel health, guide sources, `LiveClip`                                                                           |
 
 Here they are npm workspaces, so Tomo builds against the source in the same
 commit. A commit that changes a published package gets a patch bump from the
@@ -172,7 +172,7 @@ packages/
   tomo-engine/          @keiver/tomo-engine
     ios/LocalRemuxer/   the engine: remux, transcode, loopback server, subtitles, Dolby Vision, live
     ios/LiveSources/    XMLTV guides and M3U playlists, loaded and parsed natively
-    src/                the typed JS API over both native modules
+    src/                the typed JS API over both native modules, and player logic that needs no server
     Package.swift       SwiftPM package for the engine tests
   tomo-live/            @keiver/tomo-live
     src/                ring, previews, frames, channel health, guide sources
