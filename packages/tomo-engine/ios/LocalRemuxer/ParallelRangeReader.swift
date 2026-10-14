@@ -253,9 +253,13 @@ extension ParallelRangeReader: URLSessionDataDelegate {
             lock.unlock()
             return
         }
-        // A body read() consumed and freed: this completion has nothing left to mark.
+        // A body read() consumed and freed: nothing left to mark, but its slot is free for the next chunk.
         if bodies[index] == nil, cursor > span(of: index).end {
             lock.unlock()
+            ready.lock()
+            ready.signal()
+            ready.unlock()
+            schedule()
             return
         }
         let status = (task.response as? HTTPURLResponse)?.statusCode ?? 0
