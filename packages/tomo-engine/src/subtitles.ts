@@ -58,6 +58,27 @@ export type SubtitlePick = {
   reason?: string;
 };
 
+/** Bitmap subtitle codecs (PGS, DVD, DVB, teletext, XSUB, raw .sup and .sub), which AVPlayer has no renderer for. */
+export function isImageBasedSubtitleCodec(codec: string | undefined): boolean {
+  if (!codec) {
+    return false;
+  }
+  const codecLower = codec.toLowerCase();
+  if (codecLower === "sup" || codecLower === "sub") {
+    return true; // Raw PGS (.sup) / VobSub (.sub) streams
+  }
+  return (
+    codecLower.includes("pgs") || // pgssub, hdmv_pgs_subtitle (Blu-ray)
+    codecLower.includes("dvdsub") ||
+    codecLower.includes("dvd_subtitle") || // DVD subtitles (ffprobe name)
+    codecLower.includes("vobsub") ||
+    codecLower.includes("dvbsub") ||
+    codecLower.includes("dvb_subtitle") || // DVB broadcast subtitles
+    codecLower.includes("teletext") || // dvb_teletext: the engine draws the subtitle pages
+    codecLower.includes("xsub") // DivX subtitles
+  );
+}
+
 /** A name as the master playlist can carry it: no double quotes, no control characters. */
 export function manifestName(name: string): string {
   return name

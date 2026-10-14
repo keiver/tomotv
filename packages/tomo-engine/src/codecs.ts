@@ -21,6 +21,21 @@ export type VideoDecodeSupport = {
 };
 
 /**
+ * Whether this device's AVPlayer opens the codec at this bit depth, from the engine's own
+ * measurement. Copy where true; re-encode on device (or from the server) where false.
+ */
+export function deviceDecodes(codec: string, bitDepth: number | undefined, device: VideoDecodeSupport, height?: number): boolean {
+  const codecLower = codec.toLowerCase();
+  const fits = (maxHeight: number | null) => maxHeight === null || (height ?? 0) <= maxHeight;
+  if (["hevc", "h265", "hvc1", "hev1"].some((known) => codecLower.startsWith(known))) {
+    return device.hevc && ((bitDepth ?? 8) <= 8 || device.hevcMain10) && fits(device.hevcMaxHeight);
+  }
+  if (["av1", "av01"].some((known) => codecLower.startsWith(known))) return device.av1;
+  if (["h264", "avc"].some((known) => codecLower.startsWith(known))) return fits(device.h264MaxHeight);
+  return true;
+}
+
+/**
  * Video codecs AVPlayer cannot decode but the on-device engine can transcode
  * (software decode + VideoToolbox encode). Every entry is REGISTERED in the
  * linked build, confirmed with `npm run probe:codecs`, which walks

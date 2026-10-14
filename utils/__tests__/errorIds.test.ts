@@ -12,7 +12,7 @@ describe("PLAYBACK_ERROR_IDS", () => {
   });
 
   it("has a site for every ID: none is dead weight in the registry", () => {
-    const sources = ["hooks/useVideoPlayback.ts", "hooks/videoPlayback/errorRecovery.ts", "hooks/videoPlayback/engineSession.ts"].map((file) =>
+    const sources = ["hooks/useVideoPlayback.ts", "hooks/videoPlayback/errorRecovery.ts", "packages/tomo-engine/src/engineSession.ts"].map((file) =>
       fs.readFileSync(path.join(__dirname, "..", "..", file), "utf8"),
     );
     for (const key of Object.keys(PLAYBACK_ERROR_IDS)) {

@@ -1,32 +1,11 @@
 /**
  * The viewer's audio language, remembered across items in the account's Jellyfin settings.
- * Language is the key because an index means nothing on the next item.
+ * The pick rules live in the engine package (@keiver/tomo-engine, trackLanguage.ts).
  */
 import { getTrackSettingsSync, readTrackSettings, recordAudioPick, type TrackSettings } from "@/services/jellyfin/trackSettings";
-import { canonicalLanguage, knownLanguage } from "@/services/subtitlePreference";
+import { audioLanguageToStore } from "@keiver/tomo-engine";
 
-type AudioStream = { Index: number; Language: string; IsDefault?: boolean };
-
-/** One spelling of a language worth storing, or null for a tag no other item could match. */
-export function audioLanguageToStore(tag: string | null | undefined): string | null {
-  return knownLanguage(tag);
-}
-
-/** The stream carrying the stored language, the file's default among several, else the first. */
-export function preferredAudioStreamIndex(tracks: AudioStream[], tag: string | null): number | null {
-  const wanted = audioLanguageToStore(tag);
-  if (!wanted) return null;
-  const matches = tracks.filter((track) => canonicalLanguage(track.Language) === wanted);
-  return (matches.find((track) => track.IsDefault) ?? matches[0])?.Index ?? null;
-}
-
-/** An item's audio track in the stored language, for a download that keeps only one; undefined leaves the file's default. */
-export function preferredAudioIndexIn(streams: { Type?: string; Index?: number; Language?: string | null; IsDefault?: boolean }[], tag: string | null): number | undefined {
-  const tracks = streams.flatMap((stream) => (stream.Type === "Audio" && stream.Index !== undefined ? [{ Index: stream.Index, Language: stream.Language ?? "", IsDefault: stream.IsDefault }] : []));
-  return preferredAudioStreamIndex(tracks, tag) ?? undefined;
-}
-
-// MARK: - Storage
+export { audioLanguageToStore, preferredAudioIndexIn, preferredAudioStreamIndex } from "@keiver/tomo-engine";
 
 /** Jellyfin's rule: while it prefers the file's default track, no language is remembered. */
 export function rememberedAudioLanguage(settings: TrackSettings): string | null {

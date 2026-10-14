@@ -7,33 +7,14 @@
  */
 import { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
+import { isImageBasedSubtitleCodec } from "@keiver/tomo-engine";
 import { getCachedConfig } from "./session";
 
 /**
- * Check if a subtitle codec is image-based (bitmap subtitles)
- * Image-based formats cannot be converted to WebVTT by Jellyfin, so they are
- * silently dropped from HLS manifests and must be burned into the video instead.
- * Matches the server's MediaStream.IsTextSubtitleStream classification.
+ * Image-based formats cannot be converted to WebVTT by Jellyfin, so they are dropped from
+ * its HLS manifests and burned into the video instead (MediaStream.IsTextSubtitleStream).
  */
-export function isImageBasedSubtitleCodec(codec: string | undefined): boolean {
-  if (!codec) {
-    return false;
-  }
-  const codecLower = codec.toLowerCase();
-  if (codecLower === "sup" || codecLower === "sub") {
-    return true; // Raw PGS (.sup) / VobSub (.sub) streams
-  }
-  return (
-    codecLower.includes("pgs") || // pgssub, hdmv_pgs_subtitle (Blu-ray)
-    codecLower.includes("dvdsub") ||
-    codecLower.includes("dvd_subtitle") || // DVD subtitles (ffprobe name)
-    codecLower.includes("vobsub") ||
-    codecLower.includes("dvbsub") ||
-    codecLower.includes("dvb_subtitle") || // DVB broadcast subtitles
-    codecLower.includes("teletext") || // dvb_teletext: the engine draws the subtitle pages
-    codecLower.includes("xsub") // DivX subtitles
-  );
-}
+export { isImageBasedSubtitleCodec } from "@keiver/tomo-engine";
 
 /** Blu-ray PGS, which the server hands over raw as Stream.pgssub. */
 export function isPgsCodec(codec: string | undefined): boolean {
@@ -78,7 +59,7 @@ export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): Je
   const candidate = allImageBased
     ? subtitleStreams.find((stream) => stream.IsDefault) || subtitleStreams.find((stream) => stream.IsForced) || subtitleStreams[0]
     : // Mixed file: the text tracks stay selectable as HLS renditions. A forced
-      // IMAGE track still burns in — it carries essential dialogue AVPlayer
+      // IMAGE track still burns in: it carries essential dialogue AVPlayer
       // cannot render at all. A forced TEXT track does not: it renders fine.
       subtitleStreams.find((stream) => stream.IsForced && isImageBasedSubtitleCodec(stream.Codec)) || null;
 

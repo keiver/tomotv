@@ -8,6 +8,9 @@
 import { REMUXABLE_CODECS, type VideoDecodeSupport } from "@/constants/codecs";
 import { logger } from "@/utils/logger";
 import { JellyfinVideoItem } from "@/types/jellyfin";
+import { deviceDecodes } from "@keiver/tomo-engine";
+
+export { deviceDecodes } from "@keiver/tomo-engine";
 
 /** The account's own permission for this item, as the server wrote it: video transcoding for a video, audio transcoding for an audio item. */
 export function serverVideoTranscodingAllowed(item: JellyfinVideoItem | null | undefined): boolean {
@@ -38,21 +41,6 @@ export function isCodecSupported(codec: string): boolean {
   return REMUXABLE_CODECS.some((known) => codecLower.startsWith(known));
 }
 
-/**
- * Whether this device's AVPlayer opens the codec at this bit depth, from the engine's own
- * measurement. Copy where true; re-encode on device (or from the server) where false.
- */
-export function deviceDecodes(codec: string, bitDepth: number | undefined, device: VideoDecodeSupport, height?: number): boolean {
-  const codecLower = codec.toLowerCase();
-  const fits = (maxHeight: number | null) => maxHeight === null || (height ?? 0) <= maxHeight;
-  if (["hevc", "h265", "hvc1", "hev1"].some((known) => codecLower.startsWith(known))) {
-    return device.hevc && ((bitDepth ?? 8) <= 8 || device.hevcMain10) && fits(device.hevcMaxHeight);
-  }
-  if (["av1", "av01"].some((known) => codecLower.startsWith(known))) return device.av1;
-  if (["h264", "avc"].some((known) => codecLower.startsWith(known))) return fits(device.h264MaxHeight);
-  return true;
-}
-
 /** The video's HLS range from Jellyfin's VideoRangeType (HDR10, HDR10+, DOVI are PQ), "" without a video stream. */
 export function sourceVideoRange(videoItem: JellyfinVideoItem | null | undefined): "PQ" | "HLG" | "SDR" | "" {
   const stream = (videoItem?.MediaStreams ?? []).find((candidate) => candidate.Type === "Video");
@@ -68,7 +56,7 @@ export function sourceVideoRange(videoItem: JellyfinVideoItem | null | undefined
  *
  * Anything outside these lists is a file the engine has to rewrap. That used to
  * mean a server transcode, because audio-only items never reached the engine at
- * all — which is why T54 and T55 were written to expect a direct-play attempt
+ * all, which is why T54 and T55 were written to expect a direct-play attempt
  * that fails and retries on the server.
  */
 const AVPLAYER_AUDIO_CODECS = ["aac", "mp4a", "alac", "mp3", "flac", "pcm"];
@@ -78,7 +66,7 @@ const AVPLAYER_AUDIO_CONTAINERS = ["mp3", "m4a", "mp4", "mov", "aac", "adts", "w
  * Does this audio-only item need the engine to be playable?
  *
  * Container is ffprobe's `format_name`, a comma-separated list of demuxer
- * aliases ("mov,mp4,m4a,3gp,3g2,mj2"), so any token matching is a match — the
+ * aliases ("mov,mp4,m4a,3gp,3g2,mj2"), so any token matching is a match: the
  * same rule needsTranscoding applies to video containers.
  */
 export function audioNeedsRewrap(videoItem: JellyfinVideoItem | null): boolean {
