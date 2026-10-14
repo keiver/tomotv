@@ -11,9 +11,10 @@ describe("guide sources wording", () => {
     expect(guideLabel("http://lan:8080/")).toBe("lan:8080");
   });
 
-  it("says off, waiting, downloading, reading and unavailable before anything else", () => {
+  it("says off, waiting, paused, downloading, reading and unavailable before anything else", () => {
     expect(guideSourceSummary(base, false, tr)).toEqual({ subtitle: "liveTv.guideOff" });
     expect(guideSourceSummary(undefined, true, tr)).toEqual({ subtitle: "liveTv.guideWaiting" });
+    expect(guideSourceSummary({ ...base, state: "paused", progress: 0.4 }, true, tr)).toEqual({ subtitle: "liveTv.guidePaused" });
     expect(guideSourceSummary({ ...base, state: "downloading", progress: null }, true, tr)).toEqual({ subtitle: "liveTv.guideDownloading" });
     expect(guideSourceSummary({ ...base, state: "downloading", progress: 0.456 }, true, (key) => (key === "liveTv.guideDownloadingPercent" ? "Downloading {percent}%" : key))).toEqual({
       subtitle: "Downloading 46%",

@@ -3,6 +3,11 @@
 ## 1.3.0
 
 - A playlist channel carries its archive and its guide shift: `catchup` (`type`, `source`, `days`) and `tvgShift` on `PlaylistChannel`, each value the channel's own over the playlist header's, and absent when neither declares one. `playlistChannelFromEntry(entry, id, header?)` takes the header; `enginePlaylistRows` passes it.
+- Guide and playlist downloads give the link to playback. While `setPlaybackHold` is held, a copy on disk serves at once, and the refresh it owes (stale, or forced by a refresh press) downloads once the hold has been free for 2 s; with no copy the caller waits for that download. A download running when playback starts pauses after its first reported bytes (a pause sent earlier can reach native before the task exists) and resumes from its bytes after, or starts over when the server gave no resume data.
+- `onGuideFileRefreshed(listener)` and `onPlaylistFileRefreshed(listener)` run with the URL of a download owed during playback once it lands. The open guide on the older file closes so the next read opens the new one, and a playlist source read from the older file reloads on the next `syncPlaylistSources`.
+- A guide source whose download waits on playback reports `paused`, then `downloading` once the hold lets go.
+- `cachedGuideFile` and `cachedPlaylistFile` take `headers`; `enginePlaylistRows` sends the source's headers with the download, not only the parse.
+- `expo-file-system` 56.0.0 or later, for `File.createDownloadTask`.
 
 ## 1.2.0
 

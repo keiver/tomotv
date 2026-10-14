@@ -18,10 +18,10 @@ import {
   type PlaylistChannelSource,
   type PlaylistRows,
 } from "@keiver/tomo-live";
-import { cachedPlaylistFile } from "@/services/guideFileCache";
+import { cachedPlaylistFile, onPlaylistFileRefreshed } from "@/services/guideFileCache";
 import type { GuideChannelRequest } from "@/utils/guideMatch";
 import { cancelTunerGroups, isTunerGroupsAvailable, loadTunerPlaylist, releaseTunerPlaylist, tunerPlaylistRows, type TunerGroup, type TunerRow } from "@/services/liveSources";
-import { cachedRequest, invalidateRequest } from "@/services/requestCache";
+import { cachedRequest, invalidateByPrefix, invalidateRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
@@ -140,10 +140,12 @@ function channelRow(row: TunerRow, userAgent: string | undefined): PlaylistChann
   };
 }
 
+// A playlist download owed while playback held the link has landed: the next read streams it again.
+onPlaylistFileRefreshed(() => invalidateByPrefix("tunerGroups:"));
+
 /** Streams one tuner playlist natively and pages its channel rows out of the retained store. */
 async function loadTunerRows(source: PlaylistChannelSource, userAgent: string | undefined): Promise<PlaylistRows> {
-  // The disk cache cannot send a tuner's User-Agent, so such a playlist is fetched natively instead.
-  const fetchUrl = userAgent ? (source.fetchUrl ?? source.url) : await cachedPlaylistFile(source.fetchUrl ?? source.url);
+  const fetchUrl = await cachedPlaylistFile(source.fetchUrl ?? source.url, undefined, userAgent ? { headers: { "User-Agent": userAgent } } : undefined);
   const requestId = `tuner-${++requestSeq}`;
   const playlist = await loadTunerPlaylist(requestId, source.url, userAgent, fetchUrl);
   try {

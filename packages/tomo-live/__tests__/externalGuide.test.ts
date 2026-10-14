@@ -14,9 +14,15 @@ jest.mock("@keiver/tomo-engine", () => ({
 jest.mock("../src/guideFileCache", () => ({
   cachedGuideFile: jest.fn(async () => "file:///guide.xml"),
   clearGuideFileCache: jest.fn(),
+  onGuideFileRefreshed: jest.fn(() => () => {}),
 }));
 
-import { fetchExternalAiring, fetchExternalListingWindow, resetExternalGuide } from "../src/externalGuide";
+import { fetchExternalAiring, fetchExternalListingWindow, guideSourceStatuses, resetExternalGuide } from "../src/externalGuide";
+import { cachedGuideFile, onGuideFileRefreshed } from "../src/guideFileCache";
+import { setPlaybackHold } from "../src/playbackHold";
+
+/** The module's refreshed listener, taken before any clearAllMocks drops the registration call. */
+const guideRefreshed = (onGuideFileRefreshed as jest.Mock).mock.calls[0][0] as (url: string) => void;
 
 const H = 3_600_000;
 const T0 = 1_700_000_000_000;
@@ -54,6 +60,42 @@ it("reopens on the union of the windows, then serves both callers from one guide
   await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
   await fetchExternalListingWindow([URL], CHANNELS, { from: T0 + H, to: T0 + 38 * H });
   expect(loadGuideMock).toHaveBeenCalledTimes(2);
+});
+
+it("reads paused while playback holds the download back, then downloading once it lets go", async () => {
+  let land: ((uri: string) => void) | undefined;
+  (cachedGuideFile as jest.Mock).mockImplementationOnce(() => new Promise((resolve) => (land = resolve)));
+  setPlaybackHold("video", true);
+  const reading = fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  await Promise.resolve();
+  expect(guideSourceStatuses()[URL].state).toBe("paused");
+  setPlaybackHold("video", false);
+  expect(guideSourceStatuses()[URL].state).toBe("downloading");
+  land!("file:///guide.xml");
+  await reading;
+  expect(guideSourceStatuses()[URL].state).toBe("ready");
+});
+
+it("closes a guide opened on an older file once its owed download lands, and the next read reopens it", async () => {
+  await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  expect(loadGuideMock).toHaveBeenCalledTimes(1);
+  guideRefreshed(URL);
+  expect(closeGuideMock).toHaveBeenCalledWith("T1");
+  await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  expect(loadGuideMock).toHaveBeenCalledTimes(2);
+});
+
+it("leaves an open in flight alone when the download it reads lands", async () => {
+  let land: ((uri: string) => void) | undefined;
+  (cachedGuideFile as jest.Mock).mockImplementationOnce(() => new Promise((resolve) => (land = resolve)));
+  const reading = fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  await Promise.resolve();
+  guideRefreshed(URL);
+  land!("file:///guide.xml");
+  await reading;
+  expect(closeGuideMock).not.toHaveBeenCalled();
+  await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  expect(loadGuideMock).toHaveBeenCalledTimes(1);
 });
 
 it("closes the outgoing token only after its last in-flight read ends", async () => {

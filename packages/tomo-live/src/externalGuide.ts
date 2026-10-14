@@ -7,8 +7,9 @@
  * guide covered is not asked again. Every guide reports its own status and what it matched.
  */
 import { closeGuide, engineLog, guideChannels, guideProgrammes, isLiveSourcesAvailable, loadGuide, searchGuide, type GuideProgramme } from "@keiver/tomo-engine";
-import { cachedGuideFile, clearGuideFileCache } from "./guideFileCache";
+import { cachedGuideFile, clearGuideFileCache, onGuideFileRefreshed } from "./guideFileCache";
 import { buildGuideIndex, matchChannels, type GuideChannelRequest, type GuideIndex, type MatchVia } from "./guideMatch";
+import { isPlaybackHeld, onPlaybackHoldChange } from "./playbackHold";
 import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS } from "./time";
 
 /** One load covers this far past the requested end, so window extensions rarely reload. */
@@ -16,7 +17,8 @@ const WINDOW_SLACK_MS = 24 * 60 * 60 * 1000;
 /** A failed guide open is not retried before this passes, or every page fetch re-attempts it. */
 const FAILURE_TTL_MS = 5 * 60 * 1000;
 
-export type GuideSourceState = "waiting" | "downloading" | "reading" | "ready" | "error";
+/** `paused`: its download waits for playback to let go of the link. */
+export type GuideSourceState = "waiting" | "paused" | "downloading" | "reading" | "ready" | "error";
 
 export interface GuideMatch {
   channelId: string;
@@ -153,14 +155,20 @@ export function activeGuideUrls(preferences: { guideUrls: readonly string[]; gui
 }
 
 async function openFromUrl(source: Source, target: { from: number; to: number }): Promise<OpenGuide> {
-  setStatus(source, { state: "downloading", progress: null });
+  const holdState = (): GuideSourceState => (isPlaybackHeld() ? "paused" : "downloading");
+  setStatus(source, { state: holdState(), progress: null });
+  const stopHoldStatus = onPlaybackHoldChange(() => setStatus(source, { state: holdState() }));
   const force = source.force;
   source.force = false;
-  const fileUri = await cachedGuideFile(
-    source.url,
-    ({ bytesWritten, totalBytes }) => setStatus(source, { state: "downloading", progress: totalBytes > 0 ? Math.min(1, bytesWritten / totalBytes) : null }),
-    { force, keep: activeUrls },
-  );
+  let fileUri: string;
+  try {
+    fileUri = await cachedGuideFile(source.url, ({ bytesWritten, totalBytes }) => setStatus(source, { state: holdState(), progress: totalBytes > 0 ? Math.min(1, bytesWritten / totalBytes) : null }), {
+      force,
+      keep: activeUrls,
+    });
+  } finally {
+    stopHoldStatus();
+  }
   setStatus(source, { state: "reading", progress: null });
   // 0: this service closes its own guides, so the native store never evicts one still asked.
   const { token, stats } = await loadGuide(fileUri, target, "external", 0);
@@ -254,6 +262,15 @@ export async function preloadGuide(url: string): Promise<void> {
   const from = guideWindowStart(Date.now());
   await ensureOpen(sourceFor(url), { from, to: from + GUIDE_SPAN_MINUTES * MINUTE_MS }).catch((error) => engineLog().warn("Guide preload failed", error, { service: "ExternalGuide", url }));
 }
+
+// A download owed while playback held the link has landed: the guide open on the older file closes,
+// so the next read opens the new one. An open in flight is reading that download already.
+onGuideFileRefreshed((url) => {
+  const source = sources.get(url);
+  if (!source || source.opening || !source.open) return;
+  close(source);
+  publish();
+});
 
 /** Closes and forgets one guide at once (removed or switched off); its file stays until cleared. */
 export function forgetGuide(url: string): void {

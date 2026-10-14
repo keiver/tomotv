@@ -8,7 +8,7 @@
  * since favorites, health and frame caches key on them.
  */
 import { closePlaylist, engineLog, loadPlaylist, playlistEntries, type PlaylistCatchup, type PlaylistEntry, type PlaylistHeader } from "@keiver/tomo-engine";
-import { cachedPlaylistFile } from "./guideFileCache";
+import { cachedPlaylistFile, onPlaylistFileRefreshed } from "./guideFileCache";
 
 /** Entries per native call when paging a playlist store out to JS: bounds each call's JSI
  *  conversion and JS object materialization, whatever the playlist's size. */
@@ -132,7 +132,7 @@ export function playlistChannelFromEntry(entry: PlaylistEntry, id: string | null
  * and pages out in ENTRY_PAGE chunks, so no single native call carries the whole list.
  */
 export async function enginePlaylistRows(source: PlaylistChannelSource, channelId: (entry: PlaylistEntry, index: number) => string | null): Promise<PlaylistRows> {
-  const fileUri = await cachedPlaylistFile(source.fetchUrl ?? source.url);
+  const fileUri = await cachedPlaylistFile(source.fetchUrl ?? source.url, undefined, { headers: source.headers });
   const { token, header, stats } = await loadPlaylist(fileUri, source.headers ?? {});
   try {
     const rows: PlaylistChannel[] = [];
@@ -220,6 +220,14 @@ function loadSource(record: SourceRecord): Promise<void> {
   record.loading = loading;
   return loading;
 }
+
+// A download owed while playback held the link has landed: rows read from the older file go stale,
+// so the next sync reloads them. A load in flight is reading that download already.
+onPlaylistFileRefreshed((url) => {
+  for (const record of records.values()) {
+    if ((record.source.fetchUrl ?? record.source.url) === url && !record.loading) record.loadedAt = null;
+  }
+});
 
 /**
  * Points the table at these sources: removed ones leave it, new or stale ones load (each at most

@@ -100,6 +100,7 @@
   "liveTv.addGuide": "Guide-URL hinzufügen",
   "liveTv.guideInvalid": "Gib eine http- oder https-Adresse ein",
   "liveTv.guideWaiting": "Lädt, wenn das Fernsehprogramm öffnet",
+  "liveTv.guidePaused": "Während der Wiedergabe pausiert",
   "liveTv.guideDownloadingPercent": "Wird geladen, {percent} %",
   "liveTv.guideOff": "Aus",
   "liveTv.guideMatched": "{matched} von {asked} Kanälen zugeordnet",

@@ -27,6 +27,8 @@ jest.mock("@keiver/tomo-engine", () => ({
 jest.mock("@keiver/tomo-live/src/guideFileCache", () => ({
   cachedGuideFile: jest.fn(async (url: string) => `file:///cache/${encodeURIComponent(url)}`),
   clearGuideFileCache: jest.fn(),
+  onGuideFileRefreshed: jest.fn(() => () => {}),
+  onPlaylistFileRefreshed: jest.fn(() => () => {}),
 }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
