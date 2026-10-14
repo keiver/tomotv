@@ -12,6 +12,7 @@
 - `GuideProgramme` types `episodeNumbers`, `isNew` and `previouslyShown`, which the bridge already sent.
 - A guide or playlist load stops when less than 256 MB is left before the system's memory limit (`os_proc_available_memory`), and fails with a memory error instead of letting the system kill the app. Where no limit is reported (macOS) loads run as before.
 - `loadGuide` stats pass on `footprintBeforeBytes` and `peakFootprintBytes` beside `footprintAfterBytes`.
+- `loadGuide(url, window, pool, maxOpen, channels)`: given the app's channels (`{ tvgId?, tvgName?, names }`), a guide keeps only the programmes of guide channels they pair with, by the three passes of tomo-live's `guideMatch` (any pass, any name). Other programmes are skipped at their opening tag, so their text is never read in. Every channel entry is still kept. The XMLTV DTD lists channels before programmes; a file that lists a channel after programmes skipped for it is read a second time with the full channel list. Stats add `unmatched` (programmes skipped this way) and `passes`.
 - A Matroska seek over FFmpeg's HTTP whose request times out reports success while the read stays on the old connection (`matroska_read_seek` ignores the failed `avio_seek`). The restart, the cue-loading seeks to the start, chapter frames and I-frames repeat such a seek, up to twice, until the read sits on its cue's cluster.
 
 ## 1.1.0

@@ -184,6 +184,66 @@ final class XmltvParserTests: XCTestCase {
         XCTAssertEqual(parser.skipped, 0)
     }
 
+    // MARK: Channel filter
+
+    /// Two channels, two programmes each; only `a.us` is one of the app's channels.
+    private let twoChannels = """
+    <tv><channel id="a.us"><display-name>A</display-name></channel><channel id="b.us"><display-name>B</display-name></channel>\
+    <programme start="20260925010000 +0000" channel="a.us"><title>A one</title></programme>\
+    <programme start="20260925010000 +0000" channel="b.us"><title>B one</title><desc>Long text never read</desc></programme>\
+    <programme start="20260925020000 +0000" channel="a.us"><title>A two</title></programme>\
+    <programme start="20260925020000 +0000" channel="b.us"><title>B two</title></programme></tv>
+    """
+
+    private func parse(_ text: String, filter: GuideChannelFilter) -> (store: GuideStore, parser: XmltvParser) {
+        let store = GuideStore()
+        let parser = XmltvParser(filter: filter)
+        parser.onChannel = { store.add($0) }
+        parser.onProgramme = { store.add($0) }
+        Array(text.utf8).withUnsafeBytes { parser.push($0) }
+        parser.finish()
+        return (store, parser)
+    }
+
+    func testKeepsOnlyProgrammesOfChannelsTheAppHas() {
+        let app = GuideChannelMatcher(requests: [GuideChannelRequest(tvgId: nil, tvgName: nil, names: ["A"])])
+        let (store, parser) = parse(twoChannels, filter: .pairedWith(app))
+        XCTAssertEqual(Fixture.programmes(store, "a.us").map(\.title), ["A one", "A two"])
+        XCTAssertTrue(Fixture.programmes(store, "b.us").isEmpty)
+        // Every channel entry is still kept: they are small, and the app matches against them.
+        XCTAssertEqual(store.channels.map(\.id), ["a.us", "b.us"])
+        XCTAssertEqual(parser.programmes, 2)
+        XCTAssertEqual(parser.unmatched, 2)
+        XCTAssertEqual(parser.unmatchedChannelIds, ["b.us"])
+        XCTAssertNil(parser.channelsListedLate())
+    }
+
+    func testAFixedSetOfChannelIdsKeepsTheirProgrammes() {
+        let (store, parser) = parse(twoChannels, filter: .ids(["b.us"]))
+        XCTAssertEqual(Fixture.programmes(store, "b.us").map(\.title), ["B one", "B two"])
+        XCTAssertTrue(Fixture.programmes(store, "a.us").isEmpty)
+        XCTAssertEqual(parser.unmatched, 2)
+    }
+
+    func testNoFilterKeepsEveryChannelsProgrammes() {
+        let (store, _) = Fixture.parse(twoChannels)
+        XCTAssertEqual(Fixture.programmes(store, "a.us").count, 2)
+        XCTAssertEqual(Fixture.programmes(store, "b.us").count, 2)
+    }
+
+    func testReportsAChannelListedAfterProgrammesThatWereSkippedForIt() {
+        // Against the DTD, b.us's entry comes after its programmes: they were skipped before it was known.
+        let late = """
+        <tv><channel id="a.us"><display-name>A</display-name></channel>\
+        <programme start="20260925010000 +0000" channel="b.us"><title>B one</title></programme>\
+        <channel id="b.us"><display-name>B</display-name></channel>\
+        <programme start="20260925020000 +0000" channel="a.us"><title>A two</title></programme></tv>
+        """
+        let app = GuideChannelMatcher(requests: [GuideChannelRequest(tvgId: nil, tvgName: nil, names: ["B"])])
+        let (_, parser) = parse(late, filter: .pairedWith(app))
+        XCTAssertEqual(parser.channelsListedLate(), ["b.us"])
+    }
+
     func testASkippedProgrammesTextNeverLeaksIntoTheNext() {
         // 03:30 falls only inside the 03:00 to 04:00 programme.
         let (store, _) = Fixture.parse(Array(sample.utf8), window: GuideWindow(from: 1_790_307_000_000, to: 1_790_307_000_000))

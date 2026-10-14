@@ -162,12 +162,22 @@ struct AmpersandEscaper {
     }
 }
 
+/// Which channels' programmes a parse keeps: those the app's channels pair with, worked out from the
+/// channel entries read before the first programme, or a fixed set of guide channel ids.
+enum GuideChannelFilter {
+    case pairedWith(GuideChannelMatcher)
+    case ids(Set<String>)
+}
+
 final class XmltvParser: StreamSink {
     var onChannel: ((GuideChannel) -> Void)?
     var onProgramme: ((GuideProgramme) -> Void)?
     private(set) var channels = 0
     private(set) var programmes = 0
     private(set) var skipped = 0
+    /// Programmes skipped because no app channel pairs with their channel, and those channels' ids.
+    private(set) var unmatched = 0
+    private(set) var unmatchedChannelIds = Set<String>()
     private(set) var errors = 0
 
     private enum Field {
@@ -178,6 +188,11 @@ final class XmltvParser: StreamSink {
     static let fieldCap = 1 << 20
 
     private let window: GuideWindow?
+    private let filter: GuideChannelFilter?
+    /// Every channel entry read, kept only when a filter pairs channels.
+    private var channelEntries: [GuideChannel] = []
+    /// The guide channel ids whose programmes are kept; set at the first programme.
+    private var kept: Set<String>?
     private let sax: UnsafeMutablePointer<xmlSAXHandler>
     private var context: xmlParserCtxtPtr?
     private var head: [UInt8] = []
@@ -193,8 +208,9 @@ final class XmltvParser: StreamSink {
     private var episodeSystem: String?
     private var text: [UInt8] = []
 
-    init(window: GuideWindow? = nil) {
+    init(window: GuideWindow? = nil, filter: GuideChannelFilter? = nil) {
         self.window = window
+        self.filter = filter
         sax = .allocate(capacity: 1)
         sax.initialize(to: xmlSAXHandler())
         sax.pointee.initialized = UInt32(XML_SAX2_MAGIC)
@@ -302,6 +318,13 @@ final class XmltvParser: StreamSink {
                 skipped += 1
                 return
             }
+            // Skipped at the opening tag like an out-of-window programme, so its text is never read in.
+            guard keeps(channelId) else {
+                skipping = true
+                unmatched += 1
+                unmatchedChannelIds.insert(channelId)
+                return
+            }
             programme = GuideProgramme(channel: channelId, start: startMs, stop: stopMs)
         } else if named(name, "channel") {
             channel = GuideChannel(id: attribute("id", count, attributes).map(Self.string) ?? "")
@@ -360,6 +383,7 @@ final class XmltvParser: StreamSink {
         } else if named(name, "channel") {
             if let channel {
                 channels += 1
+                if filter != nil { channelEntries.append(channel) }
                 onChannel?(channel)
             }
             channel = nil
@@ -391,6 +415,28 @@ final class XmltvParser: StreamSink {
         case .ratingValue: if programme?.rating == nil { programme?.rating = value }
         case .none: break
         }
+    }
+
+    // MARK: Channel filter
+
+    /// The XMLTV DTD puts every channel before any programme, so the channels read by the first
+    /// programme are all of them; a file that breaks that order is caught by `channelsListedLate`.
+    private func keeps(_ channelId: String) -> Bool {
+        switch filter {
+        case nil: return true
+        case let .ids(ids): return ids.contains(channelId)
+        case let .pairedWith(matcher):
+            if kept == nil { kept = matcher.pairedIds(channelEntries) }
+            return kept!.contains(channelId)
+        }
+    }
+
+    /// After the parse: when a channel whose programmes were skipped turns out to pair with an app
+    /// channel (its entry came after programmes), every paired id, for a second read; nil otherwise.
+    func channelsListedLate() -> Set<String>? {
+        guard case let .pairedWith(matcher) = filter, !unmatchedChannelIds.isEmpty else { return nil }
+        let paired = matcher.pairedIds(channelEntries)
+        return paired.isDisjoint(with: unmatchedChannelIds) ? nil : paired
     }
 
     // MARK: Helpers

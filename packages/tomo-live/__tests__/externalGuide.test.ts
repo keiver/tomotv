@@ -24,6 +24,7 @@ jest.mock("../src/guideFileCache", () => ({
 import { fetchExternalAiring, fetchExternalListingWindow, guideSourceStatuses, resetExternalGuide, subscribeGuideRefreshed } from "../src/externalGuide";
 import { cachedGuideFile, onGuideFileRefreshed, PlaybackHoldError } from "../src/guideFileCache";
 import { setPlaybackHold } from "../src/playbackHold";
+import { configureLive, type GuideChannelCandidate } from "../src/config";
 import { AppState } from "react-native";
 
 /** The tvOS memory warnings the module listens for; kept here because clearAllMocks drops recorded calls. */
@@ -230,4 +231,55 @@ it("keeps the open guide serving covered windows when a wider reopen fails", asy
   const { listings } = await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
   expect(listings).toHaveLength(1);
   expect(closeGuideMock).not.toHaveBeenCalledWith("T1");
+});
+
+describe("keeping only the app's channels", () => {
+  let appChannels: GuideChannelCandidate[] | null = null;
+  const provider = jest.fn(async () => appChannels);
+  beforeEach(() => {
+    appChannels = [{ channelId: "c1", tvgId: "g1", names: ["News One", "News 1"] }];
+    configureLive({ channels: {} as never, guideChannels: provider });
+  });
+  afterAll(() => configureLive({ channels: {} as never }));
+
+  it("sends the app's channels with every name to the native load", async () => {
+    await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+    expect(loadGuideMock.mock.calls[0][4]).toEqual([{ tvgId: "g1", tvgName: undefined, names: ["News One", "News 1"] }]);
+  });
+
+  it("keeps every channel when the app gives no list, or its list cannot be read", async () => {
+    appChannels = null;
+    await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+    expect(loadGuideMock.mock.calls[0][4]).toBeUndefined();
+    resetExternalGuide();
+    provider.mockRejectedValueOnce(new Error("lineup down"));
+    await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+    expect(loadGuideMock.mock.calls[1][4]).toBeUndefined();
+  });
+
+  it("serves a channel on the list from the open guide, under any of its names", async () => {
+    await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+    await fetchExternalListingWindow([URL], [{ channelId: "c1", tvgId: "g1", name: "News 1" }], { from: T0, to: T0 + 6 * H });
+    expect(loadGuideMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the guide again for a channel the list lacks, and keeps that channel in every later load", async () => {
+    await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+    const extra = { channelId: "c9", name: "Late Show" };
+    await fetchExternalListingWindow([URL], [extra], { from: T0, to: T0 + 6 * H });
+    expect(loadGuideMock).toHaveBeenCalledTimes(2);
+    expect(loadGuideMock.mock.calls[1][4]).toContainEqual({ tvgId: undefined, tvgName: undefined, names: ["Late Show"] });
+    // Asking for either channel again is served by the open guide.
+    await fetchExternalListingWindow([URL], [...CHANNELS, extra], { from: T0, to: T0 + 6 * H });
+    expect(loadGuideMock).toHaveBeenCalledTimes(2);
+    // A wider window loads again and still keeps the extra channel.
+    await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 48 * H });
+    expect(loadGuideMock.mock.calls[2][4]).toContainEqual({ tvgId: undefined, tvgName: undefined, names: ["Late Show"] });
+  });
+
+  it("opens the guide again for a name the list does not carry for a known channel", async () => {
+    await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+    await fetchExternalListingWindow([URL], [{ channelId: "c1", name: "News One East" }], { from: T0, to: T0 + 6 * H });
+    expect(loadGuideMock).toHaveBeenCalledTimes(2);
+  });
 });

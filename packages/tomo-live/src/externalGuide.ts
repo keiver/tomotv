@@ -7,6 +7,7 @@
  * guide covered is not asked again. Every guide reports its own status and what it matched.
  */
 import { closeGuide, engineLog, guideChannels, guideProgrammes, isLiveSourcesAvailable, loadGuide, searchGuide, type GuideProgramme } from "@keiver/tomo-engine";
+import { liveGuideChannels, type GuideChannelCandidate } from "./config";
 import { cachedGuideFile, clearGuideFileCache, guideFileInfo, onGuideFileRefreshed, PlaybackHoldError } from "./guideFileCache";
 import { buildGuideIndex, matchChannels, type GuideChannelRequest, type GuideIndex, type MatchVia } from "./guideMatch";
 import { isPlaybackHeld, onPlaybackHoldChange } from "./playbackHold";
@@ -51,6 +52,8 @@ interface OpenGuide {
   index: GuideIndex;
   /** When the file it was parsed from was saved: a newer file on disk reopens the guide. */
   savedAt: number;
+  /** The channels it kept programmes for; a read asking about another reopens it. */
+  coverage: Coverage;
   /** Reads in flight on this token; a retired guide closes when the last one ends. */
   readers: number;
   retired: boolean;
@@ -69,8 +72,48 @@ interface Source {
   downloadAfterPlayback: boolean;
   /** Channel name by id. */
   asked: Map<string, string>;
+  /** Requests this guide was asked that the app's channel list lacks, kept for every later load. */
+  extras: GuideChannelCandidate[];
+  extraKeys: Set<string>;
   matched: Map<string, GuideMatch>;
   status: GuideSourceStatus;
+}
+
+/** Each channel a guide kept programmes for, with the tvg keys and names it paired by; null keeps every channel. */
+type Coverage = Map<string, { tvgIds: Set<string>; tvgNames: Set<string>; names: Set<string> }> | null;
+
+function coverageOf(list: readonly GuideChannelCandidate[]): NonNullable<Coverage> {
+  const coverage: NonNullable<Coverage> = new Map();
+  for (const candidate of list) {
+    let entry = coverage.get(candidate.channelId);
+    if (!entry) coverage.set(candidate.channelId, (entry = { tvgIds: new Set(), tvgNames: new Set(), names: new Set() }));
+    if (candidate.tvgId) entry.tvgIds.add(candidate.tvgId);
+    if (candidate.tvgName) entry.tvgNames.add(candidate.tvgName);
+    for (const name of candidate.names) if (name) entry.names.add(name);
+  }
+  return coverage;
+}
+
+/** Each matching pass reads one field, so a request is covered when every field it has was in the list. */
+function requestCovered(coverage: Coverage, request: GuideChannelRequest): boolean {
+  if (!coverage) return true;
+  const entry = coverage.get(request.channelId);
+  return !!entry && (!request.tvgId || entry.tvgIds.has(request.tvgId)) && (!request.tvgName || entry.tvgNames.has(request.tvgName)) && (!request.name || entry.names.has(request.name));
+}
+
+/** The app's channels whose programmes a load keeps, plus what this source was asked beyond them; null keeps every channel. */
+async function channelsToKeep(source: Source, asked: readonly GuideChannelRequest[]): Promise<GuideChannelCandidate[] | null> {
+  const provider = liveGuideChannels();
+  const all = provider ? await provider().catch(() => null) : null;
+  if (!all || all.length === 0) return null;
+  const listed = coverageOf(all);
+  for (const request of asked) {
+    const key = [request.channelId, request.tvgId ?? "", request.tvgName ?? "", request.name].join("\u0000");
+    if (requestCovered(listed, request) || source.extraKeys.has(key)) continue;
+    source.extraKeys.add(key);
+    source.extras.push({ channelId: request.channelId, tvgId: request.tvgId, tvgName: request.tvgName, names: request.name ? [request.name] : [] });
+  }
+  return [...all, ...source.extras];
 }
 
 const sources = new Map<string, Source>();
@@ -107,6 +150,8 @@ function sourceFor(url: string): Source {
       epoch: 0,
       downloadAfterPlayback: false,
       asked: new Map(),
+      extras: [],
+      extraKeys: new Set(),
       matched: new Map(),
       status: { url, state: "waiting", progress: null, channels: null, programmes: null, loadedAt: null, asked: 0, matched: [], unmatched: [] },
     };
@@ -165,7 +210,7 @@ function fileSavedAt(url: string): number {
   return guideFileInfo(url)?.savedAt ?? 0;
 }
 
-async function openFromUrl(source: Source, target: { from: number; to: number }): Promise<OpenGuide> {
+async function openFromUrl(source: Source, target: { from: number; to: number }, asked: readonly GuideChannelRequest[]): Promise<OpenGuide> {
   setStatus(source, { state: "downloading", progress: null });
   const force = source.force;
   source.force = false;
@@ -177,8 +222,10 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
   setStatus(source, { state: "reading", progress: null });
   // Read before the parse: a new file arriving meanwhile can cost one extra reopen, never a stale guide.
   const savedAt = fileSavedAt(source.url);
+  const keep = await channelsToKeep(source, asked);
+  const channelsSent = keep?.map(({ tvgId, tvgName, names }) => ({ tvgId, tvgName, names }));
   // 0: this service closes its own guides, so the native store never evicts one still asked.
-  const { token, stats } = await loadGuide(fileUri, target, "external", 0);
+  const { token, stats } = await loadGuide(fileUri, target, "external", 0, channelsSent);
   try {
     const channels = await guideChannels(token);
     // The device-measurement line: parse and pre-fold cost, and app memory before, at the peak and after,
@@ -194,9 +241,12 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
       footprintBeforeBytes: stats?.footprintBeforeBytes ?? null,
       peakFootprintBytes: stats?.peakFootprintBytes ?? null,
       footprintAfterBytes: stats?.footprintAfterBytes ?? null,
+      appChannels: keep?.length ?? null,
+      unmatchedSkipped: stats?.unmatched ?? null,
+      passes: stats?.passes ?? null,
     });
     setStatus(source, { state: "ready", channels: stats?.channels ?? channels.length, programmes: stats?.programmes ?? null, loadedAt: Date.now() });
-    return { token, from: target.from, to: target.to, index: buildGuideIndex(channels), savedAt, readers: 0, retired: false };
+    return { token, from: target.from, to: target.to, index: buildGuideIndex(channels), savedAt, coverage: keep ? coverageOf(keep) : null, readers: 0, retired: false };
   } catch (error) {
     closeGuide(token).catch(() => {});
     throw error;
@@ -217,9 +267,10 @@ function wireMemoryWarning(): void {
   });
 }
 
-async function ensureOpen(source: Source, windowMs: { from: number; to: number }): Promise<OpenGuide> {
+async function ensureOpen(source: Source, windowMs: { from: number; to: number }, asked: readonly GuideChannelRequest[]): Promise<OpenGuide> {
   wireMemoryWarning();
-  const covers = (guide: OpenGuide | null): guide is OpenGuide => !!guide && guide.from <= windowMs.from && guide.to >= windowMs.to && guide.savedAt === fileSavedAt(source.url);
+  const covers = (guide: OpenGuide | null): guide is OpenGuide =>
+    !!guide && guide.from <= windowMs.from && guide.to >= windowMs.to && guide.savedAt === fileSavedAt(source.url) && asked.every((request) => requestCovered(guide.coverage, request));
   const startsBefore = (guide: OpenGuide | null) => guide !== null && windowMs.from < guide.from;
   if (covers(source.open)) return source.open;
   // Waits out every open in flight, so two callers never each open one and orphan the other's handle.
@@ -240,7 +291,7 @@ async function ensureOpen(source: Source, windowMs: { from: number; to: number }
   const epoch = source.epoch;
   const opening = (async () => {
     try {
-      const guide = await openFromUrl(source, target);
+      const guide = await openFromUrl(source, target, asked);
       // A reset, removal or refresh while this loaded retired it: its guide goes with it.
       if (sources.get(source.url) !== source || source.epoch !== epoch) {
         closeGuide(guide.token).catch(() => {});
@@ -289,7 +340,7 @@ function prune(urls: readonly string[]): void {
 export async function preloadGuide(url: string): Promise<void> {
   if (!isLiveSourcesAvailable()) return;
   const from = guideWindowStart(Date.now());
-  await ensureOpen(sourceFor(url), { from, to: from + GUIDE_SPAN_MINUTES * MINUTE_MS }).catch((error) => {
+  await ensureOpen(sourceFor(url), { from, to: from + GUIDE_SPAN_MINUTES * MINUTE_MS }, []).catch((error) => {
     if (!(error instanceof PlaybackHoldError)) engineLog().warn("Guide preload failed", error, { service: "ExternalGuide", url });
   });
 }
@@ -407,7 +458,7 @@ export async function fetchExternalListingWindow(
         if (!open || open.from > windowMs.from || open.to < windowMs.to) continue;
         guide = open;
       } else {
-        guide = await ensureOpen(source, windowMs);
+        guide = await ensureOpen(source, windowMs, remaining);
       }
       const matches = matchFor(guide, remaining);
       attempted = Array.from(matches.keys());
@@ -476,7 +527,7 @@ export async function searchExternalListings(
     const source = sourceFor(url);
     let guide: OpenGuide | null = null;
     try {
-      guide = await ensureOpen(source, windowMs);
+      guide = await ensureOpen(source, windowMs, remaining);
       const matches = matchFor(guide, remaining);
       if (matches.size === 0) continue;
       const byGuideId = new Map<string, string[]>();

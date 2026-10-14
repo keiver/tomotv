@@ -114,7 +114,8 @@ describe("fetchExternalPrograms", () => {
       WINDOW,
     );
     // The native parser reads the cached file, never the network URL, and this service owns its closing.
-    expect(native.loadGuide).toHaveBeenCalledWith(FILE, { from: WINDOW.from, to: WINDOW.to + DAY }, "external", 0);
+    // No channel list is configured here, so every channel's programmes are kept.
+    expect(native.loadGuide).toHaveBeenCalledWith(FILE, { from: WINDOW.from, to: WINDOW.to + DAY }, "external", 0, undefined);
     expect(native.guideProgrammes).toHaveBeenCalledWith("tok-1", ["A.us@SD", "A.us@HD", "B.us@HD"], WINDOW);
     expect(programs.map((program) => [program.ChannelId, program.Name])).toEqual([
       ["c1", "Show"],
@@ -215,7 +216,7 @@ describe("fetchExternalPrograms", () => {
     const later = { from: WINDOW.from + 3 * DAY, to: WINDOW.from + 3 * DAY + SPAN };
     await fetchExternalPrograms([URL], channels, later);
     await fetchExternalPrograms([URL], channels, { from: later.from - SPAN, to: later.from });
-    expect(native.loadGuide).toHaveBeenLastCalledWith(FILE, { from: later.from - SPAN - DAY, to: later.to + DAY }, "external", 0);
+    expect(native.loadGuide).toHaveBeenLastCalledWith(FILE, { from: later.from - SPAN - DAY, to: later.to + DAY }, "external", 0, undefined);
     await fetchExternalPrograms([URL], channels, { from: later.from - 2 * SPAN, to: later.from - SPAN });
     expect(native.loadGuide).toHaveBeenCalledTimes(2);
   });

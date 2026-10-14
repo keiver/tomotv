@@ -29,6 +29,17 @@ export interface GuideLoadStats {
   footprintBeforeBytes?: number;
   peakFootprintBytes?: number;
   footprintAfterBytes?: number;
+  /** Programmes skipped because none of the app's channels pairs with their channel. */
+  unmatched?: number;
+  /** 2 when a channel entry came after programmes and the guide was read again. */
+  passes?: number;
+}
+
+/** One of the app's channels, with every name the app may ask a guide about it by. */
+export interface GuideChannelNames {
+  tvgId?: string;
+  tvgName?: string;
+  names: string[];
 }
 
 export interface GuideProgramme {
@@ -60,9 +71,23 @@ export interface GuideChannel {
 /**
  * Streams the XMLTV at `url` (http(s) or file) into a native store held to the window. `pool` scopes
  * eviction to its own guides; `maxOpen` 0 leaves closing to the caller, which keeps its own use order.
+ * With `channels`, only programmes of the guide channels they pair with are kept (guideMatch's passes).
  */
-export async function loadGuide(url: string, windowMs: { from: number; to: number }, pool: "external", maxOpen?: number): Promise<{ token: string; stats: GuideLoadStats | null }> {
-  const result = (await liveSourcesModule().loadGuide({ url, from: windowMs.from, to: windowMs.to, pool, ...(maxOpen !== undefined ? { maxOpen } : {}) })) as {
+export async function loadGuide(
+  url: string,
+  windowMs: { from: number; to: number },
+  pool: "external",
+  maxOpen?: number,
+  channels?: readonly GuideChannelNames[],
+): Promise<{ token: string; stats: GuideLoadStats | null }> {
+  const result = (await liveSourcesModule().loadGuide({
+    url,
+    from: windowMs.from,
+    to: windowMs.to,
+    pool,
+    ...(maxOpen !== undefined ? { maxOpen } : {}),
+    ...(channels && channels.length > 0 ? { channels } : {}),
+  })) as {
     token?: unknown;
     stats?: {
       channels?: unknown;
@@ -73,6 +98,8 @@ export async function loadGuide(url: string, windowMs: { from: number; to: numbe
       footprintBeforeBytes?: unknown;
       peakFootprintBytes?: unknown;
       footprintAfterBytes?: unknown;
+      unmatched?: unknown;
+      passes?: unknown;
     };
   } | null;
   if (typeof result?.token !== "string") throw new Error("The live source module returned no guide.");
@@ -91,6 +118,8 @@ export async function loadGuide(url: string, windowMs: { from: number; to: numbe
             footprintBeforeBytes: extra(stats.footprintBeforeBytes),
             peakFootprintBytes: extra(stats.peakFootprintBytes),
             footprintAfterBytes: extra(stats.footprintAfterBytes),
+            unmatched: extra(stats.unmatched),
+            passes: extra(stats.passes),
           }
         : null,
   };

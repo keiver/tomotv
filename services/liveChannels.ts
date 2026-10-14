@@ -1,5 +1,5 @@
 /** Tomo's channels as @keiver/tomo-live reads them: Jellyfin resolution and opens, and the engine session mapping. */
-import { closeLiveStream, openChannel, resolveChannel, resolveChannelOrigin, resolveChannelWithoutOpen } from "@/services/jellyfinApi";
+import { closeLiveStream, guideChannelCandidates, openChannel, resolveChannel, resolveChannelOrigin, resolveChannelWithoutOpen } from "@/services/jellyfinApi";
 import { getLiveTvPreferences, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
 import { canRemuxLocally, startLocalRemux } from "@/services/localRemux";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -28,4 +28,6 @@ configureLive<JellyfinVideoItem>({
       });
     },
   },
+  // A guide keeps programmes only for the channels the server and the tuner playlists carry.
+  guideChannels: () => guideChannelCandidates(),
 });

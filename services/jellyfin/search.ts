@@ -20,6 +20,7 @@ import { activeGuideUrls, searchExternalPrograms } from "@/services/externalGuid
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
 import { liveTvSearchHorizon, liveTvSearchIndex, liveTvSearchIndexVersion } from "./liveTvSearchIndex";
+import { allPlaylistChannelIds, playlistChannelById, type GuideChannelCandidate } from "@keiver/tomo-live";
 
 /**
  * Parse year(s) from search query
@@ -570,6 +571,28 @@ async function fetchAiringPrograms(config: JellyfinConfig): Promise<JellyfinVide
     },
     CACHE.LIVE_AIRING_TTL_MS,
   );
+}
+
+/**
+ * Every channel the guide sources can be asked about, with every name a screen asks by: the server
+ * lineup's name, the tuner playlist row's name and tvg-name, and the tvg keys. A guide keeps only these
+ * channels' programmes. Null when the lineup cannot be read, so a guide keeps every channel instead.
+ */
+export async function guideChannelCandidates(): Promise<GuideChannelCandidate[] | null> {
+  const config = await getConfig();
+  if (!config.server || !config.userId) return null;
+  const data: Pick<TunerData, "tvgById" | "tvgNameById"> = (await fetchTunerData().catch(() => null)) ?? { tvgById: {}, tvgNameById: {} };
+  // The same read and key search uses, so the two share one fetch.
+  const lineup = await cachedRequest(`liveChannelNames:${config.server}:${config.userId}`, () => fetchChannelOrder(), CACHE.LIVE_AIRING_TTL_MS).catch(() => null);
+  if (!lineup) return null;
+  const lineupNames = new Map(lineup.map((channel) => [channel.Id, channel.Name ?? ""]));
+  const ids = new Set([...lineupNames.keys(), ...Object.keys(data.tvgById), ...Object.keys(data.tvgNameById), ...allPlaylistChannelIds()]);
+  return [...ids].map((channelId) => ({
+    channelId,
+    tvgId: data.tvgById[channelId],
+    tvgName: data.tvgNameById[channelId],
+    names: [...new Set([lineupNames.get(channelId), playlistChannelById(channelId)?.name, data.tvgNameById[channelId]].filter((name): name is string => !!name))],
+  }));
 }
 
 /**

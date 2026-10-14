@@ -30,6 +30,16 @@ final class GuideStore {
         lock.unlock()
     }
 
+    /// Empties the store for a second read of the same guide.
+    func removeAll() {
+        lock.lock()
+        channelList = []
+        byChannel = [:]
+        sorted = true
+        searchText = [:]
+        lock.unlock()
+    }
+
     var channels: [GuideChannel] {
         lock.lock()
         defer { lock.unlock() }

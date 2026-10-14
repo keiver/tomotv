@@ -175,7 +175,7 @@ export {
   fetchVideoDetails,
 } from "./jellyfin/items";
 export { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "./jellyfin/facets";
-export { searchLiveTv, searchVideos, warmLiveTvSearch } from "./jellyfin/search";
+export { guideChannelCandidates, searchLiveTv, searchVideos, warmLiveTvSearch } from "./jellyfin/search";
 export { invalidateLiveTvSearchIndex, liveTvSearchIndexVersion, subscribeLiveTvSearchIndex } from "./jellyfin/liveTvSearchIndex";
 
 export { markItemPlayed, setVideoFavorite, setVideoPlayed } from "./jellyfin/userData";
