@@ -74,6 +74,8 @@ final class FrameGrabber {
     private var openFailed = false
     /// The container and its streams were read, whether or not a video stream was in them.
     private(set) var sourceOpened = false
+    /// The source opened and listed no streams at all, as an HLS playlist with no segments does.
+    private(set) var sourceEmpty = false
     /// The live input stopped delivering packets before cancellation, rather than a sampling limit.
     private(set) var liveReadEnded = false
     /// Off for a live read opened beside another on an origin whose limit is unknown: a kick then ends the read.
@@ -512,6 +514,12 @@ final class FrameGrabber {
             return false
         }
         sourceOpened = true
+        guard opened.pointee.nb_streams > 0 else {
+            sourceEmpty = true
+            openFailure = "no streams in the source"
+            avformat_close_input(&closing)
+            return false
+        }
 
         let index = av_find_best_stream(opened, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
         guard index >= 0, let stream = opened.pointee.streams[Int(index)], let params = stream.pointee.codecpar,

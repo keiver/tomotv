@@ -1,7 +1,7 @@
 /**
  * Channel health, fed entirely by the frame sampler's own outcomes: a burst marks a channel
- * alive, and an origin open refused with an HTTP error status strikes it, twice for a down
- * verdict. Nothing here touches the network, so health never competes with a grab for the
+ * alive, and an origin refusing with an HTTP error status or serving no streams strikes it,
+ * twice for a down verdict. Nothing here touches the network, so health never competes with a grab for the
  * link or a provider's connection slot. Server-carried channels stay unknown until the server
  * refuses one no tuner carries.
  */
@@ -49,9 +49,7 @@ export function noteChannelAlive(channelId: string): void {
   if (was !== "up") notify(channelId);
 }
 
-/** A grab's origin open was refused; only the origin's own HTTP error words count. */
-export function noteChannelOpenFailure(channelId: string, failure?: string): void {
-  if (!failure || !DEFINITIVE.test(failure)) return;
+function strike(channelId: string, failure: string): void {
   const item = entry(channelId);
   item.strikes += 1;
   if (item.strikes >= HEALTH_STRIKES && item.verdict !== "down") {
@@ -59,6 +57,16 @@ export function noteChannelOpenFailure(channelId: string, failure?: string): voi
     engineLog().debug("Channel judged down by its origin", { service: "ChannelHealth", channelId, failure });
     notify(channelId);
   }
+}
+
+/** A grab's origin open was refused; only the origin's own HTTP error words count. */
+export function noteChannelOpenFailure(channelId: string, failure?: string): void {
+  if (failure && DEFINITIVE.test(failure)) strike(channelId, failure);
+}
+
+/** The origin opened and listed no streams: a playlist with no segments in it. */
+export function noteChannelEmpty(channelId: string): void {
+  strike(channelId, "no streams in the source");
 }
 
 /** The server lists the channel but no tuner carries it, and its open was refused: down at once. */

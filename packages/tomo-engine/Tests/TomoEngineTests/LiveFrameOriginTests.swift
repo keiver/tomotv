@@ -55,6 +55,9 @@ final class LiveFrameOriginTests: XCTestCase {
                 line["outcome"] = opened ? "frame" : "open"
                 line["failure"] = failure ?? ""
                 if !expectFail { XCTFail("run \(run): no frame, opened=\(opened), \(failure ?? "")") }
+            case .empty?:
+                line["outcome"] = "empty"
+                if !expectFail { XCTFail("run \(run): the source listed no streams") }
             default:
                 line["outcome"] = "cancelled"
                 XCTFail("run \(run): cancelled")

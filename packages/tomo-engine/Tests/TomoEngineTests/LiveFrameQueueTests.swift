@@ -542,6 +542,53 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 6, "the deadline bounds the grab, not rw_timeout")
     }
 
+    /// A playlist with no segments, as an origin serves a channel it will not play here.
+    private func emptyPlaylist(_ root: URL) throws -> URL {
+        let file = root.appendingPathComponent("empty.m3u8")
+        try "#EXTM3U\n#EXT-X-VERSION:5\n#EXT-X-TARGETDURATION:5\n#EXT-X-ENDLIST\n".write(to: file, atomically: true, encoding: .utf8)
+        return file
+    }
+
+    func testAPlaylistWithNoSegmentsAnswersEmpty() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .empty? = settle(queue, "chan-empty", try emptyPlaylist(root).absoluteString) else {
+            return XCTFail("an empty playlist answers empty")
+        }
+    }
+
+    func testAnAudioOnlySourceIsNotEmpty() throws {
+        let audio = try fixture("live-audio.ts", ["-f", "lavfi", "-i", "sine=frequency=440:duration=5", "-c:a", "aac"])
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+
+        guard case .none(let opened, _)? = settle(queue, "chan-radio", audio.absoluteString) else {
+            return XCTFail("a source with streams but no video answers none")
+        }
+        XCTAssertTrue(opened)
+    }
+
+    func testAFailedServerFallbackReportsTheOriginsOwnFailure() throws {
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        let done = XCTestExpectation(description: "frame")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "chan-both", inputUrl: "file:///nonexistent/live.ts", headers: [:], deadline: 8,
+                      fallbackUrl: try emptyPlaylist(root).absoluteString) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 15)
+
+        guard case .none(let opened, let failure)? = outcome else { return XCTFail("neither read gives a frame") }
+        XCTAssertFalse(opened)
+        XCTAssertTrue(failure?.hasPrefix("open: ") == true, "the origin's failure, not the fallback's: \(failure ?? "nil")")
+    }
+
     func testRefusesAChannelIdThatIsNotAPlainToken() {
         let queue = LiveFrameQueue()
         var outcome: LiveFrameQueue.Outcome?

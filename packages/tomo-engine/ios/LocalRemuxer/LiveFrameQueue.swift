@@ -64,6 +64,8 @@ final class LiveFrameQueue {
         case unchanged(onDisk: Bool)
         /// Nothing came: `opened` false when the source would not even open, `failure` its words.
         case none(opened: Bool, failure: String?)
+        /// The source opened and listed no streams: an origin serving nothing, judged by channel health.
+        case empty
         case cancelled
     }
 
@@ -136,6 +138,8 @@ final class LiveFrameQueue {
             // Only the origin's own answers teach its budget; the server's copy says nothing of it.
             let originRefused = !grabber.sourceOpened && (grabber.openFailure.map { failure in
                 ["Server returned 401", "Server returned 403", "Server returned 4XX"].contains(where: failure.contains) } ?? false)
+            // Channel health judges the origin by its own failure, never by the server copy's.
+            let origin = (opened: grabber.sourceOpened, failure: grabber.openFailure, url: grabber.openedUrl ?? inputUrl)
             var fellBack = false
             if case .none = result, !grabber.sourceOpened, let fallbackUrl, !fallbackUrl.isEmpty, fallbackUrl != inputUrl, left > 1, !isCancelled(channelId) {
                 grabber.stop()
@@ -197,9 +201,12 @@ final class LiveFrameQueue {
                 if originRefused {
                     LiveConnectionBroker.shared.noteRefusal(of: lease)
                 }
-                NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@", channelId, elapsed, grabber.sourceOpened ? 1 : 0,
-                                                 grabber.openFailure ?? "no keyframe", grabber.openedUrl ?? inputUrl))
-                outcome = .none(opened: grabber.sourceOpened, failure: grabber.openFailure)
+                let judged = fellBack ? origin : (opened: grabber.sourceOpened, failure: grabber.openFailure, url: grabber.openedUrl ?? inputUrl)
+                NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@%@", channelId, elapsed, judged.opened ? 1 : 0,
+                                                 judged.failure ?? "no keyframe", judged.url,
+                                                 fellBack ? " fallback: \(grabber.openFailure ?? "no keyframe")" : ""))
+                // A fallback runs only when the origin did not open, so an empty answer is always the origin's own.
+                outcome = !fellBack && grabber.sourceEmpty ? .empty : .none(opened: judged.opened, failure: judged.failure)
             }
         }
     }

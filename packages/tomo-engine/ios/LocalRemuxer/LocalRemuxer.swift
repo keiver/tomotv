@@ -640,7 +640,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval, clipSpan (seconds),
     /// count, shownPts, shownUri. Each burst frame is announced as `onLiveFrame` while the burst is read.
-    /// Resolves `{uris, clip, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open` or `frame`.
+    /// Resolves `{uris, clip, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open`, `frame`, or `empty` (opened, no streams).
     @objc func liveFrame(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -676,6 +676,7 @@ class LocalRemuxer: RCTEventEmitter {
             case .none(let opened, let failure):
                 let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
                 resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed])
+            case .empty: resolve(["uris": [], "cancelled": false, "reason": "empty"])
             case .cancelled: resolve(["uris": [], "cancelled": true])
             }
         }
