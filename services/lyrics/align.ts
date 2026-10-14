@@ -18,8 +18,8 @@ export const LINE_TIMING_SHARE = 0.65;
 /** A whole-song shift is applied from this size, and only when the lines agree on it this closely. */
 export const OFFSET_MIN_SECONDS = 0.5;
 export const OFFSET_RESIDUAL_SECONDS = 0.6;
-/** Heard words a minute below which a song is treated as having no lyrics to generate. */
-export const GENERATED_WORDS_PER_MINUTE = 80;
+/** Heard words a minute below which a song is treated as having no singing to generate lyrics from. */
+export const GENERATED_WORDS_PER_MINUTE = 10;
 const GENERATED_PAUSE_SECONDS = 0.7;
 const GENERATED_LINE_WORDS = 10;
 

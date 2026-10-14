@@ -197,8 +197,12 @@ describe("generatedLyrics", () => {
     Array.from({ length: count }, (_, i) => ({ start: i * 0.4 + Math.floor(i / gapEvery), end: i * 0.4 + Math.floor(i / gapEvery) + 0.3, text: `word${i}` }));
 
   it("is null for a song with few words", () => {
-    expect(generatedLyrics(spoken(20, 5), 120)).toBeNull();
+    expect(generatedLyrics(spoken(15, 5), 120)).toBeNull();
     expect(generatedLyrics(spoken(20, 5), 0)).toBeNull();
+  });
+
+  it("writes lyrics for a sparse song at ten words a minute", () => {
+    expect(generatedLyrics(spoken(40, 5), 240)?.lines).toHaveLength(8);
   });
 
   it("cuts lines at pauses and times every word", () => {
