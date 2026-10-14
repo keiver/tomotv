@@ -8,6 +8,8 @@ import { cachedRequest } from "@/services/requestCache";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
+import { originKeyOf } from "./liveInput";
+import { plutoStreamUrl } from "./plutoSession";
 import { getAuthHeader, getConfig } from "./session";
 import { fetchTunerData, tunerDataSettled } from "./tunerGroups";
 
@@ -88,10 +90,16 @@ export function standInPlayable(row: PlaylistChannel): JellyfinVideoItem {
   };
 }
 
+/** The row with the link this device reads: a Pluto link moves to this device's session and its host. */
+export async function sessionRow(row: PlaylistChannel): Promise<PlaylistChannel> {
+  const streamUrl = await plutoStreamUrl(row.streamUrl);
+  return streamUrl === row.streamUrl ? row : { ...row, streamUrl, originKey: originKeyOf(streamUrl) };
+}
+
 /** The channel as the engine plays it off the playlist, or null when nothing may stand in for the id. */
 export async function playlistPlayable(channelId: string): Promise<JellyfinVideoItem | null> {
   const row = await playlistStandIn(channelId);
-  return row ? standInPlayable(row) : null;
+  return row ? standInPlayable(await sessionRow(row)) : null;
 }
 
 /**
