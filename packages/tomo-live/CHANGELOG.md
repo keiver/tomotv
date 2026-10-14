@@ -11,6 +11,7 @@
 - On a memory warning every open guide is closed (one being read closes when the read ends) and opens again at the next read. The "External guide loaded" log line adds app memory before the load and at its peak.
 - `configureLive({ guideChannels })`: the app lists every channel it can ask a guide about (`GuideChannelCandidate`: `channelId`, tvg keys, and every name it asks by), and a guide keeps only those channels' programmes. A read asking about a channel or name the list lacks opens the guide again with it added, and later loads keep it. Without the list, or when it answers null, a guide keeps every channel. The log line adds `appChannels`, `unmatchedSkipped` and `passes`.
 - `expo-file-system` 56.0.0 or later, for `File.createDownloadTask`.
+- `@keiver/tomo-engine` 1.2.0 or later, for `loadGuide`'s channel list and its memory figures.
 
 ## 1.2.0
 
