@@ -8,7 +8,7 @@ import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 
 const DIRECTORY = "lyrics";
-const VERSION = 3;
+const VERSION = 4;
 /** A song found to have no lyrics is asked about again after this long. */
 export const MISS_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
