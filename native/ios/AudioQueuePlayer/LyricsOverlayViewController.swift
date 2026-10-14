@@ -18,15 +18,10 @@ final class LyricsOverlayViewController: UIViewController {
     var onVisibilityChange: ((Bool) -> Void)?
 
     private let list = LyricsListView()
-    private let scrim = UIView()
 
+    /// No backdrop of its own: AVKit draws the panel's rounded surface.
     override func viewDidLoad() {
         super.viewDidLoad()
-        scrim.backgroundColor = UIColor(white: 0, alpha: 0.72)
-        scrim.frame = view.bounds
-        scrim.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(scrim)
-
         list.showsTimes = true
         list.onSelect = { [weak self] seconds in self?.onSelect?(seconds) }
         list.translatesAutoresizingMaskIntoConstraints = false
