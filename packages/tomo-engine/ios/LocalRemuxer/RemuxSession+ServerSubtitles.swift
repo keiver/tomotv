@@ -69,21 +69,31 @@ extension RemuxSession {
     }
 
     private func fetchServerCues(streamIndex: Int, url: URL) {
-        var task: URLSessionDataTask?
-        task = URLSession.shared.dataTask(with: URLRequest(url: url, timeoutInterval: 30)) { [weak self] data, response, _ in
+        DispatchQueue.global(qos: .utility).async { [weak self, transfers] in
+            let semaphore = DispatchSemaphore(value: 0)
+            let resultLock = NSLock()
+            var body: Data?
+            var ok = false
+            let task = URLSession.shared.dataTask(with: URLRequest(url: url, timeoutInterval: 30)) { data, response, _ in
+                resultLock.lock()
+                body = data
+                ok = (response as? HTTPURLResponse)?.statusCode == 200
+                resultLock.unlock()
+                semaphore.signal()
+            }
+            transfers.begin(task)
+            task.resume()
+            semaphore.wait()
+            transfers.end(task)
+            resultLock.lock()
+            let cues = ok ? Self.decodedServerWebVTT(body) : nil
+            resultLock.unlock()
             guard let self else { return }
-            if let task { self.transfers.end(task) }
-            let ok = (response as? HTTPURLResponse)?.statusCode == 200
-            let cues = ok ? Self.decodedServerWebVTT(data) : nil
             self.stateLock.lock()
             if let cues, !self.cancelled { self.serverCues[streamIndex] = cues }
             self.serverCueFetches.remove(streamIndex)
             self.stateLock.unlock()
             NSLog("[LocalRemuxer] server subtitles for stream %d: %@", streamIndex, cues.map { "\($0.count) cues" } ?? "unavailable")
-        }
-        if let task {
-            transfers.begin(task)
-            task.resume()
         }
     }
 
