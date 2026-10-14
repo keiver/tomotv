@@ -15,6 +15,8 @@ final class LyricsListView: UIView, UITableViewDataSource, UITableViewDelegate {
     var onSelect: ((Double) -> Void)?
     /// Each line's time, shown beside it in the Apple TV list.
     var showsTimes = false
+    /// Lines and caption centred across the view: the Apple TV backdrop, clear of AVKit's left-aligned title.
+    var centersLines = false
 
     private let table = UITableView(frame: .zero, style: .plain)
     private let faded = UIView()
@@ -75,7 +77,10 @@ final class LyricsListView: UIView, UITableViewDataSource, UITableViewDelegate {
         fade.frame = bounds
         // On the lines' own leading edge, which a cell knows and the table does not publish.
         let leading = table.visibleCells.first.map { $0.contentView.convert(CGPoint(x: $0.contentView.layoutMargins.left, y: 0), to: self).x } ?? table.layoutMargins.left
-        caption.frame = CGRect(x: leading, y: 0, width: max(0, bounds.width - leading), height: Self.captionHeight)
+        caption.textAlignment = centersLines ? .center : .natural
+        caption.frame = centersLines
+            ? CGRect(x: 0, y: 0, width: bounds.width, height: Self.captionHeight)
+            : CGRect(x: leading, y: 0, width: max(0, bounds.width - leading), height: Self.captionHeight)
         applyInsets()
     }
 
@@ -157,7 +162,12 @@ final class LyricsListView: UIView, UITableViewDataSource, UITableViewDelegate {
         } else if index == currentLine {
             text.addAttribute(.foregroundColor, value: UIColor.white, range: NSRange(location: 0, length: min(sungLength, text.length)))
         }
-        cell.show(text, time: showsTimes ? line.start.map(Self.clock) : nil, spacing: Self.rowSpacing)
+        if centersLines {
+            let centred = NSMutableParagraphStyle()
+            centred.alignment = .center
+            text.addAttribute(.paragraphStyle, value: centred, range: NSRange(location: 0, length: text.length))
+        }
+        cell.show(text, time: showsTimes ? line.start.map(Self.clock) : nil, spacing: Self.rowSpacing, fillsWidth: centersLines)
     }
 
     private static func clock(_ seconds: Double) -> String {
@@ -222,6 +232,8 @@ private final class LyricLineCell: UITableViewCell {
     private let line = UILabel()
     private let time = UILabel()
     private var bottom: NSLayoutConstraint?
+    private var besideTime: NSLayoutConstraint?
+    private var fullWidth: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -244,10 +256,14 @@ private final class LyricLineCell: UITableViewCell {
 
         let bottom = line.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         self.bottom = bottom
+        let besideTime = line.trailingAnchor.constraint(lessThanOrEqualTo: time.leadingAnchor, constant: -24)
+        self.besideTime = besideTime
+        // A centred line spans the margins so its paragraph centres within them.
+        fullWidth = line.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor)
         NSLayoutConstraint.activate([
             line.topAnchor.constraint(equalTo: contentView.topAnchor),
             line.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            line.trailingAnchor.constraint(lessThanOrEqualTo: time.leadingAnchor, constant: -24),
+            besideTime,
             bottom,
             time.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
             time.firstBaselineAnchor.constraint(equalTo: line.firstBaselineAnchor),
@@ -259,11 +275,19 @@ private final class LyricLineCell: UITableViewCell {
 
     private var text = NSAttributedString()
 
-    func show(_ text: NSAttributedString, time clock: String?, spacing: CGFloat) {
+    func show(_ text: NSAttributedString, time clock: String?, spacing: CGFloat, fillsWidth: Bool) {
         self.text = text
         time.text = clock
         time.isHidden = clock == nil
         bottom?.constant = -spacing
+        // Deactivate before activate: both pin the line's trailing edge.
+        if fillsWidth {
+            besideTime?.isActive = false
+            fullWidth?.isActive = true
+        } else {
+            fullWidth?.isActive = false
+            besideTime?.isActive = true
+        }
         render()
     }
 

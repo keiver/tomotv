@@ -141,6 +141,9 @@ final class AudioArtworkOverlayView: UIView {
         spinner.hidesWhenStopped = true
         poster.addSubview(spinner)
 
+        #if os(tvOS)
+        lyricsList.centersLines = true
+        #endif
         addSubview(lyricsList)
 
         show(.loading)
