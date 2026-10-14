@@ -1,5 +1,6 @@
 import { fetchChannels, fetchChannelsByIds, fetchListedChannels } from "@/services/jellyfinApi";
 import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
+import { subscribeTunerDataRefreshed } from "@/services/jellyfin/tunerGroups";
 import { channelSortParam, type ChannelFavorite, type ChannelSort, type LiveTvCategory } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -174,6 +175,9 @@ export function useChannels(
     setError(null);
     setAttempt((n) => n + 1);
   }, []);
+
+  // A tuner playlist that arrived after playback can add playlist-only channels to the tail: the wall loads again.
+  useEffect(() => subscribeTunerDataRefreshed(retry), [retry]);
 
   return { items, isLoading: isLoading || ids === "loading", isLoadingMore, hasMore, error, loadMore, retry };
 }

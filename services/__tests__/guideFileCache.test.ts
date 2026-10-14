@@ -2,6 +2,7 @@
 jest.mock("expo-file-system", () => require("./fakeFileSystem"));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
+import { PlaybackHoldError } from "@keiver/tomo-live";
 import { cachedGuideFile, cachedPlaylistFile, clearGuideFileCache, guideCacheBytes, guideFileInfo, onGuideFileRefreshed } from "../guideFileCache";
 import { setPlaybackHold } from "../playbackHold";
 import { fakeFs, File } from "./fakeFileSystem";
@@ -9,9 +10,10 @@ import { fakeFs, File } from "./fakeFileSystem";
 const URL = "http://g/guide.xml.gz";
 const HOUR = 60 * 60 * 1000;
 
-type Behavior = { held?: boolean; error?: Error; resumeData?: string };
+type Behavior = { held?: boolean; error?: Error; resumeData?: string; lostPauses?: number };
 
-/** A download task the test drives: it lands at once unless `held`; a pause yields `resumeData`. */
+/** A download task the test drives: it lands at once unless `held`; a pause yields `resumeData`.
+ *  `lostPauses` drops that many pauses, as native does with one sent before its task exists. */
 class Task {
   state = "idle";
   resumeData: string | undefined;
@@ -48,6 +50,7 @@ class Task {
   }
   pause() {
     this.pauses++;
+    if (this.pauses <= (this.behavior.lostPauses ?? 0)) return;
     this.state = "paused";
     this.resumeData = this.behavior.resumeData;
     this.settle?.(null);
@@ -250,25 +253,32 @@ describe("cachedGuideFile", () => {
       expect(createTask).toHaveBeenCalledTimes(2);
     });
 
-    it("starts a download with no copy only after playback lets go and the link stays free", async () => {
+    it("rejects a read with no copy at once, downloads after playback lets go, then serves the file", async () => {
+      const refreshed = jest.fn();
+      const stop = onGuideFileRefreshed(refreshed);
       setPlaybackHold("video", true);
-      let uri: string | null = null;
-      void cachedGuideFile(URL).then((landed) => (uri = landed));
-      await flush();
+      await expect(cachedGuideFile(URL)).rejects.toBeInstanceOf(PlaybackHoldError);
       expect(createTask).not.toHaveBeenCalled();
-      setPlaybackHold("video", false);
-      await flush();
-      expect(createTask).not.toHaveBeenCalled();
-      jest.advanceTimersByTime(2000);
-      await flush();
+      await release();
       expect(createTask).toHaveBeenCalledTimes(1);
-      expect(uri).toContain("guides/guide-");
+      expect(refreshed).toHaveBeenCalledWith(URL);
+      await expect(cachedGuideFile(URL)).resolves.toContain("guides/guide-");
+      expect(createTask).toHaveBeenCalledTimes(1);
+      stop();
     });
 
-    it("waits again when playback takes the link back inside the settle window", async () => {
+    it("rejects a read with no copy and a recent failure as skipped, and downloads nothing after", async () => {
+      downloadsWith({ error: new Error("offline") });
+      await expect(cachedGuideFile(URL)).rejects.toThrow("offline");
       setPlaybackHold("video", true);
-      void cachedGuideFile(URL);
-      await flush();
+      await expect(cachedGuideFile(URL)).rejects.toThrow("skipped after a recent failure");
+      await release();
+      expect(createTask).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts the owed download only once the link stays free for the settle window", async () => {
+      setPlaybackHold("video", true);
+      await expect(cachedGuideFile(URL)).rejects.toBeInstanceOf(PlaybackHoldError);
       setPlaybackHold("video", false);
       setPlaybackHold("audio", true);
       jest.advanceTimersByTime(2000);
@@ -278,48 +288,103 @@ describe("cachedGuideFile", () => {
       expect(createTask).toHaveBeenCalledTimes(1);
     });
 
-    it("pauses a running download when playback starts and resumes it from its bytes after", async () => {
+    it("hands a waiting caller PlaybackHoldError when playback starts, and finishes the download after", async () => {
+      const refreshed = jest.fn();
+      const stop = onGuideFileRefreshed(refreshed);
       downloadsWith({ held: true, resumeData: "partial" });
-      let uri: string | null = null;
-      void cachedGuideFile(URL).then((landed) => (uri = landed));
+      const waiting = cachedGuideFile(URL);
       await flush();
       const [task] = tasks;
       task.report();
       setPlaybackHold("video", true);
+      await expect(waiting).rejects.toBeInstanceOf(PlaybackHoldError);
       expect(task.pauses).toBe(1);
-      await flush();
-      expect(uri).toBeNull();
       await release();
-      expect(tasks).toHaveLength(1);
       expect(task.resumes).toBe(1);
       task.land();
       await flush();
-      expect(uri).toContain("guides/guide-");
+      expect(refreshed).toHaveBeenCalledWith(URL);
+      stop();
     });
 
-    it("sends no pause before the native task has reported bytes, and pauses at its first report", async () => {
+    it("hands a waiting caller the copy on disk when playback starts", async () => {
+      const uri = await cachedGuideFile(URL);
+      jest.setSystemTime(Date.now() + 2 * HOUR);
       downloadsWith({ held: true, resumeData: "partial" });
-      void cachedGuideFile(URL);
+      const waiting = cachedGuideFile(URL);
+      await flush();
+      tasks[1].report();
+      setPlaybackHold("video", true);
+      await expect(waiting).resolves.toBe(uri);
+      await release();
+      tasks[1].land();
+      await flush();
+    });
+
+    it("stops a handed-off caller's progress, so the resumed download reports to nobody it left", async () => {
+      await cachedGuideFile(URL);
+      jest.setSystemTime(Date.now() + 2 * HOUR);
+      downloadsWith({ held: true, resumeData: "partial" });
+      const onProgress = jest.fn();
+      void cachedGuideFile(URL, onProgress);
+      await flush();
+      tasks[1].report();
+      expect(onProgress).toHaveBeenCalledTimes(1);
+      setPlaybackHold("video", true);
+      await release();
+      tasks[1].report();
+      expect(onProgress).toHaveBeenCalledTimes(1);
+      tasks[1].land();
+      await flush();
+    });
+
+    it("pauses the moment playback starts, before any bytes have arrived", async () => {
+      downloadsWith({ held: true, resumeData: "partial" });
+      cachedGuideFile(URL).catch(() => {});
       await flush();
       const [task] = tasks;
       setPlaybackHold("video", true);
-      expect(task.pauses).toBe(0);
-      task.report();
       expect(task.pauses).toBe(1);
-      // A late event of the paused run sends no second pause, which would overwrite the resume data.
-      task.report();
-      expect(task.pauses).toBe(1);
-      await flush();
+      expect(task.state).toBe("paused");
       await release();
-      expect(task.resumes).toBe(1);
       task.land();
+      await flush();
+    });
+
+    it("sends a pause lost before the native task existed again at the first bytes", async () => {
+      downloadsWith({ held: true, resumeData: "partial", lostPauses: 1 });
+      cachedGuideFile(URL).catch(() => {});
+      await flush();
+      const [task] = tasks;
+      setPlaybackHold("video", true);
+      expect(task.pauses).toBe(1);
+      expect(task.state).toBe("active");
+      task.report();
+      expect(task.pauses).toBe(2);
+      expect(task.state).toBe("paused");
+      await release();
+      task.land();
+      await flush();
+    });
+
+    it("never repeats a pause sent after bytes arrived", async () => {
+      downloadsWith({ held: true, resumeData: "partial", lostPauses: 1 });
+      cachedGuideFile(URL).catch(() => {});
+      await flush();
+      const [task] = tasks;
+      task.report();
+      setPlaybackHold("video", true);
+      expect(task.pauses).toBe(1);
+      task.report();
+      expect(task.pauses).toBe(1);
+      task.land();
+      await release();
       await flush();
     });
 
     it("starts over after playback when the pause left no resume data", async () => {
       downloadsWith({ held: true });
-      let uri: string | null = null;
-      void cachedGuideFile(URL).then((landed) => (uri = landed));
+      cachedGuideFile(URL).catch(() => {});
       await flush();
       tasks[0].report();
       setPlaybackHold("video", true);
@@ -329,7 +394,7 @@ describe("cachedGuideFile", () => {
       expect(tasks[1].downloads).toBe(1);
       tasks[1].land();
       await flush();
-      expect(uri).toContain("guides/guide-");
+      await expect(cachedGuideFile(URL)).resolves.toContain("guides/guide-");
     });
   });
 });

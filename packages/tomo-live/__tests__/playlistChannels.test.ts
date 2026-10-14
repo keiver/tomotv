@@ -11,9 +11,10 @@ jest.mock("@keiver/tomo-engine", () => ({
 jest.mock("../src/guideFileCache", () => ({
   cachedPlaylistFile: jest.fn(async () => "file:///playlist.m3u"),
   onPlaylistFileRefreshed: jest.fn(() => () => {}),
+  PlaybackHoldError: class PlaybackHoldError extends Error {},
 }));
 
-import { cachedPlaylistFile, onPlaylistFileRefreshed } from "../src/guideFileCache";
+import { cachedPlaylistFile, onPlaylistFileRefreshed, PlaybackHoldError } from "../src/guideFileCache";
 import {
   allPlaylistChannelIds,
   enginePlaylistRows,
@@ -119,7 +120,7 @@ describe("table", () => {
     expect(flaky.loadRows).toHaveBeenCalledTimes(2);
   });
 
-  it("reloads a fresh source on the next sync once its owed download lands, never one still loading", async () => {
+  it("reloads a fresh source on the next sync once a file owed during playback lands", async () => {
     const a = source("http://h/a.m3u", [row("a")]);
     await syncPlaylistSources([a]);
     playlistRefreshed("http://h/other.m3u");
@@ -128,7 +129,11 @@ describe("table", () => {
     playlistRefreshed("http://h/a.m3u");
     await syncPlaylistSources([a]);
     expect(a.loadRows).toHaveBeenCalledTimes(2);
+    await syncPlaylistSources([a]);
+    expect(a.loadRows).toHaveBeenCalledTimes(2);
+  });
 
+  it("reloads a source whose load was reading the older file when the newer one landed", async () => {
     let release: (() => void) | undefined;
     const slow: PlaylistChannelSource = {
       key: "http://h/b.m3u",
@@ -139,8 +144,69 @@ describe("table", () => {
     playlistRefreshed("http://h/b.m3u");
     release!();
     await landing;
-    await syncPlaylistSources([slow]);
-    expect(slow.loadRows).toHaveBeenCalledTimes(1);
+    const again = syncPlaylistSources([slow]);
+    release!();
+    await again;
+    expect(slow.loadRows).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the playlist again when a refresh arrives while the old file is still being read", async () => {
+    const releases: (() => void)[] = [];
+    let version = 0;
+    const slow: PlaylistChannelSource = {
+      key: "http://h/c.m3u",
+      url: "http://h/c.m3u",
+      loadRows: jest.fn(() => {
+        const rows = [row(`v${++version}`)];
+        return new Promise<{ rows: PlaylistChannel[]; tvgUrls: string[] }>((resolve) => releases.push(() => resolve({ rows, tvgUrls: [] })));
+      }),
+    };
+    const first = syncPlaylistSources([slow]);
+    playlistRefreshed("http://h/c.m3u");
+    const forced = syncPlaylistSources([slow], { force: true });
+    releases[0]();
+    await first;
+    while (releases.length < 2) await new Promise((resolve) => setTimeout(resolve, 0));
+    releases[1]();
+    await forced;
+    expect(slow.loadRows).toHaveBeenCalledTimes(2);
+    expect(allPlaylistChannelIds()).toEqual(["v2"]);
+  });
+
+  it("keeps the rows and waits, with no failure backoff, when playback holds a playlist with no copy", async () => {
+    let held = false;
+    const a: PlaylistChannelSource = {
+      key: "t1",
+      url: "t1",
+      loadRows: jest.fn(async () => {
+        if (held) throw new PlaybackHoldError();
+        return { rows: [row("a")], tvgUrls: [] };
+      }),
+    };
+    await syncPlaylistSources([a]);
+    held = true;
+    await syncPlaylistSources([a], { force: true });
+    expect(allPlaylistChannelIds()).toEqual(["a"]);
+    expect(playlistSourceStatuses()["t1"].state).toBe("waiting");
+    held = false;
+    await syncPlaylistSources([a], { force: true });
+    expect(a.loadRows).toHaveBeenCalledTimes(3);
+    expect(playlistSourceStatuses()["t1"].state).toBe("ready");
+
+    // A source never loaded is retried at the next plain sync: no backoff stands in the way.
+    const b: PlaylistChannelSource = {
+      key: "t2",
+      url: "t2",
+      loadRows: jest
+        .fn()
+        .mockRejectedValueOnce(new PlaybackHoldError())
+        .mockResolvedValue({ rows: [row("b")], tvgUrls: [] }),
+    };
+    await syncPlaylistSources([a, b]);
+    expect(playlistSourceStatuses()["t2"].state).toBe("waiting");
+    await syncPlaylistSources([a, b]);
+    expect(b.loadRows).toHaveBeenCalledTimes(2);
+    expect(allPlaylistChannelIds()).toEqual(["a", "b"]);
   });
 
   it("reset drops everything and a load that outlived it writes nothing back", async () => {

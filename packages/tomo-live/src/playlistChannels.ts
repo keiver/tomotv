@@ -8,7 +8,7 @@
  * since favorites, health and frame caches key on them.
  */
 import { closePlaylist, engineLog, loadPlaylist, playlistEntries, type PlaylistCatchup, type PlaylistEntry, type PlaylistHeader } from "@keiver/tomo-engine";
-import { cachedPlaylistFile, onPlaylistFileRefreshed } from "./guideFileCache";
+import { cachedPlaylistFile, onPlaylistFileRefreshed, PlaybackHoldError } from "./guideFileCache";
 
 /** Entries per native call when paging a playlist store out to JS: bounds each call's JSI
  *  conversion and JS object materialization, whatever the playlist's size. */
@@ -76,6 +76,8 @@ interface SourceRecord {
   tvgUrls: string[];
   loadedAt: number | null;
   failedAt: number | null;
+  /** A newer file landed after this record's load began: the next sync reloads it. */
+  stale: boolean;
   loading: Promise<void> | null;
   status: PlaylistSourceStatus;
 }
@@ -195,9 +197,11 @@ function setStatus(record: SourceRecord, patch: Partial<PlaylistSourceStatus>): 
 }
 
 function loadSource(record: SourceRecord): Promise<void> {
-  if (record.loading) return record.loading;
+  // A load in flight may be reading the file a newer one replaced meanwhile: it is followed by one more.
+  if (record.loading) return record.loading.then(() => (record.stale && records.get(record.source.key) === record ? loadSource(record) : undefined));
   const gen = generation;
   const loading = (async () => {
+    record.stale = false;
     setStatus(record, { state: "loading" });
     try {
       const { rows, tvgUrls: declared } = await record.source.loadRows(record.source);
@@ -209,6 +213,11 @@ function loadSource(record: SourceRecord): Promise<void> {
       setStatus(record, { state: "ready", channels: rows.length, loadedAt: record.loadedAt });
     } catch (error) {
       if (gen !== generation || records.get(record.source.key) !== record) return;
+      // No copy while playback holds the link: not a failure, the file arrives after playback.
+      if (error instanceof PlaybackHoldError) {
+        setStatus(record, { state: "waiting" });
+        return;
+      }
       record.failedAt = Date.now();
       // The last good rows keep serving; the status carries the failure so callers see a partial table.
       setStatus(record, { state: "error" });
@@ -221,11 +230,10 @@ function loadSource(record: SourceRecord): Promise<void> {
   return loading;
 }
 
-// A download owed while playback held the link has landed: rows read from the older file go stale,
-// so the next sync reloads them. A load in flight is reading that download already.
+// A download owed during playback has landed: rows read before it, or by a load that began before it, reload at the next sync.
 onPlaylistFileRefreshed((url) => {
   for (const record of records.values()) {
-    if ((record.source.fetchUrl ?? record.source.url) === url && !record.loading) record.loadedAt = null;
+    if ((record.source.fetchUrl ?? record.source.url) === url) record.stale = true;
   }
 });
 
@@ -254,6 +262,7 @@ export async function syncPlaylistSources(sources: readonly PlaylistChannelSourc
         tvgUrls: [],
         loadedAt: null,
         failedAt: null,
+        stale: false,
         loading: null,
         status: { key: source.key, url: source.url, state: "waiting", channels: null, loadedAt: null },
       };
@@ -261,7 +270,7 @@ export async function syncPlaylistSources(sources: readonly PlaylistChannelSourc
     } else {
       record.source = source;
     }
-    const fresh = record.loadedAt !== null && Date.now() - record.loadedAt < FRESH_TTL_MS;
+    const fresh = record.loadedAt !== null && !record.stale && Date.now() - record.loadedAt < FRESH_TTL_MS;
     const backedOff = record.failedAt !== null && Date.now() - record.failedAt < FAILURE_TTL_MS;
     if (options.force || (!fresh && !backedOff)) loads.push(loadSource(record));
     else if (record.loading) loads.push(record.loading);

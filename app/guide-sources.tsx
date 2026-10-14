@@ -7,7 +7,7 @@ import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { clearDownloadedGuides, guideSourceStatuses, preloadGuide, subscribeGuideSources } from "@/services/externalGuide";
 import { guideCacheBytes } from "@/services/guideFileCache";
 import { t } from "@/services/i18n";
-import { fetchTunerData, lastKnownTunerData } from "@/services/jellyfin/tunerGroups";
+import { fetchTunerData, lastKnownTunerData, subscribeTunerDataRefreshed } from "@/services/jellyfin/tunerGroups";
 import { addGuideUrl } from "@/services/liveTvPreferences";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { guideLabel, guideSourceSummary } from "@/utils/guideSources";
@@ -28,6 +28,9 @@ export default function GuideSourcesScreen() {
   const preferences = useLiveTvPreferences();
   const statuses = useSyncExternalStore(subscribeGuideSources, guideSourceStatuses);
   const [declared, setDeclared] = useState<string[]>(() => lastKnownTunerData()?.tvgUrls ?? []);
+  // A tuner playlist that arrived after playback can declare more guides: read them again.
+  const [tunerRefreshes, setTunerRefreshes] = useState(0);
+  useEffect(() => subscribeTunerDataRefreshed(() => setTunerRefreshes((count) => count + 1)), []);
   useEffect(() => {
     let cancelled = false;
     fetchTunerData({ revalidate: true })
@@ -38,7 +41,7 @@ export default function GuideSourcesScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tunerRefreshes]);
   const playlistUrls = useMemo(() => declared.filter((url) => !preferences.guideUrls.includes(url)), [declared, preferences.guideUrls]);
   const off = useMemo(() => new Set(preferences.guideSourcesOff), [preferences.guideSourcesOff]);
 

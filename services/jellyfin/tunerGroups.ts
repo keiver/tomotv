@@ -140,8 +140,27 @@ function channelRow(row: TunerRow, userAgent: string | undefined): PlaylistChann
   };
 }
 
-// A playlist download owed while playback held the link has landed: the next read streams it again.
-onPlaylistFileRefreshed(() => invalidateByPrefix("tunerGroups:"));
+const refreshedListeners = new Set<() => void>();
+
+/** Runs once a tuner playlist owed during playback has landed and the channel table holds it: a screen showing groups or channels reads again. */
+export function subscribeTunerDataRefreshed(listener: () => void): () => void {
+  refreshedListeners.add(listener);
+  return () => {
+    refreshedListeners.delete(listener);
+  };
+}
+
+// A read during playback with no copy is partial and backed off (failedAt): the landed file is read at
+// once, and screens hear of it only after, since their reload reads the table without waiting for one.
+onPlaylistFileRefreshed(() => {
+  invalidateByPrefix("tunerGroups:");
+  failedAt.clear();
+  void fetchTunerData()
+    .catch(() => null)
+    .then(() => {
+      for (const listener of [...refreshedListeners]) listener();
+    });
+});
 
 /** Streams one tuner playlist natively and pages its channel rows out of the retained store. */
 async function loadTunerRows(source: PlaylistChannelSource, userAgent: string | undefined): Promise<PlaylistRows> {

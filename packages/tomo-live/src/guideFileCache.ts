@@ -37,6 +37,21 @@ interface FileCache {
   clear(): void;
 }
 
+/** A read while playback holds the link finds no copy on disk: the download it needs finishes after playback. */
+export class PlaybackHoldError extends Error {
+  constructor() {
+    super("The download waits for playback to let go of the link.");
+    this.name = "PlaybackHoldError";
+  }
+}
+
+interface Download {
+  promise: Promise<string>;
+  listeners: Set<(progress: GuideDownloadProgress) => void>;
+  /** Marks the download as owed to a caller served without it: its landing fires the refreshed listeners. */
+  owe: () => void;
+}
+
 function ageMs(file: File): number {
   const modified = file.info().modificationTime;
   return modified ? Date.now() - modified : Number.POSITIVE_INFINITY;
@@ -60,7 +75,7 @@ function linkFree(): Promise<void> {
 function makeFileCache(folder: string, prefix: string, label: string): FileCache {
   const failedAt = new Map<string, number>();
   /** One download per URL; every caller's progress listener rides it. */
-  const inFlight = new Map<string, { promise: Promise<string>; listeners: Set<(progress: GuideDownloadProgress) => void>; owe: () => void }>();
+  const inFlight = new Map<string, Download>();
   const refreshedListeners = new Set<(url: string) => void>();
 
   const cacheDir = () => new Directory(Paths.cache, folder);
@@ -86,13 +101,16 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
   const fetchToCache = async (url: string, dir: Directory, file: File, headers: Record<string, string> | undefined, onProgress: (progress: GuideDownloadProgress) => void): Promise<string> => {
     const temp = new File(dir, `${file.name}.part`);
     if (temp.exists) temp.delete();
-    // Native start and pause run on different queues, so a pause can reach native before the task
-    // exists and be lost: it is sent only once the run has reported bytes, which a live task does.
-    const run = { task: null as DownloadTask | null, reported: false, pauseSent: false };
+    // Native start runs on the module queue and pause on the runtime, so a pause sent before the task
+    // reports bytes can reach native first and be lost: it goes out again at the first bytes seen held.
+    const run = { task: null as DownloadTask | null, reported: false, pauseSent: false, sentBlind: false };
     const pauseRun = () => {
-      if (!run.task || run.task.state !== "active" || !run.reported || run.pauseSent) return;
+      const task = run.task;
+      if (!task || task.state !== "active") return;
+      if (run.pauseSent && !(run.sentBlind && run.reported)) return;
+      run.sentBlind = !run.reported;
       run.pauseSent = true;
-      run.task.pause();
+      task.pause();
     };
     const progress = (update: GuideDownloadProgress) => {
       run.reported = true;
@@ -107,6 +125,7 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
       if (!resumeData || !run.task) run.task = File.createDownloadTask(url, temp, { headers, sessionType: "foreground", onProgress: progress });
       run.reported = false;
       run.pauseSent = false;
+      run.sentBlind = false;
       const running = run.task;
       const stopPausing = onPlaybackHoldTaken(pauseRun);
       try {
@@ -122,15 +141,9 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
   };
 
   /** Starts the one download for `url`; an owed one tells the refreshed listeners when it lands. */
-  const startDownload = (
-    url: string,
-    dir: Directory,
-    file: File,
-    options: { headers?: Record<string, string>; background: boolean; onProgress?: (progress: GuideDownloadProgress) => void },
-  ): Promise<string> => {
+  const startDownload = (url: string, dir: Directory, file: File, options: { headers?: Record<string, string>; owed: boolean }): Download => {
     const listeners = new Set<(progress: GuideDownloadProgress) => void>();
-    if (options.onProgress) listeners.add(options.onProgress);
-    const owing = { owed: options.background };
+    const owing = { owed: options.owed };
     const download = (async () => {
       try {
         const uri = await fetchToCache(url, dir, file, options.headers, (progress) => {
@@ -149,9 +162,37 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
         inFlight.delete(url);
       }
     })();
-    inFlight.set(url, { promise: download, listeners, owe: () => (owing.owed = true) });
-    return download;
+    const entry: Download = { promise: download, listeners, owe: () => (owing.owed = true) };
+    inFlight.set(url, entry);
+    return entry;
   };
+
+  /** A caller's share of a download: its result, or, the moment playback takes the link, the copy on
+   *  disk (PlaybackHoldError without one) while the download finishes after playback. */
+  const handOff = (entry: Download, file: File, onProgress?: (progress: GuideDownloadProgress) => void): Promise<string> =>
+    new Promise((resolve, reject) => {
+      if (onProgress) entry.listeners.add(onProgress);
+      const done = () => {
+        stopHold();
+        if (onProgress) entry.listeners.delete(onProgress);
+      };
+      const stopHold = onPlaybackHoldTaken(() => {
+        done();
+        entry.owe();
+        if (file.exists) resolve(file.uri);
+        else reject(new PlaybackHoldError());
+      });
+      entry.promise.then(
+        (uri) => {
+          done();
+          resolve(uri);
+        },
+        (error: unknown) => {
+          done();
+          reject(error);
+        },
+      );
+    });
 
   return {
     async cachedFile(url, onProgress, options) {
@@ -162,18 +203,18 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
       const failed = failedAt.get(url);
       const backedOff = failed !== undefined && Date.now() - failed < FAILURE_TTL_MS;
       const pending = inFlight.get(url);
-      // Playback owns the link: the copy on disk serves now, and a refresh it owes downloads after playback lets go.
-      if (isPlaybackHeld() && file.exists) {
-        const owed = options?.force || (ageMs(file) >= FRESH_TTL_MS && !backedOff);
-        // A download already running owes this caller its landing too: it was served the older copy.
+      // Playback owns the link and no caller waits on the network: the copy on disk serves, else
+      // PlaybackHoldError, and the download either needs finishes after playback.
+      if (isPlaybackHeld()) {
+        const stale = !file.exists || ageMs(file) >= FRESH_TTL_MS;
+        const owed = options?.force || (stale && !backedOff);
         if (pending) pending.owe();
-        else if (owed) startDownload(url, dir, file, { headers: options?.headers, background: true }).catch(() => {});
-        return file.uri;
+        else if (owed) startDownload(url, dir, file, { headers: options?.headers, owed: true }).promise.catch(() => {});
+        if (file.exists) return file.uri;
+        if (!pending && !owed) throw new Error(`${label} download skipped after a recent failure.`);
+        throw new PlaybackHoldError();
       }
-      if (pending) {
-        if (onProgress) pending.listeners.add(onProgress);
-        return pending.promise;
-      }
+      if (pending) return handOff(pending, file, onProgress);
       sweep(dir, new Set([name, ...(options?.keep ?? []).map(keyFor)]));
       if (!options?.force) {
         if (file.exists && ageMs(file) < FRESH_TTL_MS) return file.uri;
@@ -182,7 +223,7 @@ function makeFileCache(folder: string, prefix: string, label: string): FileCache
           throw new Error(`${label} download skipped after a recent failure.`);
         }
       }
-      return startDownload(url, dir, file, { headers: options?.headers, background: false, onProgress });
+      return handOff(startDownload(url, dir, file, { headers: options?.headers, owed: false }), file, onProgress);
     },
     onRefreshed(listener) {
       refreshedListeners.add(listener);
@@ -230,7 +271,8 @@ const playlists = makeFileCache("playlists", "playlist-", "Playlist");
  * download (progress reported), and the stale copy when the network fails or failed recently.
  * `force` (the HUD's refresh) skips the freshness window and the failure backoff, never the
  * stale fallback. `keep` names the other guides in use, whose stale copies the sweep spares.
- * While playback holds the link a held copy serves at once and the download waits for it to let go.
+ * While playback holds the link the copy on disk serves at once (PlaybackHoldError without one) and
+ * the download finishes after playback.
  */
 export const cachedGuideFile = guides.cachedFile;
 

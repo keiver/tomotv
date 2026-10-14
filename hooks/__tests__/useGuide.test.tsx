@@ -31,7 +31,16 @@ function signInElsewhere() {
   mockAuthListeners.forEach((cb) => cb());
 }
 jest.mock("expo-router", () => ({ useIsFocused: () => true }));
-jest.mock("@/services/jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] })) }));
+/** Screens told a file owed during playback has landed: tuner playlists and guide files. */
+const mockTunerRefreshed = new Set<() => void>();
+const mockGuideRefreshed = new Set<() => void>();
+jest.mock("@/services/jellyfin/tunerGroups", () => ({
+  fetchTunerData: jest.fn(async () => ({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] })),
+  subscribeTunerDataRefreshed: (listener: () => void) => {
+    mockTunerRefreshed.add(listener);
+    return () => mockTunerRefreshed.delete(listener);
+  },
+}));
 jest.mock("@/services/jellyfin/playlistItems", () => ({ pendingChannelsAfter: jest.fn() }));
 const mockPending = jest.requireMock("@/services/jellyfin/playlistItems").pendingChannelsAfter as jest.Mock;
 jest.mock("@/services/externalGuide", () => {
@@ -41,6 +50,10 @@ jest.mock("@/services/externalGuide", () => {
     fetchExternalPrograms,
     fetchExternalProgramWindow: jest.fn(async (...args: unknown[]) => ({ programs: await fetchExternalPrograms(...args), failedChannelIds: [] })),
     activeGuideUrls: jest.requireActual("@/services/externalGuide").activeGuideUrls,
+    subscribeGuideRefreshed: (listener: () => void) => {
+      mockGuideRefreshed.add(listener);
+      return () => mockGuideRefreshed.delete(listener);
+    },
   };
 });
 let mockPreferences = {
@@ -413,6 +426,38 @@ describe("useGuide", () => {
     const calls = (fetchChannels as jest.Mock).mock.calls.length;
     await changePreferences(ref, { autoUpdate: false });
     expect(fetchChannels).toHaveBeenCalledTimes(calls);
+  });
+
+  it("reads the external listings again when a guide file owed during playback lands", async () => {
+    const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+    const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
+    const url = "http://g/auto.xml.gz";
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs)]);
+    fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: [url] });
+    fetchExternalPrograms.mockImplementation(async (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
+      wanted.map(({ channelId }) => program(`epg:${channelId}`, channelId, 0, 30, windowMs.from)),
+    );
+    const ref = await mount();
+    expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual(["epg:c2"]);
+    fetchExternalPrograms.mockImplementation(async (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
+      wanted.map(({ channelId }) => program(`epg-new:${channelId}`, channelId, 0, 30, windowMs.from)),
+    );
+    await act(async () => mockGuideRefreshed.forEach((listener) => listener()));
+    await settle();
+    expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["a"]);
+    expect(ref.current!.get().rows[1].programs.map((p) => p.Id)).toEqual(["epg-new:c2"]);
+  });
+
+  it("loads the list again when a tuner playlist owed during playback lands", async () => {
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
+    await mount();
+    expect(fetchTimers).toHaveBeenCalledTimes(1);
+    await act(async () => mockTunerRefreshed.forEach((listener) => listener()));
+    await settle();
+    // The fresh load's first page reads the timers again.
+    expect(fetchTimers).toHaveBeenCalledTimes(2);
   });
 
   it("a guide source turned off takes its listings off the rows", async () => {

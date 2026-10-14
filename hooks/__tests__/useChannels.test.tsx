@@ -9,6 +9,14 @@ import TestRenderer, { act } from "react-test-renderer";
 jest.mock("@/services/jellyfinApi", () => ({ fetchChannels: jest.fn(), fetchChannelsByIds: jest.fn(), fetchListedChannels: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/jellyfin/playlistItems", () => ({ pendingChannelsAfter: jest.fn() }));
+/** Screens told a tuner playlist owed during playback has landed. */
+const mockTunerRefreshed = new Set<() => void>();
+jest.mock("@/services/jellyfin/tunerGroups", () => ({
+  subscribeTunerDataRefreshed: (listener: () => void) => {
+    mockTunerRefreshed.add(listener);
+    return () => mockTunerRefreshed.delete(listener);
+  },
+}));
 
 const mockFetch = fetchChannels as jest.Mock;
 const mockPending = pendingChannelsAfter as jest.Mock;
@@ -56,6 +64,23 @@ describe("useChannels", () => {
     expect(ref.current?.get()).toMatchObject({ isLoading: false, isLoadingMore: false, hasMore: false });
     expect(mockFetch).toHaveBeenLastCalledWith({ startIndex: 2, limit: CHANNEL_WALL_PAGE, sortBy: "SortName" });
     expect(mockPending.mock.calls[1][1].map((item: { Id: string }) => item.Id)).toEqual(["c0", "c1"]);
+  });
+
+  it("loads the wall again with the playlist-only channels once a tuner playlist owed during playback lands", async () => {
+    mockFetch.mockResolvedValue({ items: channels(0, 1), total: 1 });
+    const ref = React.createRef<HookRef>();
+    let renderer: TestRenderer.ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c0"]);
+    // Earlier tests leave their walls mounted, and they reload too: the playlist answers every one of them.
+    mockPending.mockResolvedValue({ pending: [standIn("p1")], hasMore: false, waiting: false });
+    await act(async () => mockTunerRefreshed.forEach((listener) => listener()));
+    await settle();
+    expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c0", "p1"]);
+    act(() => renderer?.unmount());
   });
 
   it("lists a channel once when the server ingests it after its stand-in landed", async () => {

@@ -22,6 +22,7 @@ export {
   refreshExternalGuide,
   resetExternalGuide,
   searchExternalListings,
+  subscribeGuideRefreshed,
   subscribeGuideSources,
 } from "@keiver/tomo-live";
 
