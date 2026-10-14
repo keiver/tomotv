@@ -1172,7 +1172,7 @@ extension RemuxSession {
         guard format.contains("matroska") || format.contains("webm") || format.split(separator: ",").contains("mov") else { return nil }
         if format.contains("matroska") || format.contains("webm") {
             let start = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
-            guard avformat_seek_file(input, -1, Int64.min, start, start, SWIFT_AVSEEK_FLAG_BACKWARD) >= 0 else { return nil }
+            guard seekBackward(input, stream: -1, to: start) >= 0 else { return nil }
         }
         let count = avformat_index_get_entries_count(stream)
         guard count > 1, let first = avformat_index_get_entry(stream, 0) else { return nil }
@@ -2227,7 +2227,7 @@ extension RemuxSession {
                 seekRet = avformat_seek_file(input, -1, Int64.min, pos, pos, SWIFT_AVSEEK_FLAG_BYTE)
                 byteSeek = (targetSeconds, 1)
             } else {
-                seekRet = avformat_seek_file(input, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
+                seekRet = seekBackward(input, stream: -1, to: targetUs)
                 byteSeek = nil
             }
             if seekRet < 0 {

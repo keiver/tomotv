@@ -17,6 +17,7 @@ All notable changes to Tomo TV are documented here.
 
 - The player's subtitles menu reads On while the subtitle language saved on the account draws: the app sets its caption display type to always-on before the player opens. It read Off on a device where On had never been picked in that menu
 - Resuming an item whose default subtitle track is not the saved language's full track draws that track's subtitles: a subtitle segment behind the resumed read is answered without cues after 0.5 seconds, where the request hung for 25 seconds and the track drew nothing
+- A Matroska file read over a server that is slow to answer a seek no longer stops playing after jumping back, and its chapter and scrubbing pictures come from the right time: the engine seeks again
 
 ## [2.2.11]
 

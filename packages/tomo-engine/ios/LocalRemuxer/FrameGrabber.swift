@@ -15,7 +15,6 @@ import Libswscale
 
 // FFmpeg's error/constant macros don't survive the Clang importer.
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
-private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
 
 private func grabErr(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 128)
@@ -716,10 +715,10 @@ final class FrameGrabber {
             // Backward from the target: the keyframe at or before the chapter, the same
             // contract the pipeline's seek-restart relies on.
             let targetUs = ms * 1000 + containerStart
-            seekRet = avformat_seek_file(opened, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
+            seekRet = seekBackward(opened, stream: -1, to: targetUs)
             reached = { pts, timeBase in av_rescale_q(pts, timeBase, AVRational(num: 1, den: 1_000_000)) >= targetUs }
         case .keyframe(let pts, _):
-            seekRet = avformat_seek_file(opened, videoIndex, Int64.min, pts, pts, SWIFT_AVSEEK_FLAG_BACKWARD)
+            seekRet = seekBackward(opened, stream: videoIndex, to: pts)
             reached = { framePts, _ in framePts >= pts }
         case .firstKeyframe:
             seekRet = 0

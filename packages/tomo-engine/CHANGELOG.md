@@ -10,6 +10,7 @@
 - A session's chapter frames and I-frame rendition each take a lease on its provider's budget and open only on a spare connection. With none spare when the session plans its video, the master names no I-frame rendition. Both now send the session's `httpHeaders`.
 - `posterFrame` takes `httpHeaders` and `originKey`: on a provider's budget a poster reads only on a spare connection, never waits for one, and closes before the next poster runs. `requestPosterFrame` passes both.
 - `GuideProgramme` types `episodeNumbers`, `isNew` and `previouslyShown`, which the bridge already sent.
+- A Matroska seek over FFmpeg's HTTP whose request times out reports success while the read stays on the old connection (`matroska_read_seek` ignores the failed `avio_seek`). The restart, the cue-loading seeks to the start, chapter frames and I-frames repeat such a seek, up to twice, until the read sits on its cue's cluster.
 
 ## 1.1.0
 

@@ -53,6 +53,26 @@ import Libavutil
 
 // FFmpeg's error/constant macros don't survive the Clang importer.
 let SWIFT_AV_PKT_FLAG_KEY: Int32 = 0x0001
+private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
+
+/// The keyframe at or before `ts`, as `avformat_seek_file` BACKWARD. A Matroska seek ends with the read on its
+/// cue's cluster, yet reports success when that read's HTTP request times out (matroskadec.c ignores avio_seek).
+func seekBackward(_ input: UnsafeMutablePointer<AVFormatContext>, stream: Int32, to ts: Int64) -> Int32 {
+    var ret = avformat_seek_file(input, stream, Int64.min, ts, ts, SWIFT_AVSEEK_FLAG_BACKWARD)
+    guard input.pointee.iformat.map({ String(cString: $0.pointee.name).hasPrefix("matroska") }) == true,
+          let pb = input.pointee.pb, let st = input.pointee.streams[Int(stream >= 0 ? stream : max(0, av_find_default_stream_index(input)))]
+    else { return ret }
+    // seek.c's terms: a default-stream target in AV_TIME_BASE, rescaled; matroskadec.c clamps it to the first cue.
+    let target = stream >= 0 ? ts : av_rescale(ts, Int64(st.pointee.time_base.den), 1_000_000 * Int64(st.pointee.time_base.num))
+    for _ in 0..<2 {
+        guard ret >= 0, let first = avformat_index_get_entry(st, 0),
+              let cue = avformat_index_get_entry_from_timestamp(st, max(target, first.pointee.timestamp), SWIFT_AVSEEK_FLAG_BACKWARD),
+              avio_tell(pb) != cue.pointee.pos else { break }
+        NSLog("[LocalRemuxer] Seek to %lld left the read at byte %lld, not its cue's %lld: seeking again", ts, avio_tell(pb), cue.pointee.pos)
+        ret = avformat_seek_file(input, stream, Int64.min, ts, ts, SWIFT_AVSEEK_FLAG_BACKWARD)
+    }
+    return ret
+}
 
 /// find_stream_info with every decoder told to skip non-key frames. A stream joined mid-GOP
 /// (a tuner, a tuner recording) then costs one slice-header line instead of one per packet, and
