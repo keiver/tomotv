@@ -83,6 +83,32 @@ function plainLines(text: string): LyricLine[] {
   return text.split("\n").map((line) => ({ text: line.trim(), start: null, cues: [] }));
 }
 
+/** Anyone can publish to LRCLIB and it checks no length; lyrics longer than this are not used. */
+const MAX_LYRICS_CHARS = 50_000;
+
+const lyricsText = (value: unknown): string | undefined => (typeof value === "string" && value.length <= MAX_LYRICS_CHARS ? value : undefined);
+
+/** An answer's record with only the fields of the expected type, or null when it is not a record. */
+function readRecord(raw: unknown): LrclibRecord | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  return {
+    duration: typeof value.duration === "number" ? value.duration : undefined,
+    instrumental: value.instrumental === true,
+    plainLyrics: lyricsText(value.plainLyrics),
+    syncedLyrics: lyricsText(value.syncedLyrics),
+  };
+}
+
+/** The answer's JSON, or null when it is not JSON, such as a Wi-Fi sign-in page. */
+async function readJson(response: Response): Promise<{ value: unknown } | null> {
+  try {
+    return { value: await response.json() };
+  } catch {
+    return null;
+  }
+}
+
 function toMatch(record: LrclibRecord, sameCut: boolean): LrclibMatch | null {
   if (record.instrumental) return null;
   const synced = sameCut && record.syncedLyrics ? parseLrc(record.syncedLyrics) : [];
@@ -127,7 +153,10 @@ export async function findOnLrclib(item: LookupItem): Promise<LrclibAnswer> {
     const response = await ask(`/get?${new URLSearchParams({ artist_name: candidate.artist, track_name: candidate.title, duration: String(duration) })}`);
     if (!response) return { status: "unreachable" };
     if (response.status !== 200) continue;
-    const match = toMatch((await response.json()) as LrclibRecord, true);
+    const body = await readJson(response);
+    if (!body) return { status: "unreachable" };
+    const record = readRecord(body.value);
+    const match = record ? toMatch(record, true) : null;
     if (match) return { status: "found", match };
   }
 
@@ -135,7 +164,11 @@ export async function findOnLrclib(item: LookupItem): Promise<LrclibAnswer> {
   const response = await ask(`/search?${new URLSearchParams({ track_name: last.title, artist_name: last.artist })}`);
   if (!response) return { status: "unreachable" };
   if (response.status !== 200) return { status: "none" };
-  const records = ((await response.json()) as LrclibRecord[]).filter((record) => !record.instrumental && (record.plainLyrics || record.syncedLyrics));
+  const body = await readJson(response);
+  if (!body) return { status: "unreachable" };
+  const records = (Array.isArray(body.value) ? body.value : [])
+    .map(readRecord)
+    .filter((record): record is LrclibRecord => record !== null && !record.instrumental && !!(record.plainLyrics || record.syncedLyrics));
   const byDistance = [...records].sort((a, b) => Math.abs((a.duration ?? 0) - duration) - Math.abs((b.duration ?? 0) - duration));
   const sameCut = byDistance.filter((record) => Math.abs((record.duration ?? 0) - duration) <= SAME_CUT_SECONDS);
   const best = sameCut.find((record) => record.syncedLyrics) ?? sameCut[0];

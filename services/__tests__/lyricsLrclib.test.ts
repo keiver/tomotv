@@ -165,4 +165,24 @@ describe("findOnLrclib", () => {
 
     expect(await findOnLrclib(song("Night Drive", ["The Fixtures"]))).toEqual({ status: "unreachable" });
   });
+
+  it("is unreachable when an answer is not JSON, such as a Wi-Fi sign-in page", async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({ ...answer(200), json: async () => JSON.parse("<html>Sign in</html>") });
+
+    expect(await findOnLrclib(song("Night Drive", ["The Fixtures"]))).toEqual({ status: "unreachable" });
+  });
+
+  it("treats lyrics of the wrong type as none, and a search answer that is not a list as a miss", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce(answer(200, { duration: 200, syncedLyrics: 42, plainLyrics: { line: "x" } })).mockResolvedValueOnce(answer(200, { error: "not a list" }));
+
+    expect(await findOnLrclib(song("Night Drive", ["The Fixtures"]))).toEqual({ status: "none" });
+  });
+
+  it("ignores a record longer than 50,000 characters", async () => {
+    const huge = Array.from({ length: 3000 }, (_, i) => `[00:${String(i % 60).padStart(2, "0")}.00] line number ${i}`).join("\n");
+    (global.fetch as jest.Mock).mockResolvedValueOnce(answer(200, { duration: 200, syncedLyrics: huge })).mockResolvedValueOnce(answer(200, [{ duration: 200, plainLyrics: huge }]));
+
+    expect(huge.length).toBeGreaterThan(50_000);
+    expect(await findOnLrclib(song("Night Drive", ["The Fixtures"]))).toEqual({ status: "none" });
+  });
 });
