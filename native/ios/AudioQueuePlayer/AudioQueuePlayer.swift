@@ -1097,7 +1097,13 @@ class AudioQueuePlayer: RCTEventEmitter {
             }
         }
         let held = shown == nil && lyricsPendingTrack != nil
-        if held { artworkOverlay?.holdLyricsLayout() } else { artworkOverlay?.setLyrics(shown) }
+        #if os(tvOS)
+        // Untimed text never moves, so Apple TV keeps the poster; the swipe-up list still has the lines.
+        let backdrop = shown?.synced == true ? shown : nil
+        #else
+        let backdrop = shown
+        #endif
+        if held { artworkOverlay?.holdLyricsLayout() } else { artworkOverlay?.setLyrics(backdrop) }
         #if os(tvOS)
         configureLyricsControls()
         #endif
