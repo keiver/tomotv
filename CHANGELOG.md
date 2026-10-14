@@ -4,6 +4,15 @@ All notable changes to Tomo TV are documented here.
 
 ## [2.2.12]
 
+### Added
+
+- The music player shows a song's lyrics on Apple TV, iPhone, iPad and Mac: synced lines follow playback, word by word where the lyrics carry word timing, and picking a line plays from it. Lyrics come from the Jellyfin server first (10.9 or later)
+- A song the server has no lyrics for is looked up on lrclib.net
+- Where the system's speech transcriber is available (iOS, tvOS and macOS 26 or later), the device listens to the song: found lyrics gain word timing, a constant offset is corrected, plain text is timed line by line, and a song with no lyrics anywhere gets ones written from what was heard, captioned "Generated on this device". Songs over 10 minutes or 80 MB, and Ogg, Opus and WMA files, are not listened to
+- Lyrics found on lrclib.net or generated on the device are saved to the server as a lyric file, once per song, when the account may manage lyrics
+- Settings gains a Lyrics screen: Show lyrics, Find missing lyrics, Listen for lyrics and Save lyrics to my server, all on by default. Listen for lyrics shows off and cannot be pressed on a device that cannot listen; Save lyrics to my server is listed only for an account the server lets manage lyrics
+- A downloaded song keeps the lyrics the server or lrclib.net has, for offline playback
+
 ### Fixed
 
 - The player's subtitles menu reads On while the subtitle language saved on the account draws: the app sets its caption display type to always-on before the player opens. It read Off on a device where On had never been picked in that menu

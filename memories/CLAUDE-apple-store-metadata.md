@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** October 12, 2026
+**Last Updated:** October 13, 2026
 
 ## Quick Reference
 
@@ -99,23 +99,32 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.12), macOS (155 / 4000)
+### What's New (2.2.12), macOS (421 / 4000)
 
 ```text
+- Lyrics follow the song in the music player; pick a line to jump to it
+- Missing lyrics are found on lrclib.net and saved to your server when it allows
+- On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
 ```
 
-### What's New (2.2.12), iOS (155 / 4000)
+### What's New (2.2.12), iOS (421 / 4000)
 
 ```text
+- Lyrics follow the song in the music player; pick a line to jump to it
+- Missing lyrics are found on lrclib.net and saved to your server when it allows
+- On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
 ```
 
-### What's New (2.2.12), tvOS (155 / 4000)
+### What's New (2.2.12), tvOS (421 / 4000)
 
 ```text
+- Lyrics follow the song in the music player; pick a line to jump to it
+- Missing lyrics are found on lrclib.net and saved to your server when it allows
+- On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
 ```
@@ -460,23 +469,32 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.12), macOS (199 / 4000)
+#### What's New (2.2.12), macOS (533 / 4000)
 
 ```text
+- Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
+- Fehlende Liedtexte werden auf lrclib.net gesucht und auf deinem Server gespeichert, wenn er es erlaubt
+- Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
 ```
 
-#### What's New (2.2.12), iOS (199 / 4000 chars)
+#### What's New (2.2.12), iOS (533 / 4000 chars)
 
 ```text
+- Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
+- Fehlende Liedtexte werden auf lrclib.net gesucht und auf deinem Server gespeichert, wenn er es erlaubt
+- Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
 ```
 
-#### What's New (2.2.12), tvOS (199 / 4000 chars)
+#### What's New (2.2.12), tvOS (533 / 4000 chars)
 
 ```text
+- Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
+- Fehlende Liedtexte werden auf lrclib.net gesucht und auf deinem Server gespeichert, wenn er es erlaubt
+- Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
 ```
@@ -799,23 +817,32 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.12), macOS (202 / 4000)
+#### What's New (2.2.12), macOS (535 / 4000)
 
 ```text
+- Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
+- Les paroles manquantes sont cherchées sur lrclib.net et enregistrées sur votre serveur s'il l'autorise
+- Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
 ```
 
-#### What's New (2.2.12), iOS (202 / 4000 chars)
+#### What's New (2.2.12), iOS (535 / 4000 chars)
 
 ```text
+- Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
+- Les paroles manquantes sont cherchées sur lrclib.net et enregistrées sur votre serveur s'il l'autorise
+- Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
 ```
 
-#### What's New (2.2.12), tvOS (202 / 4000 chars)
+#### What's New (2.2.12), tvOS (535 / 4000 chars)
 
 ```text
+- Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
+- Les paroles manquantes sont cherchées sur lrclib.net et enregistrées sur votre serveur s'il l'autorise
+- Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
 ```
@@ -1138,23 +1165,32 @@ Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reprod
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.12), macOS (166 / 4000)
+#### What's New (2.2.12), macOS (484 / 4000)
 
 ```text
+- La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
+- Las letras que faltan se buscan en lrclib.net y se guardan en tu servidor cuando lo permite
+- En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
 ```
 
-#### What's New (2.2.12), iOS (166 / 4000 chars)
+#### What's New (2.2.12), iOS (484 / 4000 chars)
 
 ```text
+- La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
+- Las letras que faltan se buscan en lrclib.net y se guardan en tu servidor cuando lo permite
+- En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
 ```
 
-#### What's New (2.2.12), tvOS (166 / 4000 chars)
+#### What's New (2.2.12), tvOS (484 / 4000 chars)
 
 ```text
+- La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
+- Las letras que faltan se buscan en lrclib.net y se guardan en tu servidor cuando lo permite
+- En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
 ```
