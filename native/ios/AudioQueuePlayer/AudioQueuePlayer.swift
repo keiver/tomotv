@@ -260,7 +260,7 @@ class AudioQueuePlayer: RCTEventEmitter {
             mark("present_ui")
 
             if startPosition > 0 {
-                queuePlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
+                queuePlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                 self.lastObservedPosition = startPosition
             }
             queuePlayer.play()
@@ -315,7 +315,7 @@ class AudioQueuePlayer: RCTEventEmitter {
             completion?()
             return
         }
-        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)) { _ in
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { _ in
             DispatchQueue.main.async {
                 self.lastObservedPosition = seconds
                 self.nowPlaying.updatePlayback(elapsed: seconds, rate: player.rate)
@@ -443,7 +443,9 @@ class AudioQueuePlayer: RCTEventEmitter {
 
     private func makeItem(for index: Int) -> AVPlayerItem {
         let track = tracks[index]
-        let item = AVPlayerItem(url: track.url)
+        // Without precise timing a VBR MP3 seeks by estimate, and the lyrics follow a clock the audio does not.
+        let asset = AVURLAsset(url: track.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+        let item = AVPlayerItem(asset: asset)
         var metadata: [AVMetadataItem] = [
             stringMetadata(.commonIdentifierTitle, track.title),
         ]
@@ -766,7 +768,7 @@ class AudioQueuePlayer: RCTEventEmitter {
         nowPlaying.onNext = { [weak self] in self?.skipForward() }
         nowPlaying.onPrevious = { [weak self] in self?.skipBackward() }
         nowPlaying.onSeek = { [weak self] seconds in
-            self?.player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)) { _ in
+            self?.player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { _ in
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.lastObservedPosition = seconds
