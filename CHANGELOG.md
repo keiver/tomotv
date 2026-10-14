@@ -12,6 +12,7 @@ All notable changes to Tomo TV are documented here.
 - Lyrics found on lrclib.net or generated on the device are saved to the server as a lyric file, once per song, when the account may manage lyrics
 - Settings gains a Lyrics screen: Show lyrics, Find missing lyrics, Listen for lyrics and Save lyrics to my server, all on by default. Listen for lyrics shows off and cannot be pressed on a device that cannot listen; Save lyrics to my server is listed only for an account the server lets manage lyrics
 - A downloaded song keeps the lyrics the server or lrclib.net has, for offline playback
+- On Apple TV, the player's Info tab shows the content rating and genre. An episode with none of its own shows its series', and a live channel shows those of the programme airing when it opens, from the server's guide or an XMLTV guide already loaded on the device
 
 ### Changed
 
