@@ -63,19 +63,13 @@ final class AudioArtworkOverlayView: UIView {
     private let glyph = UIImageView()
     private let spinner = UIActivityIndicatorView(style: .large)
 
-    /// Apple TV sets the card on the left and the lines on the right; the phone, iPad and Mac give
-    /// the lines the whole screen in place of the card.
+    /// A song's lines take the whole screen in place of the card.
     private let lyricsList = LyricsListView()
     private var showsLyrics = false
 
     #if os(tvOS)
-    private let titleLabel = UILabel()
-    private let artistLabel = UILabel()
-
-    func setTrack(title: String, artist: String) {
-        titleLabel.text = title
-        artistLabel.text = artist
-    }
+    /// Clear of the screen edges, inside the area a TV may overscan.
+    private static let lyricsTVMargin: CGFloat = 90
     #else
     /// Seconds of the line the viewer tapped.
     var onSelectLyric: ((Double) -> Void)? {
@@ -147,16 +141,6 @@ final class AudioArtworkOverlayView: UIView {
         spinner.hidesWhenStopped = true
         poster.addSubview(spinner)
 
-        #if os(tvOS)
-        titleLabel.font = .systemFont(ofSize: 29, weight: .semibold)
-        titleLabel.textColor = .white
-        titleLabel.textAlignment = .center
-        artistLabel.font = .systemFont(ofSize: 25)
-        artistLabel.textColor = UIColor(white: 1, alpha: 0.6)
-        artistLabel.textAlignment = .center
-        addSubview(titleLabel)
-        addSubview(artistLabel)
-        #endif
         addSubview(lyricsList)
 
         show(.loading)
@@ -237,26 +221,17 @@ final class AudioArtworkOverlayView: UIView {
         if cardSize.width > widthLimit {
             cardSize = CGSize(width: widthLimit, height: widthLimit / ratio)
         }
-        var centre = CGPoint(x: reference.midX, y: reference.midY)
+        let centre = CGPoint(x: reference.midX, y: reference.midY)
         let radius = Self.cornerRadius
 
-        #if os(tvOS)
-        titleLabel.isHidden = !showsLyrics
-        artistLabel.isHidden = !showsLyrics
-        lyricsList.isHidden = !showsLyrics
-        if showsLyrics {
-            centre.x = reference.minX + reference.width * 0.25
-            // Raised, so the song's name clears the transport bar's own title below it.
-            centre.y = reference.minY + reference.height * 0.43
-            let labelWidth = reference.width * 0.4
-            titleLabel.frame = CGRect(x: centre.x - labelWidth / 2, y: centre.y + cardSize.height / 2 + 22, width: labelWidth, height: 36)
-            artistLabel.frame = CGRect(x: centre.x - labelWidth / 2, y: titleLabel.frame.maxY + 4, width: labelWidth, height: 32)
-            let left = reference.minX + reference.width * 0.44
-            lyricsList.frame = CGRect(x: left, y: reference.minY + reference.height * 0.1, width: reference.maxX - 90 - left, height: reference.height * 0.8)
-        }
-        #else
         lyricsList.isHidden = !showsLyrics
         card.isHidden = showsLyrics
+        #if os(tvOS)
+        if showsLyrics {
+            let margin = Self.lyricsTVMargin
+            lyricsList.frame = CGRect(x: reference.minX + margin, y: reference.minY + reference.height * 0.1, width: reference.width - 2 * margin, height: reference.height * 0.8)
+        }
+        #else
         if showsLyrics {
             let insets = window.safeAreaInsets
             let top = reference.minY + insets.top + Self.lyricsTopClearance

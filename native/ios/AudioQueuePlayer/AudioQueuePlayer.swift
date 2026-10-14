@@ -643,7 +643,6 @@ class AudioQueuePlayer: RCTEventEmitter {
         // drops the previous artwork above.
         showArtwork(artworkContent(for: entry.index))
         publishCachedArtwork(for: entry.index)
-        showTrack(track)
         awaitLyrics(for: track)
 
         // Swift's ternary can't unify String and NSNull; build the mixed-type
@@ -913,7 +912,6 @@ class AudioQueuePlayer: RCTEventEmitter {
         screen.onDismissed = dismissed
         top.present(screen, animated: true)
         #endif
-        if currentIndex < tracks.count { showTrack(tracks[currentIndex]) }
         applyLyrics()
     }
 
@@ -1075,13 +1073,6 @@ class AudioQueuePlayer: RCTEventEmitter {
 
     private func showArtwork(_ content: AudioArtworkOverlayView.Content) {
         artworkOverlay?.show(content)
-    }
-
-    /// Apple TV names the song under its card; AVKit's own title does it elsewhere.
-    private func showTrack(_ track: QueueTrack) {
-        #if os(tvOS)
-        artworkOverlay?.setTrack(title: track.title, artist: track.artist)
-        #endif
     }
 
     // MARK: - Lyrics
