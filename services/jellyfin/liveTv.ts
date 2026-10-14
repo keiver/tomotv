@@ -174,7 +174,7 @@ const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports
 
 /** Channels listed with no current programme get the one airing now from the device guides already open.
  *  Bounded by the page the caller fetched; any failure leaves the page as the server sent it. */
-async function fillAiringFromGuides(channels: JellyfinItem[]): Promise<JellyfinItem[]> {
+async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels: T[]): Promise<T[]> {
   const bare = channels.filter((channel) => channel.Type === "TvChannel" && !channel.CurrentProgram);
   if (bare.length === 0) return channels;
   try {
@@ -386,7 +386,8 @@ async function describeChannel(
   }
   if (itemResponse && !itemResponse.ok) throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
   if (infoResponse && !infoResponse.ok) throwRequestError(infoResponse, `Failed to fetch channel playback info: ${infoResponse.status}`);
-  const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
+  // The player's Info tab shows the airing programme's rating and genre.
+  const [channel] = await fillAiringFromGuides<JellyfinVideoItem>([item ?? (await itemResponse!.json())]);
   const info = options.info ?? (await infoResponse!.json());
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   const described = { ...channel, MediaSources: info.MediaSources, MediaStreams: source?.MediaStreams ?? [], PlaySessionId: info.PlaySessionId };
@@ -494,7 +495,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   }
   const infoResponse = await infoRequest;
   if (!infoResponse.ok) throwRequestError(infoResponse, `Failed to open channel: ${infoResponse.status}`);
-  const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
+  const [channel] = await fillAiringFromGuides<JellyfinVideoItem>([item ?? (await itemResponse!.json())]);
   const info = await infoResponse.json();
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   const raw = !options.serverOnly && !!source?.Path && source.SupportsDirectPlay === true;

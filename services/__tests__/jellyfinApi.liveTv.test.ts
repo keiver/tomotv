@@ -530,6 +530,23 @@ describe("live TV client", () => {
     expect(calls[0][0]).toBe(`${SERVER}/Items/c7/PlaybackInfo?UserId=test-user-id`);
   });
 
+  it("gives the played channel its airing programme from the device guide when the server lists none", async () => {
+    const external = jest.requireMock("@/services/externalGuide") as { activeGuideUrls: jest.Mock; fetchExternalAiringPrograms: jest.Mock };
+    external.activeGuideUrls.mockReturnValueOnce(["http://g/guide.xml"]);
+    external.fetchExternalAiringPrograms.mockResolvedValueOnce([{ Id: "ext:c7:1", Name: "Late Film", ChannelId: "c7", OfficialRating: "PG", Genres: ["Movie"] }]);
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      if (url.includes("/PlaybackInfo")) {
+        return { ok: true, json: async () => ({ MediaSources: [{ Id: "ms-7", Protocol: "Http", Path: "https://origin.example/live/master.m3u8", IsInfiniteStream: true, MediaStreams: [] }] }) };
+      }
+      if (url.endsWith("/master.m3u8")) return { ok: true, url, text: async () => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nlow/index.m3u8\n" };
+      return { ok: true, text: async () => "#EXTM3U\n#EXTINF:6,\nseg1.ts\n" };
+    });
+
+    const channel = await resolveChannel("c7", { Id: "c7", Name: "Seven", Type: "TvChannel", Path: "", CurrentProgram: null });
+
+    expect(channel.CurrentProgram).toEqual({ Id: "ext:c7:1", Name: "Late Film", ChannelId: "c7", OfficialRating: "PG", Genres: ["Movie"] });
+  });
+
   it("opens a channel whose source is not a manifest on the server", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
