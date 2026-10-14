@@ -1,21 +1,27 @@
-import { episodeTitleLines, formatEpisodeNumber, formatIndexBadge, formatSeasonEpisode, orderSortNameTies, parseSeasonEpisode } from "../seasonEpisode";
+import { formatEpisodeNumber, formatIndexBadge, formatSeasonEpisode, orderSortNameTies, parseSeasonEpisode, playerTitleLines } from "../seasonEpisode";
 
-describe("episodeTitleLines", () => {
+describe("playerTitleLines", () => {
   it("puts the series in the title and the season, episode and episode name in the line over it", () => {
-    expect(episodeTitleLines({ Type: "Episode", SeriesName: "Show", Name: "Pilot", Path: "", ParentIndexNumber: 4, IndexNumber: 19 })).toEqual({ title: "Show", subtitle: "S04E19 · Pilot" });
+    expect(playerTitleLines({ Type: "Episode", SeriesName: "Show", Name: "Pilot", Path: "", ParentIndexNumber: 4, IndexNumber: 19 })).toEqual({ title: "Show", subtitle: "S04E19 · Pilot" });
   });
 
   it("shows a multi-episode file's range", () => {
-    expect(episodeTitleLines({ Type: "Episode", SeriesName: "Show", Name: "Two Parter", Path: "", ParentIndexNumber: 1, IndexNumber: 1, IndexNumberEnd: 2 })?.subtitle).toBe("S01E01-E02 · Two Parter");
+    expect(playerTitleLines({ Type: "Episode", SeriesName: "Show", Name: "Two Parter", Path: "", ParentIndexNumber: 1, IndexNumber: 1, IndexNumberEnd: 2 })?.subtitle).toBe("S01E01-E02 · Two Parter");
   });
 
   it("keeps the episode name alone when no number is known", () => {
-    expect(episodeTitleLines({ Type: "Episode", SeriesName: "Show", Name: "Special", Path: "" })?.subtitle).toBe("Special");
+    expect(playerTitleLines({ Type: "Episode", SeriesName: "Show", Name: "Special", Path: "" })?.subtitle).toBe("Special");
   });
 
-  it("gives nothing for a movie, or an episode with no series name", () => {
-    expect(episodeTitleLines({ Type: "Movie", Name: "Film", Path: "" })).toBeNull();
-    expect(episodeTitleLines({ Type: "Episode", Name: "Pilot", Path: "", IndexNumber: 1 })).toBeNull();
+  it("puts a movie's or home video's year over its name", () => {
+    expect(playerTitleLines({ Type: "Movie", Name: "Film", Path: "", ProductionYear: 2008 })).toEqual({ title: "Film", subtitle: "2008" });
+    expect(playerTitleLines({ Type: "Video", Name: "Birthday", Path: "", ProductionYear: 2019 })).toEqual({ title: "Birthday", subtitle: "2019" });
+  });
+
+  it("gives nothing for a movie with no year, an episode with no series name, or another kind", () => {
+    expect(playerTitleLines({ Type: "Movie", Name: "Film", Path: "" })).toBeNull();
+    expect(playerTitleLines({ Type: "Episode", Name: "Pilot", Path: "", IndexNumber: 1 })).toBeNull();
+    expect(playerTitleLines({ Type: "TvChannel", Name: "News", Path: "", ProductionYear: 2020 })).toBeNull();
   });
 });
 

@@ -14,7 +14,7 @@ import { fetchNextEpisodeAutoPlay, getChapterImageUrl, JELLYFIN_TIME } from "@/s
 import { playQueueManager } from "@/services/playQueueManager";
 import { isJoined as syncPlayIsJoined } from "@/services/syncPlayManager";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { episodeTitleLines } from "@/utils/seasonEpisode";
+import { playerTitleLines } from "@/utils/seasonEpisode";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -386,12 +386,12 @@ export function PlayerHost() {
   const artwork = useItemPoster(videoDetails, 600);
   const sourceMetadata = useMemo(() => {
     if (!videoDetails) return undefined;
-    // Apple TV's title view: the series large, "S04E19 · Episode name" above it. iPhone keeps the
-    // episode name as the title, the only line its lock screen shows.
-    const episode = Platform.isTV ? episodeTitleLines(videoDetails) : null;
+    // Apple TV's title view: the series large with "S04E19 · Episode name" above it, a movie with its
+    // year. iPhone keeps the item's own name as the title, the only line its lock screen shows.
+    const lines = Platform.isTV ? playerTitleLines(videoDetails) : null;
     return {
-      title: cleanLabel(episode ? episode.title : videoDetails.Name),
-      ...(episode ? { subtitle: cleanLabel(episode.subtitle) } : {}),
+      title: cleanLabel(lines ? lines.title : videoDetails.Name),
+      ...(lines ? { subtitle: cleanLabel(lines.subtitle) } : {}),
       ...(artwork ? { imageUri: artwork.uri } : {}),
       // A channel's image is its logo: the patch bakes it onto the info panel's tile.
       ...(session?.isLive ? { logo: true } : {}),

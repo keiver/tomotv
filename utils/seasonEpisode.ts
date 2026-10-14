@@ -74,10 +74,14 @@ export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
   return pair.episodeEnd === undefined ? tag : `${tag}-${episodeTag(pair.episodeEnd)}`;
 }
 
-/** An episode's series as the title and "S04E19 · Episode name" as the line over it, as the Apple TV player's title view shows them. Null for anything but an episode of a series. */
-export function episodeTitleLines(item: SeasonEpisodeSource & Pick<JellyfinVideoItem, "SeriesName">): { title: string; subtitle: string } | null {
-  if (item.Type !== "Episode" || !item.SeriesName) return null;
-  return { title: item.SeriesName, subtitle: [formatSeasonEpisode(item), item.Name].filter(Boolean).join(" · ") };
+/**
+ * The Apple TV player's title view: an episode's series with "S04E19 · Episode name" over it, a
+ * movie or home video with its year over it. Null when there is no second line to show.
+ */
+export function playerTitleLines(item: SeasonEpisodeSource & Pick<JellyfinVideoItem, "SeriesName" | "ProductionYear">): { title: string; subtitle: string } | null {
+  if (item.Type === "Episode" && item.SeriesName) return { title: item.SeriesName, subtitle: [formatSeasonEpisode(item), item.Name].filter(Boolean).join(" · ") };
+  if ((item.Type === "Movie" || item.Type === "Video") && item.ProductionYear) return { title: item.Name, subtitle: String(item.ProductionYear) };
+  return null;
 }
 
 /** Episode number as prose: "5", or "1-2" for a multi-episode file. */
