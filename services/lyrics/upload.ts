@@ -1,6 +1,7 @@
 /**
  * Lyrics found for a song, saved to the Jellyfin server as a lyric file so every client reads
- * them. The server allows it per account (Policy.EnableLyricManagement).
+ * them. The server allows it per account (EnableLyricManagement) but never reports that
+ * permission in the user's policy, so a refused upload is what marks an account as not allowed.
  */
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { API_TIMEOUTS } from "@/services/jellyfin/constants";
@@ -8,26 +9,16 @@ import type { ItemLyrics } from "@/services/jellyfin/lyrics";
 import { getAuthHeader, getConfig } from "@/services/jellyfin/session";
 import { logger } from "@/utils/logger";
 
-let permission: { server: string; userId: string; allowed: boolean } | null = null;
+/** Accounts, by server and user, the server refused a lyrics upload while the app runs. */
+const refused = new Set<string>();
 
-/** Whether this account may write lyrics. Asked once per account; a failed read counts as no. */
+const accountKey = (config: { server: string; userId: string }): string => `${config.server}|${config.userId}`;
+
+/** Whether this account may write lyrics: yes once signed in, until the server refuses it. */
 export async function canManageLyrics(): Promise<boolean> {
   const config = await getConfig();
   if (!config.server || !config.apiKey) return false;
-  if (permission && permission.server === config.server && permission.userId === config.userId) return permission.allowed;
-  try {
-    const response = await fetchWithTimeout(
-      `${config.server}/Users/Me`,
-      { method: "GET", headers: { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) } },
-      API_TIMEOUTS.QUICK,
-    );
-    if (!response.ok) return false;
-    const user = (await response.json()) as { Policy?: { EnableLyricManagement?: boolean } };
-    permission = { server: config.server, userId: config.userId, allowed: user.Policy?.EnableLyricManagement === true };
-    return permission.allowed;
-  } catch {
-    return false;
-  }
+  return !refused.has(accountKey(config));
 }
 
 function stamp(seconds: number): string {
@@ -68,6 +59,7 @@ export async function uploadLyrics(itemId: string, lyrics: ItemLyrics): Promise<
       { method: "POST", headers: { "Content-Type": "text/plain", Authorization: getAuthHeader(config.deviceId, config.apiKey) }, body },
       API_TIMEOUTS.NORMAL,
     );
+    if (response.status === 403) refused.add(accountKey(config));
     if (!response.ok) logger.warn("Saving lyrics to the server was refused", { service: "Lyrics", itemId, status: response.status });
     return response.ok;
   } catch (error) {

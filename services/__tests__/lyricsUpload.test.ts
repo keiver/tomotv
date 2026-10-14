@@ -60,24 +60,34 @@ describe("lyricsFile", () => {
 describe("canManageLyrics", () => {
   beforeEach(() => mockFetch.mockReset());
 
-  it("follows the account's lyric permission and asks once per account", async () => {
-    account("user-1");
-    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ Policy: { EnableLyricManagement: true } }) });
-
+  it("is yes for a signed-in account without asking the server", async () => {
+    account("user-10");
     expect(await canManageLyrics()).toBe(true);
-    expect(await canManageLyrics()).toBe(true);
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-
-    account("user-2");
-    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ Policy: { EnableLyricManagement: false } }) });
-    expect(await canManageLyrics()).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("is no when the read fails or nobody is signed in", async () => {
-    account("user-3");
-    mockFetch.mockRejectedValue(new Error("offline"));
+  it("is no for an account once the server refused it an upload with 403", async () => {
+    account("user-11");
+    mockFetch.mockResolvedValue({ ok: false, status: 403 });
+    await uploadLyrics("song-1", WORDED);
     expect(await canManageLyrics()).toBe(false);
 
+    account("user-12");
+    expect(await canManageLyrics()).toBe(true);
+  });
+
+  it("stays yes after a 401, a server error or no answer", async () => {
+    account("user-14");
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    await uploadLyrics("song-1", WORDED);
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+    await uploadLyrics("song-1", WORDED);
+    mockFetch.mockRejectedValueOnce(new Error("offline"));
+    await uploadLyrics("song-1", WORDED);
+    expect(await canManageLyrics()).toBe(true);
+  });
+
+  it("is no when nobody is signed in", async () => {
     (getConfig as jest.Mock).mockResolvedValue({ server: "", apiKey: "" });
     expect(await canManageLyrics()).toBe(false);
   });
