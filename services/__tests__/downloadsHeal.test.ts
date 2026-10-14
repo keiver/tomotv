@@ -34,6 +34,7 @@ jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "ht
 jest.mock("@/services/itemArtwork", () => ({ wantsPosterFrame: jest.fn(() => false) }));
 jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(async () => null), cancelPosterFrame: jest.fn() }));
 jest.mock("@/services/jellyfin/subtitles", () => ({ getRemoteSubtitleUrl: jest.fn(() => "https://jf/sub"), getTextSubtitleStreams: jest.fn(() => []) }));
+jest.mock("@/services/lyrics/pipeline", () => ({ networkLyrics: jest.fn(async () => null) }));
 
 import { Paths } from "expo-file-system";
 import { downloadManager, HEAL_SETTLE_MS } from "@/services/downloads/manager";
