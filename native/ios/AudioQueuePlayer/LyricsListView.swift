@@ -4,7 +4,7 @@
 //
 //  A song's lines the way Apple Music sets them: bold, left aligned, the sung line white and
 //  the rest dimmed, following playback. One view for all three places lyrics appear: the
-//  Apple TV backdrop (no interaction), its swipe-up list, and the phone's list beside the player.
+//  Apple TV backdrop (no interaction), its swipe-up list, and the phone's list under the player's controls.
 //
 
 import UIKit

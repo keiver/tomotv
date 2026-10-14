@@ -147,8 +147,6 @@ class AudioQueuePlayer: RCTEventEmitter {
     private weak var upNextPanel: UpNextPanelViewController?
     private var lyricsOverlay: LyricsOverlayViewController?
     private weak var previousTrackTap: UITapGestureRecognizer?
-    #else
-    private weak var container: AudioPlayerContainerViewController?
     #endif
 
     /// The current track's lyrics as JS last sent them. Drawn only while the viewer wants them.
@@ -892,6 +890,9 @@ class AudioQueuePlayer: RCTEventEmitter {
             artwork.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             overlay.addSubview(artwork)
             artwork.show(artworkContent(for: currentIndex))
+            #if !os(tvOS)
+            artwork.onSelectLyric = { [weak self] seconds in self?.seek(to: seconds) }
+            #endif
             artworkOverlay = artwork
             vc.artworkOverlay = artwork
         }
@@ -903,16 +904,11 @@ class AudioQueuePlayer: RCTEventEmitter {
         #if os(tvOS)
         top.present(vc, animated: true)
         #else
-        // The player is embedded so a song's lyrics can sit beside it; without lyrics it fills
-        // the screen and AVKit's own Close dismisses the whole presentation.
-        let screen = AudioPlayerContainerViewController(playerViewController: vc, artworkOverlay: artworkOverlay)
+        // The player fills the embedding screen, so AVKit's own Close dismisses the whole presentation.
+        let screen = AudioPlayerContainerViewController(playerViewController: vc)
         screen.modalPresentationStyle = .fullScreen
         screen.onWillDismiss = willDismiss
         screen.onDismissed = dismissed
-        screen.onSeek = { [weak self] seconds in self?.seek(to: seconds) }
-        screen.loadViewIfNeeded()
-        screen.setArtwork(artworkContent(for: currentIndex))
-        container = screen
         top.present(screen, animated: true)
         #endif
         if currentIndex < tracks.count { showTrack(tracks[currentIndex]) }
@@ -1077,16 +1073,12 @@ class AudioQueuePlayer: RCTEventEmitter {
 
     private func showArtwork(_ content: AudioArtworkOverlayView.Content) {
         artworkOverlay?.show(content)
-        #if !os(tvOS)
-        container?.setArtwork(content)
-        #endif
     }
 
+    /// Apple TV names the song under its card; AVKit's own title does it elsewhere.
     private func showTrack(_ track: QueueTrack) {
         #if os(tvOS)
         artworkOverlay?.setTrack(title: track.title, artist: track.artist)
-        #else
-        container?.setTrack(title: track.title, artist: track.artist)
         #endif
     }
 
@@ -1106,11 +1098,9 @@ class AudioQueuePlayer: RCTEventEmitter {
             }
         }
         let held = shown == nil && lyricsPendingTrack != nil
-        #if os(tvOS)
         if held { artworkOverlay?.holdLyricsLayout() } else { artworkOverlay?.setLyrics(shown) }
+        #if os(tvOS)
         configureLyricsControls()
-        #else
-        if held { container?.holdLyricsLayout() } else { container?.setLyrics(shown) }
         #endif
         updateLyricsTime()
     }
@@ -1136,11 +1126,9 @@ class AudioQueuePlayer: RCTEventEmitter {
     private func updateLyricsTime() {
         guard shownLyrics != nil, let seconds = player?.currentTime().seconds, seconds.isFinite else { return }
         let time = seconds + Self.lyricsLead
-        #if os(tvOS)
         artworkOverlay?.updateLyrics(time: time)
+        #if os(tvOS)
         lyricsOverlay?.update(time: time)
-        #else
-        container?.updateLyrics(time: time)
         #endif
     }
 
@@ -1215,20 +1203,8 @@ extension AudioQueuePlayer: AVPlayerViewControllerDelegate {
         emitUserDismissIfNeeded()
     }
     #else
-    /// The player's Fullscreen button, offered beside the lyrics: AVKit lifts the player out of
-    /// the lyrics screen, and the artwork has to follow it.
-    func playerViewController(
-        _ playerViewController: AVPlayerViewController,
-        willBeginFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
-    ) {
-        container?.setPlayerFullscreen(true)
-        coordinator.animate(alongsideTransition: nil) { [weak self] context in
-            if context.isCancelled { self?.container?.setPlayerFullscreen(false) }
-        }
-    }
-
-    /// AVKit pauses on the way out of its own fullscreen, back to the player beside the lyrics.
-    /// The player still reads as playing here and as paused by the transition's completion.
+    /// AVKit pauses on the way out of its own fullscreen, should it offer one. The player still
+    /// reads as playing here and as paused by the transition's completion.
     func playerViewController(
         _ playerViewController: AVPlayerViewController,
         willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
@@ -1237,7 +1213,6 @@ extension AudioQueuePlayer: AVPlayerViewControllerDelegate {
         let wasPlaying = status == .playing || status == .waitingToPlayAtSpecifiedRate
         coordinator.animate(alongsideTransition: nil) { [weak self] context in
             guard !context.isCancelled, let self else { return }
-            self.container?.setPlayerFullscreen(false)
             guard wasPlaying, self.active, let player = self.player, player.currentItem != nil else { return }
             player.play()
         }

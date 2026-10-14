@@ -4,8 +4,8 @@
 //
 //  The audio player's stand-in for a video image: the track's poster as a raised
 //  card over a wash of its own artwork, so an audio-only presentation is never a
-//  black rectangle. Non-interactive by construction, it shares its layer with
-//  AVKit's transport controls.
+//  black rectangle, and a song's lyrics under AVKit's transport controls. Only the
+//  phone's lyric list takes touches; everything else is left to AVKit.
 //
 
 import UIKit
@@ -63,22 +63,36 @@ final class AudioArtworkOverlayView: UIView {
     private let glyph = UIImageView()
     private let spinner = UIActivityIndicatorView(style: .large)
 
-    /// The view the card is centred in when the player shares the screen; the window otherwise.
-    weak var layoutHost: UIView? { didSet { setNeedsLayout() } }
-    /// The wash alone, for a screen that shows the artwork somewhere else.
-    var isCardHidden = false { didSet { card.isHidden = isCardHidden } }
+    /// Apple TV sets the card on the left and the lines on the right; the phone, iPad and Mac give
+    /// the lines the whole screen in place of the card.
+    private let lyricsList = LyricsListView()
+    private var showsLyrics = false
 
     #if os(tvOS)
-    /// Apple Music's Apple TV layout: the card on the left with the song under it, the lines on the right.
-    private let lyricsList = LyricsListView()
     private let titleLabel = UILabel()
     private let artistLabel = UILabel()
-    private var showsLyrics = false
 
     func setTrack(title: String, artist: String) {
         titleLabel.text = title
         artistLabel.text = artist
     }
+    #else
+    /// Seconds of the line the viewer tapped.
+    var onSelectLyric: ((Double) -> Void)? {
+        get { lyricsList.onSelect }
+        set { lyricsList.onSelect = newValue }
+    }
+
+    /// Clear of AVKit's top button row and of its scrubber, below and above the safe area.
+    private static let lyricsTopClearance: CGFloat = 72
+    private static let lyricsBottomClearance: CGFloat = 110
+
+    /// The lyric list is the only thing here that takes a touch.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard showsLyrics, !lyricsList.isHidden else { return nil }
+        return lyricsList.hitTest(convert(point, to: lyricsList), with: event)
+    }
+    #endif
 
     func setLyrics(_ lyrics: Lyrics?) {
         lyricsList.setLyrics(lyrics)
@@ -96,11 +110,12 @@ final class AudioArtworkOverlayView: UIView {
     func updateLyrics(time: Double) {
         lyricsList.update(time: time)
     }
-    #endif
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        #if os(tvOS)
         isUserInteractionEnabled = false
+        #endif
         backgroundColor = .clear
 
         wash.contentMode = .scaleAspectFill
@@ -141,8 +156,8 @@ final class AudioArtworkOverlayView: UIView {
         artistLabel.textAlignment = .center
         addSubview(titleLabel)
         addSubview(artistLabel)
-        addSubview(lyricsList)
         #endif
+        addSubview(lyricsList)
 
         show(.loading)
     }
@@ -205,8 +220,7 @@ final class AudioArtworkOverlayView: UIView {
         // no window. Hold the geometry rather than measure against nothing.
         guard let windowReference = layoutReference(), let window else { return }
         // In this view's coordinates from here on.
-        let washFrame = convert(windowReference, from: window)
-        let reference = layoutHost.map { convert($0.bounds, from: $0) } ?? washFrame
+        let reference = convert(windowReference, from: window)
 
         // Two caps: the short side holds the size steady across a rotation, the height keeps the
         // card off the transport bar where the short side IS the height.
@@ -240,12 +254,26 @@ final class AudioArtworkOverlayView: UIView {
             let left = reference.minX + reference.width * 0.44
             lyricsList.frame = CGRect(x: left, y: reference.minY + reference.height * 0.1, width: reference.maxX - 90 - left, height: reference.height * 0.8)
         }
+        #else
+        lyricsList.isHidden = !showsLyrics
+        card.isHidden = showsLyrics
+        if showsLyrics {
+            let insets = window.safeAreaInsets
+            let top = reference.minY + insets.top + Self.lyricsTopClearance
+            let left = reference.minX + insets.left
+            lyricsList.frame = CGRect(
+                x: left,
+                y: top,
+                width: reference.maxX - insets.right - Self.horizontalMargin - left,
+                height: reference.maxY - insets.bottom - Self.lyricsBottomClearance - top
+            )
+        }
         #endif
 
         // The wash covers the window, which this view does not.
-        wash.frame = washFrame
-        washBlur.frame = washFrame
-        washDim.frame = washFrame
+        wash.frame = reference
+        washBlur.frame = reference
+        washDim.frame = reference
 
         card.bounds = CGRect(origin: .zero, size: cardSize)
         card.center = centre
