@@ -16,7 +16,7 @@ jest.mock("@/services/lyrics/lrclib", () => ({ findOnLrclib: jest.fn(async () =>
 jest.mock("@/services/lyrics/upload", () => ({
   canManageLyrics: jest.fn(async () => true),
   uploadLyrics: jest.fn(async () => true),
-  savable: (lyrics: { source?: string } | null) => lyrics?.source === "lrclib" || lyrics?.source === "generated",
+  savable: (lyrics: { source?: string; synced?: boolean } | null) => (lyrics?.source === "lrclib" || lyrics?.source === "generated") && lyrics?.synced === true,
 }));
 
 import { localLyrics } from "@/services/downloads/localSource";
@@ -379,6 +379,44 @@ describe("saving to the server", () => {
     await resolve();
 
     expect(uploadLyrics).toHaveBeenCalledTimes(2);
+  });
+
+  it("uploads no untimed lyrics from LRCLIB", async () => {
+    (findOnLrclib as jest.Mock).mockResolvedValue(found(PLAIN));
+    await resolve();
+
+    expect(uploadLyrics).not.toHaveBeenCalled();
+  });
+
+  it("replaces an untimed copy it saved once it has timed it, under a fresh source line", async () => {
+    const saved: ItemLyrics = { synced: false, source: "server", lines: [{ text: "Lyrics: lrclib.net", start: null, cues: [] }, ...lines(false)] };
+    (fetchLyrics as jest.Mock).mockResolvedValue(saved);
+    (listen as jest.Mock).mockResolvedValue(HEARD);
+    await resolve();
+
+    expect(uploadLyrics).toHaveBeenCalledTimes(1);
+    const sent = (uploadLyrics as jest.Mock).mock.calls[0][1] as ItemLyrics;
+    expect(sent.source).toBe("lrclib");
+    expect(sent.synced).toBe(true);
+    expect(sent.lines.map((line) => line.text)).toEqual(["alpha bravo charlie", "delta echo foxtrot"]);
+  });
+
+  it("leaves an untimed server copy alone when this app did not save it", async () => {
+    (fetchLyrics as jest.Mock).mockResolvedValue({ synced: false, source: "server", lines: lines(false) });
+    (listen as jest.Mock).mockResolvedValue(HEARD);
+    await resolve();
+
+    expect(uploadLyrics).not.toHaveBeenCalled();
+  });
+
+  it("reuses its word fill of a server copy that starts with the source line", async () => {
+    const saved: ItemLyrics = { synced: true, source: "server", lines: [{ text: "Lyrics: lrclib.net", start: 0, cues: [] }, ...lines(true)] };
+    (fetchLyrics as jest.Mock).mockResolvedValue(saved);
+    (listen as jest.Mock).mockResolvedValue(HEARD);
+    await resolve();
+    await resolve();
+
+    expect(listen).toHaveBeenCalledTimes(1);
   });
 });
 

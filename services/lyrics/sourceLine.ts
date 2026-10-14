@@ -18,8 +18,15 @@ export function sourceLine(source: LyricsSource | undefined): string | undefined
   return undefined;
 }
 
+/** The source a line this app wrote at the lyrics' top names, or undefined when there is none. */
+export function sourceNamed(lyrics: ItemLyrics): LyricsSource | undefined {
+  const first = lyrics.lines[0]?.text;
+  if (first === FOUND) return "lrclib";
+  if (first?.startsWith(WRITTEN)) return "generated";
+  return undefined;
+}
+
 /** The lyrics without a source line this app wrote at their top. */
 export function withoutSourceLine(lyrics: ItemLyrics): ItemLyrics {
-  const first = lyrics.lines[0]?.text;
-  return first !== undefined && (first === FOUND || first.startsWith(WRITTEN)) ? { ...lyrics, lines: lyrics.lines.slice(1) } : lyrics;
+  return sourceNamed(lyrics) ? { ...lyrics, lines: lyrics.lines.slice(1) } : lyrics;
 }

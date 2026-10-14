@@ -13,7 +13,7 @@ import { logger } from "@/utils/logger";
 import { generatedLyrics, withLineTiming, withWordTiming } from "./align";
 import { listen, listenable, listenerAvailable } from "./listener";
 import { findOnLrclib } from "./lrclib";
-import { withoutSourceLine } from "./sourceLine";
+import { sourceNamed, withoutSourceLine } from "./sourceLine";
 import { lyricsKey, readLyricsEntry, writeLyricsEntry } from "./store";
 import { canManageLyrics, savable, uploadLyrics } from "./upload";
 
@@ -76,7 +76,7 @@ async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<
   const serverAnswered = server?.answered ?? true;
   let definite = serverAnswered;
   if (owned) {
-    const remembered = cached?.lyrics && textOf(cached.lyrics) === textOf(withoutSourceLine(owned)) ? cached : null;
+    const remembered = cached?.lyrics && textOf(withoutSourceLine(cached.lyrics)) === textOf(withoutSourceLine(owned)) ? cached : null;
     current = remembered?.lyrics ?? owned;
     listened = remembered?.listened ?? false;
   } else if (cached) {
@@ -113,8 +113,11 @@ async function run(key: string, item: JellyfinVideoItem, emit: Update): Promise<
   }
   if (!current) emit(null);
 
-  if (current && savable(current) && !uploaded && serverAnswered && preferences.saveLyrics && (await canManageLyrics())) {
-    uploaded = await uploadLyrics(item.Id, current);
+  // An untimed copy this app saved is replaced once this device has timed it.
+  const savedUntimed = server?.lyrics && !server.lyrics.synced ? sourceNamed(server.lyrics) : undefined;
+  const toSave = savedUntimed && current?.synced ? { ...withoutSourceLine(current), source: savedUntimed } : current;
+  if (toSave && savable(toSave) && (!uploaded || savedUntimed) && serverAnswered && preferences.saveLyrics && (await canManageLyrics())) {
+    uploaded = await uploadLyrics(item.Id, toSave);
   }
   // A miss is only remembered when every source actually answered; one the device tried to hear is not listened to again.
   if (current || definite) writeLyricsEntry(key, { lyrics: current, listened: listened || (current === null && tried), uploaded });

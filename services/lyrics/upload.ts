@@ -46,8 +46,8 @@ export function lyricsFile(lyrics: ItemLyrics): { fileName: string; body: string
   return { fileName: worded ? "lyrics.elrc" : "lyrics.lrc", body: [...head, ...lines].join("\n") };
 }
 
-/** Lyrics this app found or wrote. The server's own are never sent back to it. */
-export const savable = (lyrics: ItemLyrics | null): boolean => lyrics?.source === "lrclib" || lyrics?.source === "generated";
+/** Timed lyrics this app found or wrote. The server's own are never sent back to it, and untimed text waits for a device that can time it. */
+export const savable = (lyrics: ItemLyrics | null): boolean => (lyrics?.source === "lrclib" || lyrics?.source === "generated") && lyrics.synced;
 
 /** True once the server has taken the file. The server keeps no source field, so the source line carries it. */
 export async function uploadLyrics(itemId: string, lyrics: ItemLyrics): Promise<boolean> {

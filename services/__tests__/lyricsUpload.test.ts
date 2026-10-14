@@ -130,6 +130,12 @@ describe("uploadLyrics", () => {
     expect(mockFetch.mock.calls[0][0]).toBe("http://server/Audio/song-1/Lyrics?fileName=lyrics.elrc");
   });
 
+  it("never sends untimed lyrics", async () => {
+    const plain: ItemLyrics = { synced: false, source: "lrclib", lines: [{ text: "one", start: null, cues: [] }] };
+    expect(await uploadLyrics("song-1", plain)).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("never sends the server's own lyrics or ones of no known source", async () => {
     expect(await uploadLyrics("song-1", { ...WORDED, source: "server" })).toBe(false);
     expect(await uploadLyrics("song-1", { ...WORDED, source: undefined })).toBe(false);
