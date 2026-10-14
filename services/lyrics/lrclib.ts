@@ -68,13 +68,19 @@ export function lookupCandidates(item: LookupItem): { artist: string; title: str
     .slice(0, MAX_CANDIDATES);
 }
 
-/** LRCLIB's synced text, "[mm:ss.xx] words" a line, as the player's lines in time order. */
+const STAMP = /^\[(\d+):(\d+(?:\.\d+)?)\]/;
+
+/** LRCLIB's synced text, "[mm:ss.xx] words" a line, as the player's lines in time order. A line with several stamps is sung at each. */
 export function parseLrc(text: string): LyricLine[] {
   const lines: LyricLine[] = [];
   for (const raw of text.split("\n")) {
-    const match = raw.match(/^\[(\d+):(\d+(?:\.\d+)?)\]\s?(.*)$/);
-    if (!match) continue;
-    lines.push({ text: match[3].trim(), start: Number(match[1]) * 60 + Number(match[2]), cues: [] });
+    let rest = raw.trim();
+    const starts: number[] = [];
+    for (let match = rest.match(STAMP); match; match = rest.match(STAMP)) {
+      starts.push(Number(match[1]) * 60 + Number(match[2]));
+      rest = rest.slice(match[0].length);
+    }
+    for (const start of starts) lines.push({ text: rest.trim(), start, cues: [] });
   }
   return lines.sort((a, b) => (a.start as number) - (b.start as number));
 }

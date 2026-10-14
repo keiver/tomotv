@@ -52,6 +52,14 @@ describe("parseLrc", () => {
       { text: "", start: 62.25, cues: [] },
     ]);
   });
+
+  it("gives a line with several stamps one line per stamp", () => {
+    expect(parseLrc("[00:10.00][00:50.00] chorus\n[00:20.00] verse")).toEqual([
+      { text: "chorus", start: 10, cues: [] },
+      { text: "verse", start: 20, cues: [] },
+      { text: "chorus", start: 50, cues: [] },
+    ]);
+  });
 });
 
 describe("findOnLrclib", () => {
