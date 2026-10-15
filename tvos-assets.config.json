@@ -4,6 +4,8 @@
       "layers": {
         "back": { "imagePath": "./assets/brand/background-appstore.png" }
       }
-    }
+    },
+    "topShelfImage": { "backgroundImage": "./assets/brand/tomo-grid-top-shelf.svg", "iconScale": 0.1875 },
+    "topShelfImageWide": { "backgroundImage": "./assets/brand/tomo-grid-top-shelf.svg", "iconScale": 0.1875 }
   }
 }
