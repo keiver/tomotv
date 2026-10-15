@@ -33,7 +33,7 @@ jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }
 jest.mock("@/components/loading-row", () => ({ LoadingRow: () => null }));
 jest.mock("@/components/search-loading-bar", () => ({ SearchLoadingBar: () => null }));
 jest.mock("@/components/settings/ServerConnectScreen", () => ({ ServerConnectScreen: () => null }));
-jest.mock("@/components/settings/styles", () => ({ IS_PAD: false, settingsStyles: {} }));
+jest.mock("@/components/settings/styles", () => ({ IS_PAD: false, settingsStyles: {}, sideInsets: () => null }));
 jest.mock("@/components/sunken-text-input", () => ({
   SunkenTextInput: require("react").forwardRef((props: object, ref: unknown) => require("react").createElement("SearchInput", { ...props, ref })),
 }));

@@ -8,7 +8,7 @@ import { LinkSpeedHeading, linkRateOutcome, type LinkRateOutcome } from "@/compo
 import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
-import { settingsStyles as styles } from "@/components/settings/styles";
+import { settingsStyles as styles, sideInsets } from "@/components/settings/styles";
 import { transcodingRowSubtitle } from "@/components/settings/transcodingCopy";
 import { UiSection } from "@/components/settings/UiSection";
 import { useTranscodePermissions } from "@/hooks/useTranscodePermissions";
@@ -24,6 +24,7 @@ import { connectedLine } from "@/utils/syncPlayCopy";
 import { pokeInbox } from "@/services/diagnosticsInbox";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Keyboard, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { t } from "@/services/i18n";
@@ -40,6 +41,7 @@ export default localeScreen(SettingsScreen);
 
 function SettingsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [screenState, setScreenState] = useState<ScreenState>("LOADING");
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
@@ -204,7 +206,7 @@ function SettingsScreen() {
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, sideInsets(insets)]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"

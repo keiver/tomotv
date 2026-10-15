@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
-import { IS_PAD, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, settingsStyles, sideInsets } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { t } from "@/services/i18n";
@@ -39,7 +39,7 @@ export default function LyricsSettingsScreen() {
     <View style={styles.container}>
       <AmbientBackground />
       <ScrollView
-        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }, sideInsets(insets)]}
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
           <View style={settingsStyles.sectionHeader}>

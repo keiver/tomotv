@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { AccountPill } from "@/components/settings/AccountPill";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { IS_PAD, QUALITY_ROW_HEIGHT, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, QUALITY_ROW_HEIGHT, QUALITY_SUBTITLE_LINE_HEIGHT, QUALITY_TITLE_LINE_HEIGHT, settingsStyles, sideInsets } from "@/components/settings/styles";
 import { APP_ABOUT_LINE, APP_BUILD_LABEL } from "@/constants/app";
 import { BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
@@ -109,7 +109,7 @@ export default function LicensesScreen() {
       <AmbientBackground />
       <ScrollView
         style={settingsStyles.scrollView}
-        contentContainerStyle={[settingsStyles.scrollContent, pagePadding]}
+        contentContainerStyle={[settingsStyles.scrollContent, pagePadding, sideInsets(insets)]}
         onLayout={IS_TV ? undefined : (event) => setViewportHeight(event.nativeEvent.layout.height)}
         alwaysBounceVertical={IS_TV}
         showsVerticalScrollIndicator={false}>

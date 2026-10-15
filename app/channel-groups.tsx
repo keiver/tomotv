@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
 import { PadSheet } from "@/components/pad-sheet";
 import { ListRow } from "@/components/settings/ListRow";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
@@ -83,7 +83,7 @@ export default function ChannelGroupsScreen() {
   return (
     <View style={styles.container}>
       <AmbientBackground />
-      <View style={[styles.page, IS_TV ? styles.pageTV : { paddingTop: headerHeight + 12, paddingBottom: 60 + insets.bottom }]}>
+      <View style={[styles.page, IS_TV ? styles.pageTV : { paddingTop: headerHeight + 12, paddingBottom: 60 + insets.bottom }, sideInsets(insets)]}>
         {/* The Diagnostics log's card: the list grows to its rows, capped at the room under the title, and scrolls inside. */}
         <View style={[settingsStyles.contentContainer, styles.column, IS_TV && styles.columnTV]} onLayout={(event) => setRoomHeight(event.nativeEvent.layout.height)}>
           {/* Phone reads the title off the native bar. */}
