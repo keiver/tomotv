@@ -215,7 +215,7 @@
   "lyrics.findHint": "On lrclib.net",
   "lyrics.listen": "Listen for lyrics",
   "lyrics.listenHint": "On this device. It can get words wrong.",
-  "lyrics.listenElsewhere": "Apple's speech transcription isn't available on this Apple TV. You can play the song once on your iPhone, iPad or Mac with \"Save lyrics to my server\" on, and its lyrics will show on this Apple TV the next time you play the song.",
+  "lyrics.listenElsewhere": "Speech transcription unavailable. Newer devices can get lyrics for this device.",
   "lyrics.save": "Save lyrics to my server",
   "lyrics.generated": "Generated on this device",
   "settings.devicePostersHint": "On device",

@@ -215,7 +215,7 @@
   "lyrics.findHint": "Sur lrclib.net",
   "lyrics.listen": "Écouter pour trouver les paroles",
   "lyrics.listenHint": "Sur cet appareil. Certains mots peuvent être faux.",
-  "lyrics.listenElsewhere": "La transcription vocale d'Apple n'est pas disponible sur cette Apple TV. Tu peux lire la chanson une fois sur ton iPhone, iPad ou Mac avec « Enregistrer les paroles sur mon serveur » activé, et ses paroles s'afficheront sur cette Apple TV la prochaine fois que tu la liras.",
+  "lyrics.listenElsewhere": "Transcription vocale indisponible. Des appareils plus récents peuvent obtenir les paroles pour cet appareil.",
   "lyrics.save": "Enregistrer les paroles sur mon serveur",
   "lyrics.generated": "Générées sur cet appareil",
   "settings.streaming": "DIFFUSION",
