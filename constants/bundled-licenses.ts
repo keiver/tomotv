@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 6e4b5a229f35d005
+ * fingerprint: 0025bc46d943a7da
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -460,7 +460,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "react-native-is-edge-to-edge", version: "1.3.1", license: "MIT", body: "L1", copyright: ["Copyright (c) 2024 Mathieu Acthernoene"] },
   { name: "react-native-reanimated", version: "4.5.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2016 Software Mansion <swmansion.com>"] },
   { name: "react-native-safe-area-context", version: "5.7.0", license: "MIT", body: "L1", copyright: ["Copyright (c) 2019 Th3rd Wave"] },
-  { name: "react-native-screens", version: "4.27.0", license: "MIT", body: "L3", copyright: ["Copyright (c) 2018 Software Mansion <swmansion.com>"] },
+  { name: "react-native-screens", version: "4.30.0", license: "MIT", body: "L3", copyright: ["Copyright (c) 2018 Software Mansion <swmansion.com>"] },
   { name: "react-native-video", version: "6.19.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2016-2022 Project contributors","Copyright (c) 2016 Brent Vatne, Baris Sencan"] },
   { name: "react-native-worklets", version: "0.10.1", license: "MIT", body: "L1", copyright: ["Copyright (c) 2024 nobody"] },
   { name: "react-refresh", version: "0.14.2", license: "MIT", body: "L1", copyright: ["Copyright (c) Facebook, Inc. and its affiliates."] },
