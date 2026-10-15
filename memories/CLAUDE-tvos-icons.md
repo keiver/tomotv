@@ -96,11 +96,11 @@ Asset names in `Contents.json` must match exactly (the lib's defaults produce th
 
 ## Image Dimensions (generated)
 
-| Asset                | Size       | Scale                       |
-| -------------------- | ---------- | --------------------------- |
-| App Icon (Home)      | 400x240    | @1x, @2x                    |
-| App Icon (App Store) | 1280x768   | @1x                         |
-| Top Shelf            | 1920x720   | @1x, @2x                    |
-| Top Shelf Wide       | 2320x720   | @1x, @2x                    |
-| iOS App Icon         | 1024x1024  | light/dark/tinted           |
+| Asset                | Size                            | Scale                       |
+| -------------------- | ------------------------------- | --------------------------- |
+| App Icon (Home)      | 400x240                         | @1x, @2x                    |
+| App Icon (App Store) | 1280x768                        | @1x                         |
+| Top Shelf            | 1920x720                        | @1x, @2x                    |
+| Top Shelf Wide       | 2320x720                        | @1x, @2x                    |
+| iOS App Icon         | 1024x1024                       | light/dark/tinted           |
 | Splash logo          | 140pt iPhone/iPad/Mac, 200pt TV | universal @1x-3x, tv @1x-2x |
