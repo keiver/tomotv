@@ -96,11 +96,6 @@ final class AudioArtworkOverlayView: UIView {
         UIView.animate(withDuration: 0.3) { self.layoutIfNeeded() }
     }
 
-    /// The next song's lyrics are on their way: the lines go, the layout stays.
-    func holdLyricsLayout() {
-        lyricsList.setLyrics(nil)
-    }
-
     func updateLyrics(time: Double) {
         lyricsList.update(time: time)
     }

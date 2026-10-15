@@ -167,10 +167,6 @@ class AudioQueuePlayer: RCTEventEmitter {
         shownLyrics
         #endif
     }
-    /// The track whose lyrics JS has yet to answer for while the last song's layout is held.
-    private var lyricsPendingTrack: String?
-    /// How long a held layout waits for that answer.
-    private static let lyricsPendingSeconds = 8.0
 
     // Override required: the react-native-tvos fork's RCTEventEmitter exposes
     // this class method (compiler-verified — plain RN core does not).
@@ -350,7 +346,6 @@ class AudioQueuePlayer: RCTEventEmitter {
         let parsed = (lyrics as? [String: Any]).flatMap(Lyrics.init(dictionary:))
         DispatchQueue.main.async {
             if self.active, self.currentIndex < self.tracks.count, self.tracks[self.currentIndex].id == trackId {
-                self.lyricsPendingTrack = nil
                 self.currentLyrics = parsed
                 self.applyLyrics()
             }
@@ -661,7 +656,9 @@ class AudioQueuePlayer: RCTEventEmitter {
         // drops the previous artwork above.
         showArtwork(artworkContent(for: entry.index))
         publishCachedArtwork(for: entry.index)
-        awaitLyrics(for: track)
+        // The poster shows at once; this track's lyrics replace it when JS answers.
+        currentLyrics = nil
+        applyLyrics()
 
         // Swift's ternary can't unify String and NSNull; build the mixed-type
         // value explicitly (JS receives string | null).
@@ -1106,33 +1103,17 @@ class AudioQueuePlayer: RCTEventEmitter {
                 self?.updateLyricsTime()
             }
         }
-        let held = shown == nil && lyricsPendingTrack != nil
         #if os(tvOS)
         // Untimed text never moves, so Apple TV keeps the poster; the swipe-up list still has the lines.
         let backdrop = shown?.synced == true ? shown : nil
         #else
         let backdrop = shown
         #endif
-        if held { artworkOverlay?.holdLyricsLayout() } else { artworkOverlay?.setLyrics(backdrop) }
+        artworkOverlay?.setLyrics(backdrop)
         #if os(tvOS)
         configureLyricsControls()
         #endif
         updateLyricsTime()
-    }
-
-    /// A new track starts with the last one's lyrics layout still up and its lines gone, so
-    /// an album with lyrics does not fold and unfold between songs. JS answers for every track.
-    private func awaitLyrics(for track: QueueTrack) {
-        let wasShowing = shownLyrics != nil
-        currentLyrics = nil
-        lyricsPendingTrack = wasShowing ? track.id : nil
-        applyLyrics()
-        guard wasShowing else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.lyricsPendingSeconds) { [weak self] in
-            guard let self, self.lyricsPendingTrack == track.id else { return }
-            self.lyricsPendingTrack = nil
-            self.applyLyrics()
-        }
     }
 
     /// A boundary fires a hair before the clock reads its time, so the read leans forward.
