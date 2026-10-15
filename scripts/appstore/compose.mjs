@@ -58,6 +58,18 @@ export const DEVICES = {
     frame: "ipad",
     tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
   },
+  // iPhone Duo's two App Store Connect sizes, drawn from the iPad captures until Duo captures
+  // exist: a 3:4 frame crops to the Duo's shape at its sides, an iPhone frame loses its header.
+  "duo-outer": {
+    canvas: [1398, 2034],
+    source: "ipad",
+    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
+  },
+  "duo-inner": {
+    canvas: [2007, 2853],
+    source: "ipad",
+    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
+  },
   tv: {
     simulator: "Apple TV 4K (3rd generation)",
     canvas: [3840, 2160],

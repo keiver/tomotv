@@ -136,6 +136,20 @@ function resolveBackground(value) {
  */
 const capturePath = (deviceKey, id, locale = "en") => (locale === "en" ? path.join(CAPTURE_DIR, deviceKey, `${id}.png`) : path.join(CAPTURE_DIR, locale, deviceKey, `${id}.png`));
 
+/**
+ * The capture a slot draws from: the device's own, else the captures of the device it is drawn
+ * from (DEVICES[key].source). `device` is whose frame it is; `english` marks a language fallback.
+ */
+function captureFor(deviceKey, id, locale = "en") {
+  for (const device of [deviceKey, DEVICES[deviceKey].source].filter(Boolean)) {
+    const own = capturePath(device, id, locale);
+    if (fs.existsSync(own)) return { path: own, device, english: false };
+    const english = capturePath(device, id);
+    if (fs.existsSync(english)) return { path: english, device, english: true };
+  }
+  return null;
+}
+
 const outputRoot = (config) => path.resolve(ROOT, config.output);
 const outputPath = (config, deviceKey, id) => path.join(outputRoot(config), deviceKey, `${id}.png`);
 
@@ -188,8 +202,8 @@ async function guardOrientation(config) {
   const wrong = [];
   for (const { deviceKey, shots } of plan(config)) {
     for (const shot of shots) {
-      const src = capturePath(deviceKey, shot.id, config.locale ?? "en");
-      if (!fs.existsSync(src)) continue;
+      const src = captureFor(deviceKey, shot.id, config.locale ?? "en")?.path;
+      if (!src) continue;
       const why = await wrongOrientation(src, deviceKey);
       if (why) wrong.push(`${deviceKey}/${shot.id}: ${why}`);
     }
@@ -292,13 +306,13 @@ async function composeAll(config, manifest) {
       // The locale's own capture, or English when that language has not been
       // captured. The line below says which it used, so a run that fell back is
       // visible rather than silently English under a translated caption.
-      const own = capturePath(deviceKey, shot.id, config.locale ?? "en");
-      const src = fs.existsSync(own) ? own : capturePath(deviceKey, shot.id);
-      if (!fs.existsSync(src)) continue;
-      const fellBack = src !== own;
+      const found = captureFor(deviceKey, shot.id, config.locale ?? "en");
+      if (!found) continue;
+      const src = found.path;
+      const fellBack = found.english && config.locale !== "en";
       const out = outputPath(config, deviceKey, shot.id);
       const capture = hashFile(src);
-      const key = hash(tools, config.locales?.[config.locale]?.fonts ?? null, layout(device, shot, shared), hashFile(config.background), capture, templateHash(deviceKey));
+      const key = hash(tools, config.locales?.[config.locale]?.fonts ?? null, layout(device, shot, shared), hashFile(config.background), capture, templateHash(found.device));
       const id = `${deviceKey}/${shot.id}`;
 
       if (!force && fresh(manifest[id], key, out)) {
@@ -308,13 +322,14 @@ async function composeAll(config, manifest) {
       changed.add(deviceKey);
       tasks.push(async () => {
         fs.mkdirSync(path.dirname(out), { recursive: true });
-        const bar = await stampStatusBar(src, deviceKey).catch((e) => {
+        const bar = await stampStatusBar(src, found.device).catch((e) => {
           throw new Error(`${id}: ${e.message}`);
         });
         const info = await compose(device, shot, bar.input, out, shared, config.background);
         manifest[id] = { key, sha: hashFile(out), background: path.relative(ROOT, config.background), capture: path.relative(ROOT, src), captureSha: capture, statusBar: bar.status };
         const note = bar.status === "stamped" || deviceKey === "tv" ? "" : `  · ${bar.status}`;
-        console.log(`   ${id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px${fellBack ? "  ! english capture" : ""}${note}`);
+        const borrowed = found.device === deviceKey ? "" : `  · ${found.device} capture`;
+        console.log(`   ${id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px${fellBack ? "  ! english capture" : ""}${note}${borrowed}`);
       });
     }
   }
@@ -384,7 +399,7 @@ async function contactSheet(config, manifest) {
     const tileW = 420;
     const tileH = Math.round((ph / pw) * tileW);
     const gap = 24;
-    const [rx, ry] = TILE_RADIUS[deviceKey](tileW, tileH);
+    const [rx, ry] = (TILE_RADIUS[deviceKey] ?? (() => [20, 20]))(tileW, tileH);
     const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${tileW}" height="${tileH}"><rect width="${tileW}" height="${tileH}" rx="${rx}" ry="${ry}" fill="#fff"/></svg>`);
     const tiles = await Promise.all(
       files.map((file) =>
@@ -490,7 +505,8 @@ async function main() {
   const config = loadConfig();
 
   if (flag("--check-captures")) {
-    const devices = Object.keys(config.devices).filter((key) => config.shots.some((shot) => shot.devices.includes(key)));
+    // A device drawn from another's captures is not uploaded, so it does not gate a release.
+    const devices = Object.keys(config.devices).filter((key) => !DEVICES[key].source && config.shots.some((shot) => shot.devices.includes(key)));
     await validateCaptures(ROOT, config, devices, opt("--locale") ? [config.locale] : Object.keys(config.locales));
     console.log("Every configured slot has a real capture.");
     return;
@@ -549,7 +565,9 @@ async function main() {
   }
 
   console.log("\n▸ placeholders");
-  const stand = await ensurePlaceholders(plan(config), CAPTURE_DIR, (key) => ({ canvas: DEVICES[key].canvas, simulator: DEVICES[key].simulator }));
+  // A device drawn from another's captures takes that device's stand-in until it has its own.
+  const own = plan(config).filter(({ deviceKey }) => !DEVICES[deviceKey].source);
+  const stand = await ensurePlaceholders(own, CAPTURE_DIR, (key) => ({ canvas: DEVICES[key].canvas, simulator: DEVICES[key].simulator }));
   for (const key of stand.written) console.log(`   + ${key}`);
   console.log(`   ${stand.real} captured, ${stand.pending.length} pending${stand.written.length ? ` (${stand.written.length} new)` : ""}`);
 
