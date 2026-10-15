@@ -1122,6 +1122,9 @@ async function runItem(env, target, item, resolved, updateBaselines, probe) {
   const tier = events.filter((e) => e.event === "tier").at(-1);
   if (item.mode === "localRemux" && tier?.state === "listed") result.problems.push("engine reports server rungs listed on a link that carries the file");
   if (item.expect?.tier && tier?.state !== item.expect.tier) result.problems.push(`tier report ${tier?.state ?? "(none)"}, expected ${item.expect.tier}`);
+  // Copy or on-device re-encode, as the engine itself reports it, on every target.
+  const videoAction = events.find((e) => e.event === "enginePlan")?.video?.action;
+  if (item.expect?.videoAction && videoAction !== item.expect.videoAction) result.problems.push(`engine video ${videoAction ?? "(no plan)"}, expected ${item.expect.videoAction}`);
   // Jellyfin's own log is the proof: a file the device plays never makes the server run ffmpeg on it.
   const serverJobs = serverJobsSince(serverLog, sourcePath);
   const lane = item.finalMode ?? item.mode;
@@ -1407,8 +1410,9 @@ async function main() {
     // An item that pins its own Server transcoding level runs under it; the run's level returns after.
     if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, item.serverTranscoding);
     const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, probe);
-    if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, "linkOrFile");
+    // Read before the level is restored: applyServerTranscoding resets the listener.
     const received = listener.events(ids.get(item.title).id);
+    if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, "linkOrFile");
     if (received.length) {
       r.probePath = path.join(itemWork, PROBE_FILENAME);
       fs.writeFileSync(r.probePath, received.map((e) => JSON.stringify(e)).join("\n") + "\n");

@@ -372,6 +372,8 @@ const COVERAGE_AUDIO = [
  * carry video and are copied as-is.
  */
 const SAMPLES_BASE = "https://samples.ffmpeg.org/A-codecs";
+const JELLYFIN_TEST_VIDEOS = "https://repo.jellyfin.org/test-videos";
+const DAV1D_TEST_DATA = "https://code.videolan.org/videolan/dav1d-test-data/-/raw/master";
 const DOWNLOADS = [
   { id: "T80", title: "T80 REMUX EAC3 7.1 real", url: `${SAMPLES_BASE}/AC3/eac3/7_pt_1.eac3`, mux: true },
   { id: "T81", title: "T81 REMUX EAC3 5.1 real", url: `${SAMPLES_BASE}/AC3/eac3/matrix2_english_5.1_640.eac3`, mux: true },
@@ -391,6 +393,19 @@ const DOWNLOADS = [
   // signs, and every line styled "*Default", the leading star SSA writes for a
   // style it did not resolve.
   { id: "T100", title: "T100 REMUX H264 SSA real", url: "http://fate-suite.ffmpeg.org/sub/a9-misc.ssa", subs: true, tagSubtitle: true },
+  // AV1 from Jellyfin's own test set (CC BY-SA 4.0): copied where the chip decodes AV1, re-encoded elsewhere.
+  { id: "T118", title: "T118 REMUX AV1 4K HDR10 real", url: `${JELLYFIN_TEST_VIDEOS}/HDR/HDR10/AV1/Test%20Jellyfin%204K%20AV1%20HDR10%2040M.mp4`, container: "mkv" },
+  { id: "T119", title: "T119 REMUX AV1 1080p 10bit real", url: `${JELLYFIN_TEST_VIDEOS}/SDR/AV1/Test%20Jellyfin%201080p%20AV1%2010bit%205M.mp4`, container: "mkv" },
+  // dav1d conformance streams, 10 frames each, repeated by stream copy to 20s. T120 is the
+  // ordinary 4:2:0 control at the same size; the others are the profiles a decoder may refuse.
+  { id: "T120", title: "T120 REMUX AV1 10bit 420 conformance", url: `${DAV1D_TEST_DATA}/10-bit/data/00000671.ivf`, container: "mkv", loop: 59 },
+  { id: "T121", title: "T121 REMUX AV1 10bit 444 conformance", url: `${DAV1D_TEST_DATA}/10-bit/data/00000730.ivf`, container: "mkv", loop: 59 },
+  { id: "T122", title: "T122 REMUX AV1 12bit 420 conformance", url: `${DAV1D_TEST_DATA}/12-bit/data/00000686.ivf`, container: "mkv", loop: 59 },
+  { id: "T123", title: "T123 REMUX AV1 12bit 444 conformance", url: `${DAV1D_TEST_DATA}/12-bit/data/00000700.ivf`, container: "mkv", loop: 59 },
+  { id: "T124", title: "T124 REMUX AV1 8bit RGB conformance", url: `${DAV1D_TEST_DATA}/8-bit/features/rgb.ivf`, container: "mkv", loop: 19 },
+  // libaom's monochrome vector: Main profile with no chroma planes.
+  { id: "T125", title: "T125 REMUX AV1 monochrome conformance", url: "https://storage.googleapis.com/aom-test-data/av1-1-b8-24-monochrome.ivf", container: "mkv", loop: 47 },
+  { id: "T126", title: "T126 REMUX AV1 8K HDR10 real", url: `${JELLYFIN_TEST_VIDEOS}/HDR/HDR10/AV1/Test%20Jellyfin%208K%20AV1%20HDR10%20100M.mp4`, container: "mkv" },
 ];
 
 const APPLE_MASTER = "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8";
@@ -1285,7 +1300,8 @@ async function buildDownloads(sources) {
       );
     } else {
       // Already carries video; rewrap to Matroska without touching any stream.
-      ok = await ff(["-y", "-i", cached, "-map", "0", "-c", "copy", ...(item.tagSubtitle ? SUBTITLE_TAGS : []), out], item.title);
+      const loop = item.loop ? ["-stream_loop", String(item.loop)] : [];
+      ok = await ff(["-y", ...loop, "-i", cached, "-map", "0", "-c", "copy", ...(item.tagSubtitle ? SUBTITLE_TAGS : []), out], item.title);
     }
     if (ok) {
       log(`  + ${item.title}`);

@@ -1055,6 +1055,15 @@
       "progressMin": 15,
       "comment": "T73's audio with no sidecar: its lyrics were uploaded through the server's API."
     },
+    { "id": "T118", "title": "T118 REMUX AV1 4K HDR10 real", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
+    { "id": "T119", "title": "T119 REMUX AV1 1080p 10bit real", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
+    { "id": "T120", "title": "T120 REMUX AV1 10bit 420 conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
+    { "id": "T121", "title": "T121 REMUX AV1 10bit 444 conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8, "expect": { "videoAction": "encode" } },
+    { "id": "T122", "title": "T122 REMUX AV1 12bit 420 conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8, "expect": { "videoAction": "encode" } },
+    { "id": "T123", "title": "T123 REMUX AV1 12bit 444 conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8, "expect": { "videoAction": "encode" } },
+    { "id": "T124", "title": "T124 REMUX AV1 8bit RGB conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8, "expect": { "videoAction": "encode" } },
+    { "id": "T125", "title": "T125 REMUX AV1 monochrome conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
+    { "id": "T126", "title": "T126 REMUX AV1 8K HDR10 real", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
     {
       "id": "L01",
       "title": "Bloomberg TV+ 4K HEVC (partner)",

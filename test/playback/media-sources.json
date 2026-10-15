@@ -59,5 +59,51 @@
     "url": "http://fate-suite.ffmpeg.org/sub/a9-misc.ssa",
     "sha256": "634c3d1e8a99d8049bbfe0a48326b3cd1884fef1688e3b086658748e0a3de1d8",
     "bytes": 6242
+  },
+  "chaptered": [],
+  "T118": {
+    "url": "https://repo.jellyfin.org/test-videos/HDR/HDR10/AV1/Test%20Jellyfin%204K%20AV1%20HDR10%2040M.mp4",
+    "sha256": "b103cb6d6bd86750a7c8d79d1b8f1632618ba5c53a82a49d659f81f176f8b55a",
+    "bytes": 149579487
+  },
+  "T119": {
+    "url": "https://repo.jellyfin.org/test-videos/SDR/AV1/Test%20Jellyfin%201080p%20AV1%2010bit%205M.mp4",
+    "sha256": "f4b3866f43b414014350c184d2ce34b6d1e6585ae1960a0d7e88b21d0136e100",
+    "bytes": 18674298
+  },
+  "T120": {
+    "url": "https://code.videolan.org/videolan/dav1d-test-data/-/raw/master/10-bit/data/00000671.ivf",
+    "sha256": "25655492d89ca831c75c483d85a9e50985f6335ddffacbcf17053c17f8930ca9",
+    "bytes": 12817
+  },
+  "T121": {
+    "url": "https://code.videolan.org/videolan/dav1d-test-data/-/raw/master/10-bit/data/00000730.ivf",
+    "sha256": "e0584bf803ce8e3f326354e0caf471e652719e992b270ed2cddf9eb8b5cd29d3",
+    "bytes": 13970
+  },
+  "T122": {
+    "url": "https://code.videolan.org/videolan/dav1d-test-data/-/raw/master/12-bit/data/00000686.ivf",
+    "sha256": "2521bf6e129025b2f0bbe4f6aae2639fbffa89e8a01a8b7c8eb245244a7471ff",
+    "bytes": 12924
+  },
+  "T123": {
+    "url": "https://code.videolan.org/videolan/dav1d-test-data/-/raw/master/12-bit/data/00000700.ivf",
+    "sha256": "8246a96846a5e37ce980c4a6809b87a1b95e076ffc1a99c141ba7e0f2e8b97cc",
+    "bytes": 15561
+  },
+  "T124": {
+    "url": "https://code.videolan.org/videolan/dav1d-test-data/-/raw/master/8-bit/features/rgb.ivf",
+    "sha256": "f9b269803165e9906503c90c4c19a82962dd9685cc1f22a053016e8455b9d928",
+    "bytes": 27418
+  },
+  "T125": {
+    "url": "https://storage.googleapis.com/aom-test-data/av1-1-b8-24-monochrome.ivf",
+    "sha256": "3dcc2a3c181f74788bd9575d94f0862d9e914415ac358a4da4ed7d904f0535b7",
+    "bytes": 10000
+  },
+  "T126": {
+    "url": "https://repo.jellyfin.org/test-videos/HDR/HDR10/AV1/Test%20Jellyfin%208K%20AV1%20HDR10%20100M.mp4",
+    "sha256": "ae3cc22fc0e4f21a630dd43c7f202808476c29c4278292e7158969d6676de3e4",
+    "bytes": 374066642
   }
 }
