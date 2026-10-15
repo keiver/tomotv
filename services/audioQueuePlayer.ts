@@ -29,6 +29,8 @@ export interface AudioQueueTrack {
   subtitle: string;
   artworkUrl: string;
   durationSeconds: number;
+  /** Exact seeking, which reads the file up to the play point first: songs short enough to follow lyrics. */
+  preciseTiming: boolean;
 }
 
 export interface AudioQueueConfig {

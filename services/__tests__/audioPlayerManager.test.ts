@@ -135,6 +135,18 @@ describe("audioPlayerManager", () => {
       expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ description: "Album X" }), expect.anything(), expect.anything()] }));
     });
 
+    it("asks for exact seeking on a song short enough to follow lyrics", async () => {
+      await audioPlayerManager.startQueue([{ ...track("a", 240), MediaSources: [{ Id: "source-a", Container: "mp3", Size: 8_000_000 }] }], "a", {});
+
+      expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ preciseTiming: true })] }));
+    });
+
+    it("plays a 99 minute mix without exact seeking", async () => {
+      await audioPlayerManager.startQueue([{ ...track("a", 5949), MediaSources: [{ Id: "source-a", Container: "mp3", Size: 200_000_000 }] }], "a", {});
+
+      expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ preciseTiming: false })] }));
+    });
+
     it("gives Apple TV the artist and album over the title, and the phone no line", async () => {
       const song = { ...ITEMS[0], Artists: ["Band"] };
       await audioPlayerManager.startQueue([song], "a", {});

@@ -40,6 +40,8 @@ private struct QueueTrack {
     let subtitle: String
     let artworkUrl: URL?
     let duration: Double
+    /// Exact seeking, for a song whose lyrics follow it.
+    let preciseTiming: Bool
 }
 
 // Subclassing AVPlayerViewController is formally "unsupported", but a
@@ -212,7 +214,8 @@ class AudioQueuePlayer: RCTEventEmitter {
                 description: raw["description"] as? String ?? "",
                 subtitle: raw["subtitle"] as? String ?? "",
                 artworkUrl: artworkUrl,
-                duration: raw["durationSeconds"] as? Double ?? 0
+                duration: raw["durationSeconds"] as? Double ?? 0,
+                preciseTiming: raw["preciseTiming"] as? Bool ?? false
             )
         }
         guard !parsed.isEmpty else {
@@ -455,7 +458,8 @@ class AudioQueuePlayer: RCTEventEmitter {
     private func makeItem(for index: Int) -> AVPlayerItem {
         let track = tracks[index]
         // Without precise timing a VBR MP3 seeks by estimate, and the lyrics follow a clock the audio does not.
-        let asset = AVURLAsset(url: track.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+        // It reads the file up to the play point first, so a long set or mix plays without it.
+        let asset = AVURLAsset(url: track.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: track.preciseTiming])
         let item = AVPlayerItem(asset: asset)
         var metadata: [AVMetadataItem] = [
             stringMetadata(.commonIdentifierTitle, track.title),

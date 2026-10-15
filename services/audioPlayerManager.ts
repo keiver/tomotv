@@ -27,6 +27,7 @@ import {
 import * as audioQueuePlayer from "@/services/audioQueuePlayer";
 import { playbackArtworkUri, playsFromDisk } from "@/services/downloads/localSource";
 import { t } from "@/services/i18n";
+import { listenable } from "@/services/lyrics/listener";
 import { resolveLyrics } from "@/services/lyrics/pipeline";
 import { getUiPreferences, subscribeUiPreferences, updateUiPreferences } from "@/services/uiPreferences";
 import { recordLocalPosition, recordOfflinePosition } from "@/services/downloads/offlineProgress";
@@ -524,6 +525,8 @@ class AudioPlayerManager {
       // The image the lock screen and the Up Next panel draw.
       artworkUrl: playbackArtworkUri(item, 600) ?? "",
       durationSeconds: item.RunTimeTicks ? item.RunTimeTicks / JELLYFIN_TIME.TICKS_PER_SECOND : 0,
+      // The lyrics length gate: a set or a mix starts without reading ahead to the play point.
+      preciseTiming: listenable(item),
     };
   }
 
