@@ -58,7 +58,9 @@ workspace cannot select an iOS library while building the Catalyst scheme.
 All three Podfiles resolve Expo autolinking from their own directory, so Mac and
 tvOS codegen writes into `macos/` and `tvos/` instead of the separate iOS tree.
 
-iOS keeps Expo's precompiled modules. After CocoaPods integration,
+All three targets build Expo modules from source (`usePrecompiledModules: false`
+in `app.json`): Expo's precompiled XCFrameworks only load in the Swift compiler
+that built them. After CocoaPods integration,
 `scripts/prebuilt-swift-imports.rb` removes source-module search paths for
 framework-only pods, preventing old Swift modules in DerivedData from shadowing
 the XCFramework interfaces. Source-built pods retain their search paths. The

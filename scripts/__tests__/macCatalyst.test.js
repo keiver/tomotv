@@ -1,6 +1,8 @@
 const { withBuildProperties } = require("expo-build-properties");
 const withMacCatalyst = require("../../plugins/withMacCatalyst");
 const { expo } = require("../../app.json");
+const { usePrecompiledModules } = expo.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === "expo-build-properties")[1].ios;
+const buildProperties = { ios: { usePrecompiledModules } };
 
 describe("Mac Catalyst prebuild", () => {
   const originalMac = process.env.EXPO_MACCATALYST;
@@ -30,7 +32,7 @@ describe("Mac Catalyst prebuild", () => {
     const again = await input.mods.ios.podfile({ ...input, modResults: podfile.modResults, modRequest: {} });
     expect(again.modResults.contents).toBe(podfile.modResults.contents);
   });
-  it("hides iOS-on-Mac without changing iPhone, iPad, Vision, or iOS precompiled module settings", async () => {
+  it("hides iOS-on-Mac without changing iPhone, iPad, or Vision settings", async () => {
     process.env.EXPO_MACCATALYST = "0";
     process.env.EXPO_TV = "0";
     const c = withMacCatalyst(structuredClone(expo));
@@ -103,11 +105,20 @@ describe("Mac Catalyst prebuild", () => {
       expect(buildSettings.DEVELOPMENT_TEAM).toBe(expo.ios.appleTeamId);
     }
   });
-  it("keeps Expo modules built from source after other plugins run", async () => {
-    expect(expo.plugins[0]).toBe("./plugins/withMacCatalyst");
-    const c = withBuildProperties(config(), {});
+  it.each([
+    ["iPhone and iPad", "0", "0"],
+    ["tvOS", "0", "1"],
+    ["Mac Catalyst", "1", "0"],
+  ])("builds Expo modules from source on %s", async (_, mac, tv) => {
+    process.env.EXPO_MACCATALYST = mac;
+    process.env.EXPO_TV = tv;
+    const c = withBuildProperties(withMacCatalyst(structuredClone(expo)), buildProperties);
     const result = await c.mods.ios.podfileProperties({ ...c, modResults: {}, modRequest: {} });
     expect(result.modResults.EXPO_USE_PRECOMPILED_MODULES).toBe("false");
+  });
+  it("writes the Catalyst Podfile hooks once", async () => {
+    expect(expo.plugins[0]).toBe("./plugins/withMacCatalyst");
+    const c = withBuildProperties(config(), buildProperties);
     const podfile = await c.mods.ios.podfile({
       ...c,
       modResults: { contents: "config = use_native_modules!(config_command)\nreact_native_post_install(\n  installer,\n  :mac_catalyst_enabled => false\n)" },

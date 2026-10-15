@@ -1,4 +1,4 @@
-const { withDangerousMod, withEntitlementsPlist, withInfoPlist, withPodfile, withPodfileProperties, withXcodeProject } = require("@expo/config-plugins");
+const { withDangerousMod, withEntitlementsPlist, withInfoPlist, withPodfile, withXcodeProject } = require("@expo/config-plugins");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -47,12 +47,6 @@ end
       return config;
     });
   }
-  config.ios = { ...config.ios, usePrecompiledModules: false };
-
-  config = withPodfileProperties(config, (config) => {
-    config.modResults.EXPO_USE_PRECOMPILED_MODULES = "false";
-    return config;
-  });
   config = withPodfile(config, (config) => {
     const pattern = /:mac_catalyst_enabled\s*=>\s*(?:false|true)/;
     if (!pattern.test(config.modResults.contents)) throw new Error("Catalyst: Expo's react_native_post_install hook changed.");
