@@ -858,11 +858,7 @@ class AudioQueuePlayer: RCTEventEmitter {
         }
 
         #if os(tvOS)
-        // Remote left/right = previous/next track. .skipItem repurposes AVKit's
-        // skip gesture from ±10s seek to queue-item navigation (forward advance
-        // handled by AVKit itself and observed via the currentItem KVO). Backward
-        // has nothing enqueued to navigate to (the window is forward-only), so a
-        // leftArrow recognizer implements previous with the 3s restart rule.
+        // A left press runs skipBackward unless a player button or panel has focus (handleLeftArrowPress).
         vc.skippingBehavior = .skipItem
         let leftTap = UITapGestureRecognizer(target: self, action: #selector(handleLeftArrowPress))
         leftTap.allowedPressTypes = [NSNumber(value: UIPress.PressType.leftArrow.rawValue)]
