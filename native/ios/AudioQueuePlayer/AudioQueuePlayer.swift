@@ -867,7 +867,6 @@ class AudioQueuePlayer: RCTEventEmitter {
         leftTap.allowedPressTypes = [NSNumber(value: UIPress.PressType.leftArrow.rawValue)]
         vc.view.addGestureRecognizer(leftTap)
         previousTrackTap = leftTap
-        vc.onDismissed = dismissed
 
         // Native info-panel "Up Next" tab (swipe down): the remaining queue as
         // focusable artwork cards; selecting one jumps playback there. Only
@@ -913,16 +912,14 @@ class AudioQueuePlayer: RCTEventEmitter {
         programmaticDismiss = false
         dismissEventEmitted = false
         playerVC = vc
-        #if os(tvOS)
-        top.present(vc, animated: true)
-        #else
-        // The player fills the embedding screen, so AVKit's own Close dismisses the whole presentation.
-        let screen = AudioPlayerContainerViewController(playerViewController: vc)
-        screen.modalPresentationStyle = .fullScreen
-        screen.onWillDismiss = willDismiss
-        screen.onDismissed = dismissed
-        top.present(screen, animated: true)
+        vc.onDismissed = dismissed
+        #if !os(tvOS)
+        // Presented itself, as the video player is, so AVKit's drag down closes it.
+        vc.onWillDismiss = willDismiss
+        // Always over dark artwork, so AVKit draws its light controls.
+        vc.overrideUserInterfaceStyle = .dark
         #endif
+        top.present(vc, animated: true)
         applyLyrics()
     }
 

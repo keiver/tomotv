@@ -22,7 +22,6 @@ const MODULE_FILES = [
   "NowPlayingCoordinator.swift",
   "UpNextPanelViewController.swift",
   "AudioArtworkOverlayView.swift",
-  "AudioPlayerContainerViewController.swift",
   "LyricsTimeline.swift",
   "LyricsListView.swift",
   "LyricsOverlayViewController.swift",
