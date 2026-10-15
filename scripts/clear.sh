@@ -23,6 +23,8 @@ done
 bash scripts/check-xcode-tools.sh
 
 rm -rf .expo .metro-cache
+# ExpoModulesJSI reuses its build while `swiftc --version` matches, and Xcode 27.0 and 27.1 report the same one.
+rm -f node_modules/expo-modules-jsi/apple/Products/ExpoModulesJSI.xcframework/*/.build-hash
 
 if [ "$NUKE_NPM" = "1" ]; then
   rm -rf node_modules package-lock.json
