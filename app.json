@@ -84,6 +84,12 @@
             "eventDetails": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } },
             "video": { "audio": "./applestore/listing/nastelbom-no-copyright-music-464358.mp3" }
           },
+          "splash": {
+            "image": "./assets/brand/splash-icon.png",
+            "size": 140,
+            "idioms": { "tv": { "size": 200 } },
+            "backgroundColor": "#1C1C1E"
+          },
           "config": "./tvos-assets.config.json"
         }
       ],
