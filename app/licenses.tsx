@@ -39,7 +39,7 @@ export default function LicensesScreen() {
   const [listTop, setListTop] = useState(0);
   const [footerHeight, setFooterHeight] = useState(0);
 
-  const pagePadding = { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: 60 + insets.bottom };
+  const pagePadding = { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: settingsStyles.scrollContent.paddingBottom + insets.bottom };
   // Phone: the list takes the whole rows left under the intro, so the page itself never scrolls.
   const fitRows = Math.floor((viewportHeight - pagePadding.paddingTop - pagePadding.paddingBottom - listTop - footerHeight - settingsStyles.section.marginBottom) / QUALITY_ROW_HEIGHT);
   const phoneListCap = !IS_TV && viewportHeight > 0 ? { maxHeight: Math.max(1, fitRows) * QUALITY_ROW_HEIGHT } : null;
