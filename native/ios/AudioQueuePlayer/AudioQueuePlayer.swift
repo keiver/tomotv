@@ -157,6 +157,14 @@ class AudioQueuePlayer: RCTEventEmitter {
     private var lyricsLabel = "Lyrics"
     private var lyricsObserverToken: Any?
     private var shownLyrics: Lyrics? { lyricsEnabled ? currentLyrics : nil }
+    /// The lines the clock follows: Apple TV's swipe-up list keeps them while the backdrop is off.
+    private var timedLyrics: Lyrics? {
+        #if os(tvOS)
+        currentLyrics
+        #else
+        shownLyrics
+        #endif
+    }
     /// The track whose lyrics JS has yet to answer for while the last song's layout is held.
     private var lyricsPendingTrack: String?
     /// How long a held layout waits for that answer.
@@ -849,14 +857,11 @@ class AudioQueuePlayer: RCTEventEmitter {
         }
 
         #if os(tvOS)
-        // Remote left/right = previous/next track, the user-confirmed music
-        // mapping. .skipItem repurposes AVKit's skip gesture from ±10s seek to
-        // queue-item navigation (forward advance handled by AVKit itself and
-        // observed via the currentItem KVO). Backward has nothing enqueued to
-        // navigate to (the window is forward-only), so a leftArrow recognizer
-        // implements previous with the 3s restart rule.
-        // DEVICE-VERIFY: if AVKit's own backward handling also acts, drop one
-        // of the two — see the plan's device checklist.
+        // Remote left/right = previous/next track. .skipItem repurposes AVKit's
+        // skip gesture from ±10s seek to queue-item navigation (forward advance
+        // handled by AVKit itself and observed via the currentItem KVO). Backward
+        // has nothing enqueued to navigate to (the window is forward-only), so a
+        // leftArrow recognizer implements previous with the 3s restart rule.
         vc.skippingBehavior = .skipItem
         let leftTap = UITapGestureRecognizer(target: self, action: #selector(handleLeftArrowPress))
         leftTap.allowedPressTypes = [NSNumber(value: UIPress.PressType.leftArrow.rawValue)]
@@ -923,8 +928,8 @@ class AudioQueuePlayer: RCTEventEmitter {
 
     @objc private func handleLeftArrowPress() {
         #if os(tvOS)
-        // AVKit's transport-bar buttons are UIButtons: a left press there only moves focus.
-        if let vc = playerVC, UIFocusSystem.focusSystem(for: vc)?.focusedItem is UIButton { return }
+        // The player's buttons and panels are collection-view cells: a left press there only moves focus.
+        if let vc = playerVC, UIFocusSystem.focusSystem(for: vc)?.focusedItem is UICollectionViewCell { return }
         #endif
         skipBackward()
     }
@@ -1094,7 +1099,7 @@ class AudioQueuePlayer: RCTEventEmitter {
             lyricsObserverToken = nil
         }
         let shown = shownLyrics
-        if let player, let times = shown?.boundaryTimes, !times.isEmpty {
+        if let player, let times = timedLyrics?.boundaryTimes, !times.isEmpty {
             let values = times.map { NSValue(time: CMTime(seconds: $0, preferredTimescale: 600)) }
             lyricsObserverToken = player.addBoundaryTimeObserver(forTimes: values, queue: .main) { [weak self] in
                 self?.updateLyricsTime()
@@ -1133,7 +1138,7 @@ class AudioQueuePlayer: RCTEventEmitter {
     private static let lyricsLead = 0.05
 
     private func updateLyricsTime() {
-        guard shownLyrics != nil, let seconds = player?.currentTime().seconds, seconds.isFinite else { return }
+        guard timedLyrics != nil, let seconds = player?.currentTime().seconds, seconds.isFinite else { return }
         let time = seconds + Self.lyricsLead
         artworkOverlay?.updateLyrics(time: time)
         #if os(tvOS)
@@ -1142,22 +1147,22 @@ class AudioQueuePlayer: RCTEventEmitter {
     }
 
     #if os(tvOS)
-    /// The transport bar's Lyrics toggle, offered only for a song that has lyrics, and the
-    /// swipe-up list of lines while they are on.
+    /// The transport bar's Lyrics toggle and the swipe-up list, both offered for a song that has
+    /// lyrics. Any write to either reloads AVKit's button row and moves focus, so the toggle writes neither.
     private func configureLyricsControls() {
         guard let vc = playerVC else { return }
-        if currentLyrics != nil {
-            let image = UIImage(systemName: lyricsEnabled ? "quote.bubble.fill" : "quote.bubble")
-            vc.transportBarCustomMenuItems = [UIAction(title: lyricsLabel, image: image) { [weak self] _ in self?.toggleLyrics() }]
-        } else {
-            vc.transportBarCustomMenuItems = []
+        let hasLyrics = currentLyrics != nil
+        if hasLyrics == vc.transportBarCustomMenuItems.isEmpty {
+            vc.transportBarCustomMenuItems = hasLyrics
+                ? [UIAction(title: lyricsLabel, image: UIImage(systemName: "quote.bubble")) { [weak self] _ in self?.toggleLyrics() }]
+                : []
         }
-        guard let shown = shownLyrics else {
-            vc.customOverlayViewController = nil
+        guard let lyrics = currentLyrics else {
+            if vc.customOverlayViewController != nil { vc.customOverlayViewController = nil }
             return
         }
         let overlay = lyricsOverlay ?? makeLyricsOverlay()
-        overlay.setLyrics(shown)
+        overlay.setLyrics(lyrics)
         if vc.customOverlayViewController !== overlay { vc.customOverlayViewController = overlay }
     }
 
