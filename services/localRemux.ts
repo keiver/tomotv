@@ -311,7 +311,7 @@ async function copiesVideo(videoStream: JellyfinMediaStream | undefined): Promis
   const codec = videoStream?.Codec?.toLowerCase() ?? "";
   if (!codec) return false;
   if (!REMUXABLE_CODECS.some((known) => codec.startsWith(known)) && !AV1_CODECS.some((known) => codec.startsWith(known))) return false;
-  return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport(), videoStream?.Height);
+  return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport(), videoStream?.Height, videoStream?.Profile);
 }
 
 /** 8K UHD. A cropped 8K picture keeps the width, so either side marks it. */

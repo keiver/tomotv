@@ -583,6 +583,45 @@ describe("canRemuxLocally", () => {
     const canRemux = withAV1Hardware(true);
     await expect(canRemux(av1Item(3840, 2160))).resolves.toBe(true);
   });
+
+  /** The engine copies only Main AV1 on AV1 hardware, so the playlist names av01 only then. */
+  async function av1PlaylistCodecs(hardware: boolean, profile: string, bitDepth: number): Promise<string> {
+    // A fresh module re-registers the native listeners; the rest of this file keeps the originals.
+    const listeners = new Map(mockListeners);
+    jest.resetModules();
+    mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: hardware, h264MaxHeight: null, hevcMaxHeight: null });
+    (require("@/services/jellyfin/session").getCachedConfig as jest.Mock).mockReturnValue({ server: "http://server:8096", apiKey: "k", userId: "u" });
+    const { startLocalRemux: start } = require("../localRemux") as typeof import("../localRemux");
+    try {
+      await start(
+        item({
+          streams: [
+            { Type: "Video", Codec: "av1", Profile: profile, Level: 13, BitDepth: bitDepth, Index: 0, Width: 3840, Height: 2160, VideoRangeType: "SDR" },
+            { Type: "Audio", Codec: "aac", Profile: "LC", Index: 1, Channels: 2 },
+          ],
+        }),
+      );
+      return mockStartRemux.mock.calls.at(-1)[0].primaryVideoCodecs;
+    } finally {
+      mockListeners.clear();
+      listeners.forEach((handler, name) => mockListeners.set(name, handler));
+    }
+  }
+
+  it("names copied Main AV1 in the playlist on AV1 hardware", async () => {
+    await expect(av1PlaylistCodecs(true, "Main", 10)).resolves.toBe("av01.0.13M.10");
+  });
+
+  it.each([
+    { profile: "High", bitDepth: 10 },
+    { profile: "Professional", bitDepth: 12 },
+  ])("names no AV1 codec for $profile AV1, which the engine re-encodes on the device", async ({ profile, bitDepth }) => {
+    await expect(av1PlaylistCodecs(true, profile, bitDepth)).resolves.toBe("");
+  });
+
+  it("names no AV1 codec without AV1 hardware", async () => {
+    await expect(av1PlaylistCodecs(false, "Main", 10)).resolves.toBe("");
+  });
 });
 
 describe("startLocalRemux source positions (issue 84)", () => {

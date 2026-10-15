@@ -26,7 +26,7 @@ enum DeviceDecode {
         switch par.pointee.codec_id {
         case AV_CODEC_ID_H264: (codec, byProfile) = (.h264, h264)
         case AV_CODEC_ID_HEVC: (codec, byProfile) = (.hevc, par.pointee.profile == Int32(AV_PROFILE_HEVC_MAIN_10) ? hevcMain10 : hevc)
-        case AV_CODEC_ID_AV1: return av1Hardware
+        case AV_CODEC_ID_AV1: return av1Copies(profile: par.pointee.profile, hardware: av1Hardware)
         default: return false
         }
         // Annex B extradata (raw .h264/.h265, MPEG-TS) carries no record; the profile class answers.
@@ -64,6 +64,11 @@ enum DeviceDecode {
         return status == noErr
     }
     static let av1Hardware: Bool = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
+
+    /// Apple's AV1 decoder plays Main profile only: High and Professional copies fail with Cannot Decode.
+    static func av1Copies(profile: Int32, hardware: Bool) -> Bool {
+        hardware && profile == Int32(AV_PROFILE_AV1_MAIN)
+    }
 
     /// Tallest standard frame the hardware decoder opens; 0 where it opens none.
     static let h264MaxHeight: Int = ceiling(codec: .h264, record: Data(cannedHigh))
