@@ -76,9 +76,10 @@ fi
 #
 #   1. Pin DEVELOPER_DIR. Bare xcodebuild/xcrun follow `xcode-select`, which can
 #      be aimed at an Xcode beta without anyone noticing.
-#   2. Refuse to build on a seed OS or seed Xcode. Apple numbers pre-release
-#      builds from 5000 up: 26A5421a and 27A5252f are seeds, 25G83 and 17F113
-#      are not. A trailing letter proves nothing on its own, 23F81a ships.
+#   2. Refuse to build on a seed macOS: Apple numbers macOS pre-release builds
+#      from 5000 up (26A5368g is a seed, 25G83 and 26A434 are not).
+#   3. Refuse a beta Xcode by its own LicenseInfo.plist: releases and RCs say GM,
+#      betas say Beta. Its build number cannot tell: the accepted 27.1 RC is 27A9275.
 
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
@@ -93,18 +94,23 @@ is_seed_build() { # 26A5421a -> yes, 25G83 -> no
   (( 10#${BASH_REMATCH[1]} >= 5000 ))
 }
 
+xcode_license() { # <DEVELOPER_DIR> -> GM | Beta | missing
+  plutil -extract licenseType raw -o - "$1/../Resources/LicenseInfo.plist" 2>/dev/null || echo missing
+}
+
 MACOS_BUILD=$(sw_vers -buildVersion)
 XCODE_BUILD=$(xcodebuild -version 2>/dev/null | awk '/^Build version/{print $3}')
 XCODE_VER=$(xcodebuild -version 2>/dev/null | awk '/^Xcode/{print $2}')
+XCODE_LICENSE=$(xcode_license "$DEVELOPER_DIR")
 
 echo "toolchain"
 echo "  DEVELOPER_DIR: $DEVELOPER_DIR"
-echo "  Xcode:         ${XCODE_VER:-unknown} (${XCODE_BUILD:-unknown})"
+echo "  Xcode:         ${XCODE_VER:-unknown} (${XCODE_BUILD:-unknown}), license $XCODE_LICENSE"
 echo "  macOS:         $(sw_vers -productVersion) ($MACOS_BUILD)"
 
 SEED=""
 if is_seed_build "$MACOS_BUILD"; then SEED="${SEED}  macOS $MACOS_BUILD"$'\n'; fi
-if is_seed_build "${XCODE_BUILD:-}"; then SEED="${SEED}  Xcode $XCODE_BUILD"$'\n'; fi
+if [[ "$XCODE_LICENSE" != GM ]]; then SEED="${SEED}  Xcode ${XCODE_BUILD:-unknown}, license $XCODE_LICENSE"$'\n'; fi
 
 if [[ -n "$SEED" && "${ALLOW_SEED_TOOLCHAIN:-0}" != "1" ]]; then
   {
