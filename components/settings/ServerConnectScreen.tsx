@@ -1,30 +1,24 @@
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectStepScreen } from "@/components/settings/ConnectStepScreen";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { UiSection } from "@/components/settings/UiSection";
 import { t } from "@/services/i18n";
 import React from "react";
 
 interface ServerConnectScreenProps {
-  /** Phone tab title (e.g. "Libraries", "Search") so the tab keeps its header while logged out. */
+  /** Phone tab title (e.g. "Home", "Settings") so the tab keeps its header while logged out. */
   title?: string;
+  /** Runs after the demo server logs in; see ServerConnectFlow. */
+  onConnected?: () => void | Promise<void>;
 }
 
-/**
- * Full-screen host for the server list — the exact JELLYFIN SERVER view the Settings tab
- * shows when no server is connected. The Library and Search tabs render this in place of their
- * old error CTA while logged out; no onConnected needed, since their auth gates flip on login
- * and AuthContext routes to the Library root.
- *
- * The header is fixed: the login steps that retitle it are their own routes (app/connect),
- * each carrying its own.
- */
-export function ServerConnectScreen({ title }: ServerConnectScreenProps) {
+/** The logged-out screen every tab renders, Settings included. */
+export function ServerConnectScreen({ title, onConnected }: ServerConnectScreenProps) {
   return (
-    // Hangs from the top on every platform, where the connected Settings tab puts its cards;
-    // only the pushed login steps centre.
+    // Hangs from the top on every platform; only the pushed login steps centre.
     <ConnectStepScreen title={title} header={t("settings.jellyfinServer")}>
-      {/* The same two sections the logged-out Settings tab shows, so no tab drifts. */}
-      <ServerConnectFlow />
+      <ServerConnectFlow onConnected={onConnected} />
+      <UiSection signedIn={false} />
       <AboutSection showDiagnostics={false} />
     </ConnectStepScreen>
   );

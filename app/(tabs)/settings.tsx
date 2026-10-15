@@ -6,7 +6,7 @@ import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
 import { LinkSpeedHeading, linkRateOutcome, type LinkRateOutcome } from "@/components/settings/LinkSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
-import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
+import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "@/components/settings/styles";
 import { transcodingRowSubtitle } from "@/components/settings/transcodingCopy";
@@ -142,13 +142,6 @@ function SettingsScreen() {
     setMeasuring(false);
   }, [measuring, measuredBps]);
 
-  // Sign-out fires from the pushed server list with this screen mounted behind it, so a state
-  // read on focus arrives a whole pop too late: the connected card is what the user watches the
-  // transition uncover. isAuthenticated is synchronous, so the swap lands in the same frame as
-  // the press, and the page goes back to its top because what replaces the connected screen is
-  // a fraction of its height.
-  const pageRef = useRef<ScrollView>(null);
-
   // The About rows live on this tab: a look at it, or a scroll on it, is when a session an Apple
   // TV sent should be found. The inbox folds bursts into one read and does nothing on tvOS.
   useFocusEffect(
@@ -160,12 +153,9 @@ function SettingsScreen() {
   useEffect(
     () =>
       subscribeAuthChange(() => {
-        // Only the losing half moves the scroll: this signal also carries a recovered
-        // connection, and that must not yank the page out from under someone reading it.
-        if (!isAuthenticated()) {
-          setScreenState("NOT_CONNECTED");
-          pageRef.current?.scrollTo({ y: 0, animated: false });
-        }
+        // Sign-out fires from the pushed server list with this screen behind it: isAuthenticated
+        // is synchronous, so the swap lands before the pop uncovers the connected card.
+        if (!isAuthenticated()) setScreenState("NOT_CONNECTED");
         void loadCurrentState();
       }),
     [],
@@ -186,6 +176,8 @@ function SettingsScreen() {
   const handleSwitchServer = () => {
     router.push("/connect/servers");
   };
+
+  if (screenState === "NOT_CONNECTED") return <ServerConnectScreen title={t("tab.settings")} onConnected={handleConnected} />;
 
   if (screenState === "LOADING") {
     return (
@@ -211,7 +203,6 @@ function SettingsScreen() {
       <BrandCorners />
 
       <ScrollView
-        ref={pageRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -225,68 +216,55 @@ function SettingsScreen() {
               TV has no screen titles (the top tab bar names the screen). */}
           {!Platform.isTV && <Text style={styles.screenTitle}>{t("tab.settings")}</Text>}
 
-          <View
-            style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, !Platform.isTV && screenStyles.serverHeader, screenState === "NOT_CONNECTED" && styles.connectHeaderSpacing]}>
-            {/* Fixed now: the login steps that used to retitle this are their own routes
-                (app/connect), each carrying its own header. The logged-out spacing matches
-                the stand-in screen Home and Search render, which is the same view. */}
+          <View style={[styles.sectionHeader, !Platform.isTV && styles.sectionHeaderFirst, !Platform.isTV && screenStyles.serverHeader]}>
             <Text style={styles.sectionHeaderText}>{t("settings.jellyfinServer")}</Text>
           </View>
 
-          {screenState === "NOT_CONNECTED" && <ServerConnectFlow onConnected={handleConnected} />}
-
-          {screenState === "CONNECTED" && (
-            <ConnectedSection
-              serverUrl={connectedServerUrl}
-              userName={connectedUserName}
-              userImageUri={connectedUserId ? getUserImageUrl(connectedServerUrl, connectedUserId) : undefined}
-              onSwitchServer={handleSwitchServer}>
-              {/* Shown unless the server has said no. Gating on a resolved access instead
-                  mounted the row after /Users/Me came back, which re-rounded the card under
-                  the reader on every cold open. */}
-              {syncPlay?.access !== "None" ? (
-                <ListRow
-                  icon="people"
-                  title={t("settings.syncplay")}
-                  unread={!!syncPlay?.group}
-                  subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : t("settings.syncplaySubtitle")}
-                  trailingIcon="chevron-forward"
-                  onPress={() => router.push("/syncplay")}
-                  isLast
-                />
-              ) : null}
-            </ConnectedSection>
-          )}
-
-          {screenState === "CONNECTED" && (
-            <>
-              <LinkSpeedHeading
-                title={t("settings.streaming")}
-                measuredBps={measuredBps}
-                measuring={measuring}
-                outcome={measureOutcome}
-                onRemeasure={handleRemeasure}
-                onFocus={() => setStreamingHeadingFocused(true)}
-                onBlur={() => setStreamingHeadingFocused(false)}
+          <ConnectedSection
+            serverUrl={connectedServerUrl}
+            userName={connectedUserName}
+            userImageUri={connectedUserId ? getUserImageUrl(connectedServerUrl, connectedUserId) : undefined}
+            onSwitchServer={handleSwitchServer}>
+            {/* Shown unless the server has said no. Gating on a resolved access instead
+                mounted the row after /Users/Me came back, which re-rounded the card under
+                the reader on every cold open. */}
+            {syncPlay?.access !== "None" ? (
+              <ListRow
+                icon="people"
+                title={t("settings.syncplay")}
+                unread={!!syncPlay?.group}
+                subtitle={syncPlay?.group ? connectedLine(syncPlay.group.participants, syncPlay.group.state) : t("settings.syncplaySubtitle")}
+                trailingIcon="chevron-forward"
+                onPress={() => router.push("/syncplay")}
+                isLast
               />
-              <View style={[styles.section, Platform.isTV && streamingHeadingFocused && styles.sectionCapped]}>
-                <ListRow
-                  icon={SERVER_GLYPH}
-                  title={t("settings.transcodingRow")}
-                  subtitle={transcodingRowSubtitle(serverTranscoding, permissions)}
-                  trailingIcon="chevron-forward"
-                  onPress={() => router.push("/transcoding")}
-                  isFirst
-                  isLast
-                />
-              </View>
-            </>
-          )}
+            ) : null}
+          </ConnectedSection>
 
-          {/* In both states, as the stand-in every other tab renders logged out. */}
-          <UiSection />
+          <LinkSpeedHeading
+            title={t("settings.streaming")}
+            measuredBps={measuredBps}
+            measuring={measuring}
+            outcome={measureOutcome}
+            onRemeasure={handleRemeasure}
+            onFocus={() => setStreamingHeadingFocused(true)}
+            onBlur={() => setStreamingHeadingFocused(false)}
+          />
+          <View style={[styles.section, Platform.isTV && streamingHeadingFocused && styles.sectionCapped]}>
+            <ListRow
+              icon={SERVER_GLYPH}
+              title={t("settings.transcodingRow")}
+              subtitle={transcodingRowSubtitle(serverTranscoding, permissions)}
+              trailingIcon="chevron-forward"
+              onPress={() => router.push("/transcoding")}
+              isFirst
+              isLast
+            />
+          </View>
+
+          <UiSection signedIn />
           {/* No version line under this: the Open Source page carries it. */}
-          <AboutSection showDiagnostics={screenState === "CONNECTED"} />
+          <AboutSection showDiagnostics />
         </View>
       </ScrollView>
     </View>
