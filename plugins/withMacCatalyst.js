@@ -19,6 +19,17 @@ function withMacCatalyst(config) {
   ${autolinking}`,
       );
     }
+    const cache = `ReactNativePodsUtils.set_build_setting(installer, build_setting: "COMPILATION_CACHE_ENABLE_CACHING", value: "YES")`;
+    if (!config.modResults.contents.includes(cache)) {
+      const hook = /^([ \t]*)post_install do \|installer\|\n/m;
+      if (!hook.test(config.modResults.contents)) throw new Error("Apple Pods: cannot locate the post_install hook.");
+      config.modResults.contents = config.modResults.contents.replace(
+        hook,
+        (line, indent) => `${line}${indent}  # TomoTV compilation caching: Xcode reuses compile results whose inputs are unchanged.
+${indent}  ${cache}
+`,
+      );
+    }
     return config;
   });
   if (tv) return config;

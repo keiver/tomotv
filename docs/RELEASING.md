@@ -60,7 +60,9 @@ tvOS codegen writes into `macos/` and `tvos/` instead of the separate iOS tree.
 
 All three targets build Expo modules from source (`usePrecompiledModules: false`
 in `app.json`): Expo's precompiled XCFrameworks only load in the Swift compiler
-that built them. After CocoaPods integration,
+that built them. All three Podfiles turn on `COMPILATION_CACHE_ENABLE_CACHING`;
+the cache lives in `DerivedData/CompilationCache.noindex` and survives
+`prebuild --clean`. After CocoaPods integration,
 `scripts/prebuilt-swift-imports.rb` removes source-module search paths for
 framework-only pods, preventing old Swift modules in DerivedData from shadowing
 the XCFramework interfaces. Source-built pods retain their search paths. The
