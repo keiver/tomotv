@@ -125,8 +125,10 @@ npm run meta:upload -- --check
 
 `archive --upload` checks App Store versions, text, and real captures before
 building. It composes directly from `captures/`, rejects placeholder/stale
-screenshots, uploads Mac screenshots to `APP_DESKTOP`, and selects the exact
-shared build number after processing. The Mac PKG verification checks the
+screenshots, uploads each device's screenshots to its App Asset Library
+placement group (Mac to `MAC_PROFILE`), skips devices marked `"upload": false`
+in `applestore/shots.config.json`, and selects the exact shared build number
+after processing. The Mac PKG verification checks the
 installer/app signatures, bundle version, sandbox networking, and both Catalyst
 architectures. Initial Mac versions omit What's New because Apple does not
 accept that field on a platform's first release; later Mac releases require it.

@@ -32,7 +32,13 @@
       "type": "object",
       "minProperties": 1,
       "propertyNames": { "$ref": "#/$defs/device" },
-      "additionalProperties": { "type": "object", "maxProperties": 0 }
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "upload": { "type": "boolean", "description": "false renders the device but keeps it out of shots:upload and --check-captures." }
+        }
+      }
     },
     "shots": { "type": "array", "items": { "$ref": "#/$defs/shot" } }
   },

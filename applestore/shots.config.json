@@ -13,8 +13,8 @@
     "ipad": {},
     "tv": {},
     "mac": {},
-    "duo-outer": {},
-    "duo-inner": {}
+    "duo-outer": { "upload": false },
+    "duo-inner": { "upload": false }
   },
   "shots": [
     {

@@ -17,14 +17,18 @@
  *
  * Only a version in an editable state is touched. A version already waiting for
  * review is left alone: replacing its screenshots is a rejection, not an edit.
+ *
+ * Screenshots go through the App Asset Library. A device whose entry in shots.config.json
+ * has "upload": false is rendered but never uploaded.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ascEnv, client, md5 } from "./appstore/asc.mjs";
-import { DISPLAY_TYPES, editableVersion, platformVersions, selectedPlatforms } from "./appstore/platforms.mjs";
+import { ascEnv, client } from "./appstore/asc.mjs";
+import { SCREENSHOT_DEVICES, editableVersion, placementGroup, platformVersions, selectedPlatforms, uploadedDevices } from "./appstore/platforms.mjs";
 import { generatedShots, validateCaptures } from "./appstore/captures.mjs";
+import { replaceScreenshots } from "./appstore/placements.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG = path.join(ROOT, "applestore", "shots.config.json");
@@ -47,76 +51,31 @@ function fail(msg) {
   process.exit(1);
 }
 
-/** Reserve, upload every part Apple asks for, then commit with the checksum. */
-async function uploadScreenshot(api, setId, file) {
-  const bytes = fs.readFileSync(file);
-  const reservation = await api.post("/v1/appScreenshots", {
-    data: {
-      type: "appScreenshots",
-      attributes: { fileSize: bytes.length, fileName: path.basename(file) },
-      relationships: { appScreenshotSet: { data: { type: "appScreenshotSets", id: setId } } },
-    },
-  });
-  const id = reservation.data.id;
-  for (const operation of reservation.data.attributes.uploadOperations ?? []) {
-    await api.put(operation, bytes.subarray(operation.offset, operation.offset + operation.length));
-  }
-  try {
-    await api.patch(`/v1/appScreenshots/${id}`, {
-      data: { type: "appScreenshots", id, attributes: { uploaded: true, sourceFileChecksum: md5(file) } },
-    });
-  } catch (e) {
-    // A 5xx on commit can still commit, so the retry 409s; the asset state is the truth.
-    const state = (await api.get(`/v1/appScreenshots/${id}`)).data.attributes.assetDeliveryState?.state;
-    if (state !== "UPLOAD_COMPLETE" && state !== "COMPLETE") throw e;
-  }
-  return id;
-}
-
-async function setFor(api, localizationId, displayType) {
-  const existing = await api.get(`/v1/appStoreVersionLocalizations/${localizationId}/appScreenshotSets`);
-  const found = existing.data.find((s) => s.attributes.screenshotDisplayType === displayType);
-  if (found) return found.id;
-  const created = await api.post("/v1/appScreenshotSets", {
-    data: {
-      type: "appScreenshotSets",
-      attributes: { screenshotDisplayType: displayType },
-      relationships: { appStoreVersionLocalization: { data: { type: "appStoreVersionLocalizations", id: localizationId } } },
-    },
-  });
-  return created.data.id;
-}
-
 async function main() {
   if (!fs.existsSync(CONFIG)) fail(`Missing ${CONFIG}`);
   const config = JSON.parse(fs.readFileSync(CONFIG, "utf8"));
   const locales = opt("--locale") ? [opt("--locale")] : Object.keys(config.locales ?? {});
   const platforms = selectedPlatforms(opt("--platform"));
+  const devices = uploadedDevices(config, platforms);
 
-  await validateCaptures(
-    ROOT,
-    config,
-    Object.keys(DISPLAY_TYPES).filter((key) => platforms.includes(DISPLAY_TYPES[key].platform)),
-    locales,
-  );
+  await validateCaptures(ROOT, config, devices, locales);
 
   // Every locale is checked before anything is uploaded: a half-uploaded listing
   // is worse than one that never started.
   const plan = [];
   for (const locale of locales) {
     if (!STORE_LOCALES[locale]) fail(`No App Store locale for "${locale}". Add it to STORE_LOCALES.`);
-    for (const [deviceKey, slot] of Object.entries(DISPLAY_TYPES)) {
-      if (!platforms.includes(slot.platform)) continue;
+    for (const deviceKey of devices) {
       const files = await generatedShots(ROOT, config, locale, deviceKey);
       if (!files || files.length === 0) {
         fail(`No screenshots at applestore/generated/${locale}/${deviceKey}. Run npm run shots first.`);
       }
-      plan.push({ locale, deviceKey, slot, files });
+      plan.push({ locale, deviceKey, files });
     }
   }
 
   console.log(`App Store Connect: ${BUNDLE_ID}`);
-  for (const p of plan) console.log(`  ${STORE_LOCALES[p.locale].padEnd(6)} ${p.slot.type.padEnd(24)} ${p.files.length} shots`);
+  for (const p of plan) console.log(`  ${STORE_LOCALES[p.locale].padEnd(6)} ${p.deviceKey.padEnd(10)} ${p.files.length} shots`);
   if (DRY) {
     console.log("\n--dry-run: nothing uploaded");
     return;
@@ -126,6 +85,23 @@ async function main() {
   const apps = await api.get(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`);
   const app = apps.data[0];
   if (!app) fail(`No app with bundle id ${BUNDLE_ID} on this account`);
+
+  // Devices sharing a placement group (the Duo's two screens) fill it together, in shot order.
+  const refData = await api.get("/v1/appAssetLibraryRefData");
+  const groups = new Map();
+  for (const { locale, deviceKey, files } of plan) {
+    const { group, sizes, maxCount } = placementGroup(refData, deviceKey);
+    if (!sizes.includes(SCREENSHOT_DEVICES[deviceKey].size)) fail(`${deviceKey}: ${group} does not take ${SCREENSHOT_DEVICES[deviceKey].size} (it takes ${sizes.join(", ")})`);
+    const key = `${locale}/${group}`;
+    if (!groups.has(key)) groups.set(key, { locale, platform: SCREENSHOT_DEVICES[deviceKey].platform, group, maxCount, entries: [] });
+    const shotIndex = (file) => config.shots.findIndex((shot) => `${shot.id}.png` === path.basename(file));
+    groups.get(key).entries.push(...files.map((file) => ({ file, order: [shotIndex(file), devices.indexOf(deviceKey)] })));
+  }
+  for (const { locale, group, maxCount, entries } of groups.values()) {
+    if (entries.length > maxCount) fail(`${locale} ${group}: ${entries.length} screenshots, App Store Connect takes ${maxCount}. Drop devices from shots in shots.config.json.`);
+    entries.sort((a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1]);
+  }
+  const libraryId = (await api.get(`/v1/apps/${app.id}/assetLibrary`)).data.id;
 
   // The PREPARE_FOR_SUBMISSION version per platform, the only state that takes a
   // screenshot change; absent one, --create-version opens the draft.
@@ -155,8 +131,8 @@ async function main() {
     console.log(`  ${platform}: version ${version.attributes.versionString}`);
   }
 
-  for (const { locale, slot, files } of plan) {
-    const version = versions[slot.platform];
+  for (const { locale, platform, group, entries } of groups.values()) {
+    const version = versions[platform];
     const localizations = await api.get(`/v1/appStoreVersions/${version.id}/appStoreVersionLocalizations`);
     const existing = localizations.data.find((l) => l.attributes.locale === STORE_LOCALES[locale]);
     const localizationId = existing
@@ -171,14 +147,10 @@ async function main() {
           })
         ).data.id;
 
-    const setId = await setFor(api, localizationId, slot.type);
-    // Replaced, not appended: a set that keeps last release's shots alongside
+    // Replaced, not appended: a group that keeps last release's shots alongside
     // this one's is the failure nobody notices until the listing is live.
-    const current = await api.get(`/v1/appScreenshotSets/${setId}/appScreenshots`);
-    for (const shot of current.data) await api.delete(`/v1/appScreenshots/${shot.id}`);
-
-    for (const file of files) await uploadScreenshot(api, setId, file);
-    console.log(`  ✓ ${STORE_LOCALES[locale]} ${slot.type}: ${files.length} uploaded`);
+    await replaceScreenshots(api, { libraryId, localizationId, group, files: entries.map((e) => e.file) });
+    console.log(`  ✓ ${STORE_LOCALES[locale]} ${group}: ${entries.length} uploaded`);
   }
 
   console.log("\nScreenshots uploaded. App Store Connect processes them asynchronously; check the version before submitting.");

@@ -48,6 +48,7 @@ import { planImport, adopt, assign } from "./appstore/import.mjs";
 import { captureShots } from "./appstore/capture.mjs";
 import { ensurePlaceholders } from "./appstore/placeholder.mjs";
 import { validateCaptures } from "./appstore/captures.mjs";
+import { uploadedDevices } from "./appstore/platforms.mjs";
 import { STAMP_TIME, TEMPLATE_DIR, captureTemplate, findClusters, stampStatusBar, templateHash } from "./appstore/statusbar.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -505,8 +506,8 @@ async function main() {
   const config = loadConfig();
 
   if (flag("--check-captures")) {
-    // A device drawn from another's captures is not uploaded, so it does not gate a release.
-    const devices = Object.keys(config.devices).filter((key) => !DEVICES[key].source && config.shots.some((shot) => shot.devices.includes(key)));
+    // Only uploaded devices gate a release.
+    const devices = uploadedDevices(config).filter((key) => config.shots.some((shot) => shot.devices.includes(key)));
     await validateCaptures(ROOT, config, devices, opt("--locale") ? [config.locale] : Object.keys(config.locales));
     console.log("Every configured slot has a real capture.");
     return;

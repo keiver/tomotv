@@ -128,7 +128,3 @@ export function client(env) {
     },
   };
 }
-
-export function md5(file) {
-  return crypto.createHash("md5").update(fs.readFileSync(file)).digest("hex");
-}

@@ -3,7 +3,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { createHash } from "node:crypto";
 import { hashFile, loadManifest } from "./cache.mjs";
-import { DISPLAY_TYPES } from "./platforms.mjs";
+import { SCREENSHOT_DEVICES } from "./platforms.mjs";
 
 /** Read-only release gate. Never manufacture a capture or upload a placeholder. */
 export async function validateCaptures(root, config, devices = Object.keys(config.devices), locales = Object.keys(config.locales)) {
@@ -53,7 +53,7 @@ export async function generatedShots(root, config, locale, device) {
       throw new Error(`${locale}/${key}: missing or stale render. Run npm run shots -- --render first.`);
     }
     const meta = await sharp(file).metadata();
-    if (`${meta.width}x${meta.height}` !== DISPLAY_TYPES[device].size || meta.hasAlpha) throw new Error(`${file}: invalid App Store size or transparency`);
+    if (`${meta.width}x${meta.height}` !== SCREENSHOT_DEVICES[device].size || meta.hasAlpha) throw new Error(`${file}: invalid App Store size or transparency`);
     files.push(file);
   }
   return files;
