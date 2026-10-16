@@ -244,12 +244,13 @@ final class TextSubtitleTests: XCTestCase {
     /// Identity-mapped: the engine's timeline starts at zero, where Jellyfin's
     /// MPEGTS:900000 displaced every cue by 10s.
     func testSegmentBodyIsIdentityMappedWebVTT() throws {
-        let session = try serverBackedSession()
+        let session = try coveredSession()
         defer { session.stop() }
         let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
 
         XCTAssertTrue(body.hasPrefix("WEBVTT\n"))
         XCTAssertTrue(body.contains("X-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000"))
+        XCTAssertTrue(body.contains(" --> "))
     }
 
     func testSegmentOutsideTheGridIsRefused() throws {
@@ -270,12 +271,14 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertEqual(webVTTTimestamp(3599.9996), "01:00:00.000")
     }
 
-    private func serverBackedSession() throws -> RemuxSession {
-        var subtitle = engineSub(2)
-        subtitle.serverVttUrl = "http://subtitle.test/2.vtt"
-        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [subtitle]))
+    /// A session whose decoder holds the fixture's cues and whose read covers the first 18s.
+    private func coveredSession() throws -> RemuxSession {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [engineSub(2)]))
+        session.textSubtitles[2] = try decodedTrack()
+        session.subtitleDecodersBuilt = true
         session.sessionAnchorSeconds = 0
-        session.serverCues[2] = [ServerCue(start: 1, end: 3, text: "server first window"), ServerCue(start: 7, end: 9, text: "server second window")]
+        session.readSpanFrom = 0
+        session.readSpanUpTo = 18
         return session
     }
 
@@ -296,76 +299,69 @@ final class TextSubtitleTests: XCTestCase {
         return decoder
     }
 
-    func testSourceWarmingWithoutLocalDecoderKeepsCachedServerCues() throws {
-        let session = try serverBackedSession()
+    /// A window the read covered keeps its cues whatever the source is doing now.
+    func testACoveredWindowAnswersCuesWithTheSourceLetGo() throws {
+        let session = try coveredSession()
         defer { session.stop() }
-        session.sourceState = .warming
-        session.subtitleDecodersBuilt = false
-        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
-        XCTAssertTrue(body.contains("server first window"))
-        XCTAssertTrue(body.contains("00:00:01.000 --> 00:00:03.000"))
-    }
-
-    func testReadGenerationStartingInsideWindowDoesNotDisplaceServerCues() throws {
-        let session = try serverBackedSession()
-        defer { session.stop() }
-        session.textSubtitles[2] = try decodedTrack()
-        session.subtitleDecodersBuilt = true
-        session.readSpanFrom = 9
-        session.readSpanUpTo = 18
-        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 1))
-        XCTAssertTrue(body.contains("server second window"))
-    }
-
-    func testLocalWindowCoverageWinsEvenWhenSourceIsDormant() throws {
-        let session = try serverBackedSession()
-        defer { session.stop() }
-        session.textSubtitles[2] = try decodedTrack()
         session.sourceState = .dormant
-        session.readSpanFrom = 0
-        session.readSpanUpTo = 18
         let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
-        XCTAssertFalse(body.contains("server first window"))
         XCTAssertTrue(body.contains(" --> "))
     }
 
-    func testDecoderEofAfterASeekDoesNotClaimEarlierWindows() throws {
-        let session = try serverBackedSession()
+    // MARK: - The source is let go or held: no read is heading for the window
+
+    /// A window ahead of the read with the source let go used to wait the full 25s and then fail;
+    /// the player gives a subtitle segment 6s before it drops the item.
+    func testAWindowAheadOfAReleasedSourceIsAnsweredWithoutCuesAtOnce() throws {
+        let session = try coveredSession()
         defer { session.stop() }
-        let decoder = try decodedTrack()
-        decoder.finish()
-        session.textSubtitles[2] = decoder
-        session.readSpanFrom = 12
-        session.readSpanUpTo = 30
+        session.readSpanUpTo = 6
+        session.sourceState = .dormant
+        let asked = Date()
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 2))
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 1)
+        XCTAssertTrue(body.hasPrefix("WEBVTT\n"))
+        XCTAssertFalse(body.contains(" --> "))
+        XCTAssertTrue(try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0)).contains(" --> "), "the covered window keeps its cues")
+    }
+
+    func testAWindowWithNoDecoderAndTheSourceLetGoIsAnsweredWithoutCues() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [engineSub(2)]))
+        defer { session.stop() }
+        session.subtitleDecodersBuilt = false
+        session.sourceState = .dormant
+        let asked = Date()
         let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
-        XCTAssertTrue(body.contains("server first window"))
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 1)
+        XCTAssertFalse(body.contains(" --> "))
     }
 
-    func testACopyOnlySessionNeverAsksTheServerForCues() throws {
-        var subtitle = engineSub(2)
-        subtitle.serverVttUrl = "http://127.0.0.1:9/2.vtt"
-        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [subtitle]))
+    func testAWindowAheadOfAProducerHeldUnderARungIsAnsweredWithoutCues() throws {
+        let session = try coveredSession()
         defer { session.stop() }
-        session.textSubtitles[2] = try decodedTrack()
-        session.subtitleDecodersBuilt = true
-        session.copyOnlyMaster = true
-        session.prefetchServerCues()
-        XCTAssertFalse(session.serverCueSource(subtitle))
-        XCTAssertNil(session.serverCues(streamIndex: 2, deadline: 0))
-        XCTAssertTrue(session.serverCueFetches.isEmpty, "a session reading its source makes the server extract nothing")
+        session.readSpanUpTo = 6
+        session.producerHeld = true
+        let asked = Date()
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 2))
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 1)
+        XCTAssertFalse(body.contains(" --> "))
     }
 
-    func testALadderSessionOrATrackWithoutADecoderMayAskTheServer() throws {
-        var subtitle = engineSub(2)
-        subtitle.serverVttUrl = "http://127.0.0.1:9/2.vtt"
-        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [subtitle]))
+    /// Once the copy is coming back the read will reach the window: the request waits for it.
+    func testAWindowWaitsForTheReadOnceTheCopyIsComingBack() throws {
+        let session = try coveredSession()
         defer { session.stop() }
-        session.subtitleDecodersBuilt = true
-        XCTAssertTrue(session.serverCueSource(subtitle), "no engine decoder for the track: the server is its only producer")
-        session.textSubtitles[2] = try decodedTrack()
-        XCTAssertFalse(session.serverCueSource(subtitle))
-        session.ladderListed = true
-        XCTAssertTrue(session.serverCueSource(subtitle), "a listed ladder means the link may not carry the copy")
+        session.readSpanFrom = nil
+        session.readSpanUpTo = 0
+        session.sourceState = .warming
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
+            session.stateLock.lock()
+            session.readSpanFrom = 0
+            session.readSpanUpTo = 6
+            session.stateLock.unlock()
+        }
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertTrue(body.contains(" --> "), "a window the read came back for lost its cues:\n\(body)")
     }
 
     private func imageSub(_ index: Int) -> RemuxSubtitle {
@@ -481,14 +477,6 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertTrue(session.readCoversLocked(from: 0, to: 18))
     }
 
-    func testServerWebVttRejectsErrorBodiesInsteadOfCachingAnEmptyTrack() {
-        XCTAssertNil(RemuxSession.decodedServerWebVTT(Data("<html>try again</html>".utf8)))
-        XCTAssertNil(RemuxSession.decodedServerWebVTT(Data("WEBVTT\n\ninvalid --> time\nMissing timing\n".utf8)))
-        XCTAssertEqual(RemuxSession.decodedServerWebVTT(Data("\u{feff}WEBVTT\n\n".utf8))?.count, 0)
-        let body = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhello\n"
-        XCTAssertEqual(RemuxSession.decodedServerWebVTT(Data(body.utf8))?.first?.text, "hello")
-    }
-
     func testArchivedReadSpanDoesNotJoinTheUnreadGapAfterSourceReopensAtZero() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 120))
         defer { session.stop() }
@@ -540,6 +528,62 @@ final class TextSubtitleTests: XCTestCase {
         let stream = try XCTUnwrap(context.pointee.streams[0])
         return try XCTUnwrap(ImageSubtitleDecoder(stream: stream, fallbackWidth: 1920, fallbackHeight: 1080,
                                                  dir: session.dir, reportedIndex: 3, namePrefix: prefix))
+    }
+
+    private func events(of manifest: Data?) throws -> [[String: Any]] {
+        let data = try XCTUnwrap(manifest)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try XCTUnwrap(payload["events"] as? [[String: Any]])
+    }
+
+    /// The fixture fed through the decoder the way the read loop feeds it, stopped as soon as a
+    /// display set is on screen: the read then stops with that set still showing.
+    private func imageDecoderStoppedMidSet(session: RemuxSession, prefix: String) throws -> ImageSubtitleDecoder {
+        let decoder = try imageDecoder(session: session, prefix: prefix)
+        let source = matroska.deletingLastPathComponent().appendingPathComponent("pgs-track.sup")
+        var input: UnsafeMutablePointer<AVFormatContext>?
+        XCTAssertGreaterThanOrEqual(avformat_open_input(&input, source.path, av_find_input_format("sup"), nil), 0)
+        defer { avformat_close_input(&input) }
+        let context = try XCTUnwrap(input)
+        var packet = av_packet_alloc()
+        defer { av_packet_free(&packet) }
+        while av_read_frame(context, packet) >= 0 {
+            if let packet { decoder.handle(packet: packet) }
+            av_packet_unref(packet)
+            let showing = try events(of: decoder.manifestJSON(demuxedUpTo: 0)).last
+            if let images = showing?["images"] as? [Any], !images.isEmpty { break }
+        }
+        return decoder
+    }
+
+    private func manifestEvents(_ session: RemuxSession, streamIndex: Int) throws -> [[String: Any]] {
+        try events(of: session.subtitleCueManifest(streamIndex: streamIndex))
+    }
+
+    /// The set on screen when the read stops feeding the decoder ends at the read head, instead of
+    /// staying up for as long as the source is held or let go.
+    func testLeavingTheSourceClosesTheShowingImageSetAtTheReadPoint() throws {
+        let subtitle = RemuxSubtitle(index: 3, name: "English", language: "eng", vttUrl: "", localVtt: "",
+                                     isDefault: false, isForced: false, isImage: true, isEngineText: false)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 90, subtitles: [subtitle]))
+        defer { session.stop() }
+        session.imageSubtitles[3] = try imageDecoderStoppedMidSet(session: session, prefix: "local")
+        let before = try manifestEvents(session, streamIndex: 3)
+        let showing = try XCTUnwrap(before.last)
+        XCTAssertFalse(try XCTUnwrap(showing["images"] as? [Any]).isEmpty, "the read stopped with a set still showing")
+        let readHead = try XCTUnwrap(showing["time"] as? Double) + 4
+        session.readSpanUpTo = readHead
+
+        session.closeImageSubtitlesAtReadPoint()
+
+        let after = try manifestEvents(session, streamIndex: 3)
+        XCTAssertEqual(after.count, before.count + 1)
+        let closing = try XCTUnwrap(after.last)
+        XCTAssertEqual(closing["time"] as? Double, readHead)
+        XCTAssertTrue(try XCTUnwrap(closing["images"] as? [Any]).isEmpty)
+
+        session.closeImageSubtitlesAtReadPoint()
+        XCTAssertEqual(try manifestEvents(session, streamIndex: 3).count, after.count, "a second close adds nothing")
     }
 
     func testImageManifestKeepsServerCoverageUntilLocalWindowCatchesUp() throws {

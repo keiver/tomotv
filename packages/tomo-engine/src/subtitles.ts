@@ -31,9 +31,7 @@ export type SubtitleRendition = {
   isExternal?: boolean;
   /** An embedded text track the engine decodes and publishes as WebVTT segments. */
   isEngineText: boolean;
-  /** A remote WebVTT of an engine text track, for windows the engine cannot read in time (rung sessions). */
-  serverVttUrl?: string;
-  /** A remote raw copy of a PGS or DVD track, decoded on device when the source is not being read (rung sessions). */
+  /** A remote raw copy of an image sidecar, decoded on device when the source is not being read (rung sessions). */
   serverSupUrl?: string;
   /** Where an embedded track sits in the container; absent for a sidecar and on a live source. */
   source?: SourcePosition;

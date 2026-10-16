@@ -1796,11 +1796,14 @@ describe("jellyfinApi", () => {
             expect(serverVideoCodecs(hdr10, main10)).toBe("hevc");
           });
 
-          it("is asked for as h264 where the device decodes no HEVC or text subtitles pin the target, and the shim retags the answer", async () => {
+          it("is asked for as h264 where the device decodes no HEVC, and the shim retags the answer", async () => {
             expect(await call(hdr10, noHevc)).toContain("VideoCodec=h264&");
-            expect(await call(subtitled, main10)).toContain("VideoCodec=h264&");
-            expect(serverVideoCodecs(subtitled, main10)).toBe("h264");
             expect(sourceIsHdr(hdr10)).toBe(true);
+          });
+
+          it("keeps hevc on a subtitled source: subtitles inside the file never ride the server", async () => {
+            expect(await call(subtitled, main10)).toContain("VideoCodec=hevc&");
+            expect(serverVideoCodecs(subtitled, main10)).toBe("hevc");
             expect(sourceIsHdr(subtitled)).toBe(true);
           });
 
@@ -1904,25 +1907,24 @@ describe("jellyfinApi", () => {
         expect(url).toContain("MediaSourceId=source-456");
       });
 
-      it("should use SubtitleMethod=Hls for external subtitles", async () => {
+      // Jellyfin answers any embedded-subtitle request by extracting every track from the whole
+      // file, uncancellable (its issue #17499), so the server lane carries no subtitle renditions.
+      it("asks the server for no subtitle renditions, whatever the file carries", async () => {
         const videoItem: any = {
           Id: "video123",
           MediaStreams: [
             { Type: "Video", Codec: "h264", Index: 0 },
             { Type: "Subtitle", IsExternal: true, Index: 2, Language: "eng" },
-            { Type: "Subtitle", IsExternal: true, Index: 3, Language: "spa" },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "spa" },
           ],
         };
 
         const url = await getTranscodingStreamUrl("video123", videoItem);
 
-        expect(url).toContain("SubtitleMethod=Hls");
+        expect(url).not.toContain("SubtitleMethod");
         expect(url).not.toContain("SubtitleStreamIndex=");
-        // WebVTT renditions require TS segments: Jellyfin's X-TIMESTAMP-MAP
-        // (10s) aligns with the mpegts PTS base but runs late against fMP4.
-        // HEVC is fMP4-only, so the video target drops to H.264 alone.
-        expect(url).toContain("SegmentContainer=ts");
-        expect(url).toContain("VideoCodec=h264&");
+        expect(url).toContain("SegmentContainer=mp4");
+        expect(url).toContain("VideoCodec=h264,hevc");
       });
 
       it("should not add subtitle params when no external subtitles", async () => {
@@ -2000,7 +2002,7 @@ describe("jellyfinApi", () => {
         expect(url).toContain("VideoCodec=h264,hevc");
       });
 
-      it("should keep SubtitleMethod=Hls when no burn-in index provided", async () => {
+      it("sets no subtitle method when no burn-in index is provided", async () => {
         const videoItem: any = {
           Id: "video123",
           MediaStreams: [
@@ -2011,10 +2013,9 @@ describe("jellyfinApi", () => {
 
         const url = await getTranscodingStreamUrl("video123", videoItem);
 
-        expect(url).toContain("SubtitleMethod=Hls");
-        expect(url).not.toContain("SubtitleMethod=Encode");
+        expect(url).not.toContain("SubtitleMethod");
         expect(url).not.toContain("SubtitleStreamIndex=");
-        expect(url).toContain("SegmentContainer=ts");
+        expect(url).toContain("SegmentContainer=mp4");
       });
 
       it("should combine burn-in with AudioStreamIndex and StartTimeTicks", async () => {
@@ -2202,6 +2203,39 @@ describe("jellyfinApi", () => {
         } as any;
 
         expect(getBurnInSubtitleStream(videoItem)).toBeNull();
+      });
+
+      // Jellyfin files XSUB and teletext as text, and a text burn-in makes it extract every
+      // subtitle track from the whole file first.
+      it("never picks an XSUB or teletext track for the server to burn in", () => {
+        const xsubAlone = {
+          Id: "v",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "xsub", Index: 2 },
+          ],
+        } as any;
+        expect(getBurnInSubtitleStream(xsubAlone)).toBeNull();
+
+        const xsubDefaultBesidePgs = {
+          Id: "v",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "xsub", Index: 2, IsDefault: true },
+            { Type: "Subtitle", Codec: "pgssub", Index: 3 },
+          ],
+        } as any;
+        expect(getBurnInSubtitleStream(xsubDefaultBesidePgs)).toMatchObject({ Index: 3 });
+
+        const forcedTeletext = {
+          Id: "v",
+          MediaStreams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "subrip", Index: 2 },
+            { Type: "Subtitle", Codec: "dvb_teletext", Index: 3, IsForced: true },
+          ],
+        } as any;
+        expect(getBurnInSubtitleStream(forcedTeletext)).toBeNull();
       });
     });
 

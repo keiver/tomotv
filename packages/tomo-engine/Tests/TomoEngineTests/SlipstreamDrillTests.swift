@@ -50,8 +50,7 @@ final class SlipstreamDrillTests: XCTestCase {
                 index: index, name: entry["name"] as? String ?? "Subtitle \(index)", language: entry["language"] as? String ?? "",
                 vttUrl: entry["vttUrl"] as? String ?? "", localVtt: entry["localVtt"] as? String ?? "",
                 isDefault: entry["isDefault"] as? Bool ?? false, isForced: entry["isForced"] as? Bool ?? false,
-                isImage: entry["isImage"] as? Bool ?? false, isEngineText: entry["isEngineText"] as? Bool ?? false,
-                serverVttUrl: entry["serverVttUrl"] as? String ?? "")
+                isImage: entry["isImage"] as? Bool ?? false, isEngineText: entry["isEngineText"] as? Bool ?? false)
             subtitle.serverSupUrl = entry["serverSupUrl"] as? String ?? ""
             subtitle.isExternal = entry["isExternal"] as? Bool ?? false
             subtitle.source = SourcePosition(entry["source"])

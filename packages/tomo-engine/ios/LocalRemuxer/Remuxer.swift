@@ -336,8 +336,8 @@ final class RemuxSession {
     var rungLeads = false
     /// The master named the copy alone: there is no other variant to defer AVPlayer to.
     var copyOnlyMaster = false
-    /// The master lists server rungs, so the link may not carry the copy: only then may the server's
-    /// WebVTT and image streams stand in for the demuxer.
+    /// The master lists server rungs, so the link may not carry the copy: only then may a sidecar's
+    /// server stream stand in for the demuxer.
     var ladderListed = false
     /// The rung AVPlayer last asked a segment of, and when the producer last moved to follow it.
     var lastTierRung = 0
@@ -394,9 +394,8 @@ final class RemuxSession {
     /// instead of competing with the tier fetches for its first 10 seconds.
     var lastPrimaryDemandAt = Date.distantPast
     var lastTierDemandAt = Date.distantPast
-    /// Parsed server WebVTT per text stream index, and the fetches in flight.
-    var serverCues: [Int: [ServerCue]] = [:]
-    var serverCueFetches: Set<Int> = []
+    /// The producer is holding its source reads under a rung, so no cue window ahead of the read will fill.
+    var producerHeld = false
     /// Segment keys with a materialization in flight: a duplicate request
     /// (AVPlayer hangs up and retries slow segments) waits for the winner
     /// instead of stacking parallel server fetches of the same bytes onto

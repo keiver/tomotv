@@ -752,8 +752,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         logger.info("Live channel on the server's transcode", { service: "useVideoPlayback", reason: lane.liveFallbackReason });
         probeEmit("fallback", { from: "localRemux", to: "transcode", reason: lane.liveFallbackReason ?? "" });
       } else if (lane.mode === "transcode") {
-        // Fallback only: the engine could not take this file. The server session uses MPEG-TS
-        // segments so Jellyfin's WebVTT renditions and their 10s X-TIMESTAMP-MAP stay aligned.
+        // Fallback only: the engine could not take this file. The server session carries no
+        // subtitle rendition from inside the file.
         logger.info("Server transcode", {
           service: "useVideoPlayback",
           codecUnsupported: gates.requiresTranscoding,
@@ -1486,11 +1486,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           }
           setPlaybackStage("server");
           const hasSelectedAudioTrack = viewerPickedAudioRef.current !== null;
-          const subtitles = getTextSubtitleStreams(details);
           const subtitlesOff = viewerSubtitleStreamRef.current === null || appliedSubtitlePreferenceRef.current.kind === "off" || getSubtitlePreferenceSync().kind === "off";
-          const burnInIndex = subtitlesOff
-            ? undefined
-            : (getBurnInSubtitleStream(details)?.Index ?? (subtitles.length > 0 && subtitles.every((track) => track.IsForced) ? subtitles[0].Index : undefined));
+          // Only an image track burns in; a text burn-in makes the server extract every subtitle
+          // track from the whole file first.
+          const burnInIndex = subtitlesOff ? undefined : getBurnInSubtitleStream(details)?.Index;
 
           // Multi-audio builds its own master from the server's transcodes and cannot retag their
           // init segments, so an HDR source takes the single-track path through the shim instead.

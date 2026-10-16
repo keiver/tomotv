@@ -681,6 +681,17 @@ extension RemuxSession {
         return true
     }
 
+    /// Closes the display set still showing when the read stops feeding the decoders, at the current
+    /// generation's read head: left open, it would stay on screen for as long as the source is held
+    /// or let go. Pipeline thread only: the decoder is flushed beside its own decode.
+    func closeImageSubtitlesAtReadPoint() {
+        stateLock.lock()
+        let readHead = readSpanUpTo
+        let decoders = Array(imageSubtitles.values)
+        stateLock.unlock()
+        for decoder in decoders { decoder.flush(demuxedUpTo: readHead) }
+    }
+
     /// Wall time of the segment just closed against its media duration, with the
     /// cushion ahead of the playhead. The generation's first segment reports no
     /// time: it carries the input seek.
@@ -1125,7 +1136,7 @@ extension RemuxSession {
 
         if config.serverVideoOnly {
             awaitGrid()
-            guard !config.isLive, !demuxerOwesTracks, tierOffered, config.audioTracks.isEmpty || audioLoActive,
+            guard !config.isLive, tierOffered, config.audioTracks.isEmpty || audioLoActive,
                   releaseSource(because: "server-video fallback", unusable: true) else {
                 return fail("server-video fallback cannot serve the complete track catalogue")
             }
@@ -1594,10 +1605,6 @@ extension RemuxSession {
                 continue
             }
             guard let streamIndex = found.stream, let stream = input.pointee.streams[Int(streamIndex)] else {
-                if !sub.serverSupUrl.isEmpty {
-                    startServerImageSubtitles(only: sub.index)
-                    continue
-                }
                 return failStartup("configured image subtitle \(found.refusal)")
             }
             guard let decoder = ImageSubtitleDecoder(
@@ -1608,10 +1615,6 @@ extension RemuxSession {
                 reportedIndex: index,
                 namePrefix: "pgs\(sub.index)"
             ) else {
-                if !sub.serverSupUrl.isEmpty {
-                    startServerImageSubtitles(only: sub.index)
-                    continue
-                }
                 if discoversFileSubtitles {
                     undecodableSubtitles.insert(sub.index)
                     continue
@@ -1639,11 +1642,9 @@ extension RemuxSession {
                 continue
             }
             guard let streamIndex = found.stream, let stream = input.pointee.streams[Int(streamIndex)] else {
-                if !sub.serverVttUrl.isEmpty { continue }
                 return failStartup("configured text subtitle \(found.refusal)")
             }
             guard let decoder = TextSubtitleDecoder(stream: stream) else {
-                if !sub.serverVttUrl.isEmpty { continue }
                 if discoversFileSubtitles {
                     undecodableSubtitles.insert(sub.index)
                     continue
@@ -1662,6 +1663,8 @@ extension RemuxSession {
             NSLog("[LocalRemuxer] decoding %d text subtitle track(s) on device", textSubtitles.count)
         }
         mark("image_subtitle_decoders")
+        // Whatever ends this read (a retry, the source let go or lost, a stop), the set on screen ends with it.
+        defer { closeImageSubtitlesAtReadPoint() }
 
         // Audio AVPlayer can't decode (AC3, DTS, TrueHD, Opus, Vorbis) is
         // re-encoded on the way through, losslessly where the encoder allows;
@@ -2285,6 +2288,7 @@ extension RemuxSession {
         readLoop: while true {
             // Session control between packets: cancellation, seeks, throttle.
             var heldThisPass = false
+            var closedForHold = false
             while true {
                 stateLock.lock()
                 let stop = cancelled || failed || sourceReleased
@@ -2327,16 +2331,25 @@ extension RemuxSession {
                 let takeoverCapacity = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
                 if sourceBandwidth > 0, takeoverCapacity < Double(sourceBandwidth) * 1.2 { sourceTakeoverSegment = nil }
                 let takingOver = sourceTakeoverSegment != nil
-                let held = sessionAnchorUs != nil && !takingOver && !demuxerOwesTracks && (riding ? follow == .hold : openingHoldLocked())
+                let held = sessionAnchorUs != nil && !takingOver && (riding ? follow == .hold : openingHoldLocked())
                 let tierHold = held && seekTo == nil && !stop && !starvedWaiter
                 // Live never throttles: the source arrives at its own pace and reads must keep up.
                 let throttled = !config.isLive
                     && ((producingSegment > lastRequestedSegment + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold)
+                // A text window asked while held answers without cues: nothing reads toward it.
+                producerHeld = riding && tierHold
                 stateLock.unlock()
 
                 if stop { break readLoop }
-                // Held under a rung, the demuxer feeds no image cues: the server's copy takes over.
-                if riding, tierHold { startServerImageSubtitles() }
+                // Held under a rung, the demuxer feeds no cues: the set on screen ends here, and a
+                // sidecar's server copy takes over.
+                if riding, tierHold {
+                    if !closedForHold {
+                        closedForHold = true
+                        closeImageSubtitlesAtReadPoint()
+                    }
+                    startServerImageSubtitles()
+                }
                 if let seekTo, followSeek {
                     // A move nobody asked for must not end a session that plays fine on its rung.
                     if restart(at: seekTo, failOnSeekError: false) { break }
@@ -2508,9 +2521,9 @@ extension RemuxSession {
             //
             // Under the lock because the HTTP queue reads it now
             // (subtitleCueManifest, and the WebVTT segment writer's wait), and
-            // only for files carrying subtitles this engine decodes, which is
+            // only for files carrying subtitle tracks this engine can decode, which is
             // the only reason it is tracked at all.
-            if !imageSubtitles.isEmpty || !textSubtitles.isEmpty, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE,
+            if !subtitleIdentity.isEmpty, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE,
                let packetStream = input.pointee.streams[Int(pkt.pointee.stream_index)] {
                 let seconds = Double(pkt.pointee.pts) * av_q2d(packetStream.pointee.time_base)
                 stateLock.lock()

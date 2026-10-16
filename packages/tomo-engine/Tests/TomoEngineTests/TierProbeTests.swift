@@ -613,7 +613,7 @@ final class TierProbeTests: XCTestCase {
     // MARK: - PGS from the server
 
     private func pgsTrack(serverSupUrl: String) -> RemuxSubtitle {
-        var track = RemuxSubtitle(index: 3, name: "PGS", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false, serverVttUrl: "")
+        var track = RemuxSubtitle(index: 3, name: "PGS", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false)
         track.serverSupUrl = serverSupUrl
         return track
     }
@@ -1357,18 +1357,6 @@ final class TierProbeTests: XCTestCase {
         XCTAssertTrue(isNotFound(session.route("sub2-0.vtt")))
     }
 
-    func testAnUncoveredTextWindowDefersBeforeHeaders() throws {
-        var subtitle = RemuxSubtitle(index: 2, name: "Text", language: "eng", vttUrl: "", localVtt: "",
-                                     isDefault: false, isForced: false, isImage: false, isEngineText: true)
-        subtitle.serverVttUrl = "http://tier.test/missing-subtitle.vtt"
-        let session = try RemuxSession(config: makeConfig(durationSeconds: 18, subtitles: [subtitle]))
-        defer { session.stop() }
-        session.subtitleDecodersBuilt = true
-        guard case .temporarilyUnavailable = session.route("sub2-0.vtt") else { return XCTFail("uncovered text is not an empty successful window") }
-        XCTAssertTrue(isNotFound(session.route("sub99-0.vtt")))
-        XCTAssertTrue(isNotFound(session.route("sub2-3.vtt")))
-    }
-
     func testSourceRetryWaitIsBoundedAndKeepsTheSessionRecoverable() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18))
         defer { session.stop() }
@@ -1764,11 +1752,12 @@ final class TierProbeTests: XCTestCase {
         guard case .data = session.route("t1.m3u8") else { return XCTFail("the same route must recover without a replacement session") }
     }
 
-    /// An image subtitle is decoded on the device, so its source stays open whatever the link.
-    func testATrackOnlyTheDemuxerServesKeepsTheSource() throws {
+    /// An image track inside the file is no reason to keep the source on a thin link: it pauses
+    /// while the rungs carry the session, and nothing asks the server for it.
+    func testAnImageTrackWithNoServerStreamLetsTheSourceGo() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
-        let image = RemuxSubtitle(index: 3, name: "PGS", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false, serverVttUrl: "")
+        let image = RemuxSubtitle(index: 3, name: "PGS", language: "eng", vttUrl: "", localVtt: "", isDefault: false, isForced: false, isImage: true, isEngineText: false)
         let s = try RemuxSession(
             config: makeConfig(
                 durationSeconds: 18,
@@ -1778,11 +1767,11 @@ final class TierProbeTests: XCTestCase {
         s.testLinkBps = 2_000_000
         defer { s.stop() }
         s.start()
-        settle { s.sourceRetryAttempts > 0 }
-        XCTAssertTrue(s.demuxerOwesTracks)
-        XCTAssertFalse(s.sourceUnusable)
+        settle { s.isSourceReleased }
+        XCTAssertTrue(s.isSourceReleased)
         XCTAssertFalse(s.hasFailed)
-        XCTAssertGreaterThan(s.sourceRetryAttempts, 0)
+        XCTAssertTrue(s.serverImageSubtitleTracks.isEmpty)
+        XCTAssertEqual(TierServerStub.requestCount(containing: "/Subtitles/"), 0)
     }
 
     func testAnOpeningSourceFailureKeepsTheOriginalRetryableBesideTheRungs() throws {
@@ -1831,9 +1820,8 @@ final class TierProbeTests: XCTestCase {
             RemuxAudioTrack(index: 1, name: "English", language: "eng", serverAudioUrl: audioUrl),
             RemuxAudioTrack(index: 2, name: "Spanish", language: "spa", serverAudioUrl: audioUrl + "&AudioStreamIndex=2"),
         ]
-        var subtitle = RemuxSubtitle(index: 3, name: "Captions", language: "eng", vttUrl: "", localVtt: "",
+        let subtitle = RemuxSubtitle(index: 3, name: "Captions", language: "eng", vttUrl: "", localVtt: "",
                                      isDefault: false, isForced: false, isImage: false, isEngineText: true)
-        subtitle.serverVttUrl = "http://tier.test/subtitles/3.vtt"
         var configuration = makeConfig(durationSeconds: 18, inputUrl: fixtureUrl.absoluteString,
                                        audioTracks: tracks, subtitles: [subtitle], tierPlaylistUrl: playlistUrl,
                                        tierBandwidth: 1_700_000, tierCodecs: "avc1.4D401F,mp4a.40.2", tierWidth: 854, tierHeight: 480)
@@ -2052,16 +2040,6 @@ final class TierProbeTests: XCTestCase {
         session.noteFloorSample(bytes: 600_000, from: Date().addingTimeInterval(-1), to: Date())
         XCTAssertTrue(session.reprobeAsked)
         XCTAssertEqual(session.wireLinkBps, 600_000)
-    }
-
-    /// Jellyfin's cues count from the file's start, which is session time: no anchor is taken off.
-    func testServerCuesAreSessionTimeAsTheyArrive() throws {
-        let s = try RemuxSession(config: makeConfig(durationSeconds: 18))
-        defer { s.stop() }
-        let cues = RemuxSession.parseWebVTT("WEBVTT\n\n00:00:07.000 --> 00:00:09.000\nseven\n\n00:00:13.000 --> 00:00:14.000\nthirteen\n")
-        let body = s.serverSubtitleBody(cues, from: 6, to: 12)
-        XCTAssertTrue(body.contains("00:00:07.000 --> 00:00:09.000"))
-        XCTAssertFalse(body.contains("thirteen"))
     }
 
     func testStoppingDuringTheProbeKillsTheServerTranscode() throws {

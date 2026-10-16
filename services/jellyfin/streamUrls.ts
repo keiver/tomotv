@@ -11,7 +11,6 @@ import { logger } from "@/utils/logger";
 import { JELLYFIN_TIME, QualityPreset, TRANSCODING } from "./constants";
 import { deviceDecodes, sourceVideoRange } from "./media";
 import { getCachedConfig, getQualitySettings, type JellyfinConfig } from "./session";
-import { isImageBasedSubtitleCodec } from "./subtitles";
 
 /**
  * Slipstream: the server tier's media playlist URL for the loopback gateway
@@ -131,16 +130,11 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
  * H.264-in-MKV file plays at original quality with near-zero server CPU.
  * Sources the server can't copy (AV1, VP9, over-cap bitrate, burn-in
  * subtitles) fall back to an H.264/AAC encode capped by the quality preset.
- * Subtitles are included as togglable WebVTT tracks using SubtitleMethod=Hls.
- * All subtitle tracks (external .srt and embedded streams) are available via native controls.
+ * The session carries no subtitle renditions: asked for a track inside the file,
+ * Jellyfin extracts every subtitle track from the whole film, uncancellable.
+ * Only an image track may burn in, which it overlays from the input it is
+ * already transcoding. Segments are fMP4 so HEVC can stream-copy.
  * Quality settings are loaded from user preferences.
- *
- * Segment container depends on the subtitle layout. Sessions carrying WebVTT
- * subtitle renditions use MPEG-TS: Jellyfin stamps every HLS WebVTT segment
- * with X-TIMESTAMP-MAP=MPEGTS:900000 (10s), which matches the mpegts muxer's
- * 10s PTS base but runs 10s late against fMP4 segments starting at 0. HEVC is
- * fMP4-only in HLS, so those sessions also pin the video target to H.264.
- * Everything else (no subs, or burn-in) stays fMP4 so HEVC can stream-copy.
  *
  * @param itemId - The video item ID
  * @param videoItem - Optional video item with MediaStreams for subtitle detection
@@ -148,20 +142,14 @@ export function getVideoStreamUrl(itemId: string, videoItem?: JellyfinVideoItem 
  * @param presetOverride - Session-scoped preset from the adaptive controller (Auto mode /
  *   starvation fallback); absent = the stored quality setting, exactly as before
  */
-/** Text subtitle tracks ride as WebVTT renditions, which pins the session to MPEG-TS and an H.264 target. */
-function textSubsAsRenditions(videoItem: JellyfinVideoItem | null | undefined, burnInSubtitleIndex: number | undefined): boolean {
-  const subtitleStreams = (videoItem?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
-  return burnInSubtitleIndex === undefined && subtitleStreams.some((stream) => !isImageBasedSubtitleCodec(stream.Codec));
-}
-
 /**
  * What the server may encode to. HEVC only where this device decodes it at the source's depth,
  * since the server copies an accepted codec untouched; alone for an HDR source, so the server
  * cannot answer with H.264 that keeps the PQ tags. Without a device answer the registry's yes stands.
  */
-export function serverVideoCodecs(videoItem: JellyfinVideoItem | null | undefined, device: VideoDecodeSupport | null | undefined, burnInSubtitleIndex?: number): "hevc" | "h264,hevc" | "h264" {
+export function serverVideoCodecs(videoItem: JellyfinVideoItem | null | undefined, device: VideoDecodeSupport | null | undefined): "hevc" | "h264,hevc" | "h264" {
   const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
-  const offersHevc = !textSubsAsRenditions(videoItem, burnInSubtitleIndex) && (device ? deviceDecodes("hevc", videoStream?.BitDepth, device, videoStream?.Height) : true);
+  const offersHevc = device ? deviceDecodes("hevc", videoStream?.BitDepth, device, videoStream?.Height) : true;
   if (!offersHevc) return "h264";
   return sourceIsHdr(videoItem) ? "hevc" : "h264,hevc";
 }
@@ -201,15 +189,6 @@ export async function getTranscodingStreamUrl(
   // downmixing.
   const capped = quality.width !== undefined;
 
-  // ALL subtitle tracks (external .srt files AND embedded streams). When any
-  // TEXT track rides along as a WebVTT rendition (SubtitleMethod=Hls below),
-  // the session must use MPEG-TS segments and an H.264 target — see the doc
-  // comment. Keyed on text tracks specifically, not on getBurnInSubtitleStream
-  // having declined: only text tracks materialize as renditions, and deriving
-  // this from another function's contract is how the 2026-08-07 gate bug
-  // happened.
-  const subtitleStreams = (videoItem?.MediaStreams ?? []).filter((stream) => stream.Type === "Subtitle" && stream.Index !== undefined);
-  const hlsTextSubs = textSubsAsRenditions(videoItem, burnInSubtitleIndex);
   const videoStream = videoItem?.MediaStreams?.find((stream) => stream.Type === "Video");
   // A frame taller than the hardware decoder opens is scaled by the server whatever the preset.
   const ceiling = device?.h264MaxHeight ?? 0;
@@ -220,13 +199,13 @@ export async function getTranscodingStreamUrl(
     `${getCachedConfig().server}/Videos/${itemId}/master.m3u8?` +
     `ApiKey=${getCachedConfig().apiKey}` +
     `&MediaSourceId=${mediaSourceId}` +
-    `&VideoCodec=${serverVideoCodecs(videoItem, device, burnInSubtitleIndex)}` +
+    `&VideoCodec=${serverVideoCodecs(videoItem, device)}` +
     `&AudioCodec=${capped ? "aac" : "aac,ac3,eac3"}` +
     `&VideoBitrate=${quality.bitrate}` +
     `&AudioBitrate=${TRANSCODING.AUDIO_BITRATE}` + // 192kbps AAC when audio must encode
     (capped ? `&MaxWidth=${quality.width}` + `&MaxHeight=${quality.height}` + `&VideoLevel=${quality.level}` : oversize ? `&MaxWidth=${Math.round((ceiling * 16) / 9)}&MaxHeight=${ceiling}` : ``) +
     `&TranscodingMaxAudioChannels=${capped ? TRANSCODING.MAX_AUDIO_CHANNELS : TRANSCODING.SURROUND_AUDIO_CHANNELS}` +
-    `&SegmentContainer=${hlsTextSubs ? "ts" : "mp4"}` + // ts aligns WebVTT's 10s timestamp map; fMP4 needed for HEVC otherwise
+    `&SegmentContainer=mp4` + // fMP4: HEVC stream-copies, and no WebVTT rendition needs TS alignment
     `&MinSegments=1` +
     `&SegmentLength=6` + // Apple's target duration; shorter first segment = faster time-to-ready on slow servers
     `&BreakOnNonKeyFrames=false` + // Force keyframes at segment boundaries
@@ -251,33 +230,9 @@ export async function getTranscodingStreamUrl(
     });
   }
 
-  // Check for subtitles (both external and embedded) and include them as HLS tracks
-  // Skipped when burning in: SubtitleMethod is single-valued and already set to Encode
   if (videoItem && videoItem.MediaStreams) {
-    if (burnInSubtitleIndex !== undefined) {
-      // Burn-in already configured above; no WebVTT tracks in this session
-    } else if (subtitleStreams.length > 0) {
-      // Use SubtitleMethod=Hls to include all subtitles as separate WebVTT streams
-      // DO NOT set SubtitleStreamIndex - this includes ALL subtitle tracks
-      url += `&SubtitleMethod=Hls`;
-
-      const externalCount = subtitleStreams.filter((s) => s.IsExternal).length;
-      const embeddedCount = subtitleStreams.length - externalCount;
-
-      logger.info("Transcoding with HLS subtitle tracks", {
-        service: "JellyfinAPI",
-        itemId,
-        mediaSourceId,
-        subtitleCount: subtitleStreams.length,
-        externalSubtitles: externalCount,
-        embeddedSubtitles: embeddedCount,
-        languages: subtitleStreams.map((s) => s.Language || "und").join(", "),
-        quality: quality.label,
-        bitrate: `${quality.bitrate / 1000000}Mbps`,
-        server: getCachedConfig().server,
-      });
-    } else {
-      logger.info("Transcoding without subtitles", {
+    if (burnInSubtitleIndex === undefined) {
+      logger.info("Transcoding without subtitle renditions", {
         service: "JellyfinAPI",
         itemId,
         mediaSourceId,

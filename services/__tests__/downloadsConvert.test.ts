@@ -107,9 +107,12 @@ describe("convertedItem", () => {
     expect(conversionAudioIndex(SOURCE, 9)).toBe(2);
   });
 
-  it("keeps text subtitle streams by source index for the sidecars and drops bitmap ones", () => {
-    expect(getTextSubtitleStreams(converted).map((stream) => stream.Index)).toEqual([3, 5]);
+  // The mp4 carries no subtitle stream of its own, so a text track inside the source has nothing
+  // to play from; only a sidecar survives the conversion.
+  it("keeps only the text sidecars by source index, dropping bitmap tracks and text inside the file", () => {
+    expect(getTextSubtitleStreams(converted).map((stream) => stream.Index)).toEqual([5]);
     expect(converted.MediaStreams?.some((stream) => stream.Codec === "PGSSUB")).toBe(false);
+    expect(converted.MediaStreams?.some((stream) => stream.Index === 3)).toBe(false);
   });
 
   // Measured on Jellyfin with SubtitleMethod=Encode: PGS, DVD and DVB burn into the picture. It files

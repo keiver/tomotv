@@ -697,8 +697,25 @@ describe("startLocalRemux", () => {
     // One DELETE per server job the session may start: the seven rungs and the audio rendition.
     expect(config.stopRequests).toHaveLength(8);
     expect(config.stopRequests[0]).toEqual({ url: expect.stringContaining("/Videos/ActiveEncodings?deviceId=tomo-slipstream&playSessionId=test-session&ApiKey="), method: "DELETE" });
-    expect(config.subtitles[0].serverVttUrl).toContain("Subtitles/2/Stream.vtt");
+    // The session never opens the file, and a track inside it is never asked of the server.
+    expect(config.subtitles).toEqual([]);
     expect(config.primaryVideoCodecs).toBe("");
+  });
+
+  it("lists sidecar subtitles alone in the server-video fallback, never a track inside the file", async () => {
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "asv1", Index: 0, BitRate: 10_000 },
+        { Type: "Audio", Codec: "aac", Index: 1, BitRate: 32_000 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+        { Type: "Subtitle", Codec: "PGSSUB", Index: 3, Language: "eng" },
+        { Type: "Subtitle", Codec: "subrip", Index: 4, Language: "spa", IsExternal: true, Path: "/library/film.spa.srt" },
+      ],
+    });
+    await startLocalRemux(source, undefined, 0, { serverVideoOnly: true });
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.subtitles.map((sub: { index: number }) => sub.index)).toEqual([4]);
+    expect(config.subtitles[0].vttUrl).toContain("/Subtitles/4/Stream.vtt");
   });
 
   it("keeps every HDR-source audio track in the explicit server-video fallback", async () => {
@@ -2017,7 +2034,7 @@ describe("startLocalRemux Slipstream tier config", () => {
     expect(config.audioTracks[0].serverAudioUrl).toContain("TranscodingMaxAudioChannels=2");
   });
 
-  it("names the server's raw stream for an embedded PGS or DVD track, and for nothing else", async () => {
+  it("names no server stream for an image track inside the file, only for a sidecar", async () => {
     await startLocalRemux(
       item({
         MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
@@ -2033,11 +2050,49 @@ describe("startLocalRemux Slipstream tier config", () => {
     );
 
     const config = mockStartRemux.mock.calls[0][0];
+    expect(config.tiers.length).toBeGreaterThan(0);
     const byIndex = new Map<number, { serverSupUrl?: string }>(config.subtitles.map((sub: { index: number }) => [sub.index, sub]));
-    expect(byIndex.get(2)?.serverSupUrl).toContain("/Videos/item1/item1/Subtitles/2/Stream.pgssub");
-    expect(byIndex.get(3)?.serverSupUrl).toContain("/Videos/item1/item1/Subtitles/3/Stream.mks");
+    expect(byIndex.get(2)?.serverSupUrl).toBeUndefined();
+    expect(byIndex.get(3)?.serverSupUrl).toBeUndefined();
     expect(byIndex.get(4)?.serverSupUrl).toBeUndefined();
     expect(byIndex.get(5)?.serverSupUrl).toBe("https://subtitles.example/sidecar.sup");
+  });
+
+  it("carries no server URL for a text track inside the file when rungs are offered", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "ac3", Index: 1, Channels: 6, BitRate: 640_000 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.tiers.length).toBeGreaterThan(0);
+    expect(config.subtitles).toHaveLength(1);
+    expect(config.subtitles[0]).toMatchObject({ index: 2, isEngineText: true, vttUrl: "" });
+    expect(config.subtitles[0].serverVttUrl).toBeUndefined();
+  });
+
+  it("leaves out a text track inside an .mks sidecar, which the server reads the whole film for", async () => {
+    await startLocalRemux(
+      item({
+        MediaSources: [{ Id: "item1", Container: "mkv", Bitrate: 20_000_000 }],
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0, VideoRangeType: "SDR", Width: 1280, Height: 720, BitRate: 20_000_000 },
+          { Type: "Audio", Codec: "ac3", Index: 1, Channels: 6, BitRate: 640_000 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsExternal: true, Path: "/library/film.eng.mks" },
+          { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "spa", IsExternal: true, Path: "/library/film.spa.srt" },
+        ],
+      }),
+    );
+
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.subtitles.map((sub: { index: number }) => sub.index)).toEqual([3]);
+    expect(config.subtitles[0].vttUrl).toContain("/Subtitles/3/Stream.vtt");
   });
 
   it("carries every audio track as its own AAC rendition, none dropped", async () => {

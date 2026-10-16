@@ -522,9 +522,9 @@ extension RemuxSession {
             out += originals
         } else if let startRung {
             out += rungLine(startRung) + listed.filter { $0 != startRung }.map(rungLine).joined()
-            // Opening on a rung means the copy is not being played: a source still open (one the
-            // demuxer owes a track from) holds its pull now rather than ten seconds from now, or the
-            // producer spends the slow link the rungs need.
+            // Opening on a rung means the copy is not being played: a source still open holds its
+            // pull now rather than ten seconds from now, or the producer spends the slow link the
+            // rungs need.
             stateLock.lock()
             lastTierDemandAt = Date()
             rungLeads = true
@@ -539,9 +539,7 @@ extension RemuxSession {
         stateLock.lock()
         copyOnlyMaster = false
         ladderListed = startRung != nil
-        let rungsListed = ladderListed
         stateLock.unlock()
-        if rungsListed { prefetchServerCues() }
         NSLog("[LocalRemuxer] Slipstream: master starts on %@%@ (link %.1f Mb/s, %d rungs)",
               startRung == nil ? "the copy" : "rung \(startRung ?? 0)", copyFirst && startRung != nil ? " with the copy listed" : "", linkBps / 1_000_000, listed.count)
         reportTier(listed: !rungs.isEmpty)
@@ -773,11 +771,7 @@ extension RemuxSession {
         if config.isLive { return liveSubtitlePlaylist(sub) }
 
         if sub.isEngineText {
-            if serverCueSource(sub) {
-                _ = serverCues(streamIndex: streamIndex, deadline: 0)
-            } else {
-                _ = awaitTextDecoder(streamIndex: streamIndex)
-            }
+            _ = awaitTextDecoder(streamIndex: streamIndex)
             // One TARGETDURATION for every playlist of the session (Apple
             // authoring req 8.2), on the video's own grid.
             var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
@@ -878,13 +872,14 @@ extension RemuxSession {
 
         let start = segmentStartSeconds(segment)
         let end = start + segmentDurationSeconds(segment)
-        let hasServer = serverCueSource(sub)
         var window = textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
-        if !window.covered, hasServer {
-            if let server = serverCues(streamIndex: streamIndex, deadline: 0) {
-                return serverSubtitleBody(server, from: start, to: end)
-            }
-        } else if !window.covered, window.decoder == nil {
+        // The source is let go or held under a rung: nothing reads toward this window until the
+        // copy returns, and a window unanswered past AVPlayer's 6 s loses the whole item.
+        if !window.covered, sourceNotReading {
+            NSLog("[LocalRemuxer] subtitle segment %d of stream %d has no source reading toward it, answered without cues", segment, streamIndex)
+            return emptySubtitleBody()
+        }
+        if !window.covered, window.decoder == nil {
             _ = awaitTextDecoder(streamIndex: streamIndex)
         } else if !window.covered, !waitUntil(deadline: Self.unreachableSubtitleGraceSeconds, { [weak self] in
             guard let self else { return true }
@@ -897,22 +892,13 @@ extension RemuxSession {
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d is behind the read, answered without cues", segment, streamIndex)
             return emptySubtitleBody()
         }
-        var server: [ServerCue]?
-        _ = waitUntil(deadline: hasServer ? Self.engineTextWaitSeconds : Self.subtitleSegmentWaitSeconds) { [weak self] in
+        _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
             guard let self else { return true }
             window = self.textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
             self.stateLock.lock()
-            server = hasServer ? self.serverCues[streamIndex] : nil
             let dead = self.failed || self.cancelled
             self.stateLock.unlock()
-            return window.covered || server != nil || dead
-        }
-
-        if !window.covered, hasServer {
-            if let cues = server ?? serverCues(streamIndex: streamIndex, deadline: 1.5) {
-                return serverSubtitleBody(cues, from: start, to: end)
-            }
-            window = textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
+            return window.covered || dead
         }
         if !window.covered {
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d awaits coverage at read head %.1fs, window ends %.1fs",
@@ -929,17 +915,11 @@ extension RemuxSession {
         return out
     }
 
-    /// The server's cues for one segment window. They are session time as they arrive: Jellyfin
-    /// extracts without -copyts, so its cues count from the file's start, as the session does
-    /// (measured with its own ffmpeg and command line: a cue at pts 7.0 in a source starting at
-    /// 5.0 extracts at 00:00:02).
-    func serverSubtitleBody(_ cues: [ServerCue], from start: Double, to end: Double) -> String {
-        var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
-        for cue in cues where cue.end > start && cue.start < end {
-            out += "\n" + webVTTTimestamp(cue.start) + " --> " + webVTTTimestamp(cue.end) + "\n"
-            out += cue.text + "\n"
-        }
-        return out
+    /// The source is let go, retrying, lost, or held under a rung: no read is heading for a cue window.
+    var sourceNotReading: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return sourceReleased || producerHeld
     }
 
     /// The body a rendition with no bytes of its own resolves to: a structurally valid

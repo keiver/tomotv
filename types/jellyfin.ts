@@ -26,6 +26,7 @@ export interface JellyfinMediaStream {
   Title?: string; // The track's own name from the container, when it carries one
   Index?: number;
   IsExternal?: boolean;
+  Path?: string; // A sidecar's file path; an .mks sidecar is read by the server together with the whole film
   Language?: string;
 
   // Audio-specific fields

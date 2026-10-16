@@ -898,8 +898,8 @@ sintel-embedded-subtitles/
 **Tests:**
 
 - External .srt file detection
-- WebVTT conversion via Jellyfin API
-- HLS manifest generation with `SubtitleMethod=Hls`
+- WebVTT conversion via Jellyfin API for sidecars only
+- The server's HLS carries no subtitle renditions (no `SubtitleMethod=Hls`)
 - Native tvOS subtitle picker shows all tracks
 - Multiple external subtitle files for same video
 - Embedded vs. external subtitle handling

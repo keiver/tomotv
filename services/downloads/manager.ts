@@ -19,7 +19,7 @@ import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
 import { networkLyrics } from "@/services/lyrics/pipeline";
 import { generatePlaySessionId, getAuthHeader, getConfig } from "@/services/jellyfin/session";
 import { getConvertedDownloadUrl, getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
-import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
+import { getRemoteSubtitleUrl, getTextSubtitleStreams, isTextSidecar } from "@/services/jellyfin/subtitles";
 import { wantsPosterFrame } from "@/services/itemArtwork";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
@@ -535,13 +535,13 @@ class DownloadManager {
   }
 
   /**
-   * Every text subtitle track, converted to WebVTT by the server while it is still reachable.
-   * The engine hands AVPlayer a URL for these rather than serving them itself, so a held file
-   * without them plays with no subtitles. An original's image tracks are decoded from the media;
-   * a conversion carries none (the one it shows is burned into the picture).
+   * Every text sidecar, converted to WebVTT by the server while it is still reachable. The engine
+   * hands AVPlayer a URL for these rather than serving them itself, so a held file without them
+   * plays with no subtitles. Tracks inside the file are never asked of the server (it reads the
+   * whole film to answer); an original's are decoded from the media, a conversion has none.
    */
   private async cacheSubtitles(item: JellyfinVideoItem): Promise<void> {
-    const text = getTextSubtitleStreams(item).filter((stream) => stream.Index !== undefined);
+    const text = getTextSubtitleStreams(item).filter((stream) => stream.Index !== undefined && isTextSidecar(stream));
     for (const stream of text) {
       const index = stream.Index as number;
       if (subtitleFile(item.Id, index).exists) continue;

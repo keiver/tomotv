@@ -1052,6 +1052,19 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/shim-1/master.m3u8");
     });
 
+    // A text burn-in makes Jellyfin extract every subtitle track from the whole file first.
+    it("burns nothing in for a forced-only text file on the server lane", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(false);
+      (getTextSubtitleStreams as jest.Mock).mockReturnValue([{ Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsForced: true }]);
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toMatchObject({ mode: "transcode" });
+      expect(mockTranscodeUrl).toHaveBeenCalled();
+      expect(mockTranscodeUrl.mock.calls[0][4]).toBeUndefined();
+    });
+
     it("scrubs the server stream on the source's keyframes: a frame provider's line in the shimmed master", async () => {
       mockNeedsTranscoding.mockReturnValue(true);
       mockCanRemux.mockResolvedValue(false);

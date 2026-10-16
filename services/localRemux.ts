@@ -47,7 +47,7 @@ import {
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
 import { audioCatalogue, playbackMediaStreams, sourcePosition, type AudioCatalogueTrack } from "@/services/jellyfin/audioTracks";
 import { generatePlaySessionId, getCachedConfig } from "@/services/jellyfin/session";
-import { getSubtitleUrl, isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
+import { getSubtitleUrl, isImageBasedSubtitleCodec, isTextSidecar } from "@/services/jellyfin/subtitles";
 import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
 import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
 import { rememberedVerdict } from "@/services/engineVerdicts";
@@ -621,6 +621,8 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
       if (index === undefined || !Number.isInteger(index) || index < 0 || index > 2_147_483_647) return dropped("no valid stream index", index);
       if (streamIndexes.has(index)) return dropped("duplicate stream index", index);
       streamIndexes.add(index);
+      // The server reads the whole film to answer for an .mks sidecar, as for a track inside the file.
+      if (stream.IsExternal === true && !isTextSidecar(stream)) return dropped("inside an .mks sidecar", index);
       const isImage = isImageBasedSubtitleCodec(stream.Codec);
       // A track saved with the download is a PATH, not a URL: the engine serves its bytes over
       // the loopback. A file:// URI inside an http playlist is a scheme AVFoundation will not
@@ -825,20 +827,10 @@ export async function startLocalRemux(
     };
   });
 
-  // A link that needs the rungs cannot carry the source read the engine decodes text cues from,
-  // so each engine text track also names the server's WebVTT.
-  // An image track has the same problem and the same answer: the server hands PGS and DVD tracks
-  // over raw (Stream.pgssub, Stream.mks) and the device still decodes and draws them. DVB and XSUB
-  // have no measured raw route, and neither does a sidecar file, which the container never held.
-  const rawImageFormat = (stream: JellyfinMediaStream | undefined) => (!stream || stream.IsExternal === true ? null : isPgsCodec(stream.Codec) ? "pgssub" : isDvdSubCodec(stream.Codec) ? "mks" : null);
-  const subtitlesConfig =
-    rungs.length > 0
-      ? subtitles.map((sub) => {
-          if (sub.isEngineText) return { ...sub, serverVttUrl: getSubtitleUrl(videoItem.Id, sub.index, "vtt") };
-          const format = sub.isImage ? rawImageFormat(streamsByIndex.get(sub.index)) : null;
-          return format ? { ...sub, serverSupUrl: getSubtitleUrl(videoItem.Id, sub.index, format) } : sub;
-        })
-      : subtitles;
+  // A subtitle inside the file comes only from the bytes the engine reads: asked of the server, it
+  // extracts every track from the whole film, uncancellable. Under a rung such tracks pause, and a
+  // server-video session never opens the file, so it lists sidecars alone.
+  const subtitlesConfig = serverVideoOnly ? subtitles.filter((sub) => !sub.isEngineText && (!sub.isImage || sub.isExternal === true)) : subtitles;
 
   const tierOffered = tiersConfig.length > 0;
   const stopRequests = tierStopRequests([...tiersConfig.map((tier) => tier.playlistUrl), ...audioTracksConfig.map((track) => ("serverAudioUrl" in track ? track.serverAudioUrl : ""))]);

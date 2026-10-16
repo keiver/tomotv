@@ -47,10 +47,11 @@ jest.mock("@/services/downloads/convert", () => ({
 jest.mock("@/services/jellyfin/images", () => ({ getPosterUrl: jest.fn(() => "https://jf/poster"), hasPoster: jest.fn(() => true) }));
 jest.mock("@/services/itemArtwork", () => ({ wantsPosterFrame: jest.fn(() => false) }));
 jest.mock("@/services/localRemux", () => ({ requestPosterFrame: jest.fn(async () => null), cancelPosterFrame: jest.fn() }));
-const textSubtitles: { Index: number }[] = [];
+const textSubtitles: { Index: number; IsExternal?: boolean; Path?: string }[] = [];
 jest.mock("@/services/jellyfin/subtitles", () => ({
   getRemoteSubtitleUrl: jest.fn((itemId: string, index: number) => `https://jf/Videos/${itemId}/${itemId}/Subtitles/${index}/Stream.vtt`),
   getTextSubtitleStreams: jest.fn(() => textSubtitles),
+  isTextSidecar: jest.fn((stream: { IsExternal?: boolean; Path?: string }) => stream.IsExternal === true && !/\.mks$/i.test(stream.Path ?? "")),
 }));
 jest.mock("@/services/lyrics/pipeline", () => ({ networkLyrics: jest.fn(async () => null) }));
 
@@ -542,21 +543,25 @@ describe("downloads across a container change", () => {
     expect(readyFileUri("a")).toBeNull();
   });
 
-  // Text renditions are the one part of a session the engine hands AVPlayer as a URL rather
-  // than serving itself, so a held file without them plays with no subtitles at all.
-  it("saves every text subtitle track with the download", async () => {
-    textSubtitles.push({ Index: 3 });
+  // A text sidecar is the one part of a session the engine hands AVPlayer as a URL rather than
+  // serving itself, so a held file without it plays with no subtitles at all. A track inside the
+  // file is never asked of the server: Jellyfin reads the whole file to answer, and the engine
+  // decodes it from the local copy instead.
+  it("saves every text sidecar with the download, and never a track inside the file", async () => {
+    textSubtitles.push({ Index: 3, IsExternal: true }, { Index: 4 }, { Index: 5, IsExternal: true, Path: "/library/film.mks" });
     await readyDownload();
 
     expect(localSubtitleUri("a", 3)).toBe("file:///doc/downloads/a/sub.3.vtt");
+    expect(localSubtitleUri("a", 4)).toBeNull();
+    expect(localSubtitleUri("a", 5)).toBeNull();
   });
 
-  it("backfills subtitles for a download taken before they were saved", async () => {
+  it("backfills sidecars for a download taken before they were saved", async () => {
     await readyDownload();
     await flushManifest();
     expect(localSubtitleUri("a", 3)).toBeNull();
 
-    textSubtitles.push({ Index: 3 });
+    textSubtitles.push({ Index: 3, IsExternal: true });
     await relaunch();
     await settle();
 
@@ -731,7 +736,7 @@ describe("poster and subtitle fetches", () => {
   });
 
   it("fetch subtitles in their own lane, never behind posters still landing", async () => {
-    textSubtitles.push({ Index: 3 });
+    textSubtitles.push({ Index: 3, IsExternal: true });
     for (const id of ["a", "b", "c"]) await downloadManager.enqueue(ITEM(id));
     await settle();
     expect(held.filter((fetch) => fetch.uri.endsWith("poster.jpg"))).toHaveLength(2);

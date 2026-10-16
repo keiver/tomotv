@@ -112,8 +112,9 @@ describe("lane selection", () => {
       expect(pick(mkvItem([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2 }]), declined).mode).toBe("transcode");
     });
 
-    it("burns in a forced-only set on the server lane, where AVKit would list nothing", () => {
-      expect(pick(mkvItem([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, IsForced: true }]), declined)).toMatchObject({ mode: "transcode", burnInIndex: 2 });
+    // A text burn-in makes Jellyfin extract every subtitle track from the whole file first.
+    it("burns nothing in for a forced-only text set on the server lane", () => {
+      expect(pick(mkvItem([{ Type: "Subtitle", Codec: "subrip", IsExternal: true, Index: 2, IsForced: true }]), declined)).toMatchObject({ mode: "transcode", burnInIndex: null });
     });
 
     it("burns nothing in when the viewer turned subtitles off", () => {

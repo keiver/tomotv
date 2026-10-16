@@ -54,16 +54,14 @@ TomoTV uses a custom Swift module (`MultiAudioResourceLoader`) that intercepts H
 - Respects user's language preferences and device settings
 - **Works during transcoding** - no need for direct play compatibility
 
-### Subtitles (Native Toggleable Tracks)
+### Subtitles
 
-- `SubtitleMethod=Hls` parameter tells Jellyfin to include ALL subtitle tracks in the HLS manifest
-- Includes both external (.srt files) AND embedded subtitle streams
-- Each subtitle appears as a separate WebVTT stream in the manifest
-- react-native-video auto-discovers tracks from HLS `#EXT-X-MEDIA:TYPE=SUBTITLES` tags
-- Native iOS/tvOS controls provide subtitle selection UI (same as Apple TV+)
-- **Fully toggleable:** Users can switch between subtitles or disable entirely during playback
-- **No burning:** Subtitles are rendered as overlay, not burned into video frames
-- Zero performance impact when disabled
+- The server's HLS carries no subtitle renditions: a request for a track inside the file makes
+  Jellyfin extract every subtitle track from the whole file, uncancellable (its issue #17499)
+- The engine lane carries every track: text tracks inside the file as its own WebVTT segments,
+  image tracks drawn by the app, text sidecars as renditions pointing at Jellyfin's `Stream.vtt`
+- The server lane shows no text subtitle; only a PGS/DVD/DVB track may burn in, which Jellyfin
+  overlays from the input it is already transcoding
 
 ### API Functions
 

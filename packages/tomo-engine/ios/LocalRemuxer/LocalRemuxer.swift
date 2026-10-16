@@ -327,8 +327,7 @@ class LocalRemuxer: RCTEventEmitter {
                 isDefault: raw["isDefault"] as? Bool ?? false,
                 isForced: raw["isForced"] as? Bool ?? false,
                 isImage: isImage,
-                isEngineText: isEngineText,
-                serverVttUrl: raw["serverVttUrl"] as? String ?? ""
+                isEngineText: isEngineText
             )
             subtitle.serverSupUrl = raw["serverSupUrl"] as? String ?? ""
             subtitle.isExternal = raw["isExternal"] as? Bool ?? false

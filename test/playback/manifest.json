@@ -425,7 +425,7 @@
       "validate": "subsync",
       "playSeconds": 14,
       "progressMin": 8,
-      "comment": "Guards the server-lane subtitle-sync invariant (2026-08-10 cue-offset bug): |X-TIMESTAMP-MAP - first segment time| <= 0.5s, on Jellyfin's MPEG-TS HLS or the engine gateway's fMP4 rungs. Server lane is forced by the video codec, ASUS V1 (asv1), which sits outside TRANSCODABLE_VIDEO_CODECS: 'video codec unsupported' is the one decline independent of size and hardware. Video carries a burned-in clock the cues echo, so sync is judgeable by eye on a device. The title still says Theora because it must match the file on disk."
+      "comment": "Guards the server-lane subtitle-sync invariant (2026-08-10 cue-offset bug): the subtitle rendition's time base within 0.5s of the first segment's time, on the engine gateway's fMP4 rungs. The cues are a text sidecar beside the file (a track inside the file never reaches a server lane: Jellyfin reads the whole film to answer for it). Server lane is forced by the video codec, ASUS V1 (asv1), which sits outside TRANSCODABLE_VIDEO_CODECS: 'video codec unsupported' is the one decline independent of size and hardware. Video carries a burned-in clock the cues echo, so sync is judgeable by eye on a device. The title still says Theora because it must match the file on disk."
     },
     {
       "id": "T45",
@@ -434,7 +434,7 @@
       "validate": "subsync",
       "playSeconds": 16,
       "progressMin": 10,
-      "comment": "Same invariant as T44 on real content: 90s of broadcast dialogue with its real English SDH track, video in ASUS V1 (asv1) so the codec allowlist forces the server lane. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech. The title still says DivX3 because it must match the file on disk.",
+      "comment": "Same invariant as T44 on real content: 90s of broadcast dialogue with its real English SDH track as a sidecar, video in ASUS V1 (asv1) so the codec allowlist forces the server lane. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech. The title still says DivX3 because it must match the file on disk.",
       "source": "a broadcast episode with an English SDH track, regeneration steps in README"
     },
     {

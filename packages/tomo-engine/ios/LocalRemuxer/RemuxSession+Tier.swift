@@ -38,6 +38,12 @@ struct SupplierRecoveryState {
 extension RemuxSession {
     // MARK: - Slipstream tier serving
 
+    /// Whether AVPlayer is living on the server rungs, so the producer holds source reads. Caller holds stateLock.
+    func ridingTierLocked() -> Bool {
+        lastTierDemandAt > lastPrimaryDemandAt
+            && (Date().timeIntervalSince(lastPrimaryDemandAt) > 10 || copyAbandonedAt >= lastPrimaryDemandAt)
+    }
+
     func serverRungInitData(_ data: Data) -> Data {
         guard config.videoRange == "PQ" || config.videoRange == "HLG" else { return data }
         return InitSegmentSdr.normalise(data) ?? data

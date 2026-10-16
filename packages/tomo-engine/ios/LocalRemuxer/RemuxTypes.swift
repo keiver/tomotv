@@ -39,10 +39,8 @@ struct RemuxSubtitle {
     /// the session grid. `vttUrl` instead costs a server ffmpeg extraction
     /// before AVPlayer reports ready.
     let isEngineText: Bool
-    /// The server's WebVTT of an engine text track: the cue source for a window the read loop
-    /// cannot reach in time (a slow link, or a session held on the server rungs).
-    var serverVttUrl: String = ""
-    /// The server's raw copy of a PGS or DVD track (Stream.pgssub, Stream.mks), for when the source is not read.
+    /// The server's raw copy of an image sidecar. A track inside the file never names the server:
+    /// Jellyfin reads the whole film to answer for it.
     var serverSupUrl: String = ""
     var isExternal = false
     /// SDH: the rendition carries the accessibility CHARACTERISTICS (HLS authoring spec 4.5).
@@ -68,13 +66,6 @@ struct SourcePosition {
               let codec = raw["codec"] as? String, ordinal >= 0, ordinal < count, !codec.isEmpty else { return nil }
         self.init(ordinal: ordinal, count: count, codec: codec)
     }
-}
-
-/// One cue of a server WebVTT, in source time like the decoder's.
-struct ServerCue {
-    let start: Double
-    let end: Double
-    let text: String
 }
 
 /// One selectable audio track. With several tracks, every one becomes its own

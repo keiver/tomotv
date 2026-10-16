@@ -178,14 +178,14 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Record programmes from your XMLTV guides from their info panel
 - Programmes being recorded show REC in Live TV search
 - Scrubbing a video shows the picture as you drag
-- Choose a size for each download: the original, or a smaller copy at 1080p, 720p or 480p that your server converts, in your audio language with your subtitles
+- Choose a size for each download: the original, or a smaller copy at 1080p, 720p or 480p that your server converts, in your audio language with your subtitle files (a 2.2.10 line; since 2.2.12 a smaller copy keeps subtitle files beside the movie, not tracks inside it)
 - Downloads shows how fast files are coming down
 - Hold Resume to play from the beginning
 - Swipe an info panel left or right to the item beside it, like the next episode, even across seasons
 - The Channels screen's search is a button in the navigation bar that opens Search
 - With subtitles set to a language, its full track loads instead of a forced-only track
 - MP4 files that keep their index at the end play again
-- Downloads your server converts play their subtitles
+- Downloads your server converts play their subtitles (a 2.2.10 line; since 2.2.12 that is subtitle files beside the movie, never a track inside it)
 - Downloaded originals keep every audio track
 - With server transcoding limited, a slow connection waits for the file instead of stopping with an error
 - The loading spinner stays until the video is actually playing

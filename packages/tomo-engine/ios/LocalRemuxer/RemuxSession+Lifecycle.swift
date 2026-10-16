@@ -77,14 +77,10 @@ extension RemuxSession {
         return copyAnnounced
     }
 
-    /// Tracks only the demuxer can serve: an image subtitle with no raw server stream, and an
-    /// engine text track with no server WebVTT. Either one keeps the source open.
-    var demuxerOwesTracks: Bool {
-        config.subtitles.contains { ($0.isImage && $0.serverSupUrl.isEmpty) || ($0.isEngineText && $0.serverVttUrl.isEmpty) }
-    }
-
+    /// A subtitle never keeps the source open: a track inside the file pauses while the rungs
+    /// carry the session and resumes with the copy.
     func releaseSource(because reason: String, unusable: Bool = false) -> Bool {
-        guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks else { return false }
+        guard !config.isLive, !config.tiers.isEmpty else { return false }
         // The grid first: the ladder and its audio group exist only once it is adopted.
         awaitGrid()
         guard tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
@@ -115,7 +111,7 @@ extension RemuxSession {
     /// from here and AVPlayer carries on with the rungs. A copy-only master has none, so it fails
     /// and the app moves to the server. Same test as releaseSource.
     func handOverToRungs(because message: String) -> Bool {
-        guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks, tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
+        guard !config.isLive, !config.tiers.isEmpty, tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
         stateLock.lock()
         let free = copyAnnounced && !copyOnlyMaster && !sourceReleased && !cancelled && !failed
         if free {
