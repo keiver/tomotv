@@ -2199,9 +2199,41 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=stays"), 0, "the rung in play keeps its job")
         s.stopRepeatDelays = [0]
         s.stop()
-        settle(3) { TierServerStub.requestCount(containing: "playSessionId=stays") >= 1 }
+        settle(3) { TierServerStub.requestCount(containing: "playSessionId=stays") >= 1 && TierServerStub.requestCount(containing: "playSessionId=left") >= 4 }
         XCTAssertGreaterThanOrEqual(TierServerStub.requestCount(containing: "playSessionId=stays"), 1, "the stop still kills every rung")
         XCTAssertGreaterThanOrEqual(TierServerStub.requestCount(containing: "playSessionId=left"), 4)
+    }
+
+    /// A rung with a fetch of its own still running is not idle, however long ago it was asked for.
+    func testARungStillFetchingIsNotStopped() throws {
+        let hold = DispatchSemaphore(value: 0)
+        TierServerStub.holdSegments = hold
+        let s = try twoRungSession(ids: ("busy", "other"))
+        defer { s.stop() }
+        s.rungIdleSeconds = 0.3
+        s.stopRepeatDelays = [0]
+        s.start()
+        _ = s.masterPlaylist()
+        // The player's own request for rung 0's segment, its fetch held open on the server.
+        let fetching = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            _ = self.resolve(s.tierSegmentResponse(rung: 0, 0))
+            fetching.signal()
+        }
+        settle(3) { TierServerStub.hitCount("/Videos/r0/seg0.ts") >= 1 }
+        _ = s.tierSegmentResponse(rung: 1, 0)
+        _ = s.tierSegmentResponse(rung: 1, 1)
+        usleep(400_000)
+        _ = s.tierSegmentResponse(rung: 1, 2)
+        usleep(300_000)
+        XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=busy"), 0, "a rung still fetching keeps its job")
+        TierServerStub.holdSegments = nil
+        hold.signal()
+        XCTAssertEqual(fetching.wait(timeout: .now() + 8), .success)
+        usleep(400_000)
+        _ = s.tierSegmentResponse(rung: 1, 2)
+        settle(2) { TierServerStub.requestCount(containing: "playSessionId=busy") >= 1 }
+        XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=busy"), 1, "once its fetch is over and it sits idle, the rung is stopped")
     }
 
     /// A request for a rung whose kill went out ends the repeats: the player came back to it.

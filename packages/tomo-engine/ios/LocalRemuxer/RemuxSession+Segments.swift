@@ -225,7 +225,7 @@ extension RemuxSession {
         if ahead, activationGeneration, n <= activationSpanEnd + Self.seekAheadSegments { return false }
         // A jump empties AVPlayer's buffer; refilling it is a start, not a drain.
         playerBufferFilled = false
-        if behind, !prefix.isEmpty, renditions.first?.completed.contains(n) == true {
+        if behind, !prefix.isEmpty, renditions.first.map({ $0.completed.contains(n) || $0.writing.contains(n) }) == true {
             activationSeekSegment = min(activationSeekSegment ?? n, n)
         } else {
             pendingSeekSegment = n

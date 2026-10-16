@@ -2007,6 +2007,7 @@ extension RemuxSession {
         /// same boundary so their timelines stay interchangeable, which is what
         /// lets AVPlayer swap audio renditions mid-playback.
         func finishSegment(_ n: Int) {
+            var finished: [(rendition: Rendition, data: Data, bytes: Int)] = []
             for rendition in builtRenditions {
                 guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
                 // Nothing was written for a segment the rendition already holds, landed or landing; its file stays.
@@ -2082,16 +2083,20 @@ extension RemuxSession {
                     Self.patchTfdtToAbsolute(in: &data, offsets: offsets)
                 }
                 let segmentBytes = Self.stypBox.count + data.count
-                let duration = segmentDurationSeconds(n)
                 stateLock.lock()
                 rendition.writing.insert(n)
                 stateLock.unlock()
-                // The file lands off this thread; the segment completes when it has. The slot wait is the
-                // only pause here, and only while the previous write is still going.
+                finished.append((rendition, data, segmentBytes))
+            }
+            // Every rendition's file lands off this thread in one job, in loop order; each segment
+            // completes when its file has. The slot wait, once per cut, pauses only while the previous
+            // cut's writes are still going.
+            if !finished.isEmpty {
+                let duration = segmentDurationSeconds(n)
                 segmentWriteSlots.wait()
-                segmentWriter.async { [self, rendition, data] in
+                segmentWriter.async { [self, finished] in
                     defer { segmentWriteSlots.signal() }
-                    writeFinishedSegment(data, for: rendition, index: n, bytes: segmentBytes, duration: duration)
+                    for item in finished { writeFinishedSegment(item.data, for: item.rendition, index: n, bytes: item.bytes, duration: duration) }
                 }
             }
 
@@ -2389,7 +2394,10 @@ extension RemuxSession {
                     let audioPick = !pendingAudioActivations.isEmpty
                     let near = seekTo.map { abs($0 - activation) <= Self.seekAheadSegments } ?? false
                     let target = seekTo.map { seek in audioPick && near ? min(seek, activation) : seek } ?? activation
-                    activationSpanEnd = max(producingSegment, target, audioPick && near ? max(seekTo ?? activation, activation) : target)
+                    // A player seek drives the restart: its span is the seek, and a near pick's segment
+                    // beside it. A pick alone must cover up to where the producer was, or a video waiter
+                    // ahead restarts over it before the pick's segments exist.
+                    activationSpanEnd = seekTo.map { seek in audioPick && near ? max(seek, activation) : seek } ?? max(producingSegment, activation)
                     seekTo = target
                     activationSeekSegment = nil
                     activationRestart = true

@@ -334,12 +334,16 @@ extension RemuxSession {
         if let deferred = rungResponseDeferral(rung) { return deferred }
         // Another rung's cold init while the opening segment is still coming is refused, not held: a
         // cold init fetches a segment head, a server job beside the opening one, and a hold plus that
-        // start would pass the 6 s AVPlayer allows a map request. AVPlayer stays on the opening rung
-        // and asks again (measured: a refused rung's init sends it back to the rung it has).
+        // start would pass the 6 s AVPlayer allows a map request. The refusal is the 503 the admission
+        // rule already gives a rung the link cannot carry (rungResponseDeferral).
         stateLock.lock()
-        let openingPending = openingRung.map { $0 != rung && !openingRungResolved } ?? false
+        let opening = openingRung
+        let resolved = openingRungResolved
         stateLock.unlock()
-        if openingPending { return .temporarilyUnavailable }
+        if let opening, opening != rung, !resolved,
+           !FileManager.default.fileExists(atPath: dir.appendingPathComponent("t\(opening)-seg\(segmentIndex(atSeconds: config.startOffsetSeconds)).m4s").path) {
+            return .temporarilyUnavailable
+        }
         // The init falls out of materializing any segment (byte-stable across all of them, bitexact
         // muxing). The playhead's segment, so neither a mid-film switch nor a resume spins the
         // server transcode up at zero.

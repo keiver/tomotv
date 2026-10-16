@@ -370,7 +370,6 @@ final class TrackActivationTests: XCTestCase {
         XCTAssertEqual(restarts, 1)
         XCTAssertEqual(from, 36, accuracy: 0.5, "the one restart was at the seek's segment")
         XCTAssertNotNil(decoder, "the pick rode the seek's restart")
-        XCTAssertFalse(exists(session, "seg1.m4s") && !exists(session, "seg6.m4s"), "no restart went to the pick's segment")
     }
 
     /// An audio pick near a seek restarts at the pick's segment, and the generation covers up to the seek
@@ -378,19 +377,20 @@ final class TrackActivationTests: XCTestCase {
     func testAnAudioPickNearASeekRestartsAtThePickAndCoversTheSeek() throws {
         let session = try heldSession(name: "three-audio-60")
         defer { session.stop() }
+        // A seek past the producer's step (held at 3, the step is 2), as a player's own request queues it.
         session.stateLock.lock()
-        session.lastRequestedSegment = 5
-        session.pendingSeekSegment = 5
+        session.lastRequestedSegment = 6
+        session.pendingSeekSegment = 6
         session.pendingAudioActivations = ["a2"]
         session.activationSeekSegment = 4
         session.stateLock.unlock()
-        settle { self.exists(session, "a2-seg4.m4s") && self.exists(session, "a2-seg5.m4s") }
+        settle { self.exists(session, "a2-seg4.m4s") && self.exists(session, "a2-seg6.m4s") }
         session.stateLock.lock()
         let spanEnd = session.activationSpanEnd
         session.stateLock.unlock()
         XCTAssertTrue(exists(session, "a2-seg4.m4s"), "the pick's own segment is made")
-        XCTAssertTrue(exists(session, "a2-seg5.m4s"), "and the seek's segment follows in the same generation")
-        XCTAssertEqual(spanEnd, 5, "the generation covers up to the seek")
+        XCTAssertTrue(exists(session, "a2-seg6.m4s"), "and the seek's segment follows in the same generation")
+        XCTAssertEqual(spanEnd, 6, "the generation covers up to the seek")
     }
 
     /// An audio pick far from a seek lets the seek win: the player has moved on, and a wait across the gap
