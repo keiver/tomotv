@@ -21,11 +21,13 @@ function fakeXcode(t, licenseType) {
   return path.join(root, "Contents/Developer");
 }
 
-test("an Xcode release or RC reads as GM", (t) => {
+const macOnly = { skip: process.platform !== "darwin" && "plutil is macOS only" };
+
+test("an Xcode release or RC reads as GM", macOnly, (t) => {
   assert.equal(run(`xcode_license "${fakeXcode(t, "GM")}"`).stdout.trim(), "GM");
 });
 
-test("a beta Xcode reads as Beta", (t) => {
+test("a beta Xcode reads as Beta", macOnly, (t) => {
   assert.equal(run(`xcode_license "${fakeXcode(t, "Beta")}"`).stdout.trim(), "Beta");
 });
 
