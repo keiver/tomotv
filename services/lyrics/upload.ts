@@ -23,9 +23,10 @@ export async function canManageLyrics(): Promise<boolean> {
 }
 
 function stamp(seconds: number): string {
-  const whole = Math.max(0, seconds);
-  const minutes = Math.floor(whole / 60);
-  return `${String(minutes).padStart(2, "0")}:${(whole - minutes * 60).toFixed(2).padStart(5, "0")}`;
+  // Rounded to hundredths before the split, so 59.999 is 01:00.00 and never 00:60.00.
+  const hundredths = Math.round(Math.max(0, seconds) * 100);
+  const minutes = Math.floor(hundredths / 6000);
+  return `${String(minutes).padStart(2, "0")}:${((hundredths - minutes * 6000) / 100).toFixed(2).padStart(5, "0")}`;
 }
 
 /**

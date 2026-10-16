@@ -55,6 +55,11 @@ describe("lyricsFile", () => {
     expect(lyricsFile(lined)).toEqual({ fileName: "lyrics.lrc", body: "[00:05.00] one two" });
   });
 
+  it("rounds a time just under a minute up to the next minute, never to 60 seconds", () => {
+    const lined: ItemLyrics = { synced: true, lines: [{ text: "one", start: 59.999, cues: [] }] };
+    expect(lyricsFile(lined).body).toBe("[01:00.00] one");
+  });
+
   it("writes untimed text as .txt", () => {
     const plain: ItemLyrics = {
       synced: false,
