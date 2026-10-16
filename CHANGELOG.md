@@ -20,6 +20,7 @@ All notable changes to Tomo TV are documented here.
 
 - While a video or song plays, XMLTV guide and M3U playlist downloads pause and resume from their bytes after it, and no screen waits on them: a read gets the copy on disk, and a guide with none reads "Paused during playback" in Guide sources. When a held-back download finishes, the guide, channel lists and channel groups read again
 - An XMLTV guide keeps only the programmes of the server's and its tuner playlists' channels; the others are skipped while the file is read. A channel asked for that is not on the list opens the guide again with it added
+- The iPhone and iPad app is 8 MB smaller installed and 3.3 MB smaller to download: Expo's modules build from source and link into the app, which loads 10 fewer frameworks at launch, and builds work on Xcode 27.1. `npm run archive` runs on Xcode 27.1 and still refuses a beta Xcode or macOS
 
 ### Fixed
 
@@ -29,6 +30,7 @@ All notable changes to Tomo TV are documented here.
 - A guide or playlist load stops with an error when less than 256 MB is left before the system's memory limit, and a memory warning closes the open guides, which open again at the next read. The system had closed the Apple TV app for exceeding its memory limit with an XMLTV guide of 4,613 channels and 210,401 programmes open
 - A live channel whose source opens with no streams in it counts toward Offline, as a refused open does, and a failed read of the server's copy of a channel no longer counts against the channel's own source
 - A song seeks to the exact time asked, so lyrics stay with the audio after a scrub; a variable bit rate MP3 used to land on an estimate
+- AV1 in the High or Professional profile (4:4:4, RGB or 12-bit) plays on a device with AV1 hardware, re-encoded on the device. Apple's AV1 decoder plays only Main profile, and those files stopped with Cannot Decode
 
 ## [2.2.11]
 
