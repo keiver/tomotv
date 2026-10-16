@@ -26,7 +26,8 @@ final class TrackActivationTests: XCTestCase {
 
     /// Video (stream 0, a keyframe every second) and the audio tracks as streams 1..., then the
     /// SubRip tracks, then the PGS track from the fixture when asked for.
-    private func fixture(name: String, seconds: Int, audioEncoders: [String], subtitleTexts: [String] = [], pgs: Bool = false) -> URL? {
+    private func fixture(name: String, seconds: Int, audioEncoders: [String], subtitleTexts: [String] = [], pgs: Bool = false,
+                         videoEncoder: String = "libx264") -> URL? {
         let out = Self.fixtureDir.appendingPathComponent("\(name).mkv")
         if FileManager.default.fileExists(atPath: out.path) { return out }
         var args = ["-hide_banner", "-loglevel", "error", "-y",
@@ -44,7 +45,7 @@ final class TrackActivationTests: XCTestCase {
         for i in audioEncoders.indices { args += ["-map", "\(i + 1):a"] }
         for i in subtitleTexts.indices { args += ["-map", "\(audioEncoders.count + i + 1):s"] }
         if pgs { args += ["-map", "\(audioEncoders.count + subtitleTexts.count + 1):s"] }
-        args += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "25", "-keyint_min", "25", "-sc_threshold", "0"]
+        args += ["-c:v", videoEncoder, "-pix_fmt", "yuv420p", "-g", "25", "-keyint_min", "25", "-sc_threshold", "0"]
         for (i, enc) in audioEncoders.enumerated() {
             args += ["-c:a:\(i)", enc]
             if enc == "ac3" { args += ["-ac:a:\(i)", "6"] }
@@ -168,6 +169,30 @@ final class TrackActivationTests: XCTestCase {
         let copied = try tfdtSeconds(session, init: "a1-init.mp4", fragment: "a1-seg1.m4s")
         XCTAssertEqual(picked, copied, accuracy: 0.05, "the picked track's segment opens where the others' does")
         XCTAssertEqual(picked, 6, accuracy: 0.1)
+    }
+
+    /// The video is re-encoded here: a pick behind the producer runs its frames through the encoder
+    /// for the segments the primary holds, and none of that output may reach the next segment it writes.
+    func testAPickBehindTheProducerInAReEncodedSessionOpensThePrimarysNextSegmentAtItsOwnTime() throws {
+        guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg),
+              let source = fixture(name: "three-audio-mpeg4", seconds: 30, audioEncoders: ["mp2", "aac", "mp2"], videoEncoder: "mpeg4") else {
+            throw XCTSkip("could not generate the mpeg4 three-audio fixture")
+        }
+        let session = try RemuxSession(config: makeConfig(
+            durationSeconds: 30, inputUrl: source.path,
+            audioTracks: [track(1, "Converted one"), track(2, "Copied"), track(3, "Converted two")],
+            width: 320, height: 240, frameRate: 25, bandwidth: 4_000_000, readAheadSegments: 2))
+        session.start()
+        defer { session.stop() }
+        XCTAssertNotNil(session.segmentURL(0))
+        settle(20) { exists(session, "seg2.m4s") }
+        XCTAssertFalse(exists(session, "seg3.m4s"), "the producer rests two segments past the playhead")
+
+        XCTAssertNotNil(session.segmentURL(1, prefix: "a2"), "the pick is served")
+        settle(20) { exists(session, "seg3.m4s") }
+        XCTAssertTrue(exists(session, "seg3.m4s"), "the primary goes on from the first segment it lacks")
+        XCTAssertEqual(try tfdtSeconds(session, init: "init.mp4", fragment: "seg3.m4s"), 18, accuracy: 0.1,
+                       "the segment opens at its own time, carrying nothing from the held segments before it")
     }
 
     /// A request ahead of a generation restarted behind the producer for a pick waits for it, and a

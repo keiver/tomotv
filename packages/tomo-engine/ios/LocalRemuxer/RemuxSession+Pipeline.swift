@@ -2888,6 +2888,12 @@ extension RemuxSession {
                             stateLock.unlock()
                         }
                     }
+                    // A segment the primary holds (a restart behind the producer for a pick) takes no
+                    // encoded packet: the frames keep the encoder fed, and the output goes no further.
+                    stateLock.lock()
+                    let held = rendition.completed.contains(currentSegment) || rendition.writing.contains(currentSegment)
+                    stateLock.unlock()
+                    if held { return }
                     av_packet_rescale_ts(encoded, videoTranscoder.encoderTimeBase, outStream.pointee.time_base)
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
