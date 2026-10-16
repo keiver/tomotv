@@ -227,7 +227,7 @@
   "settings.transcoding.fileOnly": "Seulement pour les fichiers non pris en charge",
   "settings.transcoding.fileOnlyHint": "Sur une connexion lente, le fichier d'origine est lu et peut se mettre en mémoire tampon",
   "settings.transcoding.never": "Désactivé",
-  "settings.transcoding.neverHint": "Seuls les fichiers pris en charge par cet appareil sont lus",
+  "settings.transcoding.neverHint": "Tomo lit les fichiers sur cet appareil seul ; les rares qu'il ne peut pas décoder ne sont pas lus",
   "settings.transcoding.serverBoth": "Sur ton serveur, le transcodage vidéo et audio est {state}.",
   "settings.transcoding.serverOne": "Sur ton serveur, le transcodage {kind} est {state}.",
   "settings.transcoding.kindVideo": "vidéo",

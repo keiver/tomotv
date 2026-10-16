@@ -227,7 +227,7 @@
   "settings.transcoding.fileOnly": "Nur für nicht unterstützte Dateien",
   "settings.transcoding.fileOnlyHint": "Bei langsamer Verbindung läuft die Originaldatei, die puffern kann",
   "settings.transcoding.never": "Aus",
-  "settings.transcoding.neverHint": "Nur Dateien, die dieses Gerät unterstützt, werden abgespielt",
+  "settings.transcoding.neverHint": "Tomo spielt Dateien allein auf diesem Gerät ab; die wenigen, die es nicht decodieren kann, laufen nicht",
   "settings.transcoding.serverBoth": "Auf deinem Server ist die Video- und Audio-Transkodierung {state}.",
   "settings.transcoding.serverOne": "Auf deinem Server ist die {kind}-Transkodierung {state}.",
   "settings.transcoding.kindVideo": "Video",

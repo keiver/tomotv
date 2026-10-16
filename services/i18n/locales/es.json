@@ -227,7 +227,7 @@
   "settings.transcoding.fileOnly": "Solo para archivos no compatibles",
   "settings.transcoding.fileOnlyHint": "Con conexiones lentas se reproduce el archivo original, que puede pausarse para cargar",
   "settings.transcoding.never": "Desactivada",
-  "settings.transcoding.neverHint": "Solo se reproducen los archivos que este dispositivo admite",
+  "settings.transcoding.neverHint": "Tomo reproduce los archivos solo en este dispositivo; los pocos que no puede decodificar no se reproducen",
   "settings.transcoding.serverBoth": "Tu servidor tiene la transcodificación de vídeo y audio {state}.",
   "settings.transcoding.serverOne": "Tu servidor tiene la transcodificación de {kind} {state}.",
   "settings.transcoding.kindVideo": "vídeo",

@@ -10,7 +10,7 @@ describe("transcodingCopy", () => {
     expect(transcodingLevelTitle("fileOnly")).toBe("Only for unsupported files");
     expect(transcodingLevelHint("fileOnly")).toBe("Slow connections get the original file, which may buffer");
     expect(transcodingLevelTitle("never")).toBe("Off");
-    expect(transcodingLevelHint("never")).toBe("Only files this device supports will play");
+    expect(transcodingLevelHint("never")).toBe("Tomo plays files on this device alone; the few it cannot decode will not play");
   });
 
   it("states the server's setting once read, and says nothing before", () => {

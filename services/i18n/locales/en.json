@@ -229,7 +229,7 @@
   "settings.transcoding.fileOnly": "Only for unsupported files",
   "settings.transcoding.fileOnlyHint": "Slow connections get the original file, which may buffer",
   "settings.transcoding.never": "Off",
-  "settings.transcoding.neverHint": "Only files this device supports will play",
+  "settings.transcoding.neverHint": "Tomo plays files on this device alone; the few it cannot decode will not play",
   "settings.transcoding.serverBoth": "Your server has video and audio transcoding {state}.",
   "settings.transcoding.serverOne": "Your server has {kind} transcoding {state}.",
   "settings.transcoding.kindVideo": "video",
