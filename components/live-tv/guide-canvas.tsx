@@ -8,6 +8,7 @@ import { GuideDayStrip } from "@/components/live-tv/guide-day-strip";
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
 import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler, useRulerScrub } from "@/components/live-tv/guide-time-ruler";
+import { sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
@@ -590,7 +591,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         </TVFocusGuideView>
         {/* Shown only while the band is empty, so it never sits over a focusable (tvOS rule). */}
         {isLoading && rows.length === 0 ? (
-          <View style={[StyleSheet.absoluteFill, styles.loadingOverlay]} pointerEvents="none">
+          // Right inset only: the guide's body already clears the left one (app/live-tv.tsx).
+          <View style={[StyleSheet.absoluteFill, styles.loadingOverlay, sideInsets({ left: 0, right: insets.right })]} pointerEvents="none">
             <LoadingRow label={t("liveTv.loadingGuide")} hideLabel={!IS_TV} />
           </View>
         ) : null}

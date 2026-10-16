@@ -330,6 +330,7 @@ function NativeSearchScreenWithBackground({ initialQuery }: { initialQuery?: str
 
 function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const palette = useCardPalette();
   const { showGlobalLoader, hideGlobalLoader } = useLoadingActions();
   const { refreshLibrary, isLoading, error } = useLibrary();
@@ -539,7 +540,8 @@ function ReactNativeSearchScreen({ initialQuery }: { initialQuery?: string }) {
           ListFooterComponent={renderFooter}
         />
       ) : (
-        <View style={styles.emptyContainer}>{renderEmpty()}</View>
+        // Centred under the field, in the safe area: iPhone Duo's side column is a right inset.
+        <View style={[styles.emptyContainer, sideInsets(insets)]}>{renderEmpty()}</View>
       )}
     </View>
   );

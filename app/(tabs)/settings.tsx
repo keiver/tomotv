@@ -185,7 +185,7 @@ function SettingsScreen() {
     return (
       <View style={styles.screenContainer}>
         <AmbientBackground />
-        <View style={screenStyles.loadingContainer}>
+        <View style={[screenStyles.loadingContainer, sideInsets(insets)]}>
           <LoadingRow label={t("settings.loading")} />
         </View>
       </View>

@@ -16,7 +16,12 @@ describe("sideInsets", () => {
     expect(withTV(false, () => sideInsets({ left: 0, right: 86 }))).toEqual({ paddingLeft: 0, paddingRight: 86 });
   });
 
+  it("keeps a style's own horizontal padding on top of each inset", () => {
+    expect(withTV(false, () => sideInsets({ left: 0, right: 86 }, 40))).toEqual({ paddingLeft: 40, paddingRight: 126 });
+  });
+
   it("adds no padding on TV", () => {
     expect(withTV(true, () => sideInsets({ left: 80, right: 80 }))).toBeNull();
+    expect(withTV(true, () => sideInsets({ left: 80, right: 80 }, 40))).toBeNull();
   });
 });

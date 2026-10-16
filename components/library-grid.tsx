@@ -7,6 +7,7 @@ import { LoadingRow } from "@/components/loading-row";
 // import { FiltersGhostTitle } from "@/components/filters-ghost-title";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader, type HeaderAction } from "@/components/library-header";
+import { sideInsets } from "@/components/settings/styles";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
@@ -33,6 +34,8 @@ const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 
 /** Row wrapper padding, shared by the style and the row geometry the list scrolls with. */
 const ROW_VERTICAL_PADDING = IS_TV ? 24 : 6;
+/** Padding around the centred empty, loading and error block, on top of the side insets. */
+const CENTER_PAD = 40;
 
 /**
  * Native node handle for TV directional focus (nextFocusUp). findNodeHandle is deprecated under
@@ -761,12 +764,14 @@ export function LibraryGrid({
     [holderActive, isScreenFocused],
   );
 
+  // Centred in the safe area, not the screen: iPhone Duo's side column is a right inset.
+  const centered = useMemo(() => [styles.centerContainer, sideInsets(insets, CENTER_PAD)], [insets]);
   const renderEmpty = useCallback(() => {
     if (isLoading) {
       // No spinner — the FolderLoadingBar at the bottom is the progress indicator; a faded
       // hourglass anchors the center of the screen so eyes landing there see a wait, not a void.
       return (
-        <View style={styles.centerContainer} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <View style={centered} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           <Ionicons name="hourglass-outline" size={64} color={COLORS.TEXT_SECONDARY} style={styles.loadingGlyph} />
         </View>
       );
@@ -775,14 +780,14 @@ export function LibraryGrid({
     if (error) {
       if (recoveryStatus === "running") {
         return (
-          <View style={styles.centerContainer}>
+          <View style={centered}>
             <LoadingRow label={t("common.lookingForServer")} />
             <Text style={styles.errorText}>{t("common.checkingNetwork")}</Text>
           </View>
         );
       }
       return (
-        <View style={styles.centerContainer}>
+        <View style={centered}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorTitle}>{t("common.unableToLoad")}</Text>
           <Text style={styles.errorText}>{error}</Text>
@@ -809,14 +814,14 @@ export function LibraryGrid({
       );
     }
 
-    if (emptyContent) return <View style={styles.centerContainer}>{emptyContent}</View>;
+    if (emptyContent) return <View style={centered}>{emptyContent}</View>;
     return (
-      <View style={styles.centerContainer}>
+      <View style={centered}>
         <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>{activeFilterCount > 0 ? t("library.emptyNoMatch") : t("library.emptyFolder")}</Text>
       </View>
     );
-  }, [isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer, emptyContent, palette]);
+  }, [centered, isLoading, error, activeFilterCount, recoveryStatus, onRetry, handleSwitchServer, emptyContent, palette]);
 
   // TV only: the breadcrumb bar with the Filters suffix action. Phone gets the screen's native
   // navigation bar instead (app/(tabs)/(library)/[folderId].tsx). Rendered in the loaded-empty
@@ -933,8 +938,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    // Symmetric: this block is optically centered on screen, not aligned to the grid's left column.
-    padding: 40,
+    // Symmetric about the safe area, not aligned to the grid's left column.
+    padding: CENTER_PAD,
   },
   // Invisible TV focus anchor (see focusHolder above). Fills the area so the focus engine has a
   // reliable target; transparent and non-interactive so the user only sees the spinner/empty text.
