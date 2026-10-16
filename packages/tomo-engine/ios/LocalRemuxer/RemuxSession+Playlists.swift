@@ -855,10 +855,16 @@ extension RemuxSession {
         return lastRequestedSegment > segment && !activeWaiters.keys.contains { $0 <= segment }
     }
 
+    /// The last media segment asked for, or the start offset's before any request: a real request for
+    /// segment 0 reads as 0, a session nobody has asked yet as its resume point. Caller holds stateLock.
+    func lastRequestedSegmentLocked() -> Int {
+        firstMediaRequestSeen ? lastRequestedSegment : segmentIndex(atSeconds: config.startOffsetSeconds)
+    }
+
     /// The segment under the playhead: the last media segment asked for, less what the player
     /// reports buffered past the playhead; the last asked for when no fresh report exists. Caller holds stateLock.
     func playheadSegmentLocked() -> Int {
-        let last = lastRequestedSegment
+        let last = lastRequestedSegmentLocked()
         guard let ahead = playerAheadSeconds, Date().timeIntervalSince(playerAheadAt) < 3, !config.isLive else { return last }
         let end = segmentStartSeconds(last) + segmentDurationSeconds(last)
         return max(0, min(last, segmentIndex(atSeconds: max(0, end - ahead))))
@@ -996,7 +1002,7 @@ extension RemuxSession {
         let server = serverImageSubtitles[Int32(streamIndex)]
         let serverReadUpTo = serverImageReadUpTo[Int32(streamIndex)] ?? 0
         let readUpTo = config.isLive ? demuxedUpToOutput : demuxedUpTo
-        let requestedSegment = lastRequestedSegment
+        let requestedSegment = lastRequestedSegmentLocked()
         let anchor = sessionAnchorSeconds ?? 0
         let start = segmentStartSeconds(requestedSegment)
         let end = config.isLive ? start : start + segmentDurationSeconds(requestedSegment)

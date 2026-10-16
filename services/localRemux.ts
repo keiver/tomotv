@@ -811,13 +811,19 @@ export async function startLocalRemux(
   // One server audio group: audio-lo, 96 kb/s stereo AAC, on every rung.
   const tierAudioPlan = { bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" };
   // One TierConfig per offered rung, ascending.
-  const tiersConfig = rungs.map((rung) => ({
-    playlistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, rung, generatePlaySessionId()),
-    bandwidth: rung.bitrate + (audioTracks.length > 0 ? RUNG_AUDIO_BANDWIDTH : 0),
-    codecs: audioTracks.length > 0 ? `${rung.codecs},${tierAudioPlan.tag}` : rung.codecs,
-    width: rung.width,
-    height: rung.height,
-  }));
+  const tiersConfig = rungs.map((rung) => {
+    const playlistUrl = getTierPlaylistUrl(videoItem.Id, videoItem, rung, generatePlaySessionId());
+    // The rung's own kill, sent when the player leaves it; the session stop still covers every rung.
+    const [stopRequest] = tierStopRequests([playlistUrl]);
+    return {
+      playlistUrl,
+      bandwidth: rung.bitrate + (audioTracks.length > 0 ? RUNG_AUDIO_BANDWIDTH : 0),
+      codecs: audioTracks.length > 0 ? `${rung.codecs},${tierAudioPlan.tag}` : rung.codecs,
+      width: rung.width,
+      height: rung.height,
+      ...(stopRequest ? { stopRequest } : {}),
+    };
+  });
   const audioTracksConfig = audioTracks.map((track) => {
     if (rungs.length === 0 && !track.usesServerAudio) return track;
     const serverAudioUrl = getAudioRenditionUrl(videoItem.Id, videoItem, track.index, generatePlaySessionId(), SURVIVAL_AUDIO_BITRATE);

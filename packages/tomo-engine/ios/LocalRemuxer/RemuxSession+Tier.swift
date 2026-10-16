@@ -125,13 +125,16 @@ extension RemuxSession {
         awaitLinkProbe()
         stateLock.lock()
         let copyLeads = copyLeadsLocked(linkBps: testLinkBps ?? wireLinkBps ?? 0)
-        let canonicalRung = tierSegments.keys.sorted().first { !rungsUnavailable.contains($0) }
+        let linkBps = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         stateLock.unlock()
-        guard !copyLeads, let canonicalRung else { return }
-        probedRung = canonicalRung
+        guard !copyLeads else { return }
+        // The rung the master leads with, the one AVPlayer opens on. Proving the lowest rung beside it
+        // was a second server job at every open (measured: six 4K decodes at once ran at 0.5x to 1.4x).
+        guard let rung = chooseOpeningRung(linkBps: linkBps) else { return }
+        probedRung = rung
         let target = segmentIndex(atSeconds: config.startOffsetSeconds)
         let started = Date()
-        let produced = materializeOpeningSegment(rung: canonicalRung, target)
+        let produced = materializeOpeningSegment(rung: rung, target)
         probeSeconds = Date().timeIntervalSince(started)
         if produced != nil {
             NSLog("[LocalRemuxer] Slipstream: rung proved, opening segment %d took %.2fs for %.1fs of video", target, probeSeconds, segmentDurationSeconds(target))
@@ -308,6 +311,7 @@ extension RemuxSession {
         // switch back any moment) and the prune window.
         if demand {
             lastRequestedSegment = n
+            firstMediaRequestSeen = true
             lastTierDemandAt = Date()
         }
         let producerGone = sourceReleased
@@ -339,17 +343,19 @@ extension RemuxSession {
             // segment when that segment arrives at once but waits for two when it has to watch it
             // download (measured at 0.6 Mb/s: 8.2s against 10.2s to a first frame). So the init is
             // held for the opening fetch, never near the 6s AVPlayer allows a map request.
+            // Every rung's init waits for it, not only the opening rung's own: a cold init fetches a
+            // segment head, a server job, and a second job beside the opening one halves both.
             self.stateLock.lock()
-            let opens = self.openingRung == rung
+            let opening = self.openingRung
             self.stateLock.unlock()
-            if opens {
-                let opening = self.dir.appendingPathComponent("t\(rung)-seg\(self.segmentIndex(atSeconds: self.config.startOffsetSeconds)).m4s")
+            if let opening {
+                let openingFile = self.dir.appendingPathComponent("t\(opening)-seg\(self.segmentIndex(atSeconds: self.config.startOffsetSeconds)).m4s")
                 _ = self.waitUntil(deadline: Self.openingInitHoldSeconds) { [weak self] in
                     guard let self else { return true }
-                    if FileManager.default.fileExists(atPath: opening.path) { return true }
+                    if FileManager.default.fileExists(atPath: openingFile.path) { return true }
                     self.stateLock.lock()
                     defer { self.stateLock.unlock() }
-                    return self.openingRung != rung || self.openingRungResolved || self.failed || self.cancelled
+                    return self.openingRung != opening || self.openingRungResolved || self.failed || self.cancelled
                 }
             }
             // The head of a segment carries the whole init (measured: 32KB of a 3.2MB 720p segment
@@ -479,7 +485,7 @@ extension RemuxSession {
     /// Runs while the producer is inside the span past AVPlayer's latest rung fetch, moves to the
     /// first segment of it still missing, and holds once it is full. Caller holds stateLock.
     func followLocked() -> Follow {
-        let head = lastRequestedSegment
+        let head = lastRequestedSegmentLocked()
         let last = min(head + Self.followSegments, segmentCount - 1)
         let completed = renditions.first?.completed ?? []
         guard head <= last, let next = (head...last).first(where: { !completed.contains($0) }) else { return .hold }
@@ -513,11 +519,53 @@ extension RemuxSession {
         // steers the producer.
         stateLock.lock()
         lastRequestedSegment = n
+        firstMediaRequestSeen = true
         lastTierDemandAt = Date()
         lastTierRung = rung
+        noteRungServedLocked(rung)
         stateLock.unlock()
+        stopIdleRungs()
         if cached { return .file(mediaFile, contentType: "video/iso.segment") }
         return .segment(contentType: "video/iso.segment", lead: Self.stypBox, padding: Self.freeBox) { [weak self] request in self?.materializeTierSegment(rung: rung, n, request: request) }
+    }
+
+    /// Rung `rung` served a segment now; a request for a rung whose kill went out ends the repeats. Caller holds stateLock.
+    func noteRungServedLocked(_ rung: Int) {
+        segmentsServed += 1
+        rungServedAt[rung] = Date()
+        rungServedMark[rung] = segmentsServed
+        if rungStopped.remove(rung) != nil { rungKillGeneration[rung, default: 0] += 1 }
+    }
+
+    /// A rung the player left, idle `rungIdleSeconds` with two segments served elsewhere since, gets its own
+    /// kill on the stop schedule. A request for it again ends the repeats and opens it cold at the playhead.
+    func stopIdleRungs() {
+        stateLock.lock()
+        // The rung in play is the one the player's latest demand named, when that demand was a rung's.
+        let inPlay = lastTierDemandAt > lastPrimaryDemandAt ? lastTierRung : nil
+        var firing: [(rung: Int, generation: Int, request: URLRequest)] = []
+        for (rung, servedAt) in rungServedAt where rung != inPlay && !rungStopped.contains(rung) && config.tiers.indices.contains(rung) {
+            guard let stop = config.tiers[rung].stopRequest, let url = URL(string: stop.url),
+                  Date().timeIntervalSince(servedAt) >= rungIdleSeconds,
+                  segmentsServed - (rungServedMark[rung] ?? segmentsServed) >= 2 else { continue }
+            rungStopped.insert(rung)
+            var request = URLRequest(url: url, timeoutInterval: 5)
+            request.httpMethod = stop.method
+            firing.append((rung, rungKillGeneration[rung, default: 0], request))
+        }
+        stateLock.unlock()
+        for item in firing {
+            NSLog("[LocalRemuxer] Slipstream: rung %d left %.0fs ago, its server transcode is stopped", item.rung, rungIdleSeconds)
+            for delay in stopRepeatDelays {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self else { return }
+                    self.stateLock.lock()
+                    let live = !self.cancelled && self.rungKillGeneration[item.rung, default: 0] == item.generation
+                    self.stateLock.unlock()
+                    if live { URLSession.shared.dataTask(with: item.request).resume() }
+                }
+            }
+        }
     }
 
     func awaitRungAdmission(_ rung: Int, request: SegmentRequest? = nil) -> Bool {

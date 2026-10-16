@@ -19,14 +19,18 @@ extension RemuxSession {
         stateLock.lock()
         let rendition = renditions.first { $0.prefix == prefix }
         lastRequestedSegment = n
+        firstMediaRequestSeen = true
         // A copy that is gone is not demand on the source: AVPlayer asking after it again must not
         // read as leaving the rungs.
         let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
         let done = rendition?.completed.contains(n) == true
         let dead = failed || cancelled
         let pastEnd = reachedEnd && n > lastProducedSegment
+        // The copy serving counts too: a rung left for the copy is as idle as one left for another rung.
+        if prefix.isEmpty, !config.isLive, !config.tiers.isEmpty { segmentsServed += 1 }
         stateLock.unlock()
         if dead || !inRange || (pastEnd && !done) { return .notFound }
+        if prefix.isEmpty, !config.isLive, !config.tiers.isEmpty { stopIdleRungs() }
         if done, let rendition {
             let file = dir.appendingPathComponent(rendition.segmentName(n))
             if FileManager.default.fileExists(atPath: file.path) {
@@ -103,6 +107,7 @@ extension RemuxSession {
 
         stateLock.lock()
         lastRequestedSegment = n
+        firstMediaRequestSeen = true
         // A request for a track prepared on demand is the pick: the pipeline brings it up on a
         // restart at the lowest segment asked for, and this request waits for that like any seek.
         if !rendition.active, !config.isLive {

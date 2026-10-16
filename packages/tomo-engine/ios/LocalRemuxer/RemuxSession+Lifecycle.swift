@@ -163,8 +163,8 @@ extension RemuxSession {
         let wire = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         guard !hasAlternative || sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2 else { return false }
         sourceState = .warming
-        sourceTakeoverSegment = lastRequestedSegment
-        pendingSeekSegment = lastRequestedSegment
+        sourceTakeoverSegment = lastRequestedSegmentLocked()
+        pendingSeekSegment = lastRequestedSegmentLocked()
         return true
     }
 

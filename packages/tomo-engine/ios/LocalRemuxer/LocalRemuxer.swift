@@ -378,7 +378,11 @@ class LocalRemuxer: RCTEventEmitter {
                         bandwidth: (t["bandwidth"] as? Int) ?? 0,
                         codecs: (t["codecs"] as? String) ?? "",
                         width: (t["width"] as? Int) ?? 0,
-                        height: (t["height"] as? Int) ?? 0
+                        height: (t["height"] as? Int) ?? 0,
+                        stopRequest: (t["stopRequest"] as? [String: Any]).flatMap { raw in
+                            guard let url = raw["url"] as? String, !url.isEmpty else { return nil }
+                            return StopRequest(url: url, method: (raw["method"] as? String) ?? "DELETE")
+                        }
                     )
                 }.filter { !$0.playlistUrl.isEmpty },
                 startOffsetSeconds: (config["startOffsetSeconds"] as? Double) ?? 0,

@@ -247,9 +247,10 @@ extension RemuxSession {
     /// Where AVPlayer is: the segment it last asked for, or the resume point before it asked for one.
     func playheadSeconds() -> Double {
         stateLock.lock()
+        let asked = firstMediaRequestSeen
         let head = lastRequestedSegment
         stateLock.unlock()
-        return head > 0 ? segmentStartSeconds(head) : config.startOffsetSeconds
+        return asked ? segmentStartSeconds(head) : config.startOffsetSeconds
     }
 
     func audioLoInitResponse(position: Int) -> LocalHTTPResponse {

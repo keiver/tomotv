@@ -28,6 +28,8 @@ export interface EngineTierConfig {
   codecs: string;
   width: number;
   height: number;
+  /** Ends this rung's own server transcode when the player has left the rung; absent, only the session stop ends it. */
+  stopRequest?: EngineStopRequest;
 }
 
 /** A request the engine fires once, unawaited, as the session stops: what ends the session's work on a server. */

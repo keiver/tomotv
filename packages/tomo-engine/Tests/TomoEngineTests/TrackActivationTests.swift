@@ -84,7 +84,8 @@ final class TrackActivationTests: XCTestCase {
     }
 
     /// The playing track converts (mp2), the second copies (aac), the third converts (mp2): streams 1, 2, 3.
-    private func threeAudioSession(seconds: Int = 15, subtitles: [RemuxSubtitle] = [], pgs: Bool = false, name: String = "three-audio") throws -> RemuxSession {
+    private func threeAudioSession(seconds: Int = 15, subtitles: [RemuxSubtitle] = [], pgs: Bool = false, name: String = "three-audio",
+                                   startOffsetSeconds: Double = 0) throws -> RemuxSession {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg),
               let source = fixture(name: name, seconds: seconds, audioEncoders: ["mp2", "aac", "mp2"],
                                    subtitleTexts: subtitles.filter { $0.isEngineText }.map { "TEXT \($0.index)" }, pgs: pgs) else {
@@ -94,7 +95,8 @@ final class TrackActivationTests: XCTestCase {
             durationSeconds: Double(seconds), inputUrl: source.path,
             audioTracks: [track(1, "Converted one"), track(2, "Copied"), track(3, "Converted two")],
             subtitles: subtitles,
-            width: 320, height: 240, frameRate: 25, bandwidth: 4_000_000, readAheadSegments: 8))
+            width: 320, height: 240, frameRate: 25, bandwidth: 4_000_000, readAheadSegments: 8,
+            startOffsetSeconds: startOffsetSeconds))
         session.start()
         return session
     }
@@ -199,6 +201,7 @@ final class TrackActivationTests: XCTestCase {
         defer { session.stop() }
         session.stateLock.lock()
         session.lastRequestedSegment = 5
+        session.firstMediaRequestSeen = true
         session.stateLock.unlock()
         session.notePlayerBuffer(aheadSeconds: 20, sinceSeek: false)
         session.requestSubtitleActivation(text(5))
@@ -321,5 +324,82 @@ final class TrackActivationTests: XCTestCase {
         settle { session.reachedEnd }
         XCTAssertTrue(exists(session, "a2-seg0.m4s"), "a held file keeps every track fed")
         XCTAssertEqual(isActive(session, "a2"), true)
+    }
+
+    /// A subtitle the player picks before it has asked for any media (its own selection at load) restarts
+    /// the engine at the resume point's segment, not at 0: the picked track's first cue is the one past it.
+    func testASubtitlePickBeforeAnyMediaRequestRestartsAtTheResumePoint() throws {
+        let session = try threeAudioSession(subtitles: [text(4, isDefault: true), text(5)], name: "three-audio-two-text", startOffsetSeconds: 7)
+        defer { session.stop() }
+        XCTAssertNotNil(session.subtitlePlaylist(streamIndex: 5), "the pick before any media request")
+        settle { session.reachedEnd }
+        let later = try XCTUnwrap(session.subtitleSegment(streamIndex: 5, segment: 1))
+        XCTAssertTrue(later.contains("TEXT 5 again"), "the cue past the resume point:\n\(later)")
+        session.stateLock.lock()
+        let readFrom = session.readSpanFrom ?? -1
+        session.stateLock.unlock()
+        XCTAssertEqual(readFrom, 6, accuracy: 0.5, "the restart was at the resume point's segment, not at 0")
+    }
+
+    /// A subtitle pick pending beside a seek restarts once, at the seek: the seek is the newer answer to where the viewer is.
+    func testASubtitlePickBesideASeekRestartsOnceAtTheSeek() throws {
+        let session = try threeAudioSession(subtitles: [text(4, isDefault: true), text(5)], name: "three-audio-two-text")
+        defer { session.stop() }
+        XCTAssertNotNil(session.segmentURL(0))
+        settle { session.reachedEnd }
+        session.stateLock.lock()
+        let restartsBefore = session.seekRestarts
+        session.pendingSeekSegment = 2
+        session.activationSeekSegment = 1
+        session.pendingSubtitleActivations = [5]
+        session.stateLock.unlock()
+        settle { session.seekRestarts > restartsBefore && session.reachedEnd }
+        session.stateLock.lock()
+        let restarts = session.seekRestarts - restartsBefore
+        let from = max(session.readSpanFrom ?? -1, session.readSpans.map(\.from).max() ?? -1)
+        let decoder = session.textSubtitles[5]
+        session.stateLock.unlock()
+        XCTAssertEqual(restarts, 1)
+        XCTAssertEqual(from, 12, accuracy: 0.5, "the one restart was at the seek's segment")
+        XCTAssertNotNil(decoder, "the pick rode the seek's restart")
+    }
+
+    /// An audio pick at a segment beside a seek past it restarts at the pick's segment, and the generation
+    /// covers up to the seek so a request there waits instead of restarting over the pick.
+    func testAnAudioPickBesideASeekRestartsAtThePickAndCoversTheSeek() throws {
+        let session = try threeAudioSession(seconds: 30, name: "three-audio-30")
+        defer { session.stop() }
+        XCTAssertNotNil(session.segmentURL(0))
+        settle { session.reachedEnd }
+        session.stateLock.lock()
+        let producingBefore = session.producingSegment
+        session.pendingSeekSegment = 3
+        session.pendingAudioActivations = ["a2"]
+        session.activationSeekSegment = 1
+        session.stateLock.unlock()
+        settle { self.exists(session, "a2-seg1.m4s") && self.exists(session, "a2-seg3.m4s") }
+        session.stateLock.lock()
+        let spanEnd = session.activationSpanEnd
+        session.stateLock.unlock()
+        XCTAssertTrue(exists(session, "a2-seg1.m4s"), "the pick's own segment is made")
+        XCTAssertTrue(exists(session, "a2-seg3.m4s"), "and the seek's segment follows in the same generation")
+        XCTAssertEqual(spanEnd, max(producingBefore, 3), "the generation covers up to the seek, or to where the producer was")
+    }
+
+    /// The segment file is written off the pipeline thread: a segment is served only once its file has
+    /// landed, and a restart in the middle of the run leaves no half-written file behind.
+    func testASegmentIsServedOnceItsFileLandedAndARestartLeavesNoPartialFile() throws {
+        let session = try threeAudioSession(seconds: 30, name: "three-audio-30")
+        defer { session.stop() }
+        for n in 0 ... 2 {
+            let url = try XCTUnwrap(session.segmentURL(n))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "segment \(n) served before its file landed")
+        }
+        // Far enough ahead of the producer for a seek restart while earlier files may still be landing.
+        XCTAssertNotNil(session.segmentURL(4))
+        settle(20) { session.reachedEnd }
+        let names = try FileManager.default.contentsOfDirectory(atPath: session.dir.path)
+        XCTAssertTrue(names.filter { $0.hasPrefix(".") }.isEmpty, "temporary files left in \(names)")
+        XCTAssertTrue(names.contains("seg4.m4s"))
     }
 }

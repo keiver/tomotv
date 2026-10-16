@@ -190,6 +190,8 @@ final class RemuxSession {
     /// the producer would stay throttled and freshly written segments would be
     /// pruned the instant they landed.
     var lastRequestedSegment = 0
+    /// Set by the first primary, audio or rung request; until then the playhead is the start offset's segment.
+    var firstMediaRequestSeen = false
     /// Set once the input hits EOF. `lastProducedSegment` is then the highest
     /// segment the real stream actually yielded, which can be below the last
     /// index the playlist declares when the container runs slightly shorter
@@ -239,7 +241,13 @@ final class RemuxSession {
     /// The muxer's per-packet writes, the fragment flush at the cut, and the segment file write.
     var muxSecondsInSegment: Double = 0
     var flushSecondsInSegment: Double = 0
+    /// Seconds the writer spent on segment files since the last report (under stateLock): off the pipeline thread.
     var fileSecondsInSegment: Double = 0
+    /// Finished segments are written here, in order, while the pipeline reads on; two in flight bounds memory
+    /// (measured: a 60 to 90 MB write took 0.9 to 1.5 s of every 3 to 6 s segment on an Apple TV).
+    let segmentWriter = DispatchQueue(label: "tomo.engine.segment-writer", qos: .userInitiated)
+    let segmentWriteSlots = DispatchSemaphore(value: 2)
+    let segmentWrites = DispatchGroup()
     var bytesInSegment: Int64 = 0
     /// Bytes and read time since the last link sample (one every 512KB; pipeline thread).
     var bytesSinceLinkSample: Int64 = 0
@@ -277,6 +285,16 @@ final class RemuxSession {
     /// Seconds after stop() at which each stop request is sent; a job lives two segments plus 60s
     /// without a request, so the last repeat outlives any request queued before the stop.
     var stopRepeatDelays: [Double] = [0, 5, 15, 30, 60]
+    /// A rung the player left: idle this long, with two segments served elsewhere since, its own server
+    /// transcode is stopped (it would otherwise run two segments plus 60 s on the server's own timer).
+    var rungIdleSeconds = 12.0
+    /// Rung and copy segments served, each rung's last serve and the count then, and the kill generation a
+    /// request for the rung bumps so pending repeats stop (under stateLock).
+    var segmentsServed = 0
+    var rungServedAt: [Int: Date] = [:]
+    var rungServedMark: [Int: Int] = [:]
+    var rungKillGeneration: [Int: Int] = [:]
+    var rungStopped: Set<Int> = []
     let startedAt = Date()
 
     /// Image subtitle decoders by input stream index, built once the input is

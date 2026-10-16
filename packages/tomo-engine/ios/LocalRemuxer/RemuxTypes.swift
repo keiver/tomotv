@@ -279,4 +279,6 @@ struct TierConfig {
     let codecs: String
     let width: Int
     let height: Int
+    /// Ends this rung's own server transcode once the player has left the rung; the session stop covers it too.
+    var stopRequest: StopRequest? = nil
 }

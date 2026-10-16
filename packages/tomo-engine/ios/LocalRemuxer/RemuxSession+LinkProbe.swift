@@ -77,6 +77,8 @@ extension RemuxSession {
     /// probe waits out the master's budget: a server disk waking from sleep answered after 3s on a
     /// 260 Mb/s link (measured), and reading that as the link put the session on the rungs.
     static let linkProbeStartSeconds = 3.0
+    /// Connections the startup probe reads on, the pipeline's own count (`ParallelRangeReader.defaultConnections`).
+    static let linkProbeConnections = ParallelRangeReader.defaultConnections
 
     /// How often the link is re-read while the session rides a rung. A rung's body is small and
     /// rides TCP's ramp, so it reads under a fast wire: a link that recovered to 30 Mb/s read
@@ -96,7 +98,11 @@ extension RemuxSession {
         var request = URLRequest(url: url, timeoutInterval: firstByteWithin + Self.linkProbeSeconds)
         for (name, value) in config.httpHeaders { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("bytes=0-", forHTTPHeaderField: "Range")
+        // The startup probe reads the way the pipeline does, on several connections: one connection read 65
+        // to 153 Mb/s run to run on a link the pipeline's three read at 150 to 320 (measured on an Apple TV).
+        // Beside a rung, one connection: a probe there takes its share of a thin link for its length.
         let probe = RateProbe(request: request, budget: Self.linkProbeSeconds, firstByteWithin: firstByteWithin,
+                              connections: reporting ? 1 : Self.linkProbeConnections,
                               beside: { [transfers] in transfers.carried() })
         transfers.probeStarted()
         let outcome = probe.run()

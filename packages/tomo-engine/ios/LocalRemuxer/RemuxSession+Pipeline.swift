@@ -376,6 +376,10 @@ extension RemuxSession {
         var pending = Data()
         /// Segments this rendition has written. Guarded by the session lock.
         var completed = Set<Int>()
+        /// Segments handed to the writer and not yet on disk, and those the prune doomed while in flight:
+        /// the writer drops such a file instead of completing it. Under the session lock.
+        var writing = Set<Int>()
+        var prunedWhileWriting = Set<Int>()
         /// First DTS written per output stream since the last muxer rebuild,
         /// in that stream's time base. The mov muxer normalizes every track's
         /// timeline to its first packet, so a generation restarted at 60s
@@ -718,9 +722,13 @@ extension RemuxSession {
             sample["produceSeconds"] = produced
             sample["readSeconds"] = readSecondsInSegment
         }
-        NSLog("[LocalRemuxer] segment %d took %.2fs for %.2fs (read %.2fs of %.1f MB, dolby vision %.2fs, audio %.2fs, subtitles %.2fs, mux %.2fs, flush %.2fs, file %.2fs)%@",
+        stateLock.lock()
+        let fileSeconds = fileSecondsInSegment
+        fileSecondsInSegment = 0
+        stateLock.unlock()
+        NSLog("[LocalRemuxer] segment %d took %.2fs for %.2fs (read %.2fs of %.1f MB, dolby vision %.2fs, audio %.2fs, subtitles %.2fs, mux %.2fs, flush %.2fs, file %.2fs off thread)%@",
               n, produced, segmentDurationSeconds(n), readSecondsInSegment, Double(bytesInSegment) / 1_000_000,
-              doviSecondsInSegment, audioSecondsInSegment, subtitleSecondsInSegment, muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment,
+              doviSecondsInSegment, audioSecondsInSegment, subtitleSecondsInSegment, muxSecondsInSegment, flushSecondsInSegment, fileSeconds,
               sleptOnCap ? ", held" : activating ? ", first with a track brought up" : first ? ", after a restart" : "")
         bytesInSegment = 0
         readSecondsInSegment = 0
@@ -729,7 +737,6 @@ extension RemuxSession {
         subtitleSecondsInSegment = 0
         muxSecondsInSegment = 0
         flushSecondsInSegment = 0
-        fileSecondsInSegment = 0
         sleptOnCap = false
         onThroughput?(sample)
     }
@@ -1881,6 +1888,8 @@ extension RemuxSession {
         for rendition in builtRenditions {
             if let previous = renditions.first(where: { $0.prefix == rendition.prefix }) {
                 rendition.completed = previous.completed
+                rendition.writing = previous.writing
+                rendition.prunedWhileWriting = previous.prunedWhileWriting
                 rendition.active = previous.active
             }
             if pendingAudioActivations.contains(rendition.prefix) { rendition.active = true }
@@ -2006,8 +2015,7 @@ extension RemuxSession {
                 stateLock.unlock()
                 if onDisk { continue }
                 let flushStarted = Date()
-                var fileSecondsSpent = 0.0
-                defer { flushSecondsInSegment += Date().timeIntervalSince(flushStarted) - fileSecondsSpent }
+                defer { flushSecondsInSegment += Date().timeIntervalSince(flushStarted) }
                 let flushed = av_write_frame(ctx, nil) // flush the open fragment
                 avio_flush(avio)
                 // A delay_moov muxer flushed before any packet cannot write its moov (the dac3
@@ -2074,29 +2082,25 @@ extension RemuxSession {
                     Self.patchTfdtToAbsolute(in: &data, offsets: offsets)
                 }
                 let segmentBytes = Self.stypBox.count + data.count
-
-                do {
-                    let fileStarted = Date()
-                    try Self.writeSegment(data, lead: Self.stypBox, to: dir.appendingPathComponent(rendition.segmentName(n)))
-                    fileSecondsSpent = Date().timeIntervalSince(fileStarted)
-                    fileSecondsInSegment += fileSecondsSpent
-                } catch {
-                    return fail("write \(rendition.segmentName(n)): \(error.localizedDescription)")
-                }
                 let duration = segmentDurationSeconds(n)
-                // One lock with the retry state: a waiter woken by this segment reads a recovered source.
                 stateLock.lock()
-                rendition.completed.insert(n)
-                if !config.isLive {
-                    renditionBitrates[rendition.prefix, default: SegmentBitrates()].record(index: n, bytes: segmentBytes, duration: duration)
-                }
-                sourceRetryAttempts = 0
-                recovering = false
+                rendition.writing.insert(n)
                 stateLock.unlock()
+                // The file lands off this thread; the segment completes when it has. The slot wait is the
+                // only pause here, and only when two segments are still being written.
+                segmentWriteSlots.wait()
+                segmentWrites.enter()
+                segmentWriter.async { [self, rendition, data] in
+                    defer {
+                        segmentWriteSlots.signal()
+                        segmentWrites.leave()
+                    }
+                    writeFinishedSegment(data, for: rendition, index: n, bytes: segmentBytes, duration: duration)
+                }
             }
 
             stateLock.lock()
-            let playhead = lastRequestedSegment
+            let playhead = lastRequestedSegmentLocked()
             sourceRetryAttempts = 0
             recovering = false
             if let takeover = sourceTakeoverSegment, n >= takeover + Self.followSegments {
@@ -2273,7 +2277,7 @@ extension RemuxSession {
             segmentClock = Date()
             sleptOnCap = false
             (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment, subtitleSecondsInSegment) = (0, 0, 0, 0, 0)
-            (muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment) = (0, 0, 0)
+            (muxSecondsInSegment, flushSecondsInSegment) = (0, 0)
             return true
         }
 
@@ -2342,7 +2346,7 @@ extension RemuxSession {
             segmentClock = Date()
             sleptOnCap = false
             (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment, subtitleSecondsInSegment) = (0, 0, 0, 0, 0)
-            (muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment) = (0, 0, 0)
+            (muxSecondsInSegment, flushSecondsInSegment) = (0, 0)
             return true
         }
 
@@ -2377,12 +2381,16 @@ extension RemuxSession {
                 var subtitlePicks: Set<Int> = []
                 var activationRestart = false
                 if sessionAnchorUs != nil, !stop, let activation = activationSeekSegment {
-                    seekTo = activation
+                    // A seek pending beside the picks: a subtitle pick only wants where the viewer is, and
+                    // the seek is the newer answer to that; an audio pick waits on its own segment, so the
+                    // lower of the two wins. Either way the generation covers up to the higher before a
+                    // request ahead may restart over it; a pick ahead of the producer is a plain seek.
+                    let audioPick = !pendingAudioActivations.isEmpty
+                    let target = seekTo.map { seek in audioPick ? min(seek, activation) : seek } ?? activation
+                    activationSpanEnd = max(producingSegment, activation, seekTo ?? activation)
+                    seekTo = target
                     activationSeekSegment = nil
                     activationRestart = true
-                    // Behind the producer, the generation has the span up to it to cover before a
-                    // request ahead may restart over it; a pick ahead of the producer is a plain seek.
-                    activationSpanEnd = max(producingSegment, activation)
                     for rendition in builtRenditions where pendingAudioActivations.contains(rendition.prefix) {
                         rendition.active = true
                         NSLog("[LocalRemuxer] audio track %@ picked, fed from the restart at segment %d", rendition.prefix, activation)
@@ -2423,7 +2431,7 @@ extension RemuxSession {
                 let tierHold = held && seekTo == nil && !stop && !starvedWaiter
                 // Live never throttles: the source arrives at its own pace and reads must keep up.
                 let throttled = !config.isLive
-                    && ((producingSegment > lastRequestedSegment + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold)
+                    && ((producingSegment > lastRequestedSegmentLocked() + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold)
                 // A text window asked while held answers without cues: nothing reads toward it.
                 producerHeld = riding && tierHold
                 stateLock.unlock()
@@ -3009,6 +3017,43 @@ extension RemuxSession {
         }
     }
 
+    /// Writes a finished segment and completes it, on the writer queue. A segment the prune doomed
+    /// meanwhile, or a stopped session's, leaves no file.
+    func writeFinishedSegment(_ data: Data, for rendition: Rendition, index n: Int, bytes: Int, duration: Double) {
+        let file = dir.appendingPathComponent(rendition.segmentName(n))
+        stateLock.lock()
+        let skip = cancelled || failed
+        stateLock.unlock()
+        if skip { return }
+        let started = Date()
+        do {
+            try Self.writeSegment(data, lead: Self.stypBox, to: file)
+        } catch {
+            stateLock.lock()
+            let stopped = cancelled
+            stateLock.unlock()
+            if !stopped { fail("write \(rendition.segmentName(n)): \(error.localizedDescription)") }
+            return
+        }
+        // One lock with the retry state: a waiter woken by this segment reads a recovered source. The
+        // rendition of that prefix now: a restart since the cut carried the bookkeeping to a new one.
+        stateLock.lock()
+        fileSecondsInSegment += Date().timeIntervalSince(started)
+        let current = renditions.first { $0.prefix == rendition.prefix } ?? rendition
+        current.writing.remove(n)
+        let doomed = current.prunedWhileWriting.remove(n) != nil
+        if !doomed {
+            current.completed.insert(n)
+            if !config.isLive {
+                renditionBitrates[current.prefix, default: SegmentBitrates()].record(index: n, bytes: bytes, duration: duration)
+            }
+        }
+        sourceRetryAttempts = 0
+        recovering = false
+        stateLock.unlock()
+        if doomed { try? FileManager.default.removeItem(at: file) }
+    }
+
     /// Drop segments that sit outside the window around the playhead, across
     /// every rendition.
     func pruneSegments(outside keep: ClosedRange<Int>) {
@@ -3016,6 +3061,8 @@ extension RemuxSession {
         var doomed: [(Rendition, [Int])] = []
         for rendition in renditions {
             let prunable = rendition.completed.filter { !keep.contains($0) }
+            // A segment still being written lands outside the window: the writer drops it on landing.
+            rendition.prunedWhileWriting.formUnion(rendition.writing.filter { !keep.contains($0) })
             guard !prunable.isEmpty else { continue }
             rendition.completed.subtract(prunable)
             doomed.append((rendition, Array(prunable)))

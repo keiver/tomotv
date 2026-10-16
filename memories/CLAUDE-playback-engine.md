@@ -118,6 +118,20 @@ and 2.07x with flat 10 s windows at thermal "serious", 4K 10-bit at 1.19x and
 (`AV_HWDEVICE_TYPE_VIDEOTOOLBOX`) is unbuilt; the record's decode-only column
 says the software decoder, not the encode, is the ceiling on that box.
 
+## Reading the file and writing the segments
+
+The input is read through three ranged connections (`ParallelRangeReader`, 2 MB chunks), the
+whole MKV whatever tracks are in use: FFmpeg's Matroska demuxer reads every block's bytes before
+its discard check. No byte on any connection for 5 s (`silenceTimeout`) drops the fetches in
+flight and starts them again on fresh connections, the way a seek drops them, so their completions
+consume no retry; the 20 s read timeout stays as the cap. Measured on an Apple TV: a flow that
+stopped on all three connections waited the 20 s out and refetched at once (a 33 s segment), and a
+body that trickled at 35 Mb/s for 11 s recovered by itself, which the silence rule leaves alone.
+Finished segments are written on a serial queue off the pipeline thread, two in flight at most;
+the segment completes when its file has landed, and the prune marks a segment still in flight so
+the writer drops the file instead. The write was 0.9 to 1.5 s of every 3 to 6 s segment (60 to
+90 MB on the 2021 Apple TV); the `segment N took` line reports it as `file ... off thread`.
+
 ## What the linked build can actually do
 
 **We build FFmpeg ourselves.** `scripts/ffmpeg/build.sh` compiles upstream
@@ -269,13 +283,18 @@ subtitle tracks flagged default or forced plus the one the stored choice lands o
 (`isSelected`, computed in `useVideoPlayback.openEngineLane`). A request for anything else
 (`aN-seg{n}.m4s`, `sub{N}.m3u8`, `sub{N}-{n}.vtt`, `sub{N}.vtt`, `pgs{N}.json`) is the pick: the
 pipeline restarts once at the lowest segment asked for (`activationSeekSegment`; a subtitle pick
-at the playhead, `playheadSegmentLocked`, read off the player's buffer report) and that
+at the playhead, `playheadSegmentLocked`, read off the player's buffer report, and before the
+player's first media request the playhead is the resume point's segment, `firstMediaRequestSeen`,
+since AVFoundation picks a legible rendition at load on its own: measured on an iPhone, that pick
+restarted the engine at 0 on a 229 s resume) and that
 generation feeds the track or opens its decoder (`Rendition.active`,
 `pendingAudioActivations`, `pendingSubtitleActivations`). A rendition that already holds a
 segment is not rewritten by any generation (the Dolby Vision rewrite still runs, its context
 carries state across frames), and while that generation is behind where the producer was
 (`activationGeneration`, `activationSpanEnd`) a request ahead of it waits instead of restarting
-over it; a track's request for a segment the primary holds re-seeks through the pick's own seek,
+over it. A seek pending beside the picks is not dropped: subtitle picks ride the seek's restart,
+an audio pick restarts at the lower of the two with the span reaching the higher. A track's
+request for a segment the primary holds re-seeks through the pick's own seek,
 since the control block drops a plain seek for a segment the primary has
 (`seekForStrandedLocked`). After 45 s of played time the app calls
 `prepareRemainingTracks` and the remaining converted audio tracks come up one per segment, at a

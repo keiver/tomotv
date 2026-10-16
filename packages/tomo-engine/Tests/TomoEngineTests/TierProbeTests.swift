@@ -1056,12 +1056,14 @@ final class TierProbeTests: XCTestCase {
     }
 
     /// A header request the server finds no file for starts its job at the film's start, so the
-    /// segment is asked for first and the header once the server has written it.
+    /// segment is asked for first and the header once the server has written it. The opening
+    /// fetch asks for the audio segment at the start too, so that one is routed as well.
     func testAnAudioSegmentIsAskedForBeforeItsInit() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
         TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
         TierServerStub.routes["/Audio/x/main.m3u8"] = (200, audioPlaylist)
         TierServerStub.routes["/Audio/x/a-init.mp4"] = (200, Data("init".utf8))
+        TierServerStub.routes["/Audio/x/a-seg0.mp4"] = (200, Data("seg".utf8))
         TierServerStub.routes["/Audio/x/a-seg1.mp4"] = (200, Data("seg".utf8))
         let (s, _) = try session(serverAudioUrl: audioUrl)
         defer { s.stop() }
@@ -1072,9 +1074,9 @@ final class TierProbeTests: XCTestCase {
         TierServerStub.lock.lock()
         let order = TierServerStub.hits
         TierServerStub.lock.unlock()
-        let segment = try XCTUnwrap(order.firstIndex(of: "/Audio/x/a-seg1.mp4"))
+        let segment = try XCTUnwrap(order.firstIndex { $0 == "/Audio/x/a-seg0.mp4" || $0 == "/Audio/x/a-seg1.mp4" })
         let header = try XCTUnwrap(order.firstIndex(of: "/Audio/x/a-init.mp4"))
-        XCTAssertLessThan(segment, header, "the segment request goes out before the header's")
+        XCTAssertLessThan(segment, header, "the first segment request goes out before the header's")
     }
 
     /// A rung AVPlayer has not asked a segment of yet cuts its header from the resume segment.
@@ -1343,6 +1345,7 @@ final class TierProbeTests: XCTestCase {
         session.sourceState = .dormant
         session.copyAnnounced = true
         session.lastRequestedSegment = 1
+        session.firstMediaRequestSeen = true
         session.lastTierRung = 0
         session.link = LinkEstimate(bps: 5_000_000, source: .probe, at: Date())
         let token = session.token
@@ -2113,5 +2116,105 @@ final class TierProbeTests: XCTestCase {
         s.stop()
         settle(3) { TierServerStub.requestCount(containing: "playSessionId=repeated") >= 3 }
         XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=repeated"), 3)
+    }
+
+    // MARK: - One job at open, and a rung the player leaves is stopped
+
+    /// Two rungs on their own server paths, each with its own play session and its own kill.
+    private func twoRungSession(linkBps: Double = 12_000_000, ids: (String, String) = ("a", "b")) throws -> RemuxSession {
+        TierServerStub.routes["/Videos/r0/t0.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/r1/t1.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/r0/seg0.ts"] = (200, tierSegment)
+        TierServerStub.routes["/Videos/r1/seg0.ts"] = (200, tierSegment)
+        let urls = ["http://tier.test/Videos/r0/t0.m3u8?ApiKey=k&PlaySessionId=\(ids.0)", "http://tier.test/Videos/r1/t1.m3u8?ApiKey=k&PlaySessionId=\(ids.1)"]
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: "")],
+                tiers: [
+                    TierConfig(playlistUrl: urls[0], bandwidth: 992_000, codecs: "avc1.64001E,mp4a.40.2", width: 640, height: 360, stopRequest: jellyfinStopRequests([urls[0]]).first),
+                    TierConfig(playlistUrl: urls[1], bandwidth: 1_692_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480, stopRequest: jellyfinStopRequests([urls[1]]).first),
+                ],
+                stopRequests: jellyfinStopRequests(urls)))
+        s.testLinkBps = linkBps
+        // The stop's later repeats outlive a test and would land in the next one's request log.
+        s.stopRepeatDelays = [0]
+        return s
+    }
+
+    /// The engine opens one video job at the start, the rung the master leads with; the lowest rung is not proved beside it.
+    func testTheOpeningProvesTheLeadingRungAndNoOther() throws {
+        let s = try twoRungSession()
+        defer { s.stop() }
+        s.start()
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertLessThan(try XCTUnwrap(master.range(of: "t1.m3u8")).lowerBound, try XCTUnwrap(master.range(of: "t0.m3u8")).lowerBound)
+        settle { FileManager.default.fileExists(atPath: s.dir.appendingPathComponent("t1-seg0.m4s").path) }
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/r1/seg0.ts"), 1, "the leading rung's opening segment, fetched once")
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/r0/seg0.ts"), 0, "the lowest rung starts no server job")
+    }
+
+    /// Another rung's init waits for the opening segment: no second server job beside the opening one.
+    func testAnotherRungsInitWaitsForTheOpeningSegment() throws {
+        let hold = DispatchSemaphore(value: 0)
+        TierServerStub.holdSegments = hold
+        let s = try twoRungSession()
+        defer { s.stop() }
+        s.start()
+        _ = s.masterPlaylist()
+        settle(3) { TierServerStub.hitCount("/Videos/r1/seg0.ts") == 1 }
+        let initDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            _ = self.resolve(s.tierInitResponse(rung: 0))
+            initDone.signal()
+        }
+        usleep(1_500_000)
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/r0/seg0.ts"), 0, "a second rung's init waits while the opening segment is still coming")
+        TierServerStub.holdSegments = nil
+        hold.signal()
+        XCTAssertEqual(initDone.wait(timeout: .now() + 8), .success)
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/r0/seg0.ts"), 1)
+    }
+
+    /// A rung the player left is stopped on the schedule by its own play session; the rung in play keeps its job.
+    func testARungThePlayerLeftHasItsOwnTranscodeStopped() throws {
+        let s = try twoRungSession(ids: ("left", "stays"))
+        defer { s.stop() }
+        s.rungIdleSeconds = 0.3
+        s.stopRepeatDelays = [0, 0.2, 0.4]
+        s.start()
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        _ = s.tierSegmentResponse(rung: 0, 0)
+        _ = s.tierSegmentResponse(rung: 1, 0)
+        _ = s.tierSegmentResponse(rung: 1, 1)
+        usleep(400_000)
+        _ = s.tierSegmentResponse(rung: 1, 2)
+        settle(3) { TierServerStub.requestCount(containing: "playSessionId=left") >= 3 }
+        XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=left"), 3)
+        XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=stays"), 0, "the rung in play keeps its job")
+        s.stopRepeatDelays = [0]
+    }
+
+    /// A request for a rung whose kill went out ends the repeats: the player came back to it.
+    func testARequestForAStoppedRungEndsItsRepeats() throws {
+        let s = try twoRungSession(ids: ("back", "kept"))
+        defer { s.stop() }
+        s.rungIdleSeconds = 0.3
+        s.stopRepeatDelays = [0, 0.3, 0.6]
+        s.start()
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        _ = s.tierSegmentResponse(rung: 0, 0)
+        _ = s.tierSegmentResponse(rung: 1, 0)
+        _ = s.tierSegmentResponse(rung: 1, 1)
+        usleep(400_000)
+        _ = s.tierSegmentResponse(rung: 1, 2)
+        settle(2) { TierServerStub.requestCount(containing: "playSessionId=back") >= 1 }
+        _ = s.tierSegmentResponse(rung: 0, 1)
+        usleep(900_000)
+        XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=back"), 1, "the repeats after the return are not sent")
+        s.stopRepeatDelays = [0]
     }
 }

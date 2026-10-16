@@ -43,6 +43,15 @@ We are the only client architecture that IS the HLS server. That is the moat.
     old 3x lead with the rungs listed beside the copy let AVPlayer drop to them: on a 200+ Mb/s
     link T105 (91 Mb/s) opened on rung 6, fell to t1 at 15.9s and played at 23.5s.
   - Under 1.2x a rung leads and the copy stays listed for AVPlayer to climb to.
+  - One video job and one audio job at open: `probeTier` proves the rung `chooseOpeningRung` picks,
+    and every rung's init waits for the opening segment (`openingInitHoldSeconds`), not only the
+    opening rung's own. Six 4K decodes at once on one serving MacBook ran at 0.5x to 1.4x each and
+    the late opening segment sent AVPlayer to segment 0 (measured 2026-10-16); one alone runs 1.4x
+    to 1.8x at start and 3x to 6x after.
+  - A rung the player left, idle 12 s with two segments served elsewhere since (`rungIdleSeconds`),
+    gets its own kill (`TierConfig.stopRequest`, the rung's play session) on the stop schedule; a
+    request for it again ends the repeats and opens it cold at the playhead. Before this, a left
+    rung ran two segments plus 60 s until Jellyfin's own timer (four orphans in one six-minute run).
   - The rung that leads is the biggest whose segment lands in about a second: `bandwidth * 6 <=
 link` (`openingRungShare`, `chooseOpeningRung`), so t0 up to 2 Mb/s and 480p at 12 Mb/s.
     Opening on the biggest rung that FIT cost 12.7s at 1.5 Mb/s. Opening everyone on t0 showed
@@ -222,7 +231,12 @@ engine measures it itself. Two kinds of evidence, kept apart:
   are never counted: they crossed the wire before the probe (a 7.5 Mb/s link read 18.7 to 28.8).
 - A probe (`RateProbe`, `RateMeter`) reads the source for its whole 1.5s budget from its first byte:
   every byte over the time since the first (NDT7's cumulative rate), stalls included, no early stop.
-  A first byte may take 3s. The link is the lower of a fast and a slow EWMA of probe readings
+  A first byte may take 3s. The startup probe reads on the pipeline's three ranged connections
+  (`linkProbeConnections`), each its own range, summed by the meter: one connection read 65.6,
+  142 and 153 Mb/s on three runs of one Apple TV on a link the pipeline's three connections then
+  read at 150 to 320 (measured 2026-10-16), and the 65.6 withheld a copy the link carried. A
+  mid-session probe beside a rung keeps one connection. A connection refused past a small file's
+  end ends quietly; only the first connection's answer classifies a failure. The link is the lower of a fast and a slow EWMA of probe readings
   weighted by their seconds (hls.js and Shaka, half-lives 3s and 9s): a drop is followed at once, a
   rise once it holds. A drained player buffer resets it.
 - Verified against ground truth: an Oracle box's own NIC counter (`/sys/class/net/*/statistics/

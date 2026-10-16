@@ -714,6 +714,13 @@ describe("startLocalRemux", () => {
     expect(config.tiers).toHaveLength(7);
     expect(config.tiers.map((tier: { bandwidth: number }) => tier.bandwidth)).toEqual(offeredTierBandwidths(source, undefined, { serverVideoOnly: true }));
     expect(config.audioTracks[0]).toMatchObject({ index: 1, usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: 120_000 });
+    // Each rung carries the kill for its own server transcode, keyed by the play session its playlist rides.
+    for (const tier of config.tiers as { playlistUrl: string; stopRequest?: { url: string; method: string } }[]) {
+      const playSessionId = new URL(tier.playlistUrl).searchParams.get("PlaySessionId");
+      expect(playSessionId).toBeTruthy();
+      expect(tier.stopRequest).toMatchObject({ method: "DELETE" });
+      expect(tier.stopRequest?.url).toContain(`playSessionId=${playSessionId}`);
+    }
     expect(config.audioTracks[0].serverAudioUrl).toContain("AudioStreamIndex=1");
     // One DELETE per server job the session may start: the seven rungs and the audio rendition.
     expect(config.stopRequests).toHaveLength(8);

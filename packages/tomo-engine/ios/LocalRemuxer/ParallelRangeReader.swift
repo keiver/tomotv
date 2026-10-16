@@ -25,6 +25,9 @@ final class ParallelRangeReader: NSObject {
     /// A chunk whose fetch fails retries this many times before the reader fails.
     static let chunkRetries = 2
     private static let readTimeout: TimeInterval = 20
+    /// No byte on any connection for this long is a stuck flow, fetched again on fresh connections: at
+    /// 150 Mb/s a chunk lands in 0.1 s, and a flow that stopped waited the 20 s out before (measured: 33 s).
+    static let silenceTimeout: TimeInterval = 5
 
     let size: Int64
     /// Ranged requests in flight at once, at most.
@@ -51,6 +54,8 @@ final class ParallelRangeReader: NSObject {
     /// Slow start: one chunk in flight until reads drain one, so a slow link's
     /// opening probe is never starved by prefetch it does not need yet.
     private var window = 1
+    /// The last byte delivered or fetch started; the silence rule counts from it.
+    private var lastActivity = Date()
 
     /// Answers at the response headers and cancels the body: a range-ignoring
     /// server would otherwise stream the whole file into the probe.
@@ -140,8 +145,31 @@ final class ParallelRangeReader: NSObject {
             bodies[index] = Data()
             started.append(task)
         }
+        if !started.isEmpty { lastActivity = Date() }
         lock.unlock()
         for task in started { task.resume() }
+    }
+
+    /// Fetches in flight with no byte for `silenceTimeout` are dropped, as a seek drops them, and
+    /// started again: their completions then find no chunk and consume no retry.
+    private func reconnectIfSilent() {
+        lock.lock()
+        let silent = !closed && !failed && !tasks.isEmpty && Date().timeIntervalSince(lastActivity) >= Self.silenceTimeout
+        var cancelling: [URLSessionDataTask] = []
+        if silent {
+            for (index, task) in tasks {
+                cancelling.append(task)
+                taskChunk[task.taskIdentifier] = nil
+                bodies[index] = Data()
+            }
+            tasks = [:]
+            lastActivity = Date()
+        }
+        lock.unlock()
+        guard silent else { return }
+        NSLog("[ParallelRangeReader] no bytes for %.0fs, fetching %d chunk(s) again", Self.silenceTimeout, cancelling.count)
+        for task in cancelling { task.cancel() }
+        schedule()
     }
 
     /// Blocking in-order read; serves whatever the head chunk holds so far.
@@ -186,6 +214,7 @@ final class ParallelRangeReader: NSObject {
                 NSLog("[ParallelRangeReader] read timed out waiting for chunk %lld", chunkIndex(cursor))
                 return -1
             }
+            reconnectIfSilent()
             ready.lock()
             ready.wait(until: Date().addingTimeInterval(0.2))
             ready.unlock()
@@ -234,7 +263,10 @@ final class ParallelRangeReader: NSObject {
 extension ParallelRangeReader: URLSessionDataDelegate {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         lock.lock()
-        if let index = taskChunk[dataTask.taskIdentifier], !closed { bodies[index]?.append(data) }
+        if let index = taskChunk[dataTask.taskIdentifier], !closed {
+            bodies[index]?.append(data)
+            lastActivity = Date()
+        }
         lock.unlock()
         ready.lock()
         ready.signal()

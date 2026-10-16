@@ -12,6 +12,8 @@ private final class PacedServer {
         var stallAfter: Int? = nil
         /// Seconds before the first byte.
         var firstByteAfter: Double = 0
+        /// A range starting at or past this offset is refused with 416, as a server does past a file's end.
+        var refuseRangesFrom: Int64? = nil
     }
 
     private let listener: NWListener
@@ -56,14 +58,28 @@ private final class PacedServer {
         let script = script
         lock.unlock()
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, _, _ in
-            guard let self, data != nil else { return }
+            guard let self, let data else { return }
             self.lock.lock()
             self.requests += 1
             self.lock.unlock()
+            if let limit = script.refuseRangesFrom, Self.rangeStart(of: data) ?? 0 >= limit {
+                connection.send(content: Data("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n".utf8), completion: .contentProcessed { _ in })
+                self.answer(connection)
+                return
+            }
             let head = Data("HTTP/1.1 200 OK\r\nContent-Length: \(script.length)\r\nContent-Type: application/octet-stream\r\n\r\n".utf8)
             connection.send(content: head, completion: .contentProcessed { _ in })
             self.queue.asyncAfter(deadline: .now() + script.firstByteAfter) { self.pace(connection, script) }
         }
+    }
+
+    /// The start of a request's `Range: bytes=N-` header, nil without one.
+    private static func rangeStart(of request: Data) -> Int64? {
+        guard let text = String(data: request, encoding: .utf8) else { return nil }
+        for line in text.split(separator: "\r\n") where line.lowercased().hasPrefix("range: bytes=") {
+            return Int64(line.dropFirst("range: bytes=".count).prefix { $0 != "-" })
+        }
+        return nil
     }
 
     private func pace(_ connection: NWConnection, _ script: Script) {
@@ -93,10 +109,32 @@ private final class PacedServer {
 final class RateProbeTests: XCTestCase {
     private let mbps = 1_000_000.0
 
-    private func probe(_ server: PacedServer, budget: Double = 3, repeats: Bool = false, beside: @escaping () -> Int64 = { 0 }) -> (RateProbe.Outcome, Double) {
+    private func probe(_ server: PacedServer, budget: Double = 3, repeats: Bool = false, connections: Int = 1, beside: @escaping () -> Int64 = { 0 }) -> (RateProbe.Outcome, Double) {
         let started = Date()
-        let outcome = RateProbe(request: URLRequest(url: server.url), budget: budget, firstByteWithin: 1, repeats: repeats, beside: beside).run()
+        let outcome = RateProbe(request: URLRequest(url: server.url), budget: budget, firstByteWithin: 1, repeats: repeats, connections: connections, beside: beside).run()
         return (outcome, Date().timeIntervalSince(started))
+    }
+
+    /// A link that paces each connection reads as their sum, the way the pipeline's three connections pull it.
+    func testSeveralConnectionsReadTheirSumAsTheLink() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000))
+        defer { server.stop() }
+        let (outcome, _) = probe(server, connections: 3)
+        let reading = try XCTUnwrap(outcome.reading)
+        XCTAssertNil(outcome.failure)
+        XCTAssertEqual(reading.kind, .full)
+        XCTAssertEqual(reading.bps / mbps, 120, accuracy: 3.6)
+        XCTAssertEqual(server.requests, 3)
+    }
+
+    func testAConnectionRefusedPastTheFileEndIsNotTheProbeFailing() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000, refuseRangesFrom: 1))
+        defer { server.stop() }
+        let (outcome, _) = probe(server, connections: 3)
+        let reading = try XCTUnwrap(outcome.reading)
+        XCTAssertNil(outcome.failure, "the first connection answers for the link")
+        XCTAssertEqual(reading.kind, .full)
+        XCTAssertEqual(reading.bps / mbps, 40, accuracy: 1.2)
     }
 
     func testAPacedBodyReadsItsRateOverTheWholeBudget() throws {
@@ -221,6 +259,17 @@ final class LinkEstimateTests: XCTestCase {
         XCTAssertNil(s.sourceProbeFailure)
     }
 
+    /// The startup probe reads on the pipeline's three connections: a link paced per connection reads as their sum.
+    func testTheStartupProbeReadsOnThePipelinesConnections() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000))
+        defer { server.stop() }
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString))
+        defer { s.stop() }
+        s.probeLink()
+        XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 120, accuracy: 3.6)
+        XCTAssertNil(s.sourceProbeFailure)
+    }
+
     /// A server disk waking from sleep answers late; the startup probe waits for it and reads the link.
     func testTheStartupProbeWaitsOutASlowFirstByte() throws {
         let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000, firstByteAfter: 5))
@@ -228,7 +277,7 @@ final class LinkEstimateTests: XCTestCase {
         let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString))
         defer { s.stop() }
         s.probeLink()
-        XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 40, accuracy: 1.2)
+        XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 120, accuracy: 3.6, "three connections, 40 each")
         XCTAssertNil(s.sourceProbeFailure)
     }
 
