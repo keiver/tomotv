@@ -103,6 +103,13 @@ extension RemuxSession {
 
         stateLock.lock()
         lastRequestedSegment = n
+        // A request for a track prepared on demand is the pick: the pipeline brings it up on a
+        // restart at the lowest segment asked for, and this request waits for that like any seek.
+        if !rendition.active, !config.isLive {
+            pendingAudioActivations.insert(prefix)
+            activationSeekSegment = min(activationSeekSegment ?? n, n)
+            playerBufferFilled = false
+        }
         let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
         let done = rendition.completed.contains(n)
         let producing = producingSegment
@@ -126,11 +133,9 @@ extension RemuxSession {
         // ahead of a producer with a 20-segment window used to wait for the 10 between to be
         // pulled at link speed (measured: 13.8s for a rebuild at 63s on a 30 Mb/s link).
         // A live source cannot seek; its playlist only lists produced segments.
-        if !config.isLive && (n < producing || n > producing + Self.seekAheadSegments) {
+        if !config.isLive {
             stateLock.lock()
-            pendingSeekSegment = n
-            // A jump empties AVPlayer's buffer; refilling it is a start, not a drain.
-            playerBufferFilled = false
+            seekForStrandedLocked(n, prefix: prefix, producing: producing)
             stateLock.unlock()
         }
 
@@ -171,10 +176,9 @@ extension RemuxSession {
             let producingNow = producingSegment
             let inRecovery = recovering
             if !config.isLive && !completed && !dead && !ended && ticks >= 20 && ticks % 10 == 0
-                && pendingSeekSegment == nil
-                && (n < producingNow || n > producingNow + Self.seekAheadSegments)
-                && abs(n - lastRequestedSegment) <= aheadWindow {
-                pendingSeekSegment = n
+                && pendingSeekSegment == nil && activationSeekSegment == nil
+                && abs(n - lastRequestedSegment) <= aheadWindow,
+               seekForStrandedLocked(n, prefix: prefix, producing: producingNow) {
                 NSLog("[LocalRemuxer] Re-asserting seek for stranded segment %d (producing %d)", n, producingNow)
             }
             stateLock.unlock()
@@ -199,6 +203,27 @@ extension RemuxSession {
                   n, prefix.isEmpty ? "" : " [\(prefix)]", producingAtEnd, playheadAtEnd)
         }
         return ok && FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Queues the restart a stranded request needs, and says whether it did. Caller holds stateLock.
+    /// A segment behind the producer that the primary already holds is one only the requesting
+    /// track lacks: it goes through the activation seek, since the control block drops a plain
+    /// seek for a segment the primary has. A request ahead of a generation restarted for a pick
+    /// waits for that generation to reach it rather than restarting forward over it.
+    @discardableResult
+    func seekForStrandedLocked(_ n: Int, prefix: String, producing: Int) -> Bool {
+        let behind = n < producing
+        let ahead = n > producing + Self.seekAheadSegments
+        guard behind || ahead else { return false }
+        if ahead, activationGeneration, n <= activationSpanEnd + Self.seekAheadSegments { return false }
+        // A jump empties AVPlayer's buffer; refilling it is a start, not a drain.
+        playerBufferFilled = false
+        if behind, !prefix.isEmpty, renditions.first?.completed.contains(n) == true {
+            activationSeekSegment = min(activationSeekSegment ?? n, n)
+        } else {
+            pendingSeekSegment = n
+        }
+        return true
     }
 
     func awaitCopyAdmission(until deadline: Date, request: SegmentRequest? = nil) -> Bool {

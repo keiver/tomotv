@@ -198,6 +198,23 @@ final class RemuxSession {
     var lastProducedSegment = 0
 
     var pendingSeekSegment: Int? = nil
+    /// A pick of a track prepared on demand: the restart that brings it up, at the segment asked
+    /// for, taken whatever the producer holds (under stateLock).
+    var activationSeekSegment: Int? = nil
+    /// Audio renditions (by prefix) and subtitle tracks (by index) picked while inactive; the
+    /// pipeline brings them up on the activation restart (under stateLock).
+    var pendingAudioActivations: Set<String> = []
+    var pendingSubtitleActivations: Set<Int> = []
+    /// The running generation was restarted behind the producer for a pick, and has not yet
+    /// reached where the producer was (`activationSpanEnd`): a request ahead of it waits for it
+    /// instead of restarting forward over it, which would leave the pick without its segments.
+    var activationGeneration = false
+    var activationSpanEnd = 0
+    /// The app has played long enough: the converted tracks still inactive come up one per
+    /// segment, at a cut, while each step keeps the segment inside its own length (under stateLock).
+    var rampArmed = false
+    /// The rendition the ramp brought up at the last cut; the segment now closing is its first. Pipeline thread.
+    var rampActivating: String? = nil
     /// Segment indices with a live segmentURL() request currently waiting on
     /// them, with a count per index (renditions can wait on the same n
     /// concurrently). The producer refuses to throttle while one of these sits
@@ -218,6 +235,7 @@ final class RemuxSession {
     /// Time the segment spent in the Dolby Vision rewrite and the audio encoder, beside the reads.
     var doviSecondsInSegment: Double = 0
     var audioSecondsInSegment: Double = 0
+    var subtitleSecondsInSegment: Double = 0
     /// The muxer's per-packet writes, the fragment flush at the cut, and the segment file write.
     var muxSecondsInSegment: Double = 0
     var flushSecondsInSegment: Double = 0
@@ -256,6 +274,9 @@ final class RemuxSession {
     var linkWindowStart = Date()
     /// Test seam: stands in for the measured link rate. Never set in production.
     var testLinkBps: Double? = nil
+    /// Seconds after stop() at which each stop request is sent; a job lives two segments plus 60s
+    /// without a request, so the last repeat outlives any request queued before the stop.
+    var stopRepeatDelays: [Double] = [0, 5, 15, 30, 60]
     let startedAt = Date()
 
     /// Image subtitle decoders by input stream index, built once the input is

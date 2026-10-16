@@ -42,3 +42,5 @@ export const LIVE_STALL_DEADLINE_MS = 60_000;
 export const PLAYHEAD_EPSILON_SEC = 0.25;
 /** The largest gap between two progress ticks that still reads as playback; a bigger one is a seek. */
 export const PLAYHEAD_STEP_MAX_SEC = 2;
+/** Seconds of played time after which the engine brings up the audio tracks it left for a pick, one per segment. */
+export const ENGINE_TRACK_RAMP_SEC = 45;

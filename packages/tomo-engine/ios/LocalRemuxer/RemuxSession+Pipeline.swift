@@ -366,6 +366,9 @@ extension RemuxSession {
 
         var ctx: UnsafeMutablePointer<AVFormatContext>?
         var avio: UnsafeMutablePointer<AVIOContext>?
+        /// Fed packets. An inactive rendition keeps its muxer and init, writes no segment, and comes
+        /// up when picked or on the ramp. Written on the pipeline thread under the session lock.
+        var active = true
         /// input stream index -> output stream index, for the current muxer.
         var streamMap: [Int32: Int32] = [:]
         /// Muxer output accumulates here; the pipeline drains it into files at
@@ -695,7 +698,7 @@ extension RemuxSession {
     /// Wall time of the segment just closed against its media duration, with the
     /// cushion ahead of the playhead. The generation's first segment reports no
     /// time: it carries the input seek.
-    func reportThroughput(segment n: Int, cushion: Int) {
+    func reportThroughput(segment n: Int, cushion: Int, activating: Bool = false) {
         let now = Date()
         let produced = now.timeIntervalSince(segmentClock)
         segmentClock = now
@@ -708,20 +711,22 @@ extension RemuxSession {
             "segmentSeconds": segmentDurationSeconds(n),
             "cushion": cushion,
             "throttled": sleptOnCap,
+            "activating": activating,
             "thermal": VideoTranscoder.thermalName(),
         ]
         if !(first && generation > 0) {
             sample["produceSeconds"] = produced
             sample["readSeconds"] = readSecondsInSegment
         }
-        NSLog("[LocalRemuxer] segment %d took %.2fs for %.2fs (read %.2fs of %.1f MB, dolby vision %.2fs, audio %.2fs, mux %.2fs, flush %.2fs, file %.2fs)%@",
+        NSLog("[LocalRemuxer] segment %d took %.2fs for %.2fs (read %.2fs of %.1f MB, dolby vision %.2fs, audio %.2fs, subtitles %.2fs, mux %.2fs, flush %.2fs, file %.2fs)%@",
               n, produced, segmentDurationSeconds(n), readSecondsInSegment, Double(bytesInSegment) / 1_000_000,
-              doviSecondsInSegment, audioSecondsInSegment, muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment,
-              sleptOnCap ? ", held" : first ? ", after a restart" : "")
+              doviSecondsInSegment, audioSecondsInSegment, subtitleSecondsInSegment, muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment,
+              sleptOnCap ? ", held" : activating ? ", first with a track brought up" : first ? ", after a restart" : "")
         bytesInSegment = 0
         readSecondsInSegment = 0
         doviSecondsInSegment = 0
         audioSecondsInSegment = 0
+        subtitleSecondsInSegment = 0
         muxSecondsInSegment = 0
         flushSecondsInSegment = 0
         fileSecondsInSegment = 0
@@ -902,6 +907,7 @@ extension RemuxSession {
             } else {
                 entry["action"] = "copy"
             }
+            entry["active"] = rendition?.active ?? true
             audio.append(entry)
         }
         for (position, track) in config.audioTracks.enumerated() where track.usesServerAudio {
@@ -1588,15 +1594,52 @@ extension RemuxSession {
         var subtitleIdentity: [Int32: Int32] = [:]
         // Tracks the file listed that no decoder opens: left out of the master, where a configured one fails the session.
         var undecodableSubtitles: Set<Int> = []
-        for sub in imageSubtitleTracks {
+        // A file the player can seek prepares only the tracks it will show: the file's default and
+        // forced ones and the viewer's choice. The rest get a decoder when picked, on a restart.
+        let picksSubtitles = !config.isLive && !config.describesInput
+        func decodedAtStart(_ sub: RemuxSubtitle) -> Bool { !picksSubtitles || sub.isDefault || sub.isForced || sub.isSelected }
+
+        /// Opens the decoder of one in-file track. At start a configured track with no decoder fails
+        /// the session, as a misconfigured one does; a pick that opens none is left without.
+        func openSubtitleDecoder(_ sub: RemuxSubtitle, stream: UnsafeMutablePointer<AVStream>, atStart: Bool) -> Bool {
+            let index = Int32(sub.index)
+            if sub.isImage {
+                guard let decoder = ImageSubtitleDecoder(stream: stream, fallbackWidth: fallbackWidth, fallbackHeight: fallbackHeight,
+                                                         dir: dir, reportedIndex: index, namePrefix: "pgs\(sub.index)") else {
+                    if discoversFileSubtitles { undecodableSubtitles.insert(sub.index) }
+                    else if atStart { failStartup("image subtitle \(sub.index) has no decoder") }
+                    return false
+                }
+                stateLock.lock()
+                imageSubtitles[index] = decoder
+                stateLock.unlock()
+            } else {
+                guard let decoder = TextSubtitleDecoder(stream: stream) else {
+                    if discoversFileSubtitles { undecodableSubtitles.insert(sub.index) }
+                    else if atStart { failStartup("text subtitle \(sub.index) has no decoder") }
+                    return false
+                }
+                stateLock.lock()
+                textSubtitles[index] = decoder
+                stateLock.unlock()
+            }
+            return true
+        }
+
+        for sub in subtitleTracks where sub.isImage || sub.isEngineText {
             let index = Int32(sub.index)
             let found = sub.isExternal ? (stream: Int32?.none, refusal: "") : sourceStream(input, index: sub.index, source: sub.source, type: AVMEDIA_TYPE_SUBTITLE)
             if let stream = found.stream { subtitleIdentity[stream] = index }
             stateLock.lock()
-            let existingDecoder = imageSubtitles[index]
+            let existingImage = imageSubtitles[index]
+            let existingText = textSubtitles[index]
             stateLock.unlock()
-            if let existingDecoder {
-                existingDecoder.flush(demuxedUpTo: demuxedUpTo)
+            if let existingImage {
+                existingImage.flush(demuxedUpTo: demuxedUpTo)
+                continue
+            }
+            if let existingText {
+                existingText.flush()
                 continue
             }
             if sub.isExternal {
@@ -1605,64 +1648,40 @@ extension RemuxSession {
                 continue
             }
             guard let streamIndex = found.stream, let stream = input.pointee.streams[Int(streamIndex)] else {
-                return failStartup("configured image subtitle \(found.refusal)")
+                return failStartup("configured \(sub.isImage ? "image" : "text") subtitle \(found.refusal)")
             }
-            guard let decoder = ImageSubtitleDecoder(
-                stream: stream,
-                fallbackWidth: fallbackWidth,
-                fallbackHeight: fallbackHeight,
-                dir: dir,
-                reportedIndex: index,
-                namePrefix: "pgs\(sub.index)"
-            ) else {
-                if discoversFileSubtitles {
-                    undecodableSubtitles.insert(sub.index)
-                    continue
-                }
-                return failStartup("image subtitle \(sub.index) has no decoder")
-            }
-            stateLock.lock()
-            imageSubtitles[index] = decoder
-            stateLock.unlock()
-        }
-        if !imageSubtitles.isEmpty {
-            NSLog("[LocalRemuxer] harvesting %d image subtitle track(s)", imageSubtitles.count)
-        }
-
-        // Same terms as the image ones: decode cost, nothing off the network.
-        for sub in subtitleTracks where sub.isEngineText {
-            let index = Int32(sub.index)
-            let found = sourceStream(input, index: sub.index, source: sub.source, type: AVMEDIA_TYPE_SUBTITLE)
-            if let stream = found.stream { subtitleIdentity[stream] = index }
-            stateLock.lock()
-            let existingDecoder = textSubtitles[index]
-            stateLock.unlock()
-            if let existingDecoder {
-                existingDecoder.flush()
-                continue
-            }
-            guard let streamIndex = found.stream, let stream = input.pointee.streams[Int(streamIndex)] else {
-                return failStartup("configured text subtitle \(found.refusal)")
-            }
-            guard let decoder = TextSubtitleDecoder(stream: stream) else {
-                if discoversFileSubtitles {
-                    undecodableSubtitles.insert(sub.index)
-                    continue
-                }
-                return failStartup("text subtitle \(sub.index) has no decoder")
-            }
-            stateLock.lock()
-            textSubtitles[index] = decoder
-            stateLock.unlock()
+            guard decodedAtStart(sub) else { continue }
+            if !openSubtitleDecoder(sub, stream: stream, atStart: true), !discoversFileSubtitles { return }
         }
         stateLock.lock()
         subtitleDecodersBuilt = true
         if !undecodableSubtitles.isEmpty { inputSubtitles = inputSubtitles?.filter { !undecodableSubtitles.contains($0.index) } }
+        let decoding = (imageSubtitles.count, textSubtitles.count)
         stateLock.unlock()
-        if !textSubtitles.isEmpty {
-            NSLog("[LocalRemuxer] decoding %d text subtitle track(s) on device", textSubtitles.count)
+        let inFile = subtitleTracks.filter { ($0.isImage || $0.isEngineText) && !$0.isExternal }.count
+        if inFile > 0 {
+            NSLog("[LocalRemuxer] decoding %d image and %d text subtitle track(s) of %d in the file; the rest on a pick", decoding.0, decoding.1, inFile)
         }
         mark("image_subtitle_decoders")
+
+        /// The tracks picked while they had no decoder get one, on the pipeline thread. Pipeline
+        /// thread only: it writes the decoder maps beside the read loop that feeds them.
+        func openPickedSubtitleDecoders(_ picked: Set<Int>) {
+            for index in picked {
+                guard let sub = subtitleTracks.first(where: { $0.index == index && !$0.isExternal && ($0.isImage || $0.isEngineText) }),
+                      let streamIndex = subtitleIdentity.first(where: { $0.value == Int32(index) })?.key,
+                      let stream = input.pointee.streams[Int(streamIndex)] else { continue }
+                stateLock.lock()
+                let has = imageSubtitles[Int32(index)] != nil || textSubtitles[Int32(index)] != nil
+                stateLock.unlock()
+                if has { continue }
+                if openSubtitleDecoder(sub, stream: stream, atStart: false) {
+                    NSLog("[LocalRemuxer] subtitle track %d picked, decoding from the restart", index)
+                } else {
+                    NSLog("[LocalRemuxer] subtitle track %d picked, but no decoder opens for it", index)
+                }
+            }
+        }
         // Whatever ends this read (a retry, the source let go or lost, a stop), the set on screen ends with it.
         defer { closeImageSubtitlesAtReadPoint() }
 
@@ -1837,7 +1856,12 @@ extension RemuxSession {
                 return failStartup("no transcode path for audio stream \(audioIndex)")
             }
             if hasVideo && splitAudio {
-                builtRenditions.append(Rendition(prefix: audioPrefix(position), inputStreams: [audioIndex], transcoder: transcoder, videoTranscoder: nil))
+                let rendition = Rendition(prefix: audioPrefix(position), inputStreams: [audioIndex], transcoder: transcoder, videoTranscoder: nil)
+                // The playing track and every copied one are fed from the start: a copy costs a mux
+                // only, and a Dolby copy's header exists only once it has a packet. A converted
+                // track other than the playing one waits for a pick or the ramp.
+                rendition.active = !picksSubtitles || position == 0 || transcoder == nil
+                builtRenditions.append(rendition)
             } else {
                 // The audio-only case lands here too, with the video index left
                 // out of the stream list entirely.
@@ -1857,8 +1881,11 @@ extension RemuxSession {
         for rendition in builtRenditions {
             if let previous = renditions.first(where: { $0.prefix == rendition.prefix }) {
                 rendition.completed = previous.completed
+                rendition.active = previous.active
             }
+            if pendingAudioActivations.contains(rendition.prefix) { rendition.active = true }
         }
+        pendingAudioActivations = []
         renditions = builtRenditions
         producingSegment = 0
         reachedEnd = false
@@ -1973,6 +2000,11 @@ extension RemuxSession {
         func finishSegment(_ n: Int) {
             for rendition in builtRenditions {
                 guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
+                // Nothing was written for a segment the rendition already holds; its file stays.
+                stateLock.lock()
+                let onDisk = rendition.completed.contains(n)
+                stateLock.unlock()
+                if onDisk { continue }
                 let flushStarted = Date()
                 var fileSecondsSpent = 0.0
                 defer { flushSecondsInSegment += Date().timeIntervalSince(flushStarted) - fileSecondsSpent }
@@ -2070,7 +2102,9 @@ extension RemuxSession {
             if let takeover = sourceTakeoverSegment, n >= takeover + Self.followSegments {
                 sourceTakeoverSegment = nil
             }
+            if activationGeneration, n >= activationSpanEnd { activationGeneration = false }
             stateLock.unlock()
+            let activating = stepTrackRamp(closing: n)
             if config.isLive {
                 // The window trails production, not the playhead: live never seeks back to regenerate.
                 stateLock.lock()
@@ -2098,7 +2132,39 @@ extension RemuxSession {
                 inputBytesSinceLog = 0
                 lastThroughputLog = Date()
             }
-            reportThroughput(segment: n, cushion: n - playhead)
+            reportThroughput(segment: n, cushion: n - playhead, activating: activating)
+        }
+
+        /// The ramp, at the cut closing segment `n`: the track brought up at the last cut stays if
+        /// this segment kept inside its length and is undone otherwise, then the next inactive
+        /// converted track comes up, one per timed segment that the producer neither held nor rode a
+        /// rung through. True when `n` was the first segment with a track just brought up.
+        func stepTrackRamp(closing n: Int) -> Bool {
+            let produced = Date().timeIntervalSince(segmentClock)
+            // The same terms as the sample: a generation's first segment carries the seek, a held one the cap.
+            let timed = (segmentsInGeneration > 0 || generation == 0) && !sleptOnCap
+            stateLock.lock()
+            let riding = ridingTierLocked()
+            let first = rampActivating
+            rampActivating = nil
+            let undone = first != nil && timed && produced > segmentDurationSeconds(n)
+            if undone, let rendition = builtRenditions.first(where: { $0.prefix == first }) {
+                rendition.active = false
+                rampArmed = false
+            }
+            let next = rampArmed && timed && !riding ? builtRenditions.first { !$0.active && !$0.prefix.isEmpty } : nil
+            if let next {
+                next.active = true
+                rampActivating = next.prefix
+            } else if rampArmed, builtRenditions.allSatisfy(\.active) {
+                rampArmed = false
+            }
+            stateLock.unlock()
+            if undone, let first {
+                NSLog("[LocalRemuxer] track %@ ran segment %d past its length (%.2fs): left inactive, the ramp stops", first, n, produced)
+            }
+            if let next { NSLog("[LocalRemuxer] ramp: track %@ comes up at the cut after segment %d", next.prefix, n) }
+            return first != nil
         }
 
         /// Live: the cut boundary is relative to the open segment, so a keyframe-aligned
@@ -2206,7 +2272,7 @@ extension RemuxSession {
             segmentsInGeneration = 0
             segmentClock = Date()
             sleptOnCap = false
-            (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment) = (0, 0, 0, 0)
+            (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment, subtitleSecondsInSegment) = (0, 0, 0, 0, 0)
             (muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment) = (0, 0, 0)
             return true
         }
@@ -2266,6 +2332,7 @@ extension RemuxSession {
             producingSegment = segment
             seekRestarts += 1
             reachedEnd = false
+            activationGeneration = false
             // The seek skips a region: this generation's read starts a new span.
             archiveReadSpanLocked()
             stateLock.unlock()
@@ -2274,7 +2341,7 @@ extension RemuxSession {
             segmentsInGeneration = 0
             segmentClock = Date()
             sleptOnCap = false
-            (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment) = (0, 0, 0, 0)
+            (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment, subtitleSecondsInSegment) = (0, 0, 0, 0, 0)
             (muxSecondsInSegment, flushSecondsInSegment, fileSecondsInSegment) = (0, 0, 0)
             return true
         }
@@ -2303,6 +2370,27 @@ extension RemuxSession {
                 }
                 if seekTo == nil, !stop, let late = lateOpenRestart { seekTo = late }
                 lateOpenRestart = nil
+                // A pick of a track prepared on demand restarts at its segment whatever the producer
+                // holds: the track has nothing on disk there, and a segment under production would
+                // be published short for it. The picks are taken with the seek, under the one lock,
+                // so a request landing between here and the restart finds its track already up.
+                var subtitlePicks: Set<Int> = []
+                var activationRestart = false
+                if sessionAnchorUs != nil, !stop, let activation = activationSeekSegment {
+                    seekTo = activation
+                    activationSeekSegment = nil
+                    activationRestart = true
+                    // Behind the producer, the generation has the span up to it to cover before a
+                    // request ahead may restart over it; a pick ahead of the producer is a plain seek.
+                    activationSpanEnd = max(producingSegment, activation)
+                    for rendition in builtRenditions where pendingAudioActivations.contains(rendition.prefix) {
+                        rendition.active = true
+                        NSLog("[LocalRemuxer] audio track %@ picked, fed from the restart at segment %d", rendition.prefix, activation)
+                    }
+                    pendingAudioActivations = []
+                    subtitlePicks = pendingSubtitleActivations
+                    pendingSubtitleActivations = []
+                }
                 // Never sleep while a request waits on a segment inside the
                 // production window: lastRequestedSegment is overwritten by
                 // every request (including ones served instantly from disk),
@@ -2341,6 +2429,7 @@ extension RemuxSession {
                 stateLock.unlock()
 
                 if stop { break readLoop }
+                if !subtitlePicks.isEmpty { openPickedSubtitleDecoders(subtitlePicks) }
                 // Held under a rung, the demuxer feeds no cues: the set on screen ends here, and a
                 // sidecar's server copy takes over.
                 if riding, tierHold {
@@ -2360,6 +2449,11 @@ extension RemuxSession {
                 }
                 if let seekTo {
                     guard restart(at: seekTo) else { break readLoop }
+                    if activationRestart {
+                        stateLock.lock()
+                        activationGeneration = true
+                        stateLock.unlock()
+                    }
                     break
                 }
                 if !throttled { break }
@@ -2445,13 +2539,14 @@ extension RemuxSession {
                 stateLock.lock()
                 reachedEnd = true
                 lastProducedSegment = currentSegment
+                activationGeneration = false
                 stateLock.unlock()
 
                 var resume = false
                 while !resume {
                     stateLock.lock()
                     let stop = cancelled || failed
-                    let pending = pendingSeekSegment
+                    let pending = pendingSeekSegment ?? activationSeekSegment
                     stateLock.unlock()
                     if stop { break readLoop }
                     if pending != nil {
@@ -2541,7 +2636,9 @@ extension RemuxSession {
             // subtitle packet, and a cue's time is its own PTS.
             let subtitleIndex = subtitleIdentity[pkt.pointee.stream_index]
             if let textDecoder = subtitleIndex.flatMap({ textSubtitles[$0] }) {
+                let decodeStarted = Date()
                 textDecoder.handle(packet: pkt)
+                subtitleSecondsInSegment += Date().timeIntervalSince(decodeStarted)
                 continue
             }
 
@@ -2559,7 +2656,9 @@ extension RemuxSession {
                     if awaitingKeyframe { continue }
                     subtitleDecoder.sourceOffsetSeconds = Double(timelineAnchorUs) / Double(SWIFT_AV_TIME_BASE)
                 }
+                let decodeStarted = Date()
                 subtitleDecoder.handle(packet: pkt)
+                subtitleSecondsInSegment += Date().timeIntervalSince(decodeStarted)
                 continue
             }
 
@@ -2573,6 +2672,9 @@ extension RemuxSession {
                   var outStream = ctx.pointee.streams[Int(outIndex)] else { continue }
 
             let isVideo = hasVideo && pkt.pointee.stream_index == videoIn
+            // An inactive track's packets are demuxed with the rest and go no further: no decode,
+            // no encode, no mux, until a pick or the ramp brings the track up.
+            if !isVideo, !rendition.active { continue }
             let isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
             if isVideo, isKey, !awaitingKeyframe, let map = byteMap, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                 map.record(pos: pkt.pointee.pos, seconds: Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base))
@@ -2835,6 +2937,15 @@ extension RemuxSession {
                 }
             }
 
+            // A rendition that already holds this segment (a generation restarted behind the
+            // producer for a pick) is not rewritten: its file stays, and its muxer's first write
+            // lands at the first segment it lacks, continuing the same source packets. The Dolby
+            // Vision rewrite below still runs: its context carries mapping state across frames.
+            stateLock.lock()
+            let onDisk = rendition.completed.contains(currentSegment)
+            stateLock.unlock()
+            if onDisk, !isVideo { continue }
+
             // Transcoded audio: the encoder emits its own packets on its own
             // clock, so the input packet is consumed rather than written.
             if !isVideo, let transcoder = rendition.transcoder {
@@ -2870,6 +2981,7 @@ extension RemuxSession {
                     break
                 }
             }
+            if onDisk { continue }
 
             // The ADTS header (9 bytes with its CRC) is not part of an MP4 sample.
             if rendition.adtsStreams.contains(outIndex), pkt.pointee.size > 9, let data = pkt.pointee.data,

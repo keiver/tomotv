@@ -42,13 +42,21 @@ extension RemuxSession {
     }
 
     /// Fire-and-forget: the app names what ends its server-side work (a transcode keyed by the
-    /// session it started) and the engine sends it as the session goes.
+    /// session it started) and the engine sends it as the session goes, then again on a schedule:
+    /// a request still queued on the server starts a new job once the first kill lands, and a
+    /// header request after the server deletes the job's files starts one at the film's start.
     func fireStopRequests() {
-        for stopRequest in config.stopRequests {
-            guard let url = URL(string: stopRequest.url) else { continue }
+        let requests: [URLRequest] = config.stopRequests.compactMap { stopRequest in
+            guard let url = URL(string: stopRequest.url) else { return nil }
             var request = URLRequest(url: url, timeoutInterval: 5)
             request.httpMethod = stopRequest.method
-            URLSession.shared.dataTask(with: request).resume()
+            return request
+        }
+        guard !requests.isEmpty else { return }
+        for delay in stopRepeatDelays {
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
+                for request in requests { URLSession.shared.dataTask(with: request).resume() }
+            }
         }
     }
 
@@ -99,10 +107,11 @@ extension RemuxSession {
         guard free else { return false }
         NSLog("[LocalRemuxer] Slipstream: source let go, the rungs carry the session (%@)", reason)
         startServerImageSubtitles()
-        // The opening audio segment costs a server spin-up of its own; overlap it with the rung's.
+        // The audio segment at the playhead costs a server spin-up of its own; overlap it with the
+        // rung's. At the resume point, the player's own request would kill it and start again.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self, let segments = self.adoptAudioLo(0) else { return }
-            _ = self.materializeAudioLoSegment(position: 0, n: self.audioLoIndex(segments, at: self.config.startOffsetSeconds))
+            _ = self.materializeAudioLoSegment(position: 0, n: self.audioLoIndex(segments, at: self.playheadSeconds()))
         }
         return true
     }

@@ -294,7 +294,17 @@ tx_bytes`) sent 43 then 106 Mb/s during a TV probe that read 89.3, and Cloudflar
 - The rung lane is NOT read ahead. Tried and measured: segments that arrive instantly make
   AVPlayer climb on a thin buffer and stall (15s, 21s and 7s across three links). Its own clock on
   segments fetched as it asks is what keeps a thin link smooth.
-- The audio-lo init is fetched once a session, not once a segment.
+- The audio-lo init is fetched once a session, not once a segment, and after the segment: a
+  header request Jellyfin finds no file for starts its job at 0:00 (`DynamicHlsController`,
+  `segmentId == -1`), killing the one already at the resume point, and hlsenc writes the header
+  before any segment. A cold rung's header is cut from the playhead's segment for the same
+  reason, and the release prefetch of audio-lo asks for the playhead's segment, not the
+  resume point's (measured 2026-10-15: a 41 s job at 0:00 and three rungs started at 0:00).
+- The stop's DELETEs (`/Videos/ActiveEncodings` per PlaySessionId) are sent at 0, 5, 15, 30 and
+  60 s (`stopRepeatDelays`): Jellyfin holds a queued segment request under its playlist lock, so
+  the request lands after the first kill and starts a new job, and a header request after it
+  deletes the job's files (1.5 s after the kill) starts one at 0:00. A repeat with no job is a
+  no-op; an orphan otherwise lives two segments plus 60 s on the ping timer.
 - A request more than 2 segments ahead of the producer is a seek (`seekAheadSegments`), whatever
   the read-ahead depth. It used to be the 20-segment window, so a rebuild or a resume inside a
   film's first two minutes waited for every segment between to be pulled at link speed (measured:

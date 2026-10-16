@@ -33,6 +33,8 @@ export type SubtitleRendition = {
   isEngineText: boolean;
   /** A remote raw copy of an image sidecar, decoded on device when the source is not being read (rung sessions). */
   serverSupUrl?: string;
+  /** Decoded from the start beside the file's default and forced tracks: where the stored choice lands. The rest decode on a pick. */
+  isSelected?: boolean;
   /** Where an embedded track sits in the container; absent for a sidecar and on a live source. */
   source?: SourcePosition;
 };

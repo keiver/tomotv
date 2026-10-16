@@ -49,6 +49,7 @@ import {
   serverIFramePlan,
   readBound,
   posterFrameWorkInFlight,
+  prepareRemainingTracks,
   resolveSubtitlePick,
   offeredTierBandwidths,
   reportPlayerBuffer,
@@ -109,7 +110,15 @@ import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
 import { segmentSkipTarget } from "./videoPlayback/segmentSkip";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
-import { classifyObservedChoice, keepsCurrentPick, pinsCaptionsOn, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
+import {
+  classifyObservedChoice,
+  keepsCurrentPick,
+  pinsCaptionsOn,
+  planSubtitleApplication,
+  renditionForPlan,
+  startingSubtitleRendition,
+  subtitleSelectionForReport,
+} from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
 import {
   createPreflightGate,
@@ -128,6 +137,7 @@ import {
   DIRECT_STALL_DEADLINE_MS,
   ENGINE_PREFLIGHT_CAP_MS,
   ENGINE_SEGMENT_DEADLINE_MS,
+  ENGINE_TRACK_RAMP_SEC,
   LIVE_START_BUFFER_CAP_MS,
   LIVE_START_BUFFER_SEGMENTS,
   LIVE_START_DEADLINE_MS,
@@ -354,6 +364,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const retryProgressStartRef = useRef<number | null>(null);
   // The previous onProgress position of this stream, so a tick can tell a playhead step from a frozen clock.
   const lastTickRef = useRef<number | null>(null);
+  /** Played seconds of the engine session named, counted from stepped ticks, until its ramp is asked for once. */
+  const trackRampRef = useRef<{ token: string | null; playedSeconds: number; asked: boolean }>({ token: null, playedSeconds: 0, asked: false });
   // When the first automatic retry of this run fired; null once 30s of playback lands.
   const retryWindowStartRef = useRef<number | null>(null);
   // The engine took its one fresh session after a failure; with the server ruled out, the next failure is final.
@@ -1444,9 +1456,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               logger.info("Live channel bound to its warming ring session", { service: "useVideoPlayback", videoId });
             } else {
               setPlaybackStage("engine");
-              const engineStarted = serverVideoOnly
-                ? startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined, { serverVideoOnly: true })
-                : startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
+              // The track the stored choice lands on is decoded from the start; every other
+              // in-file track waits for a pick. Smart reads the playing audio's language.
+              const audioStreams = (details.MediaStreams ?? []).filter((stream) => stream.Type === "Audio");
+              const playingAudio =
+                audioStreams.find((stream) => stream.Index === audioStreamIndexForReportingRef.current) ?? audioStreams.find((stream) => stream.IsDefault === true) ?? audioStreams[0];
+              const selectedSubtitleIndex = startingSubtitleRendition(getSubtitlePreferenceSync(playingAudio?.Language), subtitleRenditionsRef.current);
+              const engineStarted = startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined, {
+                ...(serverVideoOnly ? { serverVideoOnly: true } : {}),
+                selectedSubtitleIndex,
+              });
               url = await engineStarted.catch(rethrowAs(PLAYBACK_ERROR_IDS.ENGINE_START));
               if (requestIdRef.current !== currentRequestId) {
                 // Stale since the await: a session nobody will play, stopped here instead of at the cap.
@@ -2026,6 +2045,21 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const lastTick = lastTickRef.current;
       lastTickRef.current = data.currentTime;
       const stepped = lastTick !== null && data.currentTime > lastTick && data.currentTime - lastTick < PLAYHEAD_STEP_MAX_SEC;
+      // Played time of the engine session, pauses and seek jumps left out: once it has run long
+      // enough the engine brings up the audio tracks it left for a pick, one per segment.
+      const rampToken = transportRef.current === "gateway" && !isLiveRef.current ? localRemuxTokenRef.current : null;
+      if (rampToken) {
+        const ramp = trackRampRef.current;
+        if (ramp.token !== rampToken) trackRampRef.current = { token: rampToken, playedSeconds: 0, asked: false };
+        else if (stepped && !ramp.asked) {
+          ramp.playedSeconds += data.currentTime - (lastTick ?? data.currentTime);
+          if (ramp.playedSeconds >= ENGINE_TRACK_RAMP_SEC) {
+            ramp.asked = true;
+            void prepareRemainingTracks(rampToken);
+            logger.info("Engine brings up the remaining audio tracks", { service: "useVideoPlayback", playedSeconds: Math.round(ramp.playedSeconds) });
+          }
+        }
+      }
       const nowPlaying = !paused && (playerPlayingRef.current || stepped);
       const wasPlaying = isPlayingRef.current;
 

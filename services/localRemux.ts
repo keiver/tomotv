@@ -87,6 +87,7 @@ export {
   posterFrameIfCached,
   posterFrameRevision,
   posterFrameWorkInFlight,
+  prepareRemainingTracks,
   setPosterFramesPaused,
   readBound,
   reportPlayerBuffer,
@@ -710,7 +711,8 @@ export async function startLocalRemux(
   preferredAudioStreamIndex?: number,
   startOffsetSeconds?: number,
   // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
-  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring" } = {},
+  // selectedSubtitleIndex: the track the stored choice lands on, decoded from the start with the default and forced ones.
+  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring"; selectedSubtitleIndex?: number | null } = {},
 ): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
@@ -830,7 +832,9 @@ export async function startLocalRemux(
   // A subtitle inside the file comes only from the bytes the engine reads: asked of the server, it
   // extracts every track from the whole film, uncancellable. Under a rung such tracks pause, and a
   // server-video session never opens the file, so it lists sidecars alone.
-  const subtitlesConfig = serverVideoOnly ? subtitles.filter((sub) => !sub.isEngineText && (!sub.isImage || sub.isExternal === true)) : subtitles;
+  const subtitlesConfig = (serverVideoOnly ? subtitles.filter((sub) => !sub.isEngineText && (!sub.isImage || sub.isExternal === true)) : subtitles).map((sub) =>
+    sub.index === options.selectedSubtitleIndex ? { ...sub, isSelected: true } : sub,
+  );
 
   const tierOffered = tiersConfig.length > 0;
   const stopRequests = tierStopRequests([...tiersConfig.map((tier) => tier.playlistUrl), ...audioTracksConfig.map((track) => ("serverAudioUrl" in track ? track.serverAudioUrl : ""))]);

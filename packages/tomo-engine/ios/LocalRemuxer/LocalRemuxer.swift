@@ -331,6 +331,7 @@ class LocalRemuxer: RCTEventEmitter {
             )
             subtitle.serverSupUrl = raw["serverSupUrl"] as? String ?? ""
             subtitle.isExternal = raw["isExternal"] as? Bool ?? false
+            subtitle.isSelected = raw["isSelected"] as? Bool ?? false
             subtitle.isHearingImpaired = raw["isHearingImpaired"] as? Bool ?? false
             subtitle.source = SourcePosition(raw["source"])
             guard raw["source"] == nil || subtitle.source != nil else { return nil }
@@ -870,6 +871,19 @@ class LocalRemuxer: RCTEventEmitter {
         guard let session else { return resolve(0) }
         session.notePlayerBuffer(aheadSeconds: aheadSeconds.doubleValue, sinceSeek: sinceSeek)
         resolve(session.copyCapFloor())
+    }
+
+    /// Playback has run long enough: the converted audio tracks not yet fed come up one per segment.
+    @objc func prepareRemainingTracks(
+        _ token: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        session?.armTrackRamp()
+        resolve(session != nil)
     }
 
     /// Cancellation flags for repackages in flight, keyed by item id.

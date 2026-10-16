@@ -245,6 +245,20 @@ export async function reportPlayerBuffer(token: string, aheadSeconds: number, si
   }
 }
 
+/**
+ * Playback has settled: the engine brings up the converted audio tracks it left for a pick, one
+ * per segment. False when the binary has no such method or the session is gone.
+ */
+export async function prepareRemainingTracks(token: string): Promise<boolean> {
+  if (!isLocalRemuxAvailable() || !token || typeof engineModule().prepareRemainingTracks !== "function") return false;
+  try {
+    return (await engineModule().prepareRemainingTracks(token)) === true;
+  } catch (error) {
+    engineLog().debug("Track ramp request failed", { service: "LocalRemux", token, error: String(error) });
+    return false;
+  }
+}
+
 /** What a session has read so far (Remuxer.progress), or null without the session or the native method. */
 export type EngineProgress = {
   alive: boolean;

@@ -328,12 +328,10 @@ extension RemuxSession {
         guard tierActive else { return .notFound }
         if let deferred = supplierResponseDeferral(.rung(rung)) { return deferred }
         if let deferred = rungResponseDeferral(rung) { return deferred }
-        // The init falls out of materializing any segment (byte-stable across
-        // all of them, bitexact muxing). Use the playhead's segment so a
-        // mid-film switch doesn't spin the server transcode up at zero.
-        stateLock.lock()
-        let target = lastRequestedSegment
-        stateLock.unlock()
+        // The init falls out of materializing any segment (byte-stable across all of them, bitexact
+        // muxing). The playhead's segment, so neither a mid-film switch nor a resume spins the
+        // server transcode up at zero.
+        let target = segmentIndex(atSeconds: playheadSeconds())
         return .streamed(contentType: "video/mp4") { [weak self] in
             guard let self else { return nil }
             let file = self.dir.appendingPathComponent("t\(rung)-init.mp4")

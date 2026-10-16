@@ -201,13 +201,16 @@ extension RemuxSession {
         let heldInit = audioLoInitData[position]
         stateLock.unlock()
         guard let initRemote else { return nil }
-        // The init is the same bytes for every segment of the rendition: one fetch a session, not
-        // one a segment, which on a 150 ms link was a round trip ahead of every audio segment.
-        let initFetch = heldInit.map { (data: Optional($0), status: 200, seconds: 0.0) } ?? fetchTier(initRemote, key: fetchKey, counted: counted)
-        let segFetch = initFetch.data == nil ? initFetch : fetchTier(remote, key: fetchKey, counted: counted)
+        // The segment before the init: a header request that finds no file starts a server job at
+        // the film's start, and the server writes the header before any segment, so after the
+        // segment the header request starts nothing. The init is fetched once a session, not once
+        // a segment, which on a 150 ms link was a round trip ahead of every audio segment.
+        let segFetch = fetchTier(remote, key: fetchKey, counted: counted)
+        let initFetch = segFetch.data == nil ? segFetch : heldInit.map { (data: Optional($0), status: 200, seconds: 0.0) } ?? fetchTier(initRemote, key: fetchKey, counted: counted)
         guard let initData = initFetch.data, let segData = segFetch.data else {
-            NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed (HTTP %d)", n, segFetch.status)
-            recordSupplierFetchFailure(.audio(position), status: segFetch.status, key: fetchKey, counted: counted)
+            let status = segFetch.data == nil ? segFetch.status : initFetch.status
+            NSLog("[LocalRemuxer] Slipstream: audio-lo segment %d fetch failed (HTTP %d)", n, status)
+            recordSupplierFetchFailure(.audio(position), status: status, key: fetchKey, counted: counted)
             return nil
         }
         // Anchor: chained when sequential, declared grid on a jump.
@@ -241,6 +244,14 @@ extension RemuxSession {
         return mediaFile
     }
 
+    /// Where AVPlayer is: the segment it last asked for, or the resume point before it asked for one.
+    func playheadSeconds() -> Double {
+        stateLock.lock()
+        let head = lastRequestedSegment
+        stateLock.unlock()
+        return head > 0 ? segmentStartSeconds(head) : config.startOffsetSeconds
+    }
+
     func audioLoInitResponse(position: Int) -> LocalHTTPResponse {
         guard hasServerAudio(position), !isCancelled, !hasFailed else { return .notFound }
         let prefix = serverAudioPrefix(position)
@@ -250,10 +261,7 @@ extension RemuxSession {
         return .streamed(contentType: "audio/mp4") { [weak self] in
             guard let self else { return nil }
             // The init falls out of any segment: the one AVPlayer asks for next, not the film's first.
-            self.stateLock.lock()
-            let head = self.lastRequestedSegment
-            self.stateLock.unlock()
-            let playhead = head > 0 ? self.segmentStartSeconds(head) : self.config.startOffsetSeconds
+            let playhead = self.playheadSeconds()
             let n = self.adoptAudioLo(position).map { self.audioLoIndex($0, at: playhead) } ?? 0
             _ = self.materializeAudioLoSegment(position: position, n: n)
             let file = self.dir.appendingPathComponent("\(prefix)-init.mp4")

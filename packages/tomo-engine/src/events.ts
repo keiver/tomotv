@@ -32,6 +32,8 @@ export interface EngineTrackPlan {
   source: EngineStreamPlan;
   output?: EngineStreamPlan;
   identity?: string;
+  /** False for a converted track the engine leaves for a pick or the ramp; absent on older engines. */
+  active?: boolean;
 }
 
 /**
@@ -53,8 +55,9 @@ function describeStream(stream: EngineStreamPlan): string {
 
 function describeTrack(track: EngineTrackPlan): string {
   const source = describeStream(track.source);
-  if (track.action === "copy" || !track.output) return `${source} -> copy`;
-  return `${source} -> ${track.encoder ?? "encode"} ${describeStream(track.output)}`;
+  const waiting = track.active === false ? " (on a pick)" : "";
+  if (track.action === "copy" || !track.output) return `${source} -> copy${waiting}`;
+  return `${source} -> ${track.encoder ?? "encode"} ${describeStream(track.output)}${waiting}`;
 }
 
 /**

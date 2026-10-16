@@ -1055,6 +1055,54 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(TierServerStub.hitCount("/Audio/x/a-seg0.mp4"), 0, "7s in is the second segment of the audio grid")
     }
 
+    /// A header request the server finds no file for starts its job at the film's start, so the
+    /// segment is asked for first and the header once the server has written it.
+    func testAnAudioSegmentIsAskedForBeforeItsInit() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        TierServerStub.routes["/Audio/x/main.m3u8"] = (200, audioPlaylist)
+        TierServerStub.routes["/Audio/x/a-init.mp4"] = (200, Data("init".utf8))
+        TierServerStub.routes["/Audio/x/a-seg1.mp4"] = (200, Data("seg".utf8))
+        let (s, _) = try session(serverAudioUrl: audioUrl)
+        defer { s.stop() }
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        resolve(s.audioLoSegmentResponse(position: 0, n: 1))
+        XCTAssertTrue(TierServerStub.sawHit("/Audio/x/a-init.mp4"))
+        TierServerStub.lock.lock()
+        let order = TierServerStub.hits
+        TierServerStub.lock.unlock()
+        let segment = try XCTUnwrap(order.firstIndex(of: "/Audio/x/a-seg1.mp4"))
+        let header = try XCTUnwrap(order.firstIndex(of: "/Audio/x/a-init.mp4"))
+        XCTAssertLessThan(segment, header, "the segment request goes out before the header's")
+    }
+
+    /// A rung AVPlayer has not asked a segment of yet cuts its header from the resume segment.
+    func testAColdRungHeaderIsCutFromTheResumeSegment() throws {
+        TierServerStub.routes["/Videos/x/t0.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/t1.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        TierServerStub.routes["/Videos/x/seg1.ts"] = (200, tierSegment)
+        let s = try RemuxSession(
+            config: makeConfig(
+                durationSeconds: 18,
+                audioTracks: [RemuxAudioTrack(index: 1, name: "Audio 1", language: "eng", serverAudioUrl: "")],
+                tiers: [
+                    TierConfig(playlistUrl: "http://tier.test/Videos/x/t0.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 992_000, codecs: "avc1.64001E,mp4a.40.2", width: 640, height: 360),
+                    TierConfig(playlistUrl: "http://tier.test/Videos/x/t1.m3u8?ApiKey=k&PlaySessionId=p", bandwidth: 1_692_000, codecs: "avc1.64001F,mp4a.40.2", width: 854, height: 480),
+                ],
+                startOffsetSeconds: 7))
+        s.testLinkBps = 2_000_000
+        defer { s.stop() }
+        s.start()
+        waitForProbe(s)
+        _ = s.masterPlaylist()
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg1.ts"), 1, "the probe fetched the resume segment of the leading rung")
+        XCTAssertNotNil(resolve(s.tierInitResponse(rung: 1)))
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg0.ts"), 0, "no server job starts at the film's start")
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/x/seg1.ts"), 2, "the cold rung's header comes from the resume segment")
+    }
+
     /// Two requests want the same segment: one leaving does not take it from the other.
     func testASecondLiveRequestKeepsTheFetch() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
@@ -1690,11 +1738,10 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(session.supplierRecovery[.audio(0)]?.failures, 1)
     }
 
-    func testAbandoningAudioCancelsItsInFlightInitWithoutPenalizingTheSupplier() throws {
+    func testAbandoningAudioCancelsItsInFlightSegmentWithoutPenalizingTheSupplier() throws {
         let server = try RawHTTPStub()
         defer { server.stop() }
-        let initData = try Data(contentsOf: fixtureUrl.deletingLastPathComponent().appendingPathComponent("audio-carrier-init.mp4"))
-        server.answer("/audio-init.mp4", .stalls(initData, sent: 16))
+        server.answer("/audio-seg0.mp4", .stalls(Data(repeating: 0, count: 4096), sent: 16))
         let track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: "\(server.base)/main.m3u8")
         let session = try RemuxSession(config: makeConfig(durationSeconds: 18, audioTracks: [track]))
         defer { session.stop() }
@@ -1702,16 +1749,16 @@ final class TierProbeTests: XCTestCase {
         session.audioLoInitRemote[0] = URL(string: "\(server.base)/audio-init.mp4")
         let request = SegmentRequest()
         let serve = try provider(of: session.audioLoSegmentResponse(position: 0, n: 0))
-        let returned = expectation(description: "the cancelled audio init fetch returns")
+        let returned = expectation(description: "the cancelled audio segment fetch returns")
         DispatchQueue.global().async {
             XCTAssertNil(serve(request))
             returned.fulfill()
         }
-        settle { server.requests("/audio-init.mp4") > 0 }
-        XCTAssertEqual(server.requests("/audio-init.mp4"), 1)
+        settle { server.requests("/audio-seg0.mp4") > 0 }
+        XCTAssertEqual(server.requests("/audio-seg0.mp4"), 1)
         request.abandon()
         wait(for: [returned], timeout: 5)
-        XCTAssertEqual(server.requests("/audio-seg0.mp4"), 0)
+        XCTAssertEqual(server.requests("/audio-init.mp4"), 0, "the header is asked for after the segment, never before")
         XCTAssertNil(session.supplierRecovery[.audio(0)])
     }
 
@@ -2053,5 +2100,18 @@ final class TierProbeTests: XCTestCase {
         s.stop()
         hold.signal()
         XCTAssertTrue(TierServerStub.sawHit("/Videos/ActiveEncodings"), "a session that stops takes its server transcode with it")
+    }
+
+    /// A request queued on the server behind the killed job starts a new one, so the kill is sent
+    /// again on a schedule; a repeat that finds no job is a no-op on the server.
+    func testStopSendsEachKillOnItsSchedule() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (200, tierSegment)
+        let (s, _) = try session(tierPlaylistUrl: "http://tier.test/Videos/x/main.m3u8?ApiKey=k&PlaySessionId=repeated")
+        s.stopRepeatDelays = [0, 0.2, 0.4]
+        waitForProbe(s)
+        s.stop()
+        settle(3) { TierServerStub.requestCount(containing: "playSessionId=repeated") >= 3 }
+        XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=repeated"), 3)
     }
 }

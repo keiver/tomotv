@@ -43,6 +43,9 @@ struct RemuxSubtitle {
     /// Jellyfin reads the whole film to answer for it.
     var serverSupUrl: String = ""
     var isExternal = false
+    /// The track the viewer's stored choice lands on: decoded from the start, beside the file's
+    /// default and forced ones. Any other track gets its decoder when it is picked.
+    var isSelected = false
     /// SDH: the rendition carries the accessibility CHARACTERISTICS (HLS authoring spec 4.5).
     var isHearingImpaired = false
     var source: SourcePosition? = nil

@@ -60,6 +60,9 @@ TomoTV uses a custom Swift module (`MultiAudioResourceLoader`) that intercepts H
   Jellyfin extract every subtitle track from the whole file, uncancellable (its issue #17499)
 - The engine lane carries every track: text tracks inside the file as its own WebVTT segments,
   image tracks drawn by the app, text sidecars as renditions pointing at Jellyfin's `Stream.vtt`
+- Decoders open at start only for the tracks flagged default or forced and the one the stored
+  choice lands on; any other in-file track gets its decoder when picked, on one restart at the
+  playhead (`memories/CLAUDE-playback-engine.md`, "not converted whole at start")
 - The server lane shows no text subtitle; only a PGS/DVD/DVB track may burn in, which Jellyfin
   overlays from the input it is already transcoding
 

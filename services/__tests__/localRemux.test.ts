@@ -676,6 +676,27 @@ describe("startLocalRemux source positions (issue 84)", () => {
 });
 
 describe("startLocalRemux", () => {
+  it("marks the subtitle track the stored choice lands on, and no other, for decoding from the start", async () => {
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Audio", Codec: "aac", Index: 1 },
+        { Type: "Subtitle", Codec: "pgssub", Index: 2, Language: "eng", IsDefault: true },
+        { Type: "Subtitle", Codec: "pgssub", Index: 3, Language: "eng" },
+        { Type: "Subtitle", Codec: "subrip", Index: 4, Language: "fra" },
+      ],
+    });
+    await startLocalRemux(source, undefined, undefined, { selectedSubtitleIndex: 3 });
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.subtitles.map((sub: { index: number; isSelected?: boolean }) => [sub.index, sub.isSelected === true])).toEqual([
+      [2, false],
+      [3, true],
+      [4, false],
+    ]);
+    await startLocalRemux(source);
+    expect(mockStartRemux.mock.calls[1][0].subtitles.some((sub: { isSelected?: boolean }) => sub.isSelected === true)).toBe(false);
+  });
+
   it("opens the explicit server-video fallback without widening ordinary local codec admission", async () => {
     const source = item({
       streams: [
@@ -2443,6 +2464,15 @@ describe("engine throughput: the session's own clock", () => {
     // The producer slept on its read-ahead cap: that segment's time is the cap, not the decode.
     expect(engineStarving([sample({ segment: 1, produceSeconds: 8, throttled: true, cushion: 1 }), sample({ segment: 2, produceSeconds: 9, cushion: 1 })])).toBe(false);
     expect(engineStarving([])).toBe(false);
+  });
+
+  it("engineStarving and liveStarving: the first segment with a track just brought up is not a verdict", () => {
+    const slow = (over: Partial<ThroughputSample>) => sample({ produceSeconds: 9, readSeconds: 8, cushion: 1, ...over });
+    expect(engineStarving([slow({ segment: 1 }), slow({ segment: 2, activating: true })])).toBe(false);
+    expect(engineStarving([slow({ segment: 1, activating: true }), slow({ segment: 2 })])).toBe(false);
+    expect(engineStarving([slow({ segment: 1 }), slow({ segment: 2, activating: true }), slow({ segment: 3 })])).toBe(true);
+    expect(liveStarving([slow({ segment: 1 }), slow({ segment: 2 }), slow({ segment: 3, activating: true })])).toBe(false);
+    expect(liveStarving([slow({ segment: 1 }), slow({ segment: 2, activating: true }), slow({ segment: 3 }), slow({ segment: 4 })])).toBe(true);
   });
 
   it("engineStarving: a seek restart starts the count over", () => {

@@ -1,7 +1,43 @@
 /**
  * When an item's subtitle choice is applied, and what counts as the viewer making one.
  */
-import { classifyObservedChoice, keepsCurrentPick, pinsCaptionsOn, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "../videoPlayback/subtitleSession";
+import {
+  classifyObservedChoice,
+  keepsCurrentPick,
+  pinsCaptionsOn,
+  planSubtitleApplication,
+  renditionForPlan,
+  startingSubtitleRendition,
+  subtitleSelectionForReport,
+} from "../videoPlayback/subtitleSession";
+
+// Interstellar's shape: 74 PGS tracks, two of them English, one of those the file's default.
+describe("startingSubtitleRendition", () => {
+  const englishDefault = { index: 7, language: "eng", isDefault: true, isForced: false };
+  const englishSdh = { index: 9, language: "eng", isDefault: false, isForced: false };
+  const french = { index: 12, language: "fra", isDefault: false, isForced: false };
+  const frenchForced = { index: 13, language: "fra", isDefault: false, isForced: true };
+  const renditions = [englishDefault, englishSdh, french, frenchForced];
+
+  it("takes the file's default when nothing is stored", () => {
+    expect(startingSubtitleRendition({ kind: "system" }, renditions)).toBe(7);
+  });
+
+  it("takes the default track of a stored language that has one, else the language's full track", () => {
+    expect(startingSubtitleRendition({ kind: "language", tag: "eng" }, renditions)).toBe(7);
+    expect(startingSubtitleRendition({ kind: "language", tag: "fra" }, renditions)).toBe(12);
+  });
+
+  it("takes a language's only track", () => {
+    expect(startingSubtitleRendition({ kind: "language", tag: "fra" }, [englishDefault, french])).toBe(12);
+  });
+
+  it("names nothing for subtitles off, a language the file lacks, or no default to follow", () => {
+    expect(startingSubtitleRendition({ kind: "off" }, renditions)).toBeNull();
+    expect(startingSubtitleRendition({ kind: "language", tag: "deu" }, renditions)).toBeNull();
+    expect(startingSubtitleRendition({ kind: "system" }, [englishSdh, french])).toBeNull();
+  });
+});
 
 // Mac log: a stored "eng" drew its track while AVKit's menu stayed on Off, its display type still Automatic.
 describe("pinsCaptionsOn", () => {

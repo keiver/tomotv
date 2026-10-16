@@ -262,6 +262,30 @@ MPEG-TS segments and AVPlayer refuses an fMP4 with an `.mp3` sample entry.
 **One uncarriable track no longer condemns a file.** The carriable tracks are
 kept and the rest dropped; only a file with no carriable track at all declines.
 
+**A file with many tracks is not converted whole at start.** Every track is in the master and
+has its muxer and header, but the read loop feeds only the playing track, every copied track
+(a copy costs a mux, and a Dolby copy's header exists only once it has a packet) and the
+subtitle tracks flagged default or forced plus the one the stored choice lands on
+(`isSelected`, computed in `useVideoPlayback.openEngineLane`). A request for anything else
+(`aN-seg{n}.m4s`, `sub{N}.m3u8`, `sub{N}-{n}.vtt`, `sub{N}.vtt`, `pgs{N}.json`) is the pick: the
+pipeline restarts once at the lowest segment asked for (`activationSeekSegment`; a subtitle pick
+at the playhead, `playheadSegmentLocked`, read off the player's buffer report) and that
+generation feeds the track or opens its decoder (`Rendition.active`,
+`pendingAudioActivations`, `pendingSubtitleActivations`). A rendition that already holds a
+segment is not rewritten by any generation (the Dolby Vision rewrite still runs, its context
+carries state across frames), and while that generation is behind where the producer was
+(`activationGeneration`, `activationSpanEnd`) a request ahead of it waits instead of restarting
+over it; a track's request for a segment the primary holds re-seeks through the pick's own seek,
+since the control block drops a plain seek for a segment the primary has
+(`seekForStrandedLocked`). After 45 s of played time the app calls
+`prepareRemainingTracks` and the remaining converted audio tracks come up one per segment, at a
+cut, on a timed segment the producer neither held nor rode a rung through; a track whose first
+segment runs past its length is left inactive and the ramp stops (`stepTrackRamp`). That first
+segment's sample is flagged `activating`, and `engineStarving` never reads one as a verdict.
+Subtitle tracks are never ramped: 74 PGS tracks decoded to PNG are gigabytes nobody asked for.
+Live and self-described sessions feed every track. Measured on Interstellar (15 audio, 74 PGS):
+the whole-file conversion made a 6 s segment in 9.48 s, which is what this removes.
+
 ## Audio-only files
 
 They run the same pipeline with no video track. `Remuxer.runPipeline` guards on

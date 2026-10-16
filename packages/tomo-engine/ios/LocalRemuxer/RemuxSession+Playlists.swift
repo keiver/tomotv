@@ -771,6 +771,7 @@ extension RemuxSession {
         if config.isLive { return liveSubtitlePlaylist(sub) }
 
         if sub.isEngineText {
+            requestSubtitleActivation(sub)
             _ = awaitTextDecoder(streamIndex: streamIndex)
             // One TARGETDURATION for every playlist of the session (Apple
             // authoring req 8.2), on the video's own grid.
@@ -850,7 +851,43 @@ extension RemuxSession {
         guard !sourceReleased, let anchor = sessionAnchorSeconds, let readFrom = readSpanFrom, readFrom > start + anchor else { return false }
         if readCoverageEndLocked(from: start + anchor) != nil { return false }
         if let seek = pendingSeekSegment, seek <= segment { return false }
+        if let seek = activationSeekSegment, seek <= segment { return false }
         return lastRequestedSegment > segment && !activeWaiters.keys.contains { $0 <= segment }
+    }
+
+    /// The segment under the playhead: the last media segment asked for, less what the player
+    /// reports buffered past the playhead; the last asked for when no fresh report exists. Caller holds stateLock.
+    func playheadSegmentLocked() -> Int {
+        let last = lastRequestedSegment
+        guard let ahead = playerAheadSeconds, Date().timeIntervalSince(playerAheadAt) < 3, !config.isLive else { return last }
+        let end = segmentStartSeconds(last) + segmentDurationSeconds(last)
+        return max(0, min(last, segmentIndex(atSeconds: max(0, end - ahead))))
+    }
+
+    /// A track picked while it has no decoder: the pipeline opens one on a restart at the playhead
+    /// (a window asked for ahead of it names its own segment), from which its cues flow.
+    func requestSubtitleActivation(_ sub: RemuxSubtitle, at segment: Int? = nil) {
+        guard !config.isLive, !config.describesInput, !sub.isExternal, sub.isImage || sub.isEngineText else { return }
+        stateLock.lock()
+        let index = Int32(sub.index)
+        let hasDecoder = imageSubtitles[index] != nil || textSubtitles[index] != nil
+        if !hasDecoder, !sourceUnusable, !cancelled, !failed {
+            let playhead = playheadSegmentLocked()
+            let target = segment.map { max($0, playhead) } ?? playhead
+            let first = !pendingSubtitleActivations.contains(sub.index)
+            pendingSubtitleActivations.insert(sub.index)
+            activationSeekSegment = min(activationSeekSegment ?? target, target)
+            if first { NSLog("[LocalRemuxer] subtitle track %d picked, decoder opens on a restart at segment %d", sub.index, target) }
+        }
+        stateLock.unlock()
+    }
+
+    /// The app has played long enough: the converted audio tracks still inactive come up one per segment.
+    func armTrackRamp() {
+        guard !config.isLive else { return }
+        stateLock.lock()
+        rampArmed = true
+        stateLock.unlock()
     }
 
     func textSubtitleWindow(streamIndex: Int, from start: Double, to end: Double) -> (decoder: TextSubtitleDecoder?, anchor: Double, read: Double, covered: Bool) {
@@ -870,6 +907,7 @@ extension RemuxSession {
         guard segment >= 0, segment < segmentCount else { return nil }
         guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
 
+        requestSubtitleActivation(sub, at: segment)
         let start = segmentStartSeconds(segment)
         let end = start + segmentDurationSeconds(segment)
         var window = textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
@@ -952,6 +990,7 @@ extension RemuxSession {
     /// Display-set manifest for an image subtitle track, or nil if that stream
     /// is not one. Served to the app, which draws the images itself.
     func subtitleCueManifest(streamIndex: Int) -> Data? {
+        if let sub = sessionSubtitles().first(where: { $0.index == streamIndex && $0.isImage }) { requestSubtitleActivation(sub) }
         stateLock.lock()
         let decoder = imageSubtitles[Int32(streamIndex)]
         let server = serverImageSubtitles[Int32(streamIndex)]

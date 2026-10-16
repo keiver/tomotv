@@ -75,6 +75,7 @@ extension RemuxSession {
             guard !dead, let subtitle = subtitles.first(where: { $0.index == index }) else { return .notFound }
             if !config.isLive { noteSubtitleRequest(index) }
             if subtitle.isImage {
+                requestSubtitleActivation(subtitle)
                 return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
             }
             guard !subtitle.localVtt.isEmpty else { return .notFound }
