@@ -173,6 +173,16 @@ opens teletext with `txt_page=subtitle` on the page's own 492x250 canvas, measur
 first rect. `isManifestSource` takes `.mpd`/`dash`; `originVariantUrl` hands an MPD over whole
 and refuses one carrying `ContentProtection`.
 
+**`build.sh` edits two upstream files in place**, each edit checked to still apply:
+`videotoolbox.c` asks Catalyst for Metal-compatible pixel buffers, and since tomo.8 `movenc.c`
+takes the `dec3` Atmos flag from a dependent E-AC-3 substream when the stream has one (ETSI TS
+103 420 8.3.1). A Blu-ray style track (AC-3 core plus a dependent frame carrying the objects,
+two sync frames per packet) was declared without Atmos because upstream reads the first frame
+of each packet; the streaming style 5.1 JOC track (one E-AC-3 frame per packet) always carried it.
+Measured on the Interstellar remux: `dec3` 6 bytes and no flag before, 8 bytes with
+`flag_eac3_extension_type_a=1` after. Whether AVFoundation renders Atmos from that shape is a
+device verdict.
+
 **The allowlists use the names FFPROBE reports**, which is what Jellyfin puts in
 `MediaStream.Codec`, not the decoder's own name. These differ and have bitten
 before: TSCC decodes through `camtasia` and reports as `tscc`; AVS3 through

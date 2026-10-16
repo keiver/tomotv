@@ -150,7 +150,7 @@ installer/app signatures, bundle version, sandbox networking, and both Catalyst
 architectures. Initial Mac versions omit What's New because Apple does not
 accept that field on a platform's first release; later Mac releases require it.
 
-FFmpeg's Catalyst slices belong to `ffmpeg-n8.1.3-tomo.7`. Confirm iOS, Mac
+FFmpeg's Catalyst slices belong to `ffmpeg-n8.1.3-tomo.8`. Confirm iOS, Mac
 Catalyst and tvOS work locally before publishing that release. The checked-in lock must contain the
 SHA256 checksums of those exact ZIPs. Publishing/pushing remains a maintainer
 action; building locally does neither.
