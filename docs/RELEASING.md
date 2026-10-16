@@ -117,6 +117,19 @@ Apple references: [adding a platform](https://developer.apple.com/help/app-store
 [automatic distribution signing](https://help.apple.com/xcode/mac/current/en.lproj/devff5ececf8.html),
 and [Mac screenshot sizes](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications).
 
+iPhone Duo screenshots are one landscape set (2853×2007). Each shot has two
+captures in `applestore/captures/duo/`: `<shot-id>.outer.png`, closed, portrait
+1398×2034, and `<shot-id>.inner.png`, open, landscape 2853×2007. A Desktop
+folder named `iPhone Duo` works too; `npm run shots` sorts its images by shape.
+A shot's `layout` in `applestore/shots.config.json` draws both side by side
+(`pair`, the default) or one screen (`inner`, `outer`). The Duo shows its status
+bar in the side column, which the renderer does not restamp, so set the clock
+on the simulator before capturing:
+
+```bash
+xcrun simctl status_bar booted override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
+```
+
 Local release checks:
 
 ```bash

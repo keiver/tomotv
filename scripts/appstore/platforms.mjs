@@ -7,9 +7,19 @@ export const SCREENSHOT_DEVICES = {
   ipad: { platform: "IOS", store: "IPAD_APP_STORE", displayClass: "IPAD_13_DISPLAY", size: "2064x2752" },
   mac: { platform: "MAC_OS", store: "MAC_APP_STORE", displayClass: "DEFAULT", size: "2880x1800" },
   tv: { platform: "TV_OS", store: "TV_APP_STORE", displayClass: "DEFAULT", size: "3840x2160" },
-  "duo-outer": { platform: "IOS", store: "IPHONE_APP_STORE", displayClass: "IPHONE_DUO", size: "1398x2034" },
-  "duo-inner": { platform: "IOS", store: "IPHONE_APP_STORE", displayClass: "IPHONE_DUO", size: "2007x2853" },
+  duo: { platform: "IOS", store: "IPHONE_APP_STORE", displayClass: "IPHONE_DUO", size: "2853x2007" },
 };
+
+/** Whether a group takes a size. Apple's screenshot specifications list each size in both orientations. */
+export function acceptsSize(sizes, size) {
+  const key = (s) =>
+    s
+      .split("x")
+      .map(Number)
+      .sort((a, b) => a - b)
+      .join("x");
+  return sizes.some((s) => key(s) === key(size));
+}
 
 /** Configured devices the store takes screenshots for, minus any the config marks `"upload": false`. */
 export function uploadedDevices(config, platforms = PLATFORMS) {

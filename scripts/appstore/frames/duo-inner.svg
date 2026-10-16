@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 989 707" fill="none">
+  <g filter="url(#duo_inner_body)">
+    <path
+      fill-rule="evenodd"
+      d="M87.49 3H901.51C930.887 3 941.541 6.059 952.28 11.804C963.027 17.896 971.451 25.981 977.196 36.712C982.941 47.459 986 58.113 986 87.49V619.51C986 648.887 982.941 659.541 977.196 670.28C971.104 681.027 963.019 689.451 952.288 695.196C941.541 700.941 930.887 704 901.51 704H87.49C58.113 704 47.459 700.941 36.72 695.196C25.973 689.104 17.549 681.019 11.804 670.288C6.059 659.541 3 648.887 3 619.51V87.49C3 58.113 6.059 47.459 11.804 36.72C17.896 25.973 25.981 17.549 36.712 11.804C47.459 6.059 58.113 3 87.49 3ZM87.49 19H901.51C925.324 19 933.961 21.479 942.666 26.137C951.378 31.075 958.206 37.629 962.863 46.328C967.521 55.039 970 63.676 970 87.49V619.51C970 643.324 967.521 651.961 962.863 660.666C957.925 669.378 951.371 676.206 942.672 680.863C933.961 685.521 925.324 688 901.51 688H87.49C63.676 688 55.039 685.521 46.334 680.863C37.622 675.925 30.794 669.371 26.137 660.672C21.479 651.961 19 643.324 19 619.51V87.49C19 63.676 21.479 55.039 26.137 46.334C31.075 37.622 37.629 30.794 46.328 26.137C55.039 21.479 63.676 19 87.49 19Z"
+      fill="#2F2D27"
+    />
+  </g>
+  <path
+    fill-rule="evenodd"
+    d="M87.49 8H901.51C929.149 8 939.172 10.878 949.276 16.283C959.387 22.014 967.312 29.621 972.717 39.717C978.122 49.828 981 59.851 981 87.49V619.51C981 647.149 978.122 657.172 972.717 667.276C966.986 677.387 959.379 685.312 949.283 690.717C939.172 696.122 929.149 699 901.51 699H87.49C59.851 699 49.828 696.122 39.724 690.717C29.613 684.986 21.688 677.379 16.283 667.283C10.878 657.172 8 647.149 8 619.51V87.49C8 59.851 10.878 49.828 16.283 39.724C22.014 29.613 29.621 21.688 39.717 16.283C49.828 10.878 59.851 8 87.49 8ZM87.49 19H901.51C925.324 19 933.961 21.479 942.666 26.137C951.378 31.075 958.206 37.629 962.863 46.328C967.521 55.039 970 63.676 970 87.49V619.51C970 643.324 967.521 651.961 962.863 660.666C957.925 669.378 951.371 676.206 942.672 680.863C933.961 685.521 925.324 688 901.51 688H87.49C63.676 688 55.039 685.521 46.334 680.863C37.622 675.925 30.794 669.371 26.137 660.672C21.479 651.961 19 643.324 19 619.51V87.49C19 63.676 21.479 55.039 26.137 46.334C31.075 37.622 37.629 30.794 46.328 26.137C55.039 21.479 63.676 19 87.49 19Z"
+    fill="black"
+  />
+  <!-- The hinge: a seam across the rim at the top and bottom centre. -->
+  <rect x="493" y="3" width="3" height="5" fill="#16150F" />
+  <rect x="493" y="699" width="3" height="5" fill="#16150F" />
+  <g filter="url(#duo_inner_button)">
+    <path d="M707 1.5C707 0.672 707.672 0 708.5 0H764.5C765.328 0 766 0.672 766 1.5V3H707V1.5Z" fill="#2F2D27" />
+    <path d="M781 1.5C781 0.672 781.672 0 782.5 0H844.5C845.328 0 846 0.672 846 1.5V3H781V1.5Z" fill="#2F2D27" />
+    <path d="M986 212H987.5C988.328 212 989 212.672 989 213.5V316.5C989 317.328 988.328 318 987.5 318H986V212Z" fill="#2F2D27" />
+  </g>
+  <defs>
+    <filter id="duo_inner_body" x="3" y="3" width="983" height="703" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+      <feOffset />
+      <feGaussianBlur stdDeviation="4" />
+      <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0" />
+      <feBlend mode="normal" in2="shape" result="effect1_innerShadow" />
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+      <feOffset dy="2" />
+      <feGaussianBlur stdDeviation="2" />
+      <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+      <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.25 0" />
+      <feBlend mode="normal" in2="effect1_innerShadow" result="effect2_innerShadow" />
+    </filter>
+    <filter id="duo_inner_button" x="707" y="0" width="282" height="318" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+      <feOffset />
+      <feGaussianBlur stdDeviation="1" />
+      <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.5 0" />
+      <feBlend mode="normal" in2="shape" result="effect1_innerShadow" />
+    </filter>
+  </defs>
+</svg>

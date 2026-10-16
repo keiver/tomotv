@@ -7,6 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { captureKey, captureName } from "./captures.mjs";
+import { shotModes } from "./compose.mjs";
 import { COLORS } from "./palette.mjs";
 import { fitSize, loadFace, typeset } from "./typeset.mjs";
 
@@ -157,25 +159,26 @@ export async function ensurePlaceholders(plan, captureDir, deviceInfo) {
   let real = 0;
 
   for (const { deviceKey, shots } of plan) {
-    const info = deviceInfo(deviceKey);
     for (const shot of shots) {
-      const key = `${deviceKey}/${shot.id}`;
-      const file = path.join(captureDir, deviceKey, `${shot.id}.png`);
+      for (const mode of shotModes(deviceKey, shot)) {
+        const key = captureKey(deviceKey, shot.id, mode);
+        const file = path.join(captureDir, deviceKey, captureName(shot.id, mode));
 
-      if (fs.existsSync(file)) {
-        if (previous[key] && previous[key] === sha(file)) {
-          next[key] = previous[key];
-          pending.push(key);
-        } else {
-          real++;
+        if (fs.existsSync(file)) {
+          if (previous[key] && previous[key] === sha(file)) {
+            next[key] = previous[key];
+            pending.push(key);
+          } else {
+            real++;
+          }
+          continue;
         }
-        continue;
-      }
 
-      await renderPlaceholder({ ...info, deviceKey, shot, relPath: path.relative(ROOT, file) }, file);
-      next[key] = sha(file);
-      written.push(key);
-      pending.push(key);
+        await renderPlaceholder({ ...deviceInfo(deviceKey, mode), deviceKey, shot, relPath: path.relative(ROOT, file) }, file);
+        next[key] = sha(file);
+        written.push(key);
+        pending.push(key);
+      }
     }
   }
 

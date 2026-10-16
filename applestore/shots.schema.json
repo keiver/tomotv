@@ -36,14 +36,19 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "upload": { "type": "boolean", "description": "false renders the device but keeps it out of shots:upload and --check-captures." }
+          "upload": { "type": "boolean", "description": "false renders the device but keeps it out of shots:upload and --check-captures." },
+          "layout": { "$ref": "#/$defs/layout", "description": "Default for every shot on a device with several screens (duo); pair when unset." }
         }
       }
     },
     "shots": { "type": "array", "items": { "$ref": "#/$defs/shot" } }
   },
   "$defs": {
-    "device": { "enum": ["iphone", "ipad", "tv", "mac", "duo-outer", "duo-inner"] },
+    "device": { "enum": ["iphone", "ipad", "tv", "mac", "duo"] },
+    "layout": {
+      "enum": ["pair", "inner", "outer"],
+      "description": "duo: pair draws the open and closed screens side by side, inner the open one, outer the closed one. Captures are captures/duo/<id>.inner.png and <id>.outer.png."
+    },
     "locale": { "type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$" },
     "text": {
       "type": "object",
@@ -70,7 +75,8 @@
       "unevaluatedProperties": false,
       "properties": {
         "accent": { "type": "integer", "description": "Headline line drawn in gold; -1 for none." },
-        "capture": { "$ref": "#/$defs/capture" }
+        "capture": { "$ref": "#/$defs/capture" },
+        "layout": { "$ref": "#/$defs/layout" }
       }
     },
     "translation": {

@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { COLORS } from "./palette.mjs";
-import { FRAMES, frameBody, placeFrame } from "./frames.mjs";
+import { FRAMES, cornerPath, frameBody, placeFrame } from "./frames.mjs";
 import { loadFace, typeset, fitSize, blockEm } from "./typeset.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -58,17 +58,17 @@ export const DEVICES = {
     frame: "ipad",
     tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
   },
-  // iPhone Duo's two App Store Connect sizes, drawn from the iPad captures until Duo captures
-  // exist: a 3:4 frame crops to the Duo's shape at its sides, an iPhone frame loses its header.
-  "duo-outer": {
-    canvas: [1398, 2034],
-    source: "ipad",
-    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
-  },
-  "duo-inner": {
-    canvas: [2007, 2853],
-    source: "ipad",
-    tune: { margin: 0.055, railTop: 0.027, tierGap: 0.011, gap: 0.022, headSize: 0.085, headMax: 0.09, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.93, clearance: 0.028 },
+  // iPhone Duo: each shot shows the closed screen, the open one, or both at one scale. Landscape is
+  // the only canvas App Store Connect takes that fits both side by side, and a set has one orientation.
+  duo: {
+    canvas: [2853, 2007],
+    modes: {
+      outer: { capture: [1398, 2034], frame: "duo-outer", label: "iPhone Duo, closed, portrait" },
+      inner: { capture: [2853, 2007], frame: "duo-inner", label: "iPhone Duo, open, landscape" },
+    },
+    layouts: { pair: ["inner", "outer"], inner: ["inner"], outer: ["outer"] },
+    layout: "pair",
+    tune: { margin: 0.05, railTop: 0.044, tierGap: 0.013, gap: 0.026, headSize: 0.066, headMax: 0.088, subRatio: 0.68, ebRatio: 0.26, panelWidth: 0.9, clearance: 0.04 },
   },
   tv: {
     simulator: "Apple TV 4K (3rd generation)",
@@ -81,14 +81,25 @@ export const DEVICES = {
 
 /**
  * The App Store app draws a landscape shot into the portrait tile when a set
- * mixes the two, so every phone and tablet capture has to be upright.
+ * mixes the two, so every phone and tablet capture has to be upright. A device
+ * with several screens holds each to its own shape.
  */
-export async function wrongOrientation(file, deviceKey) {
-  const [cw, ch] = DEVICES[deviceKey].canvas;
+export async function wrongOrientation(file, deviceKey, mode = null) {
+  const [cw, ch] = mode ? DEVICES[deviceKey].modes[mode].capture : DEVICES[deviceKey].canvas;
   const meta = await sharp(file).metadata();
   const landscape = meta.width > meta.height;
   if (landscape === cw > ch) return null;
-  return `${meta.width}x${meta.height} is ${landscape ? "landscape" : "portrait"}; ${deviceKey} takes ${cw > ch ? "landscape" : "portrait"} only`;
+  return `${meta.width}x${meta.height} is ${landscape ? "landscape" : "portrait"}; ${mode ? `${deviceKey} ${mode}` : deviceKey} takes ${cw > ch ? "landscape" : "portrait"} only`;
+}
+
+/** The screens a shot draws: its layout's modes on a device with several, else one unnamed capture. */
+export const shotModes = (deviceKey, shot) => layoutModes(DEVICES[deviceKey], shot, deviceKey);
+
+function layoutModes(device, shot, name = "device") {
+  if (!device.layouts) return [null];
+  const modes = device.layouts[shot.layout];
+  if (!modes) throw new Error(`${name}/${shot.id}: layout ${JSON.stringify(shot.layout)} is not one of ${Object.keys(device.layouts).join(", ")}`);
+  return modes;
 }
 
 const round = (n) => +n.toFixed(2);
@@ -203,6 +214,33 @@ function panelRect(device, top, reserved = 0, win) {
   return { shell: placed, screen: placed.screen };
 }
 
+/** Gap between shells in a row, as a fraction of the canvas width. */
+const ROW_GAP = 0.025;
+
+/**
+ * Shells in a row at one scale, so each screen keeps its real size against the others: the
+ * shells are drawn in points, and the row is as large as the width and the room under the type allow.
+ */
+function rowPanels(device, modes, top, reserved) {
+  const [W, H] = device.canvas;
+  const t = device.tune;
+  const room = H - top - H * t.clearance - reserved;
+  const names = modes.map((mode) => device.modes[mode].frame);
+  const boxes = names.map((name) => FRAMES[name].viewBox);
+  const gap = W * ROW_GAP * (modes.length - 1);
+  const span = boxes.reduce((sum, [, , vw]) => sum + vw, 0);
+  const tall = Math.max(...boxes.map(([, , , vh]) => vh));
+  const scale = Math.min((W * t.panelWidth - gap) / span, room / tall);
+  let x = (W - span * scale - gap) / 2;
+  const y = top + Math.max(0, room - tall * scale) / 2;
+  return modes.map((mode, i) => {
+    const [, , vw, vh] = boxes[i];
+    const shell = placeFrame(names[i], x, y + ((tall - vh) * scale) / 2, vw * scale);
+    x += vw * scale + W * ROW_GAP;
+    return { mode, frame: names[i], shell, screen: shell.screen };
+  });
+}
+
 function layout(device, shot, shared, win) {
   const [W, H] = device.canvas;
   const t = device.tune;
@@ -215,7 +253,10 @@ function layout(device, shot, shared, win) {
   // Shorter blocks centre inside the shared height rather than moving the panel.
   const headY = m.headTop + Math.max(0, m.headHeight - measured) / 2;
 
-  const { shell, screen } = panelRect(device, m.panelTop, m.barHeight, win);
+  const panels = device.layouts
+    ? rowPanels(device, layoutModes(device, shot), m.panelTop, m.barHeight)
+    : [{ mode: null, frame: device.frame ?? null, ...panelRect(device, m.panelTop, m.barHeight, win) }];
+  const { shell, screen } = panels[0];
 
   return {
     W,
@@ -235,6 +276,7 @@ function layout(device, shot, shared, win) {
     windowed: Boolean(device.windowed),
     shell,
     screen,
+    panels,
   };
 }
 
@@ -268,15 +310,22 @@ const rasterise = (background) => {
 
 /** The background image cover-scaled to the canvas and centre-cropped, with the device's cast shadow. */
 async function base(L, background) {
-  const s = L.screen;
   // One key light from upper left: a tight contact shadow the device sits on and
   // a long soft cast below it. A single symmetric blur reads as a sticker.
-  const shadow = (dx, dy, blur, opacity, id) => `<filter id="${id}" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="${round(blur)}"/></filter>
+  const shadow = (s, dx, dy, blur, opacity, id) => `<filter id="${id}" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="${round(blur)}"/></filter>
   <rect x="${round(s.x + dx)}" y="${round(s.y + dy)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius ?? 0)}" fill="${INK.shadow}" opacity="${opacity}" filter="url(#${id})"/>`;
+  const shadows = L.windowed
+    ? ""
+    : L.panels
+        .map(
+          ({ screen: s }, i) =>
+            `${shadow(s, L.W * 0.012, L.H * 0.026, L.W * 0.03, round(INK.shadowOpacity * 0.72), `cast${i}`)}
+  ${shadow(s, L.W * 0.002, L.H * 0.005, L.W * 0.005, round(INK.shadowOpacity * 0.85), `contact${i}`)}`,
+        )
+        .join("\n  ");
 
   const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}">
-  ${L.windowed ? "" : shadow(L.W * 0.012, L.H * 0.026, L.W * 0.03, round(INK.shadowOpacity * 0.72), "cast")}
-  ${L.windowed ? "" : shadow(L.W * 0.002, L.H * 0.005, L.W * 0.005, round(INK.shadowOpacity * 0.85), "contact")}
+  ${shadows}
 </svg>`);
   const master = await rasterise(background);
   const art = await raw(sharp(master.data, { raw: master.info }).resize(L.W, L.H, { fit: "cover", position: "centre", kernel: "lanczos3" }).flatten({ background: COLORS.BACKGROUND_DEEP }));
@@ -284,14 +333,15 @@ async function base(L, background) {
 }
 
 /**
- * The capture scaled to the panel and masked to its radius, then cut to what the
- * canvas shows. sharp rejects a composite larger than its base, so a panel that
- * bleeds has to be cropped before it is placed.
+ * The capture scaled to the panel and masked to its radius, or to the shell's own
+ * continuous corners when it has them, then cut to what the canvas shows. sharp rejects
+ * a composite larger than its base, so a panel that bleeds has to be cropped before it is placed.
  */
 async function screen(capture, s, W, H) {
   const w = Math.round(s.width);
   const h = Math.round(s.height);
-  const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="${w}" height="${h}" rx="${round(s.radius ?? 0)}" fill="#fff"/></svg>`);
+  const shape = s.corners ? `<path d="${cornerPath(0, 0, w, h, s.corners)}" fill="#fff"/>` : `<rect width="${w}" height="${h}" rx="${round(s.radius ?? 0)}" fill="#fff"/>`;
+  const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${shape}</svg>`);
   const full = await sharp(capture)
     .resize(w, h, { fit: "cover", position: "centre", kernel: "lanczos3" })
     .composite([{ input: mask, blend: "dest-in" }])
@@ -311,15 +361,18 @@ async function screen(capture, s, W, H) {
   return { buffer: full, left, top };
 }
 
-/** Panel hairline or device shell. */
+/** Panel hairline or device shell, one per panel. */
 function frame(device, L) {
-  const s = L.screen;
   const body =
     device.bleed || device.windowed
       ? ""
-      : device.frame
-        ? `<g transform="${L.shell.transform}">${frameBody(device.frame)}</g>`
-        : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="${round(L.W * PANEL_STROKE)}"/>`;
+      : L.panels
+          .map(({ frame: name, shell, screen: s }) =>
+            name
+              ? `<g transform="${shell.transform}">${frameBody(name)}</g>`
+              : `<rect x="${round(s.x)}" y="${round(s.y)}" width="${round(s.width)}" height="${round(s.height)}" rx="${round(s.radius)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="${round(L.W * PANEL_STROKE)}"/>`,
+          )
+          .join("");
   return raw(sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}" fill="none">${body}</svg>`)));
 }
 
@@ -380,21 +433,34 @@ async function windowBox(capturePath) {
   return { left: -info.trimOffsetLeft, top: -info.trimOffsetTop, width: info.width, height: info.height, full: [width, height] };
 }
 
-/** Alpha is rejected by App Store Connect, so the result is flattened to 3 channels. */
-export async function compose(device, shot, capturePath, outPath, shared, background) {
-  const L = layout(device, shot, shared, device.windowed ? await windowBox(capturePath) : undefined);
-  const key = JSON.stringify([device.frame, L.W, L.H, L.screen, L.shell?.transform, background]);
+/**
+ * Alpha is rejected by App Store Connect, so the result is flattened to 3 channels.
+ * `captures` is one image, or `[{ mode, input }]` for each screen a multi-screen shot draws.
+ */
+export async function compose(device, shot, captures, outPath, shared, background) {
+  const inputs = Array.isArray(captures) ? captures : [{ mode: null, input: captures }];
+  const L = layout(device, shot, shared, device.windowed ? await windowBox(inputs[0].input) : undefined);
+  const key = JSON.stringify([device.bleed, device.windowed, L.W, L.H, L.panels.map((p) => [p.frame, p.screen, p.shell?.transform]), background]);
+  const sources = L.panels.map(({ mode }) => {
+    const found = inputs.find((c) => c.mode === mode);
+    if (!found) throw new Error(`${shot.id}: no ${mode ? `${mode} ` : ""}capture for its panel`);
+    return found.input;
+  });
 
-  const [bg, shell, panel] = await Promise.all([memo(`base ${key}`, () => base(L, background)), memo(`frame ${key}`, () => frame(device, L)), screen(capturePath, L.screen, L.W, L.H)]);
+  const [bg, shell, ...panels] = await Promise.all([
+    memo(`base ${key}`, () => base(L, background)),
+    memo(`frame ${key}`, () => frame(device, L)),
+    ...L.panels.map((p, i) => screen(sources[i], p.screen, L.W, L.H)),
+  ]);
 
   await sharp(bg.data, { raw: bg.info })
-    .composite([{ input: panel.buffer, left: panel.left, top: panel.top }, asInput(shell), { input: overlay(L) }])
+    .composite([...panels.map((p) => ({ input: p.buffer, left: p.left, top: p.top })), asInput(shell), { input: overlay(L) }])
     .flatten({ background: COLORS.BACKGROUND_DEEP })
     .removeAlpha()
     .png({ compressionLevel: 9 })
     .toFile(outPath);
 
-  return { canvas: device.canvas, captionSize: L.captionSize, panel: L.screen };
+  return { canvas: device.canvas, captionSize: L.captionSize, panel: L.screen, panels: L.panels.map((p) => ({ mode: p.mode, screen: p.screen })) };
 }
 
 export { layout };

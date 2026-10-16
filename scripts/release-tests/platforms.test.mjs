@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { attachBuild, editableVersion, isFirstVersion, placementGroup, platformVersions, selectedPlatforms, uploadedDevices } from "../appstore/platforms.mjs";
+import { acceptsSize, attachBuild, editableVersion, isFirstVersion, placementGroup, platformVersions, selectedPlatforms, uploadedDevices } from "../appstore/platforms.mjs";
 
 const version = (versionString, appStoreState, id = versionString) => ({ id, attributes: { versionString, appStoreState } });
 test("platform selection includes Mac and rejects misspellings", () => {
@@ -81,15 +81,19 @@ const refData = {
 };
 test("each device's placement group, sizes and limit come from the reference data", () => {
   assert.deepEqual(placementGroup(refData, "iphone"), { group: "IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE", sizes: ["1320x2868"], maxCount: 10 });
-  assert.deepEqual(placementGroup(refData, "duo-outer"), { group: "IPHONE_DUO_PROFILE", sizes: ["1398x2034", "2007x2853"], maxCount: 10 });
-  assert.equal(placementGroup(refData, "duo-inner").group, "IPHONE_DUO_PROFILE");
+  assert.deepEqual(placementGroup(refData, "duo"), { group: "IPHONE_DUO_PROFILE", sizes: ["1398x2034", "2007x2853"], maxCount: 10 });
+});
+test("a group takes its sizes in either orientation, and no other size", () => {
+  assert.equal(acceptsSize(["1398x2034", "2007x2853"], "2853x2007"), true);
+  assert.equal(acceptsSize(["1398x2034", "2007x2853"], "2007x2853"), true);
+  assert.equal(acceptsSize(["1398x2034", "2007x2853"], "2064x2752"), false);
 });
 test("a device with no placement group or no screenshot slot stops the upload", () => {
   assert.throws(() => placementGroup(refData, "tv"), /no TV_APP_STORE placement group/);
   assert.throws(() => placementGroup(refData, "mac"), /MAC_PROFILE takes no screenshots/);
 });
 test("devices marked upload false and devices of other platforms are not uploaded", () => {
-  const config = { devices: { iphone: {}, mac: {}, "duo-outer": { upload: false }, "duo-inner": { upload: true } } };
-  assert.deepEqual(uploadedDevices(config), ["iphone", "mac", "duo-inner"]);
+  const config = { devices: { iphone: {}, mac: {}, ipad: { upload: false }, duo: { upload: true } } };
+  assert.deepEqual(uploadedDevices(config), ["iphone", "mac", "duo"]);
   assert.deepEqual(uploadedDevices(config, ["MAC_OS"]), ["mac"]);
 });

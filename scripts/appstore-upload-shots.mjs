@@ -26,7 +26,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ascEnv, client } from "./appstore/asc.mjs";
-import { SCREENSHOT_DEVICES, editableVersion, placementGroup, platformVersions, selectedPlatforms, uploadedDevices } from "./appstore/platforms.mjs";
+import { SCREENSHOT_DEVICES, acceptsSize, editableVersion, placementGroup, platformVersions, selectedPlatforms, uploadedDevices } from "./appstore/platforms.mjs";
 import { generatedShots, validateCaptures } from "./appstore/captures.mjs";
 import { replaceScreenshots } from "./appstore/placements.mjs";
 
@@ -86,12 +86,12 @@ async function main() {
   const app = apps.data[0];
   if (!app) fail(`No app with bundle id ${BUNDLE_ID} on this account`);
 
-  // Devices sharing a placement group (the Duo's two screens) fill it together, in shot order.
+  // Devices sharing a placement group fill it together, in shot order.
   const refData = await api.get("/v1/appAssetLibraryRefData");
   const groups = new Map();
   for (const { locale, deviceKey, files } of plan) {
     const { group, sizes, maxCount } = placementGroup(refData, deviceKey);
-    if (!sizes.includes(SCREENSHOT_DEVICES[deviceKey].size)) fail(`${deviceKey}: ${group} does not take ${SCREENSHOT_DEVICES[deviceKey].size} (it takes ${sizes.join(", ")})`);
+    if (!acceptsSize(sizes, SCREENSHOT_DEVICES[deviceKey].size)) fail(`${deviceKey}: ${group} does not take ${SCREENSHOT_DEVICES[deviceKey].size} (it takes ${sizes.join(", ")})`);
     const key = `${locale}/${group}`;
     if (!groups.has(key)) groups.set(key, { locale, platform: SCREENSHOT_DEVICES[deviceKey].platform, group, maxCount, entries: [] });
     const shotIndex = (file) => config.shots.findIndex((shot) => `${shot.id}.png` === path.basename(file));
