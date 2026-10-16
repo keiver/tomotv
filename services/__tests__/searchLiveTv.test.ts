@@ -1,5 +1,5 @@
 /** Live TV search: the server's name matches plus the airing set matched by description; channels first, ended programmes dropped; a failed source keeps the other. */
-import { matchesProgramText, orderLiveTvResults, searchLiveTv } from "../jellyfin/search";
+import { matchesProgramText, orderLiveTvResults, searchLiveTv, warmLiveTvSearch } from "../jellyfin/search";
 import { fetchWithTimeout } from "../jellyfin/http";
 import { clearRequestCache } from "../requestCache";
 
@@ -441,5 +441,14 @@ describe("searchLiveTv", () => {
   it("answers empty for a blank term without asking the server", async () => {
     await expect(searchLiveTv("  ")).resolves.toEqual([]);
     expect(fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
+  it("warms the airing set and opens no guide source", async () => {
+    getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [] });
+    serve(ok([]), ok([]));
+    await warmLiveTvSearch();
+    expect(urls().some((url) => url.includes("/LiveTv/Programs"))).toBe(true);
+    expect(searchExternalPrograms).not.toHaveBeenCalled();
+    getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [] });
   });
 });

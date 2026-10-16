@@ -51,6 +51,8 @@ const guideProgrammesMock = guideProgrammes as jest.Mock;
 let tokens = 0;
 
 beforeEach(() => {
+  setPlaybackHold("video", false);
+  setPlaybackHold("audio", false);
   resetExternalGuide();
   jest.clearAllMocks();
   tokens = 0;
@@ -144,12 +146,50 @@ it("shows paused during playback and waiting after it, for a guide whose file ha
   setPlaybackHold("audio", true);
   expect(guideSourceStatuses()[URL].state).toBe("paused");
   setPlaybackHold("audio", false);
-  // Once the guide opens, later playback leaves its ready status alone.
   await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
   expect(guideSourceStatuses()[URL].state).toBe("ready");
+});
+
+it("closes every open guide when video playback starts, refuses reads while it lasts, and opens the guide again at the first read after", async () => {
+  await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
   setPlaybackHold("video", true);
-  expect(guideSourceStatuses()[URL].state).toBe("ready");
+  expect(closeGuideMock).toHaveBeenCalledWith("T1");
+  expect(guideSourceStatuses()[URL].state).toBe("paused");
+  // The file is on disk, so the read is refused before any parse, with no failure backoff.
+  const held = await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  expect(held.failedChannelIds).toEqual(["c1"]);
+  expect(loadGuideMock).toHaveBeenCalledTimes(1);
   setPlaybackHold("video", false);
+  expect(guideSourceStatuses()[URL].state).toBe("waiting");
+  const { listings } = await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  expect(listings).toHaveLength(1);
+  expect(loadGuideMock).toHaveBeenCalledTimes(2);
+  expect(guideSourceStatuses()[URL].state).toBe("ready");
+});
+
+it("keeps an open guide through audio playback", async () => {
+  await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  setPlaybackHold("audio", true);
+  expect(closeGuideMock).not.toHaveBeenCalled();
+  const { listings } = await fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  expect(listings).toHaveLength(1);
+  expect(loadGuideMock).toHaveBeenCalledTimes(1);
+  setPlaybackHold("audio", false);
+});
+
+it("closes a guide that was still loading when video playback started, as it lands", async () => {
+  let parsed: ((value: { token: string; stats: null }) => void) | undefined;
+  loadGuideMock.mockImplementationOnce(() => new Promise((resolve) => (parsed = resolve)));
+  const reading = fetchExternalListingWindow([URL], CHANNELS, { from: T0, to: T0 + 6 * H });
+  while (!parsed) await new Promise((resolve) => setTimeout(resolve, 0));
+  setPlaybackHold("video", true);
+  parsed({ token: "T1", stats: null });
+  const { failedChannelIds } = await reading;
+  expect(failedChannelIds).toEqual(["c1"]);
+  expect(closeGuideMock).toHaveBeenCalledWith("T1");
+  expect(guideSourceStatuses()[URL].state).toBe("paused");
+  setPlaybackHold("video", false);
+  expect(guideSourceStatuses()[URL].state).toBe("waiting");
 });
 
 it("closes every open guide on a memory warning, and opens it again at the next read", async () => {

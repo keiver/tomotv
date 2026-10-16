@@ -670,18 +670,17 @@ function fetchProgramDetails(config: JellyfinConfig, programId: string): Promise
  * the others.
  */
 /**
- * Opens the guide sources for the search window before the first query. The open downloads and
- * ingests the whole XMLTV natively, seconds no search should wait on; one warm per screen is
- * enough since the open guide is reused while its window covers.
+ * Reads the airing set before the first query, so its TTL cache serves that query off the query
+ * path. The guide sources are not opened here: parsing an XMLTV guide costs seconds and hundreds
+ * of MB, paid only by a live search that is typed.
  */
 export async function warmLiveTvSearch(): Promise<void> {
   try {
     const config = await getConfig();
     if (!config.server || !config.apiKey || !config.userId) return;
-    // The airing read rides along: its TTL cache then serves the first query off the query path.
-    await Promise.allSettled([searchGuideSources(config, "guide warmup probe"), fetchAiringPrograms(config)]);
+    await fetchAiringPrograms(config);
   } catch {
-    // A failed warm costs nothing: the first search opens the guide itself.
+    // A failed warm costs nothing: the first search reads the airing set itself.
   }
 }
 

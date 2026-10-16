@@ -19,7 +19,7 @@ const WINDOW_SLACK_MS = 24 * 60 * 60 * 1000;
 /** A failed guide open is not retried before this passes, or every page fetch re-attempts it. */
 const FAILURE_TTL_MS = 5 * 60 * 1000;
 
-/** `paused`: its download waits for playback to let go of the link. */
+/** `paused`: its download, or its parse, waits for playback to let go of the link. */
 export type GuideSourceState = "waiting" | "paused" | "downloading" | "reading" | "ready" | "error";
 
 export interface GuideMatch {
@@ -68,7 +68,7 @@ interface Source {
   force: boolean;
   /** Bumped by a refresh, so an open that started before it lands closed instead of kept. */
   epoch: number;
-  /** A read found no copy during playback, so its file downloads after: the status reads paused while playback lasts, waiting after. */
+  /** A read during playback was refused (no copy, or a parse withheld): the status reads paused while playback lasts, waiting after. */
   downloadAfterPlayback: boolean;
   /** Channel name by id. */
   asked: Map<string, string>;
@@ -219,6 +219,8 @@ async function openFromUrl(source: Source, target: { from: number; to: number },
     ({ bytesWritten, totalBytes }) => setStatus(source, { state: "downloading", progress: totalBytes > 0 ? Math.min(1, bytesWritten / totalBytes) : null }),
     { force, keep: activeUrls },
   );
+  // Video playback owns the link and the memory: the file waits on disk for the first read after it.
+  if (isPlaybackHeld("video")) throw new PlaybackHoldError();
   setStatus(source, { state: "reading", progress: null });
   // Read before the parse: a new file arriving meanwhile can cost one extra reopen, never a stale guide.
   const savedAt = fileSavedAt(source.url);
@@ -292,9 +294,10 @@ async function ensureOpen(source: Source, windowMs: { from: number; to: number }
   const opening = (async () => {
     try {
       const guide = await openFromUrl(source, target, asked);
-      // A reset, removal or refresh while this loaded retired it: its guide goes with it.
+      // A reset, removal, refresh or playback start while this loaded retired it: its guide goes with it.
       if (sources.get(source.url) !== source || source.epoch !== epoch) {
         closeGuide(guide.token).catch(() => {});
+        if (isPlaybackHeld("video")) throw new PlaybackHoldError();
         throw new StaleOpenError("Guide open was retired while it loaded.");
       }
       // The outgoing guide serves its readers to the end; the token closes when the last one is done.
@@ -370,8 +373,25 @@ onGuideFileRefreshed((url) => {
   for (const listener of [...refreshedListeners]) listener();
 });
 
-// A guide waiting for its file reads paused while playback lasts, and waiting after it.
+let videoHeld = false;
+
+// Video playback owns the link and the memory: as it starts every open guide closes, one still
+// loading closes as it lands, and the first read after it opens the guide again. A guide waiting
+// for its file or its parse reads paused while any playback lasts, and waiting after it.
 onPlaybackHoldChange(() => {
+  const video = isPlaybackHeld("video");
+  if (video && !videoHeld) {
+    let closed = 0;
+    for (const source of sources.values()) {
+      if (!source.open && !source.opening) continue;
+      if (source.opening) source.epoch++;
+      close(source);
+      source.downloadAfterPlayback = true;
+      closed++;
+    }
+    if (closed > 0) engineLog().info("Guides closed for playback", { service: "ExternalGuide", count: closed });
+  }
+  videoHeld = video;
   const state: GuideSourceState = isPlaybackHeld() ? "paused" : "waiting";
   for (const source of sources.values()) {
     if (source.downloadAfterPlayback && !source.opening && source.status.state !== state) setStatus(source, { state, progress: null });
