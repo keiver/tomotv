@@ -79,7 +79,7 @@ fi
 #   2. Refuse to build on a seed macOS: Apple numbers macOS pre-release builds
 #      from 5000 up (26A5368g is a seed, 25G83 and 26A434 are not).
 #   3. Refuse a beta Xcode by its own LicenseInfo.plist: releases and RCs say GM,
-#      betas say Beta. Its build number cannot tell: the accepted 27.1 RC is 27A9275.
+#      betas say Beta. Its build number cannot tell: the Xcode 27.1 release is 27A9275.
 
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
