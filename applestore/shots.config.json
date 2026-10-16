@@ -13,7 +13,7 @@
     "ipad": {},
     "tv": {},
     "mac": {},
-    "duo": { "upload": false, "layout": "pair" }
+    "duo": { "layout": "pair" }
   },
   "shots": [
     {
