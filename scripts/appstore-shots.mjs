@@ -52,7 +52,9 @@ import { planImport, adopt, assign } from "./appstore/import.mjs";
 import { captureShots } from "./appstore/capture.mjs";
 import { ensurePlaceholders } from "./appstore/placeholder.mjs";
 import { captureFile, captureKey, layoutOf, shotCaptures, validateCaptures } from "./appstore/captures.mjs";
+import { COLORS } from "./appstore/palette.mjs";
 import { uploadedDevices } from "./appstore/platforms.mjs";
+import { loadFace, typeset } from "./appstore/typeset.mjs";
 import { STAMP_TIME, TEMPLATE_DIR, captureTemplate, findClusters, stampStatusBar, templateHash } from "./appstore/statusbar.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -386,7 +388,16 @@ const TILE_RADIUS = {
   mac: () => [20, 20],
 };
 
-/** One montage per platform, so the set can be judged as a row the way the store shows it. */
+/** The set's name over its contact sheet. */
+const SHEET_LABEL = { iphone: "iPhone", ipad: "iPad", mac: "Mac", tv: "Apple TV", duo: "iPhone Duo" };
+/** Tile width, the gap between tiles, the margin round the row, and the label's size and gap. */
+const SHEET = { tileW: 420, gap: 28, margin: 56, labelSize: 28, labelGap: 32 };
+const LABEL_FACE = loadFace(path.join(ROOT, "applestore", "fonts", "SpaceGrotesk-SemiBold.ttf"));
+
+/**
+ * One montage per platform, so the set can be judged as a row the way the store shows it: on the
+ * app's own dark, each tile on the store's corner with a faint rim, under the set's name and size.
+ */
 async function contactSheet(config, manifest) {
   for (const { deviceKey, shots } of plan(config)) {
     const files = shots.map((s) => outputPath(config, deviceKey, s.id)).filter((f) => fs.existsSync(f));
@@ -403,29 +414,33 @@ async function contactSheet(config, manifest) {
     }
 
     const [pw, ph] = DEVICES[deviceKey].canvas;
-    const tileW = 420;
+    const { tileW, gap, margin, labelSize, labelGap } = SHEET;
     const tileH = Math.round((ph / pw) * tileW);
-    const gap = 24;
     const [rx, ry] = (TILE_RADIUS[deviceKey] ?? (() => [20, 20]))(tileW, tileH);
-    const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${tileW}" height="${tileH}"><rect width="${tileW}" height="${tileH}" rx="${rx}" ry="${ry}" fill="#fff"/></svg>`);
+    const svg = (body) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${tileW}" height="${tileH}">${body}</svg>`);
+    const mask = svg(`<rect width="${tileW}" height="${tileH}" rx="${rx}" ry="${ry}" fill="#fff"/>`);
+    const rim = svg(`<rect x="0.75" y="0.75" width="${tileW - 1.5}" height="${tileH - 1.5}" rx="${rx}" ry="${ry}" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.5"/>`);
     const tiles = await Promise.all(
       files.map((file) =>
         sharp(file)
           .resize(tileW, tileH)
-          .composite([{ input: mask, blend: "dest-in" }])
+          .composite([{ input: mask, blend: "dest-in" }, { input: rim }])
           .png()
           .toBuffer(),
       ),
     );
 
-    let left = gap;
-    const placed = tiles.map((buffer) => {
-      const at = { input: buffer, left, top: gap };
-      left += tileW + gap;
-      return at;
-    });
-    await sharp({ create: { width: left, height: tileH + gap * 2, channels: 3, background: "#FFFFFF" } })
-      .composite(placed)
+    const width = margin * 2 + tiles.length * tileW + (tiles.length - 1) * gap;
+    const name = typeset(LABEL_FACE, [SHEET_LABEL[deviceKey] ?? deviceKey], { size: labelSize, x: margin, y: margin });
+    const detail = typeset(LABEL_FACE, [`${pw} × ${ph} · ${tiles.length} screenshots`], { size: labelSize, x: margin + name.width + labelSize * 0.8, y: margin });
+    const top = Math.round(margin + name.height + labelGap);
+    const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${top}">
+  <path d="${name.d}" fill="${COLORS.TEXT_PRIMARY}"/>
+  <path d="${detail.d}" fill="${COLORS.TEXT_SECONDARY}"/>
+</svg>`);
+    const placed = tiles.map((buffer, i) => ({ input: buffer, left: margin + i * (tileW + gap), top }));
+    await sharp({ create: { width, height: top + tileH + margin, channels: 3, background: COLORS.BACKGROUND_DEEP } })
+      .composite([{ input: label, left: 0, top: 0 }, ...placed])
       .png()
       .toFile(out);
     manifest[id] = { key, sha: hashFile(out) };
