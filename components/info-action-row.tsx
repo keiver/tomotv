@@ -241,12 +241,16 @@ export function InfoActionRow({
 }
 
 const styles = StyleSheet.create({
+  // Capped at the panel's width, so circles past it wrap to a centred second line instead of
+  // hanging off both sides (iPhone Duo's closed screen, beside its side column).
   wrap: {
     alignSelf: "center",
     alignItems: "center",
+    maxWidth: "100%",
   },
   row: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "center",
     gap: IS_TV ? 30 : 24,
   },
