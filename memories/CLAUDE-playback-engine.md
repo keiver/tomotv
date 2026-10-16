@@ -127,10 +127,12 @@ flight and starts them again on fresh connections, the way a seek drops them, so
 consume no retry; the 20 s read timeout stays as the cap. Measured on an Apple TV: a flow that
 stopped on all three connections waited the 20 s out and refetched at once (a 33 s segment), and a
 body that trickled at 35 Mb/s for 11 s recovered by itself, which the silence rule leaves alone.
-Finished segments are written on a serial queue off the pipeline thread, two in flight at most;
-the segment completes when its file has landed, and the prune marks a segment still in flight so
-the writer drops the file instead. The write was 0.9 to 1.5 s of every 3 to 6 s segment (60 to
-90 MB on the 2021 Apple TV); the `segment N took` line reports it as `file ... off thread`.
+Finished segments are written on a serial queue off the pipeline thread, one in flight; the
+segment completes when its file has landed. Until then it sits in `Rendition.writing`, which
+counts as produced wherever a restart is decided (the stranded seek, the control block's drop,
+the per-segment skip, the copy's follow), and the prune marks a segment still in flight so the
+writer drops the file instead. The write was 0.9 to 1.5 s of every 3 to 6 s segment (60 to 90 MB
+on the 2021 Apple TV); the `segment N took` line reports it as `file ... off thread`.
 
 ## What the linked build can actually do
 
@@ -293,7 +295,8 @@ segment is not rewritten by any generation (the Dolby Vision rewrite still runs,
 carries state across frames), and while that generation is behind where the producer was
 (`activationGeneration`, `activationSpanEnd`) a request ahead of it waits instead of restarting
 over it. A seek pending beside the picks is not dropped: subtitle picks ride the seek's restart,
-an audio pick restarts at the lower of the two with the span reaching the higher. A track's
+an audio pick near the seek (within `seekAheadSegments`) restarts at the lower of the two with the
+span reaching the higher, and one far from it lets the seek win. A track's
 request for a segment the primary holds re-seeks through the pick's own seek,
 since the control block drops a plain seek for a segment the primary has
 (`seekForStrandedLocked`). After 45 s of played time the app calls

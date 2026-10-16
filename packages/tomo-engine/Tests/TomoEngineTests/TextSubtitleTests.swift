@@ -420,6 +420,7 @@ final class TextSubtitleTests: XCTestCase {
         session.readSpanFrom = 12
         session.readSpanUpTo = 30
         session.lastRequestedSegment = 4
+        session.firstMediaRequestSeen = true
         return session
     }
 
@@ -596,6 +597,7 @@ final class TextSubtitleTests: XCTestCase {
         session.serverImageReadUpTo[3] = 24
         session.sessionAnchorSeconds = 0
         session.lastRequestedSegment = 3
+        session.firstMediaRequestSeen = true
         session.readSpanFrom = 60
         session.readSpanUpTo = 90
         session.demuxedUpTo = 90

@@ -85,7 +85,7 @@ final class TrackActivationTests: XCTestCase {
 
     /// The playing track converts (mp2), the second copies (aac), the third converts (mp2): streams 1, 2, 3.
     private func threeAudioSession(seconds: Int = 15, subtitles: [RemuxSubtitle] = [], pgs: Bool = false, name: String = "three-audio",
-                                   startOffsetSeconds: Double = 0) throws -> RemuxSession {
+                                   startOffsetSeconds: Double = 0, readAheadSegments: Int = 8) throws -> RemuxSession {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg),
               let source = fixture(name: name, seconds: seconds, audioEncoders: ["mp2", "aac", "mp2"],
                                    subtitleTexts: subtitles.filter { $0.isEngineText }.map { "TEXT \($0.index)" }, pgs: pgs) else {
@@ -95,7 +95,7 @@ final class TrackActivationTests: XCTestCase {
             durationSeconds: Double(seconds), inputUrl: source.path,
             audioTracks: [track(1, "Converted one"), track(2, "Copied"), track(3, "Converted two")],
             subtitles: subtitles,
-            width: 320, height: 240, frameRate: 25, bandwidth: 4_000_000, readAheadSegments: 8,
+            width: 320, height: 240, frameRate: 25, bandwidth: 4_000_000, readAheadSegments: readAheadSegments,
             startOffsetSeconds: startOffsetSeconds))
         session.start()
         return session
@@ -341,49 +341,72 @@ final class TrackActivationTests: XCTestCase {
         XCTAssertEqual(readFrom, 6, accuracy: 0.5, "the restart was at the resume point's segment, not at 0")
     }
 
+    /// A session held by its read-ahead window after segment 0: the producer sits at segment 3 with
+    /// segments 3 and up not made, so a seek there is a real seek, not one the pipeline already answered.
+    private func heldSession(subtitles: [RemuxSubtitle] = [], name: String) throws -> RemuxSession {
+        let session = try threeAudioSession(seconds: 60, subtitles: subtitles, name: name, readAheadSegments: 2)
+        XCTAssertNotNil(session.segmentURL(0))
+        settle { session.producingSegment >= 3 && self.exists(session, "seg2.m4s") }
+        return session
+    }
+
     /// A subtitle pick pending beside a seek restarts once, at the seek: the seek is the newer answer to where the viewer is.
     func testASubtitlePickBesideASeekRestartsOnceAtTheSeek() throws {
-        let session = try threeAudioSession(subtitles: [text(4, isDefault: true), text(5)], name: "three-audio-two-text")
+        let session = try heldSession(subtitles: [text(4, isDefault: true), text(5)], name: "three-audio-two-text-60")
         defer { session.stop() }
-        XCTAssertNotNil(session.segmentURL(0))
-        settle { session.reachedEnd }
         session.stateLock.lock()
         let restartsBefore = session.seekRestarts
-        session.pendingSeekSegment = 2
+        session.lastRequestedSegment = 6
+        session.pendingSeekSegment = 6
         session.activationSeekSegment = 1
         session.pendingSubtitleActivations = [5]
         session.stateLock.unlock()
-        settle { session.seekRestarts > restartsBefore && session.reachedEnd }
+        settle { self.exists(session, "seg6.m4s") }
         session.stateLock.lock()
         let restarts = session.seekRestarts - restartsBefore
-        let from = max(session.readSpanFrom ?? -1, session.readSpans.map(\.from).max() ?? -1)
+        let from = session.readSpanFrom ?? -1
         let decoder = session.textSubtitles[5]
         session.stateLock.unlock()
         XCTAssertEqual(restarts, 1)
-        XCTAssertEqual(from, 12, accuracy: 0.5, "the one restart was at the seek's segment")
+        XCTAssertEqual(from, 36, accuracy: 0.5, "the one restart was at the seek's segment")
         XCTAssertNotNil(decoder, "the pick rode the seek's restart")
+        XCTAssertFalse(exists(session, "seg1.m4s") && !exists(session, "seg6.m4s"), "no restart went to the pick's segment")
     }
 
-    /// An audio pick at a segment beside a seek past it restarts at the pick's segment, and the generation
-    /// covers up to the seek so a request there waits instead of restarting over the pick.
-    func testAnAudioPickBesideASeekRestartsAtThePickAndCoversTheSeek() throws {
-        let session = try threeAudioSession(seconds: 30, name: "three-audio-30")
+    /// An audio pick near a seek restarts at the pick's segment, and the generation covers up to the seek
+    /// so a request there waits instead of restarting over the pick.
+    func testAnAudioPickNearASeekRestartsAtThePickAndCoversTheSeek() throws {
+        let session = try heldSession(name: "three-audio-60")
         defer { session.stop() }
-        XCTAssertNotNil(session.segmentURL(0))
-        settle { session.reachedEnd }
         session.stateLock.lock()
-        let producingBefore = session.producingSegment
-        session.pendingSeekSegment = 3
+        session.lastRequestedSegment = 5
+        session.pendingSeekSegment = 5
         session.pendingAudioActivations = ["a2"]
-        session.activationSeekSegment = 1
+        session.activationSeekSegment = 4
         session.stateLock.unlock()
-        settle { self.exists(session, "a2-seg1.m4s") && self.exists(session, "a2-seg3.m4s") }
+        settle { self.exists(session, "a2-seg4.m4s") && self.exists(session, "a2-seg5.m4s") }
         session.stateLock.lock()
         let spanEnd = session.activationSpanEnd
         session.stateLock.unlock()
-        XCTAssertTrue(exists(session, "a2-seg1.m4s"), "the pick's own segment is made")
-        XCTAssertTrue(exists(session, "a2-seg3.m4s"), "and the seek's segment follows in the same generation")
-        XCTAssertEqual(spanEnd, max(producingBefore, 3), "the generation covers up to the seek, or to where the producer was")
+        XCTAssertTrue(exists(session, "a2-seg4.m4s"), "the pick's own segment is made")
+        XCTAssertTrue(exists(session, "a2-seg5.m4s"), "and the seek's segment follows in the same generation")
+        XCTAssertEqual(spanEnd, 5, "the generation covers up to the seek")
+    }
+
+    /// An audio pick far from a seek lets the seek win: the player has moved on, and a wait across the gap
+    /// would outlast its request. The picked track is fed from the seek.
+    func testAnAudioPickFarFromASeekLetsTheSeekWin() throws {
+        let session = try heldSession(name: "three-audio-60")
+        defer { session.stop() }
+        session.stateLock.lock()
+        session.lastRequestedSegment = 8
+        session.pendingSeekSegment = 8
+        session.pendingAudioActivations = ["a2"]
+        session.activationSeekSegment = 1
+        session.stateLock.unlock()
+        settle { self.exists(session, "a2-seg8.m4s") }
+        XCTAssertTrue(exists(session, "a2-seg8.m4s"), "the picked track is fed from the seek")
+        XCTAssertFalse(exists(session, "a2-seg1.m4s"), "no generation went back to the pick's segment")
     }
 
     /// The segment file is written off the pipeline thread: a segment is served only once its file has

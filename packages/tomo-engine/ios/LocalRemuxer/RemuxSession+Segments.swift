@@ -220,6 +220,8 @@ extension RemuxSession {
         let behind = n < producing
         let ahead = n > producing + Self.seekAheadSegments
         guard behind || ahead else { return false }
+        // A segment cut and still landing on disk is made, not missing: the wait sees it complete.
+        if behind, renditions.first(where: { $0.prefix == prefix })?.writing.contains(n) == true { return false }
         if ahead, activationGeneration, n <= activationSpanEnd + Self.seekAheadSegments { return false }
         // A jump empties AVPlayer's buffer; refilling it is a start, not a drain.
         playerBufferFilled = false

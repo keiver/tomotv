@@ -263,6 +263,11 @@ final class TierProbeTests: XCTestCase {
         return false
     }
 
+    private func isTemporarilyUnavailable(_ response: LocalHTTPResponse) -> Bool {
+        if case .temporarilyUnavailable = response { return true }
+        return false
+    }
+
     // MARK: - The tier is offered on adoption, proved in the background
 
     func testHealthyTierIsListedAndItsOpeningSegmentIsAlreadyOnDisk() throws {
@@ -1322,6 +1327,7 @@ final class TierProbeTests: XCTestCase {
         XCTAssertNil(session.renditions.first)
         session.stateLock.lock()
         session.lastRequestedSegment = 1
+        session.firstMediaRequestSeen = true
         session.sourceRetryAttempts = 4
         session.testLinkBps = 40_000_000
         session.stateLock.unlock()
@@ -2155,8 +2161,9 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(TierServerStub.hitCount("/Videos/r0/seg0.ts"), 0, "the lowest rung starts no server job")
     }
 
-    /// Another rung's init waits for the opening segment: no second server job beside the opening one.
-    func testAnotherRungsInitWaitsForTheOpeningSegment() throws {
+    /// Another rung's init is refused while the opening segment is still coming: no second server job
+    /// beside the opening one, and no hold that would pass the 6 s AVPlayer allows a map request.
+    func testAnotherRungsInitIsRefusedUntilTheOpeningSegmentLanded() throws {
         let hold = DispatchSemaphore(value: 0)
         TierServerStub.holdSegments = hold
         let s = try twoRungSession()
@@ -2164,16 +2171,12 @@ final class TierProbeTests: XCTestCase {
         s.start()
         _ = s.masterPlaylist()
         settle(3) { TierServerStub.hitCount("/Videos/r1/seg0.ts") == 1 }
-        let initDone = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            _ = self.resolve(s.tierInitResponse(rung: 0))
-            initDone.signal()
-        }
-        usleep(1_500_000)
-        XCTAssertEqual(TierServerStub.hitCount("/Videos/r0/seg0.ts"), 0, "a second rung's init waits while the opening segment is still coming")
+        XCTAssertTrue(isTemporarilyUnavailable(s.tierInitResponse(rung: 0)), "refused, not held, while the opening segment is coming")
+        XCTAssertEqual(TierServerStub.hitCount("/Videos/r0/seg0.ts"), 0, "the refusal starts no server job")
         TierServerStub.holdSegments = nil
         hold.signal()
-        XCTAssertEqual(initDone.wait(timeout: .now() + 8), .success)
+        settle { FileManager.default.fileExists(atPath: s.dir.appendingPathComponent("t1-seg0.m4s").path) }
+        XCTAssertNotNil(resolve(s.tierInitResponse(rung: 0)), "once the opening segment landed the other rung opens as before")
         XCTAssertEqual(TierServerStub.hitCount("/Videos/r0/seg0.ts"), 1)
     }
 
@@ -2195,6 +2198,10 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=left"), 3)
         XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=stays"), 0, "the rung in play keeps its job")
         s.stopRepeatDelays = [0]
+        s.stop()
+        settle(3) { TierServerStub.requestCount(containing: "playSessionId=stays") >= 1 }
+        XCTAssertGreaterThanOrEqual(TierServerStub.requestCount(containing: "playSessionId=stays"), 1, "the stop still kills every rung")
+        XCTAssertGreaterThanOrEqual(TierServerStub.requestCount(containing: "playSessionId=left"), 4)
     }
 
     /// A request for a rung whose kill went out ends the repeats: the player came back to it.
@@ -2202,7 +2209,7 @@ final class TierProbeTests: XCTestCase {
         let s = try twoRungSession(ids: ("back", "kept"))
         defer { s.stop() }
         s.rungIdleSeconds = 0.3
-        s.stopRepeatDelays = [0, 0.3, 0.6]
+        s.stopRepeatDelays = [0, 1.0, 2.0]
         s.start()
         waitForProbe(s)
         _ = s.masterPlaylist()
@@ -2213,7 +2220,7 @@ final class TierProbeTests: XCTestCase {
         _ = s.tierSegmentResponse(rung: 1, 2)
         settle(2) { TierServerStub.requestCount(containing: "playSessionId=back") >= 1 }
         _ = s.tierSegmentResponse(rung: 0, 1)
-        usleep(900_000)
+        usleep(2_500_000)
         XCTAssertEqual(TierServerStub.requestCount(containing: "playSessionId=back"), 1, "the repeats after the return are not sent")
         s.stopRepeatDelays = [0]
     }

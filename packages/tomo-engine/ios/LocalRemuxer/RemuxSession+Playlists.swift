@@ -852,7 +852,7 @@ extension RemuxSession {
         if readCoverageEndLocked(from: start + anchor) != nil { return false }
         if let seek = pendingSeekSegment, seek <= segment { return false }
         if let seek = activationSeekSegment, seek <= segment { return false }
-        return lastRequestedSegment > segment && !activeWaiters.keys.contains { $0 <= segment }
+        return lastRequestedSegmentLocked() > segment && !activeWaiters.keys.contains { $0 <= segment }
     }
 
     /// The last media segment asked for, or the start offset's before any request: a real request for

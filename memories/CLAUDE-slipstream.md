@@ -44,11 +44,13 @@ We are the only client architecture that IS the HLS server. That is the moat.
     link T105 (91 Mb/s) opened on rung 6, fell to t1 at 15.9s and played at 23.5s.
   - Under 1.2x a rung leads and the copy stays listed for AVPlayer to climb to.
   - One video job and one audio job at open: `probeTier` proves the rung `chooseOpeningRung` picks,
-    and every rung's init waits for the opening segment (`openingInitHoldSeconds`), not only the
-    opening rung's own. Six 4K decodes at once on one serving MacBook ran at 0.5x to 1.4x each and
+    and another rung's init is refused (503) while the opening segment is still coming, since a hold
+    plus a cold start would pass the 6 s AVPlayer allows a map request; the opening rung's own init
+    keeps its hold (`openingInitHoldSeconds`). Six 4K decodes at once on one serving MacBook ran at 0.5x to 1.4x each and
     the late opening segment sent AVPlayer to segment 0 (measured 2026-10-16); one alone runs 1.4x
     to 1.8x at start and 3x to 6x after.
-  - A rung the player left, idle 12 s with two segments served elsewhere since (`rungIdleSeconds`),
+  - A rung the player left, idle 12 s with two segments served elsewhere since (`rungIdleSeconds`)
+    and no fetch of its own still running,
     gets its own kill (`TierConfig.stopRequest`, the rung's play session) on the stop schedule; a
     request for it again ends the repeats and opens it cold at the playhead. Before this, a left
     rung ran two segments plus 60 s until Jellyfin's own timer (four orphans in one six-minute run).

@@ -124,8 +124,8 @@ extension RemuxSession {
         guard tierActive else { return }
         awaitLinkProbe()
         stateLock.lock()
-        let copyLeads = copyLeadsLocked(linkBps: testLinkBps ?? wireLinkBps ?? 0)
         let linkBps = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
+        let copyLeads = copyLeadsLocked(linkBps: linkBps)
         stateLock.unlock()
         guard !copyLeads else { return }
         // The rung the master leads with, the one AVPlayer opens on. Proving the lowest rung beside it
@@ -332,6 +332,14 @@ extension RemuxSession {
         guard tierActive else { return .notFound }
         if let deferred = supplierResponseDeferral(.rung(rung)) { return deferred }
         if let deferred = rungResponseDeferral(rung) { return deferred }
+        // Another rung's cold init while the opening segment is still coming is refused, not held: a
+        // cold init fetches a segment head, a server job beside the opening one, and a hold plus that
+        // start would pass the 6 s AVPlayer allows a map request. AVPlayer stays on the opening rung
+        // and asks again (measured: a refused rung's init sends it back to the rung it has).
+        stateLock.lock()
+        let openingPending = openingRung.map { $0 != rung && !openingRungResolved } ?? false
+        stateLock.unlock()
+        if openingPending { return .temporarilyUnavailable }
         // The init falls out of materializing any segment (byte-stable across all of them, bitexact
         // muxing). The playhead's segment, so neither a mid-film switch nor a resume spins the
         // server transcode up at zero.
@@ -343,19 +351,17 @@ extension RemuxSession {
             // segment when that segment arrives at once but waits for two when it has to watch it
             // download (measured at 0.6 Mb/s: 8.2s against 10.2s to a first frame). So the init is
             // held for the opening fetch, never near the 6s AVPlayer allows a map request.
-            // Every rung's init waits for it, not only the opening rung's own: a cold init fetches a
-            // segment head, a server job, and a second job beside the opening one halves both.
             self.stateLock.lock()
-            let opening = self.openingRung
+            let opens = self.openingRung == rung
             self.stateLock.unlock()
-            if let opening {
-                let openingFile = self.dir.appendingPathComponent("t\(opening)-seg\(self.segmentIndex(atSeconds: self.config.startOffsetSeconds)).m4s")
+            if opens {
+                let opening = self.dir.appendingPathComponent("t\(rung)-seg\(self.segmentIndex(atSeconds: self.config.startOffsetSeconds)).m4s")
                 _ = self.waitUntil(deadline: Self.openingInitHoldSeconds) { [weak self] in
                     guard let self else { return true }
-                    if FileManager.default.fileExists(atPath: openingFile.path) { return true }
+                    if FileManager.default.fileExists(atPath: opening.path) { return true }
                     self.stateLock.lock()
                     defer { self.stateLock.unlock() }
-                    return self.openingRung != opening || self.openingRungResolved || self.failed || self.cancelled
+                    return self.openingRung != rung || self.openingRungResolved || self.failed || self.cancelled
                 }
             }
             // The head of a segment carries the whole init (measured: 32KB of a 3.2MB 720p segment
@@ -487,7 +493,7 @@ extension RemuxSession {
     func followLocked() -> Follow {
         let head = lastRequestedSegmentLocked()
         let last = min(head + Self.followSegments, segmentCount - 1)
-        let completed = renditions.first?.completed ?? []
+        let completed = (renditions.first?.completed ?? []).union(renditions.first?.writing ?? [])
         guard head <= last, let next = (head...last).first(where: { !completed.contains($0) }) else { return .hold }
         if (head...last).contains(producingSegment), !completed.contains(producingSegment) { return .run }
         // One move per segment length: AVPlayer filling its buffer runs the head past the producer
@@ -540,12 +546,17 @@ extension RemuxSession {
     /// A rung the player left, idle `rungIdleSeconds` with two segments served elsewhere since, gets its own
     /// kill on the stop schedule. A request for it again ends the repeats and opens it cold at the playhead.
     func stopIdleRungs() {
+        // A rung with a fetch of its own still running is not idle, however long ago it was asked for.
+        fetchLock.lock()
+        let fetching = Set(fetchInterest.keys)
+        fetchLock.unlock()
         stateLock.lock()
         // The rung in play is the one the player's latest demand named, when that demand was a rung's.
         let inPlay = lastTierDemandAt > lastPrimaryDemandAt ? lastTierRung : nil
         var firing: [(rung: Int, generation: Int, request: URLRequest)] = []
         for (rung, servedAt) in rungServedAt where rung != inPlay && !rungStopped.contains(rung) && config.tiers.indices.contains(rung) {
-            guard let stop = config.tiers[rung].stopRequest, let url = URL(string: stop.url),
+            guard !fetching.contains(where: { $0.hasPrefix("t\(rung)-") }),
+                  let stop = config.tiers[rung].stopRequest, let url = URL(string: stop.url),
                   Date().timeIntervalSince(servedAt) >= rungIdleSeconds,
                   segmentsServed - (rungServedMark[rung] ?? segmentsServed) >= 2 else { continue }
             rungStopped.insert(rung)

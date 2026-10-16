@@ -2009,9 +2009,9 @@ extension RemuxSession {
         func finishSegment(_ n: Int) {
             for rendition in builtRenditions {
                 guard let ctx = rendition.ctx, let avio = rendition.avio else { continue }
-                // Nothing was written for a segment the rendition already holds; its file stays.
+                // Nothing was written for a segment the rendition already holds, landed or landing; its file stays.
                 stateLock.lock()
-                let onDisk = rendition.completed.contains(n)
+                let onDisk = rendition.completed.contains(n) || rendition.writing.contains(n)
                 stateLock.unlock()
                 if onDisk { continue }
                 let flushStarted = Date()
@@ -2087,20 +2087,19 @@ extension RemuxSession {
                 rendition.writing.insert(n)
                 stateLock.unlock()
                 // The file lands off this thread; the segment completes when it has. The slot wait is the
-                // only pause here, and only when two segments are still being written.
+                // only pause here, and only while the previous write is still going.
                 segmentWriteSlots.wait()
-                segmentWrites.enter()
                 segmentWriter.async { [self, rendition, data] in
-                    defer {
-                        segmentWriteSlots.signal()
-                        segmentWrites.leave()
-                    }
+                    defer { segmentWriteSlots.signal() }
                     writeFinishedSegment(data, for: rendition, index: n, bytes: segmentBytes, duration: duration)
                 }
             }
 
             stateLock.lock()
+            // The prune keeps the window around the resume point before the player asks; the cushion
+            // the app judges starvation by counts from what the player asked for.
             let playhead = lastRequestedSegmentLocked()
+            let askedPlayhead = lastRequestedSegment
             sourceRetryAttempts = 0
             recovering = false
             if let takeover = sourceTakeoverSegment, n >= takeover + Self.followSegments {
@@ -2132,11 +2131,11 @@ extension RemuxSession {
                 let playerAhead = playerAheadSeconds ?? -1
                 stateLock.unlock()
                 NSLog("[LocalRemuxer] segment %d done: cushion %d/%d segs, input %.1f Mb/s, footprint %d MB, player ahead %.1fs",
-                      n, max(0, n - playhead), aheadWindow, mbps, Self.footprintMB(), playerAhead)
+                      n, max(0, n - askedPlayhead), aheadWindow, mbps, Self.footprintMB(), playerAhead)
                 inputBytesSinceLog = 0
                 lastThroughputLog = Date()
             }
-            reportThroughput(segment: n, cushion: n - playhead, activating: activating)
+            reportThroughput(segment: n, cushion: n - askedPlayhead, activating: activating)
         }
 
         /// The ramp, at the cut closing segment `n`: the track brought up at the last cut stays if
@@ -2369,7 +2368,8 @@ extension RemuxSession {
                 // re-assert can race the restart that is serving it, and
                 // restarting again would tear the muxers down for nothing.
                 if let target = seekTo,
-                   target == producingSegment || (sourceTakeoverSegment == nil && (renditions.first?.completed.contains(target) ?? false)) {
+                   target == producingSegment
+                   || (sourceTakeoverSegment == nil && (renditions.first.map { $0.completed.contains(target) || $0.writing.contains(target) } ?? false)) {
                     seekTo = nil
                 }
                 if seekTo == nil, !stop, let late = lateOpenRestart { seekTo = late }
@@ -2382,18 +2382,20 @@ extension RemuxSession {
                 var activationRestart = false
                 if sessionAnchorUs != nil, !stop, let activation = activationSeekSegment {
                     // A seek pending beside the picks: a subtitle pick only wants where the viewer is, and
-                    // the seek is the newer answer to that; an audio pick waits on its own segment, so the
-                    // lower of the two wins. Either way the generation covers up to the higher before a
-                    // request ahead may restart over it; a pick ahead of the producer is a plain seek.
+                    // the seek is the newer answer to that. An audio pick waits on its own segment: near the
+                    // seek the lower of the two wins and the generation covers up to the higher before a
+                    // request there may restart over it; far from it the seek wins, since a wait across the
+                    // gap would outlast the request. A pick ahead of the producer is a plain seek.
                     let audioPick = !pendingAudioActivations.isEmpty
-                    let target = seekTo.map { seek in audioPick ? min(seek, activation) : seek } ?? activation
-                    activationSpanEnd = max(producingSegment, activation, seekTo ?? activation)
+                    let near = seekTo.map { abs($0 - activation) <= Self.seekAheadSegments } ?? false
+                    let target = seekTo.map { seek in audioPick && near ? min(seek, activation) : seek } ?? activation
+                    activationSpanEnd = max(producingSegment, target, audioPick && near ? max(seekTo ?? activation, activation) : target)
                     seekTo = target
                     activationSeekSegment = nil
                     activationRestart = true
                     for rendition in builtRenditions where pendingAudioActivations.contains(rendition.prefix) {
                         rendition.active = true
-                        NSLog("[LocalRemuxer] audio track %@ picked, fed from the restart at segment %d", rendition.prefix, activation)
+                        NSLog("[LocalRemuxer] audio track %@ picked, fed from the restart at segment %d", rendition.prefix, target)
                     }
                     pendingAudioActivations = []
                     subtitlePicks = pendingSubtitleActivations
@@ -2949,8 +2951,9 @@ extension RemuxSession {
             // producer for a pick) is not rewritten: its file stays, and its muxer's first write
             // lands at the first segment it lacks, continuing the same source packets. The Dolby
             // Vision rewrite below still runs: its context carries mapping state across frames.
+            // Landing counts as held: a write that lands mid-segment must not flip this halfway through.
             stateLock.lock()
-            let onDisk = rendition.completed.contains(currentSegment)
+            let onDisk = rendition.completed.contains(currentSegment) || rendition.writing.contains(currentSegment)
             stateLock.unlock()
             if onDisk, !isVideo { continue }
 

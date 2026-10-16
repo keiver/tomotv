@@ -37,8 +37,9 @@ extension RemuxSession {
         fireStopRequests()
         // The pipeline thread notices `cancelled` between packets (or through
         // the AVIO interrupt callback during a blocking read) and exits; the
-        // directory is removed on the next session's init as well.
-        try? FileManager.default.removeItem(at: dir)
+        // directory is removed on the next session's init as well. Queued behind
+        // the segment writer, so a write landing now cannot keep the directory alive.
+        segmentWriter.async { [dir] in try? FileManager.default.removeItem(at: dir) }
     }
 
     /// Fire-and-forget: the app names what ends its server-side work (a transcode keyed by the

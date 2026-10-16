@@ -17,7 +17,8 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
         }
     }
 
-    /// Bytes between the ranges the connections start at: inside any file worth a ladder, apart for the budget's length.
+    /// Bytes between the ranges the connections start at, inside any file worth a ladder. A fast connection
+    /// reads into the next one's range before the budget ends; the wire carries those bytes all the same.
     static let connectionStride: Int64 = 8 << 20
 
     private let request: URLRequest
@@ -112,8 +113,12 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
             transfers[dataTask.taskIdentifier] = nil
             open -= 1
             meter.ended(transfer)
+            let last = open <= 0 && !finished
+            if last { finished = true }
             lock.unlock()
-            return completionHandler(.cancel)
+            completionHandler(.cancel)
+            if last { done.signal() }
+            return
         }
         let first = !finished
         if first { failure = LinkProbeFailure.classify(status: status) }

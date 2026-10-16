@@ -243,11 +243,11 @@ final class RemuxSession {
     var flushSecondsInSegment: Double = 0
     /// Seconds the writer spent on segment files since the last report (under stateLock): off the pipeline thread.
     var fileSecondsInSegment: Double = 0
-    /// Finished segments are written here, in order, while the pipeline reads on; two in flight bounds memory
-    /// (measured: a 60 to 90 MB write took 0.9 to 1.5 s of every 3 to 6 s segment on an Apple TV).
+    /// Finished segments are written here, in order, while the pipeline reads on. One in flight: the next cut
+    /// waits only when the last write is still going (measured: 0.9 to 1.5 s of every 3 to 6 s segment, 60 to
+    /// 90 MB each, on an Apple TV), and the session holds at most two segments' bytes.
     let segmentWriter = DispatchQueue(label: "tomo.engine.segment-writer", qos: .userInitiated)
-    let segmentWriteSlots = DispatchSemaphore(value: 2)
-    let segmentWrites = DispatchGroup()
+    let segmentWriteSlots = DispatchSemaphore(value: 1)
     var bytesInSegment: Int64 = 0
     /// Bytes and read time since the last link sample (one every 512KB; pipeline thread).
     var bytesSinceLinkSample: Int64 = 0
