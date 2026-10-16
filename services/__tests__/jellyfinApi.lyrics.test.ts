@@ -133,4 +133,11 @@ describe("fetchLyrics", () => {
     (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("offline"));
     expect(await askLyrics("song-1")).toEqual({ lyrics: null, answered: false });
   });
+
+  it("counts a server error as not asked, so nothing is saved over lyrics it may hold", async () => {
+    for (const status of [500, 503, 401]) {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status });
+      expect(await askLyrics("song-1")).toEqual({ lyrics: null, answered: false });
+    }
+  });
 });

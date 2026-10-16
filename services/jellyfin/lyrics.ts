@@ -105,8 +105,9 @@ export async function askLyrics(itemId: string): Promise<LyricsAnswer> {
       API_TIMEOUTS.QUICK,
     );
 
+    // Only a 404 says the song has none; any other status is the server failing to say.
     if (!response.ok) {
-      return { lyrics: null, answered: true };
+      return { lyrics: null, answered: response.status === 404 };
     }
 
     const lyrics = parseLyrics(await response.json());
