@@ -197,7 +197,7 @@ records which codecs are proven by a fixture) and the book renderer's in
 `native/ios`.
 
 `test:playback` deep-links the app into the player against a real Jellyfin server,
-across 83 items (78 files and 5 Live TV channels). It catches what unit tests
+across 101 items (96 files and 5 Live TV channels). It catches what unit tests
 cannot: an item taking the wrong lane, playback that does not advance, and engine
 output that drifts from the committed baselines. If you touch the engine or its
 allowlists, run it and say so in the PR. See

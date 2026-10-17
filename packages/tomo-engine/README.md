@@ -1,12 +1,13 @@
 # @keiver/tomo-engine
 
 The on-device playback engine behind [Tomo TV](https://github.com/keiver/tomotv), for
-Expo apps on Apple TV, iOS, and Mac Catalyst. FFmpeg demuxes any container; H.264 and HEVC are stream
-copied, everything else is transcoded on the device with VideoToolbox, and the result
-is served to the native player as HLS from a loopback server. Text subtitles become HLS
-renditions, image subtitles become timed bitmaps, Dolby and multi-audio pass through.
-Every session with video also gets an I-frame rendition of the source's own keyframes, so
-the native player scrubs with previews; a frame provider serves the same for a server stream.
+Expo apps on Apple TV, iOS, and Mac Catalyst. FFmpeg demuxes any container; H.264, HEVC and AV1
+are stream copied where the device's hardware decodes them, everything else is transcoded on the
+device with VideoToolbox, and the result is served to the native player as HLS from a loopback
+server. Text subtitles become HLS renditions, image subtitles become timed bitmaps, Dolby and
+multi-audio pass through. A file session with video also gets an I-frame rendition of the
+source's own keyframes (Dolby Vision profile 5 excepted), so the native player scrubs with
+previews; a frame provider serves the same for a server stream.
 The same package carries the live sources module: XMLTV guides and M3U playlists parsed
 natively.
 
@@ -71,7 +72,8 @@ higher one takes a full budget's connection from the lowest lower one.
 - A session's chapter frames and I-frame rendition take a lease each and open only on a spare
   connection. On a full budget the master names no I-frame rendition.
 - A poster frame given an `originKey` reads only on a spare connection and never waits for one.
-- A read with no provider key takes no lease.
+- A file read or poster with no provider key takes no lease; a live read with none leases on its
+  input's host.
 
 `measureLink`, `probeInput`, `startFrameProvider` and the playlist and guide downloads open
 outside any budget.
