@@ -180,8 +180,8 @@ takes the `dec3` Atmos flag from a dependent E-AC-3 substream when the stream ha
 two sync frames per packet) was declared without Atmos because upstream reads the first frame
 of each packet; the streaming style 5.1 JOC track (one E-AC-3 frame per packet) always carried it.
 Measured on the Interstellar remux: `dec3` 6 bytes and no flag before, 8 bytes with
-`flag_eac3_extension_type_a=1` after. Whether AVFoundation renders Atmos from that shape is a
-device verdict.
+`flag_eac3_extension_type_a=1` after. On the Apple TV with AirPods, Control Center shows Dolby
+Atmos for that track with tomo.8, as it does for the 5.1 track; plain AC-3 shows Multichannel.
 
 **The allowlists use the names FFPROBE reports**, which is what Jellyfin puts in
 `MediaStream.Codec`, not the decoder's own name. These differ and have bitten

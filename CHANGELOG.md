@@ -31,6 +31,7 @@ All notable changes to Tomo TV are documented here.
 - A live channel whose source opens with no streams in it counts toward Offline, as a refused open does, and a failed read of the server's copy of a channel no longer counts against the channel's own source
 - A song seeks to the exact time asked, so lyrics stay with the audio after a scrub; a variable bit rate MP3 used to land on an estimate
 - AV1 in the High or Professional profile (4:4:4, RGB or 12-bit) plays on a device with AV1 hardware, re-encoded on the device. Apple's AV1 decoder plays only Main profile, and those files stopped with Cannot Decode
+- A Dolby Digital Plus 7.1 track with Atmos in the Blu-ray layout (a Dolby Digital core, with the extra channels and the Atmos data in a second frame of each packet) plays as Dolby Atmos: the engine's FFmpeg (tomo.8) declares the Atmos flag it reads from that second frame, where it declared none and the player heard plain 7.1. On Apple TV with AirPods, Control Center shows Dolby Atmos for it, as for a 5.1 track
 
 ## [2.2.11]
 

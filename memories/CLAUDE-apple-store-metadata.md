@@ -107,6 +107,7 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
+- Dolby Atmos now plays from Dolby Digital Plus 7.1 tracks, not only 5.1
 - TV guide downloads pause while you watch or listen, and finish afterward
 - Large TV guides load only the channels you have
 ```
@@ -119,6 +120,7 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
+- Dolby Atmos now plays from Dolby Digital Plus 7.1 tracks, not only 5.1
 - TV guide downloads pause while you watch or listen, and finish afterward
 - Large TV guides load only the channels you have
 ```
@@ -133,6 +135,7 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - The player's info shows the rating and genre
 - The subtitles menu shows On while your saved subtitle language is playing
 - Subtitles in your saved language no longer go missing when you resume a video
+- Dolby Atmos now plays from Dolby Digital Plus 7.1 tracks, not only 5.1
 - TV guide downloads pause while you watch or listen, and finish afterward
 - Large TV guides load only the channels you have
 ```
@@ -485,6 +488,7 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+- Dolby Atmos spielt jetzt auch von Dolby Digital Plus 7.1-Spuren, nicht nur von 5.1
 - Guide-Downloads pausieren, während du schaust oder hörst, und laufen danach zu Ende
 - Große Guides laden nur die Kanäle, die du hast
 ```
@@ -497,6 +501,7 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+- Dolby Atmos spielt jetzt auch von Dolby Digital Plus 7.1-Spuren, nicht nur von 5.1
 - Guide-Downloads pausieren, während du schaust oder hörst, und laufen danach zu Ende
 - Große Guides laden nur die Kanäle, die du hast
 ```
@@ -511,6 +516,7 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Die Infos im Player zeigen Altersfreigabe und Genre
 - Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
 - Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+- Dolby Atmos spielt jetzt auch von Dolby Digital Plus 7.1-Spuren, nicht nur von 5.1
 - Guide-Downloads pausieren, während du schaust oder hörst, und laufen danach zu Ende
 - Große Guides laden nur die Kanäle, die du hast
 ```
@@ -841,6 +847,7 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+- Dolby Atmos fonctionne désormais avec les pistes Dolby Digital Plus 7.1, pas seulement 5.1
 - Les téléchargements des guides se mettent en pause pendant que vous regardez ou écoutez, et se terminent ensuite
 - Les grands guides ne chargent que vos chaînes
 ```
@@ -853,6 +860,7 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+- Dolby Atmos fonctionne désormais avec les pistes Dolby Digital Plus 7.1, pas seulement 5.1
 - Les téléchargements des guides se mettent en pause pendant que vous regardez ou écoutez, et se terminent ensuite
 - Les grands guides ne chargent que vos chaînes
 ```
@@ -867,6 +875,7 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Les infos du lecteur affichent la classification et le genre
 - Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
 - Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+- Dolby Atmos fonctionne désormais avec les pistes Dolby Digital Plus 7.1, pas seulement 5.1
 - Les téléchargements des guides se mettent en pause pendant que vous regardez ou écoutez, et se terminent ensuite
 - Les grands guides ne chargent que vos chaînes
 ```
@@ -1197,6 +1206,7 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+- Dolby Atmos ahora funciona también con pistas Dolby Digital Plus 7.1, no solo 5.1
 - Las descargas de las guías se pausan mientras ves o escuchas, y terminan después
 - Las guías grandes cargan solo tus canales
 ```
@@ -1209,6 +1219,7 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+- Dolby Atmos ahora funciona también con pistas Dolby Digital Plus 7.1, no solo 5.1
 - Las descargas de las guías se pausan mientras ves o escuchas, y terminan después
 - Las guías grandes cargan solo tus canales
 ```
@@ -1223,6 +1234,7 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - La información del reproductor muestra la clasificación y el género
 - El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
 - Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+- Dolby Atmos ahora funciona también con pistas Dolby Digital Plus 7.1, no solo 5.1
 - Las descargas de las guías se pausan mientras ves o escuchas, y terminan después
 - Las guías grandes cargan solo tus canales
 ```
