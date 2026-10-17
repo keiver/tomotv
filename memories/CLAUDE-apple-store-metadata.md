@@ -2032,7 +2032,7 @@ the user's own server. No purchases or subscriptions, no user-generated content 
 features, no other permission prompts.
 
 2. TESTED ON
-iPhone 17 Pro, iOS 27.0 (physical device, via TestFlight). Apple TV 4K (2nd generation),
+iPhone 17 Pro, iOS 27.0 (physical device, via TestFlight). Apple TV 4K (1st generation),
 tvOS 26.6 (physical device). An automated playback regression suite also runs on the iOS and
 tvOS Simulators.
 
@@ -2082,8 +2082,8 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the Add Server 
 
 ## Build Number & Version Notes
 
-**Live version:** 2.2.10, published 2026-10-10 (iTunes lookup, read 2026-10-12).
-**Local version:** 2.2.11, build 6 in app.json.
+**Live version:** 2.2.11, published 2026-10-13 (iTunes lookup, read 2026-10-17).
+**Local version:** 2.2.12, build 17 in app.json.
 Check App Store Connect for the last uploaded build before choosing the next number.
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
 
